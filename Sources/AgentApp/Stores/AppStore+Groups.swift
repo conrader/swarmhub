@@ -8,7 +8,7 @@ import UserNotifications
     init(groupID: UUID) { self.groupID = groupID }
 }
 
-/// P5 group chats: membership, migration of P6 archived groups, and sequential per-bot routing.
+/// Group chats: membership, migration of archived groups, and sequential per-bot routing.
 extension AppStore {
     // MARK: Membership
 
@@ -40,7 +40,6 @@ extension AppStore {
         group.memberIDs.append(bot.id); objectWillChange.send(); save()
     }
 
-    /// The bot's group session is kept, so adding it back continues the same Hermes session.
     func removeMember(_ botID: UUID, from group: GroupChat) {
         group.memberIDs.removeAll { $0 == botID }; objectWillChange.send(); save()
     }
@@ -53,7 +52,7 @@ extension AppStore {
 
     func open(_ group: GroupChat, remember: Bool = true) {
         if selectedGroup?.id != group.id { replyTo = nil }
-        selectedGroup = group; openThreadID = nil; showingReports = false
+        selectedGroup = group
         if remember { rememberSelection(group: group) }
         if group.isUnread { group.unreadCount = 0; group.manualUnread = false; save() }
     }
@@ -98,8 +97,8 @@ extension AppStore {
     /// The composer in a group: `@Name` picks recipients (none = everyone). Members answer one after another
     /// in member order, each in its own group session with the transcript since its last reply as context.
     /// While a member answers, the text steers that member's run instead.
-    /// P38: `recipientIDs` (a card's author) overrides the mentions and never steers; `sourceMessageID` is the card.
-    /// P39: one round at a time per group; direct chats with the same bots stay free. At the turn limit the composer's
+    /// `recipientIDs` (a card's author) overrides the mentions and never steers; `sourceMessageID` is the card.
+    /// One round at a time per group; direct chats with the same bots stay free. At the turn limit the composer's
     /// message waits as the group's next message (a card's send is refused).
     @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
@@ -138,21 +137,21 @@ extension AppStore {
         return true
     }
 
-    /// Text typed while a member answers steers that member's running turn (`run_steer`). P28: never Stop here (it would
-    /// end the whole round); the reply continues below the bubble once the steer lands (D5). uxfix1: what cannot steer
-    /// (no `run_steer`, between members, attachments) waits as the group's next message and goes when the round ends.
+    /// Text typed while a member answers steers that member's running turn. Never Stop here (it would end the whole
+    /// round); the reply continues below the bubble once the steer lands. What cannot steer (a member that holds
+    /// messages, between members, attachments) waits as the group's next message and goes when the round ends.
     func steer(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let turn = turn(in: group), turn.steerAvailable, attachments.isEmpty, !value.isEmpty, let sessionID = group.hermesSessionID,
+        if let turn = turn(in: group), turn.steerAvailable, attachments.isEmpty, !value.isEmpty,
            let bot = turn.botID.flatMap({ id in bots.first { $0.id == id } }), let activeBackend = try? backend(for: bot) {
             noteFirstSteer()
-            deliverSteer(value, into: group, sessionID: sessionID, backend: activeBackend)
+            deliverSteer(value, into: group, sessionID: group.sessionID ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id), backend: activeBackend)
             return true
         }
         return queueAfterRound(text: text, attachments: attachments, group: group)
     }
 
-    /// uxfix1: the message goes into the group now and waits there as its next message (`waitForTurn`); the running
+    /// The message goes into the group now and waits there as its next message (`waitForTurn`); the running
     /// round is never stopped. Mentions are checked as for a send.
     func queueAfterRound(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
         let members = routingMembers(of: group)
@@ -167,12 +166,6 @@ extension AppStore {
         captureAttachments(message, readers: GroupRouting.recipients(of: text, members: members))
         group.messages.append(message)
         return waitForTurn(message, in: group, reason: SteerCopy.afterTurn)
-    }
-
-    /// Approval outcomes land in the chat the run belongs to: the group for `group-…` sessions, else the bot.
-    func approvalConversation(_ approval: ApprovalRequest, bot: Bot) -> any Conversation {
-        guard let session = approval.sessionID, session.hasPrefix(sessionNamespace + "group-") else { return bot }
-        return groups.first { group in session.hasPrefix("group-\(group.id.uuidString.lowercased())-") || group.sessions.values.contains(session) } ?? bot
     }
 
     func notifyIfNeeded(group: GroupChat, bot: Bot, message: String) {

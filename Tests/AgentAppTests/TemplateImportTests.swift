@@ -14,17 +14,6 @@ import Testing
     #expect(manifest.gettingStartedSkill?.isEnabled == false)
 }
 
-@Test func templateMappingReportsUnsupportedItemsAndDisablesCron() throws {
-    let json = #"{"name":"Fixture","routines":[{"name":"Cron","prompt":"Do it","schedule":"0 9 * * *"},{"name":"Hook","prompt":"Do it","trigger":"event.x"}],"plugins":["slack","missing.id"]}"#.data(using: .utf8)!
-    let plan = TemplateImportMapper.makePlan(from: try GrokTemplateParser.parse(json))
-    #expect(plan.routines.count == 1)
-    #expect(plan.routines.first?.isEnabled == false)
-    #expect(plan.routines.first?.prompt == "Do it")
-    #expect(plan.mappedConnectorIDs == ["slack"])
-    #expect(plan.report.contains { $0.name == "Hook" && $0.status == .unsupported && $0.reason.contains("not carried over") })
-    #expect(plan.report.contains { $0.name == "missing.id" && $0.status == .unsupported })
-}
-
 @Test func templateParserStripsSecretFieldsAndValuesWithoutReportingThem() throws {
     let marker = "not-for-storage-1234567890"
     let json = """
@@ -64,7 +53,7 @@ import Testing
         ]
         let manifest = try GrokTemplateParser.parse(JSONSerialization.data(withJSONObject: object))
         #expect(manifest.rejectedSecretCount >= 5)
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = []
         _ = store.importTemplate(TemplateImportMapper.makePlan(from: manifest))
         let persisted = String(decoding: try JSONEncoder().encode(store.bots), as: UTF8.self)
@@ -95,42 +84,11 @@ import Testing
     #expect(!plan.manifest.instructions.contains(marker))
 
     let url = temporaryStore()
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = []
     let bot = store.importTemplate(plan)
     #expect(!bot.persona.contains(marker))
     #expect(!String(decoding: try Data(contentsOf: url), as: UTF8.self).contains(marker))
-}
-
-@Test func templateImportHidesHermesProfileWhenNotConfigured() throws {
-    let manifest = try GrokTemplateParser.parse(#"{"name":"Safe"}"#.data(using: .utf8)!)
-    let plan = TemplateImportMapper.makePlan(from: manifest, hermesConfigured: false)
-    #expect(!plan.report.contains { $0.name == "Hermes profile" })
-}
-
-@Test @MainActor func templateImportRemovesWholePrivateKeyBlockFromPreviewStoreAndHermesPersona() throws {
-    let defaults = isolatedDefaults(); defaults.set("http://127.0.0.1:8642/v1", forKey: "hermesBaseURL")
-    let bodyLines = [
-        "VGhpcyBpcyBhIHN5bnRoZXRpYyBrZXkgYm9keS4=",
-        "U2Vjb25kIHN5bnRoZXRpYyBiYXNlNjQgbGluZS4=",
-        "VGhpcmQgc3ludGhldGljIGJhc2U2NCBsaW5lLg=="
-    ]
-    let block = (["-----BEGIN PGP PRIVATE KEY BLOCK-----"] + bodyLines + ["-----END PGP PRIVATE KEY BLOCK-----"]).joined(separator: "\n")
-    let object = ["name": "Safe", "persona": "Before\n\(block)\nAfter"]
-    let plan = TemplateImportMapper.makePlan(from: try GrokTemplateParser.parse(JSONSerialization.data(withJSONObject: object)), hermesConfigured: true)
-    for line in bodyLines { #expect(!plan.manifest.instructions.contains(line)) }
-    #expect(plan.manifest.instructions.contains("Before")); #expect(plan.manifest.instructions.contains("After"))
-
-    let url = temporaryStore()
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
-    store.bots = []
-    let bot = store.importTemplate(plan)
-    #expect(bot.backend == .hermes); #expect(bot.persona == plan.manifest.instructions)
-    let saved = String(decoding: try Data(contentsOf: url), as: UTF8.self)
-    for line in bodyLines {
-        #expect(!bot.persona.contains(line))
-        #expect(!saved.contains(line))
-    }
 }
 
 @Test func templateImportRemovesUnterminatedPrivateKeyBlockToEndOfText() throws {
@@ -151,29 +109,3 @@ import Testing
     }
 }
 
-@Test func legacyBotStoreFixtureDecodesWithoutTemplateImportFields() throws {
-    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../Fixtures/legacy_store_without_template_import_fields.json").standardizedFileURL
-    let bots = try JSONDecoder().decode([Bot].self, from: Data(contentsOf: fixture))
-    #expect(bots.count == 1)
-    #expect(bots[0].importedMemories.isEmpty)
-    #expect(bots[0].importedSkills.isEmpty)
-    #expect(bots[0].requestedConnectorIDs.isEmpty)
-    #expect(bots[0].gettingStartedSkill == nil)
-    #expect(bots[0].routines.isEmpty)
-}
-
-@Test @MainActor func previewPlanDoesNotCreateBotUntilExplicitImport() throws {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    store.bots = []
-    let manifest = try GrokTemplateParser.parse(##"{"name":"Only after confirm","skills":[{"name":"S","markdown":"# S"}],"routines":[{"name":"C","cron":"0 1 * * *"}]}"##.data(using: .utf8)!)
-    let plan = TemplateImportMapper.makePlan(from: manifest)
-    #expect(store.bots.isEmpty)
-    let bot = store.importTemplate(plan)
-    #expect(store.bots.count == 1)
-    #expect(bot.importedSkills.first?.markdown == "# S")
-    #expect(bot.importedSkills.first?.isEnabled == false)
-    #expect(bot.routines.first?.isEnabled == false)
-    let roundTrip = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(bot))
-    #expect(roundTrip.importedSkills == bot.importedSkills)
-    #expect(roundTrip.routines.first?.prompt == "")
-}

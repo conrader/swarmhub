@@ -21,7 +21,7 @@ struct GroupInfoPanel: View {
 
     private var content: some View {
         let members = store.members(of: group)
-        let candidates = store.bots.filter { !group.memberIDs.contains($0.id) && !$0.isReadOnlyArchive && !$0.isDemo && $0.joinsGroups }
+        let candidates = store.bots.filter { !group.memberIDs.contains($0.id) && !$0.isReadOnlyArchive && !$0.isDemo }
         return VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(InspectorCopy.groupName).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -37,8 +37,7 @@ struct GroupInfoPanel: View {
             }
             ForEach(members) { bot in
                 HStack(spacing: 10) {
-                    BotAvatar(bot: bot, size: 30, motion: .list, isWorking: store.isWorking(bot, in: group), facing: .left,
-                              isWaiting: store.hasPendingApproval(bot, in: group))
+                    BotAvatar(bot: bot, size: 30, motion: .list, isWorking: store.isWorking(bot, in: group), facing: .left)
                     Text(bot.name)
                     Spacer()
                     Button(InspectorCopy.remove) { store.removeMember(bot.id, from: group) }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)

@@ -1,18 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// The agent panel's tabs in bar order (P33). Members folded into the bottom of Overview; `AppCommand.members` (⌘5) opens
+/// The agent panel's tabs in bar order. Members are at the bottom of Overview; `AppCommand.members` (⌘5) opens
 /// Overview so the old shortcut still lands on them.
 enum AgentInfoTab: String, CaseIterable {
-    case overview = "Overview", model = "Model", skills = "Skills", activity = "Activity", routines = "Routines", media = "Media", computer = "Computer"
+    case overview = "Overview", model = "Model", media = "Media"
 }
 
 /// Menu items, the quick switcher and the shortcut reference share the same actions and bindings.
 enum AppCommand: String, CaseIterable, Identifiable {
     case settings, newAgent, newGroup, importTemplate, quickSwitcher
     case toggleSidebar, toggleInfo, hiddenChats
-    case overview, routines, media, computer, members, model, skills, activity
-    case previousChat, nextChat, backToChat, agentSettings, openComputer, stopResponse, keyboardShortcuts
+    case overview, media, members, model
+    case previousChat, nextChat, agentSettings, stopResponse, keyboardShortcuts
 
     var id: Self { self }
     var title: String {
@@ -26,18 +26,12 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .toggleInfo: "Toggle Agent Info"
         case .hiddenChats: "Toggle Hidden Chats"
         case .overview: "Overview"
-        case .routines: "Routines"
         case .media: "Media"
-        case .computer: "Computer"
         case .members: "Members"
         case .model: "Model"
-        case .skills: "Skills"
-        case .activity: "Activity"
         case .previousChat: "Previous Chat"
         case .nextChat: "Next Chat"
-        case .backToChat: "Back to Main Chat"
         case .agentSettings: "Agent Settings…"
-        case .openComputer: "Open Computer Window"
         case .stopResponse: "Stop Response"
         case .keyboardShortcuts: "Keyboard Shortcuts…"
         }
@@ -52,15 +46,10 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .toggleSidebar: "sidebar.left"
         case .toggleInfo, .overview: "info.circle"
         case .hiddenChats: "eye.slash"
-        case .routines: "clock"
         case .media: "photo.on.rectangle"
         case .model: AgentInfoTab.model.symbol
-        case .skills: AgentInfoTab.skills.symbol
-        case .activity: AgentInfoTab.activity.symbol
-        case .computer, .openComputer: "desktopcomputer"
         case .previousChat: "arrow.up"
         case .nextChat: "arrow.down"
-        case .backToChat: "arrow.left"
         case .stopResponse: "stop.circle"
         case .keyboardShortcuts: "keyboard"
         }
@@ -69,9 +58,9 @@ enum AppCommand: String, CaseIterable, Identifiable {
         switch self {
         case .settings, .keyboardShortcuts: "App"
         case .newAgent, .newGroup, .importTemplate: "File"
-        case .toggleSidebar, .toggleInfo, .hiddenChats, .overview, .routines, .media, .computer, .members, .model, .skills, .activity: "View"
-        case .quickSwitcher, .previousChat, .nextChat, .backToChat: "Navigate"
-        case .agentSettings, .openComputer, .stopResponse: "Chat"
+        case .toggleSidebar, .toggleInfo, .hiddenChats, .overview, .media, .members, .model: "View"
+        case .quickSwitcher, .previousChat, .nextChat: "Navigate"
+        case .agentSettings, .stopResponse: "Chat"
         }
     }
     var key: KeyEquivalent {
@@ -84,17 +73,11 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .toggleInfo: "i"
         case .hiddenChats: "h"
         case .overview: "1"
-        case .routines: "2"
         case .media: "3"
-        case .computer: "4"
         case .members: "5"
         case .model: "6"
-        case .skills: "7"
-        case .activity: "8"
         case .previousChat: .upArrow
         case .nextChat: .downArrow
-        case .backToChat: "["
-        case .openComputer: "c"
         case .stopResponse: "."
         case .keyboardShortcuts: "/"
         }
@@ -103,7 +86,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         switch self {
         case .newGroup, .importTemplate, .toggleInfo, .hiddenChats: [.command, .shift]
         case .toggleSidebar: [.command, .control]
-        case .previousChat, .nextChat, .agentSettings, .openComputer: [.command, .option]
+        case .previousChat, .nextChat, .agentSettings: [.command, .option]
         default: .command
         }
     }
@@ -120,13 +103,9 @@ enum AppCommand: String, CaseIterable, Identifiable {
     var infoTab: AgentInfoTab? {
         switch self {
         case .overview: .overview
-        case .routines: .routines
         case .media: .media
-        case .computer: .computer
         case .members: .overview
         case .model: .model
-        case .skills: .skills
-        case .activity: .activity
         default: nil
         }
     }
@@ -137,16 +116,12 @@ enum AppCommand: String, CaseIterable, Identifiable {
               store.editingBot == nil, store.errorMessage == nil else { return false }
         switch self {
         case .agentSettings: return store.selectedGroup == nil && store.selectedBot != nil
-        case .overview, .routines, .media, .computer, .model, .skills, .activity:
-            // P33: a tab an OpenClaw agent hides (nothing to show) is not offered.
+        case .overview, .media, .model:
             guard store.selectedGroup == nil, let bot = store.selectedBot, let tab = infoTab else { return false }
             return store.infoTabs(for: bot).contains(tab)
         case .members, .toggleInfo: return store.selectedGroup != nil || store.selectedBot != nil
-        case .openComputer:
-            return store.selectedGroup == nil && store.selectedBot.map { ComputerURL.validURL($0.computerURL) != nil } == true
         case .stopResponse: return store.openConversation.map(store.isStreaming(in:)) == true
         case .previousChat, .nextChat: return store.visibleChatCount > 1
-        case .backToChat: return store.selectedGroup == nil && store.openThreadID != nil
         default: return true
         }
     }
@@ -156,10 +131,8 @@ enum AppCommand: String, CaseIterable, Identifiable {
         switch self {
         case .settings: openSettings()
         case .keyboardShortcuts: openWindow(id: KeyboardShortcutsView.windowID)
-        case .openComputer:
-            if let bot = store.selectedBot { openWindow(id: ComputerWindow.id, value: bot.id) }
         default:
-            // Workspace commands stay useful from Settings and the Computer window too.
+            // Workspace commands stay useful from Settings too.
             if let window = NSApp.windows.first(where: { $0.title == AppConstants.name }) {
                 window.makeKeyAndOrderFront(nil)
             } else {
@@ -186,7 +159,6 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .hiddenChats: store.sidebarHidden = false; store.showingHiddenBots.toggle()
         case .previousChat: store.moveChatSelection(by: -1)
         case .nextChat: store.moveChatSelection(by: 1)
-        case .backToChat: store.closeThread()
         case .agentSettings: store.editingBot = store.selectedBot
         case .stopResponse: store.stop()
         default: break
@@ -219,11 +191,7 @@ struct AppCommands: Commands {
             Menu("Agent Details") {
                 command(.overview)
                 command(.model)
-                command(.skills)
-                command(.activity)
-                command(.routines)
                 command(.media)
-                command(.computer)
                 command(.members)
             }
         }
@@ -232,18 +200,14 @@ struct AppCommands: Commands {
             Divider()
             command(.previousChat)
             command(.nextChat)
-            command(.backToChat)
         }
         CommandMenu("Chat") {
             command(.agentSettings)
-            command(.openComputer)
             Divider()
             command(.stopResponse)
         }
         CommandGroup(replacing: .help) {
             command(.keyboardShortcuts)
-            // P36: Konrad's own report, prefilled without keys; nothing is sent until Send.
-            Button("Report a Problem…") { store.startUserReport(); openWindow(id: ContentView.windowID) }
         }
     }
 

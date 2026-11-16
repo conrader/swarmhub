@@ -51,15 +51,12 @@ struct ImportedTemplateManifest: Equatable {
     var instructionsWereProvided = false
 }
 
+/// What importing a template creates: a Herdr bot with the template's name, title, description, instructions and
+/// avatar. `report` says, row by row, what was used and what a Herdr agent has no place for.
 struct TemplateImportPlan {
     let manifest: ImportedTemplateManifest
     let report: [TemplateImportReportItem]
     let avatarName: BotAvatarName
-    let mappedConnectorIDs: [String]
-    let routines: [BotRoutine]
-    var hermesProfile: String? = nil
-    /// The bot is created as a Herdr bot (`AppStore.importsToHerdr`).
-    var herdr = false
 }
 
 enum TemplateImportError: LocalizedError {
@@ -166,12 +163,9 @@ enum GrokTemplateParser {
 }
 
 enum TemplateImportMapper {
-    // IDs are inert requests. A connector still requires a separate owner authorization.
-    static let connectorMap = ["google-drive": "google-drive", "googledrive": "google-drive", "slack": "slack", "notion": "notion", "dropbox": "dropbox"]
-
-    /// `herdr`: the bot will run as a Herdr agent, which takes its instructions and nothing else from the template;
-    /// the report says so instead of promising what only a Hermes box does.
-    static func makePlan(from manifest: ImportedTemplateManifest, hermesConfigured: Bool = true, hermesProfile: String? = nil, herdr: Bool = false) -> TemplateImportPlan {
+    /// The bot runs as a Herdr agent, which takes its instructions and nothing else from the template; the report
+    /// says so for everything else the template holds.
+    static func makePlan(from manifest: ImportedTemplateManifest) -> TemplateImportPlan {
         func metadataRow(_ name: String, provided: Bool, mappedReason: String) -> TemplateImportReportItem {
             .init(category: name == "Persona" ? "Instructions" : "Bot", name: name, status: provided ? .mapped : .skipped,
                   reason: provided ? mappedReason : "Not provided; default used.")
@@ -180,50 +174,25 @@ enum TemplateImportMapper {
             metadataRow("Name", provided: manifest.nameWasProvided, mappedReason: "Used as \(AppConstants.name) bot metadata."),
             metadataRow("Title", provided: manifest.titleWasProvided, mappedReason: "Used as \(AppConstants.name) bot metadata."),
             metadataRow("Description", provided: manifest.descriptionWasProvided, mappedReason: "Used as \(AppConstants.name) bot metadata."),
-            metadataRow("Persona", provided: manifest.instructionsWereProvided, mappedReason: herdr ? "Given to the bot's Herdr agent as its standing instructions when it starts." : "Used as the Hermes session system prompt.")
+            metadataRow("Persona", provided: manifest.instructionsWereProvided, mappedReason: "Given to the bot's Herdr agent as its standing instructions when it starts."),
+            .init(category: "Runtime", name: "Herdr agent", status: .mapped, reason: "Runs as an agent on your Herdr server; choose its agent program and model in the bot's settings.")
         ]
-        let boundProfile = hermesConfigured && !herdr ? hermesProfile : nil
-        if herdr {
-            report.append(.init(category: "Runtime", name: "Herdr agent", status: .mapped, reason: "Runs as an agent on your Herdr server; choose its agent program and model in the bot's settings."))
-        } else if let boundProfile {
-            report.append(.init(category: "Runtime", name: "Hermes profile", status: .mapped, reason: "Bound to Hermes profile \(boundProfile) (a key for it is in the Keychain); its tools, memory and skills apply."))
-        } else if hermesConfigured {
-            report.append(.init(category: "Runtime", name: "Hermes profile", status: .converted, reason: "Runs on your default Hermes profile; its tools, memory and skills apply."))
-        }
         var avatar: BotAvatarName = .faceCoral
         if let sourceAvatar = manifest.avatar {
             if let exact = BotAvatarName(rawValue: sourceAvatar) { avatar = exact; report.append(.init(category: "Bot", name: "Avatar", status: .mapped, reason: "Matched a \(AppConstants.name) avatar.")) }
             else { report.append(.init(category: "Bot", name: "Avatar", status: .converted, reason: "External avatar data is not copied; the default \(AppConstants.name) avatar will be used.")) }
         }
-        for memory in manifest.memories { report.append(.init(category: "Memory", name: memory.name, status: .converted, reason: herdr ? "Saved with the bot in \(AppConstants.name); not given to its Herdr agent." : "Saved with the bot in \(AppConstants.name); not yet given to the agent or Hermes memory.")) }
-        for skill in manifest.skills { report.append(.init(category: "Skill", name: skill.name, status: .converted, reason: herdr ? "Kept with the bot as Markdown; a Herdr agent does not install it." : "Kept with the bot as Markdown. Overview → Imported skills shows it and installs it through the manager bot (Hermes only).")) }
-        var routines: [BotRoutine] = []
-        for routine in manifest.routines {
-            if let schedule = routine.schedule {
-                routines.append(.init(name: routine.name, schedule: schedule, prompt: routine.prompt, isEnabled: false, importKind: .cron))
-                report.append(herdr ? .init(category: "Routine", name: routine.name, status: .skipped, reason: "Kept with the bot, disabled, and not run: a Herdr bot has no routines yet.")
-                              : .init(category: "Routine", name: routine.name, status: .converted, reason: "Stored as a disabled routine; \"Create on server\" in the Routines tab creates it on Hermes, paused."))
-            } else if routine.trigger != nil {
-                report.append(.init(category: "Routine", name: routine.name, status: .unsupported, reason: "Event triggers are not carried over."))
-            } else {
-                report.append(.init(category: "Routine", name: routine.name, status: .skipped, reason: "No schedule or supported trigger was provided."))
-            }
-        }
-        var mappedConnectors: [String] = []
-        for connector in manifest.connectorIDs {
-            if let mapped = connectorMap[connector.lowercased()] {
-                mappedConnectors.append(mapped)
-                report.append(.init(category: "Connector", name: connector, status: .converted, reason: "Mapped to \(mapped); access is not granted and requires separate authorization."))
-            } else { report.append(.init(category: "Connector", name: connector, status: .unsupported, reason: "Unknown connector ID; it is not carried over.")) }
-        }
-        if let skill = manifest.gettingStartedSkill {
-            report.append(.init(category: "Getting started", name: skill.name, status: .converted, reason: herdr ? "Kept with the bot, not installed; a Herdr agent does not install it." : "Kept with the bot, not installed. Overview → Imported skills shows it and installs it through the manager bot, like the other imported skills (Hermes only)."))
-        }
+        let notCarried = "Not carried over: a Herdr agent takes its instructions only."
+        for memory in manifest.memories { report.append(.init(category: "Memory", name: memory.name, status: .skipped, reason: notCarried)) }
+        for skill in manifest.skills { report.append(.init(category: "Skill", name: skill.name, status: .skipped, reason: notCarried)) }
+        for routine in manifest.routines { report.append(.init(category: "Routine", name: routine.name, status: .skipped, reason: notCarried)) }
+        for connector in manifest.connectorIDs { report.append(.init(category: "Connector", name: connector, status: .unsupported, reason: notCarried)) }
+        if let skill = manifest.gettingStartedSkill { report.append(.init(category: "Getting started", name: skill.name, status: .skipped, reason: notCarried)) }
         if manifest.rejectedSecretCount > 0 {
             let noun = manifest.rejectedSecretCount == 1 ? "field or value was" : "fields or values were"
             report.append(.init(category: "Security", name: "Sensitive values", status: .skipped, reason: "\(manifest.rejectedSecretCount) sensitive \(noun) removed before preview and storage."))
         }
-        return TemplateImportPlan(manifest: manifest, report: report, avatarName: avatar, mappedConnectorIDs: Array(Set(mappedConnectors)).sorted(), routines: routines, hermesProfile: boundProfile, herdr: herdr)
+        return TemplateImportPlan(manifest: manifest, report: report, avatarName: avatar)
     }
 }
 

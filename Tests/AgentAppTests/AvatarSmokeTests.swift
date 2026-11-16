@@ -6,7 +6,7 @@ import Testing
 /// P15 item 14: the `avatars` object, built from what the views reported (synthetic facts here; no window).
 @MainActor @Test func avatarSmokeReportsRowsGroupsFocusAndProbes() async throws {
     _ = NSApplication.shared
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let marked = Bot(name: "Marked"); let classic = Bot(name: "Classic", avatarName: .fox)
     store.bots = [marked, classic]
     let group = GroupChat(name: "Pair", memberIDs: [marked.id, classic.id]); store.groups = [group]
@@ -38,7 +38,7 @@ import Testing
 }
 
 @MainActor @Test func forcedWorkingIsReadOnlyByIsWorking() {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Forced"), group = GroupChat(name: "G", memberIDs: [bot.id])
     #expect(!store.isWorking(bot))
     UISmokeProbe.forcedWorking = bot.id

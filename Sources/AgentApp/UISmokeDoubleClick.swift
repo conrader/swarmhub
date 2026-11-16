@@ -33,12 +33,12 @@ import Foundation
             }
             let before = window.frame
             doubleClick(window, at: point)
-            let changed = await HeadlessE2E.wait(budget, poll: .milliseconds(50)) { window.frame != before }
+            let changed = await UISmoke.wait(budget, poll: .milliseconds(50)) { window.frame != before }
             await UISmokeChrome.settle(budget) { NSDictionary(dictionary: ChromeGeometry.dict(window.frame)) }
             fact["frame_before"] = ChromeGeometry.dict(before); fact["frame_after"] = ChromeGeometry.dict(window.frame)
             fact["zoomed"] = changed
             window.setFrame(before, display: true, animate: false)
-            fact["restored"] = await HeadlessE2E.wait(budget, poll: .milliseconds(50)) { window.frame == before }
+            fact["restored"] = await UISmoke.wait(budget, poll: .milliseconds(50)) { window.frame == before }
             if !changed { errors.append("top bar double-click: \(pane) did not zoom the window") }
             if fact["restored"] as? Bool != true { errors.append("top bar double-click: \(pane) frame not restored") }
             results[pane] = fact

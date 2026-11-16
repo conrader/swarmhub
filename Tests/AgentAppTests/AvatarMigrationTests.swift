@@ -70,7 +70,7 @@ private func gid(_ suffix: String) -> String { "00000000-0000-4000-8000-00000000
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(contentsOf: fixture).write(to: url)
         let before = try Data(contentsOf: url)
-        let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         #expect(store.bots.first { $0.name == "Clay black" }?.avatarMarkMigrated == true)
         #expect(try Data(contentsOf: url) == before)
     }

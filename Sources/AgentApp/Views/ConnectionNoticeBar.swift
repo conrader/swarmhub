@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// uxfix1: transient network trouble left over after the retries, as one small line at the bottom of the window (never the
-/// modal alert). It clears itself when the box answers again or the network comes back; Dismiss clears it now.
+/// modal alert). It clears itself when the server answers again or the network comes back; Dismiss clears it now.
 struct ConnectionNoticeBar: View {
     let text: String; let dismiss: () -> Void
     var body: some View {

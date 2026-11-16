@@ -1,18 +1,16 @@
 import SwiftUI
 
-/// The quick switcher (⌘K). P32 4: the first match is highlighted, up and down move the highlight, Return opens it,
+/// The quick switcher (⌘K): the first match is highlighted, up and down move the highlight, Return opens it,
 /// Escape closes the sheet.
 struct CommandPaletteView: View {
     @EnvironmentObject private var store: AppStore; @Environment(\.dismiss) private var dismiss
     let selectCommand: (AppCommand) -> Void
     let openSetup: () -> Void
-    /// P34: a thread row; opened after the switcher closes (nil: at once).
-    var openThread: ((BotThreadKey) -> Void)?
     @State private var query: String
     @State private var model = QuickSwitcherModel()
     @FocusState private var searchFocused: Bool
-    init(query: String = "", selectCommand: @escaping (AppCommand) -> Void, openSetup: @escaping () -> Void, openThread: ((BotThreadKey) -> Void)? = nil) {
-        _query = State(initialValue: query); self.selectCommand = selectCommand; self.openSetup = openSetup; self.openThread = openThread
+    init(query: String = "", selectCommand: @escaping (AppCommand) -> Void, openSetup: @escaping () -> Void) {
+        _query = State(initialValue: query); self.selectCommand = selectCommand; self.openSetup = openSetup
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -42,9 +40,7 @@ struct CommandPaletteView: View {
     private func row(_ item: QuickSwitcherModel.Item) -> some View {
         Button { perform(item) } label: {
             HStack {
-                if case .botThread(let key) = item.target {
-                    HStack(spacing: -5) { BotMark(profile: key.from, size: 18); BotMark(profile: key.to, size: 18) }.frame(width: 24)
-                } else { Image(systemName: item.icon).frame(width: 24) }
+                Image(systemName: item.icon).frame(width: 24)
                 Text(item.title); Spacer()
                 if let shortcut = item.shortcut { Text(shortcut).font(.caption.monospaced()).foregroundStyle(.secondary) }
             }.padding(9).contentShape(Rectangle())
@@ -60,7 +56,6 @@ struct CommandPaletteView: View {
         case .group(let id): if let group = store.groups.first(where: { $0.id == id }) { store.open(group) }
         case .command(let command): selectCommand(command)
         case .setup: openSetup()
-        case .botThread(let key): if let openThread { openThread(key) } else { store.openThread(key) }
         }
         dismiss()
     }

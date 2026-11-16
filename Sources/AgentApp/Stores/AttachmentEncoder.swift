@@ -26,7 +26,7 @@ struct AttachmentEncoder {
     static let maxImageEdge = 2048
     static let maxImageDataURLBytes = 5 * 1024 * 1024
     static let maxTextBytes = 200 * 1024
-    /// ImageIO type identifiers Hermes can take as image parts, with their MIME types.
+    /// ImageIO type identifiers kept as images, with their MIME types.
     static let imageTypes: [String: String] = ["public.png": "image/png", "public.jpeg": "image/jpeg", "com.compuserve.gif": "image/gif", "org.webmproject.webp": "image/webp"]
 
     let directory: URL

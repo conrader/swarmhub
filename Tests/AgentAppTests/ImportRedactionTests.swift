@@ -50,7 +50,7 @@ Use basic troubleshooting before escalation; see /usr/local/lib/python3.12/site-
         let manifest = try GrokTemplateParser.parse(JSONSerialization.data(withJSONObject: object))
         #expect(manifest.rejectedSecretCount == 2, "\(secret)")
         #expect(!manifest.instructions.contains(secret) && manifest.instructions.hasPrefix("Persona before "), "\(secret)")
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = []
         _ = store.importTemplate(TemplateImportMapper.makePlan(from: manifest))
         #expect(!String(decoding: try JSONEncoder().encode(store.bots), as: UTF8.self).contains(secret), "\(secret)")
@@ -58,30 +58,6 @@ Use basic troubleshooting before escalation; see /usr/local/lib/python3.12/site-
     let kept = try GrokTemplateParser.parse(JSONSerialization.data(withJSONObject: ["name": "Safe", "persona": prose]))
     #expect(kept.instructions == prose.trimmingCharacters(in: .whitespacesAndNewlines))
     #expect(kept.rejectedSecretCount == 0)
-}
-
-@Test @MainActor func anImportedPersonaIsFilteredBeforeItBecomesTheSystemPrompt() async throws {
-    // A persona imported before this filter (or by an older one) still holds the credential; a typed one is the owner's.
-    // The import binds a chatting bot to a profile; without one it is history-only and Send refuses it.
-    let imported = Bot(name: "Imported", persona: "Keep it brief. Use Bearer syntheticPersonaToken123 and akia1234567890abcdef.",
-                       backend: .hermes, hermesProfile: "grok-imported", hermesSessionID: "imported-chat")
-    imported.grokSourceID = "00000000-0000-4000-8000-0000000000aa"
-    let typed = Bot(name: "Typed", persona: "Keep it brief. token: hand-typed-value", backend: .hermes, hermesSessionID: "typed-chat")
-    let cases: [(Bot, [String], String)] = [
-        (imported, ["syntheticPersonaToken123", "akia1234567890abcdef"], "Keep it brief. Use [REDACTED] and [REDACTED]."),
-        (typed, [], "Keep it brief. token: hand-typed-value"),
-    ]
-    for (bot, expectGone, expectKept) in cases {
-        let backend = AppRequestBackend(.normal)
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-        store.bots = [bot]; store.selectedBot = bot
-        try #require(store.submitComposer(text: "Hello"), "\(bot.name)")
-        try await waitUntil { !(await backend.recorded().isEmpty) }  // The suite's ceiling: 30 s timed out under load.
-        let prompt = try #require(await backend.recorded().first?.systemPrompt)
-        for secret in expectGone { #expect(!prompt.contains(secret), "\(bot.name)") }
-        #expect(prompt.contains(expectKept), "\(bot.name)")
-        #expect(bot.persona.contains(expectGone.first ?? "token: hand-typed-value"), "the stored persona is not rewritten")
-    }
 }
 
 @Test @MainActor func craftedSecretDenseTextRedactsInLinearTime() throws {

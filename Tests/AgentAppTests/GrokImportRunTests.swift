@@ -12,35 +12,6 @@ import Testing
 
 @MainActor private func archive(_ store: AppStore, _ id: String) -> Int { store.grokArchiveLines(sourceID: id) }
 
-@MainActor @Test func fullRunReadsTheKeychainOnceOnlyAfterStartAndImportsEveryConversation() async throws {
-    let world = try GrokWorld()
-    let store = world.store(server: "https://box.test/v1")
-    let run = makeRun(world, store)
-    #expect(await run.willAskMacOS())
-    #expect(world.passwords.reads == 0 && world.fake.requests.isEmpty && run.state == .idle)
-    var events: [String] = []
-    run.onEvent = { event in
-        if case .keychainReadComing = event { events.append("keychain") }
-        if case .committed = event { events.append("commit") }
-    }
-    #expect(await run.start() == .finished)
-    #expect(world.passwords.reads == 1 && run.keychainReads == 1)
-    #expect(events.first == "keychain" && events.filter { $0 == "commit" }.count == 4)
-    // Bots first in roster order, the group last; every one reached seq 1.
-    #expect(run.rows.map(\.sourceID) == [GrokRunIDs.jarvis, GrokRunIDs.finance, GrokRunIDs.plain, GrokRunIDs.group])
-    #expect(run.rows.allSatisfy { $0.status == .done && $0.coverage == .complete })
-    // Archive lines are messages plus rename events; Jarvis's cache also holds entries that are not imported.
-    #expect(run.rows.map(\.archiveLines) == [27, 5, 3, 4] && run.rows.map(\.cachedEntries) == [12, 2, 0, 3])
-    // The canary (limit 1, newest) comes first, then one page per conversation; only the list RPC was used.
-    let lists = grokListRequests(world.fake)
-    #expect(lists.first?.agent == GrokRunIDs.jarvis && lists.first?.limit == 1 && lists.first?.before == nil)
-    #expect(lists.count == 5 && world.fake.requests.count == 5)
-    #expect(await run.requestCount() == 5)
-    #expect(await run.holder.lifetime == .none)
-    let jarvis = try #require(store.bots.first { $0.grokSourceID == GrokRunIDs.jarvis })
-    #expect(jarvis.hermesBaseURL == "https://box.test/v1" && jarvis.hermesProfile == "grok-jarvis")
-}
-
 @MainActor @Test func recentModeNeedsNoPromptAndNoNetwork() async throws {
     let world = try GrokWorld()
     let store = world.store()

@@ -107,7 +107,6 @@ enum VoiceDictationError: LocalizedError {
         cancel()
         let apiKey = key().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty else { fail(DeAPIError.missingKey); return }
-        CodexVoiceSession.stopActive()
         Self.active?.cancel(); Self.active = self
         recordingKey = apiKey
         recordingContext = context

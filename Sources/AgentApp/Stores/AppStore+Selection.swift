@@ -1,14 +1,13 @@
 import Foundation
 
-/// P18 item 9: which chat is open when nothing the user chose applies. Never a hidden bot or group.
+/// Which chat is open when nothing the user chose applies. Never a hidden bot or group.
 extension AppStore {
     /// UserDefaults key holding the last chat the user opened: `bot:<uuid>` or `group:<uuid>`.
     static let lastChatKey = "lastSelectedChat"
 
     /// The last chat the user opened if it still exists and is visible, else the most recent conversation,
-    /// then a disconnected profile, else nothing (the welcome state).
+    /// else nothing (the welcome state).
     func selectVisibleChat() {
-        selectedBoxProfile = nil
         let last = defaults.string(forKey: Self.lastChatKey)
         if let bot = bots.first(where: { !$0.isHidden && last == Self.chatKey(bot: $0.id) }) { selectedBot = bot; selectedGroup = nil }
         else if let group = groups.first(where: { !$0.isHidden && last == Self.chatKey(group: $0.id) }) { selectedGroup = group; selectedBot = nil }
@@ -18,10 +17,7 @@ extension AppStore {
             case .group(let group): selectedGroup = group; selectedBot = nil
             }
         }
-        else {
-            selectedBot = nil; selectedGroup = nil
-            if let profile = sidebarBoxProfiles.first { open(profile) }
-        }
+        else { selectedBot = nil; selectedGroup = nil }
     }
 
     /// Hides or shows a bot; hiding the open chat moves the selection to a visible one.

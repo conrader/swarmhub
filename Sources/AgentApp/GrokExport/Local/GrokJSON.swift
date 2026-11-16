@@ -1,8 +1,6 @@
 import Foundation
-import SwarmHubCore
 
-/// `JSONValue` itself lives in SwarmHubCore (P5d, shared with the iOS approval client); see DeviceApprovalCore.swift.
-/// It keeps bool, integer and double apart (Grok Bot's cache and the bundle oracle rely on `isinstance(x, int)`).
+/// `JSONValue` (JSONValue.swift) keeps bool, integer and double apart (Grok Bot's cache and the bundle oracle rely on `isinstance(x, int)`).
 /// Objects ignore key order; a repeated key keeps the last value, as Python's `json` does.
 extension JSONValue {
     /// Python truthiness, for the few places `map_entries` uses `x or default`.

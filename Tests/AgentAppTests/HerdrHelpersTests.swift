@@ -6,7 +6,7 @@ import Testing
 // and looking into one.
 
 @MainActor private func helperStore() -> AppStore {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     return store
 }
@@ -79,7 +79,7 @@ private let listingJSON = """
 /// the bot's own instructions.
 @MainActor @Test func everyHerdrBotIsToldAboutHelpersUnlessItsSwitchIsOff() throws {
     let store = helperStore()
-    let jarvis = Bot(name: "Jarvis", persona: String(repeating: "x", count: 9_000), backend: .herdr), plain = Bot(name: "Plain", backend: .herdr), old = Bot(name: "Old", backend: .hermes)
+    let jarvis = Bot(name: "Jarvis", persona: String(repeating: "x", count: 9_000), backend: .herdr), plain = Bot(name: "Plain", backend: .herdr), old = Bot(name: "Old", backend: .mock)
     store.bots = [jarvis, plain, old]
     #expect(store.startsHerdrHelpers(jarvis) && store.startsHerdrHelpers(plain) && !store.startsHerdrHelpers(old), "on for every Herdr bot, and only for those")
     let told = try store.herdrBackend(for: plain)
@@ -95,25 +95,6 @@ private let listingJSON = """
     let off = try store.herdrBackend(for: jarvis)
     #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil && store.startsHerdrHelpers(plain), "its own switch turns it off for that bot only")
     #expect(off.notes.map(\.marker) == [HerdrBotRequest.marker] && told.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker])
-}
-
-/// Helpers are read for the open chat, for a bot that is answering and for a bot that shows some; no other bot is.
-@MainActor @Test func helpersAreReadOnlyWhereItIsUseful() throws {
-    let store = helperStore()
-    let open = Bot(name: "Open", backend: .herdr), busy = Bot(name: "Busy", backend: .herdr), idle = Bot(name: "Idle", backend: .herdr), old = Bot(name: "Old", backend: .hermes)
-    store.bots = [open, busy, idle, old]
-    #expect(store.herdrHelperWatch().bots.isEmpty, "nothing open, nothing working: nothing is read")
-    store.selectedBot = open
-    var watch = store.herdrHelperWatch()
-    #expect(watch.bots.map(\.name) == ["Open"] && !watch.often, "the open chat of an idle bot is read now and then")
-    let list = try decoded(HerdrClient.Helpers.self, listingJSON)
-    store.herdrHelpers[busy.id] = list
-    watch = store.herdrHelperWatch()
-    #expect(watch.bots.map(\.name) == ["Open", "Busy"] && watch.often, "a bot that shows helpers is read often, wherever the person is")
-    store.selectedBot = old; store.herdrHelpers = [:]
-    #expect(store.herdrHelperWatch().bots.isEmpty, "a bot of another backend has none")
-    store.selectedBot = open; store.showingReports = true
-    #expect(store.herdrHelperWatch().bots.isEmpty, "the chat is not on screen behind the reports")
 }
 
 @MainActor @Test func aHelperOpensInPlaceOfItsBotsChat() async throws {
@@ -184,4 +165,21 @@ private let listingJSON = """
     // No policy yet: the server's default is where the form starts. A saved value outside the usual choices is kept.
     let fresh = HerdrHelperPolicyDraft(try decoded(HerdrHelperSettings.self, #"{"policy":null,"bounds":{"stop_unanswered_after_seconds":{"min":60,"max":3600,"default":1200}}}"#))
     #expect(fresh.stopUnansweredSeconds == 1_200 && fresh.unansweredDelays() == [300, 900, 1_200, 1_800, 3_600])
+}
+
+/// Helpers are read for the open chat, for a bot that is answering and for a bot that shows some; no other bot is.
+@MainActor @Test func helpersAreReadOnlyWhereItIsUseful() throws {
+    let store = helperStore()
+    let open = Bot(name: "Open", backend: .herdr), busy = Bot(name: "Busy", backend: .herdr), idle = Bot(name: "Idle", backend: .herdr), old = Bot(name: "Old", backend: .mock)
+    store.bots = [open, busy, idle, old]
+    #expect(store.herdrHelperWatch().bots.isEmpty, "nothing open, nothing working: nothing is read")
+    store.selectedBot = open
+    var watch = store.herdrHelperWatch()
+    #expect(watch.bots.map(\.name) == ["Open"] && !watch.often, "the open chat of an idle bot is read now and then")
+    let list = try decoded(HerdrClient.Helpers.self, listingJSON)
+    store.herdrHelpers[busy.id] = list
+    watch = store.herdrHelperWatch()
+    #expect(watch.bots.map(\.name) == ["Open", "Busy"] && watch.often, "a bot that shows helpers is read often, wherever the person is")
+    store.selectedBot = old; store.herdrHelpers = [:]
+    #expect(store.herdrHelperWatch().bots.isEmpty, "a sample agent has none")
 }

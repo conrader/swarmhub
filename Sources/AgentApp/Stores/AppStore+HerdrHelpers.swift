@@ -27,7 +27,7 @@ extension AppStore {
     /// while it works, so an idle one rarely has news). Every other bot is not read at all, and neither is a bot
     /// whose running turn is on the event stream, which brings its helpers as they change (`herdrLive`).
     func herdrHelperWatch() -> (bots: [Bot], often: Bool) {
-        let open = selectedGroup == nil && !showingReports ? selectedBot?.id : nil
+        let open = selectedGroup == nil ? selectedBot?.id : nil
         var often = false
         let watched = bots.filter { bot in
             guard bot.backend == .herdr, !bot.isReadOnlyArchive, !herdrStreaming.contains(bot.id) else { return false }
@@ -41,7 +41,7 @@ extension AppStore {
     /// Reads the watched bots' helpers until the app quits. One request per server finds each bot's agent and whether
     /// it has helpers at all; only an agent that has some costs a second one.
     func startHerdrHelperPolling(often: Duration = .seconds(3), seldom: Duration = .seconds(12)) {
-        guard routines.autoLoad, herdrHelperPoll == nil else { return }
+        guard launchWorkEnabled, herdrHelperPoll == nil else { return }
         herdrHelperPoll = Task { [weak self] in
             let clock = ContinuousClock(); var last = clock.now - seldom
             while !Task.isCancelled, let store = self {
@@ -94,7 +94,7 @@ extension AppStore {
     // MARK: Looking into one
 
     func isOpen(_ helper: HerdrClient.Helper, of bot: Bot) -> Bool {
-        openHerdrHelper == HerdrHelperSelection(botID: bot.id, helperID: helper.id) && selectedBot?.id == bot.id && selectedGroup == nil && !showingReports
+        openHerdrHelper == HerdrHelperSelection(botID: bot.id, helperID: helper.id) && selectedBot?.id == bot.id && selectedGroup == nil
     }
 
     /// Shows the helper's read-only view in place of its bot's chat; opening the bot (or any chat) shows the chat again.

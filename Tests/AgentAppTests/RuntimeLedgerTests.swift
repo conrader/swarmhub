@@ -50,11 +50,11 @@ import Testing
 
     @Test func storeOpensTheLedgerBesideStoreJSONOnlyWhenUsed() throws {
         let url = temporaryStore()
-        let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         #expect(!store.hasLedger)
         try store.journal().put(Record(value: 4), kind: "fixture", id: "a")
         #expect(FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appending(path: "runtime.sqlite").path))
-        let demo = AppStore(demoMode: true, storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let demo = AppStore(demoMode: true, storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         #expect(throws: (any Error).self) { _ = try demo.journal() }
     }
 
@@ -62,14 +62,14 @@ import Testing
         let url = temporaryStore(), directory = url.deletingLastPathComponent().appending(path: "artifacts")
         let reader = UUID(), other = UUID()
         let old = try RuntimeArtifacts(directory: directory).save(Data("Evidence".utf8), name: "Evidence", mimeType: "text/plain", owners: [reader])
-        let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         #expect(try store.artifacts().records().map(\.id) == [old.id])
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "index.json").path))
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "index.json.imported").path))
         #expect(String(decoding: try store.artifacts().read(old.id, botID: reader), as: UTF8.self) == "Evidence")
         #expect(throws: (any Error).self) { try store.artifacts().read(old.id, botID: other) }
         let added = try store.artifacts().save(Data("More".utf8), name: "More", mimeType: "text/plain", owners: [other])
-        let reopened = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let reopened = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         #expect(try reopened.artifacts().records().map(\.id) == [old.id, added.id])
     }
 

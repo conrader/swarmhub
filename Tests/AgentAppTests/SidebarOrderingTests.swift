@@ -4,7 +4,7 @@ import Testing
 
 @Suite @MainActor struct SidebarOrderingTests {
     private func store() -> AppStore {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = []; store.groups = []; store.selectedBot = nil
         return store
     }
@@ -41,15 +41,4 @@ import Testing
         #expect(store.sidebarChats.first?.id == b.id)
     }
 
-    @Test func threadAndArchivedMessagesCountAndEqualDatesStayStable() throws {
-        let store = store()
-        let a = Bot(name: "A", messages: [message(200)]), b = Bot(name: "B", messages: [message(200)]), c = Bot(name: "Archive")
-        store.bots = [a, b, c]
-        #expect(store.sidebarChats.map(\.id) == [a.id, b.id, c.id])
-        b.threads = [ChatThread(parentMessageID: UUID(), parentSessionID: nil, hermesSessionID: nil, messages: [message(300)])]
-        #expect(store.sidebarChats.map(\.id) == [b.id, a.id, c.id])
-        try store.grokHistory.merge([ArchivedMessage(id: "new", seq: 1, role: "assistant", text: "Imported reply",
-                                                     timestamp: Date(timeIntervalSince1970: 400), hidden: false, channel: "main")], sourceID: "fixture", for: c.id)
-        #expect(store.sidebarChats.map(\.id) == [c.id, b.id, a.id])
-    }
 }

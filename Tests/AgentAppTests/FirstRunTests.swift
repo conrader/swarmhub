@@ -6,21 +6,9 @@ import Testing
 // P21 items 10, 15, 16, 22, 23: when the setup window opens, no sample bots on a fresh install, headless safety,
 // the flag list and the synthetic renders.
 
-@MainActor @Test func needsSetupMatrix() {
-    let fresh = isolatedDefaults()
-    #expect(FirstRun.needsSetup(defaults: fresh, keyStore: InMemoryKeyStore(), bots: []))
-    let byURL = isolatedDefaults(); byURL.set("https://my-box.example.com", forKey: "hermesBaseURL")
-    #expect(!FirstRun.needsSetup(defaults: byURL, keyStore: InMemoryKeyStore(), bots: []))
-    #expect(!FirstRun.needsSetup(defaults: isolatedDefaults(), keyStore: InMemoryKeyStore(["hermes": "k"]), bots: []))
-    let skipped = isolatedDefaults(); FirstRun.record(.skipped, in: skipped)
-    #expect(!FirstRun.needsSetup(defaults: skipped, keyStore: InMemoryKeyStore(), bots: []))
-    #expect(!FirstRun.needsSetup(defaults: isolatedDefaults(), keyStore: InMemoryKeyStore(), bots: [Bot(name: "Ada", backend: .hermes, hermesProfile: "ada")]))
-    #expect(FirstRun.needsSetup(defaults: isolatedDefaults(), keyStore: InMemoryKeyStore(), bots: [Bot(name: "Atlas", isDemo: true)]), "sample bots are not real agents")
-}
-
 @MainActor @Test func aFreshStoreStartsEmptyAndSettleOpensTheWindowOnce() {
     let defaults = isolatedDefaults()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
     #expect(store.bots.isEmpty && store.selectedBot == nil && store.selectedGroup == nil, "no sample bots, nothing selected")
     #expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
     #expect(FirstRun.settle(store) && FirstRun.state(defaults) == nil, "the window opens; nothing is written until it closes")
@@ -30,10 +18,53 @@ import Testing
     #expect(store.bots.count == 5 && store.bots.allSatisfy(\.isDemo) && store.selectedBot?.isDemo == true)
 }
 
+@MainActor @Test func headlessStoresWriteNoSetupStateAndSettleMarksConfiguredInstallsDone() {
+    let defaults = isolatedDefaults(); defaults.set("http://127.0.0.1:8787", forKey: HerdrServerList.legacyAddressKey)
+    let url = temporaryStore()
+    let first = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+    first.bots.append(Bot(name: "Ada", backend: .herdr)); first.save()
+    _ = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+    #expect(defaults.object(forKey: FirstRun.stateKey) == nil, "building AppStore (as --check-bots and --render-snapshot do) writes nothing")
+    #expect(!FirstRun.settle(first) && FirstRun.state(defaults) == .done, "the UI layer marks a configured install done without a window")
+}
+
+@MainActor @Test func hiddenSampleBotsAreNotListedOnceAServerIsSetUp() {
+    let defaults = isolatedDefaults()
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+    let sample = Bot(name: "Atlas", isHidden: true, isDemo: true), quiet = Bot(name: "Quiet", backend: .herdr, isHidden: true)
+    store.bots = [sample, quiet]
+    #expect(store.hiddenChatBots.map(\.name) == ["Atlas", "Quiet"])
+    defaults.set("http://127.0.0.1:8787", forKey: HerdrServerList.legacyAddressKey)
+    #expect(store.hiddenChatBots.map(\.name) == ["Quiet"])
+}
+
+@MainActor @Test func everyFlagIsListedAndRecognised() {
+    let all = ["--render-snapshot", "--probe-attachment", "--migrate-store", "--grok-fetch", "--grok-probe", "--grok-parity", "--import-grok",
+               "--ui-smoke", "--setup-preview", "--render-setup"]
+    #expect(Set(HeadlessCommands.flags) == Set(all) && HeadlessCommands.flags.count == all.count)
+    #expect(!HeadlessCommands.headless.contains("--ui-smoke") && !HeadlessCommands.headless.contains("--setup-preview"))
+    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--setup-preview"]) == nil, "a launch argument, not a headless command")
+    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp"]) == nil)
+    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--render-setup"]) == 64)
+    #expect(SetupPreview.isRequested(["AgentApp", "--setup-preview"]) && UISmoke.reportPath(arguments: ["AgentApp", "--ui-smoke", "/tmp/r.json"]) != nil)
+    #expect(UpdateConfiguration.unavailableReason(bundleURL: URL(fileURLWithPath: "/Applications/X.app"), info: [:], environment: [:], arguments: ["--setup-preview"]) != nil)
+}
+
+/// Default suite: one setup screen through the renderer's own environment, and the repository refusal.
+@MainActor @Test func renderSetupRendersTheWelcomeStepAndRefusesTheRepository() async throws {
+    let store = SetupPreview.makeStore(); store.isSetupPreview = false
+    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
+    let data = try #require(await HeadlessSetup.png(SetupView(preset: SetupFlow()), store: store, updater: updater, size: HeadlessSetup.size))
+    let image = try #require(NSBitmapImageRep(data: data))
+    #expect(image.pixelsWide > 0 && data.count > 4_000, "s1-welcome looks blank")
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    #expect(await HeadlessSetup.render(to: repo.appending(path: "setup-shots"), output: { _ in }) == 2, "refuses a folder inside the repository")
+}
+
 /// The wizard opens by itself while there is no bot at all: nothing set up, or a server with no bot on it.
 @MainActor @Test func theWizardOpensWhileThereIsNoBot() {
     let keys = InMemoryKeyStore(), defaults = isolatedDefaults()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: keys, defaults: defaults)
     #expect(FirstRun.settle(store), "a fresh install")
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     #expect(store.herdrConfigured && FirstRun.settle(store), "a server that is set up, with no bot on it")
@@ -49,89 +80,27 @@ import Testing
     store.bots = [jarvis]; FirstRun.record(.done, in: defaults)
     FirstRun.dismissed(defaults, hasBots: true)
     #expect(FirstRun.state(defaults) == .done, "closing the wizard on a working install changes nothing")
-    // The older rule still decides while the older backends are shown.
-    let legacy = isolatedDefaults(); legacy.set(true, forKey: LegacySurface.key); FirstRun.record(.done, in: legacy)
-    let old = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: legacy)
-    #expect(!FirstRun.settle(old), "with the older backends shown, a finished setup with no bots stays closed as before")
-}
-
-@MainActor @Test func headlessStoresWriteNoSetupStateAndSettleMarksConfiguredInstallsDone() {
-    let defaults = isolatedDefaults(); defaults.set("https://my-box.example.com", forKey: "hermesBaseURL")
-    let url = temporaryStore()
-    let first = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: defaults)
-    first.bots.append(Bot(name: "Ada", backend: .hermes, hermesProfile: "ada")); first.save()
-    _ = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: defaults)
-    #expect(defaults.object(forKey: FirstRun.stateKey) == nil, "building AppStore (as --check-bots and --render-snapshot do) writes nothing")
-    #expect(!FirstRun.settle(first) && FirstRun.state(defaults) == .done, "the UI layer marks a configured install done without a window")
-}
-
-@MainActor @Test func hiddenSampleBotsAreNotListedOnceABoxIsConfigured() {
-    let defaults = isolatedDefaults()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
-    let sample = Bot(name: "Atlas", isHidden: true, isDemo: true), quiet = Bot(name: "Quiet", backend: .hermes, isHidden: true)
-    store.bots = [sample, quiet]
-    #expect(store.hiddenChatBots.map(\.name) == ["Atlas", "Quiet"])
-    defaults.set("https://my-box.example.com", forKey: "hermesBaseURL")
-    #expect(store.hiddenChatBots.map(\.name) == ["Quiet"])
-}
-
-@MainActor @Test func historyOnlyAgentsOpenTheWizardWithTheirLine() {
-    let defaults = isolatedDefaults(); defaults.set("https://my-box.example.com", forKey: "hermesBaseURL")
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
-    let jarvis = Bot(name: "Jarvis"); jarvis.grokSourceID = "synthetic"
-    let prefill = store.setupPrefill(for: jarvis)
-    #expect(prefill.address == "https://my-box.example.com" && prefill.agentName == "grok-jarvis" && prefill.startAtAddress)
-    #expect(SetupFlow(prefill: prefill).input.extra == "grok-jarvis=")
-    let fresh = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    #expect(fresh.setupPrefill() == SetupPrefill(), "a first run starts on Welcome")
-}
-
-@MainActor @Test func everyFlagIsListedAndRecognised() {
-    let old = ["--check-bots", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
-               "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke"]
-    let added = ["--setup-preview", "--render-setup", "--check-server", "--check-openclaw", "--capture-events", "--check-reports", "--check-account-names", "--e2e-live"] // P21, P21, P13 check-server, P12, P27, P36, P53, uxfix1-e2e
-    #expect(Set(HeadlessCommands.flags) == Set(old + added) && HeadlessCommands.flags.count == old.count + added.count)
-    #expect(!HeadlessCommands.headless.contains("--ui-smoke") && !HeadlessCommands.headless.contains("--setup-preview") && !HeadlessCommands.headless.contains("--e2e-live"))
-    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--setup-preview"]) == nil, "a launch argument, not a headless command")
-    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp"]) == nil)
-    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--render-setup"]) == 64)
-    #expect(SetupPreview.isRequested(["AgentApp", "--setup-preview"]) && UISmoke.reportPath(arguments: ["AgentApp", "--ui-smoke", "/tmp/r.json"]) != nil)
-    #expect(UpdateConfiguration.unavailableReason(bundleURL: URL(fileURLWithPath: "/Applications/X.app"), info: [:], environment: [:], arguments: ["--setup-preview"]) != nil)
 }
 
 @MainActor @Test func previewStoresAreThrowaway() {
     let store = SetupPreview.makeStore()
     #expect(store.isSetupPreview && store.defaults !== UserDefaults.standard && store.keyStore is MemoryKeyStore)
     #expect(store.fileURL.path.hasPrefix(FileManager.default.temporaryDirectory.path) && store.bots.isEmpty)
-    #expect(FirstRun.needsSetup(defaults: store.defaults, keyStore: store.keyStore, bots: store.bots))
-}
-
-/// Default suite: one setup screen through the renderer's own environment, and the repository refusal.
-@MainActor @Test func renderSetupRendersTheWelcomeStepAndRefusesTheRepository() async throws {
-    let store = SetupPreview.makeStore(); store.isSetupPreview = false
-    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
-    let data = try #require(await HeadlessSetup.png(SetupView(preset: SetupFlow()), store: store, updater: updater, size: HeadlessSetup.size))
-    let image = try #require(NSBitmapImageRep(data: data))
-    #expect(image.pixelsWide > 0 && data.count > 4_000, "s1-welcome looks blank")
-    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-    #expect(await HeadlessSetup.render(to: repo.appending(path: "setup-shots"), output: { _ in }) == 2, "refuses a folder inside the repository")
+    #expect(FirstRun.needsWizard(defaults: store.defaults, bots: store.bots))
 }
 
 @MainActor @Test(renderTestsOnly) func renderSetupWritesEveryStepFromASyntheticStore() async throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSetup-\(UUID().uuidString)")
     var lines: [String] = []
     #expect(await HeadlessSetup.render(to: directory, output: { lines.append($0) }) == 0, "\(lines)")
-    let expected = ["s1-welcome", "s-host", "s3-empty", "s3-filled", "s3-error-bad-address", "s3-error-not-encrypted", "s3-error-unreachable",
-                    "s3-error-key-rejected", "s3-error-main-only", "s3-error-bad-line", "s4-choose", "s5-done", "settings-simple",
-                    "empty-state", "editor-folded", "editor-advanced"] + HeadlessInspector.names + HeadlessP32Shots.names + HeadlessCodingShots.names + HeadlessAccountsShots.names + HeadlessP34Shots.names + HeadlessP35Shots.names + HeadlessP36Shots.names + HeadlessP37Shots.names + HeadlessP31DEShots.names + HeadlessP38Shots.names + HeadlessP38DShots.names + HeadlessP40Shots.names + HeadlessP43Shots.names + HeadlessP44Shots.names + HeadlessP45Shots.names
+    let expected = HeadlessHerdrShots.names + ["empty-state", "legacy-notice"]
     var sizes: [String: Int] = [:]
     for name in expected {
         let data = try Data(contentsOf: directory.appending(path: "\(name).png"))
         let image = try #require(NSBitmapImageRep(data: data))
         #expect(image.pixelsWide > 0 && data.count > 4_000, "\(name) looks blank"); sizes[name] = data.count
     }
-    // P21b: the right panel folded and with Advanced open differ.
-    #expect(sizes["inspector-folded"] != sizes["inspector-advanced"] && sizes["group-folded"] != sizes["group-advanced"])
+    #expect(sizes["herdr-w1-where"] != sizes["herdr-w3-main-bot"], "the steps differ")
     let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     #expect(await HeadlessSetup.render(to: repo.appending(path: "setup-shots"), output: { _ in }) == 2, "refuses a folder inside the repository")
 }

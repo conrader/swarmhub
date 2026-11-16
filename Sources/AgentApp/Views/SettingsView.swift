@@ -1,14 +1,12 @@
 import SwiftUI
 
-/// Settings (P21 D1): the simple page, and "Advanced…" switches the same 760×560 window to the pane list.
+/// Settings: the simple page, and "Advanced…" switches the same 760×560 window to the pane list.
 /// Pane views are re-homed, not rewritten (`SettingsLayout.AdvancedPane`).
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var advanced = false
     @State private var pane = SettingsLayout.AdvancedPane.servers
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
-    /// Off (the default): the panes that only serve the older backends are not listed (`LegacySurface.panes`).
-    @AppStorage(LegacySurface.key) private var legacy = false
     var body: some View {
         Group {
             if store.isSetupPreview {
@@ -17,7 +15,7 @@ struct SettingsView: View {
                 NavigationSplitView {
                     VStack(alignment: .leading, spacing: 0) {
                         Button(SimpleCopy.backToSimple) { advanced = false }.buttonStyle(.link).padding(.horizontal, 14).padding(.vertical, 8)
-                        List(LegacySurface.panes(showingLegacy: legacy), selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
+                        List(SettingsLayout.AdvancedPane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
                     }.navigationSplitViewColumnWidth(190)
                 } detail: { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
             } else {
@@ -33,25 +31,15 @@ struct SettingsView: View {
     }
     @ViewBuilder private var content: some View {
         switch pane {
-        case .servers: SettingsAccountPane(cache: store.botInfo)
+        case .servers: SettingsAccountPane()
         case .alerts: SettingsAlertsPane()
-        case .models: SettingsModelsPane(cache: store.botInfo)
-        case .review: SettingsApprovalsPane()
-        case .apps: SettingsConnectedAppsPane(apps: store.connectedApps, chatGPT: .shared)
-        case .computers: SettingsComputersPane()
-        case .usage: SettingsUsagePane()
-        case .account: SettingsSwarmHubAccountPane(center: store.reportsCenter)
-        case .reports: SettingsReportsPane(center: store.reportsCenter)
         case .about: SettingsAboutPane()
         case .voice: SettingsVoicePane()
-        case .chats: SettingsChatsPane()
-        case .heartbeat: SettingsHeartbeatPane()
-        case .orientation: SettingsOrientationPane()
         }
     }
 }
 
-/// P32 8: opens the Settings window on one Advanced pane (a plain `SettingsLink` opens wherever Settings last was).
+/// Opens the Settings window on one Advanced pane (a plain `SettingsLink` opens wherever Settings last was).
 struct SettingsPaneButton: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.openSettings) private var openSettings

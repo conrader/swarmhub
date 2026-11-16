@@ -23,12 +23,17 @@ enum GrokNaming {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: " ", with: "-")
     }
 
-    /// The Hermes profile the app binds a Grok bot to: `grok-` + `profile_slug(name)` when that is a valid profile name,
-    /// else `grok-` + `slugify(name)` (an empty name gives `grok-bot`).
+    /// The bundle's `profile` id for a Grok bot, as the export script writes it: `grok-` + `profile_slug(name)` when
+    /// that is a valid id, else `grok-` + `slugify(name)` (an empty name gives `grok-bot`).
     static func profile(forName name: String) -> String {
         let slug = profileSlug(name)
-        if !slug.isEmpty, HermesKeyPaste.isValidProfileName("grok-" + slug) { return "grok-" + slug }
+        if !slug.isEmpty, isValidProfileName("grok-" + slug) { return "grok-" + slug }
         return "grok-" + slugify(name)
+    }
+
+    /// ASCII letters, digits, `-` and `_`, at most 64 characters.
+    static func isValidProfileName(_ name: String) -> Bool {
+        !name.isEmpty && name.count <= 64 && name.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) && $0.isASCII || $0 == "-" || $0 == "_" }
     }
 
     /// `iso(ms)`: `YYYY-MM-DDTHH:MM:SS.mmmZ` in UTC, by integer arithmetic (no floating point).

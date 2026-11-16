@@ -9,7 +9,7 @@ import SwiftUI
     override init() { super.init(); synthesizer.delegate = self }
     static func text(for message: ChatMessage) -> String? {
         guard message.role == .assistant, message.presentation == .text, !message.isStreaming,
-              message.turnState == .finished || message.metadata["workflowResultID"] != nil else { return nil }
+              message.turnState == .finished else { return nil }
         let text = SwarmhubBlock.visibleText(message.finalText).trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? nil : text
     }

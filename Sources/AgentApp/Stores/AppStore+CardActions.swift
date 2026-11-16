@@ -1,30 +1,27 @@
 import Foundation
 
-/// P38: where a card's answer goes, captured when the card is rendered: a bot's chat or thread, or a group with the
-/// member that wrote the card. Changing the selection never changes it.
-enum ConversationActionTarget: Hashable, Codable, Sendable {
-    case bot(botID: UUID, threadID: UUID?)
+/// Where a card's answer goes, captured when the card is rendered: a bot's chat, or a group with the member that
+/// wrote the card. Changing the selection never changes it.
+enum ConversationActionTarget: Hashable, Sendable {
+    case bot(botID: UUID)
     case group(groupID: UUID, botID: UUID)
     var conversationID: UUID {
         switch self {
-        case .bot(let botID, let threadID): threadID ?? botID
+        case .bot(let botID): botID
         case .group(let groupID, _): groupID
         }
     }
 }
 
 extension AppStore {
-    /// P39: a card's target chat streams (its pick waits for that turn only).
+    /// A card's target chat streams (its pick waits for that turn only).
     func isStreaming(for target: ConversationActionTarget) -> Bool { actionConversation(target).map { isStreaming(in: $0.1) } ?? false }
 
-    /// The bot and conversation a target names, or nil once the bot, thread or group (or the bot's membership) is gone.
+    /// The bot and conversation a target names, or nil once the bot or group (or the bot's membership) is gone.
     func actionConversation(_ target: ConversationActionTarget) -> (Bot, any Conversation)? {
         switch target {
-        case .bot(let botID, let threadID):
-            guard let bot = bots.first(where: { $0.id == botID }) else { return nil }
-            guard let threadID else { return (bot, bot) }
-            guard let thread = bot.threads.first(where: { $0.id == threadID }) else { return nil }
-            return (bot, thread)
+        case .bot(let botID):
+            return bots.first { $0.id == botID }.map { ($0, $0) }
         case .group(let groupID, let botID):
             guard let group = groups.first(where: { $0.id == groupID }), group.memberIDs.contains(botID),
                   let bot = bots.first(where: { $0.id == botID }) else { return nil }
@@ -34,9 +31,8 @@ extension AppStore {
 
     /// A pick on a choices card, or Send on a draft card, of message `sourceID` in `target`. Refused when the card is
     /// not a finished reply, has changed since it was shown (`expected`), was already answered, or (in a group) was
-    /// written by another member. A group answer goes to the card's author only, as a reply to the card.
-    /// P07 gap: Send binds the exact draft to a managed outbound record (`ManagedOutbound`) instead of posting
-    /// "Send it"; the card's metadata keeps the record's intent. Outbound stays FAKE.
+    /// written by another member. A group answer goes to the card's author only, as a reply to the card. Send on a
+    /// draft tells the bot "Send it": the bot does the sending, the app sends nothing itself.
     @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock, choice: String? = nil) -> Bool {
         guard let (bot, conversation) = actionConversation(target),
               let source = conversation.messages.first(where: { $0.id == sourceID }),
@@ -46,30 +42,13 @@ extension AppStore {
         guard blocks.indices.contains(index), blocks[index] == expected else {
             errorMessage = "This card changed. Review the current version before answering it."; return false
         }
-        #if DEBUG
-        if let uiAcceptance {
-            guard case .draft(let draft) = expected, source.metadata["draftSent.\(index)"] == nil else { return false }
-            do {
-                let receipt = try uiAcceptance.recordSend(sourceID: sourceID, conversationID: conversation.id, index: index, draft: draft)
-                source.metadata["draftSent.\(index)"] = receipt.id.uuidString
-                source.metadata["draftSimulation.\(index)"] = "simulated:true, delivered:false"
-                save(); return true
-            } catch { errorMessage = error.localizedDescription; return false }
-        }
-        if UIAcceptanceMode.requested { errorMessage = UIAcceptanceError.unsafeDependency.localizedDescription; return false }
-        #endif
         let key: String, text: String, value: String
         switch expected {
         case .choices(_, let options):
             guard let choice, options.contains(choice) else { return false }
             key = "picked.\(index)"; text = choice; value = choice
-        case .draft(let draft):
-            guard bot.backend == .hermes else {
-                errorMessage = "Managed draft submission requires a Hermes profile with swarmhub-messages installed."; return false
-            }
-            let intent = ManagedOutbound.intent(sourceID: sourceID, index: index)
-            key = "draftSent.\(index)"; value = intent
-            text = ManagedOutbound.instruction(draft: draft, bot: bot.hermesProfile ?? "default", intent: intent)
+        case .draft:
+            key = "draftSent.\(index)"; value = "1"; text = "Send it"
         default: return false
         }
         guard source.metadata[key] == nil else { return false }

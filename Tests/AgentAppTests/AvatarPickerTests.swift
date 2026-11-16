@@ -49,29 +49,6 @@ import Testing
     }
 }
 
-@MainActor @Test func savedAvatarChangesRefreshAnExistingAvatarView() async throws {
-    _ = NSApplication.shared
-    let bot = Bot(name: "Reactive avatar")
-    bot.avatarMark = AvatarMark(shape: "star", colour: "blue")
-    let probe = "picker-reactivity"
-    let key = "\(probe)|\(bot.id)"
-    let host = NSHostingView(rootView: BotAvatar(bot: bot, size: 48, probe: probe))
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless], backing: .buffered, defer: true)
-    window.isReleasedWhenClosed = false; window.contentView = host
-    host.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
-    defer { window.contentView = nil; window.close(); UISmokeProbe.avatarFacts.removeValue(forKey: key) }
-    host.layoutSubtreeIfNeeded()
-    let appeared = await HeadlessE2E.wait(.seconds(2), poll: .milliseconds(25)) {
-        UISmokeProbe.avatarFacts[key]?["words"] as? String == "star/blue"
-    }
-    #expect(appeared)
-    AvatarChoice.mark(shape: "circle", colour: "orange").apply(to: bot)
-    let refreshed = await HeadlessE2E.wait(.seconds(2), poll: .milliseconds(25)) {
-        UISmokeProbe.avatarFacts[key]?["words"] as? String == "circle/orange"
-    }
-    #expect(refreshed, "Saving must refresh the same mounted avatar without reopening the chat.")
-}
-
 @MainActor @Test func pickerBodiesHaveDistinctVisibleRenders() throws {
     _ = NSApplication.shared
     var images: [String: String] = [:]
@@ -86,12 +63,3 @@ import Testing
     }
 }
 
-@MainActor @Test func newAgentEditorSavesTheLookShownBeforeAnySelection() {
-    let seed = "avatar-editor-preview"
-    let fields = BotEditorFields.newAgent(hermesConfigured: false, avatarSeed: seed)
-    let shown = fields.avatar.previewMark(seed: seed)
-    let bot = Bot(name: "Saved agent")
-    fields.avatar.apply(to: bot)
-    #expect(bot.avatarMark == shown)
-    #expect(fields.avatar != .unpicked)
-}

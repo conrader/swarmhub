@@ -1,13 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// The setup window (P21 Part C), its own scene so Settings, the quick switcher, the empty state and the banners can
-/// all open it. Back and Cancel on every step, "Skip for now" on the first; closing the window counts as Cancel.
-/// Only S4's Add writes (`AppStore.commitSetup`), and Hermes' Test runs in memory. OpenClaw's Test saves the Gateway it
-/// connects through (P25 D4); Cancel, Back to the software choice or closing the window forgets it again.
-///
-/// With the older backends hidden (the default) the window is the Herdr wizard: where bots run, Connect, the main bot
-/// and the optional bots. Return goes on when the step is complete, Escape closes, and only the last button writes
+/// The setup window, its own scene so Settings, the quick switcher and the empty state can all open it. It is a
+/// wizard: where bots run, Connect, the main bot and the optional bots. Back and Cancel on every step; closing the
+/// window counts as Cancel. Return goes on when the step is complete, Escape closes, and only the last button writes
 /// (`AppStore.commitSetupWizard`): it then closes the window on the main bot's chat, with the keyboard in its composer.
 struct SetupView: View {
     static let windowID = "setup"
@@ -20,8 +16,6 @@ struct SetupView: View {
     @State private var closed = false
     /// The wizard's last button was pressed and its bots exist: Return in a field and the default button may both ask.
     @State private var finished = false
-    /// Off (the default): the window offers Herdr only (`LegacySurface`).
-    @AppStorage(LegacySurface.key) private var legacy = false
     /// `--render-setup`: start on this state instead of the store's prefill; `presetTesting` shows it with a Test running.
     var preset: SetupFlow?
     var presetTesting = false
@@ -29,38 +23,28 @@ struct SetupView: View {
     /// The size of the window, and of every render of it.
     static let size = CGSize(width: 580, height: 520)
 
-    /// Which of the wizard's four steps is showing; nil on the older paths' screens.
-    private var wizardStep: Int? {
+    /// Which of the wizard's four steps is showing.
+    private var wizardStep: Int {
         switch flow.step {
-        case .welcome: legacy ? nil : 0
+        case .welcome: 0
         case .herdr: 1
         case .mainBot: 2
         case .moreBots: 3
-        default: nil
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let wizardStep {
-                // The optional bots are no step on a server whose only agent program the main bot already has.
-                SetupWizardProgress(current: wizardStep, count: flow.step == .mainBot && flow.herdrOffer != nil && flow.moreChoices.isEmpty ? 3 : 4).padding(.horizontal, 24).padding(.top, 18)
-            }
+            // The optional bots are no step on a server whose only agent program the main bot already has.
+            SetupWizardProgress(current: wizardStep, count: flow.step == .mainBot && flow.herdrOffer != nil && flow.moreChoices.isEmpty ? 3 : 4).padding(.horizontal, 24).padding(.top, 18)
             Group {
                 switch flow.step {
-                case .welcome:
-                    if legacy { SetupWelcomeStep(flow: $flow, samples: samples) } else { SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace) }
-                case .hosting: SetupHostingStep(flow: $flow)
-                case .software: SetupSoftwareStep(flow: $flow)
-                case .address: SetupAddressStep(flow: $flow, testing: testing, test: test)
-                case .openClaw: SetupOpenClawStep(flow: $flow, testing: testing, test: testOpenClaw)
+                case .welcome: SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace)
                 case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr)
                 case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                 case .moreBots: SetupMoreBotsStep(flow: $flow)
-                case .choose: SetupChooseStep(flow: $flow, added: added)
-                case .done: SetupDoneStep(flow: flow, agentName: store.selectedBot?.name)
                 }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(24).padding(.top, wizardStep == nil ? 0 : -6)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(24).padding(.top, -6)
             if let failure { Text(failure).font(.caption).foregroundStyle(.orange).padding(.horizontal, 24) }
             Divider()
             footer.padding(16)
@@ -68,7 +52,7 @@ struct SetupView: View {
         .frame(width: Self.size.width, height: Self.size.height).background(AppColor.panel)
         .onAppear(perform: restart).onChange(of: store.setupGeneration) { _, _ in restart() }
         .onAppear { closed = false }
-        .onDisappear { closed = true; FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonGateway(); abandonHerdr() }
+        .onDisappear { closed = true; FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonHerdr() }
     }
 
     @ViewBuilder private var footer: some View {
@@ -77,22 +61,8 @@ struct SetupView: View {
             Spacer()
             switch flow.step {
             case .welcome:
-                if legacy { Button(SetupCopy.skip) { FirstRun.record(.skipped, in: store.defaults); dismiss() } }
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                if !legacy { Button(WizardCopy.next, action: pickPlace).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
-            case .hosting:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                if legacy { Button(SetupCopy.connectCardTitle) { flow.apply(.connectExisting) }.buttonStyle(.borderedProminent) }
-            case .software:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-            case .address:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(testing ? SetupCopy.testing : SetupCopy.test, action: test).buttonStyle(.borderedProminent)
-                    .disabled(testing || flow.input.address.trimmingCharacters(in: .whitespaces).isEmpty).keyboardShortcut(.defaultAction)
-            case .openClaw:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(testing ? SetupCopy.testing : flow.awaitsPairing ? SetupCopy.testAgain : SetupCopy.test, action: testOpenClaw).buttonStyle(.borderedProminent)
-                    .disabled(testing || flow.openClaw.problem != nil).keyboardShortcut(.defaultAction)
+                Button(WizardCopy.next, action: pickPlace).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             case .herdr:
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
                 if flow.herdrReady, !testing {
@@ -108,15 +78,6 @@ struct SetupView: View {
             case .moreBots:
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
                 Button(finishTitle, action: finishWizard).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            case .choose:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(addTitle, action: add).buttonStyle(.borderedProminent).disabled(!flow.canAdd).keyboardShortcut(.defaultAction)
-            case .done:
-                if let name = store.selectedBot?.name {
-                    Button(SetupCopy.openAgent(name), action: openFirst).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                } else {
-                    Button(SetupCopy.close) { dismiss() }.keyboardShortcut(.defaultAction)
-                }
             }
         }
     }
@@ -129,35 +90,24 @@ struct SetupView: View {
         return more == 0 ? (flow.mainBotName.isEmpty ? WizardCopy.createMain : WizardCopy.create(flow.mainBotName)) : WizardCopy.createBots(more + 1)
     }
 
-    /// P35: with the batch on, Add counts the bots it connects too.
-    private var addTitle: String {
-        guard let scan = flow.boxScan, flow.adoptOn, !scan.adoptable.isEmpty else { return SetupCopy.addButton(flow.chosen.count) }
-        return BoxCopy.addButton(flow.chosen.count + scan.adoptable.count)
-    }
-
-    /// S4's already-added ids for the software chosen.
-    private var added: Set<String> {
-        flow.software == .openClaw ? store.openClawAgentIDs(boundTo: flow.openClawGatewayID) : store.addedProfileIDs
-    }
-
-    /// The saved address and a history-only agent's line prefill the Hermes path only. The wizard opens where
-    /// `AppStore.wizardStart` says; on the main bot of a server that is already set up it reads that server at once.
+    /// The wizard opens where `AppStore.wizardStart` says; on the main bot of a server that is already set up it
+    /// reads that server at once.
     private func restart() {
-        abandonGateway(); abandonHerdr()
-        flow = preset ?? (legacy ? SetupFlow(prefill: store.setupPrefill) : store.wizardStart()); testing = presetTesting; failure = nil; finished = false
+        abandonHerdr()
+        flow = preset ?? store.wizardStart(); testing = presetTesting; failure = nil; finished = false
         if preset == nil, flow.readsSavedServer { testHerdr() }
     }
 
-    private func cancel() { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonGateway(); abandonHerdr(); dismiss() }
+    private func cancel() { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonHerdr(); dismiss() }
 
     private func back() {
         failure = nil
         let tested = flow.herdrServer
         flow.apply(.back)
-        if flow.step == .software || flow.step == .welcome { abandonGateway(); store.abandonSetupHerdr(tested) }
+        if flow.step == .welcome { store.abandonSetupHerdr(tested) }
     }
 
-    /// Closes the forward Herdr's Test opened, unless Add saved its server.
+    /// Closes the forward Connect's Test opened, unless the last button saved its server.
     private func abandonHerdr() { store.abandonSetupHerdr(flow.herdrServer) }
 
     /// Welcome's Continue. "This Mac" needs nothing typed, so it looks for Herdr at once.
@@ -201,63 +151,6 @@ struct SetupView: View {
             store.open(main); store.composerFocus = main.id
             showMainWindow(); dismiss()
         } catch { failure = SetupCopy.failed }
-    }
-
-    /// Forgets the Gateway this run saved at Test (never one that existed before; a no-op after Add kept it).
-    private func abandonGateway() { Task { await store.abandonSetupGateway() } }
-
-    private func testOpenClaw() {
-        guard flow.openClaw.problem == nil, !testing else { return }
-        let draft = flow.openClaw
-        testing = true; failure = nil
-        Task {
-            let tested = await store.testSetupGateway(draft)
-            if closed { await store.abandonSetupGateway(); return }
-            flow.apply(.openClawTest(tested.outcome, gatewayID: tested.gatewayID))
-            if case .connected = tested.outcome { flow.preselect(alreadyAdded: added) }
-            testing = false
-        }
-    }
-
-    private func samples() { store.loadSamples(); FirstRun.dismissed(store.defaults); showMainWindow(); dismiss() }
-
-    private func test() {
-        let input = flow.input, keyStore = store.keyStore, keepSaved = flow.prefill.address != nil
-        testing = true; failure = nil
-        Task {
-            let result = await SetupCheck.run(input, savedKey: { keepSaved ? keyStore.key(for: "hermes") : "" }, session: store.hermesSession)
-            flow.apply(.test(result))
-            if result.succeeded { flow.preselect(alreadyAdded: store.addedProfileIDs) }
-            testing = false
-            // P35: then the box's other bots, quietly; S4 already shows what Test found.
-            guard result.succeeded else { return }
-            let scan = await store.scanBoxForSetup(result, key: input.key)
-            if !closed, flow.result == result { flow.apply(.boxScanned(scan)) }
-        }
-    }
-
-    private func add() {
-        do {
-            let added: [Bot]
-            if flow.software == .openClaw {
-                added = try store.commitSetupOpenClaw(gatewayID: flow.openClawGatewayID, agents: flow.openClawAgents, chosen: flow.chosen)
-            } else {
-                guard let result = flow.result else { return }
-                added = try store.commitSetup(result, key: flow.input.key, chosen: flow.chosen, confirmMove: flow.confirmMove, scan: flow.boxScan)
-            }
-            flow.apply(.add(count: added.count, first: store.selectedBot?.name))
-            // P35: Add is the yes for the listed batch; the manager connects them in its chat.
-            if let scan = flow.boxScan, flow.adoptOn, !scan.adoptable.isEmpty, let manager = store.bots.first(where: {
-                store.isManager($0) && $0.backend == .hermes && ($0.hermesProfile ?? "default") == scan.managerProfile }),
-               store.startAdoption(scan.adoptable, manager: manager) {
-                flow.adopting = scan.adoptable
-            }
-        } catch { failure = SetupCopy.failed }
-    }
-
-    private func openFirst() {
-        if let bot = store.selectedBot { store.open(bot) }
-        showMainWindow(); dismiss()
     }
 
     private func showMainWindow() {

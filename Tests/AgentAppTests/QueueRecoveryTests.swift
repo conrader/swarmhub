@@ -21,7 +21,7 @@ import Testing
     }
 
     func reopen(_ url: URL, _ backend: ScriptedTurnBackend) -> (AppStore, Bot) {
-        let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: url, autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let bot = store.bots[0]; store.selectedBot = bot
         return (store, bot)
     }
@@ -79,7 +79,7 @@ import Testing
         #expect(store.turns.nextMessages.isEmpty && backend.calls.all.isEmpty)
         let restored = bot.messages.filter { bubbles.map(\.id).contains($0.id) }
         #expect(restored.count == 2 && restored.allSatisfy { $0.metadata[SteerKey.steer] == "failed" && store.canSendAsNextMessage($0) })
-        #expect(bot.messages.contains { $0.role == .system && $0.content.contains("not confirmed yet") })
+        #expect(bot.messages.contains { $0.role == .system && $0.content.contains("did not finish") })
         let (third, _) = reopen(url, ScriptedTurnBackend())
         #expect(third.turns.nextMessages.isEmpty, "given back for good")
         original.turns.nextMessages = []; await first.end(); try await waitUntil { !original.anyTurnRunning }
@@ -109,21 +109,4 @@ import Testing
         #expect(!backend.calls.all.contains("send:later"))
     }
 
-    @Test func queuedReviewNotesSurviveAQuit() async throws {
-        let url = temporaryStore()
-        let backend = ScriptedTurnBackend()
-        let (store, bot) = steerStore(backend, url: url)
-        try await startSteerableTurn(store, backend, running: false)
-        let card = ChatMessage(role: .assistant, content: "", presentation: .review, metadata: [ReviewKey.state: "changes", ReviewKey.notes: "Cite the source."])
-        bot.messages.append(card)
-        #expect(store.sendReviewNotes(card) && card.metadata[ReviewKey.sent] == "1")
-        let resumed = ScriptedTurnBackend()
-        let (reopened, copy) = reopen(url, resumed)
-        #expect(reopened.turns.nextMessages.first?.kind == .reviewNotes)
-        copy.messages.first { $0.role == .assistant && $0.presentation == .text }?.turnState = .finished
-        reopened.resumeRestoredNextMessages()
-        try await resumed.calls.wait { $0.contains { $0.hasPrefix("send:Review notes from") } }
-        await resumed.emit(.completed); await resumed.end(); try await waitUntil { !reopened.anyTurnRunning }
-        store.turns.nextMessages = []; await backend.end(); try await waitUntil { !store.anyTurnRunning }
-    }
 }

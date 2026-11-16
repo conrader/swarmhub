@@ -33,32 +33,11 @@ import Testing
     #expect(ChatActivityPhase.current(activity, lastText: nil, now: start.addingTimeInterval(2)) == .thinking)
 }
 
-@Test @MainActor func botThreadAndGroupSidebarUseTheSameReplyPhase() {
-    let start = Date(timeIntervalSince1970: 1_000_000)
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = Bot(name: "Fixture")
-    let group = GroupChat(name: "Team", memberIDs: [bot.id])
-    let assistant = ChatMessage(role: .assistant, content: "", createdAt: start, isStreaming: true)
-    store.beginTurn(in: group, bot: bot, assistant: assistant)
-    #expect(store.workingLine(for: bot, now: start) == "Thinking…")
-    #expect(store.workingLine(for: group, now: start) == "Thinking…")
-    assistant.lastTextAt = start
-    #expect(store.workingLine(for: bot, now: start) == "Typing…")
-    #expect(store.workingLine(for: group, now: start) == "Typing…")
-    #expect(store.workingLine(for: group, now: start.addingTimeInterval(3)) == "Thinking…")
-    let thread = ChatThread(parentMessageID: UUID(), parentSessionID: "parent", hermesSessionID: "thread", messages: [assistant])
-    store.runningTurns = [:]; store.beginTurn(in: thread, bot: bot, assistant: assistant)
-    #expect(store.workingLine(for: bot, now: start) == "Typing…")
-    #expect(store.workingLine(for: group, now: start) == nil)
-    assistant.isStreaming = false
-    #expect(store.workingLine(for: bot, now: start) == nil)
-}
-
 @Test @MainActor func streamEventsDriveActivityAndEmptyChunksDoNotClaimTyping() async throws {
     let backend = PhaseFixtureBackend()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend },
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
                          keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = Bot(name: "Fixture", backend: .hermes, hermesSessionID: "synthetic-phase")
+    let bot = Bot(name: "Fixture", backend: .herdr, sessionID: "synthetic-phase")
     store.bots = [bot]; store.selectedBot = bot
     #expect(store.send(text: "Test")); defer { store.stop() }
     try await waitUntil { await backend.ready }
@@ -95,7 +74,7 @@ import Testing
 }
 
 private actor PhaseFixtureBackend: AgentBackend {
-    nonisolated let kind = BackendKind.hermes
+    nonisolated let kind = BackendKind.herdr
     private var continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation?
     var ready: Bool { continuation != nil }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
@@ -104,8 +83,6 @@ private actor PhaseFixtureBackend: AgentBackend {
     }
     func emit(_ event: AgentEvent) { continuation?.yield(event) }
     func finish() { continuation?.yield(.completed); continuation?.finish(); continuation = nil }
-    func listSessions() async throws -> [BackendSession] { [] }
-    func cancel(sessionID: String) async throws -> StopOutcome { .disconnectedLegacy }
-    func resolveApproval(id: UUID, approved: Bool) async throws {}
+    func cancel(sessionID: String) async throws -> StopOutcome { .noRunControl }
     func testConnection() async throws -> String { "Synthetic" }
 }

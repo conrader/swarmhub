@@ -8,8 +8,6 @@ struct SidebarView: View {
     @Binding var selection: Bot?
     @State private var botToDelete: Bot?; @State private var groupToDelete: GroupChat?
     @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
-    /// Off (the default): what only serves the older backends stays out of the sidebar (`LegacySurface`).
-    @AppStorage(LegacySurface.key) private var legacy = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,8 +36,6 @@ struct SidebarView: View {
                         case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete)
                         }
                     }
-                    BoxNotConnectedSections()
-                    ReportsSidebarRow(center: store.reportsCenter)
                     Button { store.showingHiddenBots.toggle() } label: {
                         HStack(spacing: 6) {
                             Image(systemName: store.showingHiddenBots ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
@@ -52,8 +48,6 @@ struct SidebarView: View {
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
-            // Connected apps reach a Hermes agent through its box; a Herdr agent connects its own tools.
-            if legacy { ConnectAppsSidebarButton().padding(.horizontal, SidebarMetrics.listInset + 4).padding(.top, 8) }
             HStack(spacing: 10) {
                 SettingsLink { RoundSidebarLabel(symbol: nil, text: UserIdentity.initial(of: accountName)) }
                     .buttonStyle(.plain).help("Account and settings").accessibilityLabel("Account")
@@ -78,23 +72,5 @@ struct SidebarView: View {
     @ViewBuilder private func row(_ bot: Bot) -> some View {
         BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete)
         if bot.backend == .herdr { HerdrHelperRows(bot: bot) }
-    }
-}
-
-/// P47: the bottom-left Connect apps control, in the bar's round-icon + pill look. P48: it opens the Connect apps sheet
-/// (`ConnectAppsModal`); the sheet's footer leads on to Settings → Connected apps.
-struct ConnectAppsSidebarButton: View {
-    @EnvironmentObject private var store: AppStore
-    @State private var showing = false
-    var body: some View {
-        Button { showing = true } label: {
-            HStack(spacing: 8) {
-                Image(systemName: SettingsLayout.AdvancedPane.apps.icon).font(.system(size: 12, weight: .semibold))
-                Text(ConnectedAppsCopy.connectAppsLabel).font(.system(size: 13, weight: .medium)).lineLimit(1)
-            }.padding(.leading, 12).padding(.trailing, 16).frame(height: SidebarMetrics.roundButton)
-                .background(Capsule().fill(Color.primary.opacity(0.08))).contentShape(Capsule())
-        }.buttonStyle(.plain).help("Connect and manage your apps").accessibilityLabel(ConnectedAppsCopy.connectAppsLabel)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .sheet(isPresented: $showing) { ConnectAppsModal(apps: store.connectedApps).environmentObject(store) }
     }
 }

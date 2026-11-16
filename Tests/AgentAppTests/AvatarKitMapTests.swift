@@ -41,7 +41,7 @@ import Testing
 
     @Test @MainActor func shapeAndColourSelectionsPreviewAndPersistTheExactChoice() throws {
         let url = temporaryStore()
-        let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let bot = Bot(name: "Picker test"); store.bots = [bot]
         for shape in AvatarKitMap.pickerShapes {
             var choice = AvatarChoice.mark(shape: "star", colour: "blue")

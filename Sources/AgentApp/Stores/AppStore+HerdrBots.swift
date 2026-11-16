@@ -1,7 +1,7 @@
 import Foundation
 
-/// Bots that create bots, on Herdr. Each server has one main bot: the Herdr bot there whose `canManageBots` flag is on
-/// (the same flag the older backends' manager uses; `setCanManageBots` keeps it to one bot per server). On Herdr a bot
+/// Bots that create bots. Each server has one main bot: the Herdr bot there whose `canManageBots` flag is on
+/// (`setCanManageBots` keeps it to one bot per server). On Herdr a bot
 /// is only this app's record, so the main bot does nothing on the server: it asks in its reply (`HerdrBotRequest`).
 /// A request it marked "decided" is created at once; any other waits above the composer for Create or Dismiss, and so
 /// does every request while the main bot's "Ask me before creating bots" is on. Every other bot asks the main bot
@@ -18,6 +18,20 @@ extension AppStore {
     static let herdrUnaskedBotsKey = "herdrBotsCreatedUnasked", herdrUnaskedBotsKept = 20
 
     // MARK: The main bot
+
+    /// Makes `bot` its server's main bot (and takes the role from any other bot there), or takes the role from it.
+    func setCanManageBots(_ bot: Bot, _ on: Bool) {
+        guard on else { bot.canManageBots = false; objectWillChange.send(); save(); return }
+        guard bot.backend == .herdr else { return }
+        let target = connection(of: bot)
+        for other in bots where other.id != bot.id && other.canManageBots && connection(of: other) == target { other.canManageBots = false }
+        bot.canManageBots = true; objectWillChange.send(); save()
+    }
+
+    /// A small line in a bot's chat: app-only, never sent to the agent (`AppOnlyLine`).
+    func notice(_ text: String, in bot: Bot) {
+        bot.messages.append(AppOnlyLine.line(text)); objectWillChange.send(); save()
+    }
 
     /// `bot` is its server's main bot.
     func createsHerdrBots(_ bot: Bot) -> Bool { bot.backend == .herdr && bot.canManageBots && !bot.isReadOnlyArchive }

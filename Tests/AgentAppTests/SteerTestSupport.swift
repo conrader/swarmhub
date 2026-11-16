@@ -4,7 +4,7 @@ import Testing
 
 /// P28: a backend whose streams the test drives event by event; records send, steer and stop calls in order.
 actor ScriptedTurnBackend: AgentBackend {
-    nonisolated let kind = BackendKind.hermes
+    nonisolated let kind = BackendKind.herdr
     nonisolated let calls = AwaitableLog<String>()
     private var streams: [AsyncThrowingStream<AgentEvent, Error>.Continuation] = []
     private let stopFails: Bool, steerFails: Bool, steerless: Bool, steerError: BackendError
@@ -14,7 +14,6 @@ actor ScriptedTurnBackend: AgentBackend {
         self.stopFails = stopFails; self.steerFails = steerFails; self.steerless = steerless; self.steerError = steerError
     }
 
-    func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
     func features() async throws -> Set<String> { steerless ? ["session_chat_streaming"] : ["session_chat_streaming", "run_steer"] }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AgentEvent.self)
@@ -37,10 +36,7 @@ actor ScriptedTurnBackend: AgentBackend {
         if case .serverRun(let run) = target { calls.append("stop:\(run)") }
         return .requested
     }
-    func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { id ?? "s" }
-    func listSessions() async throws -> [BackendSession] { [] }
     func cancel(sessionID: String) async throws -> StopOutcome { .requested }
-    func resolveApproval(id: UUID, approved: Bool) async throws {}
     func testConnection() async throws -> String { "ok" }
 
     /// Yields to the newest stream (or stream `index`, 1-based).
@@ -49,12 +45,14 @@ actor ScriptedTurnBackend: AgentBackend {
         events.forEach { continuation.yield($0) }
     }
     func end(stream index: Int? = nil) { streams[(index ?? streams.count) - 1].finish() }
+    /// Ends the newest stream (or stream `index`) with an error.
+    func fail(_ error: Error, stream index: Int? = nil) { streams[(index ?? streams.count) - 1].finish(throwing: error) }
     var streamCount: Int { streams.count }
 }
 
 @MainActor func steerStore(_ backend: ScriptedTurnBackend, url: URL = temporaryStore()) -> (AppStore, Bot) {
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
-    let bot = Bot(name: "Steer", backend: .hermes, hermesProfile: "default", hermesSessionID: "session-steer")
+    let store = AppStore(storeURL: url, autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Steer", backend: .herdr, sessionID: "session-steer")
     store.bots = [bot]; store.selectedBot = bot
     return (store, bot)
 }

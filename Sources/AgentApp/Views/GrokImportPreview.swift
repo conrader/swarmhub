@@ -7,7 +7,7 @@ struct GrokImportPreview: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 Text("\(bundles.count) bots from Grok Bot").font(.headline)
-                Text("Each bot is bound to its grok-<name> Hermes profile; its key is read from the Keychain when you send. Imported history is read-only and never sent to Hermes.").font(.caption).foregroundStyle(.secondary)
+                Text("Each bot becomes an agent on your Herdr server, with its name, avatar and instructions. Imported history is read-only and never sent to the agent.").font(.caption).foregroundStyle(.secondary)
                 ForEach(bundles, id: \.sourceId) { bundle in
                     let mapped = GrokAvatarMap.map(shape: bundle.avatar?.shape, colour: bundle.avatar?.colour, sourceID: bundle.sourceId)
                     HStack(spacing: 10) {

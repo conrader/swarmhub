@@ -5,12 +5,10 @@ import Testing
 /// Synthetic per-bot backend for group routing: replies with "<name> says hi" (or hangs), records each
 /// created session id and every sent turn (session id + context text).
 actor GroupBackend: AgentBackend {
-    nonisolated let kind = BackendKind.hermes
+    nonisolated let kind = BackendKind.herdr
     let name: String; let hang: Bool
     private(set) var created: [String] = []; nonisolated let sent = AwaitableLog<(session: String, text: String)>(); private(set) var stops = 0
     init(name: String, hang: Bool = false) { self.name = name; self.hang = hang }
-    func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
-    func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { created.append(id ?? "nil"); return id ?? "s" }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         sent.append((request.sessionID, request.messages.last?.content ?? ""))
         let (name, hang) = (name, hang)
@@ -25,9 +23,7 @@ actor GroupBackend: AgentBackend {
     }
     func stopTarget(sessionID: String) async throws -> StopTarget { .serverRun("run-\(name)") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome { stops += 1; return .requested }
-    func listSessions() async throws -> [BackendSession] { [] }
     func cancel(sessionID: String) async throws -> StopOutcome { .requested }
-    func resolveApproval(id: UUID, approved: Bool) async throws {}
     func testConnection() async throws -> String { "ok" }
     func sessions() -> [String] { created }
     func turns() -> [(session: String, text: String)] { sent.all }
@@ -35,9 +31,9 @@ actor GroupBackend: AgentBackend {
 }
 
 @MainActor private func groupStore(_ names: [String], hanging: Set<String> = [], url: URL = temporaryStore()) -> (AppStore, [Bot], [UUID: GroupBackend], GroupChat) {
-    let bots = names.map { Bot(name: $0, backend: .hermes, hermesProfile: "grok-\($0.lowercased().replacingOccurrences(of: " ", with: "-"))") }
+    let bots = names.map { Bot(name: $0, backend: .herdr) }
     let backends = Dictionary(uniqueKeysWithValues: bots.map { ($0.id, GroupBackend(name: $0.name, hang: hanging.contains($0.name))) })
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { bot in backends[bot.id]! }, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
+    let store = AppStore(storeURL: url, autoStart: false, backendFactory: { bot in backends[bot.id]! }, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
     store.bots = bots
     let group = store.createGroup(name: "", memberIDs: bots.map(\.id))!
     return (store, bots, backends, group)
@@ -107,15 +103,13 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
         #expect(AvatarReactions.shared.completions[bot.id] != nil)
         let expected = "group-\(group.id.uuidString.lowercased())-\(bot.id.uuidString.lowercased())"
         #expect(GroupRouting.sessionID(group: group.id, bot: bot.id) == expected)
-        #expect(await backends[bot.id]!.sessions() == [expected])
         #expect(await backends[bot.id]!.turns().map(\.session) == [expected])
-        #expect(group.session(for: bot.id) == expected)
     }
     // Sequential: each later bot sees the earlier replies of this round in its context.
     let jarvisContext = try #require(await backends[bots[2].id]!.turns().first?.text)
     #expect(jarvisContext.hasSuffix("Konrad: Morning, team\nDMT: DMT says hi\nAchilles: Achilles says hi"))
 
-    // A mention goes only to that bot; its context starts after its own last reply; sessions are reused.
+    // A mention goes only to that bot; its context starts after its own last reply.
     #expect(store.send(text: "@achilles one more thing", to: group))
     try await waitUntil { !store.anyTurnRunning }
     #expect(group.messages.suffix(2).map(\.content) == ["@achilles one more thing", "Achilles says hi"])
@@ -124,14 +118,13 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     let achillesTurns = await backends[bots[1].id]!.turns()
     #expect(achillesTurns.count == 2 && achillesTurns[1].text.hasSuffix("since your last reply:]\nJarvis: Jarvis says hi\nKonrad: @achilles one more thing"))
     #expect(!achillesTurns[1].text.contains("Morning, team"))
-    #expect(await backends[bots[1].id]!.sessions().count == 1, "the group session is created once")
 }
 
 @MainActor @Test func stopStopsTheAnsweringBotAndSkipsTheRest() async throws {
     let (store, bots, backends, group) = groupStore(["DMT", "Achilles", "Jarvis"], hanging: ["Achilles"])
     store.send(text: "go", to: group)
     try await backends[bots[1].id]!.sent.wait { $0.count == 1 }
-    #expect(store.turn(in: group)?.botID == bots[1].id && group.hermesSessionID == GroupRouting.sessionID(group: group.id, bot: bots[1].id))
+    #expect(store.turn(in: group)?.botID == bots[1].id)
     store.stop()
     try await waitUntil { !store.anyTurnRunning }
     try await waitUntil { group.messages.contains { $0.role == .system && $0.content.contains("Stop requested") } }
@@ -150,7 +143,7 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
 @MainActor @Test func groupsNeedTwoBotsAndMembershipCanChange() throws {
     let (store, bots, _, group) = groupStore(["DMT", "Achilles"])
     #expect(store.createGroup(name: "Solo", memberIDs: [bots[0].id, bots[0].id]) == nil)
-    let extra = Bot(name: "Doc", backend: .hermes, hermesProfile: "grok-doc"); store.bots.append(extra)
+    let extra = Bot(name: "Doc", backend: .herdr); store.bots.append(extra)
     store.addMember(extra, to: group); store.addMember(extra, to: group)
     store.removeMember(bots[0].id, from: group); store.renameGroup(group, to: "  Crew ")
     #expect(group.memberIDs == [bots[1].id, extra.id] && group.name == "Crew")
@@ -166,27 +159,27 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     store.save()
     let text = try String(contentsOf: url, encoding: .utf8)
     #expect(text.hasPrefix("{") && text.contains("\"version\":2"))
-    let restored = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let restored = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let copy = try #require(restored.groups.first)
     #expect(restored.bots.count == 2 && copy.id == group.id && copy.name == group.name && copy.memberIDs == group.memberIDs)
     #expect(copy.messages.last?.authorID == bots[0].id && copy.session(for: bots[0].id) == "group-x" && copy.isMuted && copy.manualUnread)
 
     // Version 1: a bare array of bots, including a P6 archived Grok group → migrated to a group, same id, archive kept.
     let oldURL = temporaryStore()
-    let dmt = Bot(name: "DMT", backend: .hermes, hermesProfile: "grok-dmt"), achilles = Bot(name: "Achilles", backend: .hermes, hermesProfile: "grok-achilles")
+    let dmt = Bot(name: "DMT", backend: .herdr), achilles = Bot(name: "Achilles", backend: .herdr)
     let archived = Bot(name: "Konrad, DMT, Achilles"); archived.archivedMembers = ["DMT", "Achilles"]; archived.grokSourceID = "group-source"; archived.grokHistoryCount = 2
     try FileManager.default.createDirectory(at: oldURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     try JSONEncoder().encode([dmt, archived, achilles]).write(to: oldURL)
     let history = GrokHistoryStore(directory: oldURL.deletingLastPathComponent().appending(path: "grok-history"))
     try history.merge([ArchivedMessage(id: "a", seq: 1, role: "user", author: "Konrad", text: "hi", timestamp: nil, hidden: false, channel: "chat", to: nil),
                        ArchivedMessage(id: "b", seq: 2, role: "assistant", author: "DMT", text: "yo", timestamp: nil, hidden: false, channel: "chat", to: nil)], sourceID: "group-source", for: archived.id)
-    let migrated = AppStore(storeURL: oldURL, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let migrated = AppStore(storeURL: oldURL, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     #expect(migrated.persistenceEnabled && migrated.bots.map(\.name) == ["DMT", "Achilles"])
     let converted = try #require(migrated.groups.first)
     #expect(converted.id == archived.id && converted.name == "Konrad, DMT, Achilles" && converted.memberIDs == [dmt.id, achilles.id])
     #expect(converted.grokSourceID == "group-source" && migrated.grokHistory.messages(for: converted.id).count == 2)
     #expect(migrated.migratedGroupNames == ["Konrad, DMT, Achilles"])
     #expect(try String(contentsOf: oldURL, encoding: .utf8).contains("\"groups\""), "the migrated store is saved in the new format")
-    let again = AppStore(storeURL: oldURL, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let again = AppStore(storeURL: oldURL, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     #expect(again.groups.count == 1 && again.migratedGroupNames.isEmpty && again.bots.count == 2)
 }

@@ -2,165 +2,62 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// P16 Part 3: Retry reads the box first and sends at most once. SessionServer only, synthetic text.
+// Retry sends a reply that was not sent once more, into the same row. Scripted backends; no network.
 
 /// A bot chat holding one unsent turn: a user row and its empty `notSent` reply row.
-@MainActor private func unsentChat(_ text: String = "please answer", boxSession: Bool = true) -> (AppStore, Bot, SessionServer.State, ChatMessage) {
-    let (store, bots, states) = reconcileStore(bots: ["Alpha"])
-    let bot = bots[0]; store.selectedBot = bot
-    if boxSession { bot.hermesSessionID = "s-alpha"; states[0].with { $0.sessions["s-alpha"] = [] } }
-    let row = ChatMessage(role: .assistant, content: "", metadata: ["why": "offline"], turnState: .notSent)
+@MainActor private func unsentChat(_ backend: ScriptedTurnBackend, text: String = "please answer", ambiguous: Bool = false) -> (AppStore, Bot, ChatMessage) {
+    let (store, bot) = steerStore(backend)
+    var metadata = ["why": "offline"]
+    if ambiguous { metadata[TurnKey.ambiguous] = "1" }
+    let row = ChatMessage(role: .assistant, content: "", metadata: metadata, turnState: .notSent)
     bot.messages = [ChatMessage(role: .user, content: text), row]
-    return (store, bot, states[0], row)
+    return (store, bot, row)
 }
 
-@MainActor @Test func theBoxHasTheTurnSoNothingIsSent() async throws {
-    let (store, bot, box, row) = unsentChat()
-    box.add("s-alpha", "user", "please answer"); box.add("s-alpha", "assistant", "the box answered", finish: "stop")
+@MainActor @Test func retrySendsTheMessageAgainIntoTheSameRow() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot, row) = unsentChat(backend)
+    #expect(store.canRetry(row))
     store.retry(row)
-    #expect(store.anyTurnRunning && row.metadata["check"] == "checking", "the slot is claimed before the first await")
+    #expect(store.anyTurnRunning, "the chat's slot is claimed at once")
+    try await backend.calls.wait { $0.contains("send:please answer") }
+    await backend.emit(.token("Here it is."), .completed); await backend.end()
     try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && row.content == "the box answered" && row.turnState == .finished)
-    #expect(bot.messages.filter { $0.role == .user }.count == 1)
+    #expect(bot.messages.count == 2, "no new row: the reply went into the row that was not sent")
+    #expect(row.content == "Here it is." && row.turnState == .finished && row.metadata[TurnKey.why] == nil)
+    #expect(!store.canRetry(row), "a finished reply offers no Retry")
+    #expect(await backend.calls.all.filter { $0.hasPrefix("send:") }.count == 1, "sent once")
 }
 
-@MainActor @Test func theBoxHasTheUserTurnStillRunningSoNothingIsSent() async throws {
-    let (store, _, box, row) = unsentChat()
-    box.add("s-alpha", "user", "please answer")
+@MainActor @Test func aReplyTheAgentMayAlreadyHaveNeedsASecondTap() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, _, row) = unsentChat(backend, ambiguous: true)
     store.retry(row)
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && row.turnState == .incomplete)
-}
-
-@MainActor @Test func aFailedOrShortReadSendsNothingAndSaysSo() async throws {
-    let (store, bot, box, row) = unsentChat()
-    box.with { $0.networkDown = true }
+    #expect(row.metadata[TurnKey.retry] == "confirm" && !store.anyTurnRunning, "the first tap only asks")
+    #expect(await backend.calls.all.isEmpty)
     store.retry(row)
+    try await backend.calls.wait { $0.contains("send:please answer") }
+    await backend.emit(.token("ok"), .completed); await backend.end()
     try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && row.turnState == .notSent && bot.messages.last?.content == "Alpha: Can't reach the box; nothing was sent.")
-    // The read does not reach back past the row.
-    let (short, shortBot, shortBox, old) = unsentChat()
-    short.reconcileTiming.window = 2; short.reconcileTiming.maxWindows = 1
-    old.metadata = [:]; shortBot.messages[0] = ChatMessage(role: .user, content: "please answer", createdAt: Date().addingTimeInterval(-3_600))
-    let oldRow = ChatMessage(role: .assistant, content: "", createdAt: Date().addingTimeInterval(-3_600), turnState: .notSent); shortBot.messages[1] = oldRow
-    for index in 0..<4 { shortBox.add("s-alpha", "user", "later \(index)"); shortBox.add("s-alpha", "assistant", "reply \(index)", finish: "stop") }
-    shortBot.messages += (0..<4).flatMap { [ChatMessage(role: .user, content: "later \($0)"), ChatMessage(role: .assistant, content: "reply \($0)", turnState: .finished)] }
-    short.retry(oldRow)
-    try await waitUntil { !short.anyTurnRunning }
-    #expect(shortBox.chatPosts.isEmpty && oldRow.turnState == .notSent && shortBot.messages.contains { $0.content.hasSuffix("Can't reach the box; nothing was sent.") })
+    #expect(row.turnState == .finished && row.metadata[TurnKey.retry] == nil && row.metadata[TurnKey.ambiguous] == nil)
 }
 
-@MainActor @Test func whenTheBoxLacksTheTurnExactlyOnePostGoesIntoTheSameRow() async throws {
-    let (store, bot, box, row) = unsentChat()
-    box.with { $0.scripts = [.reply(chunks: ["sent ", "now"])] }
-    store.retry(row); store.retry(row)
-    // uxfix1: a Send during the read waits for the turn in progress (never beside it, never stopping it), then goes.
-    #expect(store.send(text: "typed meanwhile"), "a Send during the read waits for the turn in progress")
-    try await waitUntil { !store.anyTurnRunning && row.turnState == .finished && box.chatPosts.count == 2 }
-    #expect(row.content == "sent now")
-    #expect(SessionServer.inputText(box.chatPosts[0].body?["input"]) == "please answer", "the original row's text, first")
-    #expect(SessionServer.inputText(box.chatPosts[1].body?["input"]) == "typed meanwhile", "the typed message after it")
-    #expect(bot.messages.filter { $0.role == .user }.count == 2 && bot.messages.filter { $0.role == .assistant }.count == 2)
+@MainActor @Test func retryIsOfferedOnlyOnARowThatWasNotSent() {
+    let backend = ScriptedTurnBackend()
+    let (store, bot, row) = unsentChat(backend)
+    let finished = ChatMessage(role: .assistant, content: "done", turnState: .finished)
+    let incomplete = ChatMessage(role: .assistant, content: "half", turnState: .incomplete)
+    bot.messages += [finished, incomplete]
+    #expect(store.canRetry(row) && !store.canRetry(finished) && !store.canRetry(incomplete) && !store.canRetry(bot.messages[0]))
 }
 
-@MainActor @Test func aChatWithoutASessionCannotAuthorizeRetry() async throws {
-    let (store, bot, box, row) = unsentChat(boxSession: false)
+@MainActor @Test func aRetryThatFailsAgainLeavesTheRowNotSentWithItsWarning() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot, row) = unsentChat(backend)
     store.retry(row)
+    try await backend.calls.wait { $0.contains("send:please answer") }
+    await backend.fail(BackendError.http(401, "refused"))
     try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && bot.hermesSessionID == nil && row.turnState == .notSent)
-}
-
-@MainActor @Test func aStopDuringTheReadSendsNothing() async throws {
-    let (store, _, box, row) = unsentChat()
-    store.retry(row); store.stop()
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
-}
-
-@MainActor @Test func retrySendsTheOriginalImages() async throws {
-    let (store, bot, box, row) = unsentChat()
-    let image = try #require(store.prepareAttachment(imageData: syntheticImage(width: 8, height: 8, alpha: false), name: "dot.png"))
-    bot.messages[0] = ChatMessage(role: .user, content: "see", attachments: [image])
-    store.retry(row)
-    try await waitUntil { !store.anyTurnRunning }
-    let parts = try #require(box.chatPosts.first?.body?["input"] as? [[String: Any]])
-    #expect(parts.contains { $0["type"] as? String == "image_url" } && parts.contains { $0["text"] as? String == "see" })
-}
-
-@MainActor @Test func aNewerUnmatchedBoxTurnBlocksTheOneTapSend() async throws {
-    let (store, bot, box, row) = unsentChat()
-    box.add("s-alpha", "user", "typed on another device"); box.add("s-alpha", "assistant", "answered there", finish: "stop")
-    store.retry(row)
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && row.metadata["retry"] == "blocked")
-    #expect(bot.messages.contains { $0.content == "Alpha: Can't match the box's newest message; nothing was sent." })
-    store.retry(row, sendAnyway: true)
-    try await waitUntil { !store.anyTurnRunning && box.chatPosts.count == 1 }
-}
-
-@MainActor @Test func anAmbiguousRowNeedsASecondTap() async throws {
-    let (store, _, box, row) = unsentChat()
-    row.metadata["ambiguous"] = "1"
-    store.retry(row)
-    #expect(!store.anyTurnRunning && row.metadata["retry"] == "confirm" && box.log.all.isEmpty, "the first tap only asks")
-    store.retry(row)
-    try await waitUntil { !store.anyTurnRunning && box.chatPosts.count == 1 }
-}
-
-@MainActor @Test func retryIsOfferedOnlyWhereItCanWork() async throws {
-    let (store, bots, _) = reconcileStore(bots: ["Alpha", "Beta"])
-    let group = try #require(store.createGroup(name: "", memberIDs: bots.map(\.id)))
-    let older = ChatMessage(role: .assistant, content: "", authorID: bots[0].id, turnState: .notSent)
-    let later = ChatMessage(role: .assistant, content: "answered later", authorID: bots[0].id, turnState: .finished)
-    let beta = ChatMessage(role: .assistant, content: "", authorID: bots[1].id, turnState: .notSent)
-    group.messages = [ChatMessage(role: .user, content: "a"), older, beta, ChatMessage(role: .user, content: "b"), later]
-    #expect(!store.canRetry(older), "the member answered a later turn")
-    #expect(store.canRetry(beta))
-    store.removeMember(bots[1].id, from: group)
-    #expect(!store.canRetry(beta), "not a current member")
-    // A legacy-transport bot gets no one-tap Retry.
-    let legacy = Bot(name: "Old", backend: .hermes); store.bots.append(legacy)
-    let row = ChatMessage(role: .assistant, content: "", turnState: .notSent)
-    legacy.messages = [ChatMessage(role: .user, content: "x"), row]
-    store.botFeatures[legacy.id] = ["jobs"]
-    #expect(!store.canRetry(row))
-}
-
-@MainActor @Test func aCutStreamAndARelaunchOnlyRead() async throws {
-    let url = temporaryStore()
-    let (store, bots, states) = reconcileStore(bots: ["Alpha"], url: url)
-    let bot = bots[0]; bot.hermesSessionID = "s-alpha"; states[0].with { $0.sessions["s-alpha"] = [] }
-    states[0].with { $0.scripts = [.eof(chunks: ["half"])] }
-    store.selectedBot = bot
-    #expect(store.send(text: "go"))
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(bot.messages.first { $0.role == .assistant }?.turnState != nil)
-    store.save()
-    let posts = states[0].posts.count
-    let relaunched = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: store.keyStore, defaults: isolatedDefaults(), hermesSession: store.hermesSession)
-    relaunched.reconcileTiming = .fast; relaunched.routines.autoLoad = true
-    relaunched.startLaunchWork(makeConnectivity: { ManualConnectivity() })
-    try await waitUntil { states[0].log.all.filter { $0.method == "GET" && $0.path.hasSuffix("/messages") }.count >= 2 }
-    #expect(states[0].posts.count == posts, "only GETs after a cut stream and a relaunch")
-}
-
-@MainActor @Test func aCleanThreadCannotClearAnUnreadMainChat() async throws {
-    let (store, bot, box, row) = unsentChat(boxSession: false)
-    let thread = ChatThread(parentMessageID: UUID(), parentSessionID: nil, hermesSessionID: "clean-thread")
-    thread.hermesSessionID = "clean-thread"
-    bot.threads.append(thread)
-    box.with { $0.sessions["clean-thread"] = [] }
-    store.retry(row)
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
-}
-
-@MainActor @Test func aTrulyDivergedHistoryStillRefuses() async throws {
-    let (store, bot, box, row) = unsentChat()
-    bot.messages.insert(contentsOf: [ChatMessage(role: .user, content: "earlier question"), ChatMessage(role: .assistant, content: "earlier answer", turnState: .finished)], at: 0)
-    box.add("s-alpha", "user", "something else entirely"); box.add("s-alpha", "assistant", "a different history", finish: "stop")
-    store.retry(row, sendAnyway: true)
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
-    #expect(bot.messages.contains { $0.content == "Alpha: Can't reach the box; nothing was sent." })
+    #expect(row.turnState == .notSent && row.metadata[TurnKey.why] == "refused" && store.canRetry(row))
+    #expect(bot.messages.contains { $0.role == .system && $0.metadata[TurnKey.tone] == "warning" }, "the failure is a line in the chat")
 }

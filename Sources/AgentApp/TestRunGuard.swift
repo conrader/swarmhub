@@ -30,28 +30,12 @@ enum TestRunGuard {
 
     /// `configuration` with the outside-request guard first in a test run.
     static func guarded(_ configuration: URLSessionConfiguration) -> URLSessionConfiguration {
-        #if DEBUG
-        if UIAcceptanceMode.requested {
-            configuration.protocolClasses = [UIAcceptanceRequestGuard.self]
-            configuration.urlCredentialStorage = nil
-            configuration.connectionProxyDictionary = [:]
-            configuration.httpCookieStorage = nil; configuration.urlCache = nil
-        }
-        if QAMode.enabled {
-            configuration.protocolClasses = [QARequestGuard.self] + (configuration.protocolClasses ?? [])
-            configuration.connectionProxyDictionary = [:]
-            configuration.httpCookieStorage = nil; configuration.urlCache = nil
-        }
-        #endif
         if isTestRun { configuration.protocolClasses = [OutsideRequestGuard.self] + (configuration.protocolClasses ?? []) }
         return configuration
     }
 
     /// Stands in for `URLSession.shared` (update check, setup check, template links, computer probe).
     static let sharedSession: URLSession = {
-        #if DEBUG
-        if QAMode.enabled || UIAcceptanceMode.requested { return URLSession(configuration: guarded(.ephemeral)) }
-        #endif
         return isTestRun ? URLSession(configuration: guarded(.default)) : .shared
     }()
 
@@ -62,10 +46,6 @@ enum TestRunGuard {
 
     /// True when `request` may go out; in a test run a non-loopback request is reported and refused.
     static func allows(_ request: URLRequest) -> Bool {
-        #if DEBUG
-        if UIAcceptanceMode.requested { return false }
-        if QAMode.enabled { return QAMode.boundary.allows(request) }
-        #endif
         guard isTestRun, !isLoopback(request.url?.host()) else { return true }
         reportOutsideRequest(request); return false
     }
@@ -85,9 +65,6 @@ enum TestRunGuard {
 
     /// True in a test run: the call to production state is reported and must not be made.
     static func refuses(_ what: @autoclosure () -> String, probe: String? = nil) -> Bool {
-        #if DEBUG
-        if QAMode.enabled || UIAcceptanceMode.requested { return true }
-        #endif
         guard isTestRun else { return false }
         if let sentinel { sentinel.productionAccess(what(), probe: probe) } else { FileHandle.standardError.write(Data("PRODUCTION ACCESS REFUSED (no sentinel): \(what())\n".utf8)) }
         return true

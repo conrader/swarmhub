@@ -133,7 +133,7 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
 /// A bridge without the stream, or one whose stream keeps failing, is polled: the polling routes give the same turn.
 @Test func withoutAStreamTheTurnIsPolled() async throws {
     let polls = Heard<String>()
-    let (host, session) = MockHermesProtocol.serve { request in
+    let (host, session) = MockHTTPProtocol.serve { request in
         let path = request.url?.path ?? ""
         polls.add(path)
         if path.hasSuffix("/draft") {
@@ -187,7 +187,7 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
 
 /// A turn on the stream keeps its bot's helper rows current and takes the bot out of the helper poll meanwhile.
 @MainActor @Test func aStreamedTurnBringsItsBotsHelpers() throws {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     let bot = Bot(name: "Jarvis", backend: .herdr); store.bots = [bot]; store.selectedBot = bot
     #expect(store.herdrHelperWatch().bots == [bot])

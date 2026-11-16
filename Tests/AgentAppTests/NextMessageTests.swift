@@ -59,8 +59,8 @@ import Testing
 
 @MainActor @Test func aFailedGroupSteerIsSentToTheGroupAfterTheRound() async throws {
     let backend = ScriptedTurnBackend(steerFails: true)
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
-    let dmt = Bot(name: "DMT", backend: .hermes, hermesProfile: "default"), achilles = Bot(name: "Achilles", backend: .hermes, hermesProfile: "default")
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let dmt = Bot(name: "DMT", backend: .herdr), achilles = Bot(name: "Achilles", backend: .herdr)
     store.bots = [dmt, achilles]
     let group = try #require(store.createGroup(name: "Pair", memberIDs: [dmt.id, achilles.id]))
     #expect(store.send(text: "@DMT hello", to: group))

@@ -2,51 +2,22 @@ import Combine
 import Foundation
 import AppKit
 import UserNotifications
-import SwarmHubCore
-import SwarmHubCoordination
-import SwarmHubCore
-
 
 @MainActor final class AppStore: ObservableObject {
-    let appContent = AppContent.resolve(target: .mac)
-    #if DEBUG
-    var uiAcceptance: UIAcceptanceBackend?
-    var qaEventRecorder: ((UUID, AgentEvent) -> Void)?
-    #endif
     @Published var bots: [Bot] = []
-    @Published var selectedBot: Bot? { didSet { if selectedBot != nil { selectedBoxProfile = nil } } }
-    @Published var selectedBoxProfile: BoxProfileSelection?
-    /// P39: the running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`), and how many may run at once.
+    @Published var selectedBot: Bot?
+    /// The running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`), and how many may run at once.
     @Published var runningTurns: [UUID: ConversationTurn] = [:]; var turnLimits = TurnLimits()
-    @Published var approvals: [ApprovalRequest] = []
-    /// P06 gap: a bot's pending secret request; the chat shows the secret-entry sheet while it is set. Secret files go to
-    /// `secretFolder` (tests) or `SecretFileWriter.defaultFolder`.
-    /// Test injection for the structured host-local SwarmHub interface (no model turns).
-    var managedDecisionsInFlight: Set<UUID> = []
-    // Keep the mutable Bot and injected control state on the store's actor across suspension points.
-    var managedControl: (@MainActor (Bot, String, String, Data?) async throws -> ManagedRecord)?
-    /// The account home the real control subprocess runs against (tests point it at a temporary runtime layout).
-    var managedHome: URL? = nil
-    /// Test injection for the webhook panel call (`AppStore+WebhookTransport.swift`): argv after `swarmctl` → raw output.
-    var webhookControl: (@MainActor (Bot, [String]) async throws -> String)?
-    /// Test injection for the Alerts pane's call (`AppStore+BoxAlerts.swift`), same shape as `webhookControl`.
-    var alertsControl: (@MainActor (Bot, [String]) async throws -> String)?
-    /// rel066: whether off-app alerts run at all (`AppStore.boxAlertsShipped`); tests of the alerts themselves turn them on.
-    var boxAlertsOn = AppStore.boxAlertsShipped
-    @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
-    @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
-    /// P32 8: the Advanced pane the Settings window shows when it next opens or is already open; it clears it.
+    /// The Advanced pane the Settings window shows when it next opens or is already open; it clears it.
     @Published var settingsPane: SettingsLayout.AdvancedPane?
-    /// P10d: the Grok Bot import sheet, and whether Grok Bot is on this Mac at all (Tier 1: existence checks only,
-    /// run once, on first use; false hides every door).
+    /// The Grok Bot import sheet, and whether Grok Bot is on this Mac at all (existence checks only, run once, on first
+    /// use; false hides every door).
     @Published var showingGrokImport = false
-    /// P21: what the setup window opens with (bumping `setupGeneration` restarts it), and `--setup-preview` (throwaway
-    /// store, keys and settings; Settings are off).
-    @Published var setupPrefill = SetupPrefill(); @Published var setupGeneration = 0; var isSetupPreview = false
-    /// P25: the Gateway this setup-window run saved at Test; forgotten again unless Add keeps it.
-    var setupCreatedGatewayID: String?
+    /// Bumping `setupGeneration` restarts the setup window; `--setup-preview` runs on a throwaway store, keys and
+    /// settings (Settings are off).
+    @Published var setupGeneration = 0; var isSetupPreview = false
     /// The port forwards this app opened to Herdr servers reached over SSH (`AppStore+Herdr.swift`).
     let herdrTunnels = HerdrTunnels()
     /// The helper agents each Herdr bot's agent has now, by bot (`AppStore+HerdrHelpers.swift`); the helper open in the
@@ -65,184 +36,82 @@ import SwarmHubCore
     /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
     var herdrSettling: Set<String> = []
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
-    /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
+    /// The sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
     @Published var infoTab = AgentInfoTab.overview
     @Published var editingBot: Bot?; @Published var errorMessage: String?
-    /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
-    @Published var prefixIgnoredHermesProfiles: Set<String> = []
-    /// P4 chat: per-bot `/v1/capabilities` flags, the open thread of the selected bot, and a message the transcript
-    /// should scroll to (Media tab). Whether a running turn takes steers lives on its slot (P39).
-    @Published var botFeatures: [UUID: Set<String>] = [:]; @Published var openThreadID: UUID?
+    /// A message the transcript should scroll to (Media tab).
     @Published var scrollTarget: UUID?
-    /// P38: a saved document on its way from the Media tab into a chat's composer.
+    /// A saved document on its way from the Media tab into a chat's composer.
     @Published var pendingComposerAttachment: PendingComposerAttachment?
-    /// P38: each agent's last token-usage reading, shown at once when its Activity tab opens again.
-    var botUsageCache: [UUID: (report: BotUsage, at: Date)] = [:]
-    /// P28 D2: the one-time caption under the composer after the first steer.
+    /// The one-time caption under the composer after the first steer.
     @Published var steerHint: String?
-    /// P5 group chats; `selectedGroup` wins over `selectedBot` in the detail column.
+    /// Group chats; `selectedGroup` wins over `selectedBot` in the detail column.
     @Published var groups: [GroupChat] = []
-    @Published var selectedGroup: GroupChat? { didSet { if selectedGroup != nil { selectedBoxProfile = nil } } }
+    @Published var selectedGroup: GroupChat?
     @Published var showingNewGroup = false
     var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
-    let botInfo = BotInfoCache()
-    @Published var connectorChecks: Set<UUID> = []
-    /// P34: bot-to-bot threads (session lists, arrivals, loaded lines) and the thread sheet open now.
-    let botMessages = BotMessageCenter(); @Published var openBotThread: BotThreadKey?
-    /// P42: live cards for work another bot, a routine or a late reply started.
-    let botWork = BotWorkCenter()
-    /// P13 app-wide model defaults (store.json, this install only); empty until set in Settings → Models.
-    @Published var modelDefaults = ModelDefaults()
-    /// P37 D2: Settings → Approvals (checked after each bot's own lines) and SwarmHub-wide review-after lines.
-    @Published var globalApprovalRoutes: [ApprovalRoute] = []; @Published var globalReviewAfter: [ReviewAfterRule] = []
-    var reviewTimeout: Duration = .seconds(600)
-    /// P22 bot manager: open management exchanges per manager bot, a request for a chat's composer, "Add" offers from a
-    /// `bots` list, the clock the exchange window uses, and the new-profile probe's retries (~10 s).
-    var managementExchanges: [UUID: ManagementExchange] = [:]; @Published var composerFill: ComposerFill?
-    @Published var botOffers: [UUID: [BotOffer]] = [:]; var now: () -> Date = { .now }
-    var botProbeAttempts = 4; var botProbeDelay: Duration = .milliseconds(2500)
-    /// P35: profiles on each box with no bot yet (keyed by `connection(of:)`), the batch the confirmation sheet asks
-    /// about, connections discovered this launch, and the names each manager's "Connect bots" turn was asked for.
-    @Published var boxProfiles: [String: [BoxProfile]] = [:]; @Published var adoptionOffer: AdoptionOffer?
-    /// P36: the Reports inbox (main window) and its center (inbox, SwarmHub account).
-    @Published var showingReports = false
-    /// P38 B: Composio app connections, their receipts and the SwarmHub connection service (tests may replace it).
-    lazy var connectedApps: ConnectedAppsStore = makeConnectedApps()
-    private(set) lazy var reportsCenter = ReportsCenter(fileURL: persistenceEnabled ? fileURL.deletingLastPathComponent().appending(path: "reports.json") : nil, keyStore: keyStore, now: now())
-    /// P31 C: the Accounts sheet per Hermes connection (`connection(of:)`).
-    @Published var codingAccounts: [String: AccountsState] = [:]
-    /// P31 D+E: each box's last `models` and `box_capacity` reports (store.json), the checks running now and why the last
-    /// one failed, and the sub-agent model sheet.
-    @Published var boxReadings: [String: BoxReadings] = [:]; @Published var boxChecks: Set<BoxCheck> = []
-    @Published var boxCheckProblems: [BoxCheck: String] = [:]; @Published var subAgentModelRequest: SubAgentModelRequest?
-    var discoveredConnections: Set<String> = []; var pendingAdoptions: [UUID: [String]] = [:]
-    /// Tests: the manager text template instead of the bundled resource.
-    var managerTemplateOverride: String?
-    /// P6b: bundle-configurable settings (`AppStore+Config.swift`); compiled values in tests, demo and preview stores.
-    var appConfig = AppConfig.compiled
-    /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot); what
-    /// that turn asked for, checked when it ends (`AppStore+SkillInstallChecks.swift`).
-    /// uxfix1-e2e: the commit unchanged skill files are fetched from on the box (`SkillFetch`); nil writes every file as a heredoc.
-    var skillSourceSHA: String? = SkillFetch.buildCommit()
-    var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]; var pendingSkillChecks: [UUID: [SkillInstallCheck]] = [:]
-    /// Skill dev mode: per manager, what the box did with each "profile/skill" of the running legacy install turn.
-    var skillDevOutcomes: [UUID: [String: SkillDevMode.Outcome]] = [:]
-    /// A legacy all-bots batch's remaining profiles per manager, and the token of its install turn in flight.
-    var allBotsSkillQueue: [UUID: [SkillGap]] = [:]; var allBotsSkillTurn: [UUID: UUID] = [:]
-    /// 0.6.4: the bots of the all-bots install turn in flight, and those that must go one per turn (their batch was refused).
-    var allBotsSkillBatch: [UUID: [SkillGap]] = [:]; var allBotsSkillSolo: [UUID: Set<UUID>] = [:]; var allBotsBatchLimit = 8
-    /// Source profiles whose copies were not confirmed, excluded for the rest of this all-bots run.
-    var allBotsSkillBadSources: [UUID: Set<String>] = [:]
-    var skillInstallResults: [UUID: SkillInstallResult] = [:]
-    var peerEnableCalls: [UUID: PeerPluginEnablement.Call] = [:]
-    /// The task that redraws when the next failed install's backoff ends, and its sleep (tests return at once).
-    var skillRetryRedraw: Task<Void, Never>?; var skillRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// autoctx1: the pause before a setup turn's next attempt (tests return at once).
-    var setupRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// uxfix1: waits before a user's turn that never left the Mac is sent again (none in tests unless a test sets them).
+    /// The clock (tests set it).
+    var now: () -> Date = { .now }
+    /// Waits before a user's turn that never left the Mac is sent again (none in tests unless a test sets them), and the
+    /// pause itself (tests return at once).
     var sendRetryDelays: [Duration] = TestRunGuard.isTestRun ? [] : [.seconds(1), .seconds(3), .seconds(8), .seconds(15)]
-    lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
-    /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
+    var sendRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// Unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
-    /// P50: where each chat was left and whether it is away from the newest message.
+    /// Where each chat was left and whether it is away from the newest message.
     let chatScroll = ChatScrollModel()
-    /// P51: folded technical rows the user opened (memory only).
+    /// Folded ```swarmhub lines the user opened (memory only).
     let technicalFolds = TechnicalFolds()
-    let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
-    let webhooks = WebhooksCache()
-    /// Off-app alerts per server and the presence lease (`AppStore+BoxAlerts.swift`).
-    let boxAlerts = BoxAlertsCache()
-    /// recs1: suggestion state (the ledger, a prefilled routine editor to open); `AppStore+BotSuggestions.swift`.
-    let suggestions = BotSuggestionBook()
-    let approvalKeys: any DeviceApprovalKeyStore
-    let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
-    /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).
+    let keyStore: any KeyStore; let defaults: UserDefaults
+    /// Turn bookkeeping, the token autosave interval and the connectivity events (injectable).
     let turns = TurnBook(); var autosaveInterval: Duration = .seconds(2); var connectivity: (any ConnectivitySource)?
-    var reconcileTiming = ReconcileTiming.standard
-    /// P38 D: the execution ledger (`runtime.sqlite`, opened by `journal()`), and the workflows it holds.
-    var runtime: (any RuntimeStoring)?; @Published var workflows: [UUID: Workflow] = [:]
-    let teamLease = TeamDispatchLease()
-    var teamRecovering = false
-    var teamAppReviewsInFlight: Set<UUID> = []
-    @Published var projectFacts: [ProjectFact] = []
+    /// The execution ledger (`runtime.sqlite`, opened by `journal()`).
+    var runtime: (any RuntimeStoring)?
     let fileURL: URL
-    var botPromptSync: BotPromptSyncStore?
-    @Published var botPromptSyncWarning: String?
-    /// autoctx1: a set-aside store (`store.json.corrupt-*`, a backup) this launch offers to restore (`AppStore+StoreRestore.swift`).
+    /// A set-aside store (`store.json.corrupt-*`, a backup) this launch offers to restore (`AppStore+StoreRestore.swift`).
     @Published var storeRestoreOffer: StoreRestore.Offer?; @Published var storeRestoreNote: String?
-    /// autoctx1: this launch moved an unreadable store.json aside (so saving is off until Restore or Start fresh).
+    /// This launch moved an unreadable store.json aside (so saving is off until Restore or Start fresh).
     private(set) var unreadableStoreSetAside = false
+    /// The line that says bots of an older version were removed and where the backup is (`LegacyStore`); shown until dismissed.
+    @Published var legacyNotice: String?
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
-    var historyLoadTokens: [UUID: UUID] = [:]
-    /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `AppConstants.selfTestPrefix`.
+    /// Prepended to every session id the app creates (chat, group).
     var sessionNamespace = ""
     private(set) var persistenceEnabled = true
     let backendFactory: ((Bot) throws -> any AgentBackend)?
-    /// P12: saved OpenClaw Gateways (no secrets) and the hub, created on first use so nothing connects at launch.
-    @Published var openClawGateways: [OpenClawGateway] = []
-    var injectedOpenClawHub: OpenClawHub?; var openClawWakeObserver: NSObjectProtocol?
-    private(set) lazy var openClawHub: OpenClawHub = makeOpenClawHub()
     let didCancelLocalStream: (() -> Void)?
-    let reviewerTimeout: Duration
-    /// P12: the wait until a Gateway approval expires (a test ends it when it chooses, not on the wall clock).
-    var approvalExpirySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// P38 D: the wait until a workflow's 30-minute limit (a test ends it when it chooses).
-    var workflowSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// P43: the 5 s pause of a routine run's watch (tests inject it).
-    var routineWatchSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// P45: each chat's goal, loop and heartbeat (`AppStore+Goals.swift`, `AppStore+Schedules.swift`), the ticker that
-    /// runs loops and heartbeats while the app is open, and its pause (tests drive `automationTick()` themselves).
-    @Published var automations: [UUID: ChatAutomation] = [:]; var automationTask: Task<Void, Never>?
-    /// P45 6: the chat whose `@Bot` message waits for the messaging skill (its composer shows the install offer).
-    @Published var mentionSkillOffer: UUID?
-    /// P46: heartbeats as Hermes routines (`AppStore+BotHeartbeat.swift`) and the live read of each bot's Bot Chat.
-    @Published var heartbeatSettings = HeartbeatSettings(); var liveRows = LiveRowsState()
-    /// P49: the orientations being checked or sent now and the last retry pass (memory only).
-    var orientationRun = OrientationRunState()
-    /// P46 4: an "Apply to…" under way and each bot's last problem (memory only); the zone heartbeat hours are in.
-    @Published var heartbeatBatch = HeartbeatBatchState(); var heartbeatTimeZone = TimeZone.current
-    var automationSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// P42: the pause between reads of a live card's session (tests inject it).
-    var botWorkSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// The launch work of a real window runs (`startLaunchWork`): off in tests, headless commands and the demo.
+    var launchWorkEnabled = false
 
-    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil, approvalKeys: any DeviceApprovalKeyStore = ApprovalKeychainStore()) {
-        #if DEBUG
-        if UIAcceptanceMode.requested {
-            do {
-                guard let backendFactory, !demoMode, connectivity == nil, openClawHub == nil else { throw UIAcceptanceError.unsafeDependency }
-                try UIAcceptanceIsolation.validate(backend: backendFactory(Bot(name: "Acceptance dependency probe", backend: .mock)),
-                    keys: keyStore, autoConfigure: autoConfigureHermes, storeURL: storeURL, root: UIAcceptanceIsolation.directory,
-                    isolatedDefaults: defaults !== UserDefaults.standard, hermesURL: defaults.string(forKey: "hermesBaseURL"), connectors: [])
-            } catch { UIAcceptanceMode.refuse(error.localizedDescription) }
-        }
-        #endif
-        // P6b: only the real install reads the installed bundle's settings, once per launch.
-        if storeURL == nil, !demoMode, !TestRunGuard.isTestRun { appConfig = Self.launchConfig }
-        // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.
+    /// `autoStart`: the launch work a real window does. Tests and headless commands pass false.
+    /// `readOnly`: the store is read and never written (`--render-snapshot`): no save, no backup, no one-time
+    /// migration, no setting. Bots of an older version are then only left out of what is shown.
+    init(demoMode: Bool = false, storeURL: URL? = nil, autoStart: Bool = true, readOnly: Bool = false, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, keyStore: any KeyStore = KeychainKeyStore(), defaults: UserDefaults = .standard, connectivity: (any ConnectivitySource)? = nil) {
+        // A test run never opens the real store.json or the standard defaults; either is reported and replaced.
         var storeURL = storeURL, defaults = defaults
         if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {
             storeURL = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-unguarded-\(UUID().uuidString)/store.json")
         }
         if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = TestRunGuard.scratchDefaults("unguarded-\(UUID().uuidString)") }
-        self.approvalKeys = approvalKeys
-        self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
-        injectedOpenClawHub = openClawHub
+        self.keyStore = keyStore; self.defaults = defaults; self.connectivity = connectivity
         self.backendFactory = backendFactory
         self.didCancelLocalStream = didCancelLocalStream
-        self.reviewerTimeout = reviewerTimeout
         let directory = storeURL?.deletingLastPathComponent() ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appending(path: "AgentApp", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); fileURL = storeURL ?? directory.appending(path: "store.json")
-        do {
-            botPromptSync = try BotPromptSyncStore(fileURL: demoMode ? nil : directory.appending(path: "bot-prompt-sync.json"))
-        } catch { botPromptSyncWarning = "Saved bot prompt settings could not be loaded. Chat is using local settings; the sync file was kept unchanged." }
+        if readOnly { persistenceEnabled = false }
         if demoMode {
             persistenceEnabled = false
             loadDemoData(includeActivity: true)
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                adoptStoreFile(try StoreFile.decode(Data(contentsOf: fileURL)))
+                let original = try Data(contentsOf: fileURL)
+                let file = try StoreFile.decode(original)
+                // The backup comes before anything this launch may write.
+                let backup = backUpOlderStore(file, original: original)
+                adoptStoreFile(file)
+                if let backup { removeLegacyBots(file.removedBots, backup: backup) }
             } catch {
                 persistenceEnabled = false
                 let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
@@ -251,96 +120,83 @@ import SwarmHubCore
                 catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
                 if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
             }
-            if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
-            // autoctx1: a store set aside unreadable (or one that holds only the seeded bot) is offered back, never replaced.
+            if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+            // A store set aside unreadable is offered back, never replaced.
             storeRestoreOffer = StoreRestore.offer(directory: directory, store: fileURL, current: persistenceEnabled ? bots : [], declined: declinedRestores)
         } else if let offer = StoreRestore.offer(directory: directory, store: fileURL, current: [], declined: declinedRestores) {
-            // autoctx1: never seed a default 127.0.0.1 bot over a store that can be restored; the prompt asks first.
             storeRestoreOffer = offer
-        } else if hermesConfigured {
-            seedDefaultHermesBot()
         }
-        // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
-        if !demoMode { migrateManagerRole(); migrateSampleBots(); loadOpenClawGateways() }
-        if !demoMode { restoreLedger(); scheduleSkillRetryRedraw() }
-        if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
+        // A fresh install starts empty; the setup window or "Look around with sample agents" fills it.
+        if !demoMode, !readOnly { legacyNotice = defaults.string(forKey: LegacyStore.noticeKey); migrateSampleBots(); restoreLedger() }
         selectVisibleChat()
-        if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
-        botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad; webhooks.autoLoad = botInfo.autoLoad; botWork.autoStart = botInfo.autoLoad
-        if botInfo.autoLoad { startAutomationTicker() }
+        launchWorkEnabled = !demoMode && autoStart
         if connectivity != nil { listenForConnectivity() }
     }
 
-    /// The decoded store becomes this window's state (launch, and autoctx1's restore of a set-aside store).
+    /// The decoded store becomes this window's state (launch, and the restore of a set-aside store).
     func adoptStoreFile(_ file: StoreFile) {
-        bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
-        globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
-        boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
-        approvals = file.managedApprovals ?? []
-        restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init(); chatScroll.restore(file.scrollPositions)
+        bots = file.bots; groups = file.groups
+        chatScroll.restore(file.scrollPositions)
         turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
         if !migrateArchivedGroups().isEmpty { save() }
-        var migratedLegacyApprovalRules = false
-        for bot in bots {
-            let legacyRules = bot.approvalRules.filter {
-                $0.actionPattern == "read*" && $0.commandPattern == "*" && $0.outcome == .allow
-            }
-            guard !legacyRules.isEmpty else { continue }
-            let legacyRuleIDs = Set(legacyRules.map(\.id))
-            bot.approvalRules.removeAll { legacyRuleIDs.contains($0.id) }
-            for rule in legacyRules {
-                bot.approvalAudit.append(.init(
-                    approvalID: rule.id,
-                    actionKind: rule.actionPattern,
-                    outcome: .denied,
-                    decidedBy: "system:migration",
-                    reason: "Migration removed legacy broad read*/* automatic-allow rule."
-                ))
-            }
-            if bot.approvalAudit.count > 500 { bot.approvalAudit.removeFirst(bot.approvalAudit.count - 500) }
-            migratedLegacyApprovalRules = true
-        }
-        if migratedLegacyApprovalRules { save() }
     }
-    /// autoctx1: a restored store is this launch's store again, saved as store.json.
-    func adoptRestoredStore(_ file: StoreFile) {
+
+    /// A store an older build wrote (`LegacyStore`): the file is copied, byte for byte as it was read, to a dated backup
+    /// beside it, before this launch writes anything. Returns the backup, or nil for a store this build wrote itself.
+    /// Without a backup nothing is written: saving is off for the launch.
+    func backUpOlderStore(_ file: StoreFile, original: Data) -> URL? {
+        guard file.isOlder, persistenceEnabled else { return nil }
+        do { return try LegacyStore.writeBackup(original, store: fileURL, now: now()) }
+        catch { persistenceEnabled = false; errorMessage = LegacyStore.backupFailed; return nil }
+    }
+
+    /// After the backup: the store is saved as this build keeps it, so the next launch finds nothing to back up. Bots
+    /// of a removed backend are gone from it with what only belonged to them (their place in groups, a group that had
+    /// no other member, their settings); bots that run on Herdr are not touched. When bots were removed the person is
+    /// told once, in one line that stays until it is dismissed.
+    func removeLegacyBots(_ removed: [LegacyStore.RemovedBot], backup: URL) {
+        guard !removed.isEmpty else { save(); return }
+        let gone = Set(removed.map(\.id)), kept = Set(bots.map(\.id))
+        let touched = Set(groups.filter { !gone.isDisjoint(with: $0.memberIDs) }.map(\.id))
+        for group in groups { group.memberIDs.removeAll { gone.contains($0) } }
+        // A group that lost a member and has no bot left to answer in it goes with them.
+        groups.removeAll { touched.contains($0.id) && kept.isDisjoint(with: $0.memberIDs) }
+        if selectedGroup.map({ selected in !groups.contains { $0 === selected } }) == true { selectedGroup = nil }
+        for id in gone { forgetBotSettings(id) }
+        let notice = LegacyStore.notice(removed: removed.count, backup: backup)
+        defaults.set(notice, forKey: LegacyStore.noticeKey); legacyNotice = notice
+        save()
+    }
+
+    func dismissLegacyNotice() { defaults.removeObject(forKey: LegacyStore.noticeKey); legacyNotice = nil }
+
+    /// A restored store is this launch's store again, saved as store.json.
+    func adoptRestoredStore(_ file: StoreFile, original: Data) {
         persistenceEnabled = true; unreadableStoreSetAside = false
+        let backup = backUpOlderStore(file, original: original)
         adoptStoreFile(file)
-        if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+        if let backup { removeLegacyBots(file.removedBots, backup: backup) }
+        if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
     }
-    /// autoctx1: Start fresh after an unreadable store.json was moved aside: this window saves again, as a fresh install
-    /// would. Never while a store.json is there (the move failed, or another window wrote one): saving would replace it.
+    /// Start fresh after an unreadable store.json was moved aside: this window saves again, as a fresh install would.
+    /// Never while a store.json is there (the move failed, or another window wrote one): saving would replace it.
     func resumeSavingAfterSetAside() {
         guard !persistenceEnabled, unreadableStoreSetAside, !FileManager.default.fileExists(atPath: fileURL.path) else { return }
         persistenceEnabled = true; unreadableStoreSetAside = false
         if errorMessage?.hasPrefix("The saved store could not be decoded.") == true { errorMessage = nil }
     }
-    func seedDefaultHermesBot() {
-        let bot = Bot(name: "Hermes", title: "Hermes Agent", description: StoreRestore.seedDescription, backend: .hermes, hermesProfile: "default")
-        bots = [bot]; save()
-    }
-    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, openClaw: OpenClawBinding? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); bot.openClaw = backend == .openClaw ? openClaw : nil; avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
+    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
+    /// A template becomes a Herdr bot on the first server: its name, title, description, instructions and avatar.
     @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {
         let manifest = plan.manifest
-        let memories = manifest.memories.map { "\($0.name): \($0.value)" }
-        let bot = Bot(
-            name: manifest.name, title: manifest.title, description: manifest.description,
-            persona: manifest.instructions, backend: plan.herdr ? .herdr : hermesConfigured ? .hermes : .mock,
-            avatarName: plan.avatarName, memorySummary: memories.joined(separator: "\n"),
-            skills: manifest.skills.map(\.name), importedMemories: memories,
-            importedSkills: manifest.skills, requestedConnectorIDs: plan.mappedConnectorIDs,
-            gettingStartedSkill: manifest.gettingStartedSkill, routines: plan.routines,
-            hermesProfile: hermesConfigured && !plan.herdr ? (plan.hermesProfile ?? "default") : nil
-        )
-        // Imported data remains inert: connectors require grants, cron routines stay disabled, and skills (the
-        // getting-started one included) stay uninstalled until Install in the Overview (P32); no server mutation here.
-        bot.routines.indices.forEach { bot.routines[$0].isEnabled = false }
-        bot.gettingStartedSkill?.isEnabled = false
-        if plan.herdr { setHerdrServer(herdrServers[0].id, for: bot) }
+        let bot = Bot(name: manifest.name, title: manifest.title, description: manifest.description, persona: manifest.instructions, backend: .herdr, avatarName: plan.avatarName)
+        setHerdrServer(herdrServers[0].id, for: bot)
         bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot
     }
-    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save(); alertProfilesLeft(bot) }
-    /// Writes store.json; a failed write is reported once per streak (P16) instead of being swallowed.
+    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save() }
+    /// Writes store.json; a failed write is reported once per streak instead of being swallowed.
+    var storeFile: StoreFile { StoreFile(bots: bots, groups: groups, scrollPositions: chatScroll.stored) }
+
     func save() {
         guard persistenceEnabled else { return }
         do {
@@ -351,104 +207,62 @@ import SwarmHubCore
             turns.saveFailing = true
         }
     }
-    /// Sends into the open thread or the main chat. While that chat's turn streams, the text steers it when the
-    /// server has `run_steer`; otherwise (uxfix1) it waits as the chat's next message, and the turn is never stopped.
-    /// Other chats never block it (P39); when the turn limit is reached the message waits as the chat's next message.
+    /// Sends into the selected bot's chat. While that chat's turn streams, the text steers it when the agent takes
+    /// steers; otherwise it waits as the chat's next message, and the turn is never stopped. Other chats never block
+    /// it; when the turn limit is reached the message waits as the chat's next message.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
-        guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
-        let conversation = currentConversation(of: bot)
-        guard isIdle(conversation) else { return steer(text: text, attachments: attachments, bot: bot) }
-        guard send(text: text, attachments: attachments, bot: bot, conversation: conversation, replyToID: replyTo?.id, waitWhenFull: true) else { return false }
+        guard let bot = selectedBot, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        guard isIdle(bot) else { return steer(text: text, attachments: attachments, bot: bot) }
+        guard send(text: text, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true) else { return false }
         replyTo = nil
         return true
     }
-    /// P38: a new turn in `conversation` (the bot's chat or one of its threads), whatever is selected; never steers.
-    /// P39: refused while that chat has a turn; at the turn limit it is refused, or waits as the chat's next message
-    /// (`waitWhenFull`, the composer), as does a message sent while earlier ones still wait there.
+    /// A new turn in `conversation` (the bot's chat), whatever is selected; never steers. Refused while that chat has
+    /// a turn; at the turn limit it is refused, or waits as the chat's next message (`waitWhenFull`, the composer), as
+    /// does a message sent while earlier ones still wait there.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?, waitWhenFull: Bool = false,
                                  metadata: [String: String] = [:]) -> Bool {
-        guard !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
+        guard !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         guard isIdle(conversation) else { return false }
         let full = turnCapacityProblem(for: [bot])
         if let full, !waitWhenFull { errorMessage = full; return false }
-        guard !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id) else { errorMessage = "This workflow task was reassigned. Continue from the workflow."; return false }
-        if let team = teamWorkflow(in: conversation),
-           team.tasks.first(where: { $0.threadID == conversation.id })?.delivery?.state != .dispatching {
-            errorMessage = "Use the team controls to add instructions or retry confirmed unsent work."; return false
-        }
         let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
         do {
             try validateArtifactAccess(user, botID: bot.id)
             activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))
         } catch { errorMessage = error.localizedDescription; return false }
-        historyLoadTokens[bot.id] = nil; steerHint = nil
+        steerHint = nil
         captureAttachments(user, readers: [bot.id])
         conversation.messages.append(user)
-        noteSuggestionAnswer(user, bot: bot, in: conversation)
         if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) { return waitForTurn(user, in: conversation, reason: reason) }
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true
     }
-    /// Starts the 1:1 or thread turn answering `user`, a row of `conversation`. The reply goes right under it and the turn
-    /// sends the chat only up to it: messages queued after it (uxfix1-e2e) wait below and go in their own turns.
+    /// Starts the turn answering `user`, a row of `conversation`. The reply goes right under it and the turn sends the
+    /// chat only up to it: messages queued after it wait below and go in their own turns.
     func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
-        let assistant = ChatMessage(id: intendedTeamReply(in: conversation) ?? UUID(), role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
+        let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
-        #if DEBUG
-        if QAMode.enabled { assistant.metadata.merge(user.metadata, uniquingKeysWith: { _, source in source }) }
-        #endif
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
         objectWillChange.send(); save()
         let streamToken = turn.token
-        let managementText = isTeamThread(conversation) ? nil : self.managementText(for: bot, text: user.content, conversation: conversation)
         let history = chatHistory(conversation, upTo: conversation.messages.contains { $0 === user } ? user : nil, excluding: assistant)
-        claimSetupTurn(assistant, in: conversation, bot: bot, text: managementText)
         turn.task = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.outboundPersona,
-                                    managementText: managementText, backend: activeBackend, token: streamToken)
+                                    backend: activeBackend, token: streamToken)
         }
     }
     func notifyIfNeeded(bot: Bot, message: String) {
-        #if DEBUG
-        if QAMode.enabled || UIAcceptanceMode.requested { return }
-        #endif
-        guard E2ELive.current == nil, !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
+        guard !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }
     func backend(for bot: Bot) throws -> any AgentBackend {
-        #if DEBUG
-        if UIAcceptanceMode.requested {
-            guard uiAcceptance != nil else { throw UIAcceptanceError.unsafeDependency }
-            return UIAcceptanceChatBackend()
-        }
-        #endif
-        #if DEBUG
-        if QAMode.enabled {
-            guard bot.backend == .hermes, QAPolicy.name(bot.name), bot.hermesProfile == "default",
-                  let raw = bot.hermesBaseURL, let url = URL(string: raw),
-                  url.path.hasPrefix("/qa/hermes/v1/native/QA-") else { throw QAError.refused }
-            return HermesBackend(baseURL: url, apiKey: "", profile: "default", session: hermesSession)
-        }
-        #endif
-        if bot.backend == .hermes, let profile = bot.hermesProfile, prefixIgnoredHermesProfiles.contains(profile) { throw BackendError.unavailable("\(profile): \(HermesBackend.multiplexOffMessage)") }
-        if bot.isGrokHistoryOnly { throw BackendError.unavailable("History only — not connected to a Hermes profile yet.") }
         if let backendFactory { return try backendFactory(bot) }
         switch bot.backend {
-    case .mock: return MockBackend()
-    case .hermes:
-        guard let baseURL = HermesBackend.validatedBaseURL(bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { throw BackendError.invalidURL }
-        let profile = bot.hermesProfile ?? "default"
-        let key = keyStore.key(for: Self.keyAccount(forProfile: profile))
-        if key.isEmpty, keyStore.needsReentry(Self.keyAccount(forProfile: profile)) { throw BackendError.unavailable(KeychainStore.reenterMessage) }
-        return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession, defaultInstructions: try defaultBotInstructions(for: bot))
-    case .openClaw:
-        guard let binding = bot.openClaw, let gateway = gateway(id: binding.gatewayID) else { throw BackendError.unavailable(OpenClawBackend.unboundMessage) }
-        return OpenClawBackend(gateway: gateway, binding: binding, hub: openClawHub, defaultInstructions: try defaultBotInstructions(for: bot))
-    case .herdr:
-        return try herdrBackend(for: bot)
-    } }
+        case .mock: return MockBackend()
+        case .herdr: return try herdrBackend(for: bot)
+        }
+    }
 }

@@ -4,7 +4,7 @@ import SwiftUI
 /// Herdr shots of `--render-setup` (alone with `--only herdr`): every step of the setup wizard (where bots run; Connect
 /// for this Mac with nothing running and connected, over SSH, by address, and each way it can fail; the main bot, new
 /// and kept; the optional bots; the chat it ends in), then Settings → Servers and keys with two servers, the simple page,
-/// a Herdr bot's and a Hermes bot's Advanced settings, a bot's request to create bots waiting above the composer, and
+/// a main bot's and another bot's Advanced settings, a bot's request to create bots waiting above the composer, and
 /// a bot's helper agents: under it in the sidebar, in its Details panel, one of them opened, a server's helper settings,
 /// a request for a bot passed between a bot and the main bot: both chats, and the settings of a bot that is not the main bot,
 /// and what a bot runs on by name: its Model tab, its Overview, and an agent program for which the server lists no models.
@@ -15,7 +15,7 @@ import SwiftUI
                          "herdr-w2-ssh-refused", "herdr-w2-ssh-no-service", "herdr-w2-address", "herdr-w2-address-wrong-key", "herdr-w2-address-unreachable",
                          "herdr-w2-no-core", "herdr-w2-no-programs", "herdr-w3-main-bot", "herdr-w3-main-bot-reading", "herdr-w3-main-bot-keep", "herdr-w3-main-bot-name-taken",
                          "herdr-w3-main-bot-one-program", "herdr-w4-more-bots", "herdr-w4-more-bots-ticked", "herdr-w5-chat"]
-    static let other = ["herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-move", "herdr-bot-request",
+    static let other = ["herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-second-bot", "herdr-bot-request",
                         "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main", "herdr-model-tab", "herdr-model-overview", "herdr-model-no-list", "herdr-model-header"]
     static let names = wizard + other
 
@@ -24,55 +24,55 @@ import SwiftUI
                                              HerdrProgram(template: "starter-two", name: "Codex", takesModel: true, models: [.init(id: "server-model-d", label: "Server model D")])])
 
     /// The wizard's screens as presets: each is a state the window can be in, built without a server.
-    static func wizardFlows(box: HerdrServer, thisMac: HerdrServer) -> [SetupFlow] {
+    static func wizardFlows(server: HerdrServer, thisMac: HerdrServer) -> [SetupFlow] {
         var whereSSH = SetupFlow(); whereSSH.place = .ssh
         var local = SetupFlow(); local.apply(.pickHerdr(.local))
         var nothing = local; nothing.apply(.herdrTest(.nothingHere(port: HerdrServer.defaultPort)))
         var localConnected = local; localConnected.apply(.herdrTest(.connected(server: thisMac, key: nil, offer: offer)))
         var ssh = SetupFlow(); ssh.place = .ssh; ssh.apply(.pickHerdr(.ssh)); ssh.herdr.sshHost = "studio.example.com"; ssh.herdr.sshUser = "deploy"; ssh.herdr.sshKeyPath = "~/.ssh/id_ed25519"
-        var refused = ssh; refused.apply(.herdrTest(.failed(HerdrSetupProblem.sshFailed("deploy@studio.example.com: Permission denied (publickey).").line(for: box))))
-        var noService = ssh; noService.apply(.herdrTest(.failed(HerdrSetupProblem.sshNoService.line(for: box))))
+        var refused = ssh; refused.apply(.herdrTest(.failed(HerdrSetupProblem.sshFailed("deploy@studio.example.com: Permission denied (publickey).").line(for: server))))
+        var noService = ssh; noService.apply(.herdrTest(.failed(HerdrSetupProblem.sshNoService.line(for: server))))
         var address = SetupFlow(); address.place = .address; address.apply(.pickHerdr(.address)); address.herdr.address = "http://127.0.0.1:8787"; address.herdr.key = "synthetic"
         let typed = HerdrServer(id: "typed", name: "127.0.0.1", kind: .address, address: "http://127.0.0.1:8787")
         var wrongKey = address; wrongKey.apply(.herdrTest(.failed(HerdrSetupProblem.wrongKey.line(for: typed))))
         var unreachable = address; unreachable.apply(.herdrTest(.failed(HerdrSetupProblem.unreachable.line(for: typed))))
         var noCore = address; noCore.apply(.herdrTest(.failed(HerdrSetupProblem.noCore.line(for: typed))))
         var noPrograms = address; noPrograms.apply(.herdrTest(.connected(server: typed, key: "synthetic", offer: HerdrOffer())))
-        var connected = ssh; connected.apply(.herdrTest(.connected(server: box, key: nil, offer: offer)))
+        var connected = ssh; connected.apply(.herdrTest(.connected(server: server, key: nil, offer: offer)))
         var mainBot = connected; mainBot.apply(.advance)
         let existing = [HerdrSetupBot(id: UUID(), name: "Jarvis", isMain: true, template: "starter-one"), HerdrSetupBot(id: UUID(), name: "Research", isMain: false, template: "starter-one")]
-        var keep = ssh; keep.apply(.herdrTest(.connected(server: box, key: nil, offer: offer), bots: existing)); keep.apply(.advance)
+        var keep = ssh; keep.apply(.herdrTest(.connected(server: server, key: nil, offer: offer), bots: existing)); keep.apply(.advance)
         var taken = keep; taken.mainBot.keep = nil; taken.mainBot.name = "Research"
-        var oneProgram = ssh; oneProgram.apply(.herdrTest(.connected(server: box, key: nil, offer: HerdrOffer(programs: [offer.programs[1]])))); oneProgram.apply(.advance)
+        var oneProgram = ssh; oneProgram.apply(.herdrTest(.connected(server: server, key: nil, offer: HerdrOffer(programs: [offer.programs[1]])))); oneProgram.apply(.advance)
         var more = mainBot; more.mainBot.instructions = "You run my projects and keep me posted."; more.apply(.advance)
         var ticked = more; ticked.moreBots = ["starter-two"]
         return [SetupFlow(), whereSSH, local, nothing, localConnected, ssh, refused, noService, address, wrongKey, unreachable, noCore, noPrograms,
-                mainBot, SetupFlow(saved: box), keep, taken, oneProgram, more, ticked]
+                mainBot, SetupFlow(saved: server), keep, taken, oneProgram, more, ticked]
     }
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
-        let box = HerdrServer(id: "box1", name: "Studio server", kind: .ssh, address: HerdrServer.loopback(port: HerdrServer.defaultPort), sshHost: "studio.example.com", sshUser: "deploy")
+        let server = HerdrServer(id: "box1", name: "Studio server", kind: .ssh, address: HerdrServer.loopback(port: HerdrServer.defaultPort), sshHost: "studio.example.com", sshUser: "deploy")
 
-        for (name, flow) in zip(wizard, wizardFlows(box: box, thisMac: store.herdrServers[0])) {
+        for (name, flow) in zip(wizard, wizardFlows(server: server, thisMac: store.herdrServers[0])) {
             write(name, await png(AnyView(SetupView(preset: flow, presetTesting: name.hasSuffix("-testing"))), store, HeadlessSetup.size))
         }
         // The chat the wizard ends in: the main bot, nothing said yet, and the line about its first reply.
         do {
             let landing = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); landing.isSetupPreview = false
-            var flow = wizardFlows(box: box, thisMac: landing.herdrServers[0])[19]; flow.mainBot.instructions = ""
+            var flow = wizardFlows(server: server, thisMac: landing.herdrServers[0])[19]; flow.mainBot.instructions = ""
             let size = NSSize(width: 860, height: 420)
             if let main = try? landing.commitSetupWizard(server: flow.herdrServer, key: nil, main: flow.mainBot, more: flow.moreChosen, offer: flow.herdrOffer) {
                 write(wizard[20], await png(AnyView(ChatView(bot: main).frame(width: size.width, height: size.height)), landing, size))
             } else { write(wizard[20], nil) }
         }
 
-        store.saveHerdrServer(store.herdrServers[0], token: nil); store.saveHerdrServer(box, token: nil)
+        store.saveHerdrServer(store.herdrServers[0], token: nil); store.saveHerdrServer(server, token: nil)
         let jarvis = Bot(name: "Jarvis", title: "Chief of staff", persona: "You run the team.", backend: .herdr); jarvis.canManageBots = true
-        let infra = Bot(name: "Infra", title: "Boxes and backups", backend: .hermes, hermesProfile: "grok-infra")
-        store.bots = [jarvis, infra]; store.setHerdrServer(box.id, for: jarvis)
+        let infra = Bot(name: "Infra", title: "Servers and backups", backend: .herdr)
+        store.bots = [jarvis, infra]; store.setHerdrServer(server.id, for: jarvis)
         let settings = NSSize(width: 760, height: 1_560)
-        write(other[0], await png(AnyView(Form { SettingsAccountPane(cache: store.botInfo) }.formStyle(.grouped).frame(width: settings.width, height: settings.height).background(AppColor.panel)), store, settings))
+        write(other[0], await png(AnyView(Form { SettingsAccountPane() }.formStyle(.grouped).frame(width: settings.width, height: settings.height).background(AppColor.panel)), store, settings))
         write(other[1], await png(AnyView(SettingsSimplePane(openAdvanced: {})), store, HeadlessSetup.settingsSize))
         let editor = NSSize(width: 560, height: 980)
         for (name, bot) in [(other[2], jarvis), (other[3], infra)] {
@@ -110,13 +110,13 @@ import SwiftUI
         let policy = HerdrHelperPolicy(maxRunning: 3, stopAfterSeconds: 60, stopUnansweredAfterSeconds: 1_800, difficulties: ["easy": .init(template: "starter-one", model: "server-model-a"), "medium": .init(template: "starter-two", model: "server-model-b")])
         let read = HerdrHelperPolicySection.Loaded(settings: .init(policy: policy, problem: nil, bounds: .init(maxRunning: .init(min: 0, max: 16), stopAfterSeconds: .init(min: 5, max: 86_400, default: 60), stopUnansweredAfterSeconds: .init(min: 60, max: 604_800, default: 1_800))), templates: programs, models: offered)
         let policySize = NSSize(width: 760, height: 520)
-        write(other[8], await png(AnyView(Form { HerdrHelperPolicySection(server: box, named: true, preset: read) }.formStyle(.grouped).frame(width: policySize.width, height: policySize.height).background(AppColor.panel)), store, policySize))
+        write(other[8], await png(AnyView(Form { HerdrHelperPolicySection(server: server, named: true, preset: read) }.formStyle(.grouped).frame(width: policySize.width, height: policySize.height).background(AppColor.panel)), store, policySize))
 
         // A bot asks the main bot for a bot. Jarvis created one on its own decision (Remove, Keep) and left another to the person.
         let boppy = Bot(name: "Boppy", title: "Product", persona: "You look after the product.", backend: .herdr)
         let legal = Bot(name: "Legal", title: "Created by Jarvis", persona: "You review the contracts people send to the company and say what to change.", backend: .herdr)
         store.bots = [jarvis, boppy, legal, infra]
-        for bot in [boppy, legal] { store.setHerdrServer(box.id, for: bot) }
+        for bot in [boppy, legal] { store.setHerdrServer(server.id, for: bot) }
         func relayed(_ text: String, _ kind: String, name: String) -> ChatMessage {
             ChatMessage(role: .user, content: text, metadata: [HerdrBotRelay.Key.kind: kind, HerdrBotRelay.Key.asker: boppy.id.uuidString.lowercased(), HerdrBotRelay.Key.name: name])
         }

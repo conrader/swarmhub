@@ -5,7 +5,7 @@ import Testing
 // Several Herdr servers, moving bots to Herdr, and a Herdr bot that creates bots. The setup wizard: `SetupWizardTests`.
 
 @MainActor private func herdrStore(_ defaults: UserDefaults = isolatedDefaults(), keys: InMemoryKeyStore = InMemoryKeyStore()) -> AppStore {
-    AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
+    AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: keys, defaults: defaults)
 }
 
 private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address: HerdrServer.loopback(port: 8787), sshHost: "box.example.com", sshUser: "deploy", sshKeyPath: "~/.ssh/id_box")
@@ -37,27 +37,6 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(HerdrTunnel.reason("Warning: Permanently added 'x' to the list of known hosts.\nme@x: Permission denied (publickey).\n") == "me@x: Permission denied (publickey).")
 }
 
-@MainActor @Test func eachHerdrBotIsBoundToAServerWithItsOwnToken() throws {
-    let keys = InMemoryKeyStore(), store = herdrStore(keys: keys)
-    #expect(store.herdrServers.map(\.id) == ["default"] && !store.herdrConfigured && !FirstRun.boxConfigured(defaults: store.defaults, keyStore: keys))
-    let first = Bot(name: "One", backend: .herdr), second = Bot(name: "Two", backend: .herdr)
-    store.bots = [first, second]
-    store.saveHerdrServer(store.herdrServers[0], token: "token-one")
-    store.saveHerdrServer(boxServer, token: "token-two")
-    #expect(store.herdrServers.map(\.id) == ["default", "box1"] && store.herdrConfigured && FirstRun.boxConfigured(defaults: store.defaults, keyStore: keys))
-    #expect(keys.key(for: "herdr") == "token-one" && keys.key(for: "herdr.box1") == "token-two")
-    #expect(store.herdrServer(for: second).id == "default", "a bot starts on the first server")
-    store.setHerdrServer("box1", for: second)
-    #expect(store.herdrServer(for: second) == boxServer && store.herdrBots(on: boxServer).map(\.name) == ["Two"] && store.connection(of: second) == "herdr:box1")
-    let onDefault = try store.herdrBackend(for: first).client, onBox = try store.herdrBackend(for: second).client
-    #expect(onDefault.token == "token-one" && onBox.token == "token-two")
-    #expect(onBox.prepare != nil && onDefault.prepare == nil, "only an SSH server opens a forward")
-    store.removeHerdrServer(boxServer)
-    #expect(store.herdrServers.map(\.id) == ["default"] && store.herdrServer(for: second).id == "default" && keys.key(for: "herdr.box1").isEmpty)
-    store.removeHerdrServer(store.herdrServers[0])
-    #expect(store.herdrServers.count == 1, "the last server stays")
-}
-
 @MainActor @Test func herdrStartersAreAddedPerServer() {
     let store = herdrStore()
     store.saveHerdrServer(store.herdrServers[0], token: "t"); store.saveHerdrServer(boxServer, token: "t")
@@ -71,20 +50,25 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(store.missingHerdrStarters(starters, on: boxServer).isEmpty)
 }
 
-@MainActor @Test func aBotMovesToHerdrWithItsNameAvatarInstructionsAndChat() {
-    let store = herdrStore()
-    let ada = Bot(name: "Ada", persona: "Be brief.", backend: .hermes, hermesProfile: "ada"); ada.avatarMark = AvatarMark(shape: "star", colour: "blue")
-    ada.messages = [ChatMessage(role: .user, content: "hi"), ChatMessage(role: .assistant, content: "hello")]
-    let onBox = Bot(name: "Boxed", persona: "", backend: .hermes, hermesProfile: "boxed"); onBox.boxInstructions = BoxInstructions(text: "You run the box.", fetchedAt: nil)
-    let claw = Bot(name: "Claw", backend: .openClaw), sample = Bot(name: "Sample", isDemo: true), herdr = Bot(name: "Already", backend: .herdr)
-    store.bots = [ada, onBox, claw, sample, herdr]
-    let id = ada.id
-    store.moveToHerdr(ada)
-    #expect(ada.backend == .herdr && ada.id == id && ada.name == "Ada" && ada.persona == "Be brief." && ada.avatarMark == AvatarMark(shape: "star", colour: "blue"))
-    #expect(ada.messages.map(\.content) == ["hi", "hello"] && ada.hermesProfile == "ada" && store.herdrServer(for: ada).id == "default")
-    #expect(store.botsMovableToHerdr.map(\.name) == ["Boxed", "Claw"])
-    #expect(store.moveAllToHerdr() == 2 && onBox.persona == "You run the box." && claw.backend == .herdr && sample.backend == .mock)
-    #expect(store.botsMovableToHerdr.isEmpty && store.moveAllToHerdr() == 0)
+@MainActor @Test func eachHerdrBotIsBoundToAServerWithItsOwnToken() throws {
+    let keys = InMemoryKeyStore(), store = herdrStore(keys: keys)
+    #expect(store.herdrServers.map(\.id) == ["default"] && !store.herdrConfigured)
+    let first = Bot(name: "One", backend: .herdr), second = Bot(name: "Two", backend: .herdr)
+    store.bots = [first, second]
+    store.saveHerdrServer(store.herdrServers[0], token: "token-one")
+    store.saveHerdrServer(boxServer, token: "token-two")
+    #expect(store.herdrServers.map(\.id) == ["default", "box1"] && store.herdrConfigured)
+    #expect(keys.key(for: "herdr") == "token-one" && keys.key(for: "herdr.box1") == "token-two")
+    #expect(store.herdrServer(for: second).id == "default", "a bot starts on the first server")
+    store.setHerdrServer("box1", for: second)
+    #expect(store.herdrServer(for: second) == boxServer && store.herdrBots(on: boxServer).map(\.name) == ["Two"] && store.connection(of: second) == "herdr:box1")
+    let onDefault = try store.herdrBackend(for: first).client, onBox = try store.herdrBackend(for: second).client
+    #expect(onDefault.token == "token-one" && onBox.token == "token-two")
+    #expect(onBox.prepare != nil && onDefault.prepare == nil, "only an SSH server opens a forward")
+    store.removeHerdrServer(boxServer)
+    #expect(store.herdrServers.map(\.id) == ["default"] && store.herdrServer(for: second).id == "default" && keys.key(for: "herdr.box1").isEmpty)
+    store.removeHerdrServer(store.herdrServers[0])
+    #expect(store.herdrServers.count == 1, "the last server stays")
 }
 
 @MainActor @Test func herdrBotRequestsAreReadFromAReply() {
@@ -121,7 +105,7 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     let before = try store.herdrBackend(for: jarvis)
     #expect(store.pendingHerdrBots(for: jarvis).isEmpty && before.creationNote == nil, "nothing is offered until the bot may create bots")
     store.setCanManageBots(jarvis, true)
-    #expect(jarvis.canManageBots && store.createsHerdrBots(jarvis) && !store.isManager(jarvis))
+    #expect(jarvis.canManageBots && store.createsHerdrBots(jarvis))
     let backend = try store.herdrBackend(for: jarvis)
     #expect(backend.creationNote == AppStore.herdrCreationNote && backend.launchInstructions?.contains("create_bot") == true)
     let pending = store.pendingHerdrBots(for: jarvis)
@@ -144,34 +128,15 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(store.pendingHerdrBots(for: jarvis).isEmpty && !store.bots.contains { $0.name == "Extra" }, "a dismissed request is gone and nothing was created")
 }
 
-/// The Hermes and OpenClaw surface is hidden behind one switch, off by default; nothing is removed.
-@MainActor @Test func theLegacySurfaceIsHiddenByDefault() {
-    let defaults = isolatedDefaults()
-    #expect(!LegacySurface.isShown(defaults))
-    #expect(LegacySurface.panes(showingLegacy: false) == [.servers, .alerts, .voice, .computers, .about])
-    #expect(LegacySurface.panes(showingLegacy: true) == SettingsLayout.AdvancedPane.allCases)
-    #expect(BotEditorFields.newAgent(hermesConfigured: true, herdr: true).backend == .herdr, "a new bot runs on Herdr")
-    defaults.set(true, forKey: LegacySurface.key); #expect(LegacySurface.isShown(defaults))
+/// An imported template becomes a Herdr bot, and its report promises nothing a Herdr agent does not do.
+@MainActor @Test func anImportedTemplateBecomesAHerdrBot() throws {
     let store = herdrStore()
-    #expect(store.herdrStatusLine == SimpleCopy.notConnected)
-    store.saveHerdrServer(store.herdrServers[0], token: "t"); store.bots = [Bot(name: "One", backend: .herdr), Bot(name: "Old", backend: .hermes)]
-    #expect(store.herdrStatusLine == SimpleCopy.connected(to: "This Mac", agents: 1))
-}
-
-/// With Herdr set up and the older backends out of sight, an imported template becomes a Herdr bot, and its report
-/// promises nothing that only a Hermes box does.
-@MainActor @Test func anImportedTemplateBecomesAHerdrBotOnceHerdrIsSetUp() throws {
-    let store = herdrStore()
-    let manifest = try GrokTemplateParser.parse(Data(#"{"name":"Garden","slug":"garden","instructions":"You tend the garden.","routines":[{"name":"Water","prompt":"Water it","schedule":"0 8 * * *"}]}"#.utf8))
-    #expect(!store.importsToHerdr && !store.makeImportPlan(from: manifest).herdr, "no Herdr server yet: as before")
+    let manifest = try GrokTemplateParser.parse(Data(#"{"name":"Garden","slug":"garden","instructions":"You tend the garden.","routines":[{"name":"Water","prompt":"Water it","schedule":"0 8 * * *"}],"skills":[{"name":"Pruning","markdown":"Cut back."}]}"#.utf8))
     store.saveHerdrServer(store.herdrServers[0], token: "t")
-    let plan = store.makeImportPlan(from: manifest)
-    #expect(store.importsToHerdr && plan.herdr && plan.hermesProfile == nil)
-    #expect(!plan.report.contains { $0.reason.contains("Hermes") || $0.name.contains("Hermes") } && plan.report.contains { $0.name == "Herdr agent" && $0.status == .mapped })
-    #expect(plan.report.contains { $0.name == "Water" && $0.status == .skipped })
+    let plan = TemplateImportMapper.makePlan(from: manifest)
+    #expect(plan.report.contains { $0.name == "Herdr agent" && $0.status == .mapped })
+    #expect(plan.report.contains { $0.name == "Water" && $0.status == .skipped } && plan.report.contains { $0.name == "Pruning" && $0.status == .skipped })
     let bot = store.importTemplate(plan)
-    #expect(bot.backend == .herdr && bot.hermesProfile == nil && bot.persona == "You tend the garden." && store.herdrServer(for: bot).id == HerdrServer.defaultID)
-    #expect(bot.routines.allSatisfy { !$0.isEnabled })
-    store.defaults.set(true, forKey: LegacySurface.key)
-    #expect(!store.importsToHerdr && !store.makeImportPlan(from: manifest).herdr, "with the older backends shown the import is theirs again")
+    #expect(bot.backend == .herdr && bot.name == "Garden" && bot.persona == "You tend the garden." && store.herdrServer(for: bot).id == HerdrServer.defaultID)
+    #expect(store.bots.first === bot && store.selectedBot === bot)
 }

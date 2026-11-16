@@ -24,31 +24,6 @@ import Testing
 
 // MARK: Steer, never stop (uxfix1)
 
-@MainActor @Test func textTypedWhileTheAnswerOnlyWritesSteersItWithoutStoppingIt() async throws {
-    let backend = ScriptedTurnBackend()
-    let (store, bot) = steerStore(backend)
-    try await startSteerableTurn(store, backend, running: false)
-    #expect(store.steerHint == nil)
-    #expect(store.send(text: " use metric "))
-    #expect(store.steerHint == SteerCopy.hint, "the first steer shows the one-time caption")
-    try await backend.calls.wait { $0.contains("steer:use metric") }
-    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
-    #expect(await backend.calls.all == ["send:go", "steer:use metric"], "no Stop is ever requested")
-    let partial = bot.messages[1]
-    #expect(store.anyTurnRunning && partial.turnState == .incomplete && partial.isStreaming, "the answer keeps streaming")
-    // The answer ends before a step boundary: the box hands the steer back and it goes as the next message.
-    await backend.emit(.token("still writing."), .steer(.returned("use metric")), .completed); await backend.end()
-    let followUp = "send:\(SteerCopy.lead)\nuse metric"
-    try await backend.calls.wait { $0.contains(followUp) }
-    #expect(partial.content == "Before. still writing." && partial.turnState == .finished, "the first answer finished whole")
-    let bubble = try #require(bot.messages.first { $0.content == "use metric" })
-    #expect(bubble.isCorrection && SteerCopy.caption(bubble) == "Sent after the answer finished")
-    await backend.emit(.token("Metric it is."), .completed); await backend.end()
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(bot.messages.last?.content == "Metric it is." && bot.messages.last?.turnState == .finished)
-    #expect(await backend.calls.all.filter { $0.hasPrefix("stop") }.isEmpty)
-}
-
 @MainActor @Test func withoutSteerAMessageWaitsAndGoesWhenTheAnswerEnds() async throws {
     let backend = ScriptedTurnBackend(steerless: true)
     let (store, bot) = steerStore(backend)
@@ -100,6 +75,49 @@ import Testing
 
 // MARK: D5 order on screen
 
+// MARK: A steer the box hands back
+
+// MARK: Groups
+
+@MainActor @Test func aGroupSteerIsQueuedAndTheMemberContinuesBelowIt() async throws {
+    let backend = ScriptedTurnBackend()
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let dmt = Bot(name: "DMT", backend: .herdr), achilles = Bot(name: "Achilles", backend: .herdr)
+    store.bots = [dmt, achilles]
+    let group = try #require(store.createGroup(name: "Pair", memberIDs: [dmt.id, achilles.id]))
+    #expect(store.send(text: "@DMT hello", to: group))
+    try await backend.calls.wait { $0.contains { $0.hasPrefix("send:") } }
+    await backend.emit(.token("Before. "))
+    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.content == "Before. " }
+    // No step runs, but Stop would end the round: a group steer is always queued.
+    #expect(store.send(text: "shorter", to: group))
+    try await waitUntil { group.messages.last?.metadata["steer"] == "queued" }
+    await backend.emit(step(.started), step(.completed), .token("After."), .completed); await backend.end()
+    try await waitUntil { !store.anyTurnRunning }
+    let rows = group.messages.filter { $0.role != .system }
+    #expect(rows.map(\.content) == ["@DMT hello", "Before. ", "shorter", "After."])
+    #expect(rows[3].authorID == dmt.id && rows[3].metadata[TurnKey.part] == "2" && rows[3].metadata[TurnKey.forUser] == rows[0].id.uuidString)
+    #expect(await backend.calls.all.filter { $0.hasPrefix("stop") }.isEmpty)
+}
+
+@MainActor @Test func textTypedWhileTheAnswerOnlyWritesSteersItWithoutStoppingIt() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    try await startSteerableTurn(store, backend, running: false)
+    #expect(store.steerHint == nil)
+    #expect(store.send(text: " use metric "))
+    #expect(store.steerHint == SteerCopy.hint, "the first steer shows the one-time caption")
+    try await backend.calls.wait { $0.contains("steer:use metric") }
+    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
+    #expect(await backend.calls.all == ["send:go", "steer:use metric"], "no Stop is ever requested")
+    let partial = bot.messages[1]
+    #expect(store.anyTurnRunning && partial.turnState == .incomplete && partial.isStreaming, "the answer keeps streaming")
+    await backend.emit(.token("still writing."), .completed); await backend.end()
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(partial.content == "Before. still writing." && partial.turnState == .finished, "the answer finished whole")
+    #expect(await backend.calls.all.filter { $0.hasPrefix("stop") }.isEmpty)
+}
+
 @MainActor @Test func aSteerDeliveredMidReplyContinuesInANewRowBelowIt() async throws {
     let url = temporaryStore()
     let backend = ScriptedTurnBackend()
@@ -120,68 +138,7 @@ import Testing
     #expect(rows[1].activity?.total == 1 && rows[3].activity?.total == 1, "steps after delivery land on the new row")
     #expect(SidebarFragment.text(messages: rows, draft: nil, isWorking: false, archiveNewest: nil) == "After.")
 
-    let reloaded = try #require(AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults()).bots.first)
+    let reloaded = try #require(AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults()).bots.first)
     #expect(reloaded.messages.map(\.content) == ["go", "Before. still before. ", "use metric", "After."])
     #expect(reloaded.messages.map { $0.metadata[TurnKey.part] } == [nil, "1", nil, "2"])
-
-    // The box keeps the steer as its own user row: a reconcile pass pairs both parts and adds nothing.
-    let server = [srow("user", "go"), srow("assistant", "Before. still before. ", finish: "stop"), srow("user", "use metric"), srow("assistant", "After.", finish: "stop")]
-    let plan = HistoryReconciler.plan(.init(local: rows.map(HistoryReconciler.LocalRow.init), server: server, mode: .chat(additions: true)))
-    #expect(plan.additions.isEmpty && plan.edits.isEmpty && !plan.diverged && plan.counts.paired == 2)
-}
-
-@MainActor @Test func aCutSecondPartIsExtendedFromTheBoxInPlace() {
-    var local = [lrow(.user, "go"), lrow(.assistant, "Before.", state: .finished), lrow(.user, "use metric", steer: true), lrow(.assistant, "Aft", state: .incomplete)]
-    local[1].metadata[TurnKey.part] = "1"; local[2].metadata["steer"] = "delivered"; local[3].metadata[TurnKey.part] = "2"
-    let server = [srow("user", "go"), srow("assistant", "Before.", finish: "stop"), srow("user", "use metric"), srow("assistant", "After the steer.", finish: "stop")]
-    let plan = HistoryReconciler.plan(.init(local: local, server: server, mode: .chat(additions: true)))
-    #expect(plan.additions.isEmpty)
-    let result = applied(plan, to: local)
-    #expect(result.map(\.text) == ["go", "Before.", "use metric", "After the steer."] && result[3].state == .finished)
-    // An older steer bubble (no part after it) stays outside the turns, as before P28.
-    var old = [lrow(.user, "go"), lrow(.assistant, "Whole answer", state: .finished), lrow(.user, "use metric", steer: true)]
-    old[2].metadata["steer"] = "delivered"
-    let oldPlan = HistoryReconciler.plan(.init(local: old, server: [srow("user", "go"), srow("assistant", "Whole answer", finish: "stop"), srow("user", "use metric"), srow("assistant", "More", finish: "stop")], mode: .chat(additions: true)))
-    #expect(oldPlan.additions.isEmpty, "the box's steer turn is a duplicate of the local bubble")
-}
-
-// MARK: A steer the box hands back
-
-@MainActor @Test func aSteerTheBoxHandsBackIsSentAsTheNextMessage() async throws {
-    let backend = ScriptedTurnBackend()
-    let (store, bot) = steerStore(backend)
-    try await startSteerableTurn(store, backend, running: true)
-    #expect(store.send(text: "use metric"))
-    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
-    // The last step ends, the model writes its final text, and the box returns the steer unread (`pending_steer`).
-    await backend.emit(step(.completed), .steer(.returned("use metric")), .completed); await backend.end()
-    let followUp = "send:\(SteerCopy.lead)\nuse metric"
-    try await backend.calls.wait { $0.contains(followUp) }
-    let bubble = try #require(bot.messages.first { $0.content == "use metric" })
-    #expect(bubble.isCorrection && !bubble.isSteer && SteerCopy.caption(bubble) == "Sent after the answer finished")
-    #expect(bot.messages.last?.role == .assistant && bot.messages.last?.isStreaming == true)
-    store.stop(); try await waitUntil { !store.anyTurnRunning }
-}
-
-// MARK: Groups
-
-@MainActor @Test func aGroupSteerIsQueuedAndTheMemberContinuesBelowIt() async throws {
-    let backend = ScriptedTurnBackend()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
-    let dmt = Bot(name: "DMT", backend: .hermes, hermesProfile: "default"), achilles = Bot(name: "Achilles", backend: .hermes, hermesProfile: "default")
-    store.bots = [dmt, achilles]
-    let group = try #require(store.createGroup(name: "Pair", memberIDs: [dmt.id, achilles.id]))
-    #expect(store.send(text: "@DMT hello", to: group))
-    try await backend.calls.wait { $0.contains { $0.hasPrefix("send:") } }
-    await backend.emit(.token("Before. "))
-    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.content == "Before. " }
-    // No step runs, but Stop would end the round: a group steer is always queued.
-    #expect(store.send(text: "shorter", to: group))
-    try await waitUntil { group.messages.last?.metadata["steer"] == "queued" }
-    await backend.emit(step(.started), step(.completed), .token("After."), .completed); await backend.end()
-    try await waitUntil { !store.anyTurnRunning }
-    let rows = group.messages.filter { $0.role != .system }
-    #expect(rows.map(\.content) == ["@DMT hello", "Before. ", "shorter", "After."])
-    #expect(rows[3].authorID == dmt.id && rows[3].metadata[TurnKey.part] == "2" && rows[3].metadata[TurnKey.forUser] == rows[0].id.uuidString)
-    #expect(await backend.calls.all.filter { $0.hasPrefix("stop") }.isEmpty)
 }

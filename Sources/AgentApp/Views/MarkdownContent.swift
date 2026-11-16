@@ -6,9 +6,9 @@ import SwiftUI
 struct MarkdownContent: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
-    /// P38: where the cards answer; nil (renders, a thread's parent line) shows them without actions.
+    /// Where the cards answer; nil (renders) shows them without actions.
     var actionTarget: ConversationActionTarget? = nil
-    /// P43: one text segment of an ordered reply (nil = the whole text) and the card index its first block has.
+    /// One text segment of an ordered reply (nil = the whole text) and the card index its first block has.
     var text: String? = nil; var indexBase = 0
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -20,10 +20,9 @@ struct MarkdownContent: View {
                 case .choices(let prompt, let options): ChoicesCard(message: message, target: actionTarget, index: index, prompt: prompt, options: options)
                 case .draft(let draft): DraftCardView(message: message, target: actionTarget, index: index, draft: draft)
                 case .image(let alt, let url): InlineImage(alt: alt, url: url)
-                case .connectApp(let request): ConnectAppCard(message: message, request: request, apps: store.connectedApps)
                 }
             }
-            // P51: each ```swarmhub fence as one line from its ops; unfold shows the block.
+            // Each ```swarmhub fence as one line; unfold shows the block.
             ForEach(Array(SwarmhubSummary.lines(in: text ?? message.content).enumerated()), id: \.offset) { offset, line in
                 FoldedBlockLine(folds: store.technicalFolds, key: TechnicalFolds.key(message.id, "fence\(indexBase).\(offset)"), line: line)
             }

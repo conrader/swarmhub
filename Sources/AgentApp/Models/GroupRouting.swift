@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure group-chat rules: who a message goes to, which Hermes session each bot uses, and the transcript
+/// Pure group-chat rules: who a message goes to, which session each bot uses, and the transcript
 /// a bot receives as context for its turn.
 enum GroupRouting {
     /// The author label of the user's lines when no name is passed (tests); the app passes `AppStore.userName` (P21 D6).

@@ -3,7 +3,7 @@ import Testing
 @testable import AgentApp
 
 // uxfix1-e2e: messages typed while a turn runs wait, then go one turn each, in order, each exactly once. A queued
-// message's turn sends the chat only up to it (Hermes sends the last user row), and its reply sits right under it.
+// message's turn sends the chat only up to it (the agent gets the last user row), and its reply sits right under it.
 
 @MainActor @Test func twoMessagesQueuedDuringATurnGoOnceEachInOrder() async throws {
     let backend = ScriptedTurnBackend(steerless: true)

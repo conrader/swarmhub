@@ -96,16 +96,6 @@ struct HideSidebarButton: View {
     }
 }
 
-/// P41: back from a thread to the chat. A plain icon button inside a drag strip needs a content shape: without one a
-/// click beside the glyph falls through to the strip and drags the window.
-struct ThreadBackButton: View {
-    @EnvironmentObject private var store: AppStore
-    var body: some View {
-        Button { store.closeThread() } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle()) }
-            .buttonStyle(.plain).help("Back to chat").accessibilityLabel("Back to chat").chromeProbe("thread_back")
-    }
-}
-
 /// While the sidebar is hidden, "Show sidebar" leads the chat and group headers, clear of the traffic lights.
 struct ShowSidebarItem: View {
     @EnvironmentObject private var store: AppStore

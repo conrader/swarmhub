@@ -1,12 +1,10 @@
 import SwiftUI
 
-/// P38 C: Settings → Advanced → Voice. The deAPI key for dictation (stored like other keys: the v2 Keychain item via
-/// `store.keyStore`, existence read from attributes only) and live voice's state with the ChatGPT connection.
+/// Settings → Advanced → Voice. The deAPI key for dictation (stored like other keys: the v2 Keychain item via
+/// `store.keyStore`, existence read from attributes only).
 struct SettingsVoicePane: View {
     static let deAPIKeysPage = URL(string: "https://app.deapi.ai")!
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var voice: CodexVoiceSession = .shared
-    @Environment(\.openWindow) private var openWindow
     @State private var key = ""
     @State private var saved = false
     @State private var message = ""
@@ -34,21 +32,6 @@ struct SettingsVoicePane: View {
             Text("Stopped recordings are sent to deAPI using your account and credits. Language is detected automatically. Recordings are limited to 5 minutes and removed from this Mac after transcription or cancellation.")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Switching chats or closing the chat cancels dictation. Leaving the app while recording discards the recording. Cancelling after an upload stops waiting for the result; deAPI may still finish and charge for that job.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        Section("Live voice with ChatGPT") {
-            if let account = voice.account {
-                Label(voice.canUseVoice ? "Voice enabled" : voice.accessMessage, systemImage: voice.canUseVoice ? "checkmark.circle.fill" : "info.circle")
-                    .font(.callout).foregroundStyle(voice.canUseVoice ? Color.green : Color.secondary)
-                    .accessibilityIdentifier("voice.live")
-                HStack {
-                    if voice.canUseVoice { Button("Open voice window") { openWindow(id: VoiceChatView.windowID) } }
-                    else if account.isConnected { Button("Check voice access again") { account.refresh(force: true) } }
-                }
-            } else {
-                Text(VoiceAccounts.notSetUp).font(.callout).foregroundStyle(.secondary).accessibilityIdentifier("voice.live")
-            }
-            Text("Live voice talks with ChatGPT through your ChatGPT subscription (the local ChatGPT app or Codex CLI). It is separate from your agents: it can read a snapshot of the chat you open it from, and sends nothing to them until you review and send an instruction.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .onAppear { saved = store.keyStore.hasKey(for: DeAPICredentials.account) }

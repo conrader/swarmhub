@@ -44,7 +44,7 @@ import Foundation
         let bot = store.bots.first { $0.grokSourceID != nil && !$0.isReadOnlyArchive && !$0.isHidden } ?? store.bots.first { !$0.isHidden }
         if let bot { store.open(bot, remember: false); store.showInfo = true } else { errors.append("no bot to select") }
 
-        let windowShown = await HeadlessE2E.wait(budget.window, poll: .milliseconds(100)) { window()?.isVisible == true }
+        let windowShown = await UISmoke.wait(budget.window, poll: .milliseconds(100)) { window()?.isVisible == true }
         if !windowShown { errors.append("main window not visible within \(budget.window)") }
         report["window_visible"] = window()?.isVisible == true; report["window_unoccluded"] = window()?.occlusionState.contains(.visible) == true
         if let frame = window()?.frame { report["window_frame"] = ["x": frame.origin.x, "y": frame.origin.y, "width": frame.width, "height": frame.height] }
@@ -54,32 +54,22 @@ import Foundation
                          "bundle_display_name": info["CFBundleDisplayName"] ?? NSNull(), "bundle_id": Bundle.main.bundleIdentifier ?? NSNull()]
         if let title = window()?.title, title != AppConstants.name { errors.append("window title is \(title), not \(AppConstants.name)") }
 
-        report["setup"] = ["needs_setup": FirstRun.needsSetup(defaults: store.defaults, keyStore: store.keyStore, bots: store.bots),
+        report["setup"] = ["needs_setup": FirstRun.needsWizard(defaults: store.defaults, bots: store.bots),
                            "state": FirstRun.state(store.defaults)?.rawValue ?? NSNull(),
                            "wizard_shown": NSApp?.windows.contains { $0.isVisible && $0.title == SetupCopy.windowTitle } == true]
         report["sidebar_rows"] = ["bots": store.bots.filter { !$0.isHidden }.count, "groups": store.groups.filter { !$0.isHidden }.count,
                                   "total": store.bots.filter { !$0.isHidden }.count + store.groups.filter { !$0.isHidden }.count]
         if let bot {
-            let rendered = await HeadlessE2E.wait(budget.chat, poll: .milliseconds(100)) { UISmokeProbe.renderedChats.contains(bot.id) }
+            let rendered = await UISmoke.wait(budget.chat, poll: .milliseconds(100)) { UISmokeProbe.renderedChats.contains(bot.id) }
             if !rendered { errors.append("\(bot.name)'s chat did not render within \(budget.chat)") }
-            report["selected_bot"] = ["name": bot.name, "profile": bot.hermesProfile ?? "default", "chat_rendered": rendered, "is_selected": store.selectedBot?.id == bot.id]
+            report["selected_bot"] = ["name": bot.name, "backend": bot.backend.rawValue, "chat_rendered": rendered, "is_selected": store.selectedBot?.id == bot.id]
 
             let archived = store.grokHistory.messages(for: bot.id).count
             // The header sits in the chat's lazy stack and can appear a frame after the chat; launch may already show this bot.
-            if bot.grokHistoryCount > 0 { _ = await HeadlessE2E.wait(budget.layout, poll: .milliseconds(100)) { UISmokeProbe.historyHeaders[bot.id] != nil } }
+            if bot.grokHistoryCount > 0 { _ = await UISmoke.wait(budget.layout, poll: .milliseconds(100)) { UISmokeProbe.historyHeaders[bot.id] != nil } }
             let shown = UISmokeProbe.historyHeaders[bot.id]
             report["grok_history"] = ["header_shown": shown != nil, "header_count": shown.map { $0 as Any } ?? NSNull(), "expected_count": bot.grokHistoryCount,
                                       "archive_messages": archived, "matches": shown == bot.grokHistoryCount && archived == bot.grokHistoryCount]
-
-            _ = await HeadlessE2E.wait(budget.overview, poll: .milliseconds(200)) {
-                guard let info = store.botInfo.info(for: bot.id) else { return false }
-                return info.skills != .loading && !info.isRefreshing
-            }
-            report["overview"] = overview(store.botInfo.info(for: bot.id), errors: &errors, limitations: &limitations)
-
-            Task { await store.refreshRoutines(for: bot) }
-            _ = await HeadlessE2E.wait(budget.routines, poll: .milliseconds(200)) { store.routines.state(for: bot.id).jobs != .loading }
-            report["routines"] = routines(store.routines.state(for: bot.id), errors: &errors)
         }
         report["avatars"] = await AvatarSmoke.collect(store: store, bot: bot, budget: budget.avatars)
         let chrome = await UISmokeChrome.collect(window: window(), store: store, budget: budget.layout)
@@ -96,7 +86,7 @@ import Foundation
         return report
     }
 
-    /// The chat the app opened at launch, before the smoke opens its own: never a hidden or demo bot (P18 item 9).
+    /// The chat the app opened at launch, before the smoke opens its own: never a hidden or demo bot.
     static func launchSelection(_ store: AppStore, errors: inout [String]) -> [String: Any] {
         if let group = store.selectedGroup {
             if group.isHidden { errors.append("launch selected hidden group \(group.name)") }
@@ -107,27 +97,14 @@ import Foundation
         return ["kind": "bot", "name": bot.name, "hidden": bot.isHidden, "demo": bot.isDemo]
     }
 
-    /// A known Hermes bug (P24, e.g. 0.21.7's `/v1/skills` 500) goes to `known_limitations`, not `errors`.
-    static func overview(_ info: BotServerInfo?, errors: inout [String], limitations: inout [String]) -> [String: Any] {
-        guard let info else { errors.append("overview: no server info"); return ["state": "not loaded"] }
-        let version: Any = info.hermesVersion.map { ["raw": $0.raw ?? NSNull(), "label": $0.label, "problem": $0.problem ?? NSNull()] as [String: Any] } ?? NSNull()
-        let known = info.knownLimitations
-        limitations += known.map { "overview: \($0.note)" }
-        switch info.skills {
-        case .loaded(let skills): return ["state": "loaded", "skills": skills.count, "toolsets": info.toolsets.value.map { $0.count as Any } ?? NSNull(), "hermes_version": version]
-        case .loading: errors.append("overview: skills still loading"); return ["state": "loading", "hermes_version": version]
-        case .unavailable(let reason) where !known.isEmpty:
-            return ["state": "known_limitation", "reason": reason, "limitations": known.map(\.rawValue), "hermes_version": version]
-        case .unavailable(let reason), .failed(let reason): errors.append("overview: \(reason)"); return ["state": "unavailable", "reason": reason, "hermes_version": version]
+    /// Polls `condition` until it holds or `timeout` passes.
+    static func wait(_ timeout: Duration, poll: Duration, _ condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock(); let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            if clock.now >= deadline { return false }
+            try? await Task.sleep(for: poll)
         }
-    }
-
-    static func routines(_ state: BotRoutinesState, errors: inout [String]) -> [String: Any] {
-        switch state.jobs {
-        case .loaded(let jobs): return ["state": "loaded", "jobs": jobs.count, "paused": jobs.filter(\.isPaused).count]
-        case .loading: errors.append("routines: still loading"); return ["state": "loading"]
-        case .unavailable(let reason), .failed(let reason): errors.append("routines: \(reason)"); return ["state": "unavailable", "reason": reason]
-        }
+        return true
     }
 
     static func mainWindow() -> NSWindow? {

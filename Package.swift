@@ -6,8 +6,6 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "AgentApp", targets: ["AgentApp"])],
     dependencies: [
-        .package(path: "Packages/SwarmHubCore"),
-        .package(path: "Packages/SwarmHubCoordination"),
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
     ],
     targets: [
@@ -19,13 +17,13 @@ let package = Package(
         ),
         .executableTarget(
             name: "AgentApp",
-            dependencies: ["BotAvatarsKit", .product(name: "Sparkle", package: "Sparkle"), .product(name: "SwarmHubCore", package: "SwarmHubCore"), .product(name: "SwarmHubCoordination", package: "SwarmHubCoordination")],
+            dependencies: ["BotAvatarsKit", .product(name: "Sparkle", package: "Sparkle")],
             path: ".",
             // Output folders too: dist/ holds packaged .app bundles whose Sparkle nibs/lproj SwiftPM would treat as resources
             // (hidden .build* folders, incl. .build-release, are skipped by SwiftPM anyway). Guarded by PackageManifestTests.
             exclude: ["Tests", "scripts", "docs", "Vendor", "dist", "briefs", "Apps", "Packages", "HerdrWorkspace", "README.md"],
             sources: ["Sources/AgentApp"],
-            resources: [.copy("Resources/Avatars"), .copy("Resources/BotManager"), .copy("Resources/Skills"), .copy("Resources/AppIcon/ThemeIcons")],
+            resources: [.copy("Resources/Avatars"), .copy("Resources/AppIcon/ThemeIcons")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
                                           "-Xlinker", "-rpath", "-Xlinker", "@executable_path"])]
         ),

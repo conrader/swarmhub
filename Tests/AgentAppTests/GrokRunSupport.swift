@@ -87,8 +87,8 @@ final class GrokWorld: @unchecked Sendable {
 
     @MainActor func store(server: String? = nil, url: URL = temporaryStore()) -> AppStore {
         let defaults = isolatedDefaults()
-        if let server { defaults.set(server, forKey: "hermesBaseURL") }
-        return AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: defaults, hermesSession: UnreachableProtocol.session)
+        if server != nil { defaults.set("http://127.0.0.1:8787", forKey: HerdrServerList.legacyAddressKey) }
+        return AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore([:]), defaults: defaults)
     }
 
     /// Rewrites `sand-secrets.json` (Grok Bot refreshed its sign-in).

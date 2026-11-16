@@ -75,12 +75,12 @@ private let scale: CGFloat = 2
 /// The composer as a 1:1 chat with the manager bot shows it: paperclip, `+`, draft, microphone, send.
 @MainActor private func renderComposer(_ text: String, shot: String) async throws -> RenderedComposer {
     _ = NSApplication.shared
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let appearance = NSAppearance(named: .darkAqua)
     let root = VStack(spacing: 0) {
         Spacer(minLength: 0)
         ComposerView(text: .constant(text), attachments: .constant([]), isStreaming: false, send: {}, stop: {},
-                     manageActions: ManageBotsAction.actions(for: .hermes), dictationContext: "composer-layout")
+                     manageActions: [.newBot], dictationContext: "composer-layout")
     }
     .frame(width: canvas.width, height: canvas.height).background(AppColor.chat).environment(\.colorScheme, .dark).environmentObject(store)
     let host = NSHostingView(rootView: root)

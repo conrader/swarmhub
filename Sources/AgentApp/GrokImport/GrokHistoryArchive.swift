@@ -1,6 +1,6 @@
 import Foundation
 
-/// One read-only line of imported Grok Bot history. Never sent to Hermes as a turn.
+/// One read-only line of imported Grok Bot history. Never sent to an agent as a turn.
 struct ArchivedMessage: Codable, Equatable, Identifiable, Sendable {
     var id: String; var seq: Int64; var role: String; var author: String?; var text: String
     var timestamp: Date?; var hidden: Bool; var channel: String; var to: String?

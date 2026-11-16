@@ -1,12 +1,12 @@
 import Foundation
 
-/// autoctx1: a store.json that could not be read is moved aside as `store.json.corrupt-<stamp>` (and backups may sit next
-/// to it). When the store is missing or unreadable, or holds only the bot SwarmHub seeds itself, the newest set-aside file
-/// that this build decodes is offered back in a chat-style prompt; nothing is restored or seeded without the user's press.
+/// A store.json that could not be read is moved aside as `store.json.corrupt-<stamp>` (and backups may sit next to
+/// it). When the store is missing, unreadable or empty, the newest set-aside file that this build decodes with a bot
+/// in it is offered back in a chat-style prompt; nothing is restored without the user's press.
 enum StoreRestore {
-    static let seedDescription = "Default Hermes profile"
-    /// Files never offered: what a restore set aside itself, and partial writes.
-    static let excludedMarkers = [".before-restore-", ".tmp", ".partial"]
+    /// Files never offered: what a restore set aside itself, the backup made before bots of an older version were
+    /// removed (`LegacyStore`: this build would leave those bots out again), and partial writes.
+    static let excludedMarkers = [".before-restore-", LegacyStore.backupMarker, ".tmp", ".partial"]
     /// Every candidate is tried, newest first, so newer unusable copies never hide an older good one. The bounds only keep
     /// a directory full of junk from stalling launch: at most this many files, none bigger than this.
     static let candidateLimit = 500, maxCandidateBytes = 512 << 20
@@ -23,13 +23,12 @@ enum StoreRestore {
 
     static func offer(directory: URL, store: URL, current: [Bot], declined: Set<String> = [], fileManager: FileManager = .default,
                       limit: Int = candidateLimit, maxBytes: Int = maxCandidateBytes) -> Offer? {
-        guard current.filter({ !$0.isDemo }).isEmpty || onlySeed(current) else { return nil }
+        guard current.filter({ !$0.isDemo }).isEmpty else { return nil }
         for url in candidates(directory: directory, store: store, fileManager: fileManager).filter({ !declined.contains($0.lastPathComponent) }).prefix(limit) {
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
             guard size <= maxBytes, let file = try? StoreFile.decode(Data(contentsOf: url)) else { continue }
             let real = file.bots.filter { !$0.isDemo }
-            guard !real.isEmpty, !onlySeed(real) else { continue }
-            if !current.isEmpty, real.count <= current.filter({ !$0.isDemo }).count { continue }
+            guard !real.isEmpty else { continue }
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             return Offer(url: url, botNames: real.map(\.name), modified: modified)
         }
@@ -45,14 +44,6 @@ enum StoreRestore {
             return file.hasPrefix(name + ".") && !excludedMarkers.contains { file.contains($0) }
                 && (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
         }.sorted { date($0) > date($1) }
-    }
-
-    /// The single untouched bot a fresh launch seeds (`seedDefaultHermesBot`): nothing typed, no server of its own.
-    static func onlySeed(_ bots: [Bot]) -> Bool {
-        let real = bots.filter { !$0.isDemo }
-        guard real.count == 1, let bot = real.first else { return false }
-        return bot.name == "Hermes" && bot.botDescription == seedDescription && bot.hermesProfile == "default"
-            && bot.hermesBaseURL == nil && !bot.messages.contains { $0.role == .user }
     }
 
     private static func date(_ url: URL) -> Date {

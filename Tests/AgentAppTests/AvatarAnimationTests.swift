@@ -155,23 +155,11 @@ import Testing
         #expect(BotAvatarGaze.down.restPose().pitch < 0 && BotAvatarGaze.down.restPose().lookY > 0)
     }
 
-    @Test @MainActor func approvalsOnlyAffectTheirBotAndGroupSession() {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-        let a = Bot(name: "A"), b = Bot(name: "B")
-        let group = GroupChat(name: "G", memberIDs: [a.id, b.id]), other = GroupChat(name: "H", memberIDs: [a.id])
-        group.sessions[a.id.uuidString.lowercased()] = "synthetic-server-session"
-        store.approvals = [.init(id: UUID(), title: "Test", summary: "", draft: nil, command: "cat /tmp/test", botID: a.id,
-                                 sessionID: "synthetic-server-session")]
-        #expect(store.hasPendingApproval(a) && !store.hasPendingApproval(b))
-        #expect(store.hasPendingApproval(a, in: group) && !store.hasPendingApproval(a, in: other))
-        #expect(!store.hasPendingApproval(b, in: group))
-    }
-
     @Test @MainActor func onlySuccessfulNonemptyRepliesPublishCompletionReactions() async throws {
         for result in ["success", "failure", "empty", "cancel"] {
             let backend = AvatarCompletionBackend(result: result)
-            let bot = Bot(name: "Completion test", backend: .hermes, hermesSessionID: "synthetic-session")
-            let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend },
+            let bot = Bot(name: "Completion test", backend: .herdr, sessionID: "synthetic-session")
+            let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
                                  keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
             store.bots = [bot]; store.selectedBot = bot
             #expect(store.send(text: "Test"))
@@ -186,7 +174,7 @@ import Testing
 }
 
 private struct AvatarCompletionBackend: AgentBackend {
-    let kind = BackendKind.hermes
+    let kind = BackendKind.herdr
     let result: String
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         AsyncThrowingStream { continuation in
@@ -199,8 +187,6 @@ private struct AvatarCompletionBackend: AgentBackend {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
-    func listSessions() async throws -> [BackendSession] { [] }
-    func cancel(sessionID: String) async throws -> StopOutcome { .disconnectedLegacy }
-    func resolveApproval(id: UUID, approved: Bool) async throws {}
+    func cancel(sessionID: String) async throws -> StopOutcome { .noRunControl }
     func testConnection() async throws -> String { "Synthetic" }
 }

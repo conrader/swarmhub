@@ -16,8 +16,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
 
 /// Default suite: the renderer with no named bot (main window and sidebar), checked for size and content.
 @MainActor @Test func renderSnapshotWritesTheMainWindowForSyntheticStore() async throws {
-    let box = MockHermesProtocol.serve { _ in (404, ["error": "no route"]) }
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(["hermes.grok-jarvis": "synthetic"]), defaults: isolatedDefaults(), hermesSession: box.session)
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     try store.importGrokExport(at: exportFolder)
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-\(UUID().uuidString)")
     #expect(await HeadlessSnapshot.render(store: store, to: directory, botNames: [], output: { _ in }) == 0)
@@ -27,10 +26,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
 }
 
 @MainActor @Test(renderTestsOnly) func renderSnapshotWritesNonEmptyPNGsForSyntheticStore() async throws {
-    // The imported bots sit on `grokHermesBaseURL` (the production box); the rendered chat reads /v1/capabilities, so a
-    // synthetic server answers it (404: no features) instead of the box (P28: 401s with this key in the box's nginx log).
-    let box = MockHermesProtocol.serve { _ in (404, ["error": "no route"]) }
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(["hermes.grok-jarvis": "synthetic"]), defaults: isolatedDefaults(), hermesSession: box.session)
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     try store.importGrokExport(at: exportFolder)
     let storeBefore = try Data(contentsOf: store.fileURL)
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-\(UUID().uuidString)")
@@ -55,7 +51,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     let rightPane = try #require(main.cgImage?.cropping(to: CGRect(x: main.pixelsWide - 720, y: 0, width: 720, height: 1600)))
     let paneText = try await recognizedLines(in: rightPane).joined(separator: " ")
     #expect(paneText.contains("Overview"), "The right pane must show the Overview, not a duplicate sidebar.")
-    #expect(paneText.contains("Routines"))
+    #expect(paneText.contains("Model") && paneText.contains("Media"), "an imported bot is a Herdr bot: its tabs are Overview, Model and Media")
     #expect(try Data(contentsOf: directory.appending(path: "jarvis.png")) != Data(contentsOf: directory.appending(path: "main.png")))
     let mode = try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? Int
     #expect(mode == 0o700)
@@ -63,7 +59,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
 }
 
 @MainActor @Test func renderSnapshotRefusesUnknownBotAndRepositoryDirectory() async throws {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let outside = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-\(UUID().uuidString)")
     #expect(await HeadlessSnapshot.render(store: store, to: outside, botNames: ["Nobody"], output: { _ in }) == 2)
     let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../..").standardizedFileURL

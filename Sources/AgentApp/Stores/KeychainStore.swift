@@ -87,7 +87,7 @@ struct SecKeychainBackend: KeychainBackend {
 }
 
 /// Stands in for the Keychain in test runs: nothing is stored and no call can prompt. Any call means a test reached the
-/// shared vault (the default `KeychainHermesKeyStore()`) instead of injecting a key store, so it is reported (P28).
+/// shared vault (the default `KeychainKeyStore()`) instead of injecting a key store, so it is reported (P28).
 struct DetachedKeychainBackend: KeychainBackend {
     func read(service: String, account: String) -> (status: OSStatus, value: String?) { _ = TestRunGuard.refuses("shared key vault read \(account)"); return (errSecItemNotFound, nil) }
     func add(_ value: String, service: String, account: String) -> OSStatus { _ = TestRunGuard.refuses("shared key vault write \(account)"); return errSecSuccess }
@@ -99,7 +99,7 @@ struct DetachedKeychainBackend: KeychainBackend {
 /// SwarmHub's API keys. Each account resolves once per launch: memory cache -> v2 item (`com.konrad.agentapp.keys.v2`,
 /// written by this app) -> legacy item (`com.konrad.agentapp.backends`, read silently; a key that reads fine is copied to
 /// v2). A legacy item that would need a dialog, or fails, leaves the account "needs re-entry" for the launch: no retry,
-/// no dialog. `AppStore.recoverLockedKeys` may then derive the key (P22). Legacy items are never written or deleted.
+/// no dialog. Legacy items are never written or deleted.
 final class KeyVault: @unchecked Sendable {
     static let legacyService = "com.konrad.agentapp.backends"
     static let v2Service = "com.konrad.agentapp.keys.v2"
@@ -211,8 +211,8 @@ enum KeychainStore {
     static func accounts(prefix: String) -> [String] { KeyVault.shared.accounts(prefix: prefix) }
 }
 
-/// Where Hermes API keys live. The app uses the Keychain; tests inject an in-memory store.
-protocol HermesKeyStore: Sendable {
+/// Where access tokens and API keys live. The app uses the Keychain; tests inject an in-memory store.
+protocol KeyStore: Sendable {
     func key(for account: String) -> String
     func setKey(_ value: String, for account: String)
     func hasKey(for account: String) -> Bool
@@ -225,14 +225,14 @@ protocol HermesKeyStore: Sendable {
     func storeVerified(_ value: String, for account: String) -> Bool
 }
 
-extension HermesKeyStore {
+extension KeyStore {
     func storeVerified(_ value: String, for account: String) -> Bool { setKey(value, for: account); return key(for: account) == value }
     func hasKey(for account: String) -> Bool { !key(for: account).isEmpty }
     func needsReentry(_ account: String) -> Bool { false }
     func claimRecovery(_ account: String) -> Bool { false }
 }
 
-struct KeychainHermesKeyStore: HermesKeyStore {
+struct KeychainKeyStore: KeyStore {
     var vault: KeyVault = .shared
     func key(for account: String) -> String { vault.get(account: account) }
     func setKey(_ value: String, for account: String) { vault.set(value, account: account) }

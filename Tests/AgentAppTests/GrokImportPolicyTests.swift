@@ -12,8 +12,8 @@ private func native() throws -> [GrokBotBundle] {
 
 @MainActor private func policyStore(server: String? = nil, keys: [String: String] = [:], url: URL = temporaryStore()) -> AppStore {
     let defaults = isolatedDefaults()
-    if let server { defaults.set(server, forKey: "hermesBaseURL") }
-    return AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(keys), defaults: defaults, hermesSession: UnreachableProtocol.session)
+    if server != nil { defaults.set("http://127.0.0.1:8787", forKey: HerdrServerList.legacyAddressKey) }
+    return AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(keys), defaults: defaults)
 }
 
 /// The synchronous overload (an async context would pick the async one).
@@ -22,86 +22,7 @@ private func native() throws -> [GrokBotBundle] {
 }
 
 private func inApp(_ server: String? = nil, refresh: Bool = false) -> GrokImportPolicy {
-    .inApp(serverURL: server, refreshIdentity: refresh)
-}
-
-@MainActor @Test func inAppNewBotsTakeTheSettingsServerNeverTheConstant() async throws {
-    let store = policyStore(server: server)
-    let rows = try await store.importGrokBundles(try native(), policy: inApp(server))
-    #expect(rows.count == 4 && rows.allSatisfy(\.created))
-    let jarvis = try #require(store.bots.first { $0.grokSourceID == jarvisID })
-    #expect(jarvis.hermesBaseURL == server && jarvis.hermesProfile == "grok-jarvis" && jarvis.backend == .hermes)
-    #expect(!store.bots.contains { $0.hermesBaseURL == AppStore.grokHermesBaseURL })
-    #expect(jarvis.grokHistoryCount == 9 && store.groups.first?.grokHistoryCount == 3)
-}
-
-@MainActor @Test func inAppBindingPrefersAKeyedCandidateThenAFreeOneThenNone() async throws {
-    // A key for the third candidate (`<slug>`) wins over the free first one.
-    let keyed = policyStore(server: server, keys: ["hermes.jarvis": "synthetic-key"])
-    try await keyed.importGrokBundles(try native(), policy: inApp(server))
-    #expect(keyed.bots.first { $0.grokSourceID == jarvisID }?.hermesProfile == "jarvis")
-    #expect(keyed.bots.first { $0.grokSourceID == plainID }?.hermesProfile == "grok-plain-bot")
-    // A key but no server: the keyed candidate only; the rest are history-only.
-    let noServer = policyStore(keys: ["hermes.grok-jarvis": "synthetic-key"])
-    try await noServer.importGrokBundles(try native(), policy: inApp())
-    let jarvis = try #require(noServer.bots.first { $0.grokSourceID == jarvisID })
-    let plain = try #require(noServer.bots.first { $0.grokSourceID == plainID })
-    #expect(jarvis.hermesProfile == "grok-jarvis" && jarvis.hermesBaseURL == nil && !jarvis.isGrokHistoryOnly)
-    #expect(plain.hermesProfile == nil && plain.isGrokHistoryOnly && plain.hermesBaseURL == nil)
-}
-
-@MainActor @Test func historyOnlyBotsNeverChatOrFallThroughToTheDefaultServer() async throws {
-    let store = policyStore()
-    try await store.importGrokBundles(try native(), policy: inApp())
-    let plain = try #require(store.bots.first { $0.grokSourceID == plainID })
-    #expect(plain.isGrokHistoryOnly && !store.needsKey(plain))
-    store.selectedBot = plain
-    #expect(store.send(text: "hi") == false && plain.messages.isEmpty && store.errorMessage == nil)
-    #expect(throws: BackendError.self) { _ = try store.backend(for: plain) }
-    #expect(store.grokHistory.messages(for: plain.id).isEmpty && store.bindUnboundGrokBots().isEmpty)
-    // Keys added later: "Check again" binds fill-only and never replaces an existing profile.
-    let keys = InMemoryKeyStore(["hermes.grok-plain-bot": "synthetic-key"])
-    let rebound = AppStore(storeURL: store.fileURL, autoConfigureHermes: false, keyStore: keys, defaults: isolatedDefaults(), hermesSession: UnreachableProtocol.session)
-    let bound = rebound.bindUnboundGrokBots()
-    #expect(bound.map(\.grokSourceID) == [plainID] && bound.first?.hermesProfile == "grok-plain-bot")
-    #expect(rebound.bots.filter(\.isGrokHistoryOnly).count == 2)
-    #expect(AppStore(storeURL: store.fileURL, autoConfigureHermes: false, keyStore: keys, defaults: isolatedDefaults(), hermesSession: UnreachableProtocol.session)
-        .bots.first { $0.grokSourceID == plainID }?.hermesProfile == "grok-plain-bot")
-}
-
-@MainActor @Test func linkedBotsGetHistoryOnlyUnlessRefreshIdentity() async throws {
-    let store = policyStore(server: server)
-    try await store.importGrokBundles(try native(), policy: inApp(server))
-    let jarvis = try #require(store.bots.first { $0.grokSourceID == jarvisID })
-    jarvis.name = "My Jarvis"; jarvis.persona = "local persona"
-    jarvis.hermesProfile = "custom"; jarvis.hermesBaseURL = "https://other.test/v1"
-    jarvis.avatarName = .fox; jarvis.avatarMark = nil // P15: a classic pick clears the mark
-    var bundles = try native()
-    bundles[0].messages.append(.init(id: "j99", seq: 99, role: "user", author: nil, text: "new synthetic line",
-                                     timestamp: nil, hidden: false, channel: "chat", to: nil))
-    let rows = try await store.importGrokBundles(bundles, policy: inApp(server))
-    #expect(rows.allSatisfy { !$0.created } && store.bots.filter { $0.grokSourceID != nil }.count == 3)
-    #expect(jarvis.name == "My Jarvis" && jarvis.persona == "local persona" && jarvis.avatarName == .fox && jarvis.avatarMark == nil)
-    #expect(jarvis.hermesProfile == "custom" && jarvis.hermesBaseURL == "https://other.test/v1" && jarvis.grokHistoryCount == 10)
-    store.groups[0].name = "Renamed group"
-    try await store.importGrokBundles(bundles, policy: inApp(server))
-    #expect(store.groups[0].name == "Renamed group")
-    try await store.importGrokBundles(bundles, policy: inApp(server, refresh: true))
-    #expect(jarvis.name == "Jarvis" && jarvis.persona.contains("[REDACTED]") && jarvis.avatarMark == AvatarMark(shape: "blob", colour: "black"))
-    #expect(jarvis.hermesProfile == "custom" && jarvis.hermesBaseURL == "https://other.test/v1" && jarvis.grokHistoryCount == 10)
-    #expect(store.groups[0].name == "Konrad, Jarvis, Plain Bot")
-}
-
-@MainActor @Test func inAppAdoptsAnUnclaimedHermesBotOnAnyCandidate() async throws {
-    let store = policyStore(server: server)
-    let existing = Bot(name: "jarvis", backend: .hermes, hermesProfile: "jarvis")
-    existing.hermesBaseURL = "https://own.test/v1"
-    store.bots.append(existing)
-    let rows = try await store.importGrokBundles(try native(), policy: inApp(server))
-    #expect(rows.first { $0.name == "Jarvis" }?.created == false)
-    #expect(existing.grokSourceID == jarvisID && existing.name == "Jarvis" && existing.avatarMark == AvatarMark(shape: "blob", colour: "black"))
-    #expect(existing.hermesProfile == "jarvis" && existing.hermesBaseURL == "https://own.test/v1")
-    #expect(store.bots.filter { $0.name == "Jarvis" }.count == 1)
+    .inApp(refreshIdentity: refresh)
 }
 
 @MainActor @Test func hiddenFromSidebarAppliesOnCreationOnly() async throws {
@@ -122,7 +43,7 @@ private func inApp(_ server: String? = nil, refresh: Bool = false) -> GrokImport
 }
 
 @MainActor @Test func bothPoliciesRefuseAStoreThatCannotSave() async throws {
-    let demo = AppStore(demoMode: true, storeURL: temporaryStore(), autoConfigureHermes: false,
+    let demo = AppStore(demoMode: true, storeURL: temporaryStore(), autoStart: false,
                         keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let botCount = demo.bots.count
     #expect(throws: GrokImportError.persistenceDisabled) { try demo.importGrokBundles(try native()) }

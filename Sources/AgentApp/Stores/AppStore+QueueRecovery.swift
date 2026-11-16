@@ -4,7 +4,8 @@ import Foundation
 /// before it is sent, so interrupted dispatch can be surfaced without blind replay. `anchorID` is the row that offered it: the failed steer
 /// bubble, or the review card whose notes go out.
 struct NextMessageRecord: Codable, Equatable, Sendable {
-    /// `turn` (P39): a user message that waits at the turn limit; the anchor is the message itself.
+    /// `turn`: a user message that waits at the turn limit; the anchor is the message itself. `reviewNotes` is what an
+    /// older build queued for a feature this build does not have: such a record is read and dropped.
     enum Kind: String, Codable, Sendable { case steer, reviewNotes, turn }
     enum State: String, Codable, Sendable { case waiting, submitting, uncertain, sent, removed }
     var id: UUID
@@ -65,11 +66,7 @@ extension AppStore {
                     }
                     bubble = anchor
                 case .reviewNotes:
-                    guard anchor.metadata[ReviewKey.sent] == "1", reviewNotesText(anchor) == record.text else {
-                        anchor.metadata[ReviewKey.sent] = nil
-                        try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
-                    }
-                    bubble = ChatMessage(role: .user, content: record.text)
+                    try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
                 case .turn:
                     guard anchor.metadata[TurnWaitCopy.key] == "waiting", anchor.content == record.text else {
                         endWait(anchor, in: conversation)
@@ -94,7 +91,7 @@ extension AppStore {
             guard next.restored else { kept.append(next); continue }
             if let reply = unconfirmedReply(in: next.conversation) {
                 giveBack(next)
-                addWarning("A queued message was not sent after the restart: an earlier reply is not confirmed yet. Refresh that reply, then send the message again.",
+                addWarning("A queued message was not sent after the restart: the reply before it did not finish. Send the message again.",
                            in: next.conversation, after: reply)
                 continue
             }
@@ -105,23 +102,23 @@ extension AppStore {
         sendQueuedNextMessage()
     }
 
-    /// An `incomplete` reply, or a not-sent one the box may have.
+    /// An `incomplete` reply, or a not-sent one the server may have.
     func unconfirmedReply(in conversation: any Conversation) -> ChatMessage? {
         conversation.messages.last { $0.role == .assistant && !$0.isStreaming && ($0.turnState == .incomplete || ($0.turnState == .notSent && $0.metadata[TurnKey.ambiguous] == "1")) }
     }
 
-    /// The entry leaves the queue; its button (Send as next message, Send notes) offers it again.
+    /// The entry leaves the queue; its button (Send as next message) offers it again.
     func giveBack(_ next: QueuedNextMessage) {
         recordNextMessage(next, .removed)
         giveBackBubble(next)
     }
 
-    /// What a removed entry leaves behind: the steer's button returns, the review card's notes can go again, and a message
-    /// that waited for a turn says it was not sent.
+    /// What a removed entry leaves behind: the steer's button returns, and a message that waited for a turn says it
+    /// was not sent.
     func giveBackBubble(_ next: QueuedNextMessage) {
         switch next.kind {
         case .steer: next.bubble.metadata[SteerKey.steer] = "failed"
-        case .reviewNotes: conversation(containing: next.anchorID)?.messages.first { $0.id == next.anchorID }?.metadata[ReviewKey.sent] = nil
+        case .reviewNotes: break
         case .turn:
             endWait(next.bubble, in: next.conversation)
             addWarning(TurnWaitCopy.notSent, in: next.conversation, after: next.bubble)

@@ -24,9 +24,6 @@ import AppKit
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        #if DEBUG
-        if QAMode.enabled || UIAcceptanceMode.requested { return }
-        #endif
         start()
     }
 
