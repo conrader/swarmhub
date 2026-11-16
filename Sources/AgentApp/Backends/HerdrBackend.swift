@@ -36,6 +36,17 @@ struct HerdrBackend: AgentBackend {
     /// can. Off: the app holds the message until the answer ends.
     var steers = true
     static func botSteerKey(_ botID: UUID) -> String { "herdrSteer.\(botID.uuidString.lowercased())" }
+    /// Set for a bot that may create bots (`HerdrBotRequest.note`): how to ask the app for one. A new agent reads it
+    /// after its instructions; a running agent, which may have started before the bot was allowed to, reads it again
+    /// in front of a message that asks for a bot.
+    var creationNote: String? = nil
+
+    /// What a new agent is told once: the bot's own instructions, cut so the note after them always fits.
+    var launchInstructions: String? {
+        guard let note = creationNote, !note.isEmpty else { return instructions }
+        let own = HerdrClient.plain(instructions ?? "", bytes: max(0, HerdrClient.instructionsBytes - note.utf8.count - 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return own.isEmpty ? note : own + "\n\n" + note
+    }
 
     init(client: HerdrClient, botName: String, botID: UUID, template: String?, model: String? = nil, instructions: String? = nil) {
         self.client = client; self.template = template?.isEmpty == false ? template : nil
@@ -53,7 +64,8 @@ struct HerdrBackend: AgentBackend {
             let task = Task {
                 do {
                     continuation.yield(.status("Sending to Herdr"))
-                    let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.instructions)
+                    let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
+                                                                reminder: ManagementIntent.createsBot(text) ? backend.creationNote : nil)
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },

@@ -109,7 +109,7 @@ struct BotEditorFields {
         var settings = bot.modelSettings ?? .init(); settings.conversation = conversation; settings.coding = coding
         settings.codingAgent = backend == .hermes ? codingAgent : nil
         bot.modelSettings = settings.isEmpty ? nil : settings
-        let manages = canManage && store.canHoldManagerRole(bot)
+        let manages = canManage && (store.canHoldManagerRole(bot) || bot.backend == .herdr)
         if bot.canManageBots != manages { store.setCanManageBots(bot, manages) }
     }
 }

@@ -105,6 +105,12 @@ A new bot runs on Herdr. Open its settings and choose **Advanced → Herdr agent
 
 The first message starts an agent on the server, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A new agent gets the bot's instructions once, before your first message. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. Codex has no hook for unfinished text, so its reply appears whole when the turn ends. For both agents, each tool call shows as a step under the reply while it runs. **Stop** presses the agent's interrupt key and leaves it open. Attachments, approvals, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
 
+### Let a bot create bots
+
+Turn on **Advanced → Bot management → Can create other bots** for your main bot, then ask it for a new bot. The bot proposes a name, an avatar, and instructions. The app shows each proposal above the composer and adds the bot only when you choose **Create**. The new bot runs on the same server, with the same runtime and model as the bot that proposed it unless the proposal names another agent program.
+
+A Herdr bot is a record in the app, so nothing is created on the server until the new bot gets its first message. An agent that was already running learns how to propose a bot the next time you ask it for one.
+
 ### Hermes and OpenClaw
 
 The app is moving to Herdr. The Hermes and OpenClaw setup steps, the **Backend** picker, and the settings that only serve those servers are hidden. Existing Hermes and OpenClaw bots keep working, and the code is still in the app. To bring the controls back, turn on **Settings → Advanced → Servers and keys → Show Hermes and OpenClaw settings**.

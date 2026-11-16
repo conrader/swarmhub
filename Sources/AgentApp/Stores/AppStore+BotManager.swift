@@ -50,10 +50,11 @@ extension AppStore {
         return bots.first { isManager($0) && connection(of: $0) == target }
     }
 
-    /// Turns the role on for one bot (and off for any other manager on its connection), or off.
+    /// Turns the role on for one bot (and off for any other manager on its connection), or off. A Herdr bot holds the
+    /// same flag for its own, smaller role: it may ask the app to create bots (`AppStore+HerdrBots.swift`).
     func setCanManageBots(_ bot: Bot, _ on: Bool) {
         guard on else { bot.canManageBots = false; objectWillChange.send(); save(); return }
-        guard canHoldManagerRole(bot) else { return }
+        guard canHoldManagerRole(bot) || bot.backend == .herdr else { return }
         let target = connection(of: bot)
         for other in bots where other.id != bot.id && other.canManageBots && connection(of: other) == target { other.canManageBots = false }
         bot.canManageBots = true; objectWillChange.send(); save()

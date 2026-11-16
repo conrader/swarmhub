@@ -193,14 +193,15 @@ struct HerdrClient: Sendable {
     /// Types `text` into this bot's running agent, or starts one from `template` (on `model`, when the template takes
     /// one) with `instructions` and `text` as its first task.
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
-    func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil) async throws -> Turn {
+    /// `reminder` goes in front of a message to a running agent only: a new agent reads the same words in its instructions.
+    func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil) async throws -> Turn {
         let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
         if let agent = liveAgent(named: name, in: current) {
             let after = try await history(core: core, address: agent.address, createdMs: agent.createdMs).map(\.id).max() ?? 0
             let afterTool = (try? await preview(core: core, address: agent.address, createdMs: agent.createdMs))?.tools.map(\.seq).max() ?? 0
-            try await message(text, to: agent)
+            try await message(reminder.map { Self.plain($0, bytes: Self.instructionsBytes) + "\n\n" + text } ?? text, to: agent)
             return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool)
         }
         let usable = current.templates.filter { $0.error == nil }

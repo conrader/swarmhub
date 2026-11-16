@@ -40,6 +40,12 @@ struct BotEditorAdvancedSection: View {
         }
         if let bot, showsBox { BoxInstructionsSection(bot: bot); RestoreOldKeySection(bot: bot) }
         if let bot, fields.backend == .herdr { HerdrBotSection(bot: bot) }
+        if bot != nil, fields.backend == .herdr {
+            Section("Bot management") {
+                Toggle("Can create other bots", isOn: $fields.canManage)
+                Text("Ask this bot for a new bot and it proposes one: a name, an avatar and instructions. \(AppConstants.name) shows you the proposal in the chat and adds the bot, on the same Herdr server, only when you press Create. One per server. A running agent learns this when you next ask it for a bot.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
         // A bot still on an older backend: one press moves it, keeping its name, avatar, instructions and chat.
         if let bot, !legacy, bot.backend == .hermes || bot.backend == .openClaw, !bot.isReadOnlyArchive {
             Section("Herdr") {

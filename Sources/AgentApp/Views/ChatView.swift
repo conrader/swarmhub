@@ -95,6 +95,8 @@ struct ChatView: View {
                 AddKeyBanner(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
                 if store.isManager(bot) { BotOffersCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
+                // A Herdr bot's requests for new bots wait here for Create or Dismiss.
+                if thread == nil, store.createsHerdrBots(bot) { HerdrBotRequestCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
                 if thread == nil, let banner = store.skillBanner(for: bot) { SkillInstallBanner(bot: bot, skill: banner.skill, state: banner.state).frame(maxWidth: .infinity).background(AppColor.chat) }
                 else if thread == nil, store.isManager(bot), bot.backend == .hermes { AllBotsSkillsBanner(manager: bot).frame(maxWidth: .infinity).background(AppColor.chat) }
                 if store.mentionSkillOffer == bot.id { MentionSkillOffer(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat) }
@@ -126,14 +128,19 @@ struct ChatView: View {
     }
     private func composer(thread: ChatThread?) -> some View {
         let conversation: any Conversation = thread ?? bot
+        // The Manage bots menu: the manager's actions, or the one a Herdr bot that may create bots has.
+        let manageActions: [ManageBotsAction] = thread != nil ? [] : store.isManager(bot) ? ManageBotsAction.actions(for: bot.backend) : store.createsHerdrBots(bot) ? [.newBot] : []
         return ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: conversation), canSteer: store.canSteer(in: conversation), hint: store.steerHint,
                      send: send, stop: { store.stop(conversation) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      mentionNames: store.mentionTargets(for: bot).map(store.mentionLabel),
-                     manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage,
+                     manageActions: manageActions, manage: manage,
                      dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive || bot.backend == .herdr ? [] : SlashCommand.menu, dictation: dictation)
     }
-    private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }
+    /// A Herdr bot has no management exchange to open: its one action only writes the request into the composer.
+    private func manage(_ action: ManageBotsAction) {
+        if store.createsHerdrBots(bot) { draft = action.request() } else { store.startManagement(action, manager: bot) }
+    }
     /// A Manage bots request for this chat replaces the draft.
     private func takeComposerFill() {
         guard let fill = store.composerFill, fill.botID == bot.id else { return }

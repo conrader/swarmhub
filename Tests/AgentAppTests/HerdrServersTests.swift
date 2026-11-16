@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// Several Herdr servers, the setup window's Herdr path and moving bots to Herdr.
+// Several Herdr servers, the setup window's Herdr path, moving bots to Herdr, and a Herdr bot that creates bots.
 
 @MainActor private func herdrStore(_ defaults: UserDefaults = isolatedDefaults(), keys: InMemoryKeyStore = InMemoryKeyStore()) -> AppStore {
     AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
@@ -118,6 +118,63 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(store.botsMovableToHerdr.map(\.name) == ["Boxed", "Claw"])
     #expect(store.moveAllToHerdr() == 2 && onBox.persona == "You run the box." && claw.backend == .herdr && sample.backend == .mock)
     #expect(store.botsMovableToHerdr.isEmpty && store.moveAllToHerdr() == 0)
+}
+
+@MainActor @Test func herdrBotRequestsAreReadFromAReply() {
+    let reply = """
+    I proposed two bots.
+
+    ```swarmhub
+    [{"op":"create_bot","name":" Research ","instructions":"You find sources.","avatar":{"shape":"Star","color":"blue"},"runtime":"Codex"},
+     {"op":"create_bot","name":"research"}, {"op":"create_bot","name":""}, {"op":"bot_created","name":"other"},
+     {"op":"create_bot","name":"Writer","instructions":"You write."}]
+    ```
+    """
+    #expect(HerdrBotRequest.requests(in: reply) == [HerdrBotRequest(name: "Research", instructions: "You find sources.", shape: "star", colour: "blue", runtime: "Codex"),
+                                                   HerdrBotRequest(name: "Writer", instructions: "You write.")])
+    #expect(SwarmhubBlock.visibleText(reply) == "I proposed two bots.", "the chat hides the block")
+    for none in ["no block", "```swarmhub\n{\"op\":\"create_bot\",\"name\":\"Half\"", "```swarmhub\nnot json\n```", "```json\n{\"op\":\"create_bot\",\"name\":\"X\"}\n```"] {
+        #expect(HerdrBotRequest.requests(in: none).isEmpty, "\(none)")
+    }
+    let note = AppStore.herdrCreationNote
+    #expect(HerdrBotRequest.requests(in: note).map(\.name) == ["Research"] && note.utf8.count < 2_000, "the note's own example is a valid request")
+    let templates = [HerdrClient.Template(name: "one", description: nil, error: nil, runtime: .init(harness: "Claude Code", provider: nil, model: nil)),
+                     HerdrClient.Template(name: "two", description: nil, error: nil, runtime: .init(harness: "Codex", provider: nil, model: nil))]
+    #expect(HerdrBotRequest.template(for: "codex", in: templates)?.name == "two" && HerdrBotRequest.template(for: "Claude", in: templates)?.name == "one" && HerdrBotRequest.template(for: "none", in: templates) == nil)
+}
+
+@MainActor @Test func aHerdrBotCreatesBotsOnlyAfterConfirmation() throws {
+    let store = herdrStore()
+    store.saveHerdrServer(store.herdrServers[0], token: "t"); store.saveHerdrServer(boxServer, token: "t")
+    let jarvis = Bot(name: "Jarvis", backend: .herdr), taken = Bot(name: "Writer", backend: .herdr)
+    store.bots = [jarvis, taken]
+    store.setHerdrServer("box1", for: jarvis); store.setHerdrServer("box1", for: taken); store.setHerdrTemplate("one", for: jarvis); store.setHerdrModel("own-model", for: jarvis)
+    let block = "Proposed.\n\n```swarmhub\n[{\"op\":\"create_bot\",\"name\":\"Research\",\"instructions\":\"You find sources.\",\"avatar\":{\"shape\":\"star\",\"colour\":\"blue\"}},{\"op\":\"create_bot\",\"name\":\"Writer\"}]\n```"
+    jarvis.messages = [ChatMessage(role: .user, content: "Create a new bot called Research"), ChatMessage(role: .assistant, content: block)]
+    let before = try store.herdrBackend(for: jarvis)
+    #expect(store.pendingHerdrBots(for: jarvis).isEmpty && before.creationNote == nil, "nothing is offered until the bot may create bots")
+    store.setCanManageBots(jarvis, true)
+    #expect(jarvis.canManageBots && store.createsHerdrBots(jarvis) && !store.isManager(jarvis))
+    let backend = try store.herdrBackend(for: jarvis)
+    #expect(backend.creationNote == AppStore.herdrCreationNote && backend.launchInstructions?.contains("create_bot") == true)
+    let pending = store.pendingHerdrBots(for: jarvis)
+    #expect(pending.map(\.request.name) == ["Research", "Writer"] && pending.map(\.taken) == [false, true])
+    #expect(store.bots.count == 2, "reading a request creates nothing")
+    #expect(store.createHerdrBot(pending[1], manager: jarvis) == nil && store.bots.count == 2, "a taken name is not created")
+    let created = try #require(store.createHerdrBot(pending[0], manager: jarvis))
+    #expect(created.name == "Research" && created.persona == "You find sources." && created.backend == .herdr && created.avatarMark == AvatarMark(shape: "star", colour: "blue"))
+    #expect(store.herdrServer(for: created).id == "box1" && store.herdrTemplate(for: created) == "one" && store.herdrModel(for: created) == "own-model", "it runs where and how the asking bot runs")
+    #expect(store.pendingHerdrBots(for: jarvis).isEmpty && jarvis.messages.last?.content == "Jarvis created Research")
+    // Another agent program by name, on the model the server lists first.
+    jarvis.messages.append(ChatMessage(role: .assistant, content: "```swarmhub\n{\"op\":\"create_bot\",\"name\":\"Coder\",\"runtime\":\"Codex\"}\n```"))
+    let templates = [HerdrClient.Template(name: "two", description: nil, error: nil, runtime: .init(harness: "Codex", provider: nil, model: nil))]
+    let wanted = try #require(store.pendingHerdrBots(for: jarvis).first)
+    let coder = try #require(store.createHerdrBot(wanted, manager: jarvis, templates: templates, offered: [.init(id: "first-model", label: nil)]))
+    #expect(store.herdrTemplate(for: coder) == "two" && store.herdrModel(for: coder) == "first-model" && coder.persona == Bot.defaultPersona)
+    jarvis.messages.append(ChatMessage(role: .assistant, content: "```swarmhub\n{\"op\":\"create_bot\",\"name\":\"Extra\"}\n```"))
+    let extra = try #require(store.pendingHerdrBots(for: jarvis).first)
+    store.dismissHerdrBot(extra)
+    #expect(store.pendingHerdrBots(for: jarvis).isEmpty && !store.bots.contains { $0.name == "Extra" }, "a dismissed request is gone and nothing was created")
 }
 
 /// The Hermes and OpenClaw surface is hidden behind one switch, off by default; nothing is removed.
