@@ -14,6 +14,8 @@ SwarmHub is a macOS app for chatting with agents that [Herdr Core](https://githu
 - **Servers.** A server is this Mac, a machine reached over SSH (the app opens the port forward itself), or an address with an access key. Access keys are kept in the Keychain.
 - **Main bot.** Each server has one main bot. It creates other bots, on its own decision or after asking you; any other bot that wants a new bot asks the main bot.
 - **Helper agents.** A bot's agent can hand parts of its work to helpers. They show under the bot in the sidebar and open read-only. The server's helper settings decide what each difficulty runs on.
+- **Bots write to each other.** A bot on a server can name another bot there and write to it. The app puts the message into that bot's chat, marked as passed on, and the answer back into the sender's chat, so you read both sides. Limits keep two bots from answering each other for ever, and a bot's settings can turn this off.
+- **Skills.** A server's skill library ([skillshare](HerdrWorkspace/README.md#manage-the-servers-skillshare-skills)) is listed in Settings and in a bot's Details, where each skill is turned on or off. The app does not install or remove skills.
 - **Group chats.** Several bots in one thread; `@Name` sends a message to the named members, and a message without a mention goes to every member.
 - **Attachments.** Images, text files and documents (PDF, RTF, DOC, DOCX). Text and document contents go to the agent as text; images stay in the chat and are not sent to the agent.
 - **Dictation.** Record a message, have it transcribed through deAPI with your own key, and review the text before sending.

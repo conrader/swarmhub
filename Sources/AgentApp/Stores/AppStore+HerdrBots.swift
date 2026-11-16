@@ -186,6 +186,8 @@ extension AppStore {
     func herdrReplyEnded(_ reply: ChatMessage, from bot: Bot, finished: Bool) {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return }
         let triggers = herdrTriggers(of: reply, in: bot)
+        // What it wrote to other bots is delivered, and its answer to another bot's message goes back (`AppStore+HerdrMessages.swift`).
+        herdrMessagesEnded(reply, from: bot, triggers: triggers, finished: finished)
         if createsHerdrBots(bot) {
             let request = triggers.first { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.request }
             guard finished else {
@@ -264,8 +266,9 @@ extension AppStore {
 
     /// Puts a message the person did not write into `bot`'s chat, marked as passed on, and has its agent answer it: at
     /// once when the bot is idle, otherwise as its next message when the running answer ends.
-    @discardableResult func herdrPassOn(_ text: String, to bot: Bot, kind: String, asker: Bot, name: String?) -> Bool {
-        var metadata = [HerdrBotRelay.Key.kind: kind, HerdrBotRelay.Key.asker: asker.id.uuidString.lowercased()]
+    /// `extra`: what else the message carries (an exchange between bots: `HerdrBotRelay.ExchangeKey`).
+    @discardableResult func herdrPassOn(_ text: String, to bot: Bot, kind: String, asker: Bot, name: String?, extra: [String: String] = [:]) -> Bool {
+        var metadata = extra.merging([HerdrBotRelay.Key.kind: kind, HerdrBotRelay.Key.asker: asker.id.uuidString.lowercased()]) { _, own in own }
         metadata[HerdrBotRelay.Key.name] = name
         if isIdle(bot) { return send(text: text, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true, metadata: metadata) }
         let message = ChatMessage(role: .user, content: text, metadata: metadata)
@@ -276,6 +279,7 @@ extension AppStore {
     /// The caption over a message the app passed on, so it does not read as the person's own.
     func herdrRelayCaption(_ message: ChatMessage) -> String? {
         guard message.role == .user, let kind = message.metadata[HerdrBotRelay.Key.kind] else { return nil }
+        if let exchange = herdrExchangeCaption(message) { return exchange }
         guard kind == HerdrBotRelay.request else { return "Passed on by \(AppConstants.name): the answer to this bot's request" }
         let asker = message.metadata[HerdrBotRelay.Key.asker].flatMap(UUID.init(uuidString:)).flatMap { id in bots.first { $0.id == id }?.name }
         return "Passed on by \(AppConstants.name)\(asker.map { " from \($0)" } ?? "")"

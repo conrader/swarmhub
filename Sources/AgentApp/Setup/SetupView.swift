@@ -16,6 +16,8 @@ struct SetupView: View {
     @State private var closed = false
     /// The wizard's last button was pressed and its bots exist: Return in a field and the default button may both ask.
     @State private var finished = false
+    /// Nobody asked for this window in this run (`cameBackUnasked`): it closes itself and leaves the first-run state alone.
+    @State private var unasked = false
     /// `--render-setup`: start on this state instead of the store's prefill; `presetTesting` shows it with a Test running.
     var preset: SetupFlow?
     var presetTesting = false
@@ -50,9 +52,30 @@ struct SetupView: View {
             footer.padding(16)
         }
         .frame(width: Self.size.width, height: Self.size.height).background(AppColor.panel)
-        .onAppear(perform: restart).onChange(of: store.setupGeneration) { _, _ in restart() }
+        .onAppear { if Self.cameBackUnasked(preset: preset, generation: store.setupGeneration) { closeUnasked() } else { restart() } }
+        .onChange(of: store.setupGeneration) { _, _ in unasked = false; restart() }
         .onAppear { closed = false }
-        .onDisappear { closed = true; FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonHerdr() }
+        .onDisappear { closed = true; if !unasked { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)) }; abandonHerdr() }
+    }
+
+    /// macOS brings back the windows that were open when an app was killed or the Mac restarted. Every way to this
+    /// window goes through `AppStore.openSetup`, which counts; a setup window that shows before anything asked for it
+    /// in this run is such a returned one, and the wizard must not come back by itself on an install that is set up.
+    static func cameBackUnasked(preset: SetupFlow?, generation: Int) -> Bool { preset == nil && generation == 0 }
+
+    /// Closes the returned window a moment later, unless the launch has asked for the wizard meanwhile (a first run).
+    private func closeUnasked() {
+        unasked = true
+        DispatchQueue.main.async {
+            guard store.setupGeneration == 0 else { unasked = false; restart(); return }
+            closeWindow()
+        }
+    }
+
+    /// Closes this window: through SwiftUI, and directly when it is still there a moment later.
+    private func closeWindow() {
+        dismiss()
+        DispatchQueue.main.async { NSApp?.windows.first { $0.isVisible && $0.title == SetupCopy.windowTitle }?.close() }
     }
 
     @ViewBuilder private var footer: some View {
@@ -149,7 +172,7 @@ struct SetupView: View {
                                                    more: flow.step == .moreBots ? flow.moreChosen : [], offer: flow.herdrOffer)
             finished = true
             store.open(main); store.composerFocus = main.id
-            showMainWindow(); dismiss()
+            showMainWindow(); closeWindow()
         } catch { failure = SetupCopy.failed }
     }
 

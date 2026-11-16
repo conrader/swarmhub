@@ -75,7 +75,7 @@ struct HerdrClient: Sendable {
         var errorDescription: String? {
             switch self {
             case .invalidURL: "The Herdr workspace address is invalid. Use http://127.0.0.1:8787 or the port you forwarded."
-            case .unauthorized: "The Herdr workspace did not accept the access token. Paste it again in Settings."
+            case .unauthorized: "The Herdr workspace did not accept the access key. Paste it again in Settings."
             case .refusedHost: "The Herdr workspace only answers on 127.0.0.1 or localhost with its own port. Forward that same port to this Mac."
             case .http(_, let message): message
             case .noTemplate: "Choose an agent runtime for this bot. Herdr Core has no template the workspace can start."
@@ -198,7 +198,7 @@ struct HerdrClient: Sendable {
     /// The bridge takes up to 16 KB of plain text per task: the message and the bot's own instructions each get
     /// under half. The app's notes (`notesBytes`) come on top of the instructions when an agent starts; a first message
     /// that would not fit beside all of it is the part that is cut, never the bot's instructions.
-    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 3_600, taskBytes = 16_000
+    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 4_600, taskBytes = 16_000
 
     /// Plain text as the bridge accepts it: no control characters except new lines and tabs, cut to `bytes` of UTF-8
     /// on a character boundary.
@@ -226,8 +226,10 @@ struct HerdrClient: Sendable {
     /// `once` are notes a running agent must have read once (`marker` is a phrase only that note contains): each goes in
     /// front of the message while none of the agent's saved tasks carries its marker, so an agent that started before
     /// the note applied to its bot still learns it, and one that has read it is not told again.
+    /// `changing` are notes that change (`lead` is how every version starts): one goes in front of the message while
+    /// the newest saved task that has its lead does not carry this version, so the agent is told each change once.
     func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil,
-                 once: [(marker: String, note: String)] = []) async throws -> Turn {
+                 once: [(marker: String, note: String)] = [], changing: [(lead: String, note: String)] = []) async throws -> Turn {
         let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
@@ -235,7 +237,7 @@ struct HerdrClient: Sendable {
             let saved = try await history(core: core, address: agent.address, createdMs: agent.createdMs)
             let after = saved.map(\.id).max() ?? 0
             let afterTool = (try? await preview(core: core, address: agent.address, createdMs: agent.createdMs))?.tools.map(\.seq).max() ?? 0
-            let notes = Self.notes(reminder: reminder, once: once, tasks: saved.filter { $0.kind == "task" }.map(\.text))
+            let notes = Self.notes(reminder: reminder, once: once, tasks: saved.filter { $0.kind == "task" }.map(\.text), changing: changing)
             try await message(notes.isEmpty ? text : Self.plain(notes.joined(separator: "\n\n"), bytes: Self.instructionsBytes) + "\n\n" + text, to: agent)
             return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool)
         }
@@ -253,10 +255,12 @@ struct HerdrClient: Sendable {
     }
 
     /// What goes in front of a message to a running agent: `reminder` always, each of `once` only while no saved task
-    /// has its marker. A note is never there twice.
-    static func notes(reminder: String?, once: [(marker: String, note: String)], tasks: [String]) -> [String] {
+    /// has its marker, and each of `changing` while the newest saved task with its lead is not this version of it
+    /// (the names of the other bots, which change). A note is never there twice.
+    static func notes(reminder: String?, once: [(marker: String, note: String)], tasks: [String], changing: [(lead: String, note: String)] = []) -> [String] {
         var notes = reminder.map { [$0] } ?? []
         for item in once where !item.note.isEmpty && !notes.contains(item.note) && !tasks.contains(where: { $0.contains(item.marker) }) { notes.append(item.note) }
+        for item in changing where !item.note.isEmpty && tasks.last(where: { $0.contains(item.lead) })?.contains(item.note) != true { notes.append(item.note) }
         return notes
     }
 
@@ -336,15 +340,19 @@ struct HerdrClient: Sendable {
 
     // MARK: Transport
 
-    func get<T: Decodable>(_ path: String) async throws -> T { try await send(request(path, method: "GET", body: nil)) }
+    /// `timeout`: how long the bridge may take to answer. Most routes answer at once; one that runs a program on the
+    /// server (`HerdrSkills.swift`) says how long that may take, and the client waits a little longer.
+    func get<T: Decodable>(_ path: String, timeout: TimeInterval = Self.requestSeconds) async throws -> T { try await send(request(path, method: "GET", body: nil, timeout: timeout)) }
 
-    func post<T: Decodable>(_ path: String, _ body: [String: Any]) async throws -> T {
-        try await send(request(path, method: "POST", body: try JSONSerialization.data(withJSONObject: body)))
+    func post<T: Decodable>(_ path: String, _ body: [String: Any], timeout: TimeInterval = Self.requestSeconds) async throws -> T {
+        try await send(request(path, method: "POST", body: try JSONSerialization.data(withJSONObject: body), timeout: timeout))
     }
 
-    func request(_ path: String, method: String, body: Data?) throws -> URLRequest {
+    static let requestSeconds: TimeInterval = 100
+
+    func request(_ path: String, method: String, body: Data?, timeout: TimeInterval = Self.requestSeconds) throws -> URLRequest {
         guard let url = URL(string: baseURL.absoluteString + path), let host = baseURL.host else { throw Failure.invalidURL }
-        var request = URLRequest(url: url, timeoutInterval: 100)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         // The bridge compares Origin with Host on every POST (its browser page sends both).

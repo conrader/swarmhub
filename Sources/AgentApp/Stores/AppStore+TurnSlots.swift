@@ -92,6 +92,7 @@ extension AppStore {
         let streamToken = turn.token
         let bot = turn.botID.flatMap { id in bots.first { $0.id == id } }
         turn.assistant?.isStreaming = false; turn.steerAvailable = false
+        herdrStopWaitingExchanges(in: conversation)
         holdSteersAtStop(in: conversation, origin: streamingTurnOrigin(in: conversation))
         // The row is `stopped` at once and never extended.
         if let row = turn.assistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }

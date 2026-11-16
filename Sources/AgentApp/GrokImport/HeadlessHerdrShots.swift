@@ -17,7 +17,31 @@ import SwiftUI
                          "herdr-w3-main-bot-one-program", "herdr-w4-more-bots", "herdr-w4-more-bots-ticked", "herdr-w5-chat"]
     static let other = ["herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-second-bot", "herdr-bot-request",
                         "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main", "herdr-model-tab", "herdr-model-overview", "herdr-model-no-list", "herdr-model-header"]
-    static let names = wizard + other
+    /// A server's skill library: the list, a search, skillshare missing, a sync that failed after a switch, the
+    /// confirmation before sharing with another agent program, and the same library in a bot's Details.
+    static let skills = ["herdr-skills-list", "herdr-skills-search", "herdr-skills-problem", "herdr-skills-sync-failed", "herdr-skills-share-confirm", "herdr-skills-details"]
+    static let names = wizard + other + skills
+
+    /// A library as a server would report it: twelve skills, two of them off, shared with two agent programs.
+    static let library: HerdrSkillLibrary = {
+        let named: [(String, String?)] = [("brand", "Brand voice, visual identity and messaging: what to say and how it should look."), ("changelog", "Write release notes from the commits since the last tag."),
+            ("code-review", "Review a diff for correctness bugs before it is merged."), ("csv-cleanup", "Fix malformed rows, misplaced headers and mixed encodings in a CSV file."),
+            ("design-review", "Judge a screen as a design: alignment, wording, what a first-time user sees."), ("incident-notes", nil), ("meeting-minutes", "Turn a transcript into decisions, owners and dates."),
+            ("pdf-forms", "Fill, merge and split PDF files."), ("release-checklist", "Walk a release through its checks and say what is missing."), ("sql-explain", "Read a query plan and say where the time goes."),
+            ("test-triage", "Sort failing tests into broken code, broken test and flaky."), ("writing-plainly", "Short sentences, concrete words, no filler.")]
+        let skills = named.enumerated().map { index, skill in HerdrSkillLibrary.Skill(name: skill.0, path: skill.0, description: skill.1, enabled: index != 3 && index != 9, origin: "local") }
+        return HerdrSkillLibrary(installed: true, version: "1.0", source: "/home/deploy/.config/skillshare/skills", skillCount: skills.count, skills: skills,
+                                 targets: [.init(name: "codex", linked: 10, skillsEnabled: true), .init(name: "universal", linked: 10, skillsEnabled: true)])
+    }()
+
+    /// The Skills section's states as presets, in the order of `skills` (the last is shown in a bot's Details).
+    @MainActor static func skillModels() -> [HerdrSkillsModel] {
+        let missing = HerdrSkillLibrary(installed: false, problem: "skillshare is not installed on this server. Install it, or set SWARMHUB_SKILLSHARE to its full path.")
+        let failed = HerdrSkillsCopy.notSynced(HerdrSkillsCopy.changedInLibrary(["csv-cleanup"], on: false), reason: "skillshare took too long and was stopped.")
+        return [HerdrSkillsModel(showing: library, note: "sql-explain is off. " + HerdrSkillsCopy.synced("codex (10 skills) and universal (10 skills)")),
+                HerdrSkillsModel(showing: library, query: "review"), HerdrSkillsModel(showing: missing), HerdrSkillsModel(showing: library, behind: .failed(failed)),
+                HerdrSkillsModel(showing: library, sharing: .offered(["claude"]), confirming: "claude"), HerdrSkillsModel(showing: library, behind: .waiting)]
+    }
 
     /// What a server offers in the shots: two agent programs under the server's names, the first with three models.
     static let offer = HerdrOffer(programs: [HerdrProgram(template: "starter-one", name: "Claude Code", takesModel: true, models: [.init(id: "server-model-a", label: "Server model A"), .init(id: "server-model-b", label: "Server model B"), .init(id: "server-model-c", label: "Server model C")]),
@@ -157,6 +181,14 @@ import SwiftUI
         let listless = [HerdrClient.Template(name: "starter-three", description: nil, error: nil, runtime: .init(harness: "Another agent", provider: nil, model: nil))]
         write(other[14], await png(AnyView(VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: boppy, templates: listless) }.padding(14)
             .frame(width: tab.width, height: 300, alignment: .top).background(AppColor.panel)), store, NSSize(width: tab.width, height: 300)))
+        // The server's skill library in Settings, state by state, and in a bot's Details.
+        let skillStates = skillModels(), skillsSize = NSSize(width: 760, height: 640)
+        for (name, model) in zip(skills.dropLast(), skillStates) {
+            write(name, await png(AnyView(Form { HerdrSkillsSection(server: server, named: true, preset: model) }.formStyle(.grouped).frame(width: skillsSize.width, height: skillsSize.height).background(AppColor.panel)), store, skillsSize))
+        }
+        let panel = NSSize(width: 360, height: 900)
+        write(skills[5], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: jarvis, preset: skillStates[5]).padding(14) }.frame(width: panel.width, height: panel.height).background(AppColor.panel)), store, panel))
+
         // The chat header names the model beside the bot.
         store.selectedBot = jarvis
         write(other[15], await png(AnyView(ChatView(bot: jarvis).frame(width: chat.width, height: 420)), store, NSSize(width: chat.width, height: 420)))

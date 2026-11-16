@@ -24,6 +24,7 @@ struct InfoPanel: View {
         switch store.visibleInfoTab(for: bot) {
         case .overview: overview
         case .model: VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: bot) }
+        case .skills: HerdrSkillsPanel(bot: bot)
         case .media: MediaTabView(bot: bot)
         }
     }

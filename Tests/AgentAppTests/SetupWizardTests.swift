@@ -125,6 +125,14 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     #expect(fresh.setupHerdrID(for: elsewhere) == HerdrServer.defaultID, "nothing is set up yet, so the first server takes the stand-in's place")
 }
 
+/// A setup window the system brings back at launch closes itself; one that was asked for, and a render, stay.
+@MainActor @Test func aSetupWindowNobodyAskedForDoesNotStay() {
+    #expect(SetupView.cameBackUnasked(preset: nil, generation: 0), "shown before anything in this run asked for it")
+    #expect(!SetupView.cameBackUnasked(preset: nil, generation: 1) && !SetupView.cameBackUnasked(preset: SetupFlow(), generation: 0))
+    let store = wizardStore()
+    #expect(store.setupGeneration == 0, "a launch has asked for nothing yet")
+}
+
 /// Every failure of Connect is told apart, in the setup window's words.
 @Test func connectSaysWhatIsWrong() {
     let typed = HerdrServer(id: "t", name: "127.0.0.1", kind: .address, address: "http://127.0.0.1:8787")

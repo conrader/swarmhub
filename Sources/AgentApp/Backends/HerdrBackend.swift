@@ -19,7 +19,7 @@ struct HerdrBackend: AgentBackend {
     static let tokenEnvironment = "SWARMHUB_HERDR_TOKEN"
     /// A bot's own template lives beside the app settings, not on the bot record.
     static func botTemplateKey(_ botID: UUID) -> String { "\(templateKey).\(botID.uuidString.lowercased())" }
-    static let missingToken = "This Herdr server has no access token yet. Add it in Settings → Advanced → Servers and keys."
+    static let missingToken = "This Herdr server has no access key yet. Add it in Settings → Advanced → Servers and keys."
     static let modelNote = "Choose this agent's model under Herdr agent."
     static func botModelKey(_ botID: UUID) -> String { "herdrModel.\(botID.uuidString.lowercased())" }
 
@@ -46,21 +46,28 @@ struct HerdrBackend: AgentBackend {
     /// difficulty. A new agent reads it after its instructions; a running agent that has not read it yet reads it in
     /// front of its next message, once (`HerdrClient.deliver`'s `once`).
     var helperNote: String? = nil
+    /// Set for every bot (`HerdrBotMessage.note`): how to write to another bot of the server. Delivered like
+    /// `helperNote`. `roster` is the line of names it can write to: a new agent reads it after the notes, and a
+    /// running agent again, alone, whenever it has changed (`HerdrClient.deliver`'s `changing`).
+    var messageNote: String? = nil, roster: String? = nil
     /// Hears, while a turn runs, the agent's helpers as the stream reports them and whether the stream is delivering
     /// (`HerdrClient.LiveNote`): the bot's helper rows then need no polling of their own.
     var onLive: (@Sendable (HerdrClient.LiveNote) -> Void)? = nil
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote)].compactMap { marker, note in
+        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (HerdrBotMessage.marker, messageNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }
     }
 
+    /// The notes that change, each with the words every version of it starts with.
+    var rosters: [(lead: String, note: String)] { roster.flatMap { $0.isEmpty ? nil : [(HerdrBotMessage.rosterLead, $0)] } ?? [] }
+
     /// What a new agent is told once: the bot's own instructions, then the notes. The notes have their own room
     /// (`HerdrClient.notesBytes`), so they never shorten the bot's instructions.
     var launchInstructions: String? {
-        let told = HerdrClient.plain(notes.map(\.note).joined(separator: "\n\n"), bytes: HerdrClient.notesBytes)
+        let told = HerdrClient.plain((notes.map(\.note) + rosters.map(\.note)).joined(separator: "\n\n"), bytes: HerdrClient.notesBytes)
         guard !told.isEmpty else { return instructions }
         let own = HerdrClient.plain(instructions ?? "", bytes: HerdrClient.instructionsBytes - 2).trimmingCharacters(in: .whitespacesAndNewlines)
         return own.isEmpty ? told : own + "\n\n" + told
@@ -89,7 +96,7 @@ struct HerdrBackend: AgentBackend {
                     continuation.yield(.status("Sending to Herdr"))
                     let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : nil,
-                                                                once: backend.notes)
+                                                                once: backend.notes, changing: backend.rosters)
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },
