@@ -78,7 +78,7 @@ ssh -L 8787:127.0.0.1:8787 your-server
 
 In the app, open **Settings → Advanced → Servers and keys → Herdr workspace**. Leave the address at `http://127.0.0.1:8787`, paste the access token, and choose **Test**. Then create or edit a bot, open **Advanced**, and set **Backend** to **Herdr**. A saved Herdr bot gets a **Herdr agent** section where you pick its runtime, for example a Claude Code template for one bot and a Codex template for another.
 
-The first message starts an agent on the Herdr machine, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. Each reply appears when the agent finishes its turn; it is not streamed word by word. **Stop** presses the agent's interrupt key and leaves it open. The app sends only your newest message: the bot's persona, attachments, approvals, models, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
+The first message starts an agent on the Herdr machine, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. Codex has no hook for unfinished text, so its reply appears whole when the turn ends. **Stop** presses the agent's interrupt key and leaves it open. The app sends only your newest message: the bot's persona, attachments, approvals, models, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
 
 ## Install the browser workspace
 

@@ -65,8 +65,9 @@ struct HerdrClient: Sendable {
     let baseURL: URL
     let token: String
     var session: URLSession = .shared
-    /// Between two reads of a session while waiting for its reply.
-    var pollInterval: Duration = .seconds(1)
+    /// Between two reads of a session while waiting for its reply, and between two looks at the agent's status.
+    var pollInterval: Duration = .milliseconds(400)
+    var agentCheckInterval: Duration = .seconds(2)
 
     /// `http://127.0.0.1:8787` and the like: http or https, a host, no path beyond `/`.
     static func validatedBaseURL(_ raw: String) -> URL? {
@@ -101,6 +102,13 @@ struct HerdrClient: Sendable {
         struct Page: Decodable { let items: [Item] }
         let page: Page = try await get("/api/history/\(core)/\(address)/\(createdMs)")
         return page.items
+    }
+
+    /// The reply an agent is writing right now, when its template publishes one; nil otherwise.
+    func draft(core: String, address: String, createdMs: UInt64) async throws -> String? {
+        struct Preview: Decodable { struct Draft: Decodable { let text: String }; let draft: Draft? }
+        let preview: Preview = try await get("/api/history/\(core)/\(address)/\(createdMs)/draft")
+        return preview.draft?.text
     }
 
     func launch(name: String, template: String, task: String, profileID: Int?) async throws -> Agent {
@@ -145,28 +153,43 @@ struct HerdrClient: Sendable {
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
     }
 
-    /// Waits for the reply the agent's hook saves after `turn`, telling `status` what the agent reports meanwhile.
-    /// An agent that goes quiet without saving one (its hook was not trusted, or it stopped at a prompt) ends the wait.
-    /// `quietPolls` outlasts the bridge's 30 s limit on that hook, which a busy disk on the server can use up.
-    func reply(to turn: Turn, quietPolls: Int = 45, status: @Sendable (String) -> Void = { _ in }) async throws -> String {
-        var quiet = 0, last = ""
+    /// Waits for the reply the agent's hook saves after `turn`. Meanwhile `status` hears what the agent reports and
+    /// `partial` hears the reply so far, for agents whose template publishes one (Claude Code with
+    /// `--workspace-preview`, OpenCode). Codex has no such hook, so its reply arrives whole.
+    /// An agent that goes quiet without saving a reply (its hook was not trusted, or it stopped at a prompt) ends the
+    /// wait; `quietLimit` outlasts the bridge's 30 s limit on that hook, which a busy disk on the server can use up.
+    func reply(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (String) -> Void = { _ in },
+               partial: @Sendable (String) -> Void = { _ in }) async throws -> String {
+        let clock = ContinuousClock()
+        var quietSince: ContinuousClock.Instant?, nextAgentCheck = clock.now
+        var lastStatus = "", lastDraft = ""
         while true {
             try Task.checkCancellation()
             let items = try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs)
             if let reply = items.first(where: { $0.kind == "reply" && $0.id > turn.after }) { return reply.text }
-            let agent = try await workspace().agents.first { $0.address == turn.address && $0.createdMs == turn.createdMs }
-            guard let agent, agent.isLive else {
-                // One more read: the hook may have saved the reply as the session closed.
-                let final = try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs)
-                if let reply = final.first(where: { $0.kind == "reply" && $0.id > turn.after }) { return reply.text }
-                throw Failure.ended
+            // The preview is a convenience: a failed read never ends the turn.
+            if let text = try? await draft(core: turn.core, address: turn.address, createdMs: turn.createdMs), !text.isEmpty, text != lastDraft {
+                partial(text); lastDraft = text
             }
-            let state = agent.status?.state ?? ""
-            let line = Self.statusLine(state)
-            if line != last { status(line); last = line }
-            // "done" or "idle" with nothing saved: the hook may still be writing; stop waiting once it cannot be.
-            quiet = (state == "done" || state == "idle") ? quiet + 1 : 0
-            if quiet >= quietPolls { throw Failure.silent }
+            if clock.now >= nextAgentCheck {
+                nextAgentCheck = clock.now + agentCheckInterval
+                let agent = try await workspace().agents.first { $0.address == turn.address && $0.createdMs == turn.createdMs }
+                guard let agent, agent.isLive else {
+                    // One more read: the hook may have saved the reply as the session closed.
+                    let final = try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs)
+                    if let reply = final.first(where: { $0.kind == "reply" && $0.id > turn.after }) { return reply.text }
+                    throw Failure.ended
+                }
+                let state = agent.status?.state ?? ""
+                let line = Self.statusLine(state)
+                if line != lastStatus { status(line); lastStatus = line }
+                // "done" or "idle" with nothing saved: the hook may still be writing; stop waiting once it cannot be.
+                if state == "done" || state == "idle" {
+                    let since = quietSince ?? clock.now
+                    quietSince = since
+                    if clock.now - since >= quietLimit { throw Failure.silent }
+                } else { quietSince = nil }
+            }
             try await Task.sleep(for: pollInterval)
         }
     }

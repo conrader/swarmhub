@@ -2,8 +2,9 @@ import Foundation
 
 /// An agent that Herdr Core runs in a terminal (Claude Code, Codex, or any other template), reached through the
 /// SwarmHub bridge (`HerdrClient`). The agent program keeps its own conversation, model, tools and permissions, so
-/// only the newest user message is sent: `systemPrompt`, earlier `messages` and images go nowhere. The reply arrives
-/// whole when the agent finishes its turn (its Stop hook saves it), not token by token.
+/// only the newest user message is sent: `systemPrompt`, earlier `messages` and images go nowhere. The reply is
+/// saved by the agent's Stop hook when its turn ends; a template that publishes a preview (Claude Code with
+/// `--workspace-preview`) also shows it growing line by line, and one that does not (Codex) shows it whole.
 ///
 /// There are no server sessions for the app to manage (`sessionTransport` is nil, like Mock): one bot is one agent
 /// on the bridge, named from the bot (`HerdrClient.agentName`), started on its first message and reused while it runs.
@@ -39,8 +40,9 @@ struct HerdrBackend: AgentBackend {
                 do {
                     continuation.yield(.status("Sending to Herdr"))
                     let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template)
-                    let reply = try await backend.client.reply(to: turn) { continuation.yield(.status($0)) }
-                    continuation.yield(.token(reply)); continuation.yield(.completed); continuation.finish()
+                    // The preview is the reply so far, so each update and the saved reply replace the row's text.
+                    let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) }, partial: { continuation.yield(.replace($0)) })
+                    continuation.yield(.replace(reply)); continuation.yield(.completed); continuation.finish()
                 } catch is CancellationError { continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
