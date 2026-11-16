@@ -52,6 +52,10 @@ printf 'Workspace access token: %s\n' "$SWARMHUB_ACCESS_TOKEN"
 ./target/debug/swarmhub-herdr
 ```
 
+To skip the manual setup, `dev/start-local.sh` starts an installed bridge (`~/.local/bin/swarmhub-herdr`) against the default Core socket and keeps a generated token in a private file under `~/.config/swarmhub-herdr/`.
+
+Set `SWARMHUB_AGENT_CWD` to an existing absolute directory to start every new agent there. Without it, agents start in Core's own working directory, which is often the home directory. Open each agent program once in that folder first: Claude Code asks whether to trust a new folder, and its default answer exits.
+
 Open `http://127.0.0.1:8787` and enter the token. Use `SWARMHUB_PORT` to choose another loopback port. On a remote development machine, access that loopback port through your existing secure tunnel. The service does not start the Core, accept a public listener address, or expose a general JSON-RPC proxy. The token authorizes the browser to act on your behalf in this development workspace. Give it only to users you trust to run work on the Core account.
 
 Only agents launched here appear in the roster. Core keeps live processes running when you close the tab or restart the Rust service. The live screen can overwrite earlier output as it changes; saved snapshots preserve exactly the text captured at that moment. The conversation records submitted tasks, recorded replies from opted-in agents, and manual snapshots. Agents that do not publish program status appear as running, with no status reported.
@@ -350,11 +354,12 @@ Install and sign in to Claude Code normally under the account running Herdr. Ope
 ---
 description: Claude Code with saved replies
 command: /absolute/path/to/swarmhub-herdr run-claude
-ready: quiet
 ---
 ```
 
-Choose that template when creating an agent. To choose a model, add Claude’s normal `--model` option to that template command, or use a separate template per model. Use `ready: quiet` only once the working directory and sign-in are ready; a quiet first-run prompt is not proof the agent can take a task.
+Choose that template when creating an agent. To choose a model, add Claude’s normal `--model` option to that template command, or use a separate template per model. Do not name the file `claude.md` or `codex.md`: Herdr resolves a template name before a program, so `hc run claude` would start the template instead of Claude Code.
+
+Leave out `ready: quiet` for Claude Code and Codex. Both report their status to Herdr, and Core waits for that report before it sends the first task. With quiet readiness, a real Claude Code 2.1 launch received the first task as typed text without submitting it.
 
 `run-claude` starts the locally installed Claude Code in the terminal and adds a session-scoped [Stop hook](https://code.claude.com/docs/en/hooks#stop). It records the reply delivered by the hook (up to 128 KiB) as a message, including for turns entered in the terminal. It does not read provider transcript files, change permissions, or handle credentials. Replies from subagents are not added automatically. Use Claude’s regular configuration files for additional settings; the wrapper uses `--settings` for the hook. Hooks disabled by managed settings, or versions which do not return the reply text, fall back to the live terminal view.
 
@@ -372,11 +377,10 @@ Install Codex CLI and sign in normally under the account running Herdr. Add a te
 ---
 description: Codex with saved replies
 command: /absolute/path/to/swarmhub-herdr run-codex
-ready: quiet
 ---
 ```
 
-Open **Take over** and review the SwarmHub hook in Codex’s `/hooks` screen before relying on saved replies. Use the same installed path between launches so the hook definition stays stable. Prepare workspace trust and sign-in before relying on quiet readiness. Select a model by adding Codex’s normal `--model` option to the template command, or keep the defaults supplied by your Codex config.
+The first launch stops at Codex’s **Hooks need review** prompt and holds the task until you answer. Open **Take over**, review the SwarmHub hook, and trust it. Codex remembers that decision for the same installed path, so later launches start without the prompt. Use the same installed path between launches so the hook definition stays stable. Prepare workspace trust and sign-in before relying on quiet readiness. Select a model by adding Codex’s normal `--model` option to the template command, or keep the defaults supplied by your Codex config.
 
 `run-codex` adds a session-only [Codex Stop hook](https://learn.chatgpt.com/docs/hooks#stop). It does not edit user or project hooks, bypass hook trust, change the sandbox, or handle credentials. The workspace records a reply once per Codex turn when a turn ID is present. A terminal remains available if the hook isn't trusted, doesn't run, or doesn't return text.
 

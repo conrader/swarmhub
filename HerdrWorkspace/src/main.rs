@@ -152,6 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("SWARMHUB_ACCESS_TOKEN must be a random 64-character hex string.".into());
     }
+    core::agent_cwd().map_err(|_| core::AGENT_CWD_ERROR)?;
     let port = std::env::var("SWARMHUB_PORT")
         .unwrap_or_else(|_| "8787".into())
         .parse()?;

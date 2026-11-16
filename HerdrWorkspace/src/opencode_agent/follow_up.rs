@@ -352,10 +352,7 @@ struct Identity {
 impl Endpoint {
     pub(super) fn bind(journal: &Path, launch: &str, terminal: String) -> io::Result<Self> {
         let path = metadata(journal, launch).ok_or_else(|| io::Error::other(UNAVAILABLE))?;
-        if !terminal
-            .strip_prefix('t')
-            .is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
-        {
+        if !crate::core::local_address(&terminal) {
             return Err(io::Error::other(UNAVAILABLE));
         }
         let directory = tempfile::Builder::new().prefix("swarmhub-oc-").tempdir()?;

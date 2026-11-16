@@ -299,23 +299,21 @@ impl Core {
             labels.insert(TEMPLATE_LABEL, &template);
             Vec::new()
         };
-        let mut terminal: Terminal = self
-            .rpc(
-                "terminal.run",
-                json!({
-                    "name":name,"argv":argv,"line":line,"wait":false,"no_parent":true,
-                    "labels":labels,"size":{"cols":100,"rows":30},
-                    "env":{"SWARMHUB_JOURNAL":env.journal,"SWARMHUB_LAUNCH_KEY":env.key,
-                           "SWARMHUB_APPROVAL_SOCKET":env.approval_socket,
-                           (crate::runtimes::MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::builtin).unwrap_or_default(),
-                           (crate::runtimes::CUSTOM_MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::environment).unwrap_or_default(),
-                           (crate::opencode_agent::first_task::ENV):env.opencode_first_task.unwrap_or_default(),
-                           "SWARMHUB_RESULTS":env.results.unwrap_or_default()}
-                }),
-                85,
-                true,
-            )
-            .await?;
+        let mut params = json!({
+            "name":name,"argv":argv,"line":line,"wait":false,"no_parent":true,
+            "labels":labels,"size":{"cols":100,"rows":30},
+            "env":{"SWARMHUB_JOURNAL":env.journal,"SWARMHUB_LAUNCH_KEY":env.key,
+                   "SWARMHUB_APPROVAL_SOCKET":env.approval_socket,
+                   (crate::runtimes::MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::builtin).unwrap_or_default(),
+                   (crate::runtimes::CUSTOM_MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::environment).unwrap_or_default(),
+                   (crate::opencode_agent::first_task::ENV):env.opencode_first_task.unwrap_or_default(),
+                   "SWARMHUB_RESULTS":env.results.unwrap_or_default()}
+        });
+        // Without a folder, Core starts the agent in its own working directory.
+        if let Some(cwd) = agent_cwd().map_err(|_| Failure::Input(AGENT_CWD_ERROR))? {
+            params["cwd"] = cwd.into();
+        }
+        let mut terminal: Terminal = self.rpc("terminal.run", params, 85, true).await?;
         terminal.hydrate_template();
         if terminal.managed() {
             Ok(terminal)
@@ -451,10 +449,33 @@ impl Terminal {
     }
 }
 
-fn local_address(value: &str) -> bool {
-    value
-        .strip_prefix('t')
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+pub const AGENT_CWD_ERROR: &str =
+    "SWARMHUB_AGENT_CWD must be an absolute path to an existing directory.";
+
+/// The folder new agents start in, from `SWARMHUB_AGENT_CWD`. Unset or empty leaves the choice to Core.
+pub fn agent_cwd() -> Result<Option<String>, ()> {
+    match std::env::var("SWARMHUB_AGENT_CWD") {
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Ok(value) if value.is_empty() => Ok(None),
+        Ok(value)
+            if std::path::Path::new(&value).is_absolute()
+                && std::path::Path::new(&value).is_dir() =>
+        {
+            Ok(Some(value))
+        }
+        _ => Err(()),
+    }
+}
+
+/// A terminal address on this Core: `t`, a digit 1-9, then Core's 30 id symbols
+/// (digits and consonants without `l`), such as `t7`, `t1b` or `t9z`.
+pub(crate) fn local_address(value: &str) -> bool {
+    const SYMBOLS: &[u8] = b"0123456789bcdfghjkmnpqrstvwxyz";
+    value.len() <= 16
+        && value.strip_prefix('t').is_some_and(|id| {
+            id.starts_with(|c: char| matches!(c, '1'..='9'))
+                && id.bytes().all(|b| SYMBOLS.contains(&b))
+        })
 }
 
 pub(crate) fn valid_name(value: &str) -> bool {
@@ -489,4 +510,24 @@ pub fn valid_filename(value: &str) -> bool {
         && !value
             .chars()
             .any(|c| c.is_control() || matches!(c, '/' | '\\'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_address;
+
+    #[test]
+    fn accepts_the_addresses_core_assigns_after_the_first_nineteen() {
+        for address in [
+            "t1", "t9", "t10", "t19", "t1b", "t1z", "t9z", "t100", "t3fk",
+        ] {
+            assert!(local_address(address), "{address}");
+        }
+        // Vowels and `l` are never id symbols; a leading zero or a remote prefix is not local.
+        for address in [
+            "", "t", "t0", "t01", "t1a", "t1l", "t1B", "x1", "box/t1", "t1 ",
+        ] {
+            assert!(!local_address(address), "{address}");
+        }
+    }
 }
