@@ -5,7 +5,9 @@ import Foundation
 extension AppStore {
     func herdrClient() throws -> HerdrClient {
         guard let baseURL = HerdrClient.validatedBaseURL(defaults.string(forKey: HerdrBackend.urlKey) ?? HerdrBackend.defaultURL) else { throw HerdrClient.Failure.invalidURL }
-        let token = keyStore.key(for: HerdrBackend.keyAccount)
+        // A development launch outside the person's own home has no Keychain; it may pass the token in instead.
+        let saved = keyStore.key(for: HerdrBackend.keyAccount)
+        let token = saved.isEmpty ? ProcessInfo.processInfo.environment[HerdrBackend.tokenEnvironment] ?? "" : saved
         if token.isEmpty { throw BackendError.unavailable(HerdrBackend.missingToken) }
         return HerdrClient(baseURL: baseURL, token: token)
     }

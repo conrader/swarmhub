@@ -11,6 +11,8 @@ struct HerdrBackend: AgentBackend {
     static let defaultURL = "http://127.0.0.1:8787"
     /// `UserDefaults`: the bridge address and the template new bots start from. The token is Keychain account `herdr`.
     static let urlKey = "herdrBaseURL", templateKey = "herdrTemplate", keyAccount = "herdr"
+    /// Used only when the Keychain has no token (`AppStore.herdrClient`).
+    static let tokenEnvironment = "SWARMHUB_HERDR_TOKEN"
     /// A bot's own template lives beside the app settings, so the bot record and its Hermes fields stay untouched.
     static func botTemplateKey(_ botID: UUID) -> String { "\(templateKey).\(botID.uuidString.lowercased())" }
     static let missingToken = "Paste the Herdr workspace access token in Settings → Advanced → Servers and keys."
