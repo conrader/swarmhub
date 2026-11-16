@@ -245,7 +245,8 @@ Either way, if the workspace server is not running, the command changes nothing 
 ### Known limits
 
 - With `--here`, the agent program may not have been trusted in that folder. The helper then stops at the program’s trust prompt and its task is not delivered. The command says so, the helper still counts as running, and a person answers the prompt in the helper’s terminal.
-- While Codex runs a shell command, it keeps placeholder folders such as `.git` in its working folder. A Codex agent started in that folder at that moment asks whether to trust it. A helper asked for by a Codex agent avoids this by starting after the command has returned. A Codex helper started while another Codex agent in the same folder is running a command can still meet the prompt, until you trust the folder in Codex once.
+- While Codex runs a shell command, it keeps placeholder folders such as `.git` in its working folder. A Codex agent started in that folder at that moment asks whether to trust it, and a helper stuck there gets no task. A helper asked for by a Codex agent starts right after the command has returned, which avoids the asking command itself but not the agent’s next one a second later. So a Codex helper of a Codex agent, or one started while any Codex agent in the same folder runs a command, can stop at that prompt until you trust the folder in Codex once. Claude Code helpers are not affected.
+- A helper is stopped after its answer even when it left work running in the background and meant to come back. Its first message tells it to answer only when everything is done; raise `stop_after_seconds` for helpers that do long jobs.
 - The policy governs what the helper command starts. An agent with a shell can still run other programs itself, so use the agent’s own permission settings to limit that.
 
 ### For apps

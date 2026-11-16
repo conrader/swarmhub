@@ -57,7 +57,7 @@ const UNREGISTERED: &str =
     "This terminal is not a SwarmHub agent session, so it has no helpers. Do the task yourself.";
 const NESTED: &str = "Helpers cannot start helpers. Do the task yourself, or say in your answer that it should be split.";
 const STORAGE: &str = "The workspace could not use its saved history. Nothing was changed.";
-const BRIEF: &str = "You are a helper agent, started by another agent for one task. Do only that task, do not start other agents, and end with one complete final answer: the agent that started you reads only that answer.";
+const BRIEF: &str = "You are a helper agent, started by another agent for one task. Do only that task, do not start other agents, and end with one complete final answer: the agent that started you reads only that answer. Answer only when the whole task is done and nothing is left running in the background: you are stopped soon after you answer.";
 
 /// One line from `swarmhub-herdr helper …` to the workspace. The launch key says which agent is asking.
 #[derive(Serialize, Deserialize)]

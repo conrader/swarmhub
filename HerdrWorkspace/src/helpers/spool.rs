@@ -41,7 +41,7 @@ const POLL: Duration = Duration::from_millis(100);
 /// How long the workspace waits for a command to read its answer before it gives up on a deferred start.
 const COLLECT: Duration = Duration::from_secs(20);
 /// The pause between the command reading its answer and the helper's launch, for the command to exit.
-const SETTLE: Duration = Duration::from_millis(500);
+const SETTLE: Duration = Duration::from_millis(100);
 const FRESH_MS: i64 = 60_000;
 const STALE_SECONDS: i64 = 600;
 const ENTRIES: usize = 256;
@@ -370,7 +370,8 @@ async fn serve(w: Workspace, dir: Arc<OwnedFd>, nonce: String, seen: Arc<Mutex<S
     };
     // While a sandboxed command runs, Codex keeps placeholder folders such as `.git` in the agent's folder, and a
     // Codex started beside them asks whether to trust a project. So a helper is launched only after the command
-    // that asked for it has read the answer and exited.
+    // that asked for it has read the answer and exited, and then at once: the agent's next command brings the
+    // placeholders back. A launch half a second after the answer was read lost to a next command a second later.
     if written.is_ok() && collected(&dir, &nonce).await {
         tokio::time::sleep(SETTLE).await;
         start.launch();
