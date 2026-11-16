@@ -547,14 +547,26 @@ struct AgentView<'a> {
     /// Set for a helper: the agent that started it (`helpers`).
     #[serde(skip_serializing_if = "Option::is_none")]
     parent: Option<helpers::ParentRef>,
+    /// Set for a running Codex session that could not show its replies as they are written: why
+    /// (`codex_agent::stream`). Its replies still arrive, each in one piece.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_arrives_whole: Option<String>,
 }
 
 impl<'a> AgentView<'a> {
-    fn new(terminal: &'a core::Terminal, parent: Option<helpers::ParentRef>) -> Self {
+    fn new(
+        history: &History,
+        terminal: &'a core::Terminal,
+        parent: Option<helpers::ParentRef>,
+    ) -> Self {
         Self {
             terminal,
             opencode_api: terminal.uses_opencode_api(),
             parent,
+            reply_arrives_whole: terminal
+                .launch_key()
+                .filter(|_| terminal.state == "live")
+                .and_then(|key| codex_agent::stream::whole_reason(history.file(), key)),
         }
     }
 }
@@ -582,7 +594,7 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         })
         // A helper that has ended leaves the roster; its conversation stays in the history.
         .filter(|(terminal, helper)| helper.is_none() || terminal.state == "live")
-        .map(|(terminal, helper)| AgentView::new(terminal, helper.cloned().flatten()))
+        .map(|(terminal, helper)| AgentView::new(&w.history, terminal, helper.cloned().flatten()))
         .collect();
     Ok(Json(
         json!({"version":hello.version,"core":hello.core.id,"agents":agents,"templates":templates,

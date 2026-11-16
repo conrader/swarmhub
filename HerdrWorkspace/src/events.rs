@@ -313,7 +313,7 @@ impl Stream {
             .into_values()
             .next()
             .flatten();
-        serde_json::to_value(AgentView::new(agent, parent)).map_err(|_| StoreError)
+        serde_json::to_value(AgentView::new(&self.w.history, agent, parent)).map_err(|_| StoreError)
     }
 
     async fn listing(&self) -> Option<Value> {

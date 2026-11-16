@@ -526,11 +526,14 @@ Codex has no hook for unfinished text. Its app server does send the text a messa
 The reply so far shows in the same place as Claude Code's and OpenCode's: `…/draft` and the event stream below, up to 32 KiB. It is the message Codex is writing now, so a short note before a tool call is replaced by the answer that follows, and it goes away when the turn ends or is stopped. The Stop hook still saves the final reply.
 
 - The app server and the follower end with the terminal UI. Each session has its own; Codex's shared background server is not used or changed.
-- A session takes one more Codex process than before. It starts one to two seconds later on a quiet machine, and several seconds later on a busy one.
-- If the app server does not answer within 4 seconds, `run-codex` starts Codex the old way and that session's replies appear whole. It normally answers within a second. A slow answer means a busy machine, where two Codex starts in a row could outlast the 30 seconds Herdr Core holds the first task for.
+- A session takes one more Codex process than before. `run-codex` starts the terminal UI as soon as the app server listens. That takes under a second while Codex's own files are in memory, however busy the processor is.
+- Before it listens, the app server reads Codex's saved-session databases. When the machine has dropped them from memory and the disk is busy, listening has taken 2 to 17 seconds, and the first task then started about 40 seconds after the launch. `run-codex` waits up to 20 seconds, so that either way of starting fits in the 60 seconds Herdr Core holds the first task for.
+- Put `SWARMHUB_CODEX_STREAM_WAIT=30` (1 to 45 seconds) in front of the template command to change the wait.
+- If the app server does not listen in that time, or ends first, `run-codex` starts Codex the old way and that session's replies appear whole.
 - A template with other Codex arguments (a resumed session, a fixed sandbox) starts the old way too.
 - Put `SWARMHUB_CODEX_STREAM=off` in front of the template command to always start the old way.
-- Set `SWARMHUB_CODEX_STREAM_LOG` to an absolute file path to see why a start fell back.
+- A session that started the old way says why. While it runs, its agent carries `reply_arrives_whole` with the reason in `/api/workspace` and in the event stream's `snapshot` and `agent` events. The same sentence is in a file under `codex-stream/` next to the journal, kept for 30 days.
+- Set `SWARMHUB_CODEX_STREAM_LOG` to an absolute file path to also record how long each start waited and what the follower and the app server wrote.
 
 ## Run OpenCode V2
 

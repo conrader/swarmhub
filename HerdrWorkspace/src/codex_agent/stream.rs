@@ -17,19 +17,19 @@ use crate::agent::session;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     env,
     ffi::OsString,
     fs::{self, DirBuilder},
-    io::{self, BufRead, BufReader, Write},
+    io::{self, Write},
     os::unix::{
         fs::{DirBuilderExt, OpenOptionsExt},
         process::CommandExt,
     },
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
     time::Duration,
 };
 use tokio::{
@@ -44,10 +44,21 @@ use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 const SWITCH: &str = "SWARMHUB_CODEX_STREAM";
 const LOG: &str = "SWARMHUB_CODEX_STREAM_LOG";
 pub(crate) const COMMAND: &str = "codex-stream";
-/// How long `run-codex` waits for the app server before it starts Codex without one. The server answers within
-/// a second on a quiet machine. When it takes this long the machine is busy, and starting the terminal UI after
-/// it could outlast the 30 seconds Herdr Core holds the first task for.
-const START: Duration = Duration::from_secs(4);
+/// How long `run-codex` waits for the app server to listen before it starts Codex without one, in seconds:
+/// `SWARMHUB_CODEX_STREAM_WAIT`, within these bounds.
+///
+/// The server listens in under a second while Codex's own files are in memory, however busy the processor is.
+/// When the machine has dropped them (its saved-session databases are some hundred megabytes) and the disk is
+/// busy, listening took 2 to 17 seconds, and the terminal UI reported its status about 40 seconds after the
+/// start whenever the server had listened in time. Herdr Core holds the first task for 60 seconds from the
+/// start. A server that has not listened by now is given up, which leaves the old start the rest of them.
+const WAIT: &str = "SWARMHUB_CODEX_STREAM_WAIT";
+const WAIT_SECONDS: u64 = 20;
+const WAIT_BOUNDS: std::ops::RangeInclusive<u64> = 1..=45;
+/// How often `run-codex` looks whether the server listens.
+const LOOK: Duration = Duration::from_millis(20);
+/// A note on why a session started without the app server is kept this long.
+const NOTE_KEPT: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// The workspace keeps at most this much of a reply so far (`live_reply`).
 const TEXT_LIMIT: usize = 32 * 1024;
 /// Text is passed on at most this often, however fast it arrives.
@@ -57,6 +68,8 @@ const FEED_WAIT: Duration = Duration::from_millis(200);
 const JOIN_AGAIN: Duration = Duration::from_millis(150);
 const JOIN_TRIES: u8 = 40;
 const RECONNECT: Duration = Duration::from_secs(2);
+/// Until the server has answered once, ask more often.
+const FIRST_CONNECT: Duration = Duration::from_millis(100);
 const REMEMBERED: usize = 256;
 
 /// Notifications this client has no use for. Leaving them out keeps a long command's output off the socket.
@@ -86,50 +99,163 @@ fn address(socket: &Path) -> String {
     format!("unix://{}", socket.display())
 }
 
-/// Starts the app server and this follower for a session. Returns the address the terminal UI connects to,
-/// or `None` when Codex has to start the old way.
-pub(super) fn start(journal: &Path, exe: &str, hooks: &[String]) -> Option<String> {
-    if env::var(SWITCH).as_deref() == Ok("off") {
-        return None;
-    }
-    let folder = journal.with_file_name("codex-stream");
-    DirBuilder::new()
+fn wait(asked: Option<&str>) -> Duration {
+    let seconds = asked
+        .and_then(|seconds| seconds.trim().parse::<u64>().ok())
+        .map_or(WAIT_SECONDS, |seconds| {
+            seconds.clamp(*WAIT_BOUNDS.start(), *WAIT_BOUNDS.end())
+        });
+    Duration::from_secs(seconds)
+}
+
+fn folder(journal: &Path) -> PathBuf {
+    journal.with_file_name("codex-stream")
+}
+
+/// The file that says why the session with this launch key shows its replies whole. The name is a digest:
+/// the launch key itself stays out of file names.
+fn note_path(journal: &Path, key: &str) -> PathBuf {
+    let digest = Sha256::new()
+        .chain_update(b"swarmhub-codex-stream-v1\0")
+        .chain_update(key.as_bytes())
+        .finalize();
+    let name: String = digest[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    folder(journal).join(format!("{name}.whole"))
+}
+
+/// Why this session's replies arrive whole, when it started without the app server. The workspace shows it
+/// with the agent (`reply_arrives_whole`), so the question can be answered after the fact.
+pub(crate) fn whole_reason(journal: &Path, key: &str) -> Option<String> {
+    let reason = fs::read_to_string(note_path(journal, key)).ok()?;
+    let reason: String = reason
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(300)
+        .collect();
+    (!reason.is_empty()).then_some(reason)
+}
+
+/// Leaves the reason where the workspace finds it, and in the log when there is one.
+pub(super) fn starts_whole(journal: &Path, key: &str, reason: &str) {
+    let folder = folder(journal);
+    if DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(&folder)
-        .ok()?;
+        .is_ok()
+    {
+        let _ = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(note_path(journal, key))
+            .and_then(|mut file| file.write_all(reason.as_bytes()));
+    }
+    logged(&format!("replies arrive whole: {reason}"));
+}
+
+/// One line in the file `SWARMHUB_CODEX_STREAM_LOG` names, from `run-codex` itself.
+fn logged(text: &str) {
+    let Some(path) = env::var_os(LOG).filter(|path| Path::new(path).is_absolute()) else {
+        return;
+    };
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+    {
+        let _ = writeln!(file, "run-codex {}: {text}", std::process::id());
+    }
+}
+
+/// Whether the app server takes connections at this path yet. Codex leaves a link there to the socket itself.
+fn listening(socket: &Path) -> bool {
+    fs::canonicalize(socket)
+        .and_then(std::os::unix::net::UnixStream::connect)
+        .is_ok()
+}
+
+/// Starts the app server and this follower for a session. Returns the address the terminal UI connects to,
+/// or `None` when Codex has to start the old way; why is then left for the workspace (`whole_reason`).
+pub(super) fn start(journal: &Path, key: &str, exe: &str, hooks: &[String]) -> Option<String> {
+    if env::var(SWITCH).as_deref() == Ok("off") {
+        starts_whole(
+            journal,
+            key,
+            "the template turns live replies off (SWARMHUB_CODEX_STREAM=off).",
+        );
+        return None;
+    }
+    let begun = std::time::Instant::now();
+    let fail = |reason: &str| {
+        starts_whole(journal, key, reason);
+        None
+    };
+    let folder = folder(journal);
+    if DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&folder)
+        .is_err()
+    {
+        return fail("the workspace's data folder could not hold the app server's socket.");
+    }
     let launcher = std::process::id();
     forget_ended(&folder);
     let socket = folder.join(format!("{launcher}.sock"));
-    socket
+    if socket
         .to_str()
-        .filter(|path| !path.contains(char::is_whitespace))?;
-    let mut follower = Command::new(exe)
+        .is_none_or(|path| path.contains(char::is_whitespace))
+    {
+        return fail(
+            "the workspace's data folder has a name Codex cannot be given as a socket address.",
+        );
+    }
+    let Ok(mut follower) = Command::new(exe)
         .arg(COMMAND)
         .arg(launcher.to_string())
         .arg(&socket)
         .args(hooks)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(log())
         // Its own group: the terminal's foreground group stays Codex's UI alone.
         .process_group(0)
         .spawn()
-        .ok()?;
-    let output = follower.stdout.take()?;
-    let (ready, started) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        let _ = BufReader::new(output).read_line(&mut line);
-        let _ = ready.send(line.trim() == "ready");
-    });
-    if started.recv_timeout(START) == Ok(true) {
-        return Some(address(&socket));
-    }
+    else {
+        return fail("the follower beside Codex could not be started.");
+    };
+    // The terminal UI only needs the server to listen. The follower joins on its own, a moment later.
+    let wait = wait(env::var(WAIT).ok().as_deref());
+    let reason = loop {
+        if listening(&socket) {
+            logged(&format!(
+                "the app server listened after {} ms",
+                begun.elapsed().as_millis()
+            ));
+            return Some(address(&socket));
+        }
+        if !matches!(follower.try_wait(), Ok(None)) {
+            break "Codex's app server ended before it listened.".to_owned();
+        }
+        if begun.elapsed() >= wait {
+            break format!(
+                "Codex's app server did not listen within {} seconds, so Codex was started without it.",
+                wait.as_secs()
+            );
+        }
+        std::thread::sleep(LOOK);
+    };
     let _ = follower.kill();
     let _ = follower.wait();
     let _ = fs::remove_file(&socket);
-    None
+    fail(&reason)
 }
 
 /// Where the follower and its app server may write why something failed: the file `SWARMHUB_CODEX_STREAM_LOG`
@@ -148,7 +274,8 @@ fn log() -> Stdio {
         .map_or_else(Stdio::null, Stdio::from)
 }
 
-/// Removes the socket names of sessions whose process is gone. One that was killed could not remove its own.
+/// Removes the socket names of sessions whose process is gone (one that was killed could not remove its own)
+/// and the notes of sessions long over.
 fn forget_ended(folder: &Path) {
     for entry in fs::read_dir(folder).into_iter().flatten().flatten() {
         let name = entry.file_name();
@@ -160,6 +287,14 @@ fn forget_ended(folder: &Path) {
             && unsafe { libc::kill(pid, 0) } != 0
             && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
         {
+            let _ = fs::remove_file(entry.path());
+        }
+        let old_note = name.to_str().is_some_and(|name| name.ends_with(".whole"))
+            && entry
+                .metadata()
+                .and_then(|file| file.modified())
+                .is_ok_and(|at| at.elapsed().is_ok_and(|age| age > NOTE_KEPT));
+        if old_note {
             let _ = fs::remove_file(entry.path());
         }
     }
@@ -226,26 +361,6 @@ pub async fn run() -> Result<(), Failed> {
         let _ = exited.send(());
     });
 
-    let deadline = Instant::now() + START;
-    let mut connection = loop {
-        if let Some(connection) = connect(&socket).await {
-            break Some(connection);
-        }
-        tokio::select! {
-            _ = &mut ended => return Err("Codex's app server ended before it answered.".into()),
-            () = sleep_until(deadline) => return Err("Codex's app server did not answer in time.".into()),
-            () = tokio::time::sleep(Duration::from_millis(100)) => {}
-        }
-        if orphaned() {
-            return Ok(());
-        }
-    };
-    {
-        let mut out = io::stdout().lock();
-        writeln!(out, "ready")?;
-        out.flush()?;
-    }
-
     let mut follower = Follower::default();
     let mut feed = Feed {
         path: journal.with_file_name("replies.sock"),
@@ -254,6 +369,10 @@ pub async fn run() -> Result<(), Failed> {
     };
     let mut alive = interval(Duration::from_secs(1));
     let mut flush_at: Option<Instant> = None;
+    // `run-codex` starts the terminal UI as soon as the server listens. This client joins when the server
+    // answers it, however long that takes: a conversation that began meanwhile is joined from the list.
+    let mut connection: Option<Connection> = None;
+    let mut connect_again = FIRST_CONNECT;
     let mut reconnect_at = Instant::now();
     loop {
         let join_at = follower.retries.first().map(|(at, _, _)| *at);
@@ -283,9 +402,10 @@ pub async fn run() -> Result<(), Failed> {
                 feed.show(follower.reply.as_ref()).await;
             }
             () = sleep_until(reconnect_at), if connection.is_none() => {
-                reconnect_at = Instant::now() + RECONNECT;
                 connection = connect(&socket).await;
+                reconnect_at = Instant::now() + connect_again;
                 if connection.is_some() {
+                    connect_again = RECONNECT;
                     let requests = follower.list_threads();
                     send_all(&mut connection, requests).await;
                 }
@@ -825,6 +945,37 @@ mod tests {
             json!({"threadId":"child","item":{"type":"agentMessage","id":"m","text":"hidden"}}),
         ));
         assert!(follower.reply.is_none());
+    }
+
+    #[test]
+    fn the_wait_is_adjustable_within_bounds_and_a_fallback_leaves_its_reason() {
+        assert_eq!(wait(None), Duration::from_secs(WAIT_SECONDS));
+        assert_eq!(wait(Some(" 12 ")), Duration::from_secs(12));
+        assert_eq!(wait(Some("0")), Duration::from_secs(1));
+        assert_eq!(wait(Some("600")), Duration::from_secs(45));
+        assert_eq!(wait(Some("soon")), Duration::from_secs(WAIT_SECONDS));
+
+        let scratch = tempfile::tempdir().unwrap();
+        let journal = scratch.path().join("workspace.sqlite3");
+        let (key, other) = (
+            "00112233445566778899aabbccddeeff",
+            "ffeeddccbbaa99887766554433221100",
+        );
+        assert_eq!(whole_reason(&journal, key), None);
+        starts_whole(
+            &journal,
+            key,
+            "Codex's app server did not listen within 30 seconds.\n",
+        );
+        assert_eq!(
+            whole_reason(&journal, key).as_deref(),
+            Some("Codex's app server did not listen within 30 seconds.")
+        );
+        assert_eq!(whole_reason(&journal, other), None);
+        // The launch key is not in the file's name.
+        let name = note_path(&journal, key);
+        assert!(!name.to_str().unwrap().contains(key) && name.ends_with(name.file_name().unwrap()));
+        assert!(!listening(&folder(&journal).join("1.sock")));
     }
 
     #[test]

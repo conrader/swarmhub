@@ -31,7 +31,7 @@ struct Stop {
 }
 
 pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
-    let (journal, _) = session()?;
+    let (journal, key) = session()?;
     let path = env::current_exe()?;
     let path = path
         .to_str()
@@ -73,8 +73,15 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut cmd = executable();
     cmd.env_remove(crate::runtimes::MODEL_ENV);
+    if !plain {
+        stream::starts_whole(
+            &journal,
+            &key,
+            "the template gives Codex arguments of its own, so it was started exactly as written.",
+        );
+    }
     match plain
-        .then(|| stream::start(&journal, path, &hooks))
+        .then(|| stream::start(&journal, &key, path, &hooks))
         .flatten()
     {
         // The hooks run in the session's app server, which was given them; the terminal UI only shows it.
