@@ -131,7 +131,7 @@ struct ChatView: View {
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      mentionNames: store.mentionTargets(for: bot).map(store.mentionLabel),
                      manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage,
-                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive ? [] : SlashCommand.menu, dictation: dictation)
+                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive || bot.backend == .herdr ? [] : SlashCommand.menu, dictation: dictation)
     }
     private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }
     /// A Manage bots request for this chat replaces the draft.

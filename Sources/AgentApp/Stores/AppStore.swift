@@ -431,6 +431,6 @@ import SwarmHubCore
         guard let binding = bot.openClaw, let gateway = gateway(id: binding.gatewayID) else { throw BackendError.unavailable(OpenClawBackend.unboundMessage) }
         return OpenClawBackend(gateway: gateway, binding: binding, hub: openClawHub, defaultInstructions: try defaultBotInstructions(for: bot))
     case .herdr:
-        return HerdrBackend(client: try herdrClient(), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot))
+        return try herdrBackend(for: bot)
     } }
 }

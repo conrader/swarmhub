@@ -35,22 +35,79 @@ struct HerdrSettingsSection: View {
     }
 }
 
-/// A bot's own agent runtime, in its editor's Advanced part. The change applies when the bot next starts an agent.
+/// A Herdr bot's agent in its editor's Advanced part: the same controls as the Details panel's Model tab.
 struct HerdrBotSection: View {
+    @ObservedObject var bot: Bot
+    var body: some View { Section("Herdr agent") { HerdrAgentControls(bot: bot) } }
+}
+
+/// Which agent program and model a Herdr bot runs, and a way to start it afresh. Both choices are used when the bot
+/// next starts an agent; a running agent keeps what it started with until "Start a fresh agent".
+struct HerdrAgentControls: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
-    @State private var template = ""; @State private var templates: [HerdrClient.Template] = []; @State private var problem = ""
+    @State private var template = ""; @State private var model = ""
+    @State private var templates: [HerdrClient.Template] = []; @State private var models: [HerdrClient.Template.Model] = []
+    @State private var note = ""; @State private var loaded = false; @State private var restarting = false
+
+    /// The template this bot would start from now: its own, else the one for new bots, else the first available.
+    private var effective: HerdrClient.Template? {
+        let wanted = template.isEmpty ? store.defaults.string(forKey: HerdrBackend.templateKey) ?? "" : template
+        return templates.first { $0.name == wanted } ?? (wanted.isEmpty ? templates.first : nil)
+    }
 
     var body: some View {
-        Section("Herdr agent") {
-            HerdrTemplatePicker(title: "Agent runtime", automatic: "Same as new bots", selection: $template, templates: templates)
-                .onChange(of: template) { _, value in store.setHerdrTemplate(value, for: bot) }
-            Text(problem.isEmpty ? "The agent keeps running on the Herdr machine between messages. A new runtime applies the next time this bot starts one." : problem)
-                .font(.caption).foregroundStyle(.secondary)
+        HerdrTemplatePicker(title: "Agent runtime", automatic: "Same as new bots", selection: $template, templates: templates)
+            .onChange(of: template) { _, value in
+                guard loaded else { return }
+                store.setHerdrTemplate(value, for: bot); model = ""; store.setHerdrModel("", for: bot)
+                Task { await loadModels() }
+            }
+        if effective?.takesModel != false {
+            Picker("Model", selection: $model) {
+                Text("Agent's default").tag("")
+                ForEach(models, id: \.id) { Text($0.label ?? $0.id).tag($0.id) }
+                if !model.isEmpty, !models.contains(where: { $0.id == model }) { Text(model).tag(model) }
+            }
+            .onChange(of: model) { _, value in if loaded { store.setHerdrModel(value, for: bot) } }
         }
-        .task {
-            template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""
-            do { templates = try await store.herdrTemplates() } catch { problem = error.localizedDescription }
+        HStack {
+            Button("Start a fresh agent") { restart() }.disabled(restarting)
+            if restarting { ProgressView().controlSize(.small) }
+        }
+        Text(note.isEmpty ? "Runtime and model apply when this bot next starts an agent. A running agent keeps its own until you start a fresh one, which also clears what the agent remembers of this chat." : note)
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            .task {
+                template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot)
+                do { templates = try await store.herdrTemplates() } catch { note = error.localizedDescription }
+                await loadModels(); loaded = true
+            }
+    }
+
+    private func loadModels() async {
+        guard let effective, effective.takesModel else { models = []; return }
+        do { models = try await store.herdrClient().models(for: effective) } catch { models = effective.models ?? [] }
+    }
+
+    private func restart() {
+        restarting = true; note = ""
+        Task {
+            do { note = try await store.restartHerdrAgent(for: bot) ? "The running agent was closed. Your next message starts a fresh one." : "No agent is running. Your next message starts one." }
+            catch { note = error.localizedDescription }
+            restarting = false
+        }
+    }
+}
+
+/// Overview's line for a Herdr bot, where a Hermes bot shows its memory.
+struct HerdrOverviewSection: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject var bot: Bot
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Agent").font(.headline)
+            Text("Runs on your Herdr server as \((try? store.herdrBackend(for: bot).agentName) ?? "an agent named after this bot"). It keeps its own memory of the chat while it runs; choose its runtime and model under Model.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

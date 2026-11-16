@@ -30,7 +30,8 @@ struct InfoPanel: View {
         switch store.visibleInfoTab(for: bot) {
         case .overview: overview
         case .model:
-            if hasModel { ModelSectionView(bot: bot, cache: store.botInfo) } else { Text("This agent has no model to show.").foregroundStyle(.secondary) }
+            if bot.backend == .herdr { VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: bot) } }
+            else if hasModel { ModelSectionView(bot: bot, cache: store.botInfo) } else { Text("This agent has no model to show.").foregroundStyle(.secondary) }
         case .skills: BotCapabilitiesView(bot: bot, cache: store.botInfo)
         case .activity:
             VStack(alignment: .leading, spacing: 18) {
@@ -58,6 +59,8 @@ struct InfoPanel: View {
             if hasModel { ModelSectionView(bot: bot, cache: store.botInfo, compact: true); BotConnectorsSection(bot: bot) }
             if bot.backend == .openClaw {
                 OpenClawOverviewSection(status: store.openClawStatus, bot: bot)
+            } else if bot.backend == .herdr {
+                HerdrOverviewSection(bot: bot)
             } else {
                 MemorySection(bot: bot)
                 if store.connectionBot(id: bot.id) != nil { BotConnectedAppsSection(apps: store.connectedApps, bot: bot) }

@@ -13,7 +13,12 @@ import FoundationNetworking
 struct HerdrClient: Sendable {
     struct Template: Decodable, Sendable, Equatable {
         struct Runtime: Decodable, Sendable, Equatable { let harness: String?; let provider: String?; let model: String? }
+        /// A model the template offers by name (the bridge's `runtime-catalog.json`).
+        struct Model: Decodable, Sendable, Equatable { let id: String; let label: String? }
         let name: String; let description: String?; let error: String?; let runtime: Runtime?
+        /// Set when the template can start its agent on a chosen model; `discoverModels` when the agent program can list them.
+        var modelAgent: String? = nil; var models: [Model]? = nil; var discoverModels: Bool? = nil
+        var takesModel: Bool { modelAgent != nil }
         /// "Claude Code · swarmhub-claude": the agent program first, since that is what people choose by.
         var label: String { runtime?.harness.map { "\($0) · \(name)" } ?? name }
     }
@@ -120,10 +125,28 @@ struct HerdrClient: Sendable {
         return (preview.draft?.text, preview.tools ?? [])
     }
 
-    func launch(name: String, template: String, task: String, profileID: Int?) async throws -> Agent {
+    func launch(name: String, template: String, task: String, profileID: Int?, modelID: String? = nil) async throws -> Agent {
         var body: [String: Any] = ["name": name, "template": template, "task": task]
         if let profileID { body["profile_id"] = profileID }
+        if let modelID { body["model_id"] = modelID }
         return try await post("/api/agents", body)
+    }
+
+    /// The models a template can start on: its named ones, and what the agent program lists when it can.
+    func models(for template: Template) async throws -> [Template.Model] {
+        var found = template.models ?? []
+        if template.discoverModels == true {
+            struct Listed: Decodable { let models: [Template.Model] }
+            let listed: Listed = try await post("/api/runtime-models/\(template.name)", [:])
+            found += listed.models.filter { model in !found.contains { $0.id == model.id } }
+        }
+        return found
+    }
+
+    /// Closes the agent's session; its saved conversation stays in the workspace.
+    func end(_ agent: Agent) async throws {
+        struct Ended: Decodable {}
+        let _: Ended = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/end", [:])
     }
 
     func message(_ text: String, to agent: Agent) async throws {
@@ -144,9 +167,31 @@ struct HerdrClient: Sendable {
         return live.first { $0.name == name } ?? live.first { Self.suffix(of: $0.name) == Self.suffix(of: name) }
     }
 
-    /// Types `text` into this bot's running agent, or starts one from `template` with `text` as its first task.
+    /// The bridge takes up to 16 KB of plain text per task: the message and the instructions each get under half.
+    static let messageBytes = 8_000, instructionsBytes = 7_000
+
+    /// Plain text as the bridge accepts it: no control characters except new lines and tabs, cut to `bytes` of UTF-8
+    /// on a character boundary.
+    static func plain(_ text: String, bytes: Int) -> String {
+        var clean = String(String.UnicodeScalarView(text.replacingOccurrences(of: "\r\n", with: "\n").unicodeScalars.filter {
+            $0 == "\n" || $0 == "\t" || $0.properties.generalCategory != .control
+        }))
+        while clean.utf8.count > bytes { clean.removeLast() }
+        return clean
+    }
+
+    /// The first task of a new agent: the bot's standing instructions, then the message. A running agent already has them.
+    static func firstTask(_ text: String, instructions: String?) -> String {
+        let rules = plain(instructions ?? "", bytes: instructionsBytes).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rules.isEmpty else { return text }
+        return "Standing instructions for this whole conversation:\n\(rules)\n\nMy first message:\n\(text)"
+    }
+
+    /// Types `text` into this bot's running agent, or starts one from `template` (on `model`, when the template takes
+    /// one) with `instructions` and `text` as its first task.
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
-    func deliver(_ text: String, name: String, template: String?) async throws -> Turn {
+    func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil) async throws -> Turn {
+        let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
         if let agent = liveAgent(named: name, in: current) {
@@ -158,7 +203,8 @@ struct HerdrClient: Sendable {
         let usable = current.templates.filter { $0.error == nil }
         guard let chosen = usable.first(where: { $0.name == template }) ?? (template == nil ? usable.first : nil) else { throw Failure.noTemplate }
         let known = try await profiles().first { $0.runtimeName == name || Self.suffix(of: $0.runtimeName) == Self.suffix(of: name) }
-        let agent = try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: text, profileID: known?.id)
+        let agent = try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: Self.firstTask(text, instructions: instructions),
+                                     profileID: known?.id, modelID: chosen.takesModel ? model.flatMap { $0.isEmpty ? nil : $0 } : nil)
         if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
     }

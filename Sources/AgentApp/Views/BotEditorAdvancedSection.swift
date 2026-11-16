@@ -17,16 +17,21 @@ struct BotEditorAdvancedSection: View {
                 Text(SimpleCopy.runsOn(place(bot), as: profile)).font(.caption).foregroundStyle(.secondary)
             }
         }
-        Section("Approvals") {
-            ApprovalRouteEditor(lines: $fields.routing.lines, otherwise: $fields.routing.otherwise, excluding: bot?.id)
-            Text("First match wins: this bot’s lines, then the lines for all bots (Settings → Approvals), then “Anything else”. Patterns are case-insensitive with * and ?. Approve accepts only conservative ASCII commands; unsafe, destructive or unknown commands and reviewers that don’t answer in time always come to you.").font(.caption).foregroundStyle(.secondary)
+        // A Herdr agent asks in its own terminal; SwarmHub routes none of its approvals.
+        if fields.backend != .herdr {
+            Section("Approvals") {
+                ApprovalRouteEditor(lines: $fields.routing.lines, otherwise: $fields.routing.otherwise, excluding: bot?.id)
+                Text("First match wins: this bot’s lines, then the lines for all bots (Settings → Approvals), then “Anything else”. Patterns are case-insensitive with * and ?. Approve accepts only conservative ASCII commands; unsafe, destructive or unknown commands and reviewers that don’t answer in time always come to you.").font(.caption).foregroundStyle(.secondary)
+            }
         }
         Section("Review after") {
             ReviewAfterEditor(rules: $fields.reviewAfter, excluding: bot?.id)
             Text("The reviewer gets the reply, its steps, the code-job line and the diff stat in its “Review: <bot>” chat; the verdict appears under the reply. Reviews never hold up the reply.").font(.caption).foregroundStyle(.secondary)
         }
-        BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel, coding: $fields.codingModel,
-                                codingAgent: $fields.codingAgent)
+        if fields.backend != .herdr {
+            BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel, coding: $fields.codingModel,
+                                    codingAgent: $fields.codingAgent)
+        }
         if let bot { BoxInstructionsSection(bot: bot); RestoreOldKeySection(bot: bot) }
         if let bot, fields.backend == .herdr { HerdrBotSection(bot: bot) }
         if bot != nil, fields.backend == .hermes || fields.backend == .openClaw {

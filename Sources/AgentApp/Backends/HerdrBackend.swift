@@ -2,7 +2,8 @@ import Foundation
 
 /// An agent that Herdr Core runs in a terminal (Claude Code, Codex, or any other template), reached through the
 /// SwarmHub bridge (`HerdrClient`). The agent program keeps its own conversation, model, tools and permissions, so
-/// only the newest user message is sent: `systemPrompt`, earlier `messages` and images go nowhere. The reply is
+/// only the newest user message is sent (after the bot's own instructions, once, when an agent starts):
+/// `systemPrompt`, earlier `messages` and images go nowhere. The reply is
 /// saved by the agent's Stop hook when its turn ends; a template that publishes a preview (Claude Code with
 /// `--workspace-preview`) also shows it growing line by line, and one that does not (Codex) shows it whole.
 /// Both agents report their tool calls through hooks, which become the reply's activity steps.
@@ -18,16 +19,23 @@ struct HerdrBackend: AgentBackend {
     /// A bot's own template lives beside the app settings, so the bot record and its Hermes fields stay untouched.
     static func botTemplateKey(_ botID: UUID) -> String { "\(templateKey).\(botID.uuidString.lowercased())" }
     static let missingToken = "Paste the Herdr workspace access token in Settings → Advanced → Servers and keys."
-    static let modelNote = "The model comes from the agent program on the Herdr machine. Choose it in the Herdr template."
+    static let modelNote = "Choose this agent's model under Herdr agent."
+    static func botModelKey(_ botID: UUID) -> String { "herdrModel.\(botID.uuidString.lowercased())" }
 
     let kind = BackendKind.herdr
     let client: HerdrClient
     let agentName: String
     /// nil: the first template the bridge can start.
     let template: String?
+    /// nil: the agent program's own default model. Used when the bot next starts an agent.
+    let model: String?
+    /// The bot's own instructions, given once to each agent it starts; the app's Hermes policy text is never sent.
+    let instructions: String?
 
-    init(client: HerdrClient, botName: String, botID: UUID, template: String?) {
+    init(client: HerdrClient, botName: String, botID: UUID, template: String?, model: String? = nil, instructions: String? = nil) {
         self.client = client; self.template = template?.isEmpty == false ? template : nil
+        self.model = model?.isEmpty == false ? model : nil
+        self.instructions = instructions == Bot.defaultPersona ? nil : instructions
         agentName = HerdrClient.agentName(for: botName, suffix: botID.uuidString.replacingOccurrences(of: "-", with: ""))
     }
 
@@ -40,7 +48,7 @@ struct HerdrBackend: AgentBackend {
             let task = Task {
                 do {
                     continuation.yield(.status("Sending to Herdr"))
-                    let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template)
+                    let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.instructions)
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },

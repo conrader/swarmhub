@@ -23,6 +23,26 @@ extension AppStore {
         if template.isEmpty { defaults.removeObject(forKey: HerdrBackend.botTemplateKey(bot.id)) } else { defaults.set(template, forKey: HerdrBackend.botTemplateKey(bot.id)) }
     }
 
+    /// The model this bot's next agent starts on; empty for the agent program's own default.
+    func herdrModel(for bot: Bot) -> String { defaults.string(forKey: HerdrBackend.botModelKey(bot.id)) ?? "" }
+
+    func setHerdrModel(_ model: String, for bot: Bot) {
+        if model.isEmpty { defaults.removeObject(forKey: HerdrBackend.botModelKey(bot.id)) } else { defaults.set(model, forKey: HerdrBackend.botModelKey(bot.id)) }
+    }
+
+    func herdrBackend(for bot: Bot) throws -> HerdrBackend {
+        HerdrBackend(client: try herdrClient(), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.persona)
+    }
+
+    /// Ends the bot's running agent, so its next message starts a fresh one on the chosen runtime and model.
+    /// Returns whether an agent was running. The chat stays; the agent's own memory of it does not.
+    func restartHerdrAgent(for bot: Bot) async throws -> Bool {
+        let backend = try herdrBackend(for: bot)
+        guard let agent = backend.client.liveAgent(named: backend.agentName, in: try await backend.client.workspace()) else { return false }
+        try await backend.client.end(agent)
+        return true
+    }
+
     /// The templates Herdr Core can start right now, for the pickers.
     func herdrTemplates() async throws -> [HerdrClient.Template] {
         try await herdrClient().workspace().templates.filter { $0.error == nil }
