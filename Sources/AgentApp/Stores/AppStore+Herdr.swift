@@ -139,6 +139,16 @@ extension AppStore {
         return backend
     }
 
+    /// Reads what the bot's agent runs on (agent program, model, and what the running agent was started on) and keeps
+    /// it for the Details panel and the chat header. A server that cannot be read leaves the last reading in place.
+    @discardableResult func refreshHerdrAgentReading(for bot: Bot) async -> HerdrAgentReading? {
+        guard bot.backend == .herdr, !bot.isReadOnlyArchive, let client = try? herdrClient(for: herdrServer(for: bot)) else { return herdrAgentReadings[bot.id] }
+        let reading = try? await client.agentReading(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id), ownTemplate: defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)),
+                                                     sharedTemplate: defaults.string(forKey: HerdrBackend.templateKey), ownModel: herdrModel(for: bot))
+        if let reading, herdrAgentReadings[bot.id] != reading { herdrAgentReadings[bot.id] = reading }
+        return herdrAgentReadings[bot.id]
+    }
+
     /// Steer is the default: a message sent while the agent answers goes into that answer.
     func herdrSteers(_ bot: Bot) -> Bool { defaults.object(forKey: HerdrBackend.botSteerKey(bot.id)) as? Bool ?? true }
     func setHerdrSteers(_ steers: Bool, for bot: Bot) { defaults.set(steers, forKey: HerdrBackend.botSteerKey(bot.id)) }
@@ -161,7 +171,7 @@ extension AppStore {
 
     /// The model a starter bot begins on: the first one the server offers for that agent program. The server's catalog
     /// decides which that is, because the app itself names no model; nil leaves the agent program's own default.
-    static func starterModel(offered: [HerdrClient.Template.Model]) -> String? { offered.first?.id }
+    static func starterModel(offered: [HerdrClient.Template.Model]) -> String? { HerdrClient.defaultModel(offered: offered) }
 
     /// One starter per agent program the server can start (Claude Code, Codex), each on its starter model. Reads the
     /// server; adds nothing.

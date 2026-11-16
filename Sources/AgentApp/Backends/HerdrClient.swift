@@ -12,7 +12,9 @@ import FoundationNetworking
 /// (`ssh -L 8787:127.0.0.1:8787 server`). Foundation only, so it also builds on Linux for the bridge's own checks.
 struct HerdrClient: Sendable {
     struct Template: Decodable, Sendable, Equatable {
-        struct Runtime: Decodable, Sendable, Equatable { let harness: String?; let provider: String?; let model: String? }
+        /// On a template: its agent program. On a saved session (`Profile.Session`): also the model the agent was
+        /// started on, `modelId` and its `model` label, both nil when it was started without one.
+        struct Runtime: Decodable, Sendable, Equatable { let harness: String?; let provider: String?; let model: String?; var modelId: String? = nil }
         /// A model the template offers by name (the bridge's `runtime-catalog.json`).
         struct Model: Decodable, Sendable, Equatable { let id: String; let label: String? }
         let name: String; let description: String?; let error: String?; let runtime: Runtime?
@@ -37,7 +39,12 @@ struct HerdrClient: Sendable {
 
     struct Workspace: Decodable, Sendable { let core: String?; let version: String?; let agents: [Agent]; let templates: [Template] }
 
-    struct Profile: Decodable, Sendable { let id: Int; let runtimeName: String }
+    /// A bot's saved profile on the bridge, with its newest sessions and what each was launched with.
+    struct Profile: Decodable, Sendable {
+        struct Session: Decodable, Sendable, Equatable { let address: String; let createdMs: UInt64; var runtime: Template.Runtime? = nil }
+        let id: Int; let runtimeName: String
+        var sessions: [Session]? = nil
+    }
 
     /// One saved row of a session: `task` (what was sent) or `reply` (what the agent's hook saved).
     /// Other kinds (files, snapshots) carry no text; they decode with an empty one and are skipped.
@@ -150,6 +157,10 @@ struct HerdrClient: Sendable {
         return found
     }
 
+    /// The model a bot without one of its own starts on: the first the server offers for its template. The server's
+    /// list decides which that is, because the app itself names no model; nil when the server offers none.
+    static func defaultModel(offered: [Template.Model]) -> String? { offered.first?.id }
+
     /// Closes the agent's session; its saved conversation stays in the workspace.
     func end(_ agent: Agent) async throws {
         struct Ended: Decodable {}
@@ -222,8 +233,12 @@ struct HerdrClient: Sendable {
         let usable = current.templates.filter { $0.error == nil }
         guard let chosen = usable.first(where: { $0.name == template }) ?? (template == nil ? usable.first : nil) else { throw Failure.noTemplate }
         let known = try await profiles().first { $0.runtimeName == name || Self.suffix(of: $0.runtimeName) == Self.suffix(of: name) }
+        // A bot with no model of its own starts on the first one the server offers for the template (`defaultModel`):
+        // the model the app shows for it. Only a template with no list leaves the choice to the agent program.
+        var modelID = chosen.takesModel ? model.flatMap { $0.isEmpty ? nil : $0 } : nil
+        if modelID == nil, chosen.takesModel { modelID = Self.defaultModel(offered: (try? await models(for: chosen)) ?? chosen.models ?? []) }
         let agent = try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: Self.firstTask(text, instructions: instructions),
-                                     profileID: known?.id, modelID: chosen.takesModel ? model.flatMap { $0.isEmpty ? nil : $0 } : nil)
+                                     profileID: known?.id, modelID: modelID)
         if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
     }

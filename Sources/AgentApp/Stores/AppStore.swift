@@ -53,6 +53,9 @@ import SwarmHubCore
     /// detail column; the poll that reads them, and the failed reads in a row per server.
     @Published var herdrHelpers: [UUID: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
+    /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
+    /// panel and the chat header show it by name.
+    @Published var herdrAgentReadings: [UUID: HerdrAgentReading] = [:]
     /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
     var herdrSettling: Set<String> = []
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent

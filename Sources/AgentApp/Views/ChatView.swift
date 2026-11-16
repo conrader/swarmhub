@@ -33,6 +33,8 @@ struct ChatView: View {
                           isWaiting: store.hasPendingApproval(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
                 if let thread { Text(thread.headerTitle).font(.system(size: 12)).foregroundStyle(.secondary) }
+                // A Herdr bot's model by the server's name for it: the running agent's, else the one its next agent starts on.
+                else if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model this bot's agent runs on") }
                 if let incoming { Text(incoming).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
@@ -121,7 +123,8 @@ struct ChatView: View {
                 // The editor writes the box's time (its summary says so): the routine converted with the zone read now.
                 RoutineEditorSheet(bot: bot, job: nil, schedule: store.suggestionZones(for: bot).boxSchedule(routine.schedule), name: routine.name, prompt: routine.prompt)
             }
-            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
+            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill()
+                if bot.backend == .herdr, store.botInfo.autoLoad { await store.refreshHerdrAgentReading(for: bot) } }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
             .onChange(of: store.pendingComposerAttachment) { _, _ in takePendingAttachment() }

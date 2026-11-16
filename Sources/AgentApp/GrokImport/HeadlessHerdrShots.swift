@@ -5,12 +5,13 @@ import SwiftUI
 /// with nothing running, SSH, address, starter agents), Settings → Servers and keys with two servers, the simple page,
 /// a Herdr bot's and a Hermes bot's Advanced settings, a bot's request to create bots waiting above the composer, and
 /// a bot's helper agents: under it in the sidebar, in its Details panel, one of them opened, a server's helper settings,
-/// and a request for a bot passed between a bot and the main bot: both chats, and the settings of a bot that is not the main bot.
+/// a request for a bot passed between a bot and the main bot: both chats, and the settings of a bot that is not the main bot,
+/// and what a bot runs on by name: its Model tab, its Overview, and an agent program for which the server lists no models.
 /// All synthetic and in memory: Test results are built here, no server has a token, nothing connects.
 @MainActor enum HeadlessHerdrShots {
     static let names = ["herdr-s1-where", "herdr-s3-this-mac-nothing", "herdr-s3-ssh", "herdr-s3-ssh-failed", "herdr-s3-address", "herdr-s4-starters",
                         "herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-move", "herdr-bot-request",
-                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main"]
+                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main", "herdr-model-tab", "herdr-model-overview", "herdr-model-no-list", "herdr-model-header"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
@@ -101,5 +102,24 @@ import SwiftUI
         }
         write(names[17], await png(AnyView(Form { BotEditorAdvancedSection(bot: boppy, fields: .constant(BotEditorFields(bot: boppy))) }.formStyle(.grouped)
             .frame(width: editor.width, height: editor.height).background(AppColor.panel)), store, editor))
+
+        // What a bot runs on, by the server's names: no choice of its own, an agent running on another model than the next one would.
+        store.bots = [jarvis, boppy, infra]
+        let running = try? JSONDecoder().decode(HerdrClient.Agent.self, from: Data(#"{"address":"t9","createdMs":77,"name":"jarvis","state":"live","template":"starter-one","status":null}"#.utf8))
+        let launched = HerdrClient.Profile(id: 1, runtimeName: "jarvis", sessions: [.init(address: "t9", createdMs: 77, runtime: .init(harness: "Claude Code", provider: nil, model: "server-model-c", modelId: "server-model-c"))])
+        let models = offered["starter-one"] ?? []
+        store.herdrAgentReadings[jarvis.id] = HerdrAgentReading(templates: programs, ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: models, agent: running, profiles: [launched])
+        store.herdrAgentReadings[boppy.id] = HerdrAgentReading(templates: programs, ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: models)
+        let tab = NSSize(width: 360, height: 420)
+        write(names[18], await png(AnyView(VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: jarvis, templates: programs, models: models) }.padding(14)
+            .frame(width: tab.width, height: tab.height, alignment: .top).background(AppColor.panel)), store, tab))
+        store.selectedBot = boppy; store.infoTab = .overview
+        write(names[19], await png(AnyView(InfoPanel(bot: boppy)), store, NSSize(width: 360, height: 620)))
+        let listless = [HerdrClient.Template(name: "starter-three", description: nil, error: nil, runtime: .init(harness: "Another agent", provider: nil, model: nil))]
+        write(names[20], await png(AnyView(VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: boppy, templates: listless) }.padding(14)
+            .frame(width: tab.width, height: 300, alignment: .top).background(AppColor.panel)), store, NSSize(width: tab.width, height: 300)))
+        // The chat header names the model beside the bot.
+        store.selectedBot = jarvis
+        write(names[21], await png(AnyView(ChatView(bot: jarvis).frame(width: chat.width, height: 420)), store, NSSize(width: chat.width, height: 420)))
     }
 }

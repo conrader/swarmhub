@@ -33,7 +33,7 @@ struct HerdrSettingsSection: View {
             Text(SetupCopy.herdrReadyMadeDetail + " Nothing can be ordered here.").font(.caption).foregroundStyle(.secondary)
         }
         Section("Herdr bots") {
-            HerdrTemplatePicker(title: "Agent runtime for new bots", automatic: "First available", selection: $template, templates: templates)
+            HerdrTemplatePicker(title: "Agent runtime for new bots", automatic: templates.first.map { "\($0.label) (first available)" } ?? "First available", selection: $template, templates: templates)
             let movable = store.botsMovableToHerdr
             if !movable.isEmpty {
                 HStack {
@@ -149,45 +149,67 @@ struct HerdrBotSection: View {
 }
 
 /// Which agent program and model a Herdr bot runs, and a way to start it afresh. Both choices are used when the bot
-/// next starts an agent; a running agent keeps what it started with until "Start a fresh agent".
+/// next starts an agent; a running agent keeps what it started with until "Start a fresh agent". Nothing is shown as
+/// a placeholder: "no choice" reads as the agent program new bots use and the first model the server offers for it
+/// (which is what the bot's next agent is started on), and the running agent's own model is named beside it.
 struct HerdrAgentControls: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     @State private var template = ""; @State private var model = ""
-    @State private var templates: [HerdrClient.Template] = []; @State private var models: [HerdrClient.Template.Model] = []
+    @State private var templates: [HerdrClient.Template]; @State private var models: [HerdrClient.Template.Model]
     @State private var note = ""; @State private var loaded = false; @State private var restarting = false; @State private var steers = true
     @State private var serverID = ""
+    /// The server's lists were read (a render passes them in); until then the default entries cannot be named.
+    @State private var listed: Bool
+    private let preset: Bool
 
-    /// The template this bot would start from now: its own, else the one for new bots, else the first available.
-    private var effective: HerdrClient.Template? {
-        let wanted = template.isEmpty ? store.defaults.string(forKey: HerdrBackend.templateKey) ?? "" : template
-        return templates.first { $0.name == wanted } ?? (wanted.isEmpty ? templates.first : nil)
+    /// `templates` and `models` (renders and tests) show a read without making one.
+    init(bot: Bot, templates: [HerdrClient.Template]? = nil, models: [HerdrClient.Template.Model] = []) {
+        self.bot = bot; preset = templates != nil
+        _templates = State(initialValue: templates ?? []); _models = State(initialValue: models); _listed = State(initialValue: templates != nil)
     }
 
+    private var shared: String? { store.defaults.string(forKey: HerdrBackend.templateKey) }
+    /// The template this bot would start from now: its own, else the one for new bots, else the first available.
+    private var effective: HerdrClient.Template? { HerdrAgentReading.template(own: template, shared: shared, in: templates).template }
+
     var body: some View {
-        let servers = store.herdrServers
+        let servers = store.herdrServers, reading = store.herdrAgentReadings[bot.id]
         if servers.count > 1 {
             // Another server has its own agent programs and models, so both choices start over there.
             Picker("Server", selection: $serverID) { ForEach(servers) { Text($0.name).tag($0.id) } }
                 .onChange(of: serverID) { _, value in
                     guard loaded, value != store.herdrServer(for: bot).id else { return }
                     store.setHerdrServer(value, for: bot); template = ""; model = ""; store.setHerdrTemplate("", for: bot); store.setHerdrModel("", for: bot)
-                    Task { await loadTemplates(); await loadModels() }
+                    Task { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
                 }
         }
-        HerdrTemplatePicker(title: "Agent runtime", automatic: "Same as new bots", selection: $template, templates: templates)
+        HerdrTemplatePicker(title: "Agent runtime", automatic: HerdrAgentReading.defaultLabel(shared: shared, in: templates) ?? (listed ? "None this server can start" : "Reading…"),
+                            selection: $template, templates: templates)
             .onChange(of: template) { _, value in
                 guard loaded else { return }
                 store.setHerdrTemplate(value, for: bot); model = ""; store.setHerdrModel("", for: bot)
-                Task { await loadModels() }
+                Task { await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
             }
-        if effective?.takesModel != false {
+        if effective?.takesModel == true, !(listed && models.isEmpty) {
             Picker("Model", selection: $model) {
-                Text("Agent's default").tag("")
-                ForEach(models, id: \.id) { Text($0.label ?? $0.id).tag($0.id) }
+                // No choice of its own: the first model the server offers, which the bot's next agent is started on.
+                Text(models.first.map { "\(HerdrAgentReading.name($0)) (default)" } ?? "Reading…").tag("")
+                ForEach(models, id: \.id) { Text(HerdrAgentReading.name($0)).tag($0.id) }
                 if !model.isEmpty, !models.contains(where: { $0.id == model }) { Text(model).tag(model) }
             }
-            .onChange(of: model) { _, value in if loaded { store.setHerdrModel(value, for: bot) } }
+            .onChange(of: model) { _, value in
+                guard loaded else { return }
+                store.setHerdrModel(value, for: bot)
+                Task { await store.refreshHerdrAgentReading(for: bot) }
+            }
+        } else if listed, effective != nil {
+            LabeledContent("Model") { Text(HerdrAgentReading.programPicks).foregroundStyle(.secondary) }
+                .help("This server lists no models for this agent program, so the program starts on its own choice.")
+        }
+        if let running = reading?.runningLine {
+            Text([running, reading?.pendingLine].compactMap { $0 }.joined(separator: " ")).font(.caption).foregroundStyle(reading?.pendingLine == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                .fixedSize(horizontal: false, vertical: true)
         }
         Toggle("Add messages to the running answer (steer)", isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
             .help("On: a message you send while the agent is answering goes straight to it. Off: the message waits until the answer ends.")
@@ -200,12 +222,13 @@ struct HerdrAgentControls: View {
             .task {
                 template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
                 serverID = store.herdrServer(for: bot).id
-                await loadTemplates(); await loadModels(); loaded = true
+                if !preset { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
+                loaded = true
             }
     }
 
     private func loadTemplates() async {
-        do { templates = try await store.herdrTemplates(on: store.herdrServer(for: bot)); note = "" } catch { templates = []; note = error.localizedDescription }
+        do { templates = try await store.herdrTemplates(on: store.herdrServer(for: bot)); note = ""; listed = true } catch { templates = []; note = error.localizedDescription }
     }
 
     private func loadModels() async {
@@ -218,21 +241,31 @@ struct HerdrAgentControls: View {
         Task {
             do { note = try await store.restartHerdrAgent(for: bot) ? "The running agent was closed. Your next message starts a fresh one." : "No agent is running. Your next message starts one." }
             catch { note = error.localizedDescription }
+            await store.refreshHerdrAgentReading(for: bot)
             restarting = false
         }
     }
 }
 
-/// Overview's line for a Herdr bot, where a Hermes bot shows its memory.
+/// Overview's lines for a Herdr bot, where a Hermes bot shows its memory: where its agent runs, and on which agent
+/// program and model, by the server's names for them.
 struct HerdrOverviewSection: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Agent").font(.headline)
-            Text("Runs on \(store.herdrServer(for: bot).name) as \((try? store.herdrBackend(for: bot).agentName) ?? "an agent named after this bot"). It keeps its own memory of the chat while it runs; choose its runtime and model under Model.\(store.createsHerdrBots(bot) ? " It is the main bot of \(store.herdrServer(for: bot).name): only it creates bots, and other bots ask it." : "")")
+            Text("Runs on \(store.herdrServer(for: bot).name) as \((try? store.herdrBackend(for: bot).agentName) ?? "an agent named after this bot"). It keeps its own memory of the chat while it runs.\(store.createsHerdrBots(bot) ? " It is the main bot of \(store.herdrServer(for: bot).name): only it creates bots, and other bots ask it." : "")")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let reading = store.herdrAgentReadings[bot.id] {
+                Text(reading.summary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text("Change either under Model.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Its agent program and model are under Model.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
+        // Only the real app reads on its own; a preview or test store shows what it was given.
+        .task(id: bot.id) { if store.botInfo.autoLoad { await store.refreshHerdrAgentReading(for: bot) } }
     }
 }
 
