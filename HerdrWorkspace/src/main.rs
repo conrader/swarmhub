@@ -31,6 +31,7 @@ mod opencode_agent;
 mod page_share;
 mod pages;
 mod pdf_assets;
+mod platform;
 mod portable_profiles;
 mod profile_avatars;
 mod profiles;

@@ -88,7 +88,8 @@ pub(crate) fn target() -> String {
 }
 
 pub(crate) fn info() -> Value {
-    json!({"version": VERSION, "api": API, "api_min": API_MIN, "target": target(), "updates": true})
+    json!({"version": VERSION, "api": API, "api_min": API_MIN, "target": target(), "updates": true,
+           "unsupported": crate::platform::unsupported()})
 }
 
 pub(crate) fn routes() -> Router<Workspace> {
@@ -1092,8 +1093,7 @@ pub(crate) fn cli_watch() -> Done {
         .nth(3)
         .and_then(|time| time.parse().ok())
         .ok_or(usage)?;
-    // SAFETY: nothing else runs in this process yet; the call forks, and the half that stays leaves at once.
-    if unsafe { libc::daemon(1, 1) } != 0 {
+    if crate::platform::detach().is_err() {
         return Err("The watcher could not detach.".into());
     }
     // SAFETY: signal 0 only asks whether the process is there.

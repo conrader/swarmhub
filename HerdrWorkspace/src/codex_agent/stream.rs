@@ -313,12 +313,11 @@ impl Drop for Server {
     }
 }
 
+/// Linux ends this process, and the app server it starts, when their parent ends. macOS has no such call: there
+/// this process looks every second whether `run-codex` is still its parent (`orphaned`), and ends the app server
+/// when it is told to end itself (`platform::end_on_signal`).
 fn end_with_parent() -> io::Result<()> {
-    if unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) } == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
+    crate::platform::end_with_parent(libc::SIGTERM)
 }
 
 /// `swarmhub-herdr codex-stream LAUNCHER SOCKET HOOK...`: the process beside Codex's terminal UI.
@@ -355,6 +354,7 @@ pub async fn run() -> Result<(), Failed> {
         pid: process.id() as libc::pid_t,
         socket: socket.clone(),
     };
+    crate::platform::end_on_signal(process.id() as libc::pid_t);
     let (exited, mut ended) = oneshot::channel();
     std::thread::spawn(move || {
         let _ = process.wait();
