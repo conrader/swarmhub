@@ -88,7 +88,7 @@ A bot's agent can hand parts of its work to helper agents. They show under the b
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="screenshots/dark/helpers-sidebar.png">
-  <img src="screenshots/light/helpers-sidebar.png" alt="The sidebar: three helper agents under the main bot, each with its difficulty, model and state." width="280">
+  <img src="screenshots/light/helpers-sidebar.png" alt="The sidebar: three helpers under the main bot, each with its model and state." width="280">
 </picture>
 
 ### Skills

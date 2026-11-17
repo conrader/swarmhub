@@ -14,7 +14,7 @@ This is early software. What it does not do is listed under [Status](#status) an
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dark/chat-main-bot.png">
-    <img src="docs/screenshots/light/chat-main-bot.png" alt="The main bot's chat: another bot's requests for new bots, passed on by SwarmHub, and the bots waiting above the composer for Create or Dismiss." width="760">
+    <img src="docs/screenshots/light/chat-main-bot.png" alt="The main bot's chat: another bot's requests for new bots, passed on by SwarmHub, and the bots waiting above the message box for Create or Not now." width="760">
   </picture>
 </p>
 <p align="center"><sub>The main bot's chat. Every screen on this page is rendered by the app itself with sample content.</sub></p>
@@ -94,7 +94,7 @@ Rendered by the app (`AgentApp --render-setup`) with sample content. No real ser
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dark/setup-main-bot.png">
-        <img src="docs/screenshots/light/setup-main-bot.png" alt="The setup window: the main bot, its agent program and model." width="400">
+        <img src="docs/screenshots/light/setup-main-bot.png" alt="The setup window: the main bot, its AI and model." width="400">
       </picture>
       <br><sub>The main bot, its agent program and its model.</sub>
     </td>
