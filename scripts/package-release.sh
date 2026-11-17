@@ -64,6 +64,7 @@ chmod 755 "$APP_DIR/Contents/MacOS/AgentApp"
 
 # Stable signing keeps the app the same to the Keychain across rebuilds; ad-hoc makes every build a stranger.
 # SWARMHUB_SIGN_IDENTITY picks the identity (TORVLI_SIGN_IDENTITY is still read); default: the first Apple Development one.
+# "-" signs ad-hoc on purpose and asks the Keychain nothing (a rehearsal, or a build over SSH).
 SIGN_ID="${SWARMHUB_SIGN_IDENTITY:-${TORVLI_SIGN_IDENTITY:-}}"
 if [[ -z "$SIGN_ID" ]]; then
   SIGN_ID="$(/usr/bin/security find-identity -v -p codesigning | awk -F'"' '/"Apple Development: / {print $2; exit}')"
@@ -71,7 +72,7 @@ fi
 if [[ -z "$SIGN_ID" ]]; then
   echo "WARNING: no Apple Development identity found; signing ad-hoc. Keychain keys will not survive rebuilds." >&2
   SIGN_ID="-"
-elif ! /usr/bin/security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+elif [[ "$SIGN_ID" != - ]] && ! /usr/bin/security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
   echo "ERROR: login keychain is locked; unlock it and rerun (not falling back to ad-hoc)." >&2
   exit 1
 fi

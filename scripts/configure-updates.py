@@ -9,9 +9,14 @@ import re
 from urllib.parse import urlsplit
 
 
-def validate(info, require_key=True):
+def validate(info, require_key=True, rehearsal=False):
+    """`rehearsal`: a scratch bundle may also name a feed on this Mac's own loopback address."""
     feed = urlsplit(info.get("SUFeedURL", ""))
-    if feed.scheme != "https" or not feed.hostname or feed.username or feed.password or feed.fragment:
+    try:
+        loopback = rehearsal and feed.scheme == "http" and feed.hostname == "127.0.0.1" and feed.port is not None
+    except ValueError:
+        loopback = False
+    if (feed.scheme != "https" and not loopback) or not feed.hostname or feed.username or feed.password or feed.fragment:
         raise ValueError("SUFeedURL must be an HTTPS URL without credentials or a fragment")
     key = info.get("SUPublicEDKey", "")
     if key or require_key:

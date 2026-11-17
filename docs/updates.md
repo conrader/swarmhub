@@ -1,60 +1,150 @@
-# Automatic updates
+# Updates
 
-Installed macOS builds use Sparkle 2.10.0. The application menu and Settings (**Check for Updates…** on the simple page; automatic download under Advanced → About) share one updater. It checks daily by default; automatic downloading and installation is an opt-in setting. Sparkle saves both preferences across launches and handles download progress, installation and relaunch.
+SwarmHub has two halves, and both update themselves: the Mac app, and the workspace server that runs beside Herdr Core on each of your servers. **Settings → Software Update** shows all of it in one place and has one button when something is behind.
 
-The default feed is `https://github.com/conrader/swarmhub/releases/latest/download/appcast.xml`. Each stable GitHub release must include `appcast.xml` and the exact ZIP archive it describes. Archive signatures are verified before extraction. The application keeps its existing bundle identifier, preferences, history and Keychain service.
+## What there is to update
 
-## Set up the signing key once
+| What | Where it runs | How it updates |
+| --- | --- | --- |
+| SwarmHub, the app | Your Mac | By itself, through Sparkle. It checks once a day. |
+| The workspace (`swarmhub-herdr`) | Each Herdr server | One click in Software Update. The server installs the release itself. |
+| Herdr Core | Each Herdr server | Herdr's own updater, started from Software Update. |
+| Herdr's helper | Each project server | Herdr's own updater, started from Software Update. |
 
-On the Mac used to sign releases (with Xcode and Python 3 installed):
+Nothing is installed per bot. A bot's instructions live in the app and are sent when its agent starts. The notes that teach an agent its helper, messaging, bot-creation and project commands are written by the app each time. Skills come from the server's skillshare library. So after an update there is nothing to push to bots: a new agent simply starts with the new notes.
+
+## Using Software Update
+
+Open **Settings → Software Update**. **Check for Updates…** in Settings → About leads there too. (**Check for Updates…** in the SwarmHub menu checks the app alone and opens the update window.)
+
+The top of the page answers the question in one line: *Everything is up to date*, *An update is available*, or what needs your attention. **Update Now** (or **Update All**) installs what is ready: the servers first, then the app.
+
+**This Mac** shows the app's version and two switches:
+
+- **Check for updates automatically.** Once a day, in the background. No window opens over your work. When an update is found, a line appears at the bottom of the sidebar and here.
+- **Install updates automatically.** Off unless you turn it on. A new version then downloads in the background and installs when you quit SwarmHub.
+
+**Update Now…** opens the update window with the release notes. From there you install at once, or later.
+
+**Your servers** shows one card per server: the workspace version, the Herdr Core version, and what is behind. **Update** installs the newest workspace on that server. The ••• menu has **Check Again**, **Update Herdr Core** and, after an update, **Go Back** to the version it replaced.
+
+### What happens when a server updates
+
+1. The server downloads the release and checks its signature and its size and digest.
+2. It tries the new program: the program must report the right version, and it must open a copy of the journal (the server's database of conversations). Until this passes, nothing on the server has changed.
+3. It backs up the journal, keeps the running program as `swarmhub-herdr.previous`, and puts the new one in its place.
+4. The workspace restarts as the new version. This takes a few seconds. **Your agents keep running**: they live in Herdr Core, not in the workspace. An agent that is working goes on working, and its reply is saved on the server as usual. A chat that is waiting for that reply can show a connection error for the seconds the workspace is away; the reply is there once it is back.
+
+If the new version does not start, the server puts the previous one back by itself and Software Update says so, with the reason. If it hangs, a watcher does the same after 90 seconds. The app waits two and a half minutes for the server to come back before it reports that it has not.
+
+The journal backups are in `backups/` inside the workspace's data folder (`~/.local/state/swarmhub-herdr` unless you chose another). The newest three are kept.
+
+### When the app cannot update a server
+
+- **The workspace is from before it could update itself.** Install the new one once by hand (see [First install on a server](#first-install-on-a-server)). After that, updates are one click.
+- **The workspace is installed where it cannot write.** Update it the way it was installed.
+- **The release has no program for that kind of machine.** Releases carry a program for 64-bit Intel and AMD Linux servers. Build the workspace on the machine itself (`cargo build --release` in `HerdrWorkspace`).
+- **The server cannot reach the internet.** Nothing for you to do: the app downloads the release, checks it, and hands it to the server, which checks it again.
+
+### Going back
+
+**Go Back** returns a server to the version its last update replaced. It is offered while the journal still has the layout that version knows. If the newer version changed the journal's layout, the app says so and names the backup file. Going back then means stopping the workspace and restoring that backup by hand, and what was saved after the update is not in it.
+
+## How the app and a server know they fit
+
+Each server reports its version and an API level, a whole number that goes up whenever the app would have to know that something changed. The app sends its own version and the level it was written for with every request. Nothing is guessed from what a server does or does not answer.
+
+| The app says | Meaning |
+| --- | --- |
+| Up to date | The server serves the level the app was written for. |
+| An update is available | A newer workspace is published. |
+| The server is from before it could update itself | It reports no version. Install the new workspace once by hand. |
+| This server is newer than this version of SwarmHub works with | Update the app. |
+
+An older server still works; what is newer in the app stays off on that server until it is updated.
+
+## What is trusted
+
+An update is a way to run new code on your Mac and your servers, so it is worth saying exactly what the design relies on.
+
+- **One release key.** Every app archive and every workspace release is signed with the same Ed25519 key. The public half is in the app (`SUPublicEDKey` in `Info.plist`) and compiled into the workspace server. No setting and no request can name another key. A test fails if the two copies differ.
+- **The app.** Sparkle checks an archive's signature against that key before it unpacks it. A release is also signed with a Developer ID and notarized by Apple, which macOS checks when the app first opens.
+- **The workspace.** The server checks the release's signature itself, then the program's size and SHA-256 against the signed description. This is the same whether the server downloaded the release or the app handed it over. The app's access key alone cannot make a server run anything that is not a signed release.
+- **No way down.** A server installs only a release that is newer than itself, so an old signed release cannot be replayed to bring a fixed bug back.
+- **Where releases come from.** The GitHub releases of `conrader/swarmhub`. A signed description may only point at program files there. Whoever starts a workspace can name a mirror with `SWARMHUB_UPDATE_FEED`; the signature is checked all the same.
+- **What this does not cover.** The very first install on a server is by hand, over HTTPS from GitHub, with a digest you compare yourself. And anyone who has the release key can sign a release. The private key stays in the publisher's login Keychain and is never in the repository, on a server, or in a build script.
+
+Herdr Core and its helper are updated by Herdr's own commands (`hc update`, `hc machine update`), which have their own checks. SwarmHub only starts them and shows what they said.
+
+## First install on a server
+
+Do this once per server, and for a server whose workspace is from before versions. Run it on the server.
 
 ```sh
-./scripts/setup-updates.sh
+cd ~/.local/bin
+curl -fLO https://github.com/conrader/swarmhub/releases/latest/download/workspace-manifest.json
+grep -A3 '"x86_64-linux"' workspace-manifest.json        # the program's name and sha256
+curl -fLO https://github.com/conrader/swarmhub/releases/latest/download/NAME   # the name from the manifest
+sha256sum NAME                                           # must equal the manifest's sha256
+[ -f swarmhub-herdr ] && cp -p swarmhub-herdr swarmhub-herdr.previous
+chmod 755 NAME && mv NAME swarmhub-herdr
+./swarmhub-herdr version
 ```
 
-This downloads the pinned, checksum-verified Sparkle tools if SwiftPM has not fetched them. Sparkle creates or reuses an Ed25519 key in the login Keychain under account `com.konrad.agentapp`. The script writes only the public key to `Resources/Info.plist`. Commit that file so every build trusts the same key. The script refuses to replace a previously configured public key with a different one.
+Then restart the workspace the way you start it (`sh HerdrWorkspace/dev/start-local.sh` in its Herdr terminal). Agents keep running through the restart. To go back, put `swarmhub-herdr.previous` back under the name `swarmhub-herdr` and restart.
 
-Back up the private key securely with Sparkle's `generate_keys --account com.konrad.agentapp -x /secure/path/private-key`. Keep it outside the repository. Use `-f /secure/path/private-key` with the same account when moving the release process to another Mac. Losing or changing this key can prevent existing installations from accepting updates.
+## Releasing
 
-## Publish a release
+For whoever publishes SwarmHub. A release is built on the Mac that holds the keys. It needs three things that cannot be used over SSH, because the login Keychain is locked there:
 
-1. Update `CFBundleShortVersionString` and increase `CFBundleVersion` in `Resources/Info.plist`. Sparkle compares the numeric **build number**, so it must increase for every update, even when the displayed version stays the same.
-2. Run the tests on macOS:
+- the **Developer ID Application** certificate, for signing;
+- a **notarization profile**, for Apple's check;
+- the **release key** (Sparkle's EdDSA key, Keychain account `com.konrad.agentapp`).
 
-   ```sh
-   swift test
-   python3 -m unittest discover -s scripts -p 'test_configure_updates.py'
-   ```
+### Once per Mac
 
-3. Package the release. For public distribution, select a Developer ID Application certificate and a Keychain profile previously configured with `xcrun notarytool store-credentials`:
+1. Install the Developer ID Application certificate in the login Keychain. `security find-identity -v -p codesigning` then lists it.
+2. Save the notarization credentials: `xcrun notarytool store-credentials swarmhub-notary` (an app-specific password or an API key; the name is yours to choose).
+3. Make sure the release key is in the Keychain: `./scripts/setup-updates.sh`. It refuses a key that differs from the one in `Resources/Info.plist`. To move the key to another Mac, export it on the old one with Sparkle's `generate_keys --account com.konrad.agentapp -x FILE`, import it with `-f FILE`, and delete the file. **Never make a new key**: installed apps and servers would refuse every later update. Keep one offline backup of the exported key.
+
+### Each release
+
+1. In `Resources/Info.plist`, set `CFBundleShortVersionString` and raise `CFBundleVersion`. Sparkle compares the build number, so it must go up every time.
+2. If the workspace server changed, raise `version` in `HerdrWorkspace/Cargo.toml` (and the same line in `Cargo.lock`). Raise `API` in `HerdrWorkspace/src/update.rs` and `HerdrCompatibility.level` in the app together when the app needs to know about the change.
+3. Write `docs/releases/v<version>.md`: what changed, in plain words. This is what people read in the update window.
+4. Run the checks: `swift test`, `bash Tests/Scripts/pysuites.sh . /tmp/pysuites`, and in `HerdrWorkspace` `cargo test` and `python3 tests/update_smoke.py "$(command -v hc)"`.
+5. Commit.
+6. For a new workspace server: on a Linux build machine, run `./scripts/package-workspace.sh`, and copy its `dist/workspace` folder into `dist/workspace` on the Mac.
+7. On the Mac, in a terminal on the Mac itself:
 
    ```sh
    SWARMHUB_SIGN_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
-   SWARMHUB_NOTARY_PROFILE='swarmhub-notary' ./scripts/package-release.sh
+   SWARMHUB_NOTARY_PROFILE='swarmhub-notary' \
+   SWARMHUB_WORKSPACE_NOTES='One or two sentences on what the new workspace changes.' \
+   ./scripts/release.sh v<version>
    ```
 
-   The script builds in release mode, embeds Sparkle, signs its helpers and framework before the app, verifies all signatures, and notarizes/staples when `SWARMHUB_NOTARY_PROFILE` is supplied. Without an explicit identity, it retains the existing Apple Development/ad-hoc behavior for local builds. The final line prints the ZIP path under `dist/`.
+   It refuses to start if anything is missing, then builds, signs, notarizes and staples the app, writes the appcast with the release notes, writes and signs the workspace manifest, and checks every signature against the key in `Info.plist`. Without new programs in `dist/workspace` it carries the published workspace manifest over unchanged. It uploads nothing.
+8. Push the commit and the tag, then run the `gh release create …` command the script printed. The release must be the **latest** one: the app's feed and the servers' feed are its assets (`appcast.xml`, the app archive, `workspace-manifest.json`, `workspace-manifest.json.sig`, the workspace programs).
 
-4. Generate the appcast from that final ZIP. For example, after setting the displayed version to `0.4.1`:
+Do not change a file after it is signed.
 
-   ```sh
-   ./scripts/generate-appcast.sh v0.4.1 /absolute/path/to/dist/SwarmHub-0.4.1-6-<sha>-arm64.zip
-   ```
+### Rehearsing without credentials
 
-   Use the actual ZIP path printed by packaging. The script checks the bundled key against Keychain, verifies the release tag and app signatures, and generates `dist/appcast.xml` with a signed full update. It stages only the specified ZIP, so other archives in `dist/` cannot be published accidentally. No delta files are generated.
+```sh
+Tests/Scripts/update-rehearsal.sh
+```
 
-5. Upload `dist/appcast.xml` and the ZIP together to the GitHub release with that tag. Mark the stable release as latest. Uploading or publishing is a separate step; the scripts only produce local artifacts. Do not modify the ZIP after generating its signature.
+This runs a real update with nothing of yours: two scratch builds with their own bundle identifier and home folder, a throwaway key in a file, and a feed on the Mac's loopback address. The older build must refuse an archive signed with a stranger's key and then install the properly signed one when it quits. The scratch app opens hidden. It takes a few minutes.
 
-For other hosting, set `SWARMHUB_UPDATE_FEED_URL` during packaging and `SWARMHUB_UPDATE_DOWNLOAD_URL_PREFIX` during appcast generation. `SWARMHUB_UPDATE_PUBLIC_KEY` can supply an existing public key during packaging without changing the source plist. The matching private key must still be in the release Mac's Keychain for appcast generation.
+`HerdrWorkspace/tests/update_smoke.py` does the same for a server: an isolated Herdr Core, a workspace on its own port and data folder, a local releases folder and a throwaway key. It covers an unsigned release, a damaged program, a program that reports the wrong version, an update, a replay, going back, an update handed over by an app, a version that cannot start and a version that hangs.
 
-## Development and verification
+## For developers
 
-`scripts/build.sh` supports SwiftPM and the existing direct `swiftc` fallback. Both link Sparkle and place it beside the executable for `scripts/run.sh`. Packaged apps load their own `Contents/Frameworks/Sparkle.framework`; `ditto` preserves its symlinks and executable permissions.
-
-Bare SwiftPM executables and builds without a public key keep the existing on-demand GitHub release lookup in Settings. The automatic updater is also disabled for test runs, snapshots, UI smoke runs, the setup preview and benchmarks. Set `SWARMHUB_DISABLE_UPDATES=1` to disable it for any other automated launch. For a local development bundle before key setup, use `SWARMHUB_ALLOW_MISSING_UPDATE_KEY=1 ./scripts/package-release.sh`; appcast generation still requires a valid key.
-
-To test an installation, package two builds with the same key and increasing build numbers, host the newer ZIP and appcast, and install the older app in a writable Applications folder. Choose **Check for Updates…**, install, and verify the new build and retained data. Check that disabling automatic checks persists after relaunch. Public distribution should also be tested with notarized builds.
-
-The initial installation of a Sparkle-enabled build is manual for users of older SwarmHub versions that only supported release lookup.
-
-See Sparkle's [setup guide](https://sparkle-project.org/documentation/), [SwiftUI integration](https://sparkle-project.org/documentation/programmatic-setup/) and [updater preferences](https://sparkle-project.org/documentation/customization/).
+- `scripts/package-release.sh` packages the app. `SWARMHUB_SIGN_IDENTITY=-` signs ad-hoc and asks the Keychain nothing.
+- `scripts/generate-appcast.sh v<version> ZIP` writes `dist/appcast.xml`. `SWARMHUB_UPDATE_KEY_FILE` signs with a key file instead of the Keychain.
+- `scripts/release-signature.swift` checks a signature the way the app and the server do.
+- `scripts/workspace-manifest.py` writes the workspace manifest from the fragments `scripts/package-workspace.sh` makes.
+- A bare executable, a test run, a snapshot, a UI smoke run and a benchmark never look for updates. `SWARMHUB_DISABLE_UPDATES=1` turns them off for any other launch.
+- `SWARMHUB_WORKSPACE_FEED` (app) and `SWARMHUB_UPDATE_FEED` (server) name a mirror: `https`, or `http` on `127.0.0.1`.
+- The server's side is described in `HerdrWorkspace/README.md`, *Versions and updates*.

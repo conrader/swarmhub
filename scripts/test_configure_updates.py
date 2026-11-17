@@ -52,6 +52,16 @@ class ConfigureUpdatesTests(unittest.TestCase):
             with self.subTest(feed=feed), self.assertRaises(ValueError):
                 updates.configure(self.plist, {"SWARMHUB_UPDATE_PUBLIC_KEY": KEY, "SWARMHUB_UPDATE_FEED_URL": feed})
 
+    def test_only_a_rehearsal_may_name_a_feed_on_loopback(self):
+        info = updates.configure(self.plist, {"SWARMHUB_UPDATE_PUBLIC_KEY": KEY})
+        local = {**info, "SUFeedURL": "http://127.0.0.1:8123/appcast.xml"}
+        with self.assertRaisesRegex(ValueError, "HTTPS"):
+            updates.validate(local)
+        updates.validate(local, rehearsal=True)
+        for feed in ["http://example.com/appcast.xml", "http://127.0.0.1/appcast.xml", "http://localhost:8123/appcast.xml", "http://127.0.0.1:x/a"]:
+            with self.subTest(feed=feed), self.assertRaises(ValueError):
+                updates.validate({**info, "SUFeedURL": feed}, rehearsal=True)
+
     def test_cli_applies_public_key_without_private_key_material(self):
         result = subprocess.run(["python3", str(SCRIPT), str(self.plist)], capture_output=True, text=True,
             env={**os.environ, "SWARMHUB_UPDATE_PUBLIC_KEY": KEY})
