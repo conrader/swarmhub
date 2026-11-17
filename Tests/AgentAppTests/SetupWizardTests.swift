@@ -140,7 +140,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     #expect(HerdrSetupProblem.of(HerdrClient.Failure.unauthorized) == .wrongKey && line(HerdrClient.Failure.unauthorized).contains("did not accept the access key"))
     #expect(HerdrSetupProblem.of(URLError(.cannotConnectToHost)) == .unreachable && line(URLError(.timedOut)).contains("not reachable"))
     #expect(HerdrSetupProblem.of(HerdrClient.Failure.http(503, "Cannot reach Herdr Core.")) == .noCore && line(HerdrSetupProblem.noCore).contains("Herdr Core is not running"))
-    #expect(line(HerdrSetupProblem.noPrograms).contains("no agent program"))
+    #expect(line(HerdrSetupProblem.noPrograms).contains("no AI is set up"))
     #expect(HerdrSetupProblem.of(HerdrClient.Failure.http(500, "boom")) == .other("boom") && line(HerdrClient.Failure.refusedHost) == HerdrClient.Failure.refusedHost.localizedDescription)
     #expect(HerdrSetupProblem.of(BackendError.unavailable(HerdrBackend.missingToken)) == .noKey && line(BackendError.unavailable("else")) == "else")
     #expect(line(HerdrTunnel.Failure.ended("deploy@box: Permission denied (publickey)."), boxServer).hasPrefix("box.example.com refused the login"))
@@ -169,7 +169,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     let lower = WizardCopy.all.map { $0.lowercased() }
     for word in ["hermes", "openclaw", "token", "mock", "keychain", "template"] { #expect(!lower.contains { $0.contains(word) }, "the wizard says \(word)") }
     #expect(WizardCopy.steps.count == 4 && WizardCopy.stepLabel(2) == "Step 3 of 4: Main bot" && !WizardCopy.all.contains(""))
-    #expect(WizardCopy.addBots(1) == "Add 1 bot" && WizardCopy.createBots(3) == "Create 3 bots" && WizardCopy.canRun("One", count: 1).contains("one agent program"))
+    #expect(WizardCopy.addBots(1) == "Add 1 bot" && WizardCopy.createBots(3) == "Create 3 bots" && WizardCopy.canRun("One", count: 1) == "Your bots can run on One.")
     // The wizard's views take their words from the copy enums, like the rest of the setup window.
     let literal = try NSRegularExpression(pattern: #"(\b(Text|Button|Label|TextField|SecureField|Toggle|Picker|Section|DisclosureGroup|LabeledContent)|\.help)\(\s*""#)
     let text = try String(contentsOf: repoRoot.appending(path: "Sources/AgentApp/Setup/SetupHerdrSteps.swift"), encoding: .utf8)

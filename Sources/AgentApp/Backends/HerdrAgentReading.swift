@@ -59,9 +59,9 @@ struct HerdrAgentReading: Equatable, Sendable {
 
     static func name(_ model: HerdrClient.Template.Model) -> String { model.label ?? model.id }
 
-    /// "Claude Code · swarmhub-claude", with "(default)" when the bot did not choose it.
+    /// The agent program by its friendly name, with "(default)" when the bot did not choose it.
     var runtimeLine: String {
-        guard let runtime else { return "No agent program this server can start" }
+        guard let runtime else { return "None set up on this server" }
         return runtimeIsOwn ? runtime.label : "\(runtime.label) (default)"
     }
 
@@ -71,15 +71,17 @@ struct HerdrAgentReading: Equatable, Sendable {
         return modelIsOwn ? Self.name(model) : "\(Self.name(model)) (default)"
     }
 
-    static let programPicks = "Picked by the agent program"
+    static let programPicks = "It picks its own model."
+    /// The button that ends the running agent, as the lines below name it.
+    static let startFresh = "Start fresh"
 
     /// What the running agent runs on; nil with none running.
     var runningLine: String? {
         switch running {
         case .none: nil
-        case .model(_, let label): "The agent running now was started on \(label)."
-        case .unstated: "The agent running now was started without a model, so its agent program picked one; the server does not say which."
-        case .unknown: "An agent is running; the server has no record of what it was started on."
+        case .model(_, let label): "Running on \(label) now."
+        case .unstated: "Running on a model it picked itself."
+        case .unknown: "Running, but the server does not say on which model."
         }
     }
 
@@ -87,8 +89,8 @@ struct HerdrAgentReading: Equatable, Sendable {
     var pendingLine: String? {
         guard let model else { return nil }
         switch running {
-        case .model(let id, _) where id != model.id: return "\(Self.name(model)) applies after “Start a fresh agent”."
-        case .unstated: return "\(Self.name(model)) applies after “Start a fresh agent”."
+        case .model(let id, _) where id != model.id: return "Press “\(Self.startFresh)” to switch to \(Self.name(model))."
+        case .unstated: return "Press “\(Self.startFresh)” to switch to \(Self.name(model))."
         default: return nil
         }
     }
@@ -103,9 +105,9 @@ struct HerdrAgentReading: Equatable, Sendable {
 
     /// Overview's sentences: the agent program, the model, and the running agent when it differs or is unknown.
     var summary: String {
-        var parts = ["Agent program: \(runtimeLine).", "Model: \(modelLine)."]
+        var parts = ["AI: \(runtimeLine).", "Model: \(modelLine)."]
         if let pendingLine, let runningLine { parts += [runningLine, pendingLine] }
-        else if case .model(_, let label) = running { parts.append("Running on \(label) now.") }
+        else if case .model = running, let runningLine { parts.append(runningLine) }
         else if let runningLine, running != .none { parts.append(runningLine) }
         return parts.joined(separator: " ")
     }

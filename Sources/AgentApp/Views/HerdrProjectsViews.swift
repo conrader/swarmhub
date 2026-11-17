@@ -1,7 +1,6 @@
 import SwiftUI
 
-// Project servers and projects of one Herdr server (`HerdrProjectsModel`): in Settings → Advanced → Servers and keys
-// → Projects, in the setup wizard's optional step, and in a bot's settings and Details, where the person chooses
+// Project servers and projects of one Herdr server (`HerdrProjectsModel`): in Settings → Servers → Projects, in the setup wizard's optional step, and in a bot's settings and Details, where the person chooses
 // which projects that bot may use.
 
 /// Adding a project server, one thing at a time: the Herdr server's public key to paste on the project server, how
@@ -86,41 +85,92 @@ struct HerdrAddMachineFlow: View {
     }
 }
 
-/// One project server as a card: its state, how it is reached, its projects, the workspace's own warnings, and
-/// Connect again and Remove.
+/// One project server as a card: its name and state, the workspace's own warnings, and (in Settings) its projects
+/// as rows inside it, each with a small menu, and a way to add one. What is rarely needed (Connect again while it is
+/// connected, Remove) is in the card's menu; a server that is offline shows Connect again as a button.
 struct HerdrMachineCard: View {
     @ObservedObject var model: HerdrProjectsModel
     let machine: HerdrMachine
+    /// Settings lists the server's projects inside its card and edits them there; the wizard lists them on their own.
+    var listsProjects = false
+    var removeProject: (HerdrProject) -> Void = { _ in }
     @State private var confirmRemove = false
 
+    private var projects: [HerdrProject] { model.projects.filter { $0.machine == machine.name } }
+    /// The form for a project of this server is open (a new one, or one of its own being changed).
+    private var editing: Bool { model.draft.map { $0.machine == machine.name } ?? false }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                SymbolTile(symbol: "externaldrive.connected.to.line.below.fill", colour: machine.reachable ? .teal : .gray, size: 36)
-                VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                SymbolTile(symbol: "externaldrive.connected.to.line.below.fill", colour: machine.reachable ? AppColor.sage : .gray, size: 36)
+                VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
                         Text(machine.name).font(.headline)
-                        FactChip(text: machine.stateLine, symbol: machine.reachable ? "checkmark.circle.fill" : "exclamationmark.circle.fill", colour: machine.reachable ? .green : .orange)
+                        FactChip(text: machine.stateLine, symbol: machine.reachable ? "checkmark.circle.fill" : "exclamationmark.circle.fill", colour: machine.reachable ? AppColor.good : AppColor.caution)
                     }
-                    Text(machine.target).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text(machine.projects.isEmpty ? HerdrProjectsCopy.noProjects : "Projects: \(machine.projects.joined(separator: ", "))").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(machine.target).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
+                if model.busy.contains(machine.name) { ProgressView().controlSize(.small) }
+                Menu {
+                    Button("Connect again") { Task { await model.reconnect(machine) } }
+                    Divider()
+                    Button("Remove \(machine.name)…", role: .destructive) { confirmRemove = true }
+                } label: { Image(systemName: "ellipsis.circle").font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle()) }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(model.busy.contains(machine.name))
+                    .help("More for \(machine.name)").accessibilityLabel("More for \(machine.name)")
             }
             ForEach(machine.warnings, id: \.self) { warning in
                 Label(warning, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
             if let said = model.said[machine.name] { Text(said).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-            HStack(spacing: 10) {
-                Button("Connect again") { Task { await model.reconnect(machine) } }
-                Button("Remove…", role: .destructive) { confirmRemove = true }
-                if model.busy.contains(machine.name) { ProgressView().controlSize(.small) }
-            }.disabled(model.busy.contains(machine.name))
+            if !machine.reachable { Button("Connect again") { Task { await model.reconnect(machine) } }.disabled(model.busy.contains(machine.name)) }
+            if listsProjects {
+                Divider()
+                ForEach(projects) { project in
+                    if model.draft?.id == project.id { HerdrProjectEditor(model: model) }
+                    else {
+                        HerdrProjectRow(project: project) {
+                            Menu {
+                                Button("Change…") { model.edit(project) }
+                                Divider()
+                                Button("Remove \(project.name)…", role: .destructive) { removeProject(project) }
+                            } label: { Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).frame(width: 28, height: 24).contentShape(Rectangle()) }
+                                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("More for \(project.name)").accessibilityLabel("More for \(project.name)")
+                        }
+                    }
+                }
+                if editing, model.draft?.id == nil { HerdrProjectEditor(model: model) }
+                else if model.draft == nil {
+                    if !model.projectProblem.isEmpty { Text(model.projectProblem).font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                    Button { model.newProject(on: machine.name) } label: { Label(projects.isEmpty ? "Add its first project" : "Add a project", systemImage: "plus") }.buttonStyle(.borderless)
+                }
+            } else {
+                Text(machine.projects.isEmpty ? HerdrProjectsCopy.noProjects : "Projects: \(machine.projects.joined(separator: ", "))").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .appleCard()
         .confirmationDialog("Remove \(machine.name)?", isPresented: $confirmRemove) {
             Button("Remove", role: .destructive) { Task { await model.remove(machine) } }
-        } message: { Text("Herdr forgets this server. Herdr's helper program stays on it, and so does anything it runs there.") }
+        } message: { Text("Your bots can no longer work on \(machine.name). Nothing on that server is deleted.") }
+    }
+}
+
+/// One project inside its server's card: a folder, its name, its note, and where it is.
+struct HerdrProjectRow<Trailing: View>: View {
+    let project: HerdrProject
+    @ViewBuilder let trailing: () -> Trailing
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "folder.fill").font(.system(size: 17)).foregroundStyle(AppColor.clay).frame(width: 24).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(project.name).font(.system(size: 13, weight: .semibold))
+                Text(project.note.isEmpty ? project.folder : "\(project.note) · \(project.folder)").font(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }.frame(minHeight: 30).accessibilityElement(children: .contain)
     }
 }
 
@@ -177,9 +227,9 @@ struct HerdrProjectCard<Trailing: View>: View {
             SymbolTile(symbol: "folder.fill", colour: AppColor.clay, size: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(project.name).font(.headline)
-                Text("\(project.folder) on \(project.machine)").font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 if !project.note.isEmpty { Text(project.note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                if project.reachable == false { Text("Its server is not connected now.").font(.caption).foregroundStyle(AppColor.caution) }
+                Text("\(project.folder) on \(project.machine)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                if project.reachable == false { Text("\(project.machine) is offline right now.").font(.caption).foregroundStyle(AppColor.caution) }
             }
             Spacer(minLength: 8)
             trailing()
@@ -187,7 +237,7 @@ struct HerdrProjectCard<Trailing: View>: View {
     }
 }
 
-/// Settings → Advanced → Servers and keys → Projects: the project servers of one Herdr server, adding one, and the
+/// Settings → Servers → Projects: the project servers of one Herdr server, adding one, and the
 /// projects on them.
 struct HerdrProjectsSection: View {
     @EnvironmentObject private var store: AppStore
@@ -210,12 +260,12 @@ private struct HerdrProjectsBody: View {
     @State private var removing: HerdrProject?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            GroupHeading(title: named ? "\(HerdrProjectsCopy.title) of \(server.name)" : HerdrProjectsCopy.title, detail: HerdrProjectsCopy.intro(server.name))
+        VStack(alignment: .leading, spacing: 18) {
+            GroupHeading(title: named ? "\(HerdrProjectsCopy.title) for \(server.name)" : HerdrProjectsCopy.title, detail: HerdrProjectsCopy.intro(server.name))
             switch model.phase {
-            case .idle: Button("Read this server's project servers") { Task { await load() } }
-            case .reading: StatusCard(kind: .working, title: "Reading this server's project servers…")
-            case .unavailable(let why): StatusCard(kind: .warning, title: "The project servers could not be read", detail: why) { Button("Read again") { Task { await load() } }.padding(.top, 4) }
+            case .idle: Button("Show projects") { Task { await load() } }
+            case .reading: StatusCard(kind: .working, title: "Checking…")
+            case .unavailable(let why): StatusCard(kind: .warning, title: "The projects could not be loaded", detail: why) { Button("Try again") { Task { await load() } }.padding(.top, 4) }
             case .ready: ready
             }
         }
@@ -223,34 +273,23 @@ private struct HerdrProjectsBody: View {
         .task(id: server.id) { if model.phase == .idle, store.launchWorkEnabled { await load() } }
     }
 
+    /// Each server your projects are on as one card with its projects inside, then a way to add a server, and one
+    /// quiet line on what letting a bot use a project means.
     @ViewBuilder private var ready: some View {
-        StatusCard(kind: .info, title: HerdrProjectsCopy.consequence, detail: HerdrProjectsCopy.notIsolation)
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(model.machines) { HerdrMachineCard(model: model, machine: $0) }
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(model.machines) { HerdrMachineCard(model: model, machine: $0, listsProjects: true, removeProject: { removing = $0 }) }
             if model.machines.isEmpty || addingServer || model.adding != .fields {
-                HerdrAddMachineFlow(model: model, serverName: server.name).padding(.top, model.machines.isEmpty ? 0 : 8)
+                if model.machines.isEmpty { EmptyNote(symbol: "folder.badge.plus", title: "No projects yet", detail: "Add the server your code or files are on, then name the folders your bots may work in.") }
+                HerdrAddMachineFlow(model: model, serverName: server.name).padding(.top, 8)
             } else {
-                Button("Add a project server…") { addingServer = true }
+                Button { addingServer = true } label: { Label("Add a server", systemImage: "plus") }.controlSize(.large)
             }
         }
+        .confirmationDialog("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Remove", role: .destructive) { if let project = removing { Task { await model.removeProject(project); store.reconcileHerdrProjects(on: server, with: model.projects) } } }
+        } message: { Text("No bot can use it any more. The folder itself is not touched.") }
         if !model.machines.isEmpty {
-            SettingBlock(title: HerdrProjectsCopy.projectsTitle, detail: HerdrProjectsCopy.projectsDetail) {
-                ForEach(model.projects) { project in
-                    HerdrProjectCard(project: project) {
-                        Button("Change") { model.edit(project) }
-                        Button(HerdrProjectsCopy.removeProject, role: .destructive) { removing = project }
-                    }
-                }
-                if model.projects.isEmpty, model.draft == nil { Text(HerdrProjectsCopy.noProjects).font(.callout).foregroundStyle(.secondary) }
-                if model.draft != nil { HerdrProjectEditor(model: model) }
-                else {
-                    if !model.projectProblem.isEmpty { Text(model.projectProblem).font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                    Button("Add a project…") { model.newProject() }
-                }
-            }
-            .confirmationDialog("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-                Button("Remove", role: .destructive) { if let project = removing { Task { await model.removeProject(project); store.reconcileHerdrProjects(on: server, with: model.projects) } } }
-            } message: { Text("The project leaves the list, and no bot can use it any more. The folder on the server is not touched.") }
+            Text("\(HerdrProjectsCopy.consequence) \(HerdrProjectsCopy.notIsolation)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -286,7 +325,7 @@ private struct HerdrBotProjectsBody: View {
         Group {
             if model.projects.isEmpty && chosen.isEmpty {
                 if !quietWhenEmpty {
-                    SettingBlock(title: HerdrProjectsCopy.botTitle, detail: model.phase == .reading ? "Reading…" : HerdrProjectsCopy.botNone) { EmptyView() }
+                    SettingBlock(title: HerdrProjectsCopy.botTitle, detail: model.phase == .reading ? "Checking…" : HerdrProjectsCopy.botNone) { EmptyView() }
                 }
             } else {
                 SettingBlock(title: HerdrProjectsCopy.botTitle, detail: HerdrProjectsCopy.consequence(bot.name)) {

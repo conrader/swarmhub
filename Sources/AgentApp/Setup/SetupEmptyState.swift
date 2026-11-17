@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The main window's empty detail: "Connect your agents" with Set up and the sample link while nothing
-/// real is connected, so Skip is never a dead end; otherwise the usual "Choose an agent".
+/// The main window's empty detail, under the app's own mark: "Meet your first bot" with Set up and the sample link
+/// while nothing real is connected, so Skip is never a dead end; otherwise "Who do you want to talk to?".
 struct SetupEmptyState: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.openWindow) private var openWindow

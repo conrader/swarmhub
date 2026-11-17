@@ -3,6 +3,47 @@ import Foundation
 import FoundationNetworking
 #endif
 
+/// The name people use for an agent program. The server says it (`display_name` on a template's runtime, such as
+/// "Claude"). A server that does not send one still gets a short name: the program's own name without the last word
+/// when that word only says what kind of program it is ("Claude Code" reads "Claude"). The app keeps no table of
+/// programs; these few words name no product.
+enum HerdrProgramName {
+    static let kinds: Set<String> = ["code", "cli", "agent", "assistant", "app"]
+
+    static func friendly(display: String?, program: String?) -> String? {
+        if let display = display?.trimmingCharacters(in: .whitespacesAndNewlines), !display.isEmpty { return display }
+        guard let program = program?.trimmingCharacters(in: .whitespacesAndNewlines), !program.isEmpty else { return nil }
+        var words = program.split(separator: " ").map(String.init)
+        while words.count > 1, let last = words.last, kinds.contains(last.lowercased()) { words.removeLast() }
+        return words.joined(separator: " ")
+    }
+
+    /// One label per template, in order: its friendly name, with the template's own name added only where two of
+    /// them would otherwise read the same.
+    static func labels(for templates: [HerdrClient.Template]) -> [String: String] {
+        var labels: [String: String] = [:]
+        for template in templates {
+            let same = templates.filter { $0.label == template.label }.count > 1
+            labels[template.name] = same && template.label != template.name ? "\(template.label) · \(template.name)" : template.label
+        }
+        return labels
+    }
+}
+
+/// The labels of the models the servers have listed since the app started, by id. A helper is reported with its
+/// model's id alone by a server that does not send the label (`model_label`); it then reads by the label the app
+/// already saw for that id, and by the id only when it never saw one.
+enum HerdrModelNames {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var labels: [String: String] = [:]
+
+    static func remember(_ models: [HerdrClient.Template.Model]) {
+        lock.withLock { for model in models { if let label = model.label, !label.isEmpty { labels[model.id] = label } } }
+    }
+
+    static func label(_ id: String?) -> String? { id.flatMap { id in lock.withLock { labels[id] } } }
+}
+
 /// One agent program a server can start, as the setup wizard offers it: the server's template, the program's own
 /// name and the models the server lists for it. Every name here is the server's; the app names no program and no model.
 struct HerdrProgram: Equatable, Identifiable, Sendable {
@@ -113,7 +154,7 @@ enum HerdrSetupProblem: Error, Equatable, Sendable {
         case .unreachable:
             switch server.kind {
             case .local: return "Nothing answers on this Mac at 127.0.0.1:\(server.port)."
-            case .ssh: return "\(server.sshHost) was reached over SSH, but nothing answers on its port \(server.port). Start Herdr Core and the \(AppConstants.name) service there, then press Test again."
+            case .ssh: return "\(server.sshHost) was reached over SSH, but nothing answers on its port \(server.port). Start Herdr Core and the \(AppConstants.name) service there, then press Try again."
             case .address: return "The server is not reachable: nothing answers at \(server.address). Check the address. A server on another computer needs its port forwarded to this Mac first, or go back and choose SSH."
             }
         case .sshFailed(let line):
@@ -125,17 +166,17 @@ enum HerdrSetupProblem: Error, Equatable, Sendable {
             }
             return "The SSH connection to \(server.sshHost) did not open." + said
         case .sshNoService:
-            return "\(server.sshHost) was reached over SSH, but the \(AppConstants.name) service has never been started there: its access key file is missing. Start Herdr Core and the \(AppConstants.name) service on the server, then press Test again."
+            return "\(server.sshHost) was reached over SSH, but the \(AppConstants.name) service has never been started there: its access key file is missing. Start Herdr Core and the \(AppConstants.name) service on the server, then press Try again."
         case .sshNoAnswer:
-            return "\(server.sshHost) was reached over SSH, but nothing answers on its port \(server.port). Start Herdr Core and the \(AppConstants.name) service there, then press Test again."
+            return "\(server.sshHost) was reached over SSH, but nothing answers on its port \(server.port). Start Herdr Core and the \(AppConstants.name) service there, then press Try again."
         case .noKey:
-            return server.kind == .address ? "Paste the server's access key, then press Test again."
-                : "The server answers, but its access key was not found. Paste the access key, then press Test again."
-        case .wrongKey: return "The server answered, but did not accept the access key. Check the key, then press Test again."
+            return server.kind == .address ? "Paste the server's access key, then press Try again."
+                : "The server answers, but its access key was not found. Paste the access key, then press Try again."
+        case .wrongKey: return "The server answered, but did not accept the access key. Check the key, then press Try again."
         case .refusedHost: return HerdrClient.Failure.refusedHost.localizedDescription
-        case .noCore: return "The server answered, but Herdr Core is not running on it. Start Herdr Core there, then press Test again."
+        case .noCore: return "The server answered, but Herdr Core is not running on it. Start Herdr Core there, then press Try again."
         case .noPrograms:
-            return "Connected, but no agent program is set up on this server: Herdr Core has no template it can start. Add an agent program and its Herdr template there, then press Test again."
+            return "Connected, but no AI is set up on this server yet. Add one there (an agent program and its Herdr template), then press Try again."
         case .other(let line): return line
         }
     }
@@ -151,7 +192,7 @@ extension HerdrClient {
         var programs: [HerdrProgram] = []
         for template in current.templates where template.error == nil {
             let models = template.takesModel ? ((try? await models(for: template)) ?? template.models ?? []) : []
-            programs.append(HerdrProgram(template: template.name, name: template.runtime?.harness ?? template.name, takesModel: template.takesModel, models: models))
+            programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: models))
         }
         // Asked once here, so the wizard knows whether to offer the step; a workspace without the route answers 404.
         let projectServers = (try? await machines()) != nil

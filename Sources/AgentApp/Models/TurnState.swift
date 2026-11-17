@@ -11,7 +11,7 @@ enum TurnState: String, Codable, Sendable { case finished, incomplete, stopped, 
 struct StreamBreak: LocalizedError {
     let delivered: Bool; let underlying: Error; var requestStarted: Bool? = nil
     /// The underlying error of a clean end of file without a terminal event.
-    struct EndOfStream: LocalizedError { var errorDescription: String? { "The connection closed before the agent finished the reply." } }
+    struct EndOfStream: LocalizedError { var errorDescription: String? { "The connection closed before the bot finished its reply." } }
     var errorDescription: String? { underlying.localizedDescription }
     var isEndOfStream: Bool { underlying is EndOfStream }
 }
@@ -76,7 +76,7 @@ struct TurnOutcome: Equatable {
         switch state {
         case .notSent?:
             let reason = why.map { " (\($0))" } ?? ""
-            return ambiguous ? "Not confirmed\(reason) — the agent may have it" : "Not sent\(reason)"
+            return ambiguous ? "Not confirmed\(reason) — the bot may have it" : "Not sent\(reason)"
         case .incomplete?: return "Incomplete"
         case .stopped?: return empty ? "Stopped" : nil
         case .finished?: return empty && why == "later" ? "Delivered with a later message" : nil

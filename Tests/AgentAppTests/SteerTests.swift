@@ -12,14 +12,14 @@ import Testing
     #expect(caption(["steer": "sent"]) == "Sending…")
     #expect(caption(["steer": "queued"]) == "Delivered after the current step")
     #expect(caption(["steer": "delivered"]) == "Delivered")
-    #expect(caption(["steer": "failed"]) == "Steer not delivered")
+    #expect(caption(["steer": "failed"]) == "Not delivered")
     #expect(SteerCopy.endedFirst == "The answer ended first.", "the line under a failed steer gives only the reason")
     // Rows saved before uxfix1 still read as they did.
     #expect(caption(["correction": "stopping"]) == "Stopping the answer…")
     #expect(caption(["correction": "stopped"]) == "Stopped the answer and sent your correction")
     #expect(caption(["correction": "followup"]) == "Sent after the answer finished")
     #expect(SteerCopy.placeholder == "Add to this answer…")
-    #expect(SteerCopy.hint == "Your message steers this answer without stopping it; if the answer ends first, it goes as the next message.")
+    #expect(SteerCopy.hint == "Your message goes into this answer without stopping it. If the answer ends first, it is sent as your next message.")
 }
 
 // MARK: Steer, never stop (uxfix1)

@@ -20,15 +20,11 @@ struct MessageView: View {
 
     private var row: some View {
         HStack(alignment: .top, spacing: 0) {
-            if message.role == .user { Spacer(minLength: 110) }
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
+            if mine { Spacer(minLength: 110) }
+            VStack(alignment: mine ? .trailing : .leading, spacing: 7) {
                 if let repliedMessage { HStack(spacing: 5) { Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24); Text(store.displayLine(repliedMessage)).lineLimit(1) }.font(.caption).foregroundStyle(.secondary) }
                 if let caption = SteerCopy.caption(message) {
                     Label(caption, systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
-                }
-                // A request for a bot, or its answer, that the app passed on between two Herdr bots: not the person's words.
-                if let passedOn = store.herdrRelayCaption(message) {
-                    Label(passedOn, systemImage: "arrow.left.arrow.right").font(.caption2).foregroundStyle(.secondary)
                 }
                 if let author, message.role == .assistant {
                     HStack(spacing: 6) {
@@ -46,11 +42,14 @@ struct MessageView: View {
                     HStack(spacing: 3) { ForEach(message.reactions, id: \.self) { emoji in Button { store.toggleReaction(emoji, on: message) } label: { Text(emoji).font(.caption).padding(4).background(AppColor.card, in: Capsule()).overlay(Capsule().stroke(AppColor.separator)) }.buttonStyle(.plain).help("Remove tapback") } }
                 }
                 if TurnStateFooter.isShown(for: message) { TurnStateFooter(message: message) }
-                if message.role != .system && !message.isStreaming && !isEmptyReply { actions }
+                if message.role != .system && !message.isStreaming && !isEmptyReply && !store.isAppWritten(message) { actions }
             }
-            if message.role != .user { Spacer(minLength: 80) }
+            if !mine { Spacer(minLength: 80) }
         }.padding(.horizontal, 28).padding(.vertical, 10)
     }
+
+    /// The person's own message sits on the right; what the app wrote for the agent does not.
+    private var mine: Bool { message.role == .user && !store.isAppWritten(message) }
 
     /// An empty assistant text row (not sent, stopped before a token) offers no tapback or reply.
     private var isEmptyReply: Bool {
@@ -72,6 +71,8 @@ struct MessageView: View {
     @ViewBuilder private var content: some View {
         if message.role == .system {
             Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).textSelection(.enabled)
+        } else if let passedOn = store.herdrPassedOnRow(message) {
+            PassedOnCard(row: passedOn)
         } else if message.role == .user {
             if !message.content.isEmpty {
                 Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)

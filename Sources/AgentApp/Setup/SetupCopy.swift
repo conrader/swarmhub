@@ -7,19 +7,19 @@ enum SetupCopy {
     static let windowTitle = "Set up"
     static let back = "Back"
     static let cancel = "Cancel"
-    static let sampleLink = "Look around with sample agents"
-    static let test = "Test"
-    static let testing = "Testing…"
-    static let testAgain = "Test again"
-    static let failed = "Could not finish. Nothing was changed."
+    static let sampleLink = "Look around with sample bots"
+    static let test = "Connect"
+    static let testing = "Connecting…"
+    static let testAgain = "Try again"
+    static let failed = "Your setup could not be saved, so nothing was changed. Try again."
     static let thisMac = "this Mac"
 
     // The ways to reach a server and the fields of its Connect screen.
     static let herdrLocalTitle = "This Mac"
-    static let herdrSSHTitle = "A server I reach over SSH"
-    static let herdrAddressTitle = "A server by address and access key"
+    static let herdrSSHTitle = "A server"
+    static let herdrAddressTitle = "A server by address"
     static let herdrReadyMadeTitle = "Get a ready-made server from us"
-    static let herdrReadyMadeDetail = "Set up and run for you. Not available yet."
+    static let herdrReadyMadeDetail = "We set it up and run it for you."
     static let herdrNameLabel = "Name"
     static let herdrOptional = "Optional"
     static let herdrPortLabel = "Port"
@@ -34,16 +34,16 @@ enum SetupCopy {
     static let herdrAccessKeyLabel = "Access key"
     static let herdrLocalKeyPrompt = "Read from this Mac"
     static let herdrSSHKeyPrompt = "Read from the server"
-    static var herdrLocalCaption: String { "Leave the access key empty: \(AppConstants.name) reads the one Herdr wrote on this Mac." }
+    static var herdrLocalCaption: String { "Leave the access key empty: \(AppConstants.name) finds it on this Mac." }
     static var herdrSSHCaption: String {
-        "\(AppConstants.name) runs ssh for you and reopens the connection when it drops, so you never forward a port by hand. It remembers where the key file is and never copies it. A key file with a passphrase must be unlocked first (ssh-add)."
+        "\(AppConstants.name) keeps the connection open for you. It never copies your key file; one with a passphrase must be unlocked first (ssh-add)."
     }
-    static let herdrSSHKeyCaption = "Leave the access key empty to read it from the server."
+    static var herdrSSHKeyCaption: String { "Leave the access key empty: \(AppConstants.name) finds it on the server." }
     static var herdrAddressCaption: String {
-        "Herdr answers only on its own computer. Forward its port to this Mac first, with the same port number on both ends, or go back and choose SSH so \(AppConstants.name) does it."
+        "The server only answers on its own computer, so forward its port to this Mac first (the same port number on both ends). Or go back and choose “A server”, and \(AppConstants.name) does that for you."
     }
-    static func herdrNothingHere(port: Int) -> String { "Nothing answers on this Mac at 127.0.0.1:\(port)." }
-    static var herdrStartHelp: String { "Herdr is not built into \(AppConstants.name) yet. Start Herdr Core and its \(AppConstants.name) service on this Mac, then press Test again:" }
+    static func herdrNothingHere(port: Int) -> String { "This Mac is not set up to run bots yet (nothing answers on port \(port))." }
+    static var herdrStartHelp: String { "Start Herdr Core and the \(AppConstants.name) service on this Mac, then try again:" }
 
     /// Static strings only; the functions are checked with sample arguments by the tests.
     static var all: [String] { [windowTitle, back, cancel, sampleLink, test, testing, testAgain, failed, thisMac] + herdrScreen + ManagedHosting.all }

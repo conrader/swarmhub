@@ -12,3 +12,17 @@ extension AppStore {
         open(chats[current.map { (($0 + offset) % count + count) % count } ?? (offset < 0 ? count - 1 : 0)])
     }
 }
+
+extension AppStore {
+    /// Dictation has its key, so the composer shows the microphone. Without one the button would only lead to an
+    /// error, so it is not shown; Settings → Voice says how to set it up.
+    var dictationIsSetUp: Bool {
+        if let known = dictationKeyKnown { return known }
+        let saved = keyStore.hasKey(for: DeAPICredentials.account)
+        dictationKeyKnown = saved
+        return saved
+    }
+
+    /// Settings saved or removed the key.
+    func dictationKeyChanged() { dictationKeyKnown = keyStore.hasKey(for: DeAPICredentials.account); objectWillChange.send() }
+}

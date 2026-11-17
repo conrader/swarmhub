@@ -11,7 +11,7 @@ enum ManagedHosting {
     static let cardTitle = "Set up a new one"
     static let cardDetail = "We run it for you."
     static let badge = "Coming soon"
-    static let title = "Hosted agents are coming soon."
+    static let title = "A ready-made server is coming soon."
     static let detail = "You will be able to get a ready-made server here without running anything yourself. It is not available yet; nothing is created, sent or charged."
 
     static let all = [providerName, cardTitle, cardDetail, badge, title, detail]

@@ -98,7 +98,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var grokHistoryCount: Int; @Published var archivedMembers: [String]?
     var isReadOnlyArchive: Bool { archivedMembers != nil }
     let createdAt: Date; @Published var messages: [ChatMessage]
-    init(name: String, title: String = "Personal agent", description: String = "", persona: String = Bot.defaultPersona, backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, messages: [ChatMessage] = [], sessionID: String? = nil, isDemo: Bool = false) {
+    init(name: String, title: String = "", description: String = "", persona: String = Bot.defaultPersona, backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, messages: [ChatMessage] = [], sessionID: String? = nil, isDemo: Bool = false) {
         id = UUID(); self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
         self.avatarName = avatarName ?? .faceCoral; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
         self.sessionID = sessionID; self.isDemo = isDemo; accentColor = nil; grokSourceID = nil; grokHistoryCount = 0; archivedMembers = nil
@@ -107,6 +107,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         avatarMark = avatarName == nil ? GrokDefaultLook.mark(for: id.uuidString.lowercased()) : nil
     }
     static let defaultPersona = "You are a thoughtful, capable assistant."
+    /// What older versions put under a new bot's name; it says nothing, so it is not shown.
+    static let placeholderTitle = "Personal agent"
     /// The persona as it leaves for the agent. An imported bot's persona came from Grok Bot data and may predate the
     /// current filter, so it goes through `SecretFilter` once more; a persona typed here is sent as written (a
     /// deliberate `token: …` line in it stays).

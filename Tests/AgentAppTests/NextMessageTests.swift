@@ -12,7 +12,7 @@ import Testing
     #expect(store.send(text: "fix it"))
     try await waitUntil { bot.messages.contains { $0.metadata[SteerKey.steer] == "failed" } }
     let bubble = try #require(bot.messages.first { $0.metadata[SteerKey.steer] == "failed" })
-    #expect(SteerCopy.caption(bubble) == "Steer not delivered")
+    #expect(SteerCopy.caption(bubble) == "Not delivered")
     #expect(store.canSendAsNextMessage(bubble))
 
     // Still streaming: queued, nothing sent yet, the button is gone.
@@ -24,7 +24,7 @@ import Testing
     await backend.emit(step(.completed), .token("Done."), .completed); await backend.end(stream: 1)
     try await backend.calls.wait { $0.contains("send:fix it") }
     #expect(bubble.metadata[SteerKey.steer] == "sentNext")
-    #expect(SteerCopy.caption(bubble) == "Not delivered as a steer; sent as the next message")
+    #expect(SteerCopy.caption(bubble) == "It did not get into that answer, so it was sent as your next message")
     let users = bot.messages.filter { $0.role == .user }
     #expect(users.map(\.content) == ["go", "fix it", "fix it"])
     #expect(users.last?.isSteer == false, "the resend is a normal message")

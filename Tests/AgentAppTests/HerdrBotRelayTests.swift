@@ -98,8 +98,8 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     #expect(nowMain.creationNote == AppStore.herdrCreationNote && nowMain.askNote == nil && noLonger.creationNote == nil && noLonger.askNote == HerdrBotAsk.note(main: "Boppy"))
     store.setHerdrAsksFirst(true, for: boppy)
     #expect(try store.herdrBackend(for: boppy).creationNote == AppStore.herdrCreationNoteAsking)
-    #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: true, main: "Jarvis", server: "This Mac").contains("takes the role from Jarvis"))
-    #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: "Jarvis", server: "This Mac").contains("asks Jarvis") && BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: nil, server: "This Mac").contains("has none yet"))
+    #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: true, main: "Jarvis", server: "This Mac").contains("takes this role from Jarvis"))
+    #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: "Jarvis", server: "This Mac").contains("Jarvis is the main bot") && BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: nil, server: "This Mac").contains("has no main bot yet"))
 }
 
 /// A bot that is not the main bot asks; the main bot decides itself; the bot is created at once, the asking bot is
@@ -109,7 +109,7 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     ask(store, boppy, for: "Legal")
     try await waitUntil { answered(boppy, passedOn(boppy, HerdrBotRelay.outcome).first) && store.isIdle(boppy) && store.isIdle(jarvis) }
     let request = try #require(passedOn(jarvis, HerdrBotRelay.request).first)
-    #expect(request.content.hasPrefix("[Request from the bot Boppy, passed on by SwarmHub]") && request.content.contains("Needed for legal work.") && store.herdrRelayCaption(request) == "Passed on by SwarmHub from Boppy")
+    #expect(request.content.hasPrefix("[Request from the bot Boppy, passed on by SwarmHub]") && request.content.contains("Needed for legal work.") && store.herdrRelayCaption(request) == "Boppy asks for a new bot")
     let legal = try #require(store.bots.first { $0.name == "Legal" })
     #expect(legal.backend == .herdr && legal.persona == "You review contracts." && store.herdrServer(for: legal).id == store.herdrServer(for: jarvis).id)
     #expect(lines(jarvis).contains("Jarvis created Legal") && store.herdrUnaskedBots(of: jarvis) == [legal] && store.pendingHerdrBots(for: jarvis).isEmpty)

@@ -13,7 +13,7 @@ struct HerdrBotRequest: Equatable, Sendable {
     var instructions: String
     /// Avatar words as the bot wrote them, lowercased; the app keeps only the ones it can draw.
     var shape: String?, colour: String?
-    /// An agent program ("Claude Code", "Codex") or a template name; nil runs it like the bot that asked.
+    /// An agent program by its name, or a template name; nil runs it like the bot that asked.
     var runtime: String?
     var model: String?
     /// The main bot wrote `"decision":"decided"`: it created the bot on its own decision. False asks the person.
@@ -73,7 +73,7 @@ struct HerdrBotRequest: Equatable, Sendable {
     /// name or contains it as a word ("claude" finds "Claude Code"). nil when nothing matches.
     static func template(for runtime: String?, in templates: [HerdrClient.Template]) -> HerdrClient.Template? {
         guard let wanted = runtime?.lowercased(), !wanted.isEmpty else { return nil }
-        if let exact = templates.first(where: { $0.name.lowercased() == wanted || $0.runtime?.harness?.lowercased() == wanted }) { return exact }
+        if let exact = templates.first(where: { $0.name.lowercased() == wanted || $0.runtime?.harness?.lowercased() == wanted || $0.programName?.lowercased() == wanted }) { return exact }
         return templates.first { template in
             (template.runtime?.harness ?? "").lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains { $0 == wanted }
         }
@@ -96,7 +96,7 @@ struct HerdrBotRequest: Equatable, Sendable {
 
         \(decision) "name" is at most \(nameLimit) characters. "instructions" become the new bot's standing instructions. "avatar" is optional: \
         "shape" is one of \(shapes.joined(separator: ", ")); "colour" is one of \(colours.joined(separator: ", ")). \
-        Optional "runtime" names the agent program to run it on (for example "Claude Code" or "Codex"); leave it out to run it like you. \
+        Optional "runtime" names the agent program to run it on (for example "Claude" or "Codex"); leave it out to run it like you. \
         For several bots put the objects in one JSON array. The app hides the block. \
         Other bots cannot create bots and ask you instead. Such a request reaches you as a message that starts with \
         "\(HerdrBotRelay.requestLead)". Answer it with a create_bot block, or refuse with \

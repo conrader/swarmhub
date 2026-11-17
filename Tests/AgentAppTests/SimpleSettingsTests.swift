@@ -2,30 +2,20 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// P21 Part A/B: the simple Settings page, the layout table, plain words and the agent editor's simple part.
+// Settings: the layout table (one home for every control), and your name wherever the app says it.
 
-private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-private let banned = ["profile", "gateway", "base URL", "multiplex", "endpoint", "API key", "token", "backend", "session", "cron", "host",
-                      "Keychain", "credential", "bot", "bots"]
-
-private func containsWord(_ text: String, _ word: String) -> Bool {
-    text.range(of: "\\b\(NSRegularExpression.escapedPattern(for: word))\\b", options: [.regularExpression, .caseInsensitive]) != nil
-}
-
-@Test func theSimplePageHoldsExactlyTheEverydayControls() {
-    // The brief's ten, plus the automatic-check toggle Konrad placed in About (2026-10-14) and the app icon beside the theme (2026-10-22).
-    #expect(SettingsLayout.simpleIDs == ["connection.status", "connection.test", "connection.setup", "you.name", "appearance.theme",
-                                         "appearance.appIcon", "appearance.accent", "notifications.master", "about.version", "about.autoCheck",
-                                         "about.checkUpdates", "advanced.open"])
-    for entry in SettingsLayout.entries where entry.home != .simple {
-        guard case .advanced(let pane) = entry.home else { Issue.record("\(entry.id) has no pane"); continue }
-        #expect(SettingsLayout.AdvancedPane.allCases.contains(pane))
-    }
-    #expect(SettingsLayout.AdvancedPane.allCases == [.servers, .alerts, .voice, .about])
-    for pane in SettingsLayout.AdvancedPane.allCases { #expect(!SettingsLayout.ids(in: pane).isEmpty, "\(pane.rawValue) is reachable and not empty") }
-    #expect(SettingsLayout.home(of: "servers.herdr") == .advanced(.servers) && SettingsLayout.home(of: "servers.grokBot") == .advanced(.servers))
+@Test func everySettingHasOneHomeInOnePane() {
+    // One Settings: General is what most people open it for, and each other pane is one thing. No "Advanced" behind it.
+    #expect(SettingsLayout.Pane.allCases == [.general, .servers, .voice, .about])
+    #expect(SettingsLayout.ids(in: .general) == ["you.name", "appearance.theme", "appearance.accent", "appearance.appIcon", "appearance.avatarMotion", "notifications.master"])
+    for pane in SettingsLayout.Pane.allCases { #expect(!SettingsLayout.ids(in: pane).isEmpty, "\(pane.rawValue) is reachable and not empty") }
+    #expect(SettingsLayout.home(of: "servers.herdr") == .servers && SettingsLayout.home(of: "servers.projects") == .servers && SettingsLayout.home(of: "servers.grokBot") == .servers)
     #expect(Set(SettingsLayout.entries.map(\.id)).count == SettingsLayout.entries.count, "every control has exactly one home")
-    #expect(SettingsLayout.home(of: "about.autoDownload") == .advanced(.about))
+    #expect(SettingsLayout.home(of: "about.autoDownload") == .about && SettingsLayout.home(of: "about.version") == .about && SettingsLayout.home(of: "nothing") == nil)
+    // Where something is, in the words the app's own sentences use.
+    #expect(SettingsLayout.path(.servers, "Projects") == "Settings → Servers → Projects" && SettingsLayout.path(.voice) == "Settings → Voice")
+    // What a bot runs on has one home, its Details; the editor's Advanced part no longer repeats it.
+    #expect(!SettingsLayout.editorAdvanced.contains("editor.herdrAgent") && SettingsLayout.editorAdvanced.contains("editor.herdrProjects"))
 }
 
 /// Fails the test the moment a key is decrypted; attributes (`hasKey`) are fine.

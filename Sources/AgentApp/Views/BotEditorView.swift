@@ -94,7 +94,7 @@ struct BotEditorView: View {
 /// The editor's values, read from a bot and written back in one place, so a Save that never opened Advanced
 /// writes every Advanced field exactly as it was read.
 struct BotEditorFields {
-    var name = "", title = "Personal agent", details = "", persona = "You are a thoughtful, capable assistant."
+    var name = "", title = "", details = "", persona = "You are a thoughtful, capable assistant."
     var backend = BackendKind.herdr
     var avatar = AvatarChoice.unpicked
     var hidden = false, notifications = true

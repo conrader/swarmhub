@@ -31,9 +31,9 @@ enum HerdrAgentReadiness: Equatable, Sendable {
 
     var help: String {
         switch self {
-        case .starting: "Its agent program is starting. You can write now: your message is delivered as soon as the agent is ready."
-        case .ready: "Its agent is running, so a reply starts at once."
-        case .blocked(let program): "\(program ?? "Its agent") shows a prompt and waits for your answer there. Open the Herdr workspace to answer it: a message does not reach the agent until then."
+        case .starting: "It is starting. You can write now: your message is delivered as soon as it is ready."
+        case .ready: "Ready: a reply starts at once."
+        case .blocked(let program): "\(program ?? "Its agent") is asking a question in its terminal. Answer it at the server's address in a browser: a message does not get through until then."
         }
     }
 }
@@ -64,13 +64,12 @@ extension AppStore {
     private func herdrWarmKey(for bot: Bot) -> String { "\(herdrServer(for: bot).id)|\(herdrTemplate(for: bot) ?? "")" }
 
     /// The server's name for the agent program this bot starts, once its server was read (`refreshHerdrAgentReading`).
-    func herdrProgramName(for bot: Bot) -> String? { herdrAgentReadings[bot.id]?.runtime?.runtime?.harness }
+    func herdrProgramName(for bot: Bot) -> String? { herdrAgentReadings[bot.id]?.runtime?.programName }
 
     /// What the switch means, in the words of the state it is in.
     nonisolated static func keepsReadyCaption(bot: String, program: String?, available: Bool) -> String {
-        let program = program ?? "its agent program"
-        guard available else { return "This server does not start \(program) ahead of time, so \(bot)’s agent starts with your first message." }
-        return "On: \(program) starts when you open \(bot)’s chat, so your first message does not wait for it. The server closes an agent you never write to after a while. Off: the agent starts with your first message."
+        guard available else { return "This server cannot start \(bot) ahead of time, so it starts with your first message." }
+        return "\(bot) starts when you open its chat, so the first reply comes sooner. Off: it starts with your first message."
     }
 
     // MARK: Starting ahead

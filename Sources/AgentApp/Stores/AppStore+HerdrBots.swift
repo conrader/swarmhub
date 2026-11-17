@@ -282,10 +282,29 @@ extension AppStore {
     func herdrRelayCaption(_ message: ChatMessage) -> String? {
         guard message.role == .user, let kind = message.metadata[HerdrBotRelay.Key.kind] else { return nil }
         if let exchange = herdrExchangeCaption(message) { return exchange }
-        guard kind == HerdrBotRelay.request else { return "Passed on by \(AppConstants.name): the answer to this bot's request" }
+        // The outcome is written to the asking bot ("the bot you asked for now exists"), so the caption says who was told.
+        guard kind == HerdrBotRelay.request else {
+            let told = bots.first { bot in bot.messages.contains { $0 === message } }?.name
+            return told.map { "\(AppConstants.name) told \($0)" } ?? "About the bot it asked for"
+        }
         let asker = message.metadata[HerdrBotRelay.Key.asker].flatMap(UUID.init(uuidString:)).flatMap { id in bots.first { $0.id == id }?.name }
-        return "Passed on by \(AppConstants.name)\(asker.map { " from \($0)" } ?? "")"
+        return "\(asker ?? "Another bot") asks for a new bot"
     }
+
+    /// A message the app put into a chat for the agent, as the chat shows it: who it is from, in a few words, and
+    /// only the part that is someone's words (`HerdrPassedOn`). nil for what the person wrote.
+    struct PassedOnRow { let title: String; let sender: Bot?; let shown: HerdrPassedOn }
+    func herdrPassedOnRow(_ message: ChatMessage) -> PassedOnRow? {
+        guard let title = herdrRelayCaption(message), let kind = message.metadata[HerdrBotRelay.Key.kind] else { return nil }
+        // The bot whose words these are: the one that asked or wrote, or the one whose answer came back.
+        let key = kind == HerdrBotRelay.answer ? HerdrBotRelay.ExchangeKey.from : HerdrBotRelay.Key.asker
+        let sender = kind == HerdrBotRelay.request || kind == HerdrBotRelay.message || kind == HerdrBotRelay.answer
+            ? message.metadata[key].flatMap { id in bots.first { $0.id.uuidString.lowercased() == id.lowercased() } } : nil
+        return PassedOnRow(title: title, sender: sender, shown: HerdrPassedOn(message.content))
+    }
+
+    /// The person did not write this row: the app did, for the agent (a passed-on message).
+    func isAppWritten(_ message: ChatMessage) -> Bool { message.role == .user && message.metadata[HerdrBotRelay.Key.kind] != nil }
 
     // MARK: How often
 

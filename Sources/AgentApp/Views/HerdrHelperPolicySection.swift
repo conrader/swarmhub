@@ -30,13 +30,13 @@ struct HerdrHelperPolicySection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            GroupHeading(title: named ? "Helper agents on \(server.name)" : "Helper agents",
-                         detail: "A bot hands parts of its work to helpers, unless its “Can start helper agents” is off, and says how hard each part is. It cannot choose a model: these settings do, for every bot on \(server.name).")
+            GroupHeading(title: named ? "Helpers on \(server.name)" : "Helpers",
+                         detail: "Bots can hand parts of their work to helpers and say how hard each part is. Choose what runs each kind of task.")
             switch phase {
-            case .idle: Button("Read this server's helper settings") { Task { await load() } }
-            case .reading: StatusCard(kind: .working, title: "Reading this server's helper settings…")
+            case .idle: Button("Show helper settings") { Task { await load() } }
+            case .reading: StatusCard(kind: .working, title: "Checking…")
             case .unavailable(let why):
-                StatusCard(kind: .warning, title: "The helper settings could not be read", detail: why) { Button("Read again") { Task { await load() } }.padding(.top, 4) }
+                StatusCard(kind: .warning, title: "The helper settings could not be loaded", detail: why) { Button("Try again") { Task { await load() } }.padding(.top, 4) }
             case .ready: form
             }
         }
@@ -49,9 +49,9 @@ struct HerdrHelperPolicySection: View {
     @ViewBuilder private var form: some View {
         ForEach(HerdrHelperNote.difficulties, id: \.self) { difficulty in
             let tier = draft.tiers[difficulty]
-            SettingBlock(title: "\(difficulty.capitalized) tasks", detail: "The agent program and model a helper runs on when its task is \(difficulty).") {
+            SettingBlock(title: "\(difficulty.capitalized) tasks", detail: "") {
                 let unlisted = tier.flatMap { chosen in !chosen.template.isEmpty && !templates.contains(where: { $0.name == chosen.template }) ? [NamedChoice(id: chosen.template, name: chosen.template)] : nil } ?? []
-                let programs = [NamedChoice(id: "", name: "Not allowed")] + templates.map { NamedChoice(id: $0.name, name: $0.label) } + unlisted
+                let programs = [NamedChoice(id: "", name: "Not allowed")] + templates.map { NamedChoice(id: $0.name, name: HerdrProgramName.labels(for: templates)[$0.name] ?? $0.label) } + unlisted
                 TileGallery(items: programs, minimum: 150, isSelected: { $0.id == (tier?.template ?? "") }, name: { "\(difficulty.capitalized) tasks run on \($0.name)" }, select: { choose($0.id, for: difficulty) }) { choice in
                     NameTile(name: choice.name, symbol: choice.id.isEmpty ? "nosign" : nil)
                 }
@@ -59,7 +59,7 @@ struct HerdrHelperPolicySection: View {
                     let offered = models[tier.template] ?? []
                     let extra = !tier.model.isEmpty && !offered.contains(where: { $0.id == tier.model }) ? [NamedChoice(id: tier.model, name: tier.model)] : []
                     let choices = offered.map { NamedChoice(id: $0.id, name: $0.label ?? $0.id) } + extra
-                    if choices.isEmpty { Text("Reading its models…").font(.callout).foregroundStyle(.secondary) }
+                    if choices.isEmpty { Text("Checking its models…").font(.callout).foregroundStyle(.secondary) }
                     else {
                         Text(tier.model.isEmpty ? "Choose a model" : "Model").font(.subheadline.weight(.medium)).foregroundStyle(.secondary).padding(.top, 4)
                         TileGallery(items: choices, minimum: 150, isSelected: { $0.id == tier.model }, name: { "Model for \(difficulty) tasks: \($0.name)" }, select: { draft.tiers[difficulty]?.model = $0.id; note = "" }) { NameTile(name: $0.name) }
@@ -70,19 +70,19 @@ struct HerdrHelperPolicySection: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Helpers at once").font(.headline)
-                Text("How many helpers one agent may have running at the same time.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text("How many helpers one bot may run at the same time.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             Stepper(value: $draft.maxRunning, in: draft.runningRange) { Text("\(draft.maxRunning)").font(.title3.weight(.semibold)).monospacedDigit().frame(minWidth: 24, alignment: .trailing) }
-                .accessibilityLabel("Helpers one agent may have at once").accessibilityValue("\(draft.maxRunning)")
+                .accessibilityLabel("Helpers one bot may run at once").accessibilityValue("\(draft.maxRunning)")
         }
-        SettingBlock(title: "After its answer", detail: "A helper disappears this long after it has answered.") {
+        SettingBlock(title: "After its answer", detail: "A helper leaves this long after it has answered.") {
             TileGallery(items: draft.delays().map { NamedChoice(id: String($0), name: HerdrHelperPolicyDraft.delayLabel($0)) }, minimum: 96, isSelected: { $0.id == String(draft.stopAfterSeconds) }, name: \.name,
                         select: { if let seconds = Int($0.id) { draft.stopAfterSeconds = seconds } }) { NameTile(name: $0.name) }
         }
         // Only a server that has this setting: an older workspace does not, and is not sent it.
         if let unanswered = draft.stopUnansweredSeconds {
-            SettingBlock(title: "Without an answer", detail: "A helper that has not answered is stopped after this long. It counts from when the helper got its task, whether it waits at a prompt or is still working, so choose longer for long jobs.") {
+            SettingBlock(title: "Without an answer", detail: "A helper that has not answered is stopped after this long. Choose longer for long jobs.") {
                 TileGallery(items: draft.unansweredDelays().map { NamedChoice(id: String($0), name: HerdrHelperPolicyDraft.delayLabel($0)) }, minimum: 96, isSelected: { $0.id == String(unanswered) }, name: \.name,
                             select: { if let seconds = Int($0.id) { draft.stopUnansweredSeconds = seconds } }) { NameTile(name: $0.name) }
             }
@@ -138,7 +138,7 @@ struct HerdrHelperPolicySection: View {
         Task {
             do {
                 show(try await store.herdrClient(for: server).saveHelperPolicy(sending))
-                note = "Saved on \(server.name). It applies to the next helper an agent starts."
+                note = "Saved. It applies to the next helper a bot starts."
             } catch { note = Self.reason(error) }
             saving = false
         }
@@ -146,7 +146,7 @@ struct HerdrHelperPolicySection: View {
 
     /// A server whose Herdr workspace is older has no such settings; everything else speaks for itself.
     nonisolated static func reason(_ error: Error) -> String {
-        if case .http(404, _)? = error as? HerdrClient.Failure { return "This server's Herdr workspace is older and has no helper settings. Update swarmhub-herdr on the server, then read again." }
+        if case .http(404, _)? = error as? HerdrClient.Failure { return "This server needs an update before helpers can be set up here. Update the \(AppConstants.name) service on it (swarmhub-herdr), then try again." }
         return error.localizedDescription
     }
 }

@@ -25,7 +25,7 @@ protocol AgentBackend: Sendable {
 
 extension AgentBackend {
     func features() async throws -> Set<String> { [] }
-    func steer(sessionID: String, text: String) async throws { throw BackendError.unavailable("This backend cannot steer a running turn.") }
+    func steer(sessionID: String, text: String) async throws { throw BackendError.unavailable("This bot cannot take a message while it answers.") }
     func stopTarget(sessionID: String) async throws -> StopTarget { .noRunControl }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
         switch target {
@@ -40,7 +40,7 @@ enum BackendError: LocalizedError {
     case invalidURL, unavailable(String), http(Int, String)
     var errorDescription: String? {
         switch self {
-        case .invalidURL: "The backend URL is invalid."
+        case .invalidURL: "The server address is not valid."
         case .unavailable(let value): value
         case .http(let code, let value): "HTTP \(code): \(value)"
         }

@@ -100,8 +100,7 @@ extension AppStore {
             for other in herdrBots(on: server) where other.id != mainBot.id { other.canManageBots = false }
             mainBot.canManageBots = true
             for program in more where offer.program(program.template) != nil {
-                let title = WizardCopy.titleOnHerdr(program.name)
-                add(Bot(name: program.name, title: first ? title : "\(title) · \(server.name)", persona: Bot.defaultPersona, backend: .herdr), program.template, "", nil)
+                add(Bot(name: program.name, title: first ? "" : Self.starterTitle("", on: server), persona: Bot.defaultPersona, backend: .herdr), program.template, "", nil)
             }
             removeSampleBots()
             selectedBot = mainBot; selectedGroup = nil; rememberSelection(bot: mainBot)

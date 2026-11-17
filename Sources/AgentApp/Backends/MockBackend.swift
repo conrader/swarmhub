@@ -7,7 +7,7 @@ struct MockBackend: AgentBackend {
         AsyncThrowingStream { continuation in
             let task = Task {
                 continuation.yield(.status("Planning"))
-                let reply = "This is a sample agent, so nothing ran. Set up a server to get a bot that works.\n\n```swift\nlet app = \"fast, native, private\"\n```"
+                let reply = "This is a sample bot, so nothing ran. Set up a server to get a bot that works.\n\n```swift\nlet app = \"fast, native, private\"\n```"
                 for word in reply.split(separator: " ", omittingEmptySubsequences: false) {
                     try? await Task.sleep(for: .milliseconds(32))
                     guard !Task.isCancelled else { continuation.finish(); return }

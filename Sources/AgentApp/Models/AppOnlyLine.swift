@@ -57,7 +57,7 @@ enum AppOnlyLine {
 enum IntentLine {
     static let stopRequested = LineTemplate("Stop requested from ", ".")
     static let stoppedBeforeRunID = LineTemplate("Stopped here before ", " had an agent running.")
-    static let stoppedNoRunControl = LineTemplate("Stopped here; this agent cannot be interrupted from the app.")
+    static let stoppedNoRunControl = LineTemplate("Stopped here; this bot cannot be interrupted from the app.")
     static let stopFailed = LineTemplate("", " Stop failed: ", "")
 
     static let all = [stopRequested, stoppedBeforeRunID, stoppedNoRunControl, stopFailed]

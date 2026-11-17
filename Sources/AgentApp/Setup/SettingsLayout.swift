@@ -1,47 +1,53 @@
-import Foundation
+import SwiftUI
 
-/// Where every Settings control lives: exactly one home each, the simple page or one Advanced pane.
+/// Where every Settings control lives: exactly one home each, in one of the panes the Settings window lists in its
+/// sidebar. There is one Settings, not a simple page with an "Advanced" behind it: General is what most people open
+/// it for, and each other pane is one thing (the servers, dictation, the app itself).
 /// The views read the panes from here; the tests assert that nothing is listed twice or without a home.
 enum SettingsLayout {
-    enum Home: Equatable { case simple; case advanced(AdvancedPane) }
-
-    enum AdvancedPane: String, CaseIterable, Identifiable {
-        case servers = "Servers and keys", alerts = "Appearance and alerts"
+    enum Pane: String, CaseIterable, Identifiable {
+        case general = "General", servers = "Servers"
         // Dictation's deAPI key.
         case voice = "Voice"
         case about = "About"
         var id: String { rawValue }
         var icon: String {
             switch self {
+            case .general: "gearshape.fill"
             case .servers: "server.rack"
-            case .alerts: "paintpalette"
-            case .about: "info.circle"
-            case .voice: "mic"
+            case .about: "info.circle.fill"
+            case .voice: "mic.fill"
+            }
+        }
+        /// The colour of the pane's tile in the sidebar.
+        var colour: Color {
+            switch self {
+            case .general: AppColor.olive
+            case .servers: AppColor.sage
+            case .voice: AppColor.clay
+            case .about: AppColor.sky
             }
         }
     }
 
-    /// The words for where a pane is, e.g. "Settings → Advanced → Servers and keys".
-    static func path(_ pane: AdvancedPane, _ section: String? = nil) -> String {
-        (["Settings", "Advanced", pane.rawValue] + (section.map { [$0] } ?? [])).joined(separator: " → ")
+    /// The words for where something is, e.g. "Settings → Servers → Projects".
+    static func path(_ pane: Pane, _ section: String? = nil) -> String {
+        (["Settings", pane.rawValue] + (section.map { [$0] } ?? [])).joined(separator: " → ")
     }
 
-    static let entries: [(id: String, home: Home)] = [
-        ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
-        ("appearance.theme", .simple), ("appearance.appIcon", .simple), ("appearance.accent", .simple), ("notifications.master", .simple),
-        // The automatic-check toggle sits with Version and Check for Updates; the rest of Updates is Advanced.
-        ("about.version", .simple), ("about.autoCheck", .simple), ("about.checkUpdates", .simple), ("advanced.open", .simple),
-        ("servers.herdr", .advanced(.servers)), ("servers.helpers", .advanced(.servers)), ("servers.projects", .advanced(.servers)), ("servers.grokBot", .advanced(.servers)),
-        ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)),
-        ("voice.dictationKey", .advanced(.voice)),
-        ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
+    static let entries: [(id: String, home: Pane)] = [
+        ("you.name", .general), ("appearance.theme", .general), ("appearance.accent", .general), ("appearance.appIcon", .general),
+        ("appearance.avatarMotion", .general), ("notifications.master", .general),
+        ("servers.herdr", .servers), ("servers.helpers", .servers), ("servers.skills", .servers), ("servers.projects", .servers), ("servers.grokBot", .servers),
+        ("voice.dictationKey", .voice),
+        ("about.version", .about), ("about.autoCheck", .about), ("about.checkUpdates", .about), ("about.build", .about), ("about.autoDownload", .about), ("about.acknowledgements", .about)
     ]
 
-    static func home(of id: String) -> Home? { entries.first { $0.id == id }?.home }
-    static var simpleIDs: [String] { entries.filter { $0.home == .simple }.map(\.id) }
-    static func ids(in pane: AdvancedPane) -> [String] { entries.filter { $0.home == .advanced(pane) }.map(\.id) }
+    static func home(of id: String) -> Pane? { entries.first { $0.id == id }?.home }
+    static func ids(in pane: Pane) -> [String] { entries.filter { $0.home == pane }.map(\.id) }
 
-    /// An agent's settings: the simple part, then everything folded under Advanced.
+    /// A bot's settings: the simple part, then what is folded under Advanced. What a bot runs on (AI and model) is
+    /// in its Details, under Model, and nowhere else.
     static let editorSimple = ["editor.avatar", "editor.name", "editor.instructions", "editor.notification", "editor.save"]
-    static let editorAdvanced = ["editor.title", "editor.description", "editor.showInSidebar", "editor.herdrAgent", "editor.herdrProjects"]
+    static let editorAdvanced = ["editor.role", "editor.mainBot", "editor.messages", "editor.helpers", "editor.herdrProjects"]
 }

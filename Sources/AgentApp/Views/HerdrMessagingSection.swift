@@ -13,8 +13,8 @@ struct HerdrMessagingSection: View {
 
     /// What the switch means, in the words of the state it is in.
     nonisolated static func caption(bot: String, server: String, takes: Bool) -> String {
-        let how = "The bots on \(server) can write to each other by name. A message appears in the other bot’s chat, marked as passed on, and the answer comes back into the sender’s chat, so you can read everything they say in both chats. Stop a bot to end an exchange."
-        return takes ? how + " \(bot) can still write to other bots when this is off."
-            : "Off: a bot that writes to \(bot) is told that \(bot) takes no messages. \(bot) can still write to other bots, and their answers still reach it. " + how
+        let how = "Your bots on \(server) can ask each other for help. You can read everything they say in both chats."
+        return takes ? how + ""
+            : "Off: other bots cannot write to \(bot). \(bot) can still write to them." + how
     }
 }

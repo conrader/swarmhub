@@ -21,8 +21,8 @@ struct HerdrBackend: AgentBackend {
     static let tokenEnvironment = "SWARMHUB_HERDR_TOKEN"
     /// A bot's own template lives beside the app settings, not on the bot record.
     static func botTemplateKey(_ botID: UUID) -> String { "\(templateKey).\(botID.uuidString.lowercased())" }
-    static let missingToken = "This Herdr server has no access key yet. Add it in Settings → Advanced → Servers and keys."
-    static let modelNote = "Choose this agent's model under Herdr agent."
+    static let missingToken = "This server's access key is missing. Open Settings → Servers and press Check connection."
+    static let modelNote = "Choose this bot's model in its Details, under Model."
     static func botModelKey(_ botID: UUID) -> String { "herdrModel.\(botID.uuidString.lowercased())" }
 
     let kind = BackendKind.herdr
@@ -100,7 +100,7 @@ struct HerdrBackend: AgentBackend {
 
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         guard let text = request.messages.last(where: { $0.role == "user" })?.content, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw BackendError.unavailable("There is no message to send to the agent.")
+            throw BackendError.unavailable("There is no message to send.")
         }
         let backend = self
         return AsyncThrowingStream { continuation in
@@ -182,9 +182,10 @@ struct HerdrBackend: AgentBackend {
     /// Settings → Test: the bridge answers, Core is up, and how many templates it can start.
     func testConnection() async throws -> String {
         let workspace = try await client.workspace()
-        guard workspace.core != nil else { throw BackendError.unavailable("The workspace answered, but Herdr Core is not running beside it.") }
+        guard workspace.core != nil else { throw BackendError.unavailable("The server answered, but Herdr Core is not running on it. Start Herdr Core there, then check again.") }
         let usable = workspace.templates.filter { $0.error == nil }.map(\.name)
-        if usable.isEmpty { return "Connected to Herdr Core \(workspace.version ?? ""), but it has no agent template yet." }
-        return "Connected to Herdr Core \(workspace.version ?? "") · templates: \(usable.joined(separator: ", "))"
+        let names = HerdrProgramName.labels(for: workspace.templates.filter { $0.error == nil })
+        if usable.isEmpty { return "Connected, but no AI is set up on this server yet. Add one there, then check again." }
+        return "Connected. Bots can run on \(usable.compactMap { names[$0] }.joined(separator: ", "))."
     }
 }

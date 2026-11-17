@@ -193,15 +193,16 @@ extension AppStore {
     /// decides which that is, because the app itself names no model; nil leaves the agent program's own default.
     static func starterModel(offered: [HerdrClient.Template.Model]) -> String? { HerdrClient.defaultModel(offered: offered) }
 
-    /// One starter per agent program the server can start (Claude Code, Codex), each on its starter model. Reads the
-    /// server; adds nothing.
+    /// One starter per agent program the server can start, named as the server names the program, each on its
+    /// starter model. Reads the server; adds nothing.
     func herdrStarters(client: HerdrClient) async throws -> [HerdrStarter] {
         let usable = try await client.workspace().templates.filter { $0.error == nil }
         var starters: [HerdrStarter] = []
-        for (harness, name) in [("Claude Code", "Claude"), ("Codex", "Codex")] {
-            guard let template = usable.first(where: { $0.runtime?.harness == harness }) else { continue }
+        for template in usable {
+            // Two templates of one program make one starter, the first.
+            guard let name = template.programName, !starters.contains(where: { $0.name == name }) else { continue }
             let offered = (try? await client.models(for: template)) ?? template.models ?? []
-            starters.append(HerdrStarter(template: template.name, name: name, title: "\(harness) on Herdr", model: Self.starterModel(offered: offered)))
+            starters.append(HerdrStarter(template: template.name, name: name, title: "", model: Self.starterModel(offered: offered)))
         }
         return starters
     }
@@ -212,17 +213,21 @@ extension AppStore {
         return starters.filter { starter in !taken.contains(starter.template) && !present.contains { $0.name == starter.name } }
     }
 
-    /// Adds the starters as bots on `server`, without a network call. A second server's bots say where they run.
+    /// Adds the starters as bots on `server`, without a network call. A second server's bots say where they run, as
+    /// the few words under their name.
     @discardableResult func addHerdrStarters(_ starters: [HerdrStarter], on server: HerdrServer) -> [Bot] {
         let first = server.id == herdrServers.first?.id
         var added: [Bot] = []
         for starter in missingHerdrStarters(starters, on: server) {
-            let bot = Bot(name: starter.name, title: first ? starter.title : "\(starter.title) · \(server.name)", persona: Bot.defaultPersona, backend: .herdr)
+            let bot = Bot(name: starter.name, title: first ? starter.title : Self.starterTitle(starter.title, on: server), persona: Bot.defaultPersona, backend: .herdr)
             bots.append(bot); added.append(bot)
             setHerdrServer(server.id, for: bot); setHerdrTemplate(starter.template, for: bot); setHerdrModel(starter.model ?? "", for: bot)
         }
         return added
     }
+
+    /// "On Box" for a bot on a server that is not the first; a title of its own comes before it.
+    static func starterTitle(_ title: String, on server: HerdrServer) -> String { title.isEmpty ? "On \(server.name)" : "\(title) · \(server.name)" }
 
     /// One ready-to-use bot per agent program the server can start, each on its starter model. A program that
     /// already has a Herdr bot on that server is skipped. Returns the names it added.

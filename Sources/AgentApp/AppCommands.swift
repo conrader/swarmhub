@@ -18,13 +18,13 @@ enum AppCommand: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .settings: "Settings…"
-        case .newAgent: "New Agent…"
+        case .newAgent: "New Bot…"
         case .newGroup: "New Group…"
         case .importTemplate: "Import Template…"
         case .quickSwitcher: "Quick Switcher…"
-        case .toggleSidebar: "Toggle Sidebar"
-        case .toggleInfo: "Toggle Agent Info"
-        case .hiddenChats: "Toggle Hidden Chats"
+        case .toggleSidebar: "Show or Hide Sidebar"
+        case .toggleInfo: "Show or Hide Details"
+        case .hiddenChats: "Show or Hide Hidden Chats"
         case .overview: "Overview"
         case .media: "Media"
         case .members: "Members"
@@ -32,8 +32,8 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .skills: "Skills"
         case .previousChat: "Previous Chat"
         case .nextChat: "Next Chat"
-        case .agentSettings: "Agent Settings…"
-        case .stopResponse: "Stop Response"
+        case .agentSettings: "Bot Settings…"
+        case .stopResponse: "Stop Answer"
         case .keyboardShortcuts: "Keyboard Shortcuts…"
         }
     }
@@ -123,7 +123,9 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .overview, .media, .model, .skills:
             guard store.selectedGroup == nil, let bot = store.selectedBot, let tab = infoTab else { return false }
             return store.infoTabs(for: bot).contains(tab)
-        case .members, .toggleInfo: return store.selectedGroup != nil || store.selectedBot != nil
+        // A group has members to show; a chat with one bot has only the two of you.
+        case .members: return store.selectedGroup != nil
+        case .toggleInfo: return store.selectedGroup != nil || store.selectedBot != nil
         case .stopResponse: return store.openConversation.map(store.isStreaming(in:)) == true
         case .previousChat, .nextChat: return store.visibleChatCount > 1
         default: return true
@@ -194,7 +196,7 @@ struct AppCommands: Commands {
             command(.toggleSidebar)
             command(.toggleInfo)
             command(.hiddenChats)
-            Menu("Agent Details") {
+            Menu("Details") {
                 command(.overview)
                 command(.model)
                 command(.skills)

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings → Advanced → About: this build's identity, automatic install, why updates are off when they are, and
-/// the acknowledgements. Version, the automatic check and Check for Updates live only on the simple page (`UpdateCheckRow`).
+/// Settings → About, under the version and the update check (`UpdateCheckRow`): this build's identity, automatic
+/// install, why updates are off when they are, and the acknowledgements.
 struct SettingsAboutPane: View {
     @EnvironmentObject private var updater: AppUpdater
     private let info = AppBuildInfo.current()

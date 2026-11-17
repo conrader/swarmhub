@@ -17,10 +17,11 @@ enum SidebarFragment {
         if isWorking { return working ?? ChatActivityPhase.thinking.label }
         for message in messages.reversed() {
             guard message.role != .system && !message.isSilent else { continue }
+            let passedOn = message.role == .user && message.metadata[HerdrBotRelay.Key.kind] != nil
             let body = plain(line(message))
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body
             guard !value.isEmpty else { continue }
-            return prefixed(value, isUser: message.role == .user, author: message.role == .assistant ? author?(message.authorID) : nil)
+            return prefixed(value, isUser: message.role == .user && !passedOn, author: message.role == .assistant ? author?(message.authorID) : nil)
         }
         if let line = archiveNewest(), case let value = plain(line.text), !value.isEmpty {
             return prefixed(value, isUser: line.role == "user", author: author == nil ? nil : line.author)
@@ -31,6 +32,11 @@ enum SidebarFragment {
     /// The text a row reads as outside its transcript: a reply without its ```swarmhub fences, or, when the reply is
     /// only such a fence, that fence's line; any other row's own text.
     static func line(_ message: ChatMessage) -> String {
+        // A message the app passed on for the agent reads as the words in it, without the lines for the agent.
+        if message.role == .user, message.metadata[HerdrBotRelay.Key.kind] != nil {
+            let shown = HerdrPassedOn(message.content)
+            return shown.botName.map { "Asks for a new bot: \($0)" } ?? shown.body
+        }
         guard message.role == .assistant else { return message.content }
         let visible = SwarmhubBlock.visibleText(message.finalText)
         if visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let block = SwarmhubSummary.lines(in: message.finalText).last { return block.summary }

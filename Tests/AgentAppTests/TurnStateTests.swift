@@ -141,7 +141,7 @@ actor EndingBackend: AgentBackend {
     #expect(TurnOutcome.classify(.endedWithoutTerminal).state == .incomplete && TurnOutcome.classify(.failedByAgent("x")).round == .continues)
     // Footers.
     #expect(TurnOutcome.footer(state: .notSent, why: "offline", ambiguous: false, empty: true) == "Not sent (offline)")
-    #expect(TurnOutcome.footer(state: .notSent, why: "timeout", ambiguous: true, empty: true) == "Not confirmed (timeout) — the agent may have it")
+    #expect(TurnOutcome.footer(state: .notSent, why: "timeout", ambiguous: true, empty: true) == "Not confirmed (timeout) — the bot may have it")
     #expect(TurnOutcome.footer(state: .incomplete, why: nil, ambiguous: false, empty: false) == "Incomplete")
     #expect(TurnOutcome.footer(state: .stopped, why: nil, ambiguous: false, empty: true) == "Stopped" && TurnOutcome.footer(state: .stopped, why: nil, ambiguous: false, empty: false) == nil)
     #expect(TurnOutcome.footer(state: .finished, why: "later", ambiguous: false, empty: true) == "Delivered with a later message")

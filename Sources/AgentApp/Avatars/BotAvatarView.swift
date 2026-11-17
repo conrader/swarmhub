@@ -133,8 +133,8 @@ struct ChatWelcome: View {
     var body: some View {
         VStack(spacing: 10) {
             BotAvatar(bot: bot, size: 72, motion: .showcase, isWorking: store.isWorking(bot), probe: "showcase", facing: .down, isSelected: true)
-            Text(bot.name).font(.system(size: 15, weight: .semibold))
-            Text("Send a message to start.").font(.caption).foregroundStyle(.secondary)
+            Text("Say hello to \(bot.name)").font(.system(size: 17, weight: .semibold))
+            Text(store.createsHerdrBots(bot) ? "Ask for anything, or for a new bot to help." : "Ask for anything.").font(.callout).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).padding(.vertical, 36)
     }
 }

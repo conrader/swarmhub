@@ -28,8 +28,8 @@ private let listingJSON = """
     let list = try decoded(HerdrClient.Helpers.self, listingJSON)
     #expect(list.core == "c0" && list.limit == 3 && list.stopAfterSeconds == 60 && list.parent == HerdrClient.AgentRef(address: "t2x", createdMs: 1794843679838))
     #expect(list.helpers.map(\.name) == ["two", "three", "four", "five"] && list.helpers[0].id == "t31/1794843760636")
-    #expect(list.helpers[0].runLine == "easy · some-model" && list.helpers[0].reply?.text == "follow-up ok" && list.helpers[1].runLine.isEmpty)
-    #expect(list.helpers.map(\.statusLine) == ["Answered", "Working", "Ended after answering", "No longer on the server"])
+    #expect(list.helpers[0].runLine == "some-model" && list.helpers[0].difficultyLine == "Easy task" && list.helpers[0].reply?.text == "follow-up ok" && list.helpers[1].runLine.isEmpty)
+    #expect(list.helpers.map(\.statusLine) == ["Answered", "Working", "Finished", "Gone"])
     #expect(list.helpers.map(\.isLive) == [true, true, false, false] && list.helpers.map(\.isWorking) == [false, true, false, false])
     #expect(HerdrHelperRow.fragment(list.helpers[0]) == "Answered · Reply with exactly: two ok" && HerdrHelperRow.fragment(list.helpers[1]) == "Working")
     #expect(HerdrHelpersSection.count(list) == "2 of 3 running")
@@ -37,7 +37,7 @@ private let listingJSON = """
     let waiting = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live", status: .init(state: "blocked"))
     let failed = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live", status: .init(state: "error"))
     let starting = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live"), quiet = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "finished")
-    #expect([waiting, failed, starting, quiet].map(\.statusLine) == ["Waiting at a prompt", "Reported an error", "Starting", "Ended without an answer"])
+    #expect([waiting, failed, starting, quiet].map(\.statusLine) == ["Waiting for an answer in its terminal", "Reported an error", "Starting", "Stopped without an answer"])
 }
 
 /// A helper's terminal is named by the agent that started it; it is never taken for a bot's own agent.
@@ -148,7 +148,7 @@ private let listingJSON = """
     let templates = [HerdrClient.Template(name: "a", description: nil, error: nil, runtime: nil, modelAgent: "x"), HerdrClient.Template(name: "b", description: nil, error: nil, runtime: nil),
                      HerdrClient.Template(name: "c", description: nil, error: "broken", runtime: nil, modelAgent: "x")]
     #expect(HerdrHelperPolicyDraft.templates(in: templates).map(\.name) == ["a"], "only a usable program that takes a model can run helpers")
-    #expect(HerdrHelperPolicySection.reason(HerdrClient.Failure.http(404, "x")).contains("older") && HerdrHelperPolicySection.reason(HerdrClient.Failure.http(422, "The server's own sentence.")) == "The server's own sentence.")
+    #expect(HerdrHelperPolicySection.reason(HerdrClient.Failure.http(404, "x")).contains("needs an update") && HerdrHelperPolicySection.reason(HerdrClient.Failure.http(422, "The server's own sentence.")) == "The server's own sentence.")
 }
 
 /// A helper that never answers is stopped after a time the server keeps; the form shows it only for a server that has it.

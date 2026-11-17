@@ -1,29 +1,31 @@
 import SwiftUI
 
-/// Settings: the simple page, and "Advanced…" switches the same 760×560 window to the pane list.
-/// Pane views are re-homed, not rewritten (`SettingsLayout.AdvancedPane`).
+/// Settings: one window, its panes listed at the left as System Settings lists them (`SettingsLayout.Pane`). It
+/// opens on General.
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var advanced = false
-    @State private var pane = SettingsLayout.AdvancedPane.servers
+    @State private var pane = SettingsLayout.Pane.general
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     var body: some View {
         Group {
             if store.isSetupPreview {
                 Text(SimpleCopy.previewOff).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if advanced {
-                NavigationSplitView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Button(SimpleCopy.backToSimple) { advanced = false }.buttonStyle(.link).padding(.horizontal, 14).padding(.vertical, 8)
-                        List(SettingsLayout.AdvancedPane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
-                    }.navigationSplitViewColumnWidth(190)
-                } detail: {
-                    // Servers and keys lays its own groups out; the other panes are grouped forms.
-                    if pane == .servers { ScrollView { content.padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }.navigationTitle(pane.rawValue) }
-                    else { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
-                }
             } else {
-                SettingsSimplePane(openAdvanced: { advanced = true })
+                NavigationSplitView {
+                    List(SettingsLayout.Pane.allCases, selection: $pane) { item in
+                        Label { Text(item.rawValue) } icon: { SymbolTile(symbol: item.icon, colour: item.colour, size: 22) }.padding(.vertical, 3).tag(item)
+                    }.navigationSplitViewColumnWidth(180)
+                } detail: {
+                    // General and Servers lay their own groups out; Voice and About are grouped forms.
+                    Group {
+                        switch pane {
+                        case .general: SettingsSimplePane()
+                        case .servers: ScrollView { SettingsAccountPane().padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }
+                        case .voice: Form { SettingsVoicePane() }.formStyle(.grouped)
+                        case .about: Form { Section { UpdateCheckRow() }; SettingsAboutPane() }.formStyle(.grouped)
+                        }
+                    }.navigationTitle(pane.rawValue)
+                }
             }
         }
         .frame(width: 760, height: 560).background(AppColor.panel).tint(AppTheme.accentColor(for: accent))
@@ -31,22 +33,14 @@ struct SettingsView: View {
     }
     private func showRequestedPane() {
         guard let requested = store.settingsPane else { return }
-        pane = requested; advanced = true; store.settingsPane = nil
-    }
-    @ViewBuilder private var content: some View {
-        switch pane {
-        case .servers: SettingsAccountPane()
-        case .alerts: SettingsAlertsPane()
-        case .about: SettingsAboutPane()
-        case .voice: SettingsVoicePane()
-        }
+        pane = requested; store.settingsPane = nil
     }
 }
 
-/// Opens the Settings window on one Advanced pane (a plain `SettingsLink` opens wherever Settings last was).
+/// Opens the Settings window on one pane (a plain `SettingsLink` opens wherever Settings last was).
 struct SettingsPaneButton: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.openSettings) private var openSettings
-    let title: String; let pane: SettingsLayout.AdvancedPane
+    let title: String; let pane: SettingsLayout.Pane
     var body: some View { Button(title) { store.settingsPane = pane; openSettings() } }
 }

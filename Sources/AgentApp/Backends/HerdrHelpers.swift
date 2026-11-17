@@ -13,7 +13,8 @@ extension HerdrClient {
         /// The latest saved reply, cut by the bridge when long (`truncated`); the history has it in full.
         struct Reply: Decodable, Sendable, Equatable { let id: Int; let text: String; var truncated: Bool? = nil }
         let address: String; let createdMs: UInt64; let name: String
-        var template: String? = nil; var model: String? = nil; var difficulty: String? = nil; var task: String? = nil
+        /// `modelLabel`: the model's name as people read it ("Sonnet 5.5"), from a server that sends it (`model_label`).
+        var template: String? = nil; var model: String? = nil; var modelLabel: String? = nil; var difficulty: String? = nil; var task: String? = nil
         /// `live`, `finished`, or `gone` when Core no longer has the terminal.
         let state: String
         var status: Agent.Status? = nil
@@ -32,18 +33,20 @@ extension HerdrClient {
             case "live":
                 switch status?.state {
                 case "working": "Working"
-                case "blocked": "Waiting at a prompt"
+                case "blocked": "Waiting for an answer in its terminal"
                 case "error": "Reported an error"
                 case "done" where answered != true: "Finishing"
                 default: answered == true ? "Answered" : "Starting"
                 }
-            case "finished": answered == true ? "Ended after answering" : "Ended without an answer"
-            default: "No longer on the server"
+            case "finished": answered == true ? "Finished" : "Stopped without an answer"
+            default: "Gone"
             }
         }
 
-        /// "easy · model": the difficulty the agent chose and the model the server's policy gave it.
-        var runLine: String { [difficulty, model].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ") }
+        /// The model the helper runs on, by its label: the server's, else the one the app saw for that id, else the id.
+        var runLine: String { [modelLabel, HerdrModelNames.label(model), model].compactMap { $0 }.first { !$0.isEmpty } ?? "" }
+        /// "Easy task": how hard the bot said the task is, for the helper's own view.
+        var difficultyLine: String? { difficulty.flatMap { $0.isEmpty ? nil : "\($0.prefix(1).uppercased())\($0.dropFirst()) task" } }
     }
 
     /// An agent's running helpers, newest first. `limit`: how many it may have running at once; nil without a usable

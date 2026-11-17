@@ -22,10 +22,8 @@ struct MarkdownContent: View {
                 case .image(let alt, let url): InlineImage(alt: alt, url: url)
                 }
             }
-            // Each ```swarmhub fence as one line; unfold shows the block.
-            ForEach(Array(SwarmhubSummary.lines(in: text ?? message.content).enumerated()), id: \.offset) { offset, line in
-                FoldedBlockLine(folds: store.technicalFolds, key: TechnicalFolds.key(message.id, "fence\(indexBase).\(offset)"), line: line)
-            }
+            // What the reply asked the app for, each as one plain line; the block itself is never drawn.
+            ForEach(Array(SwarmhubSummary.lines(in: text ?? message.content).enumerated()), id: \.offset) { _, line in FoldedBlockLine(line: line) }
         }
     }
 }

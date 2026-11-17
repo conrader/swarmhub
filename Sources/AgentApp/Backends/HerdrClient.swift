@@ -14,15 +14,24 @@ struct HerdrClient: Sendable {
     struct Template: Decodable, Sendable, Equatable {
         /// On a template: its agent program. On a saved session (`Profile.Session`): also the model the agent was
         /// started on, `modelId` and its `model` label, both nil when it was started without one.
-        struct Runtime: Decodable, Sendable, Equatable { let harness: String?; let provider: String?; let model: String?; var modelId: String? = nil }
+        struct Runtime: Decodable, Sendable, Equatable {
+            let harness: String?; let provider: String?; let model: String?; var modelId: String? = nil
+            /// The short name people call the agent program by ("Claude"), when the server sends one (`display_name`).
+            var displayName: String? = nil
+        }
         /// A model the template offers by name (the bridge's `runtime-catalog.json`).
         struct Model: Decodable, Sendable, Equatable { let id: String; let label: String? }
         let name: String; let description: String?; let error: String?; let runtime: Runtime?
         /// Set when the template can start its agent on a chosen model; `discoverModels` when the agent program can list them.
         var modelAgent: String? = nil; var models: [Model]? = nil; var discoverModels: Bool? = nil
         var takesModel: Bool { modelAgent != nil }
-        /// "Claude Code · swarmhub-claude": the agent program first, since that is what people choose by.
-        var label: String { runtime?.harness.map { "\($0) · \(name)" } ?? name }
+        /// The agent program by the name people use for it ("Claude"): the server's `display_name`, else the program's
+        /// own name without a word that only says what kind of program it is (`HerdrProgramName`). nil when the
+        /// template names no program.
+        var programName: String? { HerdrProgramName.friendly(display: runtime?.displayName, program: runtime?.harness) }
+        /// What a choice of this template reads as: the program's friendly name, never the template's own name unless
+        /// it names no program. Two choices that would read the same are told apart by `HerdrProgramName.labels`.
+        var label: String { programName ?? name }
     }
 
     struct Agent: Decodable, Sendable, Equatable {
@@ -47,7 +56,7 @@ struct HerdrClient: Sendable {
     struct Workspace: Decodable, Sendable {
         let core: String?; let version: String?; let agents: [Agent]; let templates: [Template]
         /// The server's name for the agent program `agent` runs ("Codex"); nil when its template names none.
-        func program(of agent: Agent) -> String? { templates.first { $0.name == agent.template }?.runtime?.harness }
+        func program(of agent: Agent) -> String? { templates.first { $0.name == agent.template }?.programName }
     }
 
     /// A bot's saved profile on the bridge, with its newest sessions and what each was launched with.
@@ -99,16 +108,16 @@ struct HerdrClient: Sendable {
         case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, notDelivered(String?)
         var errorDescription: String? {
             switch self {
-            case .invalidURL: "The Herdr workspace address is invalid. Use http://127.0.0.1:8787 or the port you forwarded."
-            case .unauthorized: "The Herdr workspace did not accept the access key. Paste it again in Settings."
-            case .refusedHost: "The Herdr workspace only answers on 127.0.0.1 or localhost with its own port. Forward that same port to this Mac."
+            case .invalidURL: "The server address is not valid. Use http://127.0.0.1:8787, or the port you forwarded."
+            case .unauthorized: "The server did not accept the access key. Open Settings → Servers and check the connection."
+            case .refusedHost: "The server only answers on its own computer. Forward its port to this Mac, with the same port number."
             case .http(_, let message): message
-            case .noTemplate: "Choose an agent runtime for this bot. Herdr Core has no template the workspace can start."
-            case .ended: "The agent's session ended before it replied. Send the message again to start a new one."
-            case .silent: "The agent finished without a saved reply. Open the Herdr workspace to see its terminal."
+            case .noTemplate: "This server has no AI this bot can run on. Choose one in its Details, under Model."
+            case .ended: "The bot stopped before it replied. Send your message again."
+            case .silent: "The bot finished without a reply. Send your message again; if it keeps happening, look at its terminal at the server's address in a browser."
             // The server's own sentence says why and what to look at; without one, the same in the app's words.
-            case .notDelivered(let why): why.map { "\($0) Then send the message again." } ?? "The agent did not become ready, so your message was not delivered. Open the Herdr workspace to see its terminal, then send the message again."
-            case .waitingAtPrompt: "The agent started but is showing a prompt, so it has not taken your message. Answer the prompt in the Herdr workspace (Take over), then send the message again."
+            case .notDelivered(let why): why.map { "\($0) Then send the message again." } ?? "The bot did not get ready, so your message was not delivered. Send it again; if it keeps happening, look at its terminal at the server's address in a browser."
+            case .waitingAtPrompt: "The bot started, but its program is asking a question in its terminal, so it has not read your message. Answer it at the server's address in a browser (Take over), then send the message again."
             }
         }
     }
@@ -196,6 +205,7 @@ struct HerdrClient: Sendable {
             let listed: Listed = try await post("/api/runtime-models/\(template.name)", [:])
             found += listed.models.filter { model in !found.contains { $0.id == model.id } }
         }
+        HerdrModelNames.remember(found)
         return found
     }
 
@@ -247,7 +257,7 @@ struct HerdrClient: Sendable {
     /// Never a second agent: a running one is returned as it is.
     func warm(name: String, template: String?, model: String? = nil, projects: [HerdrBotProject] = []) async throws -> Warmed {
         let current = try await workspace()
-        guard current.core != nil else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
+        guard current.core != nil else { throw Failure.http(503, "Herdr Core is not running on the server. Start it there, then try again.") }
         if let agent = liveAgent(named: name, in: current) { return .running(agent, program: current.program(of: agent)) }
         do {
             let agent = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), in: current)
@@ -315,7 +325,7 @@ struct HerdrClient: Sendable {
                  status: @Sendable (HerdrTurnStatus) -> Void = { _ in }) async throws -> Turn {
         let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
-        guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
+        guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the server. Start it there, then try again.") }
         if let agent = liveAgent(named: name, in: current) {
             // Started ahead of time and not ready yet: the bridge keeps the message and types it when the agent is.
             if agent.isStarting { status(.starting(program: current.program(of: agent))) }
@@ -365,7 +375,7 @@ struct HerdrClient: Sendable {
     /// The server's name for the agent program a bot's next agent starts ("Codex"); nil when the server names none.
     static func program(template: String?, in workspace: Workspace) -> String? {
         let usable = workspace.templates.filter { $0.error == nil }
-        return (usable.first { $0.name == template } ?? (template == nil ? usable.first : nil))?.runtime?.harness
+        return (usable.first { $0.name == template } ?? (template == nil ? usable.first : nil))?.programName
     }
 
     /// What goes in front of a message to a running agent: `reminder` always, each of `once` only while no saved task

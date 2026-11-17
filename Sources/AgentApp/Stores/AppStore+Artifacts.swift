@@ -52,7 +52,7 @@ extension AppStore {
     }
 
     func shareArtifact(_ artifact: RuntimeArtifact, with botID: UUID) throws {
-        guard bots.contains(where: { $0.id == botID && !$0.isReadOnlyArchive }) else { throw BackendError.unavailable("That agent was removed.") }
+        guard bots.contains(where: { $0.id == botID && !$0.isReadOnlyArchive }) else { throw BackendError.unavailable("That bot was removed.") }
         let store = try artifacts()
         guard var current = try store.record(artifact.id) else { throw BackendError.unavailable("This saved document no longer exists.") }
         if !current.ownerBotIDs.contains(botID) { current.ownerBotIDs.append(botID) }
@@ -62,7 +62,7 @@ extension AppStore {
     func revokeArtifact(_ artifact: RuntimeArtifact, from botID: UUID) throws {
         let store = try artifacts()
         guard var current = try store.record(artifact.id) else { throw BackendError.unavailable("This saved document no longer exists.") }
-        guard current.ownerBotIDs.contains(where: { $0 != botID }) else { throw BackendError.unavailable("Keep at least one agent with access to this document.") }
+        guard current.ownerBotIDs.contains(where: { $0 != botID }) else { throw BackendError.unavailable("Keep at least one bot with access to this document.") }
         current.ownerBotIDs.removeAll { $0 == botID }
         try store.put(current); objectWillChange.send()
     }

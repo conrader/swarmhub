@@ -16,19 +16,25 @@ struct HerdrMainBotStar: View {
 struct HerdrBotRequestCard: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var manager: Bot
     @State private var creating: Set<String> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let pending = store.pendingHerdrBots(for: manager), unasked = store.herdrUnaskedBots(of: manager)
+        // A card that arrives or leaves does so gently, so the message box does not jump.
+        Group { card(pending, unasked) }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: pending.count + unasked.count)
+    }
+
+    @ViewBuilder private func card(_ pending: [AppStore.PendingHerdrBot], _ unasked: [Bot]) -> some View {
         if !pending.isEmpty || !unasked.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 if !unasked.isEmpty {
-                    Text("\(manager.name) created \(unasked.count == 1 ? "a bot" : "\(unasked.count) bots") on \(store.herdrServer(for: manager).name)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("\(manager.name) created \(unasked.count == 1 ? "a bot" : "\(unasked.count) bots") for you").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     ForEach(unasked) { bot in
                         HStack(alignment: .top, spacing: 10) {
                             BotAvatar(bot: bot, size: 30)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(bot.name).font(.callout.weight(.medium))
-                                Text(bot.persona == Bot.defaultPersona ? "No instructions: it starts with the default ones." : bot.persona).font(.caption).foregroundStyle(.secondary).lineLimit(3).textSelection(.enabled)
+                                Text(bot.persona == Bot.defaultPersona ? "No special instructions." : bot.persona).font(.caption).foregroundStyle(.secondary).lineLimit(3).textSelection(.enabled)
                             }
                             Spacer()
                             Button("Remove", role: .destructive) { store.removeHerdrBot(bot, createdBy: manager) }.help("Deletes \(bot.name) and its chat")
@@ -37,7 +43,7 @@ struct HerdrBotRequestCard: View {
                     }
                 }
                 if !pending.isEmpty {
-                    Text("\(manager.name) wants to create \(pending.count == 1 ? "a bot" : "\(pending.count) bots") on \(store.herdrServer(for: manager).name)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("\(manager.name) suggests \(pending.count == 1 ? "a new bot" : "\(pending.count) new bots")").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     ForEach(pending) { item in
                         HStack(alignment: .top, spacing: 10) {
                             // The requested look when the app can draw it; otherwise the new bot gets its own, like any new bot.
@@ -52,19 +58,19 @@ struct HerdrBotRequestCard: View {
                                     if let runtime = item.request.runtime { Text(runtime).font(.caption).foregroundStyle(.secondary) }
                                     if let asker = item.askerID.flatMap({ id in store.bots.first { $0.id == id }?.name }) { Text("asked for by \(asker)").font(.caption).foregroundStyle(.secondary) }
                                 }
-                                Text(item.taken ? "A bot with this name is already on this server." : item.request.instructions.isEmpty ? "No instructions: it starts with the default ones." : item.request.instructions)
-                                    .font(.caption).foregroundStyle(item.taken ? .orange : .secondary).lineLimit(4).textSelection(.enabled)
+                                Text(item.taken ? "You already have a bot with this name. Ask \(manager.name) for another name." : item.request.instructions.isEmpty ? "No special instructions." : item.request.instructions)
+                                    .font(.caption).foregroundStyle(item.taken ? AppColor.caution : Color.secondary).lineLimit(4).textSelection(.enabled)
                             }
                             Spacer()
                             if creating.contains(item.id) { ProgressView().controlSize(.small) }
                             else {
-                                Button("Dismiss") { store.refuseHerdrBot(item, manager: manager) }
+                                Button("Not now") { store.refuseHerdrBot(item, manager: manager) }
                                 if !item.taken { Button("Create") { create(item) }.buttonStyle(.borderedProminent) }
                             }
                         }
                     }
                 }
-            }.chatCard(tint: manager.tint)
+            }.chatCard(tint: manager.tint).transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
 

@@ -23,6 +23,8 @@ struct ComposerView: View {
     var dictationContext: String? = nil
     /// The setup wizard ends in a chat with the keyboard in its composer: true asks for it, and `tookFocus` says it happened.
     var wantsFocus = false; var tookFocus: () -> Void = {}
+    /// Who the message goes to (a bot's or a group's name), for the placeholder.
+    var recipient: String? = nil
     @ObservedObject var dictation: VoiceDictation = VoiceDictation()
     @State private var importing = false; @State private var pasteMonitor: Any?; @FocusState private var focused: Bool
     private var dictationBusy: Bool { dictationContext != nil && dictation.isBusy }
@@ -56,19 +58,19 @@ struct ComposerView: View {
             // label's frame), and the slots sit on the draft's last line as it grows.
             HStack(alignment: .bottom, spacing: ComposerMetrics.spacing) {
                 Button { importing = true } label: { Image(systemName: "paperclip").frame(width: ComposerMetrics.control, height: ComposerMetrics.control).contentShape(Rectangle()) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Attach PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files")
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Attach images or documents")
                     .composerSlot("composer_attach")
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus") }.composerSlot("composer_manage") }
                 input.chromeProbe("composer_input")
                 if let dictationContext { DictationButton(dictation: dictation, context: dictationContext) { focused = true }.composerSlot("composer_dictation") }
                 if isStreaming && hasContent {
                     Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(canSteer ? "Add to this answer" : "Send when this answer ends")
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(canSteer ? "Send now, into this answer" : "Send when this answer ends")
                         .disabled(dictationBusy || !reading.isEmpty).composerSlot("composer_steer")
                 }
                 if isStreaming {
                     Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).help("Stop response")
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).help("Stop")
                         .composerSlot("composer_send")
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)) }
@@ -109,7 +111,7 @@ struct ComposerView: View {
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text(isStreaming ? (canSteer ? SteerCopy.placeholder : SteerCopy.queuePlaceholder) : "Message " + AppConstants.name + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(isStreaming ? (canSteer ? SteerCopy.placeholder : SteerCopy.queuePlaceholder) : "Message " + (recipient ?? AppConstants.name) + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
                                 .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
                         }
                     }
@@ -210,7 +212,7 @@ private struct DictationButton: View {
         } label: { Image(systemName: recording ? "stop.circle.fill" : "mic").frame(width: 28, height: 28) }
             .buttonStyle(.plain).foregroundStyle(recording ? Color.red : Color.secondary)
             .disabled(dictation.state == .requestingPermission || dictation.state == .transcribing)
-            .help(recording ? "Stop recording and transcribe" : "Dictate a message with deAPI")
+            .help(recording ? "Stop recording and transcribe" : "Dictate a message")
             .accessibilityLabel(recording ? "Stop recording and transcribe" : "Dictate a message")
             .accessibilityIdentifier("composer.dictation")
     }
@@ -228,7 +230,7 @@ private struct DictationStatusRow: View {
                 Text("Recording \(dictation.elapsedText) · 5 min max").monospacedDigit()
             } else if dictation.isBusy {
                 ProgressView().controlSize(.small)
-                Text(dictation.state == .transcribing ? "Transcribing with deAPI…" : "Requesting microphone access…")
+                Text(dictation.state == .transcribing ? "Transcribing…" : "Waiting for microphone access…")
             } else if let error = dictation.errorMessage {
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(AppColor.caution)
                 Text(error).lineLimit(2)

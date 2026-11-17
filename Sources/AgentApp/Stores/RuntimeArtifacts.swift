@@ -62,7 +62,7 @@ struct RuntimeArtifact: Codable, Identifiable, Equatable, Sendable {
 
     func save(_ data: Data, name: String, mimeType: String, owners: [UUID]) throws -> RuntimeArtifact {
         guard data.count <= Self.byteLimit else { throw BackendError.unavailable("This document is larger than the 10 MB limit for saved documents.") }
-        guard !owners.isEmpty else { throw BackendError.unavailable("A saved document needs at least one agent with access.") }
+        guard !owners.isEmpty else { throw BackendError.unavailable("A saved document needs at least one bot with access.") }
         var seen = Set<UUID>()
         let artifact = RuntimeArtifact(id: UUID(), name: String(name.prefix(200)), mimeType: mimeType, byteCount: data.count,
                                        sha256: Self.digest(data), ownerBotIDs: owners.filter { seen.insert($0).inserted })
@@ -74,7 +74,7 @@ struct RuntimeArtifact: Codable, Identifiable, Equatable, Sendable {
 
     /// The content for `botID`; throws when the bot has no access or the file no longer matches its digest.
     func read(_ id: UUID, botID: UUID) throws -> Data {
-        guard let record = try record(id), record.ownerBotIDs.contains(botID) else { throw BackendError.unavailable("This agent does not have access to that saved document.") }
+        guard let record = try record(id), record.ownerBotIDs.contains(botID) else { throw BackendError.unavailable("This bot does not have access to that saved document.") }
         let data = try Data(contentsOf: fileURL(id))
         guard data.count == record.byteCount, Self.digest(data) == record.sha256 else { throw BackendError.unavailable("The saved document “\(record.name)” changed on disk and was not used.") }
         return data

@@ -33,22 +33,29 @@ enum SwarmhubBlock {
     }
 }
 
-/// A ```swarmhub fence as one line made from what it asks for, e.g. "Asks for a new bot: Research"; the raw block
-/// shows only unfolded. An op this build does not know still gets a line.
+/// A ```swarmhub fence as one plain line made from what it asks for, e.g. "Suggested a new bot: Research". The raw
+/// block is never drawn. A block this build does not know, or cannot read, gets no line: nothing comes of it.
 enum SwarmhubSummary {
-    struct Line: Equatable { var summary: String; var block: String }
+    struct Line: Equatable {
+        var summary: String; var block: String
+        /// The symbol that goes with what the block asked for.
+        var symbol: String {
+            if summary.hasPrefix("Wrote to") { return "paperplane" }
+            return summary.hasPrefix("Said no") ? "xmark.circle" : "person.crop.circle.badge.plus"
+        }
+    }
 
     /// One line per fence, in order (an unclosed fence, as while streaming, too).
     static func lines(in text: String) -> [Line] {
         guard text.contains("`") else { return [] }
-        return SwarmhubBlock.fences(in: text).map { Line(summary: summary(body: $0.body), block: $0.body) }
+        return SwarmhubBlock.fences(in: text).map { Line(summary: summary(body: $0.body), block: $0.body) }.filter { !$0.summary.isEmpty }
     }
 
     static func summary(body: String) -> String {
-        guard let data = body.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) else { return "SwarmHub update" }
+        guard let data = body.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) else { return "" }
         let objects = (json as? [String: Any]).map { [$0] } ?? (json as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
-        let parts = objects.map(line)
-        guard !parts.isEmpty else { return "SwarmHub update" }
+        let parts = objects.map(line).filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return "" }
         let shown = parts.prefix(2).joined(separator: " · ")
         return parts.count > 2 ? shown + " · \(parts.count - 2) more" : shown
     }
@@ -56,11 +63,11 @@ enum SwarmhubSummary {
     private static func line(_ object: [String: Any]) -> String {
         let op = object["op"] as? String ?? "", name = (object["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "a bot"
         switch op {
-        case "create_bot": return "Asks for a new bot: \(name)"
-        case "request_bot": return "Asks the main bot for a bot: \(name)"
-        case "decline_bot": return "Declines the bot \(name)"
-        case "": return "SwarmHub update"
-        default: return "SwarmHub update: " + op.replacingOccurrences(of: "_", with: " ")
+        case "create_bot": return "Suggested a new bot: \(name)"
+        case "request_bot": return "Asked the main bot for a new bot: \(name)"
+        case "decline_bot": return "Said no to a new bot: \(name)"
+        case "message_bot": return "Wrote to " + ((object["to"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "another bot")
+        default: return ""
         }
     }
 

@@ -111,12 +111,12 @@ import Testing
     let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let pane = try String(contentsOf: repoRoot.appending(path: "Sources/AgentApp/Views/SettingsSimplePane.swift"), encoding: .utf8)
     #expect(pane.contains("@AppStorage(AppIconAppearance.preferenceKey) private var appIcon = AppIconAppearance.defaultPreference"))
-    let theme = try #require(pane.range(of: "Picker(SimpleCopy.theme")), appIcon = try #require(pane.range(of: "Picker(SimpleCopy.appIcon"))
-    let accent = try #require(pane.range(of: "Picker(SimpleCopy.accent"))
+    let theme = try #require(pane.range(of: "ThemeTile(value: value")), appIcon = try #require(pane.range(of: "Picker(SimpleCopy.appIcon"))
+    let accent = try #require(pane.range(of: "SettingBlock(title: SimpleCopy.accent"))
     #expect(theme.upperBound < appIcon.lowerBound && appIcon.upperBound < accent.lowerBound, "Theme, App icon, Accent")
     #expect(pane.contains(#"Picker(SimpleCopy.appIcon, selection: $appIcon) { Text(SimpleCopy.light).tag("Light"); Text(SimpleCopy.dark).tag("Dark") }.pickerStyle(.segmented)"#))
     #expect(SimpleCopy.appIcon == "App icon" && SimpleCopy.all.contains(SimpleCopy.appIcon))
-    #expect(SettingsLayout.home(of: "appearance.appIcon") == .simple)
+    #expect(SettingsLayout.home(of: "appearance.appIcon") == .general)
 }
 
 @MainActor @Test func bothThemeIconsAreBundledAndDiffer() throws {

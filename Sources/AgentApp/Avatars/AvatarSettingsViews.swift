@@ -1,20 +1,6 @@
 import SwiftUI
 @preconcurrency import BotAvatarsKit
 
-/// Settings → Appearance → Avatar motion.
-struct AvatarMotionSettingRow: View {
-    @ObservedObject private var settings = AvatarMotionSettings.shared
-    var body: some View {
-        Section("Avatars") {
-            Picker("Avatar motion", selection: $settings.preference) {
-                ForEach(AvatarMotionPreference.allCases) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented)
-            Text(settings.preference.caption + " macOS Reduce Motion freezes avatars and shows a dot while a bot works.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-}
-
 /// What the editor holds for the avatar until Save: nothing picked yet (a new bot gets its derived look), a mark
 /// (a shape and/or colour word; a missing one is derived at save), or a classic avatar.
 enum AvatarChoice: Equatable {

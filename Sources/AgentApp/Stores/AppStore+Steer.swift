@@ -11,10 +11,10 @@ enum SteerCopy {
     static let placeholder = "Add to this answer…"
     /// An agent that cannot steer: the message waits and goes when the answer ends.
     static let queuePlaceholder = "Message (sends when this answer ends)…"
-    static let hint = "Your message steers this answer without stopping it; if the answer ends first, it goes as the next message."
+    static let hint = "Your message goes into this answer without stopping it. If the answer ends first, it is sent as your next message."
     /// The line under a message that waits for the running answer (no steer for this bot, or attachments).
     static let afterTurn = "Sends when the current answer ends."
-    /// The status line under a failed steer: only the reason (the bubble's caption already says "Steer not delivered").
+    /// The status line under a failed steer: only the reason (the bubble's caption already says "Not delivered").
     static let endedFirst = "The answer ended first."
     static let sendAsNext = "Send as next message"
 
@@ -30,9 +30,9 @@ enum SteerCopy {
         case nil: return nil
         case "sent": return "Sending…"
         case "queued": return "Delivered after the current step"
-        case "failed": return "Steer not delivered"
+        case "failed": return "Not delivered"
         case "next": return "Sends as the next message when the answer ends"
-        case "sentNext": return "Not delivered as a steer; sent as the next message"
+        case "sentNext": return "It did not get into that answer, so it was sent as your next message"
         default: return "Delivered"
         }
     }

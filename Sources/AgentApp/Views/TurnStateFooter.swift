@@ -21,7 +21,7 @@ struct TurnStateFooter: View {
         HStack(spacing: 10) {
             if let text = Self.text(for: message) { Text(text) }
             if message.turnState == .notSent, store.canRetry(message) {
-                Button(message.metadata[TurnKey.retry] == "confirm" ? "Tap again to send — the agent may have it" : "Retry") { store.retry(message) }
+                Button(message.metadata[TurnKey.retry] == "confirm" ? "Send again (it may arrive twice)" : "Retry") { store.retry(message) }
                     .accessibilityLabel("Retry sending this message")
             }
         }

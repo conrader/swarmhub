@@ -182,9 +182,9 @@ extension AppStore {
         let kept = message.metadata[HerdrBotRelay.Key.name]
         func name(_ key: String) -> String? { message.metadata[key].flatMap { id in bots.first { Self.herdrID($0) == id }?.name } ?? kept }
         switch kind {
-        case HerdrBotRelay.message: return "Passed on by \(AppConstants.name)" + (name(HerdrBotRelay.Key.asker).map { " from \($0)" } ?? "")
-        case HerdrBotRelay.answer: return "Passed on by \(AppConstants.name): the answer" + (name(HerdrBotRelay.ExchangeKey.from).map { " from \($0)" } ?? "")
-        default: return "From \(AppConstants.name): a message" + (kept.map { " to \($0)" } ?? "") + " that was not sent"
+        case HerdrBotRelay.message: return "Message from " + (name(HerdrBotRelay.Key.asker) ?? "another bot")
+        case HerdrBotRelay.answer: return "Answer from " + (name(HerdrBotRelay.ExchangeKey.from) ?? "the other bot")
+        default: return "Not sent" + (kept.map { " to \($0)" } ?? "")
         }
     }
 }

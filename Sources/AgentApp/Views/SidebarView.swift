@@ -23,10 +23,9 @@ struct SidebarView: View {
                     if store.grokBotPresent {
                         Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.showingGrokImport = true }
                     }
-                    Button("Import Template…", systemImage: "square.and.arrow.down") { store.showingTemplateImport = true }
                 } label: { RoundSidebarLabel(symbol: "plus") }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                    .help("New bot, group or template (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
+                    .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -36,12 +35,15 @@ struct SidebarView: View {
                         case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete)
                         }
                     }
-                    Button { store.showingHiddenBots.toggle() } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: store.showingHiddenBots ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
-                            Text("Hidden chats").font(.system(size: 12))
-                        }.foregroundStyle(.tertiary).padding(.horizontal, SidebarMetrics.rowPadding).frame(height: 32).contentShape(Rectangle())
-                    }.buttonStyle(.plain).padding(.top, 6)
+                    // Nothing hidden, nothing to unfold.
+                    if !store.hiddenChatBots.isEmpty || store.groups.contains(where: \.isHidden) {
+                        Button { store.showingHiddenBots.toggle() } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: store.showingHiddenBots ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
+                                Text("Hidden chats").font(.system(size: 12))
+                            }.foregroundStyle(.tertiary).padding(.horizontal, SidebarMetrics.rowPadding).frame(height: 32).contentShape(Rectangle())
+                        }.buttonStyle(.plain).padding(.top, 6)
+                    }
                     if store.showingHiddenBots {
                         ForEach(store.hiddenChatBots) { bot in row(bot) }
                         ForEach(store.groups.filter(\.isHidden)) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete) }
@@ -49,10 +51,13 @@ struct SidebarView: View {
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
             HStack(spacing: 10) {
-                SettingsLink { RoundSidebarLabel(symbol: nil, text: UserIdentity.initial(of: accountName)) }
-                    .buttonStyle(.plain).help("Account and settings").accessibilityLabel("Account")
+                // One button: the person's initial and "Settings" (two buttons that opened the same window read as two things).
                 SettingsLink {
-                    Text("Settings").font(.system(size: 13, weight: .medium)).padding(.horizontal, 16)
+                    HStack(spacing: 8) {
+                        Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 22, height: 22).background(Circle().fill(.tint))
+                        Text("Settings").font(.system(size: 13, weight: .medium))
+                    }.padding(.leading, 5).padding(.trailing, 14)
                         .frame(height: SidebarMetrics.roundButton).background(Capsule().fill(Color.primary.opacity(0.08))).contentShape(Capsule())
                 }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
                 Spacer()
@@ -61,11 +66,11 @@ struct SidebarView: View {
         .alert("Delete \(botToDelete?.name ?? "bot")?", isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
             Button("Cancel", role: .cancel) { botToDelete = nil }
             Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
-        } message: { Text("Its local conversation history will be removed. This can’t be undone.") }
+        } message: { Text("Its chat is removed from this Mac. This can’t be undone.") }
         .alert("Delete group \(groupToDelete?.name ?? "")?", isPresented: Binding(get: { groupToDelete != nil }, set: { if !$0 { groupToDelete = nil } })) {
             Button("Cancel", role: .cancel) { groupToDelete = nil }
             Button("Delete", role: .destructive) { if let groupToDelete { store.deleteGroup(groupToDelete) }; groupToDelete = nil }
-        } message: { Text("The group’s local transcript is removed; its bots and their own chats stay.") }
+        } message: { Text("The group chat is removed from this Mac. Its bots and their own chats stay.") }
     }
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
     /// helper's row is the selected one.

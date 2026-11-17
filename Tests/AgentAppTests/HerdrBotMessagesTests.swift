@@ -138,7 +138,7 @@ private func pair(_ one: Bot, _ other: Bot) -> String { HerdrBotRelay.pair(id(on
     for refusal in [HerdrBotMessage.Refusal.ambiguous, .closed, .tooLong, .spent] { #expect(HerdrBotRelay.refusal(refusal, to: "X", names: []).contains("not sent")) }
     #expect(HerdrBotRelay.ids("A,b,,C") == ["a", "b", "c"] && HerdrBotRelay.joined(["A", "b"]) == "a,b" && HerdrBotRelay.ids(nil).isEmpty)
     #expect(!HerdrBotRelay.mayAsk(replyingTo: [HerdrBotRelay.Key.kind: HerdrBotRelay.message]), "a reply to a bot's message asks for no bot by itself")
-    #expect(HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: true).contains("can write to each other by name") && HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: false).hasPrefix("Off: a bot that writes to Legal is told"))
+    #expect(HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: true).contains("can ask each other for help") && HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: false).hasPrefix("Off: other bots cannot write to Legal"))
 }
 
 /// Every Herdr bot is told how to write to the others and who they are; the names follow the bots of its server.
@@ -178,19 +178,19 @@ private func pair(_ one: Bot, _ other: Bot) -> String { HerdrBotRelay.pair(id(on
     say(store, boppy, "Ask Legal: Is clause 4 fine?")
     try await waitUntil { answered(boppy, relayed(boppy, HerdrBotRelay.answer).first) && store.isIdle(boppy) && store.isIdle(legal) }
     let message = try #require(relayed(legal, HerdrBotRelay.message).first)
-    #expect(message.content == HerdrBotRelay.message(from: "Boppy", "Is clause 4 fine?") && store.herdrRelayCaption(message) == "Passed on by SwarmHub from Boppy")
+    #expect(message.content == HerdrBotRelay.message(from: "Boppy", "Is clause 4 fine?") && store.herdrRelayCaption(message) == "Message from Boppy")
     #expect(message.metadata[HerdrBotRelay.ExchangeKey.chain] == "\(id(boppy)),\(id(legal))" && message.metadata[HerdrBotRelay.Key.asker] == id(boppy))
     #expect(script.heard("Legal") == [message.content], "the receiving agent is sent the message")
     #expect(lines(boppy).contains("Boppy wrote to Legal: “Is clause 4 fine?”"), "the sender's chat shows what it wrote")
     #expect(HerdrBotMessage.messages(in: replies(boppy)[0]).count == 1 && HerdrBotRelay.visible(replies(boppy)[0]) == "Asking.", "the reply keeps its block, which the chat hides like every such block")
     let answer = try #require(relayed(boppy, HerdrBotRelay.answer).first)
-    #expect(answer.content == HerdrBotRelay.reply(from: "Legal", "Legal says: fine.") && store.herdrRelayCaption(answer) == "Passed on by SwarmHub: the answer from Legal")
+    #expect(answer.content == HerdrBotRelay.reply(from: "Legal", "Legal says: fine.") && store.herdrRelayCaption(answer) == "Answer from Legal")
     #expect(lines(legal).contains("Legal’s answer was passed back to Boppy."))
     #expect(script.heard("Boppy") == ["Ask Legal: Is clause 4 fine?", answer.content] && replies(boppy).last == "Boppy has the answer.", "the sender's agent reads the answer")
     #expect(relayed(legal, HerdrBotRelay.message).count == 1 && relayed(boppy, HerdrBotRelay.answer).count == 1 && relayed(boppy, HerdrBotRelay.notice).isEmpty && script.heard("Legal").count == 1, "a reply to an answer sends nothing by itself")
     // A bot that was deleted since keeps its name over what it wrote.
     store.delete(legal)
-    #expect(store.herdrRelayCaption(answer) == "Passed on by SwarmHub: the answer from Legal")
+    #expect(store.herdrRelayCaption(answer) == "Answer from Legal")
 }
 
 /// The receiver is in the middle of an answer: the message waits in its chat as the next message and goes when that
@@ -276,7 +276,7 @@ private final class SlowClock: @unchecked Sendable {
     let sent = relayed(legal, HerdrBotRelay.message)
     #expect(script.heard("Legal").count == HerdrBotRelay.roundLimit && sent.count == 8 && sent.last?.metadata[HerdrBotRelay.ExchangeKey.rounds] == "\(pair(boppy, legal)):8" && sent.last?.metadata[HerdrBotRelay.ExchangeKey.chain] == "\(id(boppy)),\(id(legal))")
     let notices = relayed(boppy, HerdrBotRelay.notice)
-    #expect(notices.count == 1 && notices[0].content.contains("You and \"Legal\" have written to each other 8 times about this") && store.herdrRelayCaption(notices[0]) == "From SwarmHub: a message to Legal that was not sent", "told once")
+    #expect(notices.count == 1 && notices[0].content.contains("You and \"Legal\" have written to each other 8 times about this") && store.herdrRelayCaption(notices[0]) == "Not sent to Legal", "told once")
     #expect(lines(legal).contains("Boppy and Legal have written to each other 8 times about this, which is the limit. Boppy was told to bring the matter to you."), "the other bot's chat says so, and its agent is not woken")
     #expect(script.heard("Boppy").count == 10 && relayed(boppy, HerdrBotRelay.answer).count == 8 && !lines(boppy).contains { $0.contains("it has written to other bots") }, "the ten-minute limit never applied")
     // The person writes again: a new exchange.
@@ -319,7 +319,7 @@ private final class SlowClock: @unchecked Sendable {
     #expect(relayed(tax, HerdrBotRelay.notice).isEmpty && lines(legal).contains("Tax wrote to Boppy before answering Legal."))
     #expect(relayed(tax, HerdrBotRelay.answer).map(\.content) == [HerdrBotRelay.reply(from: "Boppy", "Boppy says: fine.")])
     let fromTax = try #require(relayed(legal, HerdrBotRelay.answer).first)
-    #expect(fromTax.content == HerdrBotRelay.reply(from: "Tax", "Tax has the answer.") && fromTax.metadata[HerdrBotRelay.ExchangeKey.waiting] == id(boppy) && store.herdrRelayCaption(fromTax) == "Passed on by SwarmHub: the answer from Tax")
+    #expect(fromTax.content == HerdrBotRelay.reply(from: "Tax", "Tax has the answer.") && fromTax.metadata[HerdrBotRelay.ExchangeKey.waiting] == id(boppy) && store.herdrRelayCaption(fromTax) == "Answer from Tax")
     // Boppy hears from Legal once: Legal's answer after it heard from Tax, not its "Let me check."
     #expect(relayed(boppy, HerdrBotRelay.answer).map(\.content) == [HerdrBotRelay.reply(from: "Legal", "Legal has the answer.")])
     #expect(script.heard("Boppy").count == 3 && script.heard("Legal").count == 2 && script.heard("Tax").count == 2 && replies(boppy).last == "Boppy has the answer.")
@@ -363,7 +363,7 @@ private final class SlowClock: @unchecked Sendable {
     say(store, boppy, "Ask Nobody: Hello?")
     try await waitUntil { answered(boppy, relayed(boppy, HerdrBotRelay.notice).first) && store.isIdle(boppy) }
     let refusal = try #require(relayed(boppy, HerdrBotRelay.notice).first)
-    #expect(refusal.content == HerdrBotRelay.refusal(.unknown, to: "Nobody", names: ["Jarvis", "Legal", "Tax"]) && store.herdrRelayCaption(refusal) == "From SwarmHub: a message to Nobody that was not sent")
+    #expect(refusal.content == HerdrBotRelay.refusal(.unknown, to: "Nobody", names: ["Jarvis", "Legal", "Tax"]) && store.herdrRelayCaption(refusal) == "Not sent to Nobody")
     #expect(script.heard("Boppy").last == refusal.content && replies(boppy).last == "Boppy understood." && !lines(boppy).contains { $0.contains("wrote to") })
     #expect(["Jarvis", "Legal", "Tax"].allSatisfy { script.heard($0).isEmpty })
     // A bot cannot write to itself: its own name is not on the list.
@@ -454,8 +454,8 @@ private final class SlowClock: @unchecked Sendable {
     let scout = try #require(store.bots.first { $0.name == "Scout" })
     #expect(scout.persona == "You scout." && store.herdrUnaskedBots(of: jarvis) == [scout] && lines(jarvis).contains("Jarvis created Scout"))
     let request = try #require(relayed(jarvis, HerdrBotRelay.request).first), outcome = try #require(relayed(boppy, HerdrBotRelay.outcome).first)
-    #expect(request.content.hasPrefix("[Request from the bot Boppy, passed on by SwarmHub]") && store.herdrRelayCaption(request) == "Passed on by SwarmHub from Boppy")
-    #expect(outcome.content.contains("\"Scout\" you asked for now exists") && store.herdrRelayCaption(outcome) == "Passed on by SwarmHub: the answer to this bot's request")
+    #expect(request.content.hasPrefix("[Request from the bot Boppy, passed on by SwarmHub]") && store.herdrRelayCaption(request) == "Boppy asks for a new bot")
+    #expect(outcome.content.contains("\"Scout\" you asked for now exists") && store.herdrRelayCaption(outcome) == "SwarmHub told Boppy")
     #expect(relayed(legal, HerdrBotRelay.message).count == 1 && relayed(boppy, HerdrBotRelay.answer).first?.content == HerdrBotRelay.reply(from: "Legal", "Legal says: fine."))
     #expect(try store.herdrBackend(for: boppy).roster == HerdrBotMessage.roster(["Jarvis", "Legal", "Tax", "Scout"]), "the new bot can be written to")
 

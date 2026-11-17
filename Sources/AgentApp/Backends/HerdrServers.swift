@@ -123,13 +123,13 @@ struct HerdrServerDraft: Equatable, Sendable {
     /// One plain line for the first thing that is missing or wrong; nil when Test can run.
     var problem: String? {
         switch kind {
-        case .local: return portNumber == nil ? "The port is a number from 1 to 65535; Herdr uses 8787 unless you changed it." : nil
+        case .local: return portNumber == nil ? "The port is a number from 1 to 65535. It is 8787 unless you changed it." : nil
         case .ssh:
             if sshHost.trimmingCharacters(in: .whitespaces).isEmpty { return "Enter the server's name or IP address." }
             if !HerdrTunnel.isSafe(host: sshHost.trimmingCharacters(in: .whitespaces)) || !HerdrTunnel.isSafe(user: sshUser.trimmingCharacters(in: .whitespaces)) {
                 return "Use only the server's name or IP address, and a plain login name."
             }
-            return portNumber == nil ? "The port is a number from 1 to 65535; Herdr uses 8787 unless you changed it." : nil
+            return portNumber == nil ? "The port is a number from 1 to 65535. It is 8787 unless you changed it." : nil
         case .address:
             if address.trimmingCharacters(in: .whitespaces).isEmpty { return "Enter the address, for example http://127.0.0.1:8787." }
             return HerdrClient.validatedBaseURL(address) == nil ? HerdrClient.Failure.invalidURL.errorDescription : nil

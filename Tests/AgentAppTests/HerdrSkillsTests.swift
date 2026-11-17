@@ -100,7 +100,7 @@ private func skillsRequestBody(_ request: URLRequest) -> [String: Any] {
     await model.settled()
     #expect(server.enabled == ["alpha"] && server.linked == [1, 1], "the library changed, and the sync brought it to the agent programs")
     #expect(model.library?.skills[1].enabled == false && model.library?.targets.map(\.linked) == [1, 1] && model.behind == nil && !model.isBusy)
-    #expect(model.note == "beta is off. The agent programs are up to date: one (1 skill) and two (1 skill).", "\(model.note)")
+    #expect(model.note == "beta is off. Your bots are up to date: one (1 skill) and two (1 skill).", "\(model.note)")
     // Several switches in a row go one after another, and one sync follows the last.
     let syncs = server.asked("POST /api/skillshare/sync")
     let skills = try #require(model.library?.skills)
@@ -120,14 +120,14 @@ private func skillsRequestBody(_ request: URLRequest) -> [String: Any] {
     model.set(try #require(model.library?.skills[0]), on: false)
     await model.settled()
     #expect(server.enabled == ["beta"] && server.linked == [2, 2], "the library changed; the agent programs did not")
-    #expect(model.behind == .failed("alpha was turned off in the library, but the agent programs have not been updated: skillshare took too long and was stopped."), "\(String(describing: model.behind))")
+    #expect(model.behind == .failed("alpha was turned off, but your bots do not have the change yet: skillshare took too long and was stopped."), "\(String(describing: model.behind))")
     #expect(model.library?.skills[0].enabled == false)
     // Reading again keeps saying so (the dry run still finds a sync waiting); Retry brings it over.
     await model.load()
     #expect(model.behind != nil)
     server.failSync(false)
     await model.sync()
-    #expect(model.behind == nil && server.linked == [1, 1] && model.note.contains("The agent programs are up to date: one (1 skill) and two (1 skill)."))
+    #expect(model.behind == nil && server.linked == [1, 1] && model.note.contains("Your bots are up to date: one (1 skill) and two (1 skill)."))
     // A sync left waiting by someone else is found by a fresh read.
     let (other, fresh, client) = scripted()
     _ = try await client.setSkill("alpha", enabled: false)
@@ -149,7 +149,7 @@ private func skillsRequestBody(_ request: URLRequest) -> [String: Any] {
     await model.share(with: "three")
     #expect(server.asked("POST /api/skillshare/targets") == 1 && model.sharing == .closed && model.confirming == nil)
     #expect(model.library?.targets.map(\.name) == ["one", "two", "three"] && server.linked == [2, 2, 2], "the sync after it links the skills into the new program's folder")
-    #expect(model.note == "The library is now shared with three. The agent programs are up to date: one (2 skills), two (2 skills) and three (2 skills).", "\(model.note)")
+    #expect(model.note == "These skills are now shared with three. Your bots are up to date: one (2 skills), two (2 skills) and three (2 skills).", "\(model.note)")
     model.closeSharing(); #expect(model.sharing == .closed)
 }
 

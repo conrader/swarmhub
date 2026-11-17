@@ -10,8 +10,8 @@ import UserNotifications
     @Published var runningTurns: [UUID: ConversationTurn] = [:]; var turnLimits = TurnLimits()
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
-    /// The Advanced pane the Settings window shows when it next opens or is already open; it clears it.
-    @Published var settingsPane: SettingsLayout.AdvancedPane?
+    /// The pane the Settings window shows when it next opens or is already open; it clears it.
+    @Published var settingsPane: SettingsLayout.Pane?
     /// The Grok Bot import sheet, and whether Grok Bot is on this Mac at all (existence checks only, run once, on first
     /// use; false hides every door).
     @Published var showingGrokImport = false
@@ -48,6 +48,9 @@ import UserNotifications
     /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
     var herdrSettling: Set<String> = []
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
+    /// Whether dictation has its key, looked up once (attributes only) and again when Settings saves or removes it:
+    /// the composer shows its microphone only then (`dictationIsSetUp`).
+    var dictationKeyKnown: Bool?
     /// The sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
     @Published var infoTab = AgentInfoTab.overview
@@ -74,8 +77,6 @@ import UserNotifications
     let drafts = ComposerDrafts()
     /// Where each chat was left and whether it is away from the newest message.
     let chatScroll = ChatScrollModel()
-    /// Folded ```swarmhub lines the user opened (memory only).
-    let technicalFolds = TechnicalFolds()
     let keyStore: any KeyStore; let defaults: UserDefaults
     /// Turn bookkeeping, the token autosave interval and the connectivity events (injectable).
     let turns = TurnBook(); var autosaveInterval: Duration = .seconds(2); var connectivity: (any ConnectivitySource)?

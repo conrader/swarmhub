@@ -109,8 +109,7 @@ private struct StepLine: View {
             } else {
                 Image(systemName: step.failed ? "xmark.circle.fill" : "checkmark.circle").font(.caption2).foregroundStyle(step.failed ? Color.red : Color.secondary)
             }
-            Text(ActivityCopy.label(step.name)).font(.caption)
-            Text(step.name).font(.caption2.monospaced()).foregroundStyle(.tertiary)
+            Text(ActivityCopy.label(step.name)).font(.caption).help(step.name)
             if let preview = step.preview { Text(preview).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
             if !running, let end = step.finishedAt { Text(ActivityCopy.duration(end.timeIntervalSince(step.startedAt))).font(.caption2).foregroundStyle(.tertiary).monospacedDigit() }
         }

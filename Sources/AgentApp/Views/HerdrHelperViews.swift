@@ -12,7 +12,7 @@ struct HerdrHelperRows: View {
     }
 }
 
-/// One helper: its name, the difficulty its agent chose and the model the server gave it, then what it is doing and
+/// One helper: its name, the model it runs on by its label, then what it is doing and
 /// its task. Pressing it opens the helper's read-only view.
 struct HerdrHelperRow: View {
     let helper: HerdrClient.Helper; let selected: Bool; let open: () -> Void
@@ -77,7 +77,7 @@ struct HerdrHelpersSection: View {
                 ForEach(list.helpers) { helper in
                     HerdrHelperCard(helper: helper, selected: store.isOpen(helper, of: bot)) { store.open(helper, of: bot) }
                 }
-                Text("Agents \(bot.name) started for parts of its work. The server chose each one's model from the difficulty \(bot.name) gave the task\(list.stopAfterSeconds.map { ", and stops a helper \(HerdrHelperPolicyDraft.delayLabel($0)) after its answer" } ?? "").")
+                Text("\(bot.name) hands parts of its work to helpers.\(list.stopAfterSeconds.map { " Each one leaves \(HerdrHelperPolicyDraft.delayLabel($0)) after it answers." } ?? "")")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -151,16 +151,16 @@ struct HerdrHelperView: View {
                 Spacer()
                 if let shown {
                     if !shown.runLine.isEmpty {
-                        FactChip(text: shown.runLine).help("The difficulty \(bot.name) gave the task, and the model the server runs that difficulty on")
+                        FactChip(text: shown.runLine).help(shown.difficultyLine.map { "\(bot.name) called this an \($0.lowercased()), and helpers for those run on \(shown.runLine)." } ?? "The model this helper runs on")
                     }
-                    FactChip(text: listed == nil ? "No longer listed" : shown.statusLine)
+                    FactChip(text: listed == nil ? "Finished" : shown.statusLine)
                 }
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     if listed == nil, shown != nil {
-                        StatusCard(kind: .info, title: "This helper has ended and left the server's list.", detail: "What you see is how it was last read.")
+                        StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
                     part("Task", symbol: "text.bubble.fill", colour: AppColor.sky) {
                         Text(shown?.task ?? log?.tasks.first?.text ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -173,23 +173,23 @@ struct HerdrHelperView: View {
                     }
                     part("Steps", symbol: "list.bullet", colour: AppColor.clay, count: log?.tools.count) {
                         if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
-                        else { quiet(log == nil ? "Reading…" : "No tool steps yet.") }
+                        else { quiet(log == nil ? "Loading…" : "No steps yet.") }
                     }
                     part(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", symbol: "arrowshape.turn.up.left.fill", colour: AppColor.sage) {
-                        if reply.content.isEmpty { quiet(log == nil ? "Reading…" : "No reply yet.") } else { MarkdownContent(message: reply).textSelection(.enabled) }
+                        if reply.content.isEmpty { quiet(log == nil ? "Loading…" : "No reply yet.") } else { MarkdownContent(message: reply).textSelection(.enabled) }
                     }
                     part("Terminal", symbol: "terminal.fill", colour: AppColor.olive, boxed: false) {
                         if let screen = log?.screen, !screen.isEmpty {
                             ScrollView(.horizontal) {
                                 Text(screen).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize().padding(12)
                             }.frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
-                        } else { quiet(log == nil ? "Reading…" : "The server has no terminal for this helper any more.") }
+                        } else { quiet(log == nil ? "Loading…" : "Its terminal is gone.") }
                     }
                     if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(AppColor.caution).textSelection(.enabled) }
                 }.padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity)
             }
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
-            Text("Read-only. \(bot.name) started this helper and gets its answers; talk to \(bot.name) to change what it does.")
+            Text("You can only watch here. To change what this helper does, tell \(bot.name).")
                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(12).frame(maxWidth: .infinity)
         }.background(AppColor.chat)
             .task(id: selection) { await follow() }

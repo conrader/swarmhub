@@ -228,7 +228,7 @@ private final class WarmBridge: @unchecked Sendable {
     let lost = try await stuckClient.deliver("hi", name: "ada-abc123", template: nil, instructions: "Be brief.")
     await #expect(throws: HerdrClient.Failure.notDelivered("it did not report in time")) { try await stuckClient.reply(to: lost) }
     #expect(HerdrClient.Failure.notDelivered("It did not report in time.").localizedDescription == "It did not report in time. Then send the message again."
-            && HerdrClient.Failure.notDelivered(nil).localizedDescription == "The agent did not become ready, so your message was not delivered. Open the Herdr workspace to see its terminal, then send the message again.")
+            && HerdrClient.Failure.notDelivered(nil).localizedDescription == "The bot did not get ready, so your message was not delivered. Send it again; if it keeps happening, look at its terminal at the server's address in a browser.")
     _ = try await stuckClient.deliver("again", name: "ada-abc123", template: nil, instructions: "Be brief.")
     #expect(stuck.texts.last == HerdrClient.firstTask("again", instructions: "Be brief."), "a message that was never typed taught the agent nothing")
 }
@@ -275,9 +275,9 @@ private final class WarmBridge: @unchecked Sendable {
     old.beOlder()
     await older.warmHerdrAgent(for: ada)?.value
     #expect(old.launches.isEmpty && !older.herdrStartsAhead(for: ada) && older.warmHerdrAgent(for: ada) == nil && older.herdrReadiness.isEmpty, "the server is not asked again")
-    #expect(AppStore.keepsReadyCaption(bot: "Ada", program: "Agent One", available: true).hasPrefix("On: Agent One starts when you open Ada’s chat")
-            && AppStore.keepsReadyCaption(bot: "Ada", program: nil, available: false) == "This server does not start its agent program ahead of time, so Ada’s agent starts with your first message.")
-    #expect(HerdrAgentControls.restartNote(closed: true, starting: true) == "The running agent was closed. A fresh one is starting now." && HerdrAgentControls.restartNote(closed: false, starting: false) == "No agent is running. Your next message starts one.")
+    #expect(AppStore.keepsReadyCaption(bot: "Ada", program: "Agent One", available: true).hasPrefix("Ada starts when you open its chat")
+            && AppStore.keepsReadyCaption(bot: "Ada", program: nil, available: false) == "This server cannot start Ada ahead of time, so it starts with your first message.")
+    #expect(HerdrAgentControls.restartNote(closed: true, starting: true) == "Done. It is starting fresh now." && HerdrAgentControls.restartNote(closed: false, starting: false) == "It was not running. It starts with your next message.")
 }
 
 /// A message sent while the start is still on its way waits for it, says that the agent is starting, and is then

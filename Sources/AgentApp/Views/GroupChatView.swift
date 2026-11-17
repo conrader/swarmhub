@@ -53,7 +53,7 @@ struct GroupChatView: View {
                          pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                          reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                          mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name),
-                         dictationContext: group.id.uuidString, dictation: dictation)
+                         dictationContext: store.dictationIsSetUp ? group.id.uuidString : nil, recipient: group.name, dictation: dictation)
                 .background(AppColor.chat)
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in

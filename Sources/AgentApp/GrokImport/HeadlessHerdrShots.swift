@@ -83,7 +83,7 @@ import SwiftUI
     }
 
     /// What a server offers in the shots: two agent programs under the server's names, the first with three models.
-    static let offer = HerdrOffer(programs: [HerdrProgram(template: "starter-one", name: "Claude Code", takesModel: true, models: [.init(id: "server-model-a", label: "Server model A"), .init(id: "server-model-b", label: "Server model B"), .init(id: "server-model-c", label: "Server model C")]),
+    static let offer = HerdrOffer(programs: [HerdrProgram(template: "starter-one", name: "Claude", takesModel: true, models: [.init(id: "server-model-a", label: "Server model A"), .init(id: "server-model-b", label: "Server model B"), .init(id: "server-model-c", label: "Server model C")]),
                                              HerdrProgram(template: "starter-two", name: "Codex", takesModel: true, models: [.init(id: "server-model-d", label: "Server model D")])])
 
     /// The wizard's screens as presets: each is a state the window can be in, built without a server.
@@ -142,7 +142,7 @@ import SwiftUI
         write(other[0], await png(pane(SettingsAccountPane(), settings), store, settings))
         let adding = NSSize(width: 570, height: 900)
         write(other[18], await png(pane(HerdrSettingsSection(chosen: "+"), adding), store, adding))
-        write(other[1], await png(AnyView(SettingsSimplePane(openAdvanced: {})), store, HeadlessSetup.settingsSize))
+        write(other[1], await png(AnyView(SettingsSimplePane().background(AppColor.panel)), store, HeadlessSetup.settingsSize))
         let editor = NSSize(width: 560, height: 1_500)
         func advanced(_ bot: Bot) -> AnyView {
             AnyView(BotEditorAdvancedSection(bot: bot, fields: .constant(BotEditorFields(bot: bot))).padding(.horizontal, 32).padding(.vertical, 24)
@@ -159,10 +159,10 @@ import SwiftUI
         write(other[4], await png(AnyView(HerdrBotRequestCard(manager: jarvis).frame(width: card.width, height: card.height).background(AppColor.chat)), store, card))
 
         // Helpers as the server would list them: one working, one answered, one stopped at a prompt. The model is whatever the server said.
-        let helpers = [HerdrClient.Helper(address: "t43", createdMs: 3, name: "tests", model: "server-model-b", difficulty: "medium", task: "Add tests for the CSV importer's quoted fields and make them pass.", state: "live", status: .init(state: "working"), answered: false),
-                       HerdrClient.Helper(address: "t42", createdMs: 2, name: "rename", model: "server-model-a", difficulty: "easy", task: "Rename `fetchAll` to `loadAll` everywhere in Sources/.", state: "live", status: .init(state: "done"), answered: true,
+        let helpers = [HerdrClient.Helper(address: "t43", createdMs: 3, name: "tests", model: "server-model-b", modelLabel: "Server model B", difficulty: "medium", task: "Add tests for the CSV importer's quoted fields and make them pass.", state: "live", status: .init(state: "working"), answered: false),
+                       HerdrClient.Helper(address: "t42", createdMs: 2, name: "rename", model: "server-model-a", modelLabel: "Server model A", difficulty: "easy", task: "Rename `fetchAll` to `loadAll` everywhere in Sources/.", state: "live", status: .init(state: "done"), answered: true,
                                           reply: .init(id: 9, text: "Renamed 14 call sites in 6 files; the build passes.")),
-                       HerdrClient.Helper(address: "t41", createdMs: 1, name: "design", model: "server-model-c", difficulty: "hard", task: "Propose how the importer should report partial failures.", state: "live", status: .init(state: "blocked"), answered: false)]
+                       HerdrClient.Helper(address: "t41", createdMs: 1, name: "design", model: "server-model-c", modelLabel: "Server model C", difficulty: "hard", task: "Propose how the importer should report partial failures.", state: "live", status: .init(state: "blocked"), answered: false)]
         store.herdrHelpers[jarvis.id] = HerdrClient.Helpers(core: "core", parent: .init(address: "t40", createdMs: 0), limit: 3, stopAfterSeconds: 60, helpers: helpers)
         store.bots = [jarvis, Bot(name: "Research", title: "Sources and links", backend: .herdr), infra]
         let sidebar = NSSize(width: SidebarMetrics.width.ideal, height: 460)

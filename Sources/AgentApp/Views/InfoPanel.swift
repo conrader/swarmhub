@@ -29,8 +29,8 @@ struct InfoPanel: View {
         }
     }
 
-    /// Identity (a large avatar with the name under it, and the star a main bot carries), the description, where the
-    /// agent runs and its helpers, then the members.
+    /// Identity (a large avatar with the name under it, and the star a main bot carries), its role, where it runs
+    /// and on what, its helpers, then the groups it is in.
     private var overview: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(spacing: 6) {
@@ -39,35 +39,31 @@ struct InfoPanel: View {
                     Text(bot.name).font(.title2.bold()).multilineTextAlignment(.center)
                     if let main = store.herdrMainBotLabel(bot) { HerdrMainBotStar(label: main, size: 14) }
                 }
-                Text(bot.title).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).font(.callout).foregroundStyle(bot.botDescription.isEmpty ? .tertiary : .secondary)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+                // A role and a description show when the bot has them; "Personal agent" was the placeholder of older versions.
+                if !bot.title.isEmpty, bot.title != Bot.placeholderTitle { Text(bot.title).foregroundStyle(.secondary).multilineTextAlignment(.center) }
+                if !bot.botDescription.isEmpty {
+                    Text(bot.botDescription).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).padding(.top, 2)
+                }
             }.frame(maxWidth: .infinity).padding(.top, 6)
             if bot.backend == .herdr {
                 HerdrOverviewSection(bot: bot)
                 HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
                 HerdrHelpersSection(bot: bot)
             }
-            members
+            groups
         }
     }
 
-    private var members: some View {
+    /// The groups this bot is in, and a way to start one with it. (A one-to-one chat has two members, the person and
+    /// the bot, which needs no list.)
+    private var groups: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Members").font(.headline)
-            HStack(spacing: 8) { member(store.userName, role: "Owner", symbol: "person.fill"); member(bot.name, role: "Agent", symbol: "sparkles") }
             let groups = store.groups.filter { $0.memberIDs.contains(bot.id) }
             if !groups.isEmpty {
-                Text("Groups").font(.headline).padding(.top, 6)
+                Text("Groups").font(.headline)
                 ForEach(groups) { group in Button { store.open(group) } label: { Label(group.name, systemImage: "person.3") }.buttonStyle(.plain) }
             }
             Button("New group with \(bot.name)…") { store.showingNewGroup = true }.disabled(bot.isReadOnlyArchive).padding(.top, 2)
         }
-    }
-    private func member(_ name: String, role: String, symbol: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary).frame(width: 26, height: 26).background(Circle().fill(Color.primary.opacity(0.08))).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 0) { Text(name).font(.system(size: 13, weight: .medium)).lineLimit(1); Text(role).font(.caption).foregroundStyle(.secondary) }
-        }.frame(maxWidth: .infinity, alignment: .leading).appleCard(padding: 8).accessibilityElement(children: .combine)
     }
 }

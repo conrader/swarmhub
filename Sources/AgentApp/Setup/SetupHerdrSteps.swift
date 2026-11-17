@@ -37,13 +37,15 @@ extension HerdrServer.Kind {
     }
 }
 
-/// Step 1: one sentence on what the app is, and where the bots run, as a few large options. This Mac is first and is
-/// selected; a server is reached over SSH (the app opens the connection) or by an address someone already forwarded;
-/// a ready-made server is only announced (`ManagedHosting.isAvailable` is false: nothing can be ordered, sent or
-/// charged). A click selects, Continue (or Return, or a double click) goes on.
+/// Step 1: one sentence on what the app is, and where the bots run, as two large options. This Mac is first and is
+/// selected; a server is reached over SSH (the app opens the connection). The way few people need, an address
+/// someone already forwarded, is folded under "Advanced". A ready-made server is only announced, as a quiet line
+/// under the options (`ManagedHosting.isAvailable` is false: nothing can be ordered, sent or charged). A click
+/// selects, Continue (or Return, or a double click) goes on.
 struct SetupHerdrWelcomeStep: View {
     @Binding var flow: SetupFlow
     let advance: () -> Void
+    @State private var showOther = false
     var body: some View {
         VStack(spacing: 22) {
             HeroHeader(title: WizardCopy.welcomeTitle, detail: WizardCopy.welcomeIntro) { SetupAppMark() }
@@ -51,9 +53,10 @@ struct SetupHerdrWelcomeStep: View {
                 Text(WizardCopy.whereTitle).font(.headline).padding(.bottom, 2).accessibilityAddTraits(.isHeader)
                 place(.local, SetupCopy.herdrLocalTitle, WizardCopy.localDetail)
                 place(.ssh, SetupCopy.herdrSSHTitle, WizardCopy.sshDetail)
-                place(.address, SetupCopy.herdrAddressTitle, WizardCopy.addressDetail)
-                OptionCard(symbol: "shippingbox.fill", colour: AppColor.olive, title: SetupCopy.herdrReadyMadeTitle, detail: SetupCopy.herdrReadyMadeDetail, badge: ManagedHosting.badge, selected: false, select: {})
-                    .disabled(!ManagedHosting.isAvailable).opacity(ManagedHosting.isAvailable ? 1 : 0.55)
+                ReadyMadeServerNote().padding(.top, 2)
+                QuietFold(title: WizardCopy.otherWays, isOpen: Binding(get: { showOther || flow.place == .address }, set: { showOther = $0 })) {
+                    place(.address, SetupCopy.herdrAddressTitle, WizardCopy.addressDetail)
+                }.padding(.top, 6)
             }.frame(maxWidth: AppleMetrics.column + 40)
         }
     }
@@ -61,6 +64,21 @@ struct SetupHerdrWelcomeStep: View {
     private func place(_ kind: HerdrServer.Kind, _ title: String, _ detail: String) -> some View {
         OptionCard(symbol: kind.mark.symbol, colour: kind.mark.colour, title: title, detail: detail, selected: flow.place == kind,
                    select: { flow.place = kind }, open: { flow.place = kind; advance() })
+    }
+}
+
+/// The ready-made server that is not on offer yet: one quiet line with its "Coming soon" badge, clearly not a choice.
+/// It becomes an option again behind `ManagedHosting.isAvailable`.
+struct ReadyMadeServerNote: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "shippingbox").font(.system(size: 13)).foregroundStyle(.tertiary).frame(width: 36).accessibilityHidden(true)
+            Text(SetupCopy.herdrReadyMadeTitle).font(.callout).foregroundStyle(.secondary)
+            Text(ManagedHosting.badge).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(Color.primary.opacity(0.07)))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine).accessibilityLabel("\(SetupCopy.herdrReadyMadeTitle): \(ManagedHosting.badge)").help(ManagedHosting.detail)
     }
 }
 
@@ -135,8 +153,8 @@ struct SetupHerdrStep: View {
     }
 }
 
-/// Step 3: the server's main bot, made the way a contact is: a large avatar, its name typed directly under it, what
-/// it should know, and the agent program and model it starts on as galleries of the server's own names with the
+/// Step 3: the server's main bot, made the way a contact is: a large avatar, its name typed directly under it, and
+/// the AI and model it starts on as galleries of the server's own names with the
 /// server's default selected. A server that already has bots also offers each of them: its main bot stays unless the
 /// person chooses otherwise. A server that was set up before is read first; until then the step waits.
 struct SetupMainBotStep: View {
@@ -153,7 +171,6 @@ struct SetupMainBotStep: View {
                 VStack(alignment: .leading, spacing: 20) {
                     if !flow.herdrBots.isEmpty { who }
                     if flow.keptMainBot == nil {
-                        StandaloneField(title: WizardCopy.instructions, text: $flow.mainBot.instructions, prompt: WizardCopy.instructionsPrompt, lines: 2...4)
                         runsOn(offer)
                         Text(WizardCopy.runsOn(server.name)).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
@@ -260,7 +277,6 @@ struct SetupMoreBotsStep: View {
                                detail: WizardCopy.moreDetail(program.name, model: program.defaultModel.map(HerdrProgram.modelName)), selected: chosen, multiple: true,
                                select: { if chosen { flow.moreBots.remove(program.template) } else { flow.moreBots.insert(program.template) } })
                 }
-                Text(WizardCopy.moreNone).font(.callout).foregroundStyle(.secondary).padding(.top, 4)
             }.frame(maxWidth: AppleMetrics.column)
         }
     }

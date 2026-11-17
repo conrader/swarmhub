@@ -86,7 +86,7 @@ struct HerdrSkillLibrary: Decodable, Sendable, Equatable {
 
     /// Which agent programs get these skills, by skillshare's own names: "Shared with codex (50 skills) and universal (50 skills)."
     var sharedLine: String {
-        guard !targets.isEmpty else { return "Not shared with any agent program yet, so no agent gets these skills." }
+        guard !targets.isEmpty else { return "Not shared with any AI yet, so no bot gets these skills." }
         return "Shared with \(Self.list(targets.map(\.line)))."
     }
 
@@ -171,24 +171,29 @@ extension HerdrClient {
 
 /// What the Skills section says, apart from the server's own sentences.
 enum HerdrSkillsCopy {
-    static let olderWorkspace = "This server's Herdr workspace is older and has no skill library. Update swarmhub-herdr on the server, then read again."
-    static let runningAgents = "An agent that is already running keeps the skills it started with until it starts afresh."
-    static let empty = "The library has no skills yet. Skills are added with skillshare on the server."
-    static let notUpToDate = "The agent programs are not up to date with the library."
-    static func more(_ hidden: Int) -> String { "\(HerdrSkillLibrary.skills(hidden).capitalizedFirst) more are in the library and not listed here." }
+    /// A skill's name as people read it: "Code review" for `code-review`. The name itself stays what the server uses.
+    static func readable(_ name: String) -> String {
+        let words = name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespaces)
+        return words.isEmpty ? name : words.prefix(1).uppercased() + words.dropFirst()
+    }
+    static let olderWorkspace = "This server needs an update before skills can be shown. Update the \(AppConstants.name) service on it (swarmhub-herdr), then try again."
+    static let runningAgents = "A bot picks up a change the next time it starts fresh."
+    static let empty = "No skills yet. They are added on the server, with skillshare."
+    static let notUpToDate = "Your bots do not have the latest skills yet."
+    static func more(_ hidden: Int) -> String { "\(HerdrSkillLibrary.skills(hidden).capitalizedFirst) more are not listed here." }
     static func noMatch(_ query: String) -> String { "No skill matches “\(query.trimmingCharacters(in: .whitespacesAndNewlines))”." }
     static func switched(_ name: String, on: Bool) -> String { "\(name) is \(on ? "on" : "off")." }
-    static func synced(_ line: String) -> String { line.isEmpty ? "The agent programs are up to date." : "The agent programs are up to date: \(line)." }
+    static func synced(_ line: String) -> String { line.isEmpty ? "Your bots are up to date." : "Your bots are up to date: \(line)." }
     /// The switch changed, the sync did not happen: said with the reason, beside Retry.
-    static func notSynced(_ what: String, reason: String) -> String { "\(what) in the library, but the agent programs have not been updated: \(reason)" }
+    static func notSynced(_ what: String, reason: String) -> String { "\(what), but your bots do not have the change yet: \(reason)" }
     static func changedInLibrary(_ names: [String], on: Bool) -> String { "\(HerdrSkillLibrary.list(names)) \(names.count == 1 ? "was" : "were") turned \(on ? "on" : "off")" }
     static func sharedInLibrary(_ agent: String) -> String { "\(agent) was added" }
-    static func shared(_ agent: String) -> String { "The library is now shared with \(agent)." }
+    static func shared(_ agent: String) -> String { "These skills are now shared with \(agent)." }
     static func shareTitle(_ agent: String) -> String { "Share these skills with \(agent)?" }
     static func shareConsequence(_ agent: String, server: String, count: Int) -> String {
         "Every session of \(agent) on \(server) will get the \(HerdrSkillLibrary.skills(count)) that are on, including the sessions you start yourself outside \(AppConstants.name). This cannot be cleanly undone from the app."
     }
-    static let nothingToShare = "skillshare finds no other agent program on this server to share with. A program is offered once its own folder exists there."
+    static let nothingToShare = "There is no other AI on this server to share these skills with."
 
     /// A refusal's own sentence; a server without the routes says it is older.
     static func reason(_ error: Error) -> String {

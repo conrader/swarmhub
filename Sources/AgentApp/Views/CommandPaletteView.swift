@@ -16,7 +16,7 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Jump to an agent or action", text: $query).textFieldStyle(.plain).font(.title3).focused($searchFocused)
+                TextField("Jump to a bot or action", text: $query).textFieldStyle(.plain).font(.title3).focused($searchFocused)
                     .onKeyPress(.downArrow) { model.move(by: 1); return .handled }
                     .onKeyPress(.upArrow) { model.move(by: -1); return .handled }
                     .onSubmit { if let item = model.selection { perform(item) } }

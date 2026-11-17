@@ -45,9 +45,9 @@ struct HerdrMachine: Decodable, Sendable, Equatable, Identifiable {
         switch state {
         case "connected": "Connected"
         case "connecting": "Connecting"
-        case "needs_login": "Login refused"
+        case "needs_login": "Cannot log in"
         case "needs_update": "Needs an update"
-        case "unreachable": "Not reachable"
+        case "unreachable": "Offline"
         default: state.isEmpty ? "Unknown" : state
         }
     }
@@ -253,31 +253,31 @@ enum HerdrProjectNote {
 
 /// The words of the project servers' screens, apart from the workspace's own sentences.
 enum HerdrProjectsCopy {
-    static let olderWorkspace = "This server's Herdr workspace is older and has no project servers. Update swarmhub-herdr on the server, then read again."
-    static let title = "Project servers"
-    static func intro(_ server: String) -> String { "Your projects may live on other servers than \(server). Add such a server here, name the folders on it that matter as projects, and choose for each bot which projects it may use." }
+    static let olderWorkspace = "This server needs an update before project servers can be added. Update the \(AppConstants.name) service on it (swarmhub-herdr), then try again."
+    static let title = "Projects"
+    static func intro(_ server: String) -> String { "Folders on your other servers that your bots may work in." }
     /// Said wherever a project is given to a bot.
-    static let consequence = "A bot that may use a project can run commands and change files in that folder on that server."
-    static func consequence(_ bot: String) -> String { "\(bot) can run commands and change files in the folders of the projects you choose, on the servers they are on." }
-    static let notIsolation = "This is not a wall: every agent runs as the same account on the Herdr server, and that account can log in to every project server."
+    static let consequence = "A bot can run commands and change files in the projects you let it use."
+    static func consequence(_ bot: String) -> String { "\(bot) can run commands and change files in the projects you switch on." }
+    static let notIsolation = "This keeps bots on task; it is not a security wall, because all your bots share one login on these servers."
 
-    static let keyTitle = "1. Give the project server this key"
-    static func keyDetail(_ server: String) -> String { "\(server) logs in to the project server with its own SSH key. Copy this line and paste it on the project server." }
-    static let keyMissing = "The Herdr server has no SSH key pair yet."
-    static let keyCreate = "Make a key pair"
-    static let addressTitle = "2. Say how to reach it"
-    static let addressDetail = "The address as ssh takes it, and a short name to call the server."
+    static let keyTitle = "1. Let it in"
+    static func keyDetail(_ server: String) -> String { "\(server) logs in with its own SSH key. Copy this line and paste it on the server you are adding." }
+    static let keyMissing = "There is no SSH key to log in with yet."
+    static let keyCreate = "Make one"
+    static let addressTitle = "2. Say where it is"
+    static let addressDetail = "Its SSH address, and a short name to call it."
     static let addressLabel = "SSH address"
     static let addressPrompt = "deploy@10.0.0.7"
     static let nameLabel = "Name"
     static let namePrompt = "Optional, such as web-1"
     static let add = "Add server"
     static let adding = "Adding the server…"
-    static let addingDetail = "The Herdr server is logging in. Copying Herdr's helper program there can take a few minutes."
+    static let addingDetail = "Logging in and getting it ready. This can take a few minutes."
     static let trustTitle = "Check this server's fingerprint"
     static let trust = "Trust this server"
     static let dontTrust = "Don't trust it"
-    static let trustNote = "After this the Herdr server refuses this server if it ever shows another key."
+    static let trustNote = "From then on, this server is refused if it ever shows another key."
     static let notAdded = "The server was not added"
     static let done = "Done"
     static let another = "Add another server"
@@ -290,8 +290,8 @@ enum HerdrProjectsCopy {
     }
 
     static let projectsTitle = "Projects"
-    static let projectsDetail = "A project is a folder on a project server, by a name your bots use."
-    static let noProjects = "No projects yet."
+    static let projectsDetail = "A project is a folder on the server, under a name your bots use."
+    static let noProjects = "No projects yet"
     static let noServers = "No project server yet."
     static let projectName = "Name", projectNamePrompt = "shop"
     static let projectFolder = "Folder", projectFolderPrompt = "/srv/shop"
@@ -299,10 +299,10 @@ enum HerdrProjectsCopy {
     static let projectServer = "Server"
     static let addProject = "Add project", newProject = "New project", saveProject = "Save", removeProject = "Remove…"
 
-    static let botTitle = "Projects on other servers"
-    static let botNone = "No project is set up yet. Add a project server and a project in Settings → Advanced → Servers and keys → Projects."
-    static func botChanged(running: Bool) -> String { running ? "Its running agent has the new list and is told with your next message." : "Its next agent starts with this list." }
-    static func botNotApplied(_ reason: String) -> String { "Saved here, but the running agent still has its old list: \(reason)" }
+    static let botTitle = "Projects"
+    static let botNone = "None yet. Add one in Settings → Servers → Projects."
+    static func botChanged(running: Bool) -> String { running ? "Done. It hears about the change with your next message." : "Done. It applies when the bot next starts." }
+    static func botNotApplied(_ reason: String) -> String { "Saved, but the bot is still on its old list until it starts fresh: \(reason)" }
 
     /// A refusal's own sentence; a workspace without the routes says it is older.
     static func reason(_ error: Error) -> String { error.localizedDescription }

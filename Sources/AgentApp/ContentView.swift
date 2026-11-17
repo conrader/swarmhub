@@ -61,6 +61,6 @@ struct ContentView: View {
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
-        .alert("Backend Error", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.modalErrorMessage ?? "") }
+        .alert("Something went wrong", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.modalErrorMessage ?? "") }
     }
 }

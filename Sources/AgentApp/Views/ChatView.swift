@@ -18,12 +18,13 @@ struct ChatView: View {
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
                 if let main = store.herdrMainBotLabel(bot) { HerdrMainBotStar(label: main, size: 11) }
                 // A Herdr bot's model by the server's name for it: the running agent's, else the one its next agent starts on.
-                if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model this bot's agent runs on") }
+                if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model \(bot.name) runs on") }
                 // Whether its agent is running: ready for a message, or still starting. Nothing while it answers.
-                if bot.backend == .herdr, !store.isWorking(bot), let readiness = store.herdrReadiness[bot.id] { HerdrReadinessMark(readiness: readiness) }
+                if bot.backend == .herdr, !store.isWorking(bot), let readiness = store.herdrReadiness[bot.id] { HerdrReadinessMark(readiness: readiness).transition(.opacity).id(readiness.word) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
-            }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header")
+            }.animation(.easeInOut(duration: 0.2), value: store.herdrReadiness[bot.id]?.word)
+            .padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header")
                 // The bot's own colour, as a soft wash behind its name: each chat is recognisably its bot's.
                 .background(LinearGradient(colors: [bot.tint.opacity(0.13), bot.tint.opacity(0.03)], startPoint: .leading, endPoint: .trailing)).background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
@@ -56,9 +57,9 @@ struct ChatView: View {
             }
             if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
-                Text("Read-only archive imported from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
+                Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
-                // The main bot's requests for new bots wait here for Create or Dismiss.
+                // The main bot's suggestions for new bots wait here for Create or Not now.
                 if store.createsHerdrBots(bot) { HerdrBotRequestCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
                 composer.background(AppColor.chat)
             }
@@ -94,8 +95,8 @@ struct ChatView: View {
                      send: send, stop: { store.stop(bot) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.createsHerdrBots(bot) ? [.newBot] : [], manage: { draft = $0.request },
-                     dictationContext: "\(bot.id):chat",
-                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, dictation: dictation)
+                     dictationContext: store.dictationIsSetUp ? "\(bot.id):chat" : nil,
+                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name, dictation: dictation)
     }
     /// Media tab → Attach puts a saved document into this chat's composer.
     private func takePendingAttachment() {

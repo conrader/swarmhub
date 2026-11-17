@@ -13,7 +13,7 @@ enum InspectorCopy {
     static let owner = "Owner"
     static let remove = "Remove"
     static func removeHelp(_ name: String) -> String { "Remove \(name) from the group" }
-    static let addAgent = "Add agent"
+    static let addAgent = "Add bot"
     static let mute = "Mute notifications"
     static let close = "Close"
 
