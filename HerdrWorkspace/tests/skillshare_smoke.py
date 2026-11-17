@@ -538,7 +538,10 @@ def project_library(workspace, scratch):
     workspace.post("/api/skillshare/enable", {"id": "skills:checkout", "project": str(shop)})
     found = workspace.post("/api/skillshare/install/inspect", {"source": f"file://{scratch.root}/remotes/good.git", "project": str(shop)})
     assert [skill["installed"] for skill in found["skills"]] == [False, False], found["skills"]
-    done = workspace.post("/api/skillshare/install", {"ticket": found["ticket"], "skills": ["pdf-tools"]})
+    dropped = workspace.post("/api/skillshare/install/inspect", {"source": f"file://{scratch.root}/remotes/good.git", "project": str(shop)})
+    assert workspace.post("/api/skillshare/install/cancel", {"ticket": dropped["ticket"], "project": str(shop)}) == {"cancelled": True}
+    # The ticket knows its library: an app may name the project again, and it changes nothing.
+    done = workspace.post("/api/skillshare/install", {"ticket": found["ticket"], "skills": ["pdf-tools"], "project": str(shop)})
     assert done["installed"] == ["pdf-tools"] and done["library"]["scope"] == "project", done
     assert (shop / ".skillshare/skills/pdf-tools/SKILL.md").is_file()
     synced = workspace.post("/api/skillshare/sync", {"all": True, "project": str(shop)})

@@ -647,8 +647,11 @@ async fn cancel(body: Bytes) -> Response {
     #[serde(deny_unknown_fields)]
     struct Wanted {
         ticket: String,
+        /// Taken and not read: the ticket knows which library it is for.
+        #[serde(rename = "project")]
+        _project: Option<String>,
     }
-    let Ok(Wanted { ticket }) = serde_json::from_slice(&body) else {
+    let Ok(Wanted { ticket, .. }) = serde_json::from_slice(&body) else {
         return refused(
             StatusCode::UNPROCESSABLE_ENTITY,
             "Send ticket: the ticket of a checked source.",
@@ -743,6 +746,9 @@ async fn install(body: Bytes) -> Response {
         force: bool,
         #[serde(default)]
         replace: bool,
+        /// Taken and not read: the ticket knows which library it is for.
+        #[serde(rename = "project")]
+        _project: Option<String>,
     }
     let Ok(wanted) = serde_json::from_slice::<Wanted>(&body) else {
         return refused(StatusCode::UNPROCESSABLE_ENTITY, INSTALL_SHAPE);
