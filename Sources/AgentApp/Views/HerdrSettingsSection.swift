@@ -88,7 +88,7 @@ struct HerdrSettingsSection: View {
             case .connected(let server, let key, _):
                 store.saveHerdrServer(server, token: key)
                 addResult = "Added \(server.name)."; self.draft = HerdrServerDraft(kind: draft.kind)
-            case .nothingHere(let port): addFailed = true; addResult = SetupCopy.herdrNothingHere(port: port) + " " + SetupCopy.herdrStartHelp + " " + SetupHerdrStep.startCommand
+            case .nothingHere(let port): addFailed = true; addResult = SetupCopy.herdrNothingHere(port: port) + " " + SetupCopy.herdrStartHelp
             case .failed(let line): addFailed = true; addResult = line
             }
             adding = false
@@ -106,6 +106,8 @@ struct HerdrServerSection: View {
     @State private var failed = false
     @State private var confirmRemove = false
     @State private var showKey = false
+    /// The service was removed from this Mac just now: what that did stays on screen.
+    @State private var localRemoval = false
     /// A server reached by address has no key until one is pasted: its field is open.
     private var keyMissing: Bool { server.kind == .address && store.herdrToken(for: server).isEmpty }
 
@@ -136,6 +138,8 @@ struct HerdrServerSection: View {
                         let typed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                         if typed != store.keyStore.key(for: server.keyAccount) { store.setHerdrToken(typed, for: server) }
                     }
+                // What setting this Mac up installed can be taken away again here.
+                if server.kind == .local, store.localService.isPlaced || localRemoval { LocalServiceRemoval(shown: $localRemoval).padding(.top, 8) }
             }
         }
         .onAppear { name = server.name; token = store.keyStore.key(for: server.keyAccount) }
@@ -185,6 +189,43 @@ struct HerdrServerSection: View {
                 let added = try await store.addHerdrStarterBots(on: server)
                 result = added.isEmpty ? "Every AI on this server already has a bot." : "Added \(added.joined(separator: " and ")). Find them in the sidebar."
             } catch { result = error.localizedDescription; failed = true }
+            working = false
+        }
+    }
+}
+
+/// This Mac's own service, with the one thing a person can do to it here: stop it and remove what setting this Mac
+/// up installed. It asks first, and afterwards says what it removed and what it kept, in the service's own sentences.
+struct LocalServiceRemoval: View {
+    @EnvironmentObject private var store: AppStore
+    /// Stays true once something was removed, so the result is not taken off the screen with the program.
+    @Binding var shown: Bool
+    @State private var confirm = false
+    @State private var working = false
+    @State private var removal: HerdrLocalRemoval?
+    @State private var failure: String?
+    /// A render shows a finished removal without running one.
+    var preset: HerdrLocalRemoval? = nil
+
+    var body: some View {
+        SettingBlock(title: SetupCopy.localServiceTitle, detail: SetupCopy.localServiceDetail) {
+            VStack(alignment: .leading, spacing: 10) {
+                if (preset ?? removal) == nil { Button(SetupCopy.localRemove, role: .destructive) { confirm = true }.disabled(working) }
+                if working { StatusCard(kind: .working, title: SetupCopy.localRemoving) }
+                else if let removal = preset ?? removal {
+                    StatusCard(kind: .good, title: SetupCopy.localRemoved, detail: (removal.did + removal.kept.map(SetupCopy.localKept)).joined(separator: "\n"))
+                } else if let failure { StatusCard(kind: .warning, title: failure) }
+            }.frame(maxWidth: AppleMetrics.column, alignment: .leading)
+        }
+        .confirmationDialog(SetupCopy.localRemoveQuestion, isPresented: $confirm) {
+            Button(SetupCopy.localRemoveConfirm, role: .destructive, action: remove)
+        } message: { Text(SetupCopy.localRemoveDetail) }
+    }
+
+    private func remove() {
+        working = true; failure = nil; shown = true
+        Task {
+            do { removal = try await store.removeLocalService() } catch { failure = error.localizedDescription }
             working = false
         }
     }

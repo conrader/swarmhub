@@ -28,6 +28,7 @@ enum WizardCopy {
     static let sshHeader = "Your server"
     static let addressHeader = "Your server"
     static let localIntro = "Checking that this Mac is ready to run your bots."
+    static let localSetupIntro = "Set it up once, and your bots work right here."
     static var sshIntro: String { "\(AppConstants.name) logs in and checks that the server is ready to run your bots." }
     static let addressIntro = "Give its address and access key."
     static let details = "Connection details"
@@ -38,11 +39,45 @@ enum WizardCopy {
     static let copied = "Copied"
     static func canRun(_ names: String, count: Int) -> String { "Your bots can run on \(names)." }
     static func nothingHere(port: Int) -> String { "This Mac is not set up to run bots yet" }
-    static var nothingHelp: String {
-        "Bots need two programs running on the computer they work on: Herdr Core and the \(AppConstants.name) service. \(AppConstants.name) cannot install them for you yet. Start both, then press Try again."
-    }
-    static var nothingCommand: String { "With Herdr Core running and a copy of the \(AppConstants.name) source, this starts the service:" }
     static let nothingElse = "Or go back and choose a server that is already set up."
+
+    // 2 Connect, on a Mac where nothing runs yet: the app sets it up after one clear yes.
+    static var setUpTitle: String { "\(AppConstants.name) installs what your bots need to run here" }
+    static var serviceItem: String { "The \(AppConstants.name) service" }
+    static let serviceDetail = "Runs your bots, also while the app is closed. Starts when you log in. In your home folder, in .local/bin."
+    static let coreItem = "Herdr Core"
+    static let coreDetail = "Keeps each bot’s AI program running. Downloaded from Herdr (herdr.dev) and checked before it is installed."
+    static let coreThere = "Already on this Mac."
+    static let folderItem = "A folder for your bots’ work"
+    static let folderDetail = "swarmhub-agents, in your home folder."
+    static let answersItem = "Answer my AIs’ first questions for me"
+    static var answersDetail: String {
+        "Each AI asks once whether it may work in your bots’ folder and run the commands \(AppConstants.name) gives it to show its steps and save its replies. \(AppConstants.name) answers yes to these two for you. An AI also uses settings files it finds in a folder it trusts. Anything else it asks stays yours to answer."
+    }
+    static let whatWasDone = "What was set up"
+    static let setUpNote = "Your bots use the AI programs already on this Mac. You can remove all of this later in Settings."
+    static let setUp = "Set Up This Mac"
+    static let settingUp = "Setting Up…"
+    static var fetching: String { "Downloading the \(AppConstants.name) service…" }
+    static let fetchingDetail = "It is checked against the release’s signature before it is used."
+    static let installing = "Setting up this Mac…"
+    static let installingDetail = "This takes a moment the first time."
+    static let setUpFailed = "This Mac could not be set up"
+    /// A port another program holds: the fold with the port is where to change it.
+    static func portBusy(_ port: Int) -> String { "Another program on this Mac already uses port \(port). Open Connection details below, choose another port (for example \(port + 1)), and try again." }
+
+    // 2 Connect, once this Mac answers: whether each AI can take a message.
+    static let aiTitle = "Your AIs"
+    static let aiChecking = "Checking…"
+    static let aiReady = "Ready"
+    static let aiAsks = "Has a question for you"
+    static func aiAsksDetail(_ name: String) -> String { "\(name) asks this once, in its own window, and only you can answer. Your bots on \(name) wait until you have." }
+    static let aiAnswer = "Answer in Terminal"
+    static let aiAgain = "Check Again"
+    static let aiFailed = "Could not be started"
+    static func aiMissing(_ name: String) -> String { "\(name) is not on this Mac" }
+    static let noAIsTitle = "No AI program was found on this Mac"
+    static let noAIsDetail = "Your bots need at least one. Install one, sign in to it, then press Try again."
 
     // 3 The main bot
     static let mainTitle = "Your main bot"
@@ -108,8 +143,10 @@ enum WizardCopy {
     /// Static strings plus the functions with sample arguments; checked by the tests.
     static var all: [String] {
         steps + [stepLabel(0), next, welcomeTitle, welcomeIntro, whereTitle, localDetail, sshDetail, addressDetail, otherWays,
-                 localHeader, sshHeader, addressHeader, localIntro, sshIntro, addressIntro, details, connected("This Mac"), canRun("One", count: 1), canRun("One and Two", count: 2),
-                 nothingHere(port: 8787), nothingHelp, nothingCommand, nothingElse, mainTitle, mainIntro, reading("This Mac"), mainChoice, mainNew, mainExisting("Ada", isMain: true),
+                 localHeader, sshHeader, addressHeader, localIntro, localSetupIntro, sshIntro, addressIntro, details, connected("This Mac"), canRun("One", count: 1), canRun("One and Two", count: 2),
+                 nothingHere(port: 8787), nothingElse, setUpTitle, serviceItem, serviceDetail, coreItem, coreDetail, coreThere, folderItem, folderDetail, answersItem, answersDetail, whatWasDone, setUpNote,
+                 setUp, settingUp, fetching, fetchingDetail, installing, installingDetail, setUpFailed, portBusy(8787), aiTitle, aiChecking, aiReady, aiAsks, aiAsksDetail("One"),
+                 aiAnswer, aiAgain, aiFailed, aiMissing("One"), noAIsTitle, noAIsDetail, mainTitle, mainIntro, reading("This Mac"), mainChoice, mainNew, mainExisting("Ada", isMain: true),
                  mainExisting("Ada", isMain: false), name, instructions, instructionsPrompt, avatar, avatarHelp, program, model, defaultModel("One"), runsOn("This Mac"),
                  keeps("Ada", server: "This Mac", isMain: true), keeps("Ada", server: "This Mac", isMain: false), nameMissing, nameTaken("Ada"), programMissing, suggestedName,
                  moreTitle, moreIntro(server: "This Mac", main: "Ada"), moreDetail("One", model: "First"), moreDetail("One", model: nil), create("Ada"), createMain, createBots(2),

@@ -47,6 +47,9 @@ struct SetupFlow: Equatable {
         /// Continue was pressed on Connect or on the main bot.
         case pickHerdr(HerdrServer.Kind), herdrTest(HerdrSetupOutcome, bots: [HerdrSetupBot] = []), advance
         case back
+        /// This Mac is being set up, or no longer (`nil`); what the service on this Mac says about it; and how the
+        /// check of one of its AIs stands.
+        case localSetup(HerdrLocalSetup?), localReport(HerdrLocalReport?), aiCheck(HerdrAICheck)
     }
 
     private(set) var step: Step = .welcome
@@ -59,6 +62,17 @@ struct SetupFlow: Equatable {
     private(set) var herdrTested: HerdrServerDraft?
     /// The bots already on the tested server.
     private(set) var herdrBots: [HerdrSetupBot] = []
+    /// This Mac only. Nothing answers here: getting it ready is offered, under way, or stopped with the reason.
+    private(set) var localSetup: HerdrLocalSetup?
+    /// This Mac only: setting it up also answers, for the person, what an AI asks the first time. On unless they turn it off.
+    var localAnswers = true
+    /// This Mac only: what its service says is installed, and which AI programs it did not find.
+    private(set) var localReport: HerdrLocalReport?
+    /// This Mac only: whether each AI can take a message, or waits for an answer first.
+    private(set) var aiChecks: [HerdrAICheck] = []
+    /// An AI waits for the person's answer in its terminal.
+    var aiNeedsAnswer: Bool { aiChecks.contains { if case .asks = $0.state { true } else { false } } }
+    var aiChecking: Bool { aiChecks.contains { $0.state == .checking } }
     var mainBot = HerdrMainBotDraft()
     /// Templates ticked on "More bots"; none to begin with, so nothing is added unasked.
     var moreBots: Set<String> = []
@@ -140,9 +154,13 @@ struct SetupFlow: Equatable {
         switch action {
         case .pickHerdr(let kind):
             place = kind; herdr = HerdrServerDraft(kind: kind); herdrOutcome = nil; herdrTested = nil
+            localSetup = nil; localReport = nil; aiChecks = []
             go(.herdr)
         case .herdrTest(let outcome, let bots):
             herdrOutcome = outcome; herdrTested = herdr; herdrBots = bots
+            // A new answer from the server starts the checks of its AIs afresh.
+            aiChecks = []
+            if case .nothingHere = outcome {} else { localSetup = nil }
             guard let offer = herdrOffer, !offer.programs.isEmpty else {
                 // A saved server that cannot be used shows its own Connect screen, with the reason.
                 if step == .mainBot || step == .moreBots || step == .projects { history = [.welcome]; step = .herdr }
@@ -158,7 +176,11 @@ struct SetupFlow: Equatable {
             guard canGoBack, let previous = history.popLast() else { return }
             step = previous
             // Back to where bots run undoes Connect's Test.
-            if previous == .welcome { herdrOutcome = nil; herdrTested = nil }
+            if previous == .welcome { herdrOutcome = nil; herdrTested = nil; localSetup = nil; localReport = nil; aiChecks = [] }
+        case .localSetup(let phase): localSetup = phase
+        case .localReport(let report): localReport = report
+        case .aiCheck(let check):
+            if let index = aiChecks.firstIndex(where: { $0.id == check.id }) { aiChecks[index] = check } else { aiChecks.append(check) }
         }
     }
 
