@@ -180,7 +180,9 @@ def main(hc, builds):
         cli("server", "start")
         process = None
         try:
-            cli("run", "--bg", "--name", "agent", "/bin/sleep", "600")
+            # An agent that outlasts the whole check, also on a server whose disk makes it take a quarter of an hour.
+            cli("run", "--bg", "--name", "agent", "/bin/sleep", "3600")
+            began = time.monotonic()
             process = subprocess.Popen([str(program)], env={
                 "HOME": temp, "PATH": "/usr/bin:/bin", "HC_SOCKET": core_env["HC_SOCKET"],
                 "SWARMHUB_ACCESS_TOKEN": token, "SWARMHUB_PORT": str(port), "SWARMHUB_DATA_DIR": str(data),
@@ -319,7 +321,7 @@ def main(hc, builds):
                 assert hashlib.sha256(program.read_bytes()).digest() == hashlib.sha256((builds / "0.2.3").read_bytes()).digest()
                 assert "agent" in cli("ls")
                 os.kill(status["pid"], 15)
-            print("update smoke: ok")
+            print(f"update smoke: ok ({time.monotonic() - began:.0f} s with the agent running)")
         finally:
             if process and process.poll() is None:
                 process.terminate()
