@@ -279,7 +279,7 @@ A helper is an ordinary session: its replies, tool activity, terminal and histor
 
 The Mac app's bots write to each other, plan to come back to something, and record what they promised. The workspace carries all of it, so it goes on with the app closed: a message still reaches the other bot, a check-in still fires, and what happened is waiting when the app returns. The rules are in [How bots communicate and take initiative](../docs/bot-communication.md). This section says how the workspace holds them and what a client does. A client can be built from this section alone.
 
-A workspace that does this says `"api": 2` or more in `bridge` of `GET /api/workspace` ([Versions and updates](#versions-and-updates)).
+Every workspace that says what it is does this: one that carries `bridge` in `GET /api/workspace` ([Versions and updates](#versions-and-updates)) has these routes, from API level 1 on.
 
 The workspace does this only for bots it knows. A client registers its bots ([Register the bots](#register-the-bots)). In a workspace where no bot is registered, nothing here happens: no note is added to any task, no agent is started by the workspace, and the commands below answer with a refusal.
 
@@ -1194,7 +1194,7 @@ There are no automatic approvals or saved permission rules. The agent still enfo
 The server says what it is, and it can replace itself with a newer signed release. `docs/updates.md` in the repository is the guide for people; this is the server's side.
 
 ```sh
-swarmhub-herdr version          # swarmhub-herdr 0.2.0 (workspace API 2, x86_64-linux)
+swarmhub-herdr version          # swarmhub-herdr 0.2.0 (workspace API 1, x86_64-linux)
 swarmhub-herdr version --json
 ```
 

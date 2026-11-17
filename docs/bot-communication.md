@@ -51,7 +51,7 @@ This is the behaviour SwarmHub promises. It is also the test plan: every rule be
 
 ## What is built
 
-The workspace server (`HerdrWorkspace`, from API level 2) holds the rules above for the bots an app registers with it. The Mac app does not use it yet: it still passes messages on itself, so until it registers its bots nothing changes for it.
+The workspace server (`HerdrWorkspace`) holds the rules above for the bots an app registers with it. The Mac app does not use it yet: it still passes messages on itself, so until it registers its bots nothing changes for it.
 
 - **On the server, in code, unit-tested:** the three kinds and their endings with both time limits; a line in both bots' histories for every message and every ending; one owner per piece of work; the three limits; what a stop, the "may message other bots" switch and removing a bot end, and who is told; that a helper cannot message bots; planned check-ins with their two limits, the outcome a one-off always leaves and the silence of a recurring one with nothing to report; promises raised with the bot once and then with you; the notes for the main bot, only for it, at most one per five minutes, and only while "Takes initiative" is on. Messages are typed into the other bot's agent by the server, which starts that agent when it is not running, so all of it works with the app closed.
 - **How:** an agent runs `swarmhub-herdr bot ask|tell|handoff|reply|accept|decline`, `checkin` and `promise` in its shell. The server tells every bot's agent the commands and the two rules of conduct (offer first; ask before deleting, sending out, spending or deploying) in one note with its first task. The contract for an app is in [the workspace's manual](../HerdrWorkspace/README.md#bots-on-the-server).

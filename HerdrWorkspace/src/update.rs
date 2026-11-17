@@ -59,9 +59,9 @@ pub(crate) const VERSION: &str = match option_env!("SWARMHUB_BRIDGE_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 /// The level of the API this server serves. It goes up by one whenever an app would have to know that something
-/// was added or changed. Level 1 is the first server that says what it is and can update itself. Level 2 adds
-/// bots on the server (`bots`): the directory, messages between bots, check-ins, promises and their event stream.
-pub(crate) const API: u32 = 2;
+/// was added or changed. Level 1 is the first published server: it says what it is, can update itself, and holds
+/// the bots an app registers (`bots`).
+pub(crate) const API: u32 = 1;
 /// The oldest app level this server still serves. It goes up only when something an older app relies on is removed.
 pub(crate) const API_MIN: u32 = 1;
 /// The release key (Ed25519, base64): the Mac app's `SUPublicEDKey`. A check build may be given a throwaway one.
