@@ -33,7 +33,57 @@ import SwiftUI
     /// Settings → Software Update: everything current, updates ready, a server restarting into its update, and what
     /// needs a hand (a server from before updates, an update that was undone, a project server whose Herdr is old).
     static let updates = ["herdr-updates-current", "herdr-updates-available", "herdr-updates-working", "herdr-updates-attention"]
-    static let names = wizard + other + skills + projects + statuses + updates
+    /// Connect on this Mac, from nothing to ready: the offer to set it up (with Herdr Core to install, and already
+    /// there), the download, the setup, a port another program holds, the AIs being checked, one AI with a question
+    /// for the person, both ready, no AI program on this Mac; and Settings after the service was removed.
+    static let thisMac = ["herdr-mac-offer", "herdr-mac-offer-core-there", "herdr-mac-fetching", "herdr-mac-installing", "herdr-mac-port-busy", "herdr-mac-ai-checking",
+                          "herdr-mac-ai-asks", "herdr-mac-ai-ready", "herdr-mac-no-ai", "herdr-mac-removed"]
+    static let names = wizard + other + skills + projects + statuses + updates + thisMac
+
+    /// What the service on a Mac says, for the shots: both AI programs found, or neither.
+    static func localReport(found: Bool) -> HerdrLocalReport {
+        let folder = "/Users/you/swarmhub-agents"
+        return HerdrLocalReport(version: "0.8.0", target: "aarch64-macos", canInstall: true, program: "/Users/you/.local/bin/swarmhub-herdr", port: HerdrServer.defaultPort,
+            service: .init(installed: true, loaded: true, answers: true, pid: 4242, label: "service"), core: .init(installed: true, path: "/Users/you/.local/bin/hc", version: "0.1.21", running: true),
+            programs: [.init(id: "one", name: "Claude", installed: found, template: "starter-one", how: "Install Claude Code from claude.com/claude-code, then open Terminal, type claude, and sign in.",
+                             firstTime: "The first time, Claude Code asks whether it may work in your bots’ folder (\(folder)). “Yes, I trust this folder” lets it read, change and run files there."),
+                       .init(id: "two", name: "Codex", installed: found, template: "starter-two", how: "Install Codex from developers.openai.com/codex, then open Terminal, type codex, and sign in.",
+                             firstTime: "The first time, Codex asks you to review three small commands that SwarmHub adds so the app can show Codex’s steps and save its replies. They only report what Codex does. “Trust all and continue” lets Codex run them.")],
+            agentsFolder: folder)
+    }
+
+    /// The states of `thisMac` that are states of the wizard, in its order (all but the last).
+    static func localFlows(thisMac: HerdrServer) -> [SetupFlow] {
+        var local = SetupFlow(); local.apply(.pickHerdr(.local))
+        var nothing = local; nothing.apply(.herdrTest(.nothingHere(port: HerdrServer.defaultPort)))
+        func setup(_ phase: HerdrLocalSetup) -> SetupFlow { var flow = nothing; flow.apply(.localSetup(phase)); return flow }
+        let report = localReport(found: true)
+        var connected = local; connected.apply(.herdrTest(.connected(server: thisMac, key: nil, offer: offer))); connected.apply(.localReport(report))
+        func checks(_ first: HerdrAICheck.State, _ second: HerdrAICheck.State) -> SetupFlow {
+            var flow = connected
+            for (program, state) in zip(offer.programs, [first, second]) {
+                flow.apply(.aiCheck(HerdrAICheck(template: program.template, name: program.name, state: state, note: report.program(template: program.template)?.firstTime)))
+            }
+            return flow
+        }
+        let question = HerdrAICheck.question(from: """
+            ──────────────────────────────────────────────
+             Accessing workspace:
+
+             /Users/you/swarmhub-agents
+
+             Quick safety check: Is this a project you created or one you trust?
+
+             ❯ No, exit
+               Yes, I trust this folder
+
+             Enter to confirm · Esc to cancel
+            """)
+        var none = local; none.apply(.herdrTest(.connected(server: thisMac, key: nil, offer: HerdrOffer()))); none.apply(.localReport(localReport(found: false)))
+        return [setup(.offer(hasCore: false)), setup(.offer(hasCore: true)), setup(.working(.fetching)), setup(.working(.installing)),
+                setup(.failed(WizardCopy.portBusy(HerdrServer.defaultPort))), checks(.checking, .checking),
+                checks(.asks(screen: question, agent: .init(address: "t1", createdMs: 1)), .ready), checks(.ready, .ready), none]
+    }
 
     /// The states of Software Update in the order of `updates`, for a first and a second server. All made up.
     @MainActor static func updateStates(first: String, second: String) -> [(app: SoftwareUpdatePane.AppLine, model: SoftwareUpdateModel)] {
@@ -113,7 +163,7 @@ import SwiftUI
     static func wizardFlows(server: HerdrServer, thisMac: HerdrServer) -> [SetupFlow] {
         var whereSSH = SetupFlow(); whereSSH.place = .ssh
         var local = SetupFlow(); local.apply(.pickHerdr(.local))
-        var nothing = local; nothing.apply(.herdrTest(.nothingHere(port: HerdrServer.defaultPort)))
+        var nothing = local; nothing.apply(.herdrTest(.nothingHere(port: HerdrServer.defaultPort))); nothing.apply(.localSetup(.offer(hasCore: false)))
         var localConnected = local; localConnected.apply(.herdrTest(.connected(server: thisMac, key: nil, offer: offer)))
         var ssh = SetupFlow(); ssh.place = .ssh; ssh.apply(.pickHerdr(.ssh)); ssh.herdr.sshHost = "studio.example.com"; ssh.herdr.sshUser = "deploy"; ssh.herdr.sshKeyPath = "~/.ssh/id_ed25519"
         var refused = ssh; refused.apply(.herdrTest(.failed(HerdrSetupProblem.sshFailed("deploy@studio.example.com: Permission denied (publickey).").line(for: server))))
@@ -142,6 +192,18 @@ import SwiftUI
 
         for (name, flow) in zip(wizard, wizardFlows(server: server, thisMac: store.herdrServers[0])) {
             write(name, await png(AnyView(SetupView(preset: flow, presetTesting: name.hasSuffix("-testing"))), store, HeadlessSetup.size))
+        }
+        // Connect on this Mac, from nothing to ready. A screen with a question on it is taller than the window.
+        for (name, flow) in zip(thisMac, localFlows(thisMac: store.herdrServers[0])) {
+            let tall = name == "herdr-mac-ai-asks" ? NSSize(width: HeadlessSetup.size.width, height: 860) : HeadlessSetup.size
+            write(name, await png(AnyView(SetupView(preset: flow, presetHeight: tall.height)), store, tall))
+        }
+        do {
+            let removed = HerdrLocalRemoval(did: ["Stopped the SwarmHub service.", "Removed the background service, so it no longer starts at login.", "Removed the access key.", "Removed the SwarmHub service program."],
+                                            kept: ["Your conversations, in /Users/you/.local/state/swarmhub-herdr.", "Your bots' files, in /Users/you/swarmhub-agents.", "Herdr Core, which other apps may use."])
+            let size = NSSize(width: 570, height: 420)
+            let view = LocalServiceRemoval(shown: .constant(true), preset: removed).padding(.horizontal, 28).padding(.vertical, 22).frame(width: size.width, height: size.height, alignment: .topLeading).background(AppColor.panel)
+            write(thisMac[9], await png(AnyView(view), store, size))
         }
         // The chat the wizard ends in: the app has asked the new main bot to say hello, and the reply row says that it is starting.
         do {

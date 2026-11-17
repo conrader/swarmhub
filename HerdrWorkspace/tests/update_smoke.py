@@ -33,7 +33,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = f"{os.uname().machine}-{sys.platform.replace('darwin', 'macos')}"
+# As the server names it (`update::target`): Rust says aarch64 where macOS says arm64.
+TARGET = f"{os.uname().machine.replace('arm64', 'aarch64')}-{sys.platform.replace('darwin', 'macos')}"
 VARIANTS = {"0.2.0": None, "0.2.1": None, "0.2.2": "start", "0.2.3": None, "0.2.4": "hang"}
 
 
@@ -43,9 +44,12 @@ def public(key):
 
 
 def build(folder, key):
-    """One server per version, each trusting `key`; rebuilt only when the key file beside them is another."""
+    """One server per version, each trusting `key`; kept between runs until the key file is gone or the source changed."""
     seed = folder / "key"
-    if seed.exists() and all((folder / version).exists() for version in VARIANTS):
+    # Kept builds are used only while no source file is newer than they are: a check must run the code as it is now.
+    sources = max(path.stat().st_mtime for path in [ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*")])
+    kept = all((folder / version).exists() and (folder / version).stat().st_mtime >= sources for version in VARIANTS)
+    if seed.exists() and kept:
         return Ed25519PrivateKey.from_private_bytes(seed.read_bytes())
     folder.mkdir(parents=True, exist_ok=True)
     for version, fault in VARIANTS.items():
@@ -53,7 +57,7 @@ def build(folder, key):
         if fault:
             env["SWARMHUB_BRIDGE_TEST_FAULT"] = fault
         subprocess.run(["cargo", "build", "--offline", "--locked"], cwd=ROOT, env=env, check=True)
-        shutil.copy2(ROOT / "target/debug/swarmhub-herdr", folder / version)
+        shutil.copy(ROOT / "target/debug/swarmhub-herdr", folder / version)
     subprocess.run(["cargo", "build", "--offline", "--locked"], cwd=ROOT, check=True)
     seed.write_bytes(key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                                        serialization.NoEncryption()))
@@ -176,7 +180,9 @@ def main(hc, builds):
         cli("server", "start")
         process = None
         try:
-            cli("run", "--bg", "--name", "agent", "/bin/sleep", "600")
+            # An agent that outlasts the whole check, also on a server whose disk makes it take a quarter of an hour.
+            cli("run", "--bg", "--name", "agent", "/bin/sleep", "3600")
+            began = time.monotonic()
             process = subprocess.Popen([str(program)], env={
                 "HOME": temp, "PATH": "/usr/bin:/bin", "HC_SOCKET": core_env["HC_SOCKET"],
                 "SWARMHUB_ACCESS_TOKEN": token, "SWARMHUB_PORT": str(port), "SWARMHUB_DATA_DIR": str(data),
@@ -187,6 +193,9 @@ def main(hc, builds):
             assert pid == process.pid and started["can_update"] and not started["previous"] and started["last"] is None
             assert started["app"] == {"version": "9.9.9 (99)", "api": 1}, started
             code, workspace = server.call("/api/workspace")
+            # What the server cannot do where it runs: nothing on Linux, an agent's graphical desktop on macOS.
+            lacks = [entry["feature"] for entry in workspace["bridge"].pop("unsupported")]
+            assert lacks == ([] if sys.platform == "linux" else ["agent_desktop"]), lacks
             assert code == 200 and workspace["bridge"] == {
                 "version": "0.2.0", "api": 1, "api_min": 1, "target": TARGET, "updates": True}, workspace
             assert "agent" in cli("ls")
@@ -312,7 +321,7 @@ def main(hc, builds):
                 assert hashlib.sha256(program.read_bytes()).digest() == hashlib.sha256((builds / "0.2.3").read_bytes()).digest()
                 assert "agent" in cli("ls")
                 os.kill(status["pid"], 15)
-            print("update smoke: ok")
+            print(f"update smoke: ok ({time.monotonic() - began:.0f} s with the agent running)")
         finally:
             if process and process.poll() is None:
                 process.terminate()

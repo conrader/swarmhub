@@ -821,7 +821,9 @@ struct KeyQuery {
 
 fn host_name() -> String {
     let name: String = fs::read_to_string("/proc/sys/kernel/hostname")
-        .unwrap_or_default()
+        .ok()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(crate::platform::host_name)
         .trim()
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))

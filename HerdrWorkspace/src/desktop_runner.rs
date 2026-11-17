@@ -64,28 +64,27 @@ fn authorize(path: &Path) -> io::Result<()> {
 }
 
 fn owned_child(command: &mut Command) -> io::Result<Child> {
-    #[cfg(target_os = "linux")]
-    {
-        // A hard stop can bypass Drop. The display children must die with the runner.
-        let parent = std::process::id();
-        // SAFETY: the fork child makes only async-signal-safe system calls before exec.
-        unsafe {
-            command.pre_exec(move || {
-                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                if libc::getppid() as u32 != parent {
-                    libc::_exit(1);
-                }
-                Ok(())
-            });
-        }
+    // A hard stop can bypass Drop. The display children must die with the runner.
+    let parent = std::process::id();
+    // SAFETY: the fork child makes only async-signal-safe system calls before exec.
+    unsafe {
+        command.pre_exec(move || {
+            crate::platform::end_with_parent(libc::SIGKILL)?;
+            if libc::getppid() as u32 != parent {
+                libc::_exit(1);
+            }
+            Ok(())
+        });
     }
     command.spawn()
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     const USAGE: &str = "Usage: swarmhub-herdr run-desktop -- COMMAND [ARG ...]";
+    // The display is Xvfb, which the workspace starts on Linux only. Say so instead of failing to find it.
+    if let Some(why) = crate::platform::DESKTOP {
+        return Err(why.into());
+    }
     let mut args = env::args_os().skip(2);
     if args.next().as_deref() != Some(std::ffi::OsStr::new("--")) {
         return Err(USAGE.into());

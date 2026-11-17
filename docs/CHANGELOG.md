@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.0 (build 34)
+
+The first release on Herdr Core. Bots from earlier versions do not carry over; the app saves a copy of the old data and removes them on first launch.
+
 - Bots run on Herdr Core. A bot is one agent on a Herdr server: an agent program such as Claude Code or Codex in a terminal there, reached through the SwarmHub bridge (`HerdrWorkspace/`, `swarmhub-herdr`). How the parts fit together is in [Architecture](architecture.md).
 - A setup window that ends in the main bot's chat: where bots run (**This Mac**, or **A server** over SSH with the port forward opened by the app; a server by address and access key is under **Advanced**), a connection check that says what is wrong, the main bot, optional bots for the server's other agent programs.
 - Replies show as they are written, with each tool call as a step. The app follows a turn on the bridge's event stream and polls when the stream cannot be used. Codex replies stream too.

@@ -36,7 +36,7 @@ struct Row {
     hidden: bool,
 }
 
-struct AppServer {
+pub(super) struct AppServer {
     process: Child,
     input: Option<ChildStdin>,
     output: ChildStdout,
@@ -51,7 +51,7 @@ fn protocol() -> io::Error {
 }
 
 impl AppServer {
-    fn start(mut command: Command) -> io::Result<Self> {
+    pub(super) fn start(mut command: Command) -> io::Result<Self> {
         let deadline = Instant::now() + TIMEOUT;
         let mut process = command
             .args([
@@ -81,7 +81,7 @@ impl AppServer {
         Ok(server)
     }
 
-    fn send(&mut self, message: Value) -> io::Result<()> {
+    pub(super) fn send(&mut self, message: Value) -> io::Result<()> {
         let mut wire = serde_json::to_vec(&message).map_err(|_| protocol())?;
         wire.push(b'\n');
         let input = self.input.as_mut().ok_or_else(protocol)?;
@@ -126,7 +126,7 @@ impl AppServer {
         }
     }
 
-    fn result<T: DeserializeOwned>(&mut self, id: u64) -> io::Result<T> {
+    pub(super) fn result<T: DeserializeOwned>(&mut self, id: u64) -> io::Result<T> {
         loop {
             let mut frame = self.read()?;
             if frame.get("id").and_then(Value::as_u64) != Some(id) {

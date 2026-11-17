@@ -17,11 +17,13 @@ A bot in the app is one agent on a Herdr server: an agent program such as Claude
 
 ## Get started
 
-### 1. Run Herdr Core and the bridge
+### 1. Decide where your bots work
 
-Bots work on the computer that runs Herdr Core: this Mac or a server. The Mac app does not install or start Herdr Core or the bridge. Follow [Run locally](../HerdrWorkspace/README.md#run-locally) on that computer. `HerdrWorkspace/dev/start-local.sh` starts an installed bridge and keeps its access key in `~/.config/swarmhub-herdr/token`, which is where the app looks for it.
+Bots work on a computer that runs two programs: Herdr Core, which keeps each bot's AI program running, and the SwarmHub service (the bridge), which the app talks to. That computer is this Mac or a server.
 
-Herdr Core needs at least one agent template, for example for Claude Code or Codex. Open each agent program once in the folder the agents start in, because a program that asks whether to trust a new folder gets no task.
+**This Mac.** You install nothing by hand. Choose **This Mac** in the setup window and press **Set Up This Mac**; [This Mac](#this-mac) says what that does. You need at least one AI program on the Mac that you have signed in to, such as Claude Code or Codex.
+
+**A server.** The app does not install anything on a server yet. Follow [Run locally](../HerdrWorkspace/README.md#run-locally) there: `swarmhub-herdr service run` starts an installed service, starts Herdr Core when it is not running, and keeps the access key in `~/.config/swarmhub-herdr/token`, which is where the app looks for it. Herdr Core needs at least one agent template, for example for Claude Code or Codex. An AI program asks a person a question the first time it works in a new folder; `swarmhub-herdr service prepare` on the server answers those for the bots' folder ([what it does](#what-setting-up-this-mac-does), under the switch), or open each program once in that folder and answer yourself.
 
 ### 2. Start the app
 
@@ -31,7 +33,7 @@ Build and run from a checkout on a Mac with Xcode:
 ./scripts/run.sh
 ```
 
-The packaged build on the [releases page](https://github.com/conrader/swarmhub/releases) (0.6.8) is the earlier version of the app, from before it moved to Herdr Core, and does not match this guide. Use it only once a newer release is published.
+The packaged build is on the [releases page](https://github.com/conrader/swarmhub/releases). From 0.8.0 on it is the app this guide describes. Versions up to 0.6.8 are the earlier app, from before it moved to Herdr Core; their bots do not carry over.
 
 ### 3. Connect
 
@@ -45,7 +47,7 @@ The setup window opens while there is no bot. Later, open it from the quick swit
 The screens in this guide are rendered by the app with sample content.
 
 1. **Where.** Choose **This Mac** or **A server**, which the app reaches with your SSH login. **Advanced** holds a third way, **A server by address**, for a server whose port you already forwarded to this Mac. "Get a ready-made server from us" is marked "Coming soon" and cannot be chosen.
-2. **Connect.** This Mac needs nothing typed and is checked as soon as you press **Continue**. For a server, give the server's name and, if needed, a login name and the path of an SSH key file, then press **Connect**; a key with a passphrase must already be unlocked (`ssh-add`). For a server by address, give the address and the access key. **Connection details** holds what few people type: the access key (the app finds it by itself on this Mac and over SSH), the port, and a name for the server. When the check fails, the window says what is wrong and the button reads **Try again**.
+2. **Connect.** This Mac needs nothing typed and is checked as soon as you press **Continue**; when it is not set up yet, the window says what it will install and the button reads **Set Up This Mac** ([This Mac](#this-mac)). For a server, give the server's name and, if needed, a login name and the path of an SSH key file, then press **Connect**; a key with a passphrase must already be unlocked (`ssh-add`). For a server by address, give the address and the access key. **Connection details** holds what few people type: the access key (the app finds it by itself on this Mac and over SSH), the port, and a name for the server. When the check fails, the window says what is wrong and the button reads **Try again**.
 3. **Main bot.** Create the server's main bot: an avatar, a name, an **AI** and a **Model**. Or choose a bot that is already on that server. Instructions are added later, in the bot's settings.
 4. **More bots.** Optionally choose a bot for each other AI the server has.
 5. **Projects.** Optional, and only on a server that can add project servers. If your projects are on another server, add it here and name a first project; see [Projects on other servers](#projects-on-other-servers). To skip it, press the last button.
@@ -73,6 +75,41 @@ You can skip any question or stop whenever you like. The bot is told to do no ot
 When an answer tells the bot something lasting about you, a card above the composer says "Jarvis would like to remember this about you", with **Remember** and **Don’t save**. What you keep goes into **About you**, a short text (up to 800 characters) that every bot is given with its instructions, so no bot has to ask again. Read and edit it under **Settings → General**. Only a main bot suggests additions, and nothing is added without your OK.
 
 A main bot that the setup window did not create (one from before, or one you chose to keep) offers this once, above its composer: "Let Jarvis get to know you", with **Start** and **Not now**. To ask for it later, choose **Get to know me** in the **+** menu of the main bot's composer.
+
+## This Mac
+
+Choose **This Mac** in the setup window and your bots work on the Mac you are sitting at. The first time, the window lists what it will install and waits for **Set Up This Mac**. Nothing is installed before you press it.
+
+### What setting up this Mac does
+
+1. **Fetches the SwarmHub service** for this Mac's processor (Apple silicon or Intel) from the SwarmHub release, and checks it against the release key the app carries before it is used. A download that is not the signed release is thrown away. The program goes to `~/.local/bin/swarmhub-herdr`.
+2. **Installs Herdr Core** when it is not on the Mac yet: from Herdr's own releases, and only a build that Herdr signed with its Apple developer identity. A Herdr Core that is already there is used as it is.
+3. **Makes an access key** for the app (`~/.config/swarmhub-herdr/token`, readable by you only) and a folder for your bots' work, `swarmhub-agents` in your home folder.
+4. **Writes a starter template** for each AI program it finds on the Mac (Claude Code, Codex), in Herdr Core's templates folder (`~/.config/herdr-core/templates/swarmhub-claude.md`, `swarmhub-codex.md`), and a starter list of models. It installs no AI program and signs in to none.
+5. **Starts the service and keeps it running**: a background item of your account (`~/Library/LaunchAgents/com.konrad.agentapp.service.plist`) starts it now, at every login, and again if it stops. macOS shows a "Background Items Added" notice. Your bots keep working while the app is closed.
+
+**Answer my AIs' first questions for me** is a switch in the same window, on unless you turn it off. An AI program asks a person two things the first time, in a window no chat shows, so a bot's first message would wait forever:
+
+- Claude Code asks whether it may work in a new folder. With the switch on, SwarmHub tells Claude Code to trust the bots' folder, and only that folder: one entry in Claude Code's own settings file, `projects["<your home>/swarmhub-agents"].hasTrustDialogAccepted` in `~/.claude.json`, which is the entry Claude Code's documentation names for doing this by hand. Everything else in that file stays exactly as it was, and a copy of the file as it was is kept beside it (`~/.claude.json.before-swarmhub`). In a folder it trusts, Claude Code also uses settings files it finds there.
+- Codex asks to review the three commands SwarmHub gives it to show its steps and save its replies. With the switch on, the service tells Codex at each start that exactly those three commands are trusted. Nothing is written into Codex's settings.
+
+Nothing else is answered for you: an AI's questions about running a command or changing a file stay yours, and no permission or sandbox setting is changed. If a program's settings are not in a form SwarmHub knows, it changes nothing and the setup window shows the question under **Your AIs** with **Answer in Terminal**.
+
+When the Mac is ready the window shows **Your AIs**: each AI is started once with no task (no model is used) to see that it can take a message.
+
+### What you need
+
+- macOS 14 or later, and an internet connection for the setup.
+- At least one AI program that you have opened once in Terminal and signed in to. Without one the window says so and how to get one.
+- Port 8787 free on the Mac, or another port chosen under **Connection details**.
+
+### Updating it
+
+**Settings → Software Update** lists This Mac with your servers: its version, **Update** when a newer service is published, and **Go Back**. An update is checked and tried the same way as on a server, and your bots' AI programs keep running through it ([Updates](updates.md)).
+
+### Removing it
+
+**Settings → Servers → This Mac → Advanced → Stop and Remove…** ends your bots' running AI programs, stops the service, removes the background item, the starter templates it wrote, the access key and the program, and takes back what it told Claude Code and Codex to trust. It keeps your conversations (`~/.local/state/swarmhub-herdr`), your bots' files (`~/swarmhub-agents`) and Herdr Core, which other apps may use. The same from Terminal: `~/.local/bin/swarmhub-herdr service remove`.
 
 ## Everyday use
 
@@ -187,7 +224,10 @@ How this works, what is trusted, and the one-time install by hand on a server wh
 
 ## When something is wrong
 
-- **"This Mac is not set up to run bots yet."** Herdr Core and the bridge are not running. Start both, then press **Try again**.
+- **"SwarmHub installs what your bots need to run here."** Nothing answers on this Mac yet. Read what will be installed and press **Set Up This Mac** ([This Mac](#this-mac)).
+- **"This Mac could not be set up."** The line under it says why: no internet connection, a release that was not signed with the SwarmHub release key (it is not used), or "Another program on this Mac already uses port 8787" (open **Connection details**, choose another port, try again).
+- **"No AI program was found on this Mac."** Install Claude Code or Codex, open it once in Terminal and sign in, then press **Try again**.
+- **An AI "has a question for you".** The AI program is asking something in its own window that SwarmHub did not or could not answer for you. Press **Answer in Terminal**, answer it there, close the window, and press **Check Again**.
 - **The access key is refused.** The key in the app is not the one the bridge runs with. Empty the access key field so the app reads the key again, or paste the current one. The field is under **Connection details** in the setup window and under **Advanced** in **Settings → Servers → Connection**.
 - **The bridge answers without Herdr Core.** Start Herdr Core on that machine.
 - **The server has no AI to start.** Add an agent template to Herdr Core.

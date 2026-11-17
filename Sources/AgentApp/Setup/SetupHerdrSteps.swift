@@ -83,23 +83,24 @@ struct ReadyMadeServerNote: View {
 }
 
 /// Step 2, Connect: the place chosen, what Test said in plain words, and the fields for that place, each on its own.
-/// This Mac needs nothing typed, so all of its fields are folded away. With nothing running here it says so and how
-/// to start it; the app does not include, install or start Herdr itself yet.
+/// This Mac needs nothing typed, so all of its fields are folded away. With nothing running here it offers to set
+/// this Mac up (`SetupLocalOffer`); once it answers, it shows whether each AI can take a message (`SetupAIChecks`).
 struct SetupHerdrStep: View {
     @Binding var flow: SetupFlow
     let testing: Bool
     let test: () -> Void
+    /// This Mac only: opens the window of an AI that waits for an answer, and looks at the AIs again.
+    var answer: (HerdrAICheck) -> Void = { _ in }
+    var checkAgain: () -> Void = {}
     @State private var showDetails = false
+    @State private var showDone = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// The start script of the Herdr workspace checkout; shown verbatim.
-    static let startCommand = "sh HerdrWorkspace/dev/start-local.sh"
 
     private var header: String {
         switch flow.herdr.kind { case .local: WizardCopy.localHeader; case .ssh: WizardCopy.sshHeader; case .address: WizardCopy.addressHeader }
     }
     private var intro: String {
-        switch flow.herdr.kind { case .local: WizardCopy.localIntro; case .ssh: WizardCopy.sshIntro; case .address: WizardCopy.addressIntro }
+        switch flow.herdr.kind { case .local: flow.localSetup == nil ? WizardCopy.localIntro : WizardCopy.localSetupIntro; case .ssh: WizardCopy.sshIntro; case .address: WizardCopy.addressIntro }
     }
     private func fields(_ part: HerdrServerFields.Part) -> HerdrServerFields {
         HerdrServerFields(draft: $flow.herdr, part: part, submit: { if flow.herdr.problem == nil, !testing, !flow.herdrReady { test() } })
@@ -114,6 +115,7 @@ struct SetupHerdrStep: View {
     /// Which of the result's looks is showing, so the change from checking to connected is one short move.
     private var resultKind: Int {
         if testing { return 1 }
+        if let setup = flow.localSetup { return setup.isWorking ? 5 : 2 }
         if flow.herdrNothingHere != nil { return 2 }
         if flow.herdrFailure != nil || flow.herdrNoPrograms { return 3 }
         return flow.herdrReady ? 4 : 0
@@ -135,20 +137,30 @@ struct SetupHerdrStep: View {
     @ViewBuilder private var result: some View {
         if testing {
             StatusCard(kind: .working, title: SetupCopy.testing).transition(.opacity)
+        } else if let setup = flow.localSetup {
+            // This Mac is being set up, or setting it up is offered or has stopped.
+            SetupLocalOffer(setup: setup, answers: $flow.localAnswers).transition(.opacity)
         } else if let port = flow.herdrNothingHere {
-            StatusCard(kind: .warning, title: WizardCopy.nothingHere(port: port), detail: WizardCopy.nothingHelp) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(WizardCopy.nothingCommand).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    CopyBox(text: Self.startCommand, copyLabel: WizardCopy.copy, copiedLabel: WizardCopy.copied)
-                    Text(WizardCopy.nothingElse).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }.padding(.top, 4)
-            }.transition(.opacity)
+            StatusCard(kind: .warning, title: WizardCopy.nothingHere(port: port), detail: WizardCopy.nothingElse).transition(.opacity)
         } else if let failure = flow.herdrFailure {
             StatusCard(kind: .warning, title: WizardCopy.notConnected, detail: failure).transition(.opacity)
         } else if flow.herdrNoPrograms, let server = flow.herdrServer {
-            StatusCard(kind: .warning, title: WizardCopy.notReady, detail: HerdrSetupProblem.noPrograms.line(for: server)).transition(.opacity)
+            // On this Mac the service says which AI programs it looked for, and what to do to get one.
+            if server.kind == .local, let missing = flow.localReport?.missing, !missing.isEmpty {
+                StatusCard(kind: .warning, title: WizardCopy.noAIsTitle, detail: WizardCopy.noAIsDetail).transition(.opacity)
+                SetupAIChecks(checks: [], missing: missing, answer: answer, again: checkAgain)
+            } else {
+                StatusCard(kind: .warning, title: WizardCopy.notReady, detail: HerdrSetupProblem.noPrograms.line(for: server)).transition(.opacity)
+            }
         } else if flow.herdrReady, let server = flow.herdrServer, let offer = flow.herdrOffer {
             StatusCard(kind: .good, title: WizardCopy.connected(server.name), detail: WizardCopy.canRun(offer.names, count: Set(offer.programs.map(\.name)).count)).transition(.opacity)
+            if !flow.aiChecks.isEmpty { SetupAIChecks(checks: flow.aiChecks, answer: answer, again: checkAgain).transition(.opacity) }
+            // What setting this Mac up did, in the service's own sentences, for whoever wants to read it.
+            if let did = flow.localReport?.did, !did.isEmpty {
+                QuietFold(title: WizardCopy.whatWasDone, isOpen: $showDone) {
+                    Text(did.joined(separator: "\n")).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 }

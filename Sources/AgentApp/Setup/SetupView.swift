@@ -36,7 +36,7 @@ struct SetupView: View {
                 Group {
                     switch flow.step {
                     case .welcome: SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace)
-                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr)
+                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, checkAgain: checkAIs)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
                     case .projects: if let model = presetProjects ?? projects { SetupProjectsStep(flow: $flow, model: model) }
@@ -88,7 +88,14 @@ struct SetupView: View {
                 case .welcome:
                     Button(WizardCopy.next, action: pickPlace).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 case .herdr:
-                    if flow.herdrReady, !testing {
+                    if let setup = flow.localSetup, !testing {
+                        // Nothing runs on this Mac yet: the one button sets it up.
+                        Button(setup.isWorking ? WizardCopy.settingUp : WizardCopy.setUp, action: setUpThisMac).buttonStyle(.borderedProminent)
+                            .disabled(setup.isWorking || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
+                    } else if flow.herdrNoPrograms, flow.herdr.kind == .local, flow.localReport != nil, !testing {
+                        // An AI program installed since is found by setting this Mac up again, which changes nothing else.
+                        Button(SetupCopy.testAgain, action: setUpThisMac).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    } else if flow.herdrReady, !testing {
                         Button(WizardCopy.next) { failure = nil; flow.apply(.advance) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                     } else {
                         Button(testing ? SetupCopy.testing : flow.herdrOutcome != nil ? SetupCopy.testAgain : SetupCopy.test, action: testHerdr).buttonStyle(.borderedProminent)
@@ -160,9 +167,55 @@ struct SetupView: View {
             let outcome = await store.testSetupHerdr(draft)
             testing = false
             let current = !closed && flow.step == step && flow.herdr == draft
-            guard case .connected(let server, _, _) = outcome else { if current { flow.apply(.herdrTest(outcome)) }; return }
+            guard case .connected(let server, _, _) = outcome else {
+                guard current else { return }
+                flow.apply(.herdrTest(outcome))
+                // Nothing answers on this Mac: the app offers to set it up, unless that is what just failed.
+                if case .nothingHere = outcome, draft.kind == .local, flow.localSetup == nil { flow.apply(.localSetup(.offer(hasCore: store.localService.hasCore))) }
+                return
+            }
             guard current else { store.abandonSetupHerdr(server); return }
             flow.apply(.herdrTest(outcome, bots: store.setupHerdrBots(on: server)))
+            if server.kind == .local, step == .herdr { await lookAtThisMac(server) }
+        }
+    }
+
+    /// The one button of a Mac where nothing runs yet. It fetches the service, checks it, has it set this Mac up,
+    /// and then connects as it would have.
+    private func setUpThisMac() {
+        guard flow.step == .herdr, flow.herdr.kind == .local, flow.localSetup?.isWorking != true, let server = flow.herdr.server(id: "") else { return }
+        let draft = flow.herdr, answers = flow.localAnswers
+        failure = nil; flow.apply(.localSetup(.working(.installing)))
+        Task {
+            do {
+                let report = try await store.setUpThisMac(port: server.port, answerFirstTime: answers) { step in if !closed, flow.herdr == draft { flow.apply(.localSetup(.working(step))) } }
+                guard !closed, flow.step == .herdr, flow.herdr == draft else { return }
+                flow.apply(.localReport(report)); flow.apply(.localSetup(nil))
+                testHerdr()
+            } catch {
+                guard !closed, flow.step == .herdr, flow.herdr == draft else { return }
+                flow.apply(.localSetup(.failed(HerdrLocalSetup.line(for: error))))
+            }
+        }
+    }
+
+    /// This Mac answers: read what its service says is installed, then find out whether each AI can take a message.
+    private func lookAtThisMac(_ server: HerdrServer) async {
+        if flow.localReport == nil, let report = await store.localReport(port: server.port), !closed, flow.herdrServer == server { flow.apply(.localReport(report)) }
+        checkAIs()
+    }
+
+    /// Starts each AI of this Mac once, with no task, and shows whether it is ready or asks something first.
+    private func checkAIs() {
+        guard flow.step == .herdr, let server = flow.herdrServer, server.kind == .local, let offer = flow.herdrOffer, !flow.aiChecking else { return }
+        let key = flow.herdrKey, report = flow.localReport
+        for program in offer.programs {
+            let note = report?.program(template: program.template)?.firstTime
+            flow.apply(.aiCheck(HerdrAICheck(template: program.template, name: program.name, note: note)))
+            Task {
+                let check = await store.checkAI(program, on: server, key: key, note: note)
+                if !closed, flow.herdrServer == server { flow.apply(.aiCheck(check)) }
+            }
         }
     }
 

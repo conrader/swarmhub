@@ -9,6 +9,7 @@ use std::{env, os::unix::process::CommandExt, process::Command};
 mod models;
 mod prefetch;
 pub(crate) mod stream;
+pub(crate) mod trust;
 pub(crate) use models::Catalog as ModelCatalog;
 
 fn executable() -> Command {
@@ -49,28 +50,11 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     // (a resumed session, a fixed sandbox) starts exactly as the template says.
     let plain = args.is_empty();
     crate::runtimes::ModelAgent::Codex.add_model_arg(&mut args)?;
-    // Codex remembers each of these definitions by its text and asks again when one changes. Keep them as they are.
-    let mut hooks = vec![handler(
-        path,
-        "Stop",
-        "capture-codex-reply",
-        crate::agent::REPLY_HOOK_SECONDS,
-    )];
-    for event in ["PreToolUse", "PostToolUse"] {
-        hooks.push(handler(
-            path,
-            event,
-            "tool-activity",
-            crate::agent::TOOL_HOOK_SECONDS,
-        ));
-    }
-    if approvals {
-        hooks.push(handler(
-            path,
-            "PermissionRequest",
-            "review-codex-permission",
-            55,
-        ));
+    let (mut hooks, commands) = hook_values(path, approvals);
+    // Where the person agreed to it at setup, Codex is told at launch that these hooks, and no others, are
+    // trusted, so it does not stop to ask in a terminal nobody is looking at (`trust`).
+    if let Some(trusted) = trust::flag(&journal, executable(), &hooks, &commands) {
+        hooks.push(trusted);
     }
     let mut cmd = executable();
     cmd.env_remove(crate::runtimes::MODEL_ENV);
@@ -95,8 +79,49 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     Err(cmd.args(args).exec().into())
 }
 
+/// The hooks `run-codex` gives Codex, as `-c` values, and the command of each.
+/// Codex remembers each of these definitions by its text and asks again when one changes. Keep them as they are.
+pub(crate) fn hook_values(path: &str, approvals: bool) -> (Vec<String>, Vec<String>) {
+    let mut wanted = vec![
+        (
+            "Stop",
+            "capture-codex-reply",
+            crate::agent::REPLY_HOOK_SECONDS,
+        ),
+        (
+            "PreToolUse",
+            "tool-activity",
+            crate::agent::TOOL_HOOK_SECONDS,
+        ),
+        (
+            "PostToolUse",
+            "tool-activity",
+            crate::agent::TOOL_HOOK_SECONDS,
+        ),
+    ];
+    if approvals {
+        wanted.push(("PermissionRequest", "review-codex-permission", 55));
+    }
+    let hooks = wanted
+        .iter()
+        .map(|(event, helper, timeout)| handler(path, event, helper, *timeout))
+        .collect();
+    let mut commands: Vec<String> = Vec::new();
+    for (_, helper, _) in wanted {
+        let command = hook_command(path, helper);
+        if !commands.contains(&command) {
+            commands.push(command);
+        }
+    }
+    (hooks, commands)
+}
+
+fn hook_command(path: &str, helper: &str) -> String {
+    format!("{} {helper}", shell_quote(path))
+}
+
 fn handler(path: &str, event: &str, helper: &str, timeout: u32) -> String {
-    let command = json!(format!("{} {helper}", shell_quote(path)));
+    let command = json!(hook_command(path, helper));
     format!("hooks.{event}=[{{hooks=[{{type=\"command\",command={command},timeout={timeout}}}]}}]")
 }
 

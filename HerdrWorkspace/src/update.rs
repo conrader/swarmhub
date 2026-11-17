@@ -88,7 +88,8 @@ pub(crate) fn target() -> String {
 }
 
 pub(crate) fn info() -> Value {
-    json!({"version": VERSION, "api": API, "api_min": API_MIN, "target": target(), "updates": true})
+    json!({"version": VERSION, "api": API, "api_min": API_MIN, "target": target(), "updates": true,
+           "unsupported": crate::platform::unsupported()})
 }
 
 pub(crate) fn routes() -> Router<Workspace> {
@@ -1092,8 +1093,7 @@ pub(crate) fn cli_watch() -> Done {
         .nth(3)
         .and_then(|time| time.parse().ok())
         .ok_or(usage)?;
-    // SAFETY: nothing else runs in this process yet; the call forks, and the half that stays leaves at once.
-    if unsafe { libc::daemon(1, 1) } != 0 {
+    if crate::platform::detach().is_err() {
         return Err("The watcher could not detach.".into());
     }
     // SAFETY: signal 0 only asks whether the process is there.
@@ -1116,17 +1116,37 @@ pub(crate) fn cli_watch() -> Done {
     let Some(mut record) = Record::load().filter(|record| record.state == "trial") else {
         return Ok(());
     };
+    // A server that launchd keeps running is started by launchd, which would start the new program again the
+    // moment it ended. So that one is only held still while the previous program is put back, and then launchd
+    // is asked to end whatever it runs for the job and start the program that is back under the name.
+    let supervisor = crate::service::supervised();
     if alive() {
         // SAFETY: the process is the server this watcher was started for.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
+        unsafe {
+            libc::kill(
+                pid,
+                if supervisor.is_some() {
+                    libc::SIGSTOP
+                } else {
+                    libc::SIGKILL
+                },
+            )
+        };
         for _ in 0..50 {
-            if !alive() {
+            if supervisor.is_some() || !alive() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
     undo(&mut record, why)?;
+    if let Some(label) = supervisor {
+        return if crate::service::restart_job(&label) {
+            Ok(())
+        } else {
+            Err("launchd did not restart the previous version.".into())
+        };
+    }
     let log = |name: &str| {
         fs::OpenOptions::new()
             .create(true)

@@ -9,6 +9,10 @@
 //! So `run-codex` reads those files through while Codex starts. It only reads: the files are opened read-only
 //! and without changing their access time, no lock is taken, and SQLite is not involved. A file that changes
 //! meanwhile is simply read as it is; Codex reads it again itself, from memory.
+//!
+//! That is Linux. macOS cannot read a file without changing its access time, and a Mac's disk does not seek, so
+//! there the files are left alone unless the template asks (`SWARMHUB_CODEX_PREFETCH=on`); the read then counts
+//! as an access like any other.
 
 use std::{
     env,
@@ -19,7 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// `SWARMHUB_CODEX_PREFETCH=off` leaves the files alone.
+/// `SWARMHUB_CODEX_PREFETCH=off` leaves the files alone; `on` reads them where that is not the default (macOS).
 const SWITCH: &str = "SWARMHUB_CODEX_PREFETCH";
 /// A database larger than this is not read through: Codex's saved conversations (`thread_history_1.sqlite`,
 /// 220 MB here) are, and a start reads only a few pages of them.
@@ -78,7 +82,7 @@ fn open(path: &Path) -> Option<File> {
             .open(path)
     };
     // Another user's file cannot be opened without its access time changing. Then it is not opened.
-    read_only(libc::O_NOATIME).ok()
+    read_only(crate::platform::QUIET_READ.unwrap_or(0)).ok()
 }
 
 /// Reads the files through in order. Returns the bytes read.
@@ -102,10 +106,22 @@ fn read_through(folder: &Path, until: Instant) -> u64 {
     read
 }
 
+/// Whether to read at all: unless turned off where the read is quiet, and only when asked where it is not.
+fn wanted(switch: Option<&str>, quiet: bool) -> bool {
+    match switch {
+        Some("off") => false,
+        Some("on") => true,
+        _ => quiet,
+    }
+}
+
 /// Starts reading on a thread of its own. `run-codex` goes on at once, and the thread ends with it when it
 /// becomes Codex, which by then is past these reads.
 pub(super) fn start() {
-    if env::var(SWITCH).as_deref() == Ok("off") {
+    if !wanted(
+        env::var(SWITCH).ok().as_deref(),
+        crate::platform::QUIET_READ.is_some(),
+    ) {
         return;
     }
     let Some(folder) = home() else {
@@ -146,21 +162,25 @@ mod tests {
         let after = fs::metadata(folder.join("state_5.sqlite")).unwrap();
         use std::os::unix::fs::MetadataExt;
         assert_eq!(
-            (
-                before.mtime_nsec(),
-                before.atime(),
-                before.atime_nsec(),
-                before.len()
-            ),
-            (
-                after.mtime_nsec(),
-                after.atime(),
-                after.atime_nsec(),
-                after.len()
-            )
+            (before.mtime_nsec(), before.len()),
+            (after.mtime_nsec(), after.len())
         );
+        // Where a read can be quiet, the access time is as it was.
+        if crate::platform::QUIET_READ.is_some() {
+            assert_eq!(
+                (before.atime(), before.atime_nsec()),
+                (after.atime(), after.atime_nsec())
+            );
+        }
         // Out of time, or nothing there: nothing is read and nothing fails.
         assert_eq!(read_through(folder, Instant::now()), 0);
         assert_eq!(read_through(&folder.join("missing"), far), 0);
+    }
+
+    #[test]
+    fn reads_by_default_only_where_a_read_leaves_no_trace() {
+        assert!(wanted(None, true) && wanted(Some("on"), true) && !wanted(Some("off"), true));
+        assert!(!wanted(None, false) && wanted(Some("on"), false) && !wanted(Some("off"), false));
+        assert!(wanted(Some("anything"), true) && !wanted(Some("anything"), false));
     }
 }
