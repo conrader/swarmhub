@@ -287,6 +287,12 @@ struct HerdrLibrary: Decodable, Sendable, Equatable {
         if targets.isEmpty { return .noTargets }
         return .inSync(things: total, targets: targets.count)
     }
+    /// The server's sentence about a library that is there but may be incomplete; nil when the headline already is that sentence.
+    var note: String? {
+        guard installed, let problem, !problem.isEmpty else { return nil }
+        if case .missing = standing { return nil }
+        return problem
+    }
     /// One press of Sync would do something, and skillshare would let it.
     var canSync: Bool { installed && (syncBlocked ?? "").isEmpty && !targets.isEmpty }
 

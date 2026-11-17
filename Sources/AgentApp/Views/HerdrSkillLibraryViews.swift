@@ -154,6 +154,7 @@ struct HerdrSkillsEntry: View {
     @ViewBuilder private func ready(_ library: HerdrLibrary) -> some View {
         LibraryHero(library: library, work: model.work, behind: model.behind, compact: compact, sync: { Task { await model.sync() } }, reload: { Task { await model.load() } })
         if library.installed {
+            if let note = library.note { StatusCard(kind: .warning, title: note) }
             if !library.unread.isEmpty, library.waitingCount > 0 {
                 StatusCard(kind: .warning, title: "Part of the library could not be read", detail: HerdrLibraryCopy.unread(library.unread))
             }
@@ -252,6 +253,7 @@ struct HerdrLibraryOverview: View {
     @ViewBuilder private func ready(_ library: HerdrLibrary) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             LibraryHero(library: library, work: model.work, behind: model.behind, sync: { Task { await model.sync() } }, reload: { Task { await model.load() } })
+            if let note = library.note { StatusCard(kind: .warning, title: note) }
             if !library.unread.isEmpty, library.waitingCount > 0 || (library.syncBlocked ?? "").isEmpty == false {
                 StatusCard(kind: .warning, title: "Part of the library could not be read", detail: HerdrLibraryCopy.unread(library.unread))
             }

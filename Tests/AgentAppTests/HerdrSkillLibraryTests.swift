@@ -215,7 +215,11 @@ private func thing(_ kind: HerdrLibraryKind, _ name: String, _ state: HerdrLibra
     let blocked = HerdrLibrary(items: [thing(.hooks, "fmt", .waiting)], targets: both, syncBlocked: "A hook conflicts with one claude already has.")
     #expect(blocked.standing == .blocked("A hook conflicts with one claude already has.") && !blocked.canSync && HerdrLibraryCopy.headline(blocked).detail == "A hook conflicts with one claude already has.")
     #expect(HerdrLibrary(items: [thing(.skills, "alpha")]).standing == .noTargets && HerdrLibrary(targets: both).standing == .empty)
-    #expect(HerdrLibrary(installed: false, problem: "skillshare is not installed on this server.").standing == .missing("skillshare is not installed on this server."))
+    let bare = HerdrLibrary(installed: false, problem: "skillshare is not installed on this server.")
+    #expect(bare.standing == .missing("skillshare is not installed on this server.") && bare.note == nil, "the headline already is the server's sentence")
+    // A library that is there but may be incomplete keeps the server's sentence beside what was read.
+    let unsure = HerdrLibrary(problem: "skillshare answered slowly; the list may be incomplete.", items: [thing(.skills, "alpha")], targets: both)
+    #expect(unsure.note == "skillshare answered slowly; the list may be incomplete." && unsure.standing == .inSync(things: 1, targets: 2) && calm.note == nil)
 }
 
 @Test func theLibraryIsGroupedCountedAndSearched() {
