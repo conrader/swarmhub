@@ -1,0 +1,69 @@
+{
+ "targetDefinitions": [
+  {
+   "target": "claude",
+   "label": "Claude Code",
+   "project": true,
+   "operations": [
+    "add",
+    "import",
+    "sync",
+    "check",
+    "update",
+    "remove",
+    "enable",
+    "disable"
+   ]
+  },
+  {
+   "target": "codex",
+   "label": "Codex",
+   "project": false,
+   "operations": [
+    "add",
+    "import",
+    "sync",
+    "check",
+    "update",
+    "remove",
+    "enable",
+    "disable"
+   ]
+  }
+ ],
+ "packages": {
+  "demo": {
+   "version": "1.2.0",
+   "source": "https://github.com/owner/plugin.git",
+   "bindings": {
+    "claude": {
+     "id": "demo@owner",
+     "version": "1.2.0"
+    },
+    "codex": {
+     "id": "demo@owner",
+     "version": "1.1.0",
+     "pending": "install"
+    }
+   }
+  },
+  "kept": {
+   "source": "https://github.com/owner/kept.git",
+   "bindings": {}
+  }
+ },
+ "hosts": [
+  {
+   "target": "claude",
+   "version": "2.1.326 (Claude Code)",
+   "status": "ready",
+   "installed": []
+  },
+  {
+   "target": "codex",
+   "version": "codex-cli 0.169.0",
+   "status": "ready",
+   "installed": []
+  }
+ ]
+}

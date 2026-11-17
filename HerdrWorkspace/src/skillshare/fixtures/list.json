@@ -1,0 +1,31 @@
+[
+  {
+    "name": "group__nested",
+    "kind": "skill",
+    "relPath": "group/nested"
+  },
+  {
+    "name": "alpha",
+    "kind": "skill",
+    "relPath": "alpha"
+  },
+  {
+    "name": "beta",
+    "kind": "skill",
+    "relPath": "beta",
+    "disabled": true
+  },
+  {
+    "name": "pdf-tools",
+    "kind": "skill",
+    "relPath": "pdf-tools",
+    "source": "https://example.com/me/good.git//skills/pdf-tools",
+    "type": "git-https-subdir",
+    "installedAt": "2026-11-17"
+  },
+  {
+    "name": "reviewer",
+    "kind": "agent",
+    "relPath": "reviewer.md"
+  }
+]

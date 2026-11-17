@@ -1,0 +1,12 @@
+{
+  "tracked_repos": [],
+  "skills": [
+    {
+      "name": "pdf-tools",
+      "source": "https://example.com/me/good.git//skills/pdf-tools",
+      "version": "a3acb42",
+      "status": "update_available",
+      "installed_at": "2026-11-17"
+    }
+  ]
+}

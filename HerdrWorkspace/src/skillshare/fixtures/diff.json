@@ -1,0 +1,72 @@
+{
+  "targets": [
+    {
+      "name": "claude",
+      "mode": "merge",
+      "synced": false,
+      "items": [
+        {
+          "action": "add",
+          "name": "alpha",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        },
+        {
+          "action": "add",
+          "name": "group__nested",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        },
+        {
+          "action": "add",
+          "name": "pdf-tools",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        },
+        {
+          "action": "add",
+          "name": "reviewer.md",
+          "kind": "agent",
+          "reason": "not in target",
+          "is_sync": true
+        }
+      ],
+      "include": [],
+      "exclude": []
+    },
+    {
+      "name": "universal",
+      "mode": "merge",
+      "synced": false,
+      "items": [
+        {
+          "action": "add",
+          "name": "alpha",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        },
+        {
+          "action": "add",
+          "name": "group__nested",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        },
+        {
+          "action": "add",
+          "name": "pdf-tools",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        }
+      ],
+      "include": [],
+      "exclude": []
+    }
+  ],
+  "duration": "1ms"
+}

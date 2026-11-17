@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 /// Skills sent in one answer. `skill_count` still counts them all.
 pub(super) const MAX_SKILLS: usize = 500;
 pub(super) const MAX_TARGETS: usize = 64;
-const MAX_NAME: usize = 200;
-const MAX_PATH: usize = 1_024;
+pub(super) const MAX_NAME: usize = 200;
+pub(super) const MAX_PATH: usize = 1_024;
 const MAX_DESCRIPTION: usize = 300;
 /// Characters of skillshare's own words passed on in `output`, `error` or `problem`.
 const MAX_SAID: usize = 2_000;
@@ -49,6 +49,9 @@ pub(super) struct Status {
     pub source: Option<String>,
     pub source_exists: bool,
     pub targets: Vec<Target>,
+    /// The folder the agents are kept in, and the Targets that get agents.
+    pub agents_source: Option<String>,
+    pub agent_targets: Vec<String>,
 }
 
 /// What `skillshare sync --json` did, or with `dry_run` would do.
@@ -75,7 +78,7 @@ pub(super) struct SyncedTarget {
     pub pruned: u64,
 }
 
-fn printable(text: &str, limit: usize) -> bool {
+pub(super) fn printable(text: &str, limit: usize) -> bool {
     !text.is_empty() && text.len() <= limit && !text.chars().any(char::is_control)
 }
 
@@ -129,6 +132,17 @@ pub(super) fn status(json: &str) -> Option<Status> {
         source: Option<Source>,
         #[serde(default)]
         targets: Vec<Listed>,
+        agents: Option<Agents>,
+    }
+    #[derive(Deserialize)]
+    struct Agents {
+        source: Option<String>,
+        #[serde(default)]
+        targets: Vec<Named>,
+    }
+    #[derive(Deserialize)]
+    struct Named {
+        name: String,
     }
     #[derive(Deserialize)]
     struct Source {
@@ -167,11 +181,27 @@ pub(super) fn status(json: &str) -> Option<Status> {
         .collect();
     // skillshare lists Targets in a different order from one run to the next.
     targets.sort_by(|a, b| a.name.cmp(&b.name));
+    let (agents_source, mut agent_targets) = match report.agents {
+        Some(agents) => (
+            agents.source.filter(|path| printable(path, MAX_PATH)),
+            agents
+                .targets
+                .into_iter()
+                .map(|target| target.name)
+                .filter(|name| printable(name, MAX_NAME))
+                .take(MAX_TARGETS)
+                .collect(),
+        ),
+        None => (None, Vec::new()),
+    };
+    agent_targets.sort();
     Some(Status {
         version: report.version.filter(|version| printable(version, 40)),
         source_exists: source.as_ref().is_some_and(|source| source.exists),
         source: source.map(|source| source.path),
         targets,
+        agents_source,
+        agent_targets,
     })
 }
 
@@ -246,7 +276,7 @@ pub(super) fn addable(text: &str) -> Option<Vec<String>> {
     (!names.is_empty()).then_some(names)
 }
 
-fn shortened(text: &str, limit: usize) -> String {
+pub(super) fn shortened(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_owned();
     }
@@ -258,6 +288,11 @@ fn shortened(text: &str, limit: usize) -> String {
 /// What skillshare said, for a person: its two streams without colour codes, its update notice or blank lines,
 /// and no longer than a screen.
 pub(super) fn said(stdout: &str, stderr: &str) -> String {
+    plain(stdout, stderr, MAX_SAID)
+}
+
+/// `said` with room for a longer text, such as a diff.
+pub(super) fn plain(stdout: &str, stderr: &str, limit: usize) -> String {
     let mut plain = String::new();
     for stream in [stdout, stderr] {
         let mut characters = stream.chars();
@@ -284,7 +319,7 @@ pub(super) fn said(stdout: &str, stderr: &str) -> String {
                 && !line.contains("skillshare upgrade")
         })
         .collect();
-    shortened(&lines.join("\n"), MAX_SAID)
+    shortened(&lines.join("\n"), limit)
 }
 
 /// The start of the `description` in the front matter that opens a `SKILL.md`.
@@ -447,6 +482,8 @@ mod tests {
                 },
             ]
         );
+        assert_eq!(status.agents_source, None);
+        assert!(status.agent_targets.is_empty());
         assert_eq!(super::status("{}").unwrap(), Status::default());
         assert!(super::status("✗ config not found: run 'skillshare init' first").is_none());
     }

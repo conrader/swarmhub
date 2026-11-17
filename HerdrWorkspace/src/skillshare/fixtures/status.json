@@ -1,0 +1,73 @@
+{
+  "source": {
+    "path": "/home/me/.config/skillshare/skills",
+    "exists": true,
+    "skillignore": {
+      "active": true,
+      "files": [
+        "/home/me/.config/skillshare/skills/.skillignore"
+      ],
+      "patterns": [
+        "beta"
+      ],
+      "ignored_count": 1,
+      "ignored_skills": [
+        "beta"
+      ]
+    }
+  },
+  "skill_count": 3,
+  "variant_count": 3,
+  "tracked_repos": [],
+  "targets": [
+    {
+      "name": "claude",
+      "path": "/home/me/.claude/skills",
+      "mode": "merge",
+      "status": "has files",
+      "synced_count": 0,
+      "include": [],
+      "exclude": [],
+      "skills_enabled": true
+    },
+    {
+      "name": "universal",
+      "path": "/home/me/.agents/skills",
+      "mode": "merge",
+      "status": "has files",
+      "synced_count": 0,
+      "include": [],
+      "exclude": [],
+      "skills_enabled": true
+    }
+  ],
+  "agents": {
+    "source": "/home/me/.config/skillshare/agents",
+    "exists": true,
+    "count": 1,
+    "targets": [
+      {
+        "name": "claude",
+        "path": "/home/me/.claude/agents",
+        "expected": 1,
+        "linked": 0,
+        "drift": true
+      }
+    ]
+  },
+  "audit": {
+    "profile": "default",
+    "threshold": "CRITICAL",
+    "dedupe": "global",
+    "analyzers": [
+      "static",
+      "dataflow",
+      "structure",
+      "integrity",
+      "tier",
+      "cross-skill",
+      "metadata"
+    ]
+  },
+  "version": "0.30.8"
+}

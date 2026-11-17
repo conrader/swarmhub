@@ -9,7 +9,12 @@
 //! `SWARMHUB_SKILLSHARE` or `PATH`; without it every route says "not installed". A command gets fixed arguments
 //! and no shell, runs off the server's thread with a time limit, and is killed when it passes it. The one piece
 //! of text from a request that reaches a command line, a skill's folder or an agent program's name, is first
-//! found in what skillshare itself just listed (`parse`). Installing skills is not offered.
+//! found in what skillshare itself just listed (`parse`).
+//!
+//! The first six routes are about skills only and are as old as the workspace's API. The rest came with API
+//! level 2: the whole library with its five kinds, previews and switches (`library`), installing from a repository
+//! after an audit, updating and removing (`install`), and the library's Git repository and the state of skillshare
+//! on this server (`source`). `read` turns what skillshare prints for those into what the workspace sends.
 
 use crate::Workspace;
 use axum::{
@@ -34,7 +39,10 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 
+mod library;
+mod mcp;
 mod parse;
+mod read;
 
 const ENV: &str = "SWARMHUB_SKILLSHARE";
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
@@ -48,9 +56,11 @@ const SKILL_FILE_HEAD: u64 = 8 * 1024;
 
 const MISSING: &str = "skillshare is not installed on this server, or the workspace cannot find it. Install it where the workspace's PATH reaches, or set SWARMHUB_SKILLSHARE to the program's path, then restart the workspace.";
 const NOT_SET_UP: &str = "skillshare is installed but not set up on this server yet. Run `skillshare init` there, then load this again.";
-const NAME_SHAPE: &str = "Send name: a skill's name as the skillshare list gives it.";
+const NAME_SHAPE: &str = "Send name: a skill's name as the skillshare list gives it, or id: an item's id as the library gives it.";
 const AGENT_SHAPE: &str = "Send agent: an agent program's name as skillshare lists it under agents that can be added, such as claude.";
-const SYNC_SHAPE: &str = "Send nothing, or dry_run: true to see what a sync would do.";
+const SYNC_SHAPE: &str = "Send nothing, or dry_run: true to see what a sync would do, all: true to sync every kind, and project: a skillshare project's folder.";
+const TOO_OLD: &str = "The skillshare on this server is too old for this. Update it there with `skillshare upgrade`, then try again.";
+const NOT_A_PROJECT: &str = "Send project: the full path of a folder on this server that holds a skillshare project (a .skillshare/config.yaml).";
 
 /// One change at a time: skillshare rewrites its own files and the Targets' folders.
 static CHANGES: Mutex<()> = Mutex::const_new(());
@@ -65,6 +75,70 @@ pub(crate) fn routes() -> Router<Workspace> {
         .route("/api/skillshare/sync", post(sync))
         .route("/api/skillshare/targets", get(targets).post(add_target))
         .route("/api/skillshare/targets/addable", get(addable))
+        .merge(library::routes())
+}
+
+/// Which library a request is about: the server account's global one, or the one of a project folder.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Scope {
+    project: Option<PathBuf>,
+}
+
+impl Scope {
+    /// The global library, or the project in `folder`. A folder must be a full path to a directory that holds a
+    /// skillshare project; anything else is refused in words for the app's user.
+    fn of(folder: Option<&str>) -> Result<Self, String> {
+        let Some(folder) = folder.filter(|folder| !folder.is_empty()) else {
+            return Ok(Self::default());
+        };
+        project_config(folder)
+            .map(|_| Self {
+                project: fs::canonicalize(folder).ok(),
+            })
+            .filter(|scope| scope.project.is_some())
+            .ok_or_else(|| NOT_A_PROJECT.to_owned())
+    }
+
+    /// The flag every skillshare command takes to say which library it is about.
+    fn flag(&self) -> &'static str {
+        if self.project.is_some() { "-p" } else { "-g" }
+    }
+
+    /// Where a command starts: the project's folder, or away from any folder with a project setup of its own.
+    fn folder(&self) -> &Path {
+        self.project.as_deref().unwrap_or(Path::new("/"))
+    }
+
+    fn name(&self) -> &'static str {
+        if self.project.is_some() {
+            "project"
+        } else {
+            "global"
+        }
+    }
+
+    fn project(&self) -> Option<String> {
+        self.project
+            .as_ref()
+            .map(|folder| folder.to_string_lossy().into_owned())
+    }
+
+    /// The key the workspace remembers things about this library under.
+    fn key(&self) -> String {
+        self.project().unwrap_or_default()
+    }
+}
+
+/// The project configuration in `folder`, when `folder` is a full path to a skillshare project.
+fn project_config(folder: &str) -> Option<PathBuf> {
+    let folder = Path::new(folder);
+    if !folder.is_absolute() || folder.as_os_str().len() > 4_096 {
+        return None;
+    }
+    [".skillshare/config.yaml", "skillshare/config.yaml"]
+        .into_iter()
+        .map(|file| folder.join(file))
+        .find(|file| fs::metadata(file).is_ok_and(|file| file.is_file()))
 }
 
 /// The skillshare program this workspace runs, or why there is none, in words for the workspace's owner.
@@ -79,15 +153,21 @@ fn program() -> Result<PathBuf, String> {
             .ok_or_else(|| {
                 format!("{ENV} does not name a program this workspace can run. Set it to skillshare's full path, or unset it to use PATH, then restart the workspace.")
             }),
-        None => env::var_os("PATH")
-            .and_then(|folders| {
-                env::split_paths(&folders)
-                    .filter(|folder| folder.is_absolute())
-                    .map(|folder| folder.join("skillshare"))
-                    .find(|path| runnable(path))
-            })
-            .ok_or_else(|| MISSING.to_owned()),
+        None => found("skillshare").ok_or_else(|| MISSING.to_owned()),
     }
+}
+
+/// A program of this name in one of the workspace's `PATH` folders.
+fn found(name: &str) -> Option<PathBuf> {
+    env::var_os("PATH").and_then(|folders| {
+        env::split_paths(&folders)
+            .filter(|folder| folder.is_absolute())
+            .map(|folder| folder.join(name))
+            .find(|path| {
+                fs::metadata(path)
+                    .is_ok_and(|file| file.is_file() && file.permissions().mode() & 0o111 != 0)
+            })
+    })
 }
 
 /// A skillshare command that ran to its end.
@@ -104,9 +184,14 @@ impl Ran {
 
     /// Why this command's answer cannot be used, in words for the workspace's owner.
     fn failure(&self) -> String {
-        let said = self.said();
+        let said = read::error(&self.out).unwrap_or_else(|| self.said());
         if said.contains("config not found") {
             NOT_SET_UP.into()
+        } else if ["unknown option", "unknown flag", "unknown command"]
+            .iter()
+            .any(|sign| said.contains(sign))
+        {
+            format!("{TOO_OLD} skillshare said: {said}")
         } else if said.is_empty() {
             "skillshare failed without saying why.".into()
         } else {
@@ -168,10 +253,19 @@ fn collect(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<Vec<u8>> {
 }
 
 /// Runs skillshare with exactly `arguments`, no shell and no input, and waits at most `limit` for it.
-fn run_blocking(program: &Path, arguments: &[String], limit: Duration) -> Result<Ran, Trouble> {
-    // The second one: no call home for a newer version on the way.
-    let quiet = [("NO_COLOR", "1"), ("SKILLSHARE_AUTO_UPDATE_CHECK", "false")];
-    run_program(program, arguments, &quiet, limit)
+fn run_blocking(
+    program: &Path,
+    arguments: &[String],
+    limit: Duration,
+    folder: &Path,
+) -> Result<Ran, Trouble> {
+    // The second one: no call home for a newer version on the way. The third: Git never stops to ask.
+    let quiet = [
+        ("NO_COLOR", "1"),
+        ("SKILLSHARE_AUTO_UPDATE_CHECK", "false"),
+        ("GIT_TERMINAL_PROMPT", "0"),
+    ];
+    run_in(program, arguments, &quiet, limit, folder, None)
 }
 
 /// Runs a program the way skillshare is run, for the other server tools the workspace asks (`machines`): exactly
@@ -183,17 +277,46 @@ pub(crate) fn run_program(
     env: &[(&str, &str)],
     limit: Duration,
 ) -> Result<Ran, Trouble> {
-    let mut child = Command::new(program)
+    // Away from any folder with a project setup of its own.
+    run_in(program, arguments, env, limit, Path::new("/"), None)
+}
+
+/// `run_program` started in `folder`. With `largest_file`, the program and what it starts cannot write a file
+/// longer than that many bytes: the system ends them when they try (a download that must stay small).
+fn run_in(
+    program: &Path,
+    arguments: &[String],
+    env: &[(&str, &str)],
+    limit: Duration,
+    folder: &Path,
+    largest_file: Option<u64>,
+) -> Result<Ran, Trouble> {
+    let mut command = Command::new(program);
+    command
         .args(arguments)
-        // Away from any folder with a project setup of its own: these routes are about the user's global one.
-        .current_dir("/")
+        .current_dir(folder)
         .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .map_err(|_| Trouble::Start)?;
+        .process_group(0);
+    if let Some(bytes) = largest_file {
+        let limit = libc::rlimit {
+            rlim_cur: bytes as libc::rlim_t,
+            rlim_max: bytes as libc::rlim_t,
+        };
+        // Between fork and exec only this one system call runs, and it allocates nothing.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) == 0 {
+                    Ok(())
+                } else {
+                    Err(io::Error::last_os_error())
+                }
+            });
+        }
+    }
+    let mut child = command.spawn().map_err(|_| Trouble::Start)?;
     let out = child.stdout.take().map(collect);
     let err = child.stderr.take().map(collect);
     let deadline = Instant::now() + limit;
@@ -234,9 +357,21 @@ pub(crate) fn run_program(
 }
 
 async fn run(program: &Path, arguments: &[&str], limit: Duration) -> Result<Ran, Trouble> {
+    run_at(program, &Scope::default(), arguments, limit).await
+}
+
+/// Runs skillshare for one library: started in the project's folder for a project, and away from any for the
+/// global one. The caller puts `scope.flag()` among the arguments of commands that take it.
+async fn run_at(
+    program: &Path,
+    scope: &Scope,
+    arguments: &[&str],
+    limit: Duration,
+) -> Result<Ran, Trouble> {
     let program = program.to_owned();
+    let folder = scope.folder().to_owned();
     let arguments: Vec<String> = arguments.iter().map(|&argument| argument.into()).collect();
-    tokio::task::spawn_blocking(move || run_blocking(&program, &arguments, limit))
+    tokio::task::spawn_blocking(move || run_blocking(&program, &arguments, limit, &folder))
         .await
         .unwrap_or(Err(Trouble::Start))
 }
@@ -258,7 +393,18 @@ async fn ask<T>(
 
 /// What `skillshare status` reports, and skillshare's version whether or not it could report.
 async fn status(program: &Path) -> (Result<Status, String>, Option<String>) {
-    let ran = match run(program, &["status", "-g", "--json"], READ_TIMEOUT).await {
+    status_at(program, &Scope::default()).await
+}
+
+async fn status_at(program: &Path, scope: &Scope) -> (Result<Status, String>, Option<String>) {
+    let ran = match run_at(
+        program,
+        scope,
+        &["status", scope.flag(), "--json"],
+        READ_TIMEOUT,
+    )
+    .await
+    {
         Ok(ran) => ran,
         Err(trouble) => return (Err(trouble.text()), None),
     };
@@ -295,28 +441,37 @@ async fn offered(program: &Path) -> Result<Vec<String>, String> {
 fn descriptions(source: &Path, paths: &[String]) -> Vec<Option<String>> {
     paths
         .iter()
-        .map(|path| {
-            let inside = Path::new(path);
-            if !source.is_absolute()
-                || !inside
-                    .components()
-                    .all(|part| matches!(part, Component::Normal(_)))
-            {
-                return None;
-            }
-            let file = source.join(inside).join("SKILL.md");
-            if !fs::metadata(&file).is_ok_and(|file| file.is_file()) {
-                return None;
-            }
-            let mut head = Vec::new();
-            fs::File::open(file)
-                .ok()?
-                .take(SKILL_FILE_HEAD)
-                .read_to_end(&mut head)
-                .ok()?;
-            parse::description(&String::from_utf8_lossy(&head))
-        })
+        .map(|path| described(source, path, Some("SKILL.md")))
         .collect()
+}
+
+/// Whether `path` names something inside a folder: plain parts only, nothing that climbs out or starts anew.
+fn inside(path: &str) -> bool {
+    !path.is_empty()
+        && Path::new(path)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+}
+
+/// The description in the front matter of one file under `source`: `path/file`, or `path` itself without `file`.
+fn described(source: &Path, path: &str, file: Option<&str>) -> Option<String> {
+    if !source.is_absolute() || !inside(path) {
+        return None;
+    }
+    let file = match file {
+        Some(file) => source.join(path).join(file),
+        None => source.join(path),
+    };
+    if !fs::metadata(&file).is_ok_and(|file| file.is_file()) {
+        return None;
+    }
+    let mut head = Vec::new();
+    fs::File::open(file)
+        .ok()?
+        .take(SKILL_FILE_HEAD)
+        .read_to_end(&mut head)
+        .ok()?;
+    parse::description(&String::from_utf8_lossy(&head))
 }
 
 /// Everything a settings screen shows about skillshare on this server.
@@ -506,7 +661,8 @@ async fn switch(body: Bytes, on: bool) -> Response {
         name: String,
     }
     let Ok(Named { name }) = serde_json::from_slice(&body) else {
-        return refused(StatusCode::UNPROCESSABLE_ENTITY, NAME_SHAPE);
+        // Not a skill by its name: an item of the library by its id, or neither.
+        return library::switch(&body, on).await;
     };
     let verb = if on { "enable" } else { "disable" };
     alone(async move {
@@ -588,6 +744,8 @@ async fn sync(body: Bytes) -> Response {
     #[serde(deny_unknown_fields, default)]
     struct Wanted {
         dry_run: bool,
+        all: bool,
+        project: Option<String>,
     }
     let wanted = if body.iter().all(u8::is_ascii_whitespace) {
         Wanted::default()
@@ -596,6 +754,12 @@ async fn sync(body: Bytes) -> Response {
     } else {
         return refused(StatusCode::UNPROCESSABLE_ENTITY, SYNC_SHAPE);
     };
+    if wanted.all || wanted.project.is_some() {
+        return match Scope::of(wanted.project.as_deref()) {
+            Ok(scope) => library::sync(scope, wanted.all, wanted.dry_run).await,
+            Err(problem) => refused(StatusCode::UNPROCESSABLE_ENTITY, &problem),
+        };
+    }
     alone(async move {
         let program = match program() {
             Ok(program) => program,
@@ -702,7 +866,12 @@ mod tests {
     use super::*;
 
     fn shell(script: &str, limit: Duration) -> Result<Ran, Trouble> {
-        run_blocking(Path::new("/bin/sh"), &["-c".into(), script.into()], limit)
+        run_blocking(
+            Path::new("/bin/sh"),
+            &["-c".into(), script.into()],
+            limit,
+            Path::new("/"),
+        )
     }
 
     #[test]
@@ -740,7 +909,12 @@ mod tests {
 
     #[test]
     fn a_program_that_is_not_there_does_not_start() {
-        let result = run_blocking(Path::new("/nonexistent/skillshare"), &[], READ_TIMEOUT);
+        let result = run_blocking(
+            Path::new("/nonexistent/skillshare"),
+            &[],
+            READ_TIMEOUT,
+            Path::new("/"),
+        );
         assert!(matches!(result, Err(Trouble::Start)));
     }
 

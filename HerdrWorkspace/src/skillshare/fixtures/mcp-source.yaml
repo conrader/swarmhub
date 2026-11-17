@@ -1,0 +1,23 @@
+mcp:
+  servers:
+    docs:
+      url: https://example.com/mcp
+      headers:
+        X-Team: platform
+      bearerToken:
+        fromEnv: DOCS_TOKEN
+      targets:
+        - claude
+    local:
+      command: company-mcp
+      env:
+        API_KEY:
+          fromEnv: COMPANY_API_KEY
+        LOG_LEVEL: debug
+        REGION:
+          fromEnv: MY_REGION
+      args:
+        - --workspace
+        - /srv/work
+      targets:
+        - claude

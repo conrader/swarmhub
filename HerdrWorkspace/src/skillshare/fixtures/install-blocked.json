@@ -1,0 +1,10 @@
+{
+  "source": "https://example.com/me/bad.git",
+  "tracked": false,
+  "dry_run": false,
+  "skills": [],
+  "skipped": [],
+  "failed": [],
+  "duration": "2.299s",
+  "error": "blocked by security audit (use --force to override)"
+}
