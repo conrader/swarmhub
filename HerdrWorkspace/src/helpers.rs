@@ -93,6 +93,8 @@ pub(crate) enum Action {
     },
     /// `swarmhub-herdr project …` (`projects`): the same road to the workspace, another desk.
     Project(crate::projects::Ask),
+    /// `swarmhub-herdr bot|checkin|promise …` (`bots`).
+    Bot(crate::bots::Ask),
 }
 
 /// The workspace's answer: text for the agent to read, or why nothing was done.
@@ -186,7 +188,7 @@ fn valid_folder(path: &str) -> bool {
         && std::path::Path::new(path).is_dir()
 }
 
-fn explain(failure: Failure) -> String {
+pub(crate) fn explain(failure: Failure) -> String {
     match failure {
         Failure::Unreachable => "Herdr Core is not reachable. Nothing was changed.".into(),
         Failure::Missing => "This agent session is no longer available.".into(),
@@ -342,6 +344,15 @@ async fn perform(
             };
             return Ok((reply, None));
         }
+        Action::Bot(ask) => {
+            let core_id = registered(w, &request.launch).await;
+            let text = crate::bots::answer(w, core_id, &request.launch, ask).await?;
+            let reply = Reply {
+                text,
+                ..Reply::default()
+            };
+            return Ok((reply, None));
+        }
         action => action,
     };
     manage(w, request.launch, action)
@@ -386,7 +397,7 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
             })
     };
     match action {
-        Action::Start { .. } | Action::Project(_) => unreachable!("handled above"),
+        Action::Start { .. } | Action::Project(_) | Action::Bot(_) => unreachable!("handled above"),
         Action::List => Ok(Reply {
             text: list_text(
                 &helpers,

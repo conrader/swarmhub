@@ -4,6 +4,7 @@ mod appearance;
 mod approval_rules;
 mod approvals;
 mod attention;
+mod bots;
 mod codex_agent;
 mod core;
 mod desktop;
@@ -227,6 +228,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("SwarmHub agent access to GitHub is unavailable: {error}");
     }
     helpers::start_serving(workspace.clone());
+    bots::start_serving(workspace.clone());
     warm::start_sweeping(workspace.clone());
     workspace.history.watch_changes();
     let app = Router::new()
@@ -291,6 +293,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .merge(group_routes::routes())
         .merge(group_handoffs::routes())
         .merge(helpers::routes())
+        .merge(bots::routes())
         .merge(machines::routes())
         .merge(projects::routes())
         .merge(events::routes())
@@ -688,6 +691,20 @@ async fn launch(
     State(w): State<Workspace>,
     Json(body): Json<Launch>,
 ) -> Result<impl IntoResponse, ApiError> {
+    Ok((
+        StatusCode::CREATED,
+        Json(launch_agent(w, body, None).await?),
+    ))
+}
+
+/// Starts an agent as `POST /api/agents` asks. `own_instructions` is for a start the workspace decides on
+/// itself (`bots`, for a bot whose agent is not running): those instructions go with the first task, whatever
+/// the profile has saved.
+async fn launch_agent(
+    w: Workspace,
+    body: Launch,
+    own_instructions: Option<String>,
+) -> Result<CreatedLaunch, ApiError> {
     if !body.warm {
         core::validate_task(&body.task)?;
     } else if !body.task.is_empty() {
@@ -788,19 +805,23 @@ async fn launch(
             .ok_or(Failure::Input(projects::LAUNCH_SHAPE))?,
     );
     // No awaits between checking the saved revision and recording the launch.
-    let instructions = if let Some((id, revision)) = body.profile_id.zip(body.instructions_revision)
-    {
+    let instructions = if let Some(own) = own_instructions {
+        own
+    } else if let Some((id, revision)) = body.profile_id.zip(body.instructions_revision) {
         w.history.saved_instructions(id, revision)?.ok_or(ApiError::Conflict(
             "Standing instructions changed. Reopen the launch dialog and review the new version.",
         ))?
     } else {
         first_instructions.to_owned()
     };
+    // The agent of a registered bot reads the workspace's notes for bots with its first task (`bots`).
+    let bot_note = bots::launch_note(&w.history, &body.name)?;
     let hints: Vec<&str> = body
         .collect_results
         .then_some(warm::RESULTS_HINT)
         .into_iter()
         .chain(project_hint.as_deref())
+        .chain(bot_note.as_ref().map(|(_, note)| note.as_str()))
         .collect();
     // A warm agent reads the same words around its first message. Check now that a message still fits.
     let message = warm::first_message(
@@ -835,6 +856,10 @@ async fn launch(
     let (record, key) = started.ok_or(ApiError::Conflict(
         "A session for this profile is already starting.",
     ))?;
+    // The note is left out of a first task that has no room for it; a warm agent gets it with its first task.
+    let noted = bot_note
+        .filter(|(_, note)| body.warm || message.contains(note.as_str()))
+        .map(|(bot, _)| (w.history.clone(), bot, key.clone()));
     if !body.projects.is_empty() && !projects::grant_launch(&w.history, &key, &body.projects)? {
         w.history.finish(
             record,
@@ -969,7 +994,10 @@ async fn launch(
         }
     });
     let result = action.await.map_err(|_| Failure::Uncertain)??;
-    Ok((StatusCode::CREATED, Json(result)))
+    if let Some((history, bot, key)) = noted {
+        let _ = bots::noted(&history, &bot, &key);
+    }
+    Ok(result)
 }
 
 async fn output(
@@ -1412,7 +1440,10 @@ async fn interrupt(
     Path((id, created)): Path<(String, u64)>,
 ) -> Result<impl IntoResponse, Failure> {
     let agent = w.core.agent(&id, created).await?;
-    Ok(Json(json!({"outcome": w.core.interrupt(&agent).await?})))
+    let outcome = w.core.interrupt(&agent).await?;
+    // The person's Stop also ends the exchanges this bot is part of with other bots (`bots`).
+    bots::stopped_agent(&w, &agent);
+    Ok(Json(json!({"outcome": outcome})))
 }
 
 async fn end(
@@ -1420,5 +1451,7 @@ async fn end(
     Path((id, created)): Path<(String, u64)>,
 ) -> Result<impl IntoResponse, Failure> {
     let agent = w.core.agent(&id, created).await?;
-    Ok(Json(w.core.end(&agent).await?))
+    let ended = w.core.end(&agent).await?;
+    bots::stopped_agent(&w, &agent);
+    Ok(Json(ended))
 }

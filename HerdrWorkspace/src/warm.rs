@@ -98,12 +98,33 @@ fn idle_limit_now() -> Option<i64> {
     idle_limit(std::env::var(IDLE).ok().as_deref())
 }
 
+/// A hint that starts like this is a note of several lines (`bots`): it goes after everything else, on lines of
+/// its own, and is left out of a first task that has no room for it.
+pub(crate) const NOTE_LEAD: &str = "[SwarmHub notes";
+
 /// The first task as the agent reads it: the task, with the standing instructions and the workspace's notes.
 pub(crate) fn first_message(
     task: &str,
     instructions: &str,
     hints: &[&str],
 ) -> Result<String, Failure> {
+    let (notes, hints): (Vec<&str>, Vec<&str>) =
+        hints.iter().partition(|hint| hint.starts_with(NOTE_LEAD));
+    let plain = with_hints(task, instructions, &hints)?;
+    if notes.is_empty() {
+        return Ok(plain);
+    }
+    let noted = if instructions.is_empty() {
+        let message = format!("{plain}\n\n{}", notes.join("\n\n"));
+        core::validate_task(&message).map(|()| message)
+    } else {
+        let all: Vec<&str> = hints.iter().chain(&notes).copied().collect();
+        crate::profiles::launch_message(task, &format!("{instructions}\n\n{}", all.join("\n\n")))
+    };
+    Ok(noted.unwrap_or(plain))
+}
+
+fn with_hints(task: &str, instructions: &str, hints: &[&str]) -> Result<String, Failure> {
     if hints.is_empty() {
         return crate::profiles::launch_message(task, instructions);
     }
@@ -587,6 +608,28 @@ mod tests {
             format!("hi | {PROJECTS}")
         );
         assert!(first_message(&"x".repeat(16_380), "", &[PROJECTS]).is_err());
+        // A note for a bot goes last, on its own lines, and is left out when it does not fit.
+        let note =
+            format!("{NOTE_LEAD} for the bot \"Infra\"] Offer first.\n- Ask before deleting.");
+        assert_eq!(
+            first_message("hi", "", &[PROJECTS, &note]).unwrap(),
+            format!("hi | {PROJECTS}\n\n{note}")
+        );
+        assert_eq!(
+            first_message("hi", "", &[&note]).unwrap(),
+            format!("hi\n\n{note}")
+        );
+        let both = first_message("hi", INSTRUCTIONS, &[PROJECTS, &note]).unwrap();
+        assert!(
+            both.contains("Offer first.") && both.contains(PROJECTS) && both.contains(INSTRUCTIONS)
+        );
+        let long = "x".repeat(16_380);
+        assert_eq!(first_message(&long, "", &[&note]).unwrap(), long);
+        let long = "x".repeat(16_200);
+        assert_eq!(
+            first_message(&long, INSTRUCTIONS, &[&note]).unwrap(),
+            first_message(&long, INSTRUCTIONS, &[]).unwrap()
+        );
 
         mark(&history, launch, "tried_ms").unwrap();
         assert!(

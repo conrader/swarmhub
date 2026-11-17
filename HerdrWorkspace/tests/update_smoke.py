@@ -188,10 +188,10 @@ def main(hc, builds):
             assert started["app"] == {"version": "9.9.9 (99)", "api": 1}, started
             code, workspace = server.call("/api/workspace")
             assert code == 200 and workspace["bridge"] == {
-                "version": "0.2.0", "api": 1, "api_min": 1, "target": TARGET, "updates": True}, workspace
+                "version": "0.2.0", "api": 2, "api_min": 1, "target": TARGET, "updates": True}, workspace
             assert "agent" in cli("ls")
             shown = subprocess.run([str(program), "version"], capture_output=True, text=True).stdout
-            assert shown.startswith("swarmhub-herdr 0.2.0 (workspace API 1"), shown
+            assert shown.startswith("swarmhub-herdr 0.2.0 (workspace API 2"), shown
 
             def untouched(version):
                 assert server.version() == version and process.poll() is None

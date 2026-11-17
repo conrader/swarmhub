@@ -1,0 +1,410 @@
+//! The words the workspace types into a bot's agent: the standing note every bot's agent reads once, and what
+//! goes around a message from another bot, an outcome, a check-in, a promise that is due and a note for the main
+//! bot. They are kept short: the standing note costs tokens on every start.
+
+use super::{Bot, Settings};
+
+/// How a message from another bot starts, as the Mac app wrote it, so an agent can tell it from the person.
+pub(crate) const MESSAGE_LEAD: &str = "[Message from the bot";
+pub(crate) const ANSWER_LEAD: &str = "[Answer from the bot";
+pub(crate) const REPORT_LEAD: &str = "[Report from the bot";
+pub(crate) const SERVER_LEAD: &str = "[From SwarmHub]";
+pub(crate) const CHECKIN_LEAD: &str = "[Planned check-in";
+pub(crate) const MAIN_LEAD: &str = "[SwarmHub note for the main bot]";
+pub(crate) const STANDING_LEAD: &str = "[SwarmHub notes for the bot";
+const PASSED_ON: &str = "passed on by SwarmHub]";
+/// What a recurring check-in answers when there is nothing to tell the person.
+pub(crate) const QUIET: &str = "NOTHING TO REPORT";
+
+/// A name on one line, as it is written inside a sentence.
+pub(crate) fn line(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('"', "'")
+}
+
+/// "10 minutes", "90 seconds", "2 hours".
+pub(crate) fn span(seconds: u64) -> String {
+    let (count, unit) = if seconds >= 3_600 && seconds.is_multiple_of(3_600) {
+        (seconds / 3_600, "hour")
+    } else if seconds >= 60 && seconds.is_multiple_of(60) {
+        (seconds / 60, "minute")
+    } else {
+        (seconds, "second")
+    };
+    format!("{count} {unit}{}", if count == 1 { "" } else { "s" })
+}
+
+/// A moment as "17 Nov 14:30" in the settings' time zone.
+pub(crate) fn clock(at_ms: i64, set: &Settings) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(at_ms)
+        .map(|at| {
+            at.with_timezone(&set.zone())
+                .format("%-d %b %H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|| "an unknown time".into())
+}
+
+/// What a bot's agent reads once, with its first task: how to behave towards the person, and the commands.
+pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
+    let mut note = format!(
+        "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n\
+         - Offer first: do not start new work on your own decision. Say what you would do and wait for the person's yes. Finishing and reporting work that was already started is not new work.\n\
+         - Before deleting anything, sending something out (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n",
+        line(&bot.name)
+    );
+    if bot.may_message {
+        let others: Vec<String> = all
+            .iter()
+            .filter(|other| other.id != bot.id && other.takes_messages)
+            .map(|other| format!("\"{}\"", line(&other.name)))
+            .collect();
+        let names = if others.is_empty() {
+            format!("No other bot takes messages right now (`{cmd} bot list` shows them).")
+        } else {
+            format!(
+                "Other bots here now: {} (`{cmd} bot list` shows them).",
+                others.join(", ")
+            )
+        };
+        note.push_str(&format!(
+            "- {names} Write to one from your shell, when its job is needed:\n  \
+             {cmd} bot ask NAME \"TEXT\"      you need an answer; it comes later as a message to you, so do not wait or poll for it\n  \
+             {cmd} bot tell NAME \"TEXT\"     for its information; no answer comes\n  \
+             {cmd} bot handoff NAME \"TEXT\"  it takes the work over and reports back when done\n  \
+             The other bot knows nothing of this conversation: put in everything it needs. The person can read these messages in both chats. A message from another bot says how to answer it.\n"
+        ));
+    } else {
+        note.push_str("- The person turned off messages to other bots for you: do not write to other bots, ask the person instead.\n");
+    }
+    if bot.takes_initiative {
+        note.push_str(&format!(
+            "- To come back to something later, plan a check-in: {cmd} checkin in 30m \"WHAT\" (also: at 17:00, every 2h, every weekday at 9:00). It runs on the server, also with the app closed. `{cmd} checkin list`, `{cmd} checkin cancel ID`.\n"
+        ));
+    }
+    note.push_str(&format!(
+        "- When you tell the person you will do or report something later, record it: {cmd} promise add --by 30m \"WHAT\"; then `{cmd} promise done ID`."
+    ));
+    if bot.main && bot.takes_initiative {
+        note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Tell the person briefly and offer what you could do; do not act on a note without their yes.");
+    }
+    note
+}
+
+fn unseen() -> &'static str {
+    "The person did not write this and can read both chats."
+}
+
+pub(crate) fn ask(cmd: &str, from: &str, id: i64, text: &str, set: &Settings) -> String {
+    let from = line(from);
+    format!(
+        "{MESSAGE_LEAD} {from}, {PASSED_ON} ask #{id}\n{text}\n\
+         ({from} needs an answer. {} Answer with: {cmd} bot reply {id} \"YOUR ANSWER\" (or refuse: {cmd} bot decline {id} \"WHY\"). If you must ask {from} something first, use: {cmd} bot ask \"{from}\" \"QUESTION\". Unanswered, it lapses {} from now.)",
+        unseen(),
+        span(set.ask_seconds)
+    )
+}
+
+pub(crate) fn tell(from: &str, id: i64, text: &str) -> String {
+    let from = line(from);
+    format!(
+        "{MESSAGE_LEAD} {from}, {PASSED_ON} tell #{id}\n{text}\n\
+         (For your information: {from} expects no answer, so do not write back to it. {})",
+        unseen()
+    )
+}
+
+pub(crate) fn handoff(
+    cmd: &str,
+    from: &str,
+    id: i64,
+    text: &str,
+    set: &Settings,
+    from_person: bool,
+) -> String {
+    let from = line(from);
+    let person = if from_person {
+        " This work started with the person: also say the result in your reply here, which they read."
+    } else {
+        ""
+    };
+    format!(
+        "{MESSAGE_LEAD} {from}, {PASSED_ON} hand-off #{id}\n{text}\n\
+         ({from} asks you to take this work over. {} Within {} run: {cmd} bot accept {id} (or: {cmd} bot decline {id} \"WHY\"). Once accepted the work is yours: do it, then report the result to {from} with: {cmd} bot reply {id} \"RESULT\".{person} If you must ask {from} something first, use: {cmd} bot ask \"{from}\" \"QUESTION\".)",
+        unseen(),
+        span(set.handoff_accept_seconds)
+    )
+}
+
+pub(crate) fn answer(from: &str, id: i64, text: &str) -> String {
+    let from = line(from);
+    format!(
+        "{ANSWER_LEAD} {from}, {PASSED_ON} to your ask #{id}\n{text}\n\
+         (This is {from}'s answer to what you asked it. The person did not write it. Go on with the work you asked this for, and tell the person what they need to know.)"
+    )
+}
+
+pub(crate) fn report(from: &str, id: i64, text: &str, from_person: bool) -> String {
+    let from = line(from);
+    let person = if from_person {
+        " This work started with the person: tell them the result."
+    } else {
+        ""
+    };
+    format!(
+        "{REPORT_LEAD} {from}, {PASSED_ON} on your hand-off #{id}\n{text}\n\
+         ({from} took this work over from you and reports its result. The person did not write this.{person})"
+    )
+}
+
+/// `kind` is "ask" or "hand-off".
+pub(crate) fn declined(from: &str, id: i64, kind: &str, reason: &str) -> String {
+    let from = line(from);
+    let yours = if kind == "ask" {
+        ""
+    } else {
+        " The work is still yours."
+    };
+    format!(
+        "{SERVER_LEAD} {from} declined your {kind} #{id}. Its reason: {reason}\n\
+         (Do not send it to {from} again.{yours} Bring it to the person: tell them what you asked and why {from} declined.)"
+    )
+}
+
+pub(crate) fn expired(to: &str, id: i64, kind: &str, seconds: u64, why: Option<&str>) -> String {
+    let to = line(to);
+    let what = match (kind, why) {
+        (_, Some(why)) => format!("Your {kind} #{id} did not reach {to}: {why}"),
+        ("ask", None) => format!(
+            "{to} did not answer your ask #{id} within {}, so it ended unanswered.",
+            span(seconds)
+        ),
+        (_, None) => format!(
+            "{to} did not accept your hand-off #{id} within {}, so it ended. The work is still yours.",
+            span(seconds)
+        ),
+    };
+    format!(
+        "{SERVER_LEAD} {what}\n(Do not send it again by yourself. Tell the person what you asked and that nothing came back.)"
+    )
+}
+
+/// `why`: who or what ended the exchange, as a clause ("was stopped by the person").
+pub(crate) fn stopped(who: &str, id: i64, kind: &str, why: &str) -> String {
+    let who = line(who);
+    format!(
+        "{SERVER_LEAD} {who} {why}, so your {kind} #{id} ended without an answer.\n\
+         (Do not write to {who} about this again. Tell the person where things stand.)"
+    )
+}
+
+/// A block of a reply that could not be passed on.
+pub(crate) fn not_sent(to: &str, why: &str) -> String {
+    format!(
+        "{SERVER_LEAD} Your message to \"{}\" was not sent. {why}",
+        line(to)
+    )
+}
+
+/// `recurring`: how often it fires, in words, for one that recurs.
+pub(crate) fn checkin(
+    cmd: &str,
+    id: i64,
+    what: &str,
+    recurring: Option<&str>,
+    planned_ms: i64,
+    set: &Settings,
+) -> String {
+    let planned = clock(planned_ms, set);
+    match recurring {
+        None => format!(
+            "{CHECKIN_LEAD} #{id}, from SwarmHub] It was planned on {planned} for now: {what}\n\
+             (The person did not write this now. Do it and say the outcome in your reply: the person reads it. This check-in was a one-off.)"
+        ),
+        Some(often) => format!(
+            "{CHECKIN_LEAD} #{id}, from SwarmHub] It was planned on {planned} to recur {often}: {what}\n\
+             (The person did not write this now. If there is something new to tell the person, say it in your reply. If there is nothing new, reply with exactly: {QUIET} — then the person is shown nothing. End it with `{cmd} checkin cancel {id}` when it is no longer needed.)"
+        ),
+    }
+}
+
+pub(crate) fn promise(cmd: &str, id: i64, what: &str, due_ms: i64, set: &Settings) -> String {
+    format!(
+        "{SERVER_LEAD} Your promise #{id} was due at {}: {what}\n\
+         (Do it or report on it now, in your reply, which the person reads; then run: {cmd} promise done {id}. If you cannot keep it, say why. The person is told if it stays open.)",
+        clock(due_ms, set)
+    )
+}
+
+pub(crate) fn main_note(lines: &[String]) -> String {
+    let mut note = format!("{MAIN_LEAD} The person did not write this.\n");
+    for line in lines {
+        note.push_str("- ");
+        note.push_str(line);
+        note.push('\n');
+    }
+    note.push_str("(Tell the person about this in a short message: what happened and what you could do about it. Offer; do not start any work on it without their yes.)");
+    note
+}
+
+/// Whether a reply to a recurring check-in says that there is nothing to tell.
+pub(crate) fn is_quiet(reply: &str) -> bool {
+    let plain: String = reply
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    let quiet = QUIET.to_lowercase();
+    plain == quiet || (plain.starts_with(&quiet) && reply.chars().count() <= 80)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bots::testing;
+
+    #[test]
+    fn the_standing_note_says_how_to_behave_and_only_the_commands_a_bot_may_use() {
+        let (_scratch, history) = testing::journal(&["Jarvis", "Infra", "Shop"]);
+        let all: Vec<Bot> = ["Jarvis", "Infra", "Shop"]
+            .iter()
+            .map(|name| testing::bot(&history, name))
+            .collect();
+        let note = standing(&all[1], &all, "swarmhub-herdr");
+        assert!(note.starts_with("[SwarmHub notes for the bot \"Infra\"]"));
+        for said in [
+            "Offer first",
+            "wait for the person's yes",
+            "Before deleting anything, sending something out",
+            "ask the person and wait for their yes",
+            "\"Jarvis\", \"Shop\"",
+            "swarmhub-herdr bot ask NAME",
+            "swarmhub-herdr bot tell NAME",
+            "swarmhub-herdr bot handoff NAME",
+            "swarmhub-herdr checkin in 30m",
+            "swarmhub-herdr promise add --by 30m",
+        ] {
+            assert!(note.contains(said), "{said}");
+        }
+        assert!(
+            !note.contains("\"Infra\","),
+            "a bot is not told to write to itself"
+        );
+        assert!(!note.contains("You are the main bot"));
+        assert!(note.len() < 2_200, "{} bytes", note.len());
+        assert!(crate::core::validate_task(&note).is_ok());
+        let main = standing(&all[0], &all, "swarmhub-herdr");
+        assert!(main.contains("You are the main bot") && main.contains("do not act on a note"));
+        // The switches take the commands away, not only the permission.
+        let silent = Bot {
+            may_message: false,
+            takes_initiative: false,
+            ..all[0].clone()
+        };
+        let note = standing(&silent, &all, "swarmhub-herdr");
+        assert!(note.contains("do not write to other bots, ask the person instead"));
+        assert!(!note.contains("bot ask") && !note.contains("checkin in"));
+        assert!(!note.contains("You are the main bot"));
+        // A bot that takes no messages is not offered to the others.
+        let closed = Bot {
+            takes_messages: false,
+            ..all[2].clone()
+        };
+        let note = standing(&all[1], &[all[0].clone(), all[1].clone(), closed], "x");
+        assert!(note.contains("\"Jarvis\"") && !note.contains("\"Shop\""));
+    }
+
+    #[test]
+    fn every_message_says_who_sent_it_and_how_to_answer() {
+        let set = Settings::default();
+        let asked = ask("sh", "Jarvis", 12, "Which port?", &set);
+        assert!(asked.starts_with(
+            "[Message from the bot Jarvis, passed on by SwarmHub] ask #12\nWhich port?\n"
+        ));
+        assert!(asked.contains("sh bot reply 12") && asked.contains("sh bot decline 12"));
+        assert!(asked.contains("lapses 10 minutes from now"));
+        let told = tell("Jarvis", 13, "Standup moved.");
+        assert!(told.contains("tell #13") && told.contains("do not write back"));
+        let handed = handoff("sh", "Jarvis", 14, "Ship it.", &set, true);
+        assert!(
+            handed.contains("hand-off #14")
+                && handed.contains("Within 5 minutes run: sh bot accept 14")
+        );
+        assert!(handed.contains("sh bot reply 14") && handed.contains("started with the person"));
+        assert!(
+            !handoff("sh", "Jarvis", 14, "Ship it.", &set, false)
+                .contains("started with the person")
+        );
+        assert!(answer("Infra", 12, "5432").starts_with(
+            "[Answer from the bot Infra, passed on by SwarmHub] to your ask #12\n5432\n"
+        ));
+        assert!(report("Infra", 14, "Done.", true).contains("tell them the result"));
+        assert!(declined("Infra", 14, "hand-off", "Not mine.").contains("Bring it to the person"));
+        assert!(expired("Infra", 12, "ask", 600, None).contains("within 10 minutes"));
+        assert!(expired("Infra", 14, "hand-off", 300, None).contains("The work is still yours"));
+        assert!(
+            expired(
+                "Infra",
+                12,
+                "ask",
+                600,
+                Some("its agent could not be started.")
+            )
+            .contains("did not reach Infra")
+        );
+        assert!(
+            stopped("Infra", 12, "ask", "was stopped by the person")
+                .contains("Do not write to Infra about this again")
+        );
+        assert!(main_note(&["A helper stopped.".into()]).contains("Offer; do not start any work"));
+        for text in [asked, told, handed] {
+            assert!(crate::core::validate_task(&text).is_ok());
+        }
+        assert_eq!(
+            [
+                span(600),
+                span(300),
+                span(90),
+                span(60),
+                span(3_600),
+                span(7_200),
+                span(1)
+            ],
+            [
+                "10 minutes",
+                "5 minutes",
+                "90 seconds",
+                "1 minute",
+                "1 hour",
+                "2 hours",
+                "1 second"
+            ]
+        );
+    }
+
+    #[test]
+    fn only_a_reply_that_says_nothing_else_is_quiet() {
+        for quiet in [
+            "NOTHING TO REPORT",
+            "nothing to report.",
+            "**Nothing to report**",
+            " `NOTHING TO REPORT` \n",
+            "Nothing to report: the flag file is not there yet.",
+        ] {
+            assert!(is_quiet(quiet), "{quiet}");
+        }
+        for loud in [
+            "",
+            "The deploy failed.",
+            "There is nothing to report except that the disk is full.",
+            "Nothing to report on the build, but the deploy failed twice and somebody should look at the logs soon.",
+        ] {
+            assert!(!is_quiet(loud), "{loud}");
+        }
+    }
+}
