@@ -29,6 +29,14 @@ import UserNotifications
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
     /// panel and the chat header show it by name.
     @Published var herdrAgentReadings: [UUID: HerdrAgentReading] = [:]
+    /// Whether each Herdr bot's agent is running, and ready for a message or still starting (`AppStore+HerdrWarm.swift`):
+    /// the chat header says it. `herdrWarming`: the starts ahead of time that are on their way, by bot; a message to
+    /// such a bot waits for its start. `herdrNoWarmStarts`: the servers and agent programs that refused such a start.
+    @Published var herdrReadiness: [UUID: HerdrAgentReadiness] = [:]
+    var herdrWarming: [UUID: Task<Void, Never>] = [:]
+    @Published var herdrNoWarmStarts: Set<String> = []
+    /// Applied to every Herdr client the store makes; tests point it at a scripted server.
+    var herdrClientSetup: (@Sendable (inout HerdrClient) -> Void)?
     /// Each Herdr server's Skills section, by server id (`HerdrSkillsModel`).
     var herdrSkillModels: [String: HerdrSkillsModel] = [:]
     /// One per Herdr server: its project servers and projects (`HerdrProjectsModel`).

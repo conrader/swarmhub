@@ -33,11 +33,22 @@ struct HerdrClient: Sendable {
         var firstMessage: FirstMessage? = nil
         /// Set for a helper: the agent that started it (`HerdrHelpers.swift`). A bot's own agent has none.
         var parent: AgentRef? = nil
+        /// From a bridge that starts agents ahead of their first message (`warm`). `ready` is false only while such an
+        /// agent's program has not reported to Core yet: a message sent then is kept by the bridge and typed when it
+        /// has. `warm` stays true until a task has reached the agent, and until then the bridge ends it at
+        /// `warmEndsMs` for being idle. An older bridge sends none of them.
+        var ready: Bool? = nil, warm: Bool? = nil, warmEndsMs: UInt64? = nil
         var isLive: Bool { state == "live" }
         var ref: AgentRef { AgentRef(address: address, createdMs: createdMs) }
+        /// Running, but its program is not ready for a task yet.
+        var isStarting: Bool { isLive && ready == false }
     }
 
-    struct Workspace: Decodable, Sendable { let core: String?; let version: String?; let agents: [Agent]; let templates: [Template] }
+    struct Workspace: Decodable, Sendable {
+        let core: String?; let version: String?; let agents: [Agent]; let templates: [Template]
+        /// The server's name for the agent program `agent` runs ("Codex"); nil when its template names none.
+        func program(of agent: Agent) -> String? { templates.first { $0.name == agent.template }?.runtime?.harness }
+    }
 
     /// A bot's saved profile on the bridge, with its newest sessions and what each was launched with.
     struct Profile: Decodable, Sendable {
@@ -48,15 +59,23 @@ struct HerdrClient: Sendable {
 
     /// One saved row of a session: `task` (what was sent) or `reply` (what the agent's hook saved).
     /// Other kinds (files, snapshots) carry no text; they decode with an empty one and are skipped.
+    /// `state` on a task says how far it got: "sent", "pending" while the bridge keeps it for an agent that is still
+    /// starting, "not_sent" when it was never typed (`detail` then says why).
     struct Item: Decodable, Sendable, Equatable {
         let id: Int; let kind: String; let text: String
-        enum CodingKeys: CodingKey { case id, kind, text }
-        init(id: Int, kind: String, text: String) { self.id = id; self.kind = kind; self.text = text }
+        var state: String? = nil, detail: String? = nil
+        enum CodingKeys: CodingKey { case id, kind, text, state, detail }
+        init(id: Int, kind: String, text: String, state: String? = nil, detail: String? = nil) { self.id = id; self.kind = kind; self.text = text; self.state = state; self.detail = detail }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = try c.decode(Int.self, forKey: .id); kind = try c.decode(String.self, forKey: .kind)
             text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
+            state = try? c.decodeIfPresent(String.self, forKey: .state); detail = try? c.decodeIfPresent(String.self, forKey: .detail)
         }
+        /// A task that was never typed into the agent.
+        var wasNotSent: Bool { kind == "task" && state == "not_sent" }
+        /// A task the agent has read or will read: one that was never typed into it taught it nothing.
+        var reachedAgent: Bool { kind == "task" && !wasNotSent }
     }
 
     /// A tool call the agent's hooks reported (`tool_activity` in the bridge): `seq` only grows; `detail` is the
@@ -68,10 +87,16 @@ struct HerdrClient: Sendable {
     struct Turn: Sendable, Equatable {
         let core: String; let address: String; let createdMs: UInt64; let after: Int; let launched: Bool
         var afterTool: UInt64 = 0
+        /// The server's name for the agent program that answers, for the status lines; nil when it gives none.
+        var program: String? = nil
+        /// The bridge keeps the message for an agent that is still starting, and types it when the agent is ready.
+        var queued = false
+        /// The agent program is still starting when the turn begins: it was launched for it, or is not ready yet.
+        var starting: Bool { launched || queued }
     }
 
     enum Failure: LocalizedError, Equatable {
-        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt
+        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, notDelivered(String?)
         var errorDescription: String? {
             switch self {
             case .invalidURL: "The Herdr workspace address is invalid. Use http://127.0.0.1:8787 or the port you forwarded."
@@ -81,6 +106,7 @@ struct HerdrClient: Sendable {
             case .noTemplate: "Choose an agent runtime for this bot. Herdr Core has no template the workspace can start."
             case .ended: "The agent's session ended before it replied. Send the message again to start a new one."
             case .silent: "The agent finished without a saved reply. Open the Herdr workspace to see its terminal."
+            case .notDelivered(let why): "The agent did not become ready, so your message was not delivered\(why.map { " (\($0))" } ?? ""). Open the Herdr workspace to see its terminal, then send the message again."
             case .waitingAtPrompt: "The agent started but is showing a prompt, so it has not taken your message. Answer the prompt in the Herdr workspace (Take over), then send the message again."
             }
         }
@@ -150,8 +176,11 @@ struct HerdrClient: Sendable {
 
     /// `projects`: the ids of the projects on other servers the new agent may use (`HerdrProjects.swift`). The bridge
     /// tells the agent about them in its first task itself.
-    func launch(name: String, template: String, task: String, profileID: Int?, modelID: String? = nil, projects: [Int] = []) async throws -> Agent {
-        var body: [String: Any] = ["name": name, "template": template, "task": task]
+    /// `task` nil starts the agent ahead of time (`"warm": true`): its program starts and waits, and its first task
+    /// is the first message sent to it (`deliver`). A bridge that cannot do that refuses the launch.
+    func launch(name: String, template: String, task: String?, profileID: Int?, modelID: String? = nil, projects: [Int] = []) async throws -> Agent {
+        var body: [String: Any] = ["name": name, "template": template]
+        if let task { body["task"] = task } else { body["warm"] = true }
         if let profileID { body["profile_id"] = profileID }
         if let modelID { body["model_id"] = modelID }
         if !projects.isEmpty { body["projects"] = projects }
@@ -179,9 +208,12 @@ struct HerdrClient: Sendable {
         let _: Ended = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/end", [:])
     }
 
-    func message(_ text: String, to agent: Agent) async throws {
-        struct Delivery: Decodable { let status: String? }
-        let _: Delivery = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/messages", ["text": text])
+    /// Types `text` into the agent. True when the bridge kept it instead, for an agent that was started ahead of
+    /// time and is not ready yet: it is saved there, typed as soon as the agent is ready, and never typed twice.
+    @discardableResult func message(_ text: String, to agent: Agent) async throws -> Bool {
+        struct Delivery: Decodable { let status: String?; let queued: Bool? }
+        let delivery: Delivery = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/messages", ["text": text])
+        return delivery.queued == true
     }
 
     func interrupt(_ agent: Agent) async throws {
@@ -196,6 +228,44 @@ struct HerdrClient: Sendable {
     func liveAgent(named name: String, in workspace: Workspace) -> Agent? {
         let live = workspace.agents.filter { $0.isLive && $0.parent == nil }
         return live.first { $0.name == name } ?? live.first { Self.suffix(of: $0.name) == Self.suffix(of: name) }
+    }
+
+    /// What became of a start ahead of time.
+    enum Warmed: Sendable, Equatable {
+        /// The bot's agent was running already (it may still be starting): nothing was started. `program` is the
+        /// server's name for its agent program.
+        case running(Agent, program: String?)
+        case started(Agent, program: String?)
+        /// The server refused to start this agent program ahead of time: it is an older one that wants a first task,
+        /// or the program must be given its first task as it starts.
+        case unavailable
+    }
+
+    /// Starts this bot's agent ahead of time when none is running, exactly as its first message would (the same name,
+    /// template, model and projects), but with no task: the first message then finds it running (`deliver`).
+    /// Never a second agent: a running one is returned as it is.
+    func warm(name: String, template: String?, model: String? = nil, projects: [HerdrBotProject] = []) async throws -> Warmed {
+        let current = try await workspace()
+        guard current.core != nil else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
+        if let agent = liveAgent(named: name, in: current) { return .running(agent, program: current.program(of: agent)) }
+        do {
+            let agent = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), in: current)
+            return .started(agent, program: current.program(of: agent))
+        }
+        // A bridge from before this route knew `warm` refuses the body itself (422), as a newer one refuses a
+        // template that cannot start without its task.
+        catch Failure.http(let code, _) where code == 400 || code == 422 { return .unavailable }
+    }
+
+    /// Ends this bot's agent when it was started ahead of time and nothing has been sent to it yet, so that another
+    /// can start as the bot is set up now (another agent program or model). An agent that has had a task keeps
+    /// running: it holds a conversation. Returns whether one was ended.
+    func endUnused(name: String) async throws -> Bool {
+        let current = try await workspace()
+        guard let core = current.core, let agent = liveAgent(named: name, in: current), agent.warm == true else { return false }
+        guard try await history(core: core, address: agent.address, createdMs: agent.createdMs).allSatisfy({ $0.kind != "task" }) else { return false }
+        try await end(agent)
+        return true
     }
 
     /// The bridge takes up to 16 KB of plain text per task: the message and the bot's own instructions each get
@@ -235,13 +305,19 @@ struct HerdrClient: Sendable {
     /// given the list first when it changed since the agent last got it (`resync`, and `synced` hears that it went
     /// through), and is told the list as it is now in front of the message, once per change (`notes`' `revised`); a
     /// list that could not be set is not announced.
+    /// An agent that was started ahead of time (`warm`) and is still starting gets the message all the same: the bridge
+    /// keeps it and types it once the agent is ready (`Turn.queued`). `status` hears that the agent program is
+    /// starting, as it does before a launch.
     func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil,
                  once: [(marker: String, note: String)] = [], changing: [(lead: String, note: String)] = [],
-                 projects: [HerdrBotProject] = [], resync: Bool = false, synced: @Sendable () -> Void = {}) async throws -> Turn {
+                 projects: [HerdrBotProject] = [], resync: Bool = false, synced: @Sendable () -> Void = {},
+                 status: @Sendable (HerdrTurnStatus) -> Void = { _ in }) async throws -> Turn {
         let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
         if let agent = liveAgent(named: name, in: current) {
+            // Started ahead of time and not ready yet: the bridge keeps the message and types it when the agent is.
+            if agent.isStarting { status(.starting(program: current.program(of: agent))) }
             let saved = try await history(core: core, address: agent.address, createdMs: agent.createdMs)
             let after = saved.map(\.id).max() ?? 0
             let afterTool = (try? await preview(core: core, address: agent.address, createdMs: agent.createdMs))?.tools.map(\.seq).max() ?? 0
@@ -249,11 +325,30 @@ struct HerdrClient: Sendable {
             if resync {
                 do { try await setAgentProjects(projects.map(\.id), for: agent); synced() } catch { applied = false }
             }
-            let notes = Self.notes(reminder: reminder, once: once, tasks: saved.filter { $0.kind == "task" }.map(\.text), changing: changing,
+            let tasks = saved.filter(\.reachedAgent).map(\.text)
+            let notes = Self.notes(reminder: reminder, once: once, tasks: tasks, changing: changing,
                                    revised: applied ? [(HerdrProjectNote.lead, HerdrProjectNote.note(projects), projects.isEmpty)] : [])
-            try await message(notes.isEmpty ? text : Self.plain(notes.joined(separator: "\n\n"), bytes: Self.instructionsBytes) + "\n\n" + text, to: agent)
-            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool)
+            // An agent that has read nothing yet was started ahead of time: this message is its first task, so it
+            // carries what a first task carries (the bot's instructions and the notes, which `instructions` holds),
+            // whole. Any later message finds that task saved and carries none of it again; a task that was never
+            // typed into the agent does not count (`Item.reachedAgent`), so the next one carries it all again.
+            let first = tasks.isEmpty ? Self.firstTask(text, instructions: instructions) : text
+            let body = first != text ? first
+                : (notes.isEmpty ? text : Self.plain(notes.joined(separator: "\n\n"), bytes: Self.instructionsBytes) + "\n\n" + text)
+            let queued = try await message(body, to: agent)
+            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool, program: current.program(of: agent), queued: queued)
         }
+        status(.starting(program: Self.program(template: template, in: current)))
+        let agent = try await start(name: name, template: template, model: model, task: Self.firstTask(text, instructions: instructions), projects: projects.map(\.id), in: current)
+        if resync { synced() }
+        if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
+        return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true, program: current.program(of: agent))
+    }
+
+    /// Starts this bot's agent from `template` (nil: the first the server can start), on `model` when the template
+    /// takes one, with `task` as its first task, or with none (ahead of time, `launch`).
+    /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
+    func start(name: String, template: String?, model: String?, task: String?, projects: [Int], in current: Workspace) async throws -> Agent {
         let usable = current.templates.filter { $0.error == nil }
         guard let chosen = usable.first(where: { $0.name == template }) ?? (template == nil ? usable.first : nil) else { throw Failure.noTemplate }
         let known = try await profiles().first { $0.runtimeName == name || Self.suffix(of: $0.runtimeName) == Self.suffix(of: name) }
@@ -261,11 +356,13 @@ struct HerdrClient: Sendable {
         // the model the app shows for it. Only a template with no list leaves the choice to the agent program.
         var modelID = chosen.takesModel ? model.flatMap { $0.isEmpty ? nil : $0 } : nil
         if modelID == nil, chosen.takesModel { modelID = Self.defaultModel(offered: (try? await models(for: chosen)) ?? chosen.models ?? []) }
-        let agent = try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: Self.firstTask(text, instructions: instructions),
-                                     profileID: known?.id, modelID: modelID, projects: projects.map(\.id))
-        if resync { synced() }
-        if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
-        return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
+        return try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: task, profileID: known?.id, modelID: modelID, projects: projects)
+    }
+
+    /// The server's name for the agent program a bot's next agent starts ("Codex"); nil when the server names none.
+    static func program(template: String?, in workspace: Workspace) -> String? {
+        let usable = workspace.templates.filter { $0.error == nil }
+        return (usable.first { $0.name == template } ?? (template == nil ? usable.first : nil))?.runtime?.harness
     }
 
     /// What goes in front of a message to a running agent: `reminder` always, each of `once` only while no saved task
@@ -286,7 +383,8 @@ struct HerdrClient: Sendable {
         return notes
     }
 
-    /// Waits for the reply the agent's hook saves after `turn`. Meanwhile `status` hears what the agent reports,
+    /// Waits for the reply the agent's hook saves after `turn`. Meanwhile `status` hears what the turn is waiting for,
+    /// as the agent reports it (`HerdrTurnStatus`),
     /// `tool` hears each tool call when it is first seen (`true`) and again when it has ended, `partial` hears the
     /// reply so far (Claude Code, Codex and OpenCode all publish one), and `live` hears the agent's helpers and
     /// whether the turn is on the event stream.
@@ -295,14 +393,14 @@ struct HerdrClient: Sendable {
     /// so no step is reported twice and no turn is lost (`HerdrTurnFollower` decides the same way for both).
     /// An agent that goes quiet without saving a reply (its hook was not trusted, or it stopped at a prompt) ends the
     /// wait; `quietLimit` outlasts the bridge's 30 s limit on that hook, which a busy disk on the server can use up.
-    func reply(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (String) -> Void = { _ in },
+    func reply(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (HerdrTurnStatus) -> Void = { _ in },
                tool: @Sendable (ToolCall, _ isNew: Bool) -> Void = { _, _ in }, partial: @Sendable (String) -> Void = { _ in },
                live: @Sendable (LiveNote) -> Void = { _ in }) async throws -> String {
-        var follower = HerdrTurnFollower(after: turn.after, afterTool: turn.afterTool, quietLimit: quietLimit)
+        var follower = HerdrTurnFollower(after: turn.after, afterTool: turn.afterTool, quietLimit: quietLimit, program: turn.program, starting: turn.starting)
         func emit(_ steps: [HerdrTurnFollower.Step]) {
             for step in steps {
                 switch step {
-                case .status(let line): status(line)
+                case .status(let now): status(now)
                 case .tool(let call, let isNew): tool(call, isNew)
                 case .partial(let text): partial(text)
                 }
@@ -332,6 +430,7 @@ struct HerdrClient: Sendable {
             let saved = follower.judgeSaved(now: clock.now)
             emit(follower.drain())
             if case .reply(let text) = saved { return text }
+            if case .failed(let failure) = saved { throw failure }
             if follower.wantsAgentNow { nextAgentCheck = clock.now; follower.wantsAgentNow = false }
             if clock.now >= nextAgentCheck {
                 nextAgentCheck = clock.now + agentCheckInterval
@@ -347,16 +446,6 @@ struct HerdrClient: Sendable {
                 if case .failed(let failure) = verdict { throw failure }
             }
             try await Task.sleep(for: pollInterval)
-        }
-    }
-
-    static func statusLine(_ state: String) -> String {
-        switch state {
-        case "working": "Working in Herdr"
-        case "blocked": "Waiting for you in the agent's terminal"
-        case "error": "The agent reported an error"
-        case "done", "idle": "Finishing"
-        default: "Starting in Herdr"
         }
     }
 

@@ -121,6 +121,9 @@ extension AppStore {
         let landed = herdrLanding.map { $0.bot == bot.id && $0.messages == bot.messages.count } ?? false
         guard bot.messages.isEmpty || landed else { return nil }
         if let reading = herdrAgentReadings[bot.id], reading.running != .none { return nil }
+        // Its agent is running or is started ahead of time as the chat opens: the header says so, and nothing waits
+        // for the first message.
+        if herdrReadiness[bot.id] != nil || herdrWarming[bot.id] != nil || (launchWorkEnabled && herdrKeepsReady(bot) && herdrStartsAhead(for: bot)) { return nil }
         return WizardCopy.firstReply(bot.name)
     }
 }

@@ -9,7 +9,9 @@ import Foundation
 /// A turn is followed on the bridge's event stream (`HerdrEvents.swift`), and by polling where there is none.
 ///
 /// There are no server sessions for the app to manage (`sessionTransport` is nil, like Mock): one bot is one agent
-/// on the bridge, named from the bot (`HerdrClient.agentName`), started on its first message and reused while it runs.
+/// on the bridge, named from the bot (`HerdrClient.agentName`), started on its first message, or ahead of it when its
+/// chat opens (`HerdrClient.warm`), and reused while it runs. While a turn waits, the chat says what for
+/// (`HerdrTurnStatus`).
 struct HerdrBackend: AgentBackend {
     static let defaultURL = "http://127.0.0.1:8787"
     /// `UserDefaults`: the template new bots start from, and the one bridge address an install had before it kept a
@@ -59,6 +61,11 @@ struct HerdrBackend: AgentBackend {
     /// Hears, while a turn runs, the agent's helpers as the stream reports them and whether the stream is delivering
     /// (`HerdrClient.LiveNote`): the bot's helper rows then need no polling of their own.
     var onLive: (@Sendable (HerdrClient.LiveNote) -> Void)? = nil
+    /// Set while the app is starting this bot's agent ahead of time (`AppStore+HerdrWarm.swift`): `settled` returns
+    /// when that start has gone through or failed. A message waits for it, so it finds the agent instead of starting
+    /// another; meanwhile the chat says that `program` is starting.
+    struct Starting: Sendable { let program: String?; let settled: @Sendable () async -> Void }
+    var starting: Starting? = nil
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
@@ -99,13 +106,20 @@ struct HerdrBackend: AgentBackend {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    continuation.yield(.status("Sending to Herdr"))
+                    // A start ahead of time that is still on its way ends first, so this message never starts a second agent.
+                    if let starting = backend.starting {
+                        continuation.yield(.status(HerdrTurnStatus.starting(program: starting.program).code))
+                        await starting.settled()
+                    }
+                    continuation.yield(.status(HerdrTurnStatus.sending.code))
                     let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : nil,
                                                                 once: backend.notes, changing: backend.rosters,
-                                                                projects: backend.projects, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() })
+                                                                projects: backend.projects, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
+                                                                status: { continuation.yield(.status($0.code)) })
+                    continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
-                    let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
+                    let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0.code)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },
                                                                partial: { continuation.yield(.replace($0)) }, live: { backend.onLive?($0) })
                     continuation.yield(.replace(reply)); continuation.yield(.completed); continuation.finish()

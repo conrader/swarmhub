@@ -94,6 +94,8 @@ enum TurnKey {
     static let part = "part"
     /// The connection dropped and the turn is resending; the live line says "Reconnecting…".
     static let reconnecting = "reconnecting"
+    /// What the turn is waiting for, as the agent's server reports it (`HerdrTurnStatus.code`); only while it runs.
+    static let agent = "agent"
 }
 
 /// An app-only line about a message the restart left in doubt. It is shown in the chat and never sent as history.

@@ -122,10 +122,23 @@ enum ActivityCopy {
         return "\(total) s"
     }
 
-    /// A live reply's phase, current action or completed step count, and elapsed time.
-    static func liveLine(_ activity: ToolActivity?, since start: Date, lastText: Date? = nil, now: Date) -> String {
+    /// What the agent's server says a live reply is waiting for, when that says more than the phase read from text
+    /// and tool steps: always while the agent waits for the person, otherwise while no text arrives and no step runs
+    /// (where the phase alone would say "Thinking…" for an agent that is still starting).
+    static func agentStatus(_ status: HerdrTurnStatus?, phase: ChatActivityPhase) -> HerdrTurnStatus? {
+        guard let status, status.needsPerson || phase == .thinking else { return nil }
+        return status
+    }
+
+    /// A live reply's phase, current action or completed step count, and elapsed time. `status`: what the agent's
+    /// server reports (`agentStatus`), e.g. "Starting Codex… · the first reply takes longer · 14 s".
+    static func liveLine(_ activity: ToolActivity?, since start: Date, lastText: Date? = nil, now: Date, status: HerdrTurnStatus? = nil) -> String {
         let elapsed = duration(now.timeIntervalSince(start))
         let phase = ChatActivityPhase.current(activity, lastText: lastText, now: now)
+        if let status = agentStatus(status, phase: phase) {
+            let done = (activity?.total ?? 0) > 0 ? [steps(activity?.total ?? 0)] : []
+            return ([status.line] + (status.note.map { [$0] } ?? []) + done + [elapsed]).joined(separator: " · ")
+        }
         guard let activity, activity.total > 0 else { return "\(phase.label) · \(elapsed)" }
         if phase == .working, let step = activity.current {
             return "\(phase.label) · \(label(step.name)) · step \(activity.number(of: step)) · \(elapsed)"
@@ -159,8 +172,9 @@ enum ActivityCopy {
     }
 
     /// The same phase as the chat footer, with a current tool's plain-language action and safe preview.
-    static func sidebarLine(_ activity: ToolActivity?, lastText: Date?, now: Date) -> String {
+    static func sidebarLine(_ activity: ToolActivity?, lastText: Date?, now: Date, status: HerdrTurnStatus? = nil) -> String {
         let phase = ChatActivityPhase.current(activity, lastText: lastText, now: now)
+        if let status = agentStatus(status, phase: phase) { return status.line }
         guard phase == .working, let step = activity?.current else { return phase.label }
         return "\(phase.label) · \(label(step.name))" + (step.preview.map { " · \($0)" } ?? "")
     }

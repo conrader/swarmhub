@@ -6,7 +6,7 @@ import Foundation
 /// when an agent that saved nothing has gone quiet. Because it also remembers what it already reported, a turn can
 /// move from the stream to polling in the middle and no step is shown twice.
 struct HerdrTurnFollower: Sendable {
-    enum Step: Sendable, Equatable { case status(String), tool(HerdrClient.ToolCall, isNew: Bool), partial(String) }
+    enum Step: Sendable, Equatable { case status(HerdrTurnStatus), tool(HerdrClient.ToolCall, isNew: Bool), partial(String) }
     enum Verdict: Sendable, Equatable { case waiting, reply(String), failed(HerdrClient.Failure) }
 
     /// The newest saved row and tool call before the turn: its own are the ones after those.
@@ -14,6 +14,8 @@ struct HerdrTurnFollower: Sendable {
     var quietLimit: Duration = .seconds(45)
     /// After a reply with a steered message still unanswered: how long the agent may stay idle before the turn is over.
     var settle: Duration = .seconds(5)
+    /// How long an agent that was starting when the turn began may sit idle before it shows work (`judgeAgent`).
+    var startQuietLimit: Duration = .seconds(150)
     /// A new reply was just seen while a task is still unanswered: the agent's status is worth reading at once.
     var wantsAgentNow = false
 
@@ -22,13 +24,18 @@ struct HerdrTurnFollower: Sendable {
     /// seq → whether its end was reported too.
     private var reported: [UInt64: Bool] = [:]
     private var steps: [Step] = []
-    private var lastStatus = "", lastDraft = ""
+    private var lastStatus: HerdrTurnStatus?, lastDraft = ""
+    /// The agent program's name for the status lines, and whether the turn started the agent (or found it starting):
+    /// until the agent shows work, such a turn is "starting", any other "delivered" (`HerdrTurnStatus.of`).
+    var program: String?, starting = false
+    /// The agent has shown work in this turn: it said so, ran a tool, or wrote text.
+    private var began = false
     private var repliesSeen = 0, settleSince: ContinuousClock.Instant?, quietSince: ContinuousClock.Instant?
     /// The agent's status as last heard; nil until it was.
     private var agentState: String?
 
-    init(after: Int, afterTool: UInt64 = 0, quietLimit: Duration = .seconds(45)) {
-        self.after = after; self.afterTool = afterTool; self.quietLimit = quietLimit
+    init(after: Int, afterTool: UInt64 = 0, quietLimit: Duration = .seconds(45), program: String? = nil, starting: Bool = false) {
+        self.after = after; self.afterTool = afterTool; self.quietLimit = quietLimit; self.program = program; self.starting = starting
     }
 
     /// The newest saved row this turn has seen, to resume a stream from.
@@ -43,7 +50,7 @@ struct HerdrTurnFollower: Sendable {
     mutating func take(tools calls: [HerdrClient.ToolCall]) {
         for call in calls.sorted(by: { $0.seq < $1.seq }) where call.seq > afterTool && reported[call.seq] != true {
             if reported[call.seq] == nil { steps.append(.tool(call, isNew: true)) } else if call.finished { steps.append(.tool(call, isNew: false)) } else { continue }
-            reported[call.seq] = call.finished
+            reported[call.seq] = call.finished; began = true
         }
     }
 
@@ -74,29 +81,35 @@ struct HerdrTurnFollower: Sendable {
     /// The saved rows and the reply so far. A message steered into the turn is one more task: the agent may answer
     /// it within the same reply, or queue it and answer it right after, and then the turn's text is both replies.
     mutating func judgeSaved(now: ContinuousClock.Instant) -> Verdict {
-        let replies = replies, tasks = rows.values.filter { $0.kind == "task" }.count, answered = answered
+        let replies = replies, tasks = rows.values.filter(\.reachedAgent).count, answered = answered
+        // A message the bridge kept for an agent that was still starting, and then gave up: it was never typed.
+        if replies.isEmpty, let lost = rows.values.first(where: \.wasNotSent) { return .failed(.notDelivered(lost.detail.flatMap { $0.isEmpty ? nil : $0 })) }
         if !replies.isEmpty {
             if replies.count >= max(tasks, 1) { return .reply(answered) }
             if replies.count != repliesSeen { repliesSeen = replies.count; settleSince = now; steps.append(.partial(answered)); wantsAgentNow = true }
             if let since = settleSince, now - since >= settle { return .reply(answered) }
         }
-        if let text = draft?.text, !text.isEmpty, text != lastDraft { steps.append(.partial(answered.isEmpty ? text : answered + "\n\n" + text)); lastDraft = text }
+        if let text = draft?.text, !text.isEmpty, text != lastDraft { steps.append(.partial(answered.isEmpty ? text : answered + "\n\n" + text)); lastDraft = text; began = true }
         return .waiting
     }
 
-    /// The agent's status as last heard: the line to show, and whether an agent that saved nothing has been quiet
-    /// for too long.
+    /// The agent's status as last heard: what to say the turn is waiting for (`HerdrTurnStatus`), and whether an
+    /// agent that saved nothing has been quiet for too long.
     mutating func judgeAgent(now: ContinuousClock.Instant) -> Verdict {
         guard let state = agentState else { return .waiting }
         // Working again after a reply: the queued message is being answered, so keep waiting for it.
         if state == "working", settleSince != nil { settleSince = now }
-        let line = HerdrClient.statusLine(state)
-        if line != lastStatus { steps.append(.status(line)); lastStatus = line }
+        if state == "working" { began = true }
+        let status = HerdrTurnStatus.of(agentState: state, program: program, began: began, starting: starting)
+        if status != lastStatus { steps.append(.status(status)); lastStatus = status }
         // "done" or "idle" with nothing saved: the hook may still be writing; stop waiting once it cannot be.
         guard state == "done" || state == "idle" else { quietSince = nil; return .waiting }
         let since = quietSince ?? now
         quietSince = since
-        return now - since >= quietLimit ? .failed(.silent) : .waiting
+        // An agent program that has just started may report before it takes its first message (the message then
+        // waits in its own input), so a turn that began with a starting agent is given longer.
+        let limit = starting && !began ? max(quietLimit, startQuietLimit) : quietLimit
+        return now - since >= limit ? .failed(.silent) : .waiting
     }
 
     /// The session is over: the turn's replies if its hook saved any as it closed, else the turn ended unanswered.
@@ -162,6 +175,7 @@ extension HerdrClient {
                 let saved = follower.judgeSaved(now: clock.now), agentVerdict = follower.judgeAgent(now: clock.now)
                 emit(follower.drain())
                 if case .reply(let text) = saved { return text }
+                if case .failed(let failure) = saved { throw failure }
                 if case .failed(let failure) = agentVerdict { throw failure }
             }
             reader.cancel(); ticker.cancel()

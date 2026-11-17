@@ -185,6 +185,8 @@ extension AppStore {
     /// unless the reply answers a message the app itself passed on.
     func herdrReplyEnded(_ reply: ChatMessage, from bot: Bot, finished: Bool) {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return }
+        // An agent that answered is running; one whose turn failed is read again before the header says anything.
+        herdrReadiness[bot.id] = finished ? .ready : nil
         let triggers = herdrTriggers(of: reply, in: bot)
         // What it wrote to other bots is delivered, and its answer to another bot's message goes back (`AppStore+HerdrMessages.swift`).
         herdrMessagesEnded(reply, from: bot, triggers: triggers, finished: finished)

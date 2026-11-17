@@ -13,6 +13,9 @@ extension EnvironmentValues {
 
 /// P27 D9, P29: what a reply did, one row for the whole turn. While it streams: its Thinking, Typing or Working phase,
 /// e.g. "Working… · Running a command · step 3 · 1 m 12 s" (refreshed every second); after it: "12 steps · 4 m 52 s".
+/// A Herdr turn says what it is really waiting for where the phase alone would say "Thinking…" (`HerdrTurnStatus`):
+/// "Starting Codex… · the first reply takes longer · 14 s", "Codex is working… · 8 s", or that the agent waits for
+/// the person in its terminal.
 /// A chevron opens the steps whenever there is one, streaming or not, and one view for both states keeps the row open
 /// when the turn ends.
 struct ActivityRow: View {
@@ -75,10 +78,17 @@ struct ActivityRow: View {
             ProgressView().controlSize(.mini)
             Text(TurnErrorCopy.reconnecting).accessibilityIdentifier("reply.reconnecting")
         } else if streaming {
-            ProgressView().controlSize(.mini)
-            Text(ActivityCopy.liveLine(activity, since: message.createdAt, lastText: message.lastTextAt, now: now)).monospacedDigit()
-            if ChatActivityPhase.current(activity, lastText: message.lastTextAt, now: now) == .working,
-               let preview = activity?.current?.preview {
+            // What the agent's server says the turn is waiting for: starting, working, or waiting for the person.
+            let reported = message.metadata[TurnKey.agent].flatMap(HerdrTurnStatus.init(code:))
+            let phase = ChatActivityPhase.current(activity, lastText: message.lastTextAt, now: now)
+            let said = ActivityCopy.agentStatus(reported, phase: phase)
+            if said?.needsPerson == true {
+                // Nothing moves until the person acts, so no spinner: a hand.
+                Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityHidden(true)
+            } else { ProgressView().controlSize(.mini) }
+            Text(ActivityCopy.liveLine(activity, since: message.createdAt, lastText: message.lastTextAt, now: now, status: reported)).monospacedDigit()
+                .accessibilityIdentifier("reply.status")
+            if said == nil, phase == .working, let preview = activity?.current?.preview {
                 Text(preview).font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
             }
         } else if let shown, let summary = ActivityCopy.summary(shown, since: range == nil ? message.createdAt : shown.steps.first?.startedAt ?? message.createdAt) {

@@ -16,15 +16,21 @@ What the macOS app does. The app has one backend: agents that Herdr Core runs, r
 
 ## Bots
 
-- One bot is one agent on its server, named after the bot. The first message starts the agent; later messages go to the same running agent.
-- A bot has a name, an avatar, instructions, a title and a description. The instructions are given to each agent the bot starts, once, before the first message.
+- One bot is one agent on its server, named after the bot. Later messages go to the same running agent.
+- **The agent starts when you open the chat.** An agent program takes from several seconds to a minute to start. When you open a bot's chat (and at launch, and when you come back to the app, for the chat on screen) the app starts that bot's agent if none is running, without a message, so your first message does not wait for it. Only the bot on screen is started, never the whole roster, and a bot never gets a second agent. The chat header says **Starting …** while the agent program starts and **Ready** with a green dot once a message is answered at once.
+- A message you send while the agent is still starting waits for it and is delivered once. If the agent could not be started ahead of time, your first message starts it, as before.
+- **Keep its agent ready** (the **Model** tab, on by default) turns this off for one bot. A server that cannot start an agent program ahead of time is not asked again until the app restarts, and the switch says so.
+- The server closes an agent that was started this way and never written to (after 30 minutes unless the server is set otherwise).
+- A bot has a name, an avatar, instructions, a title and a description. The instructions are given to each agent the bot starts, once, with its first message.
 - **Herdr agent** (the bot's settings under Advanced, and the **Model** tab of the Details panel) chooses the server, the agent program and the model. The choices are the ones the server offers. A bot with no model of its own starts on the first model the server lists.
-- **Start a fresh agent** ends the running agent. The chat stays; the agent's own memory of it does not.
+- **Start a fresh agent** ends the running agent and, with **Keep its agent ready** on, starts the next one at once. The chat stays; the agent's own memory of it does not.
+- An agent that was started ahead of time and has not been written to is replaced when you change the bot's agent program, model or projects, so the change applies at once. An agent that holds a conversation keeps running until **Start a fresh agent**.
 - **Add starter bots** in Servers and keys adds one bot for each agent program the server has.
 
 ## Chat
 
 - The reply is shown while the agent writes it, and each tool call is a step under the reply.
+- While a reply has no text yet, the line under it says what it is waiting for, as the server reports it: **Starting Codex… · the first reply takes longer**, **Delivered to Codex…**, **Codex is working…**, the running tool step (**Working… · Running a command · step 3**), **Codex is waiting for you in its terminal** (with a hand instead of the spinner), or **Finishing…**. The name is the agent program's. The sidebar row says the same.
 - The app follows a turn on the bridge's event stream and falls back to polling when the stream is unavailable or keeps breaking.
 - **Stop** presses the agent's interrupt key. The agent stays open for the next message.
 - **Steer:** a message sent while the agent answers is typed into the running agent. With steer off for a bot, or when the message has attachments, the message waits and goes when the answer ends.

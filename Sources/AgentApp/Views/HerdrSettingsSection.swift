@@ -233,7 +233,7 @@ struct HerdrAgentControls: View {
                     guard loaded, value != store.herdrServer(for: bot).id else { return }
                     // Projects belong to a Herdr server too: the ones chosen on the server it leaves do not go with it.
                     store.setHerdrServer(value, for: bot); template = ""; model = ""; store.setHerdrTemplate("", for: bot); store.setHerdrModel("", for: bot); store.setHerdrProjects([], for: bot)
-                    Task { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
+                    Task { await loadTemplates(); await loadModels(); await applyChoice() }
                 }
             }
             SettingBlock(title: "Agent program", detail: listed ? (templates.isEmpty ? "None this server can start." : nil) : "Reading…") {
@@ -242,7 +242,7 @@ struct HerdrAgentControls: View {
             .onChange(of: template) { _, value in
                 guard loaded else { return }
                 store.setHerdrTemplate(value, for: bot); model = ""; store.setHerdrModel("", for: bot)
-                Task { await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
+                Task { await loadModels(); await applyChoice() }
             }
             if effective?.takesModel == true, !(listed && models.isEmpty) {
                 // No choice of its own: the first model the server offers, which the bot's next agent is started on.
@@ -255,7 +255,7 @@ struct HerdrAgentControls: View {
                 .onChange(of: model) { _, value in
                     guard loaded else { return }
                     store.setHerdrModel(value, for: bot)
-                    Task { await store.refreshHerdrAgentReading(for: bot) }
+                    Task { await applyChoice() }
                 }
             } else if listed, effective != nil {
                 SettingBlock(title: "Model", detail: HerdrAgentReading.programPicks + ": this server lists no models for this agent program, so the program starts on its own choice.") { EmptyView() }
@@ -265,6 +265,11 @@ struct HerdrAgentControls: View {
             }
             SettingSwitch(title: "Steer a running answer", detail: "On: a message you send while the agent is answering is added to that answer. Off: the message waits until the answer ends.",
                           isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
+            // Its agent is started when its chat opens, so the first message does not wait for the agent program.
+            let ahead = store.herdrStartsAhead(for: bot)
+            SettingSwitch(title: "Keep its agent ready", detail: AppStore.keepsReadyCaption(bot: bot.name, program: effective?.runtime?.harness, available: ahead),
+                          isOn: Binding(get: { ahead && store.herdrKeepsReady(bot) }, set: { store.setHerdrKeepsReady($0, for: bot) }))
+                .disabled(!ahead)
             SettingBlock(title: "Start afresh", detail: note.isEmpty ? "Agent program and model apply when this bot next starts an agent. A running agent keeps its own until you start a fresh one, which also clears what the agent remembers of this chat." : note) {
                 HStack {
                     Button("Start a fresh agent") { restart() }.disabled(restarting)
@@ -289,13 +294,34 @@ struct HerdrAgentControls: View {
         do { models = try await store.herdrClient(for: store.herdrServer(for: bot)).models(for: effective) } catch { models = effective.models ?? [] }
     }
 
+    /// The agent program or model was changed. An agent that was started ahead of time and has not been written to
+    /// yet is replaced by one that starts as now chosen, so the choice applies at once for a bot nobody has written
+    /// to; an agent that holds a conversation keeps running until "Start a fresh agent".
+    private func applyChoice() async {
+        if store.launchWorkEnabled { await store.herdrChoiceChanged(for: bot) }
+        await store.refreshHerdrAgentReading(for: bot)
+    }
+
     private func restart() {
         restarting = true; note = ""
         Task {
-            do { note = try await store.restartHerdrAgent(for: bot) ? "The running agent was closed. Your next message starts a fresh one." : "No agent is running. Your next message starts one." }
-            catch { note = error.localizedDescription }
+            do {
+                let closed = try await store.restartHerdrAgent(for: bot)
+                // With "Keep its agent ready" on, the fresh agent starts now instead of with the next message.
+                let starting = store.launchWorkEnabled && store.warmHerdrAgent(for: bot) != nil
+                note = Self.restartNote(closed: closed, starting: starting)
+            } catch { note = error.localizedDescription }
             await store.refreshHerdrAgentReading(for: bot)
             restarting = false
+        }
+    }
+
+    nonisolated static func restartNote(closed: Bool, starting: Bool) -> String {
+        switch (closed, starting) {
+        case (true, true): "The running agent was closed. A fresh one is starting now."
+        case (true, false): "The running agent was closed. Your next message starts a fresh one."
+        case (false, true): "No agent was running. One is starting now."
+        case (false, false): "No agent is running. Your next message starts one."
         }
     }
 }

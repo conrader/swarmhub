@@ -22,8 +22,8 @@ extension AppStore {
 
     // MARK: Reading them
 
-    /// The Herdr bots whose helpers are worth reading now, and whether often: a bot that is answering or has helpers
-    /// listed is read every few seconds, the open chat of an idle bot only now and then (an agent starts helpers
+    /// The Herdr bots whose helpers are worth reading now, and whether often: a bot that is answering, has helpers
+    /// listed or whose agent is starting is read every few seconds, the open chat of an idle bot only now and then (an agent starts helpers
     /// while it works, so an idle one rarely has news). Every other bot is not read at all, and neither is a bot
     /// whose running turn is on the event stream, which brings its helpers as they change (`herdrLive`).
     func herdrHelperWatch() -> (bots: [Bot], often: Bool) {
@@ -31,7 +31,8 @@ extension AppStore {
         var often = false
         let watched = bots.filter { bot in
             guard bot.backend == .herdr, !bot.isReadOnlyArchive, !herdrStreaming.contains(bot.id) else { return false }
-            let busy = isWorking(bot) || herdrHelpers[bot.id]?.helpers.isEmpty == false
+            // An agent that is starting is read often too, so the header says "Ready" soon after it is.
+            let busy = isWorking(bot) || herdrHelpers[bot.id]?.helpers.isEmpty == false || herdrReadiness[bot.id]?.isStarting == true
             if busy { often = true }
             return busy || bot.id == open
         }
@@ -61,12 +62,15 @@ extension AppStore {
     /// none. A server that cannot be read keeps what it showed for a few tries, so a dropped request does not blink.
     func refreshHerdrHelpers(for watched: [Bot]) async {
         var found = herdrHelpers.filter { entry in bots.contains { $0.id == entry.key } }
+        // The same read says whether each bot's agent runs and is ready (`noteHerdrReadiness`).
+        var readiness: [UUID: HerdrAgentReadiness?] = [:]
         for (serverID, group) in Dictionary(grouping: watched, by: { herdrServer(for: $0).id }) {
             guard let server = herdrServer(id: serverID), let client = try? herdrClient(for: server) else { group.forEach { found[$0.id] = nil }; continue }
             do {
                 let workspace = try await client.workspace()
                 for bot in group {
                     let agent = client.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: workspace)
+                    readiness[bot.id] = .some(HerdrAgentReadiness(agent, in: workspace))
                     var list: HerdrClient.Helpers?
                     if let agent { list = try await client.helpers(of: agent, in: workspace) }
                     found[bot.id] = list?.helpers.isEmpty == false ? list : nil
@@ -78,6 +82,7 @@ extension AppStore {
             }
         }
         if found != herdrHelpers { herdrHelpers = found }
+        noteHerdrReadiness(readiness, watched: watched)
     }
 
     /// What a running turn on the event stream says beside its reply: whether the stream is delivering, and the

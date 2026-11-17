@@ -191,6 +191,10 @@ extension AppStore {
     /// is told with the next message), that the next agent starts with it, or why the running agent still has the old one.
     @discardableResult func applyHerdrProjects(for bot: Bot) async -> String {
         guard herdrProjectsChanged(bot) else { return "" }
+        // An agent that was started ahead of time and has not been written to starts again with this list, which
+        // the server then tells it with its first message like any other.
+        if launchWorkEnabled { await herdrChoiceChanged(for: bot) }
+        guard herdrProjectsChanged(bot) else { return HerdrProjectsCopy.botChanged(running: true) }
         let wanted = herdrProjects(for: bot)
         do {
             let backend = try herdrBackend(for: bot)

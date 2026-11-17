@@ -29,9 +29,12 @@ extension AppStore {
         var completed = false; var failure: String?
         // A delivered steer moves the rest of the reply into a new row below its bubble.
         var row = assistant
+        // What the agent's server says the turn is waiting for; it goes with the reply into each new part.
+        var agentStatus: String?
         for try await event in stream {
             guard !Task.isCancelled else { break }
             row = steerRow(for: event, origin: assistant, row: row)
+            if row.metadata[TurnKey.agent] != agentStatus { row.metadata[TurnKey.agent] = agentStatus }
             // Anything the server sends again ends a reconnect.
             if case .status = event {} else if row.metadata[TurnKey.reconnecting] != nil { row.metadata[TurnKey.reconnecting] = nil; objectWillChange.send() }
             switch event {
@@ -41,6 +44,7 @@ extension AppStore {
                 objectWillChange.send(); autosaveIfDue()
             case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
             case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
+            case .status(let value) where HerdrTurnStatus(code: value) != nil: agentStatus = value; row.metadata[TurnKey.agent] = value
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
@@ -64,7 +68,7 @@ extension AppStore {
                                        alertPrefix: String = "", warn: Bool = true, alert: Bool = true) -> TurnOutcome {
         assistant.isStreaming = false
         // The live "first tool" status ends with the turn.
-        assistant.metadata["status"] = nil; assistant.metadata[TurnKey.reconnecting] = nil
+        assistant.metadata["status"] = nil; assistant.metadata[TurnKey.reconnecting] = nil; assistant.metadata[TurnKey.agent] = nil
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)
@@ -176,7 +180,7 @@ extension AppStore {
     func resetForResend(_ assistant: ChatMessage, status: String) {
         assistant.content = ""; assistant.activity = nil; assistant.lastTextAt = nil
         assistant.turnState = .incomplete; assistant.isStreaming = true
-        [TurnKey.why, TurnKey.ambiguous].forEach { assistant.metadata[$0] = nil }
+        [TurnKey.why, TurnKey.ambiguous, TurnKey.agent].forEach { assistant.metadata[$0] = nil }
         assistant.metadata["status"] = status
         assistant.metadata[TurnKey.reconnecting] = status == TurnErrorCopy.reconnecting ? "1" : nil
         objectWillChange.send()

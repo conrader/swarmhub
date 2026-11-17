@@ -16,6 +16,6 @@ extension AppStore {
 
     private func activityLine(_ turn: ConversationTurn, at date: Date) -> String? {
         guard let assistant = turn.assistant, assistant.isStreaming else { return nil }
-        return ActivityCopy.sidebarLine(assistant.activity, lastText: assistant.lastTextAt, now: date)
+        return ActivityCopy.sidebarLine(assistant.activity, lastText: assistant.lastTextAt, now: date, status: assistant.metadata[TurnKey.agent].flatMap(HerdrTurnStatus.init(code:)))
     }
 }

@@ -29,7 +29,7 @@ The setup window opens while there is no bot. Later, use **Settings → Set up�
 
 5. **Projects.** Optional, and only on a server that can add project servers. If your projects are on another server, add it here and name a first project; see [Projects on other servers](#projects-on-other-servers). To skip it, press the last button.
 
-The window ends in the main bot's chat. The first message starts the bot's agent, so the first reply takes a little longer.
+The window ends in the main bot's chat. The app starts the bot's agent as the chat opens, and the header says **Starting …** and then **Ready**. You can write at once: a message sent while the agent starts is delivered as soon as it is ready.
 
 To look around without a server, choose **Look around with sample agents** in the setup window.
 
@@ -39,7 +39,9 @@ More detail on the three ways to connect: [Use the Mac app](../HerdrWorkspace/RE
 
 ### Chat
 
-Type a message and send it. The reply appears as the agent writes it, with each tool call as a step under it.
+Type a message and send it. The reply appears as the agent writes it, with each tool call as a step under it. Until there is text, the line under the reply says what it is waiting for: the agent program is starting, the agent is working, a tool step is running, or the agent is waiting for you in its terminal.
+
+Opening a chat starts that bot's agent if none is running, so the first reply does not wait for the agent program to start. **Ready** in the header means a reply starts at once. Turn this off for a bot with **Keep its agent ready** in the **Model** tab.
 
 - **Stop** (⌘.) interrupts the answer. The agent stays open.
 - A message you send while the agent answers goes into the running answer. If the bot has steer turned off, or the message has attachments, it waits and is sent when the answer ends.
@@ -47,7 +49,7 @@ Type a message and send it. The reply appears as the agent writes it, with each 
 
 ### Change what a bot runs on
 
-Open the bot's settings (⌥⌘,) and choose **Advanced → Herdr agent**, or open the **Model** tab of the Details panel. Pick the server, the agent program and the model. A change applies to the next agent the bot starts; **Start a fresh agent** ends the running one.
+Open the bot's settings (⌥⌘,) and choose **Advanced → Herdr agent**, or open the **Model** tab of the Details panel. Pick the server, the agent program and the model. A change applies to the next agent the bot starts; **Start a fresh agent** ends the running one. An agent that was started when you opened the chat and has not been written to yet is replaced at once.
 
 ### Create more bots
 

@@ -59,6 +59,7 @@ extension AppStore {
         let token = typed.flatMap { $0.isEmpty ? nil : $0 } ?? herdrToken(for: server)
         if token.isEmpty { throw BackendError.unavailable(HerdrBackend.missingToken) }
         var client = HerdrClient(baseURL: baseURL, token: token)
+        herdrClientSetup?(&client)
         if server.kind == .ssh { let tunnels = herdrTunnels; client.prepare = { try await tunnels.ensure(server) } }
         return client
     }
@@ -140,6 +141,8 @@ extension AppStore {
         if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.messageNote = HerdrBotMessage.note; backend.roster = herdrRoster(for: bot) }
         // A turn on the event stream brings the agent's helpers with it (`herdrLive`).
         let botID = bot.id
+        // A start ahead of time that is on its way: the message waits for it and then finds that agent.
+        if let warming = herdrWarming[botID] { backend.starting = .init(program: herdrProgramName(for: bot), settled: { await warming.value }) }
         backend.onLive = { [weak self] note in Task { @MainActor in self?.herdrLive(note, botID: botID) } }
         // The projects on other servers it may use; a running agent that has an older list gets this one with the next message.
         let projects = herdrProjects(for: bot)
@@ -170,9 +173,12 @@ extension AppStore {
     /// Ends the bot's running agent, so its next message starts a fresh one on the chosen runtime and model.
     /// Returns whether an agent was running. The chat stays; the agent's own memory of it does not.
     func restartHerdrAgent(for bot: Bot) async throws -> Bool {
+        // A start ahead of time that is on its way is let through first, so the agent it starts is the one ended.
+        await herdrWarming[bot.id]?.value
         let backend = try herdrBackend(for: bot)
         guard let agent = backend.client.liveAgent(named: backend.agentName, in: try await backend.client.workspace()) else { return false }
         try await backend.client.end(agent)
+        herdrReadiness[bot.id] = nil
         return true
     }
 
@@ -231,6 +237,6 @@ extension AppStore {
     func forgetBotSettings(_ id: UUID) {
         for key in [HerdrServer.botKey(id), HerdrBackend.botTemplateKey(id), HerdrBackend.botModelKey(id), HerdrBackend.botSteerKey(id),
                     Self.herdrHelpersKey(id), Self.herdrAsksFirstKey(id), Self.herdrAskTimesKey(id), Self.herdrCreateTimesKey(id),
-                    Self.herdrProjectsKey(id), Self.herdrProjectsChangedKey(id)] { defaults.removeObject(forKey: key) }
+                    Self.herdrProjectsKey(id), Self.herdrProjectsChangedKey(id), Self.herdrKeepsReadyKey(id)] { defaults.removeObject(forKey: key) }
     }
 }

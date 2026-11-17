@@ -50,12 +50,12 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     #expect(frames.count == 5 && frames[1] == .comment("heartbeat") && whole.feed(Data(wire.utf8)) == frames, "one byte at a time or all at once, the same frames")
     let events: [HerdrEvent?] = frames.map { if case .event(let name, let data) = $0 { return HerdrEvent.decode(name: name, data: data) } else { return .heartbeat } }
     guard case .snapshot(let snapshot)? = events[0] else { Issue.record("the snapshot decodes"); return }
-    #expect(snapshot.core == "c" && snapshot.agent?.status?.state == "working" && snapshot.rows == [row(11, "task", "zażółć")] && snapshot.draft == .init(id: "m1", text: "Wor") && snapshot.tools.map(\.seq) == [3, 4] && snapshot.helpers == nil)
+    #expect(snapshot.core == "c" && snapshot.agent?.status?.state == "working" && snapshot.rows == [HerdrClient.Item(id: 11, kind: "task", text: "zażółć", state: "sent")] && snapshot.draft == .init(id: "m1", text: "Wor") && snapshot.tools.map(\.seq) == [3, 4] && snapshot.helpers == nil)
     #expect(events[2] == .draftAppend(id: "m1", offset: 3, text: "king żółć") && events[3] == nil && events[4] == .end(reason: "gone"), "an event this build does not know is skipped")
     #expect(HerdrEvent.decode(name: "draft", data: "null") == .draft(nil) && HerdrEvent.decode(name: "helpers", data: "null") == .helpers(nil) && HerdrEvent.decode(name: "tool", data: #"{"seq":4,"tool":"Bash","detail":"ls","finished":true,"failed":false}"#) == .tool(call(4, finished: true)))
     var log = HerdrClient.HelperLog(), draftID: String?
     for event in events.compactMap({ $0 }) { #expect(log.apply(event, draftID: &draftID)) }
-    #expect(log.tasks == [row(11, "task", "zażółć")] && log.tools.map(\.seq) == [3, 4] && log.draft == "Working żółć" && !log.apply(.draftAppend(id: "other", offset: 0, text: "x"), draftID: &draftID), "a helper's log is built from the same events")
+    #expect(log.tasks == [HerdrClient.Item(id: 11, kind: "task", text: "zażółć", state: "sent")] && log.tools.map(\.seq) == [3, 4] && log.draft == "Working żółć" && !log.apply(.draftAppend(id: "other", offset: 0, text: "x"), draftID: &draftID), "a helper's log is built from the same events")
 }
 
 /// One follower decides for the stream and for polling: what to show, when the reply is complete, when to give up.
@@ -87,21 +87,21 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
 
     var quiet = HerdrTurnFollower(after: 0, quietLimit: .seconds(45))
     quiet.take(rows: [row(1, "task", "a")]); quiet.take(agent: try agent("done"))
-    #expect(quiet.judgeAgent(now: start) == .waiting && quiet.drain() == [.status("Finishing")] && quiet.judgeAgent(now: start + .seconds(44)) == .waiting && quiet.judgeAgent(now: start + .seconds(46)) == .failed(.silent))
+    #expect(quiet.judgeAgent(now: start) == .waiting && quiet.drain() == [.status(.delivered(program: nil))] && quiet.judgeAgent(now: start + .seconds(44)) == .waiting && quiet.judgeAgent(now: start + .seconds(46)) == .failed(.silent))
     quiet.take(agent: try agent("working"))
-    #expect(quiet.judgeAgent(now: start + .seconds(50)) == .waiting && quiet.drain() == [.status("Working in Herdr")], "working again clears the quiet count")
+    #expect(quiet.judgeAgent(now: start + .seconds(50)) == .waiting && quiet.drain() == [.status(.working(program: nil))], "working again clears the quiet count")
     #expect(throws: HerdrClient.Failure.ended) { try quiet.ended() }
 }
 
 /// The whole of a turn on one connection: the reply as it grows, each tool step once, the saved reply at the end.
 @Test func aTurnIsFollowedOnTheStream() async throws {
-    let requests = Heard<String>(), partials = Heard<String>(), tools = Heard<String>(), statuses = Heard<String>(), notes = Heard<HerdrClient.LiveNote>()
+    let requests = Heard<String>(), partials = Heard<String>(), tools = Heard<String>(), statuses = Heard<HerdrTurnStatus>(), notes = Heard<HerdrClient.LiveNote>()
     let stream = sse("snapshot", snapshotJSON) + sse("draft_append", #"{"id":"m1","offset":3,"text":"king"}"#) + sse("tool", #"{"seq":4,"tool":"Bash","detail":"ls","finished":true,"failed":false}"#)
         + ": heartbeat\n\n" + sse("history", #"{"id":12,"kind":"reply","state":"received","text":"Done."}"#) + sse("draft", "null")
     let client = streamClient(scripted([(stream, nil)], requests: requests))
     let reply = try await client.reply(to: turn, status: { statuses.add($0) }, tool: { tools.add("\($0.seq) \($1) \($0.finished)") }, partial: { partials.add($0) }, live: { notes.add($0) })
     #expect(reply == "Done." && requests.all == ["after=10"], "one connection, resumed from the row before the turn")
-    #expect(partials.all == ["Wor", "Working"] && tools.all == ["4 true false", "4 false true"] && statuses.all == ["Working in Herdr"])
+    #expect(partials.all == ["Wor", "Working"] && tools.all == ["4 true false", "4 false true"] && statuses.all == [.working(program: nil)])
     #expect(notes.all.first == .following(true) && notes.all.contains(.helpers(nil)) && notes.all.last == .following(false))
 }
 

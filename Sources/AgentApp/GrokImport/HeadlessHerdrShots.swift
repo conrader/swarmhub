@@ -26,7 +26,11 @@ import SwiftUI
     /// Settings with nothing added and with a server and projects, and a bot's choice of projects in its Details.
     static let projects = ["herdr-w5-projects-key", "herdr-w5-projects-trust", "herdr-w5-projects-added", "herdr-w5-projects-first", "herdr-w5-projects-chosen",
                            "herdr-projects-settings-empty", "herdr-projects-settings", "herdr-projects-details"]
-    static let names = wizard + other + skills + projects
+    /// What a chat says while its turn waits: the agent program starting, the agent working, a tool step running, the
+    /// agent waiting for the person in its terminal; and the header of a bot whose agent is ready, or starting ahead
+    /// of the first message.
+    static let statuses = ["herdr-status-starting", "herdr-status-working", "herdr-status-step", "herdr-status-waiting", "herdr-status-ready", "herdr-status-warming"]
+    static let names = wizard + other + skills + projects + statuses
 
     /// The states of a server's project servers, in the order of `projects`. Everything is made up: the key, the
     /// addresses and the fingerprints belong to no machine.
@@ -257,5 +261,26 @@ import SwiftUI
         // The chat header names the model beside the bot.
         store.selectedBot = jarvis
         write(other[15], await png(AnyView(ChatView(bot: jarvis).frame(width: chat.width, height: 420)), store, NSSize(width: chat.width, height: 420)))
+
+        // What the chat says while a turn waits, state by state, and the header of a bot whose agent is ready or starting.
+        let program = store.herdrProgramName(for: boppy), small = NSSize(width: chat.width, height: 300)
+        var step = ToolActivity()
+        step.apply(ToolEvent(phase: .started, name: "read_file", preview: "Sources/Importer/CSVReader.swift", callID: "1"), at: .now - 60); step.apply(ToolEvent(phase: .completed, name: "read_file", callID: "1"), at: .now - 58)
+        step.apply(ToolEvent(phase: .started, name: "bash", preview: "swift test --filter CSVReaderTests", callID: "2"), at: .now - 40)
+        let waiting: [(status: HerdrTurnStatus, seconds: TimeInterval, activity: ToolActivity?)] =
+            [(.starting(program: program), 42, nil), (.working(program: program), 8, nil), (.working(program: program), 72, step), (.blocked(program: program), 125, step)]
+        for (name, state) in zip(statuses, waiting) {
+            let reply = ChatMessage(role: .assistant, content: "", createdAt: .now - state.seconds, isStreaming: true, metadata: [TurnKey.agent: state.status.code], turnState: .incomplete)
+            reply.activity = state.activity
+            boppy.messages = [ChatMessage(role: .user, content: "hi", createdAt: .now - state.seconds), reply]
+            store.selectedBot = boppy
+            write(name, await png(AnyView(ChatView(bot: boppy).frame(width: small.width, height: small.height)), store, small))
+        }
+        boppy.messages = [ChatMessage(role: .user, content: "hi"), ChatMessage(role: .assistant, content: "Hi! What would you like to work on?")]
+        for (name, readiness) in [(statuses[4], HerdrAgentReadiness.ready), (statuses[5], .starting(program: program))] {
+            store.herdrReadiness[boppy.id] = readiness
+            write(name, await png(AnyView(ChatView(bot: boppy).frame(width: small.width, height: small.height)), store, small))
+        }
+        store.herdrReadiness[boppy.id] = nil
     }
 }
