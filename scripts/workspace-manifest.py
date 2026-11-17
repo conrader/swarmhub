@@ -5,11 +5,17 @@
       On the machine that built PROGRAM: asks it what it is and writes PROGRAM.asset.json
       (its kind of machine, name, size and SHA-256).
 
+  workspace-manifest.py asset PROGRAM --target ARCH-OS --like NATIVE_PROGRAM
+      For a PROGRAM the build machine may not be able to run (the Intel program built on an Apple silicon Mac):
+      NATIVE_PROGRAM, the same build for this machine, is asked instead, and PROGRAM's own header must say it is
+      for ARCH-OS. Where PROGRAM does run (Rosetta), it is asked too and must say the same.
+
   workspace-manifest.py manifest --tag vX.Y.Z --notes TEXT --out FILE FRAGMENT.asset.json...
       Anywhere: joins the fragments of one version into the manifest of a release. The file is then signed with
       the release key (scripts/release.sh); the signature is over exactly its bytes, so it is never edited after.
 """
 import argparse
+import errno
 import hashlib
 import json
 from pathlib import Path
@@ -23,12 +29,50 @@ VERSION = re.compile(r"[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}")
 NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}")
 
 
-def describe(program):
-    """The fragment for one built program, from what the program itself reports."""
-    said = json.loads(subprocess.run([str(program), "version", "--json"], check=True, capture_output=True, text=True, timeout=30).stdout)
+def report(program):
+    """What a program says it is. Only a program this machine can run answers."""
+    return json.loads(subprocess.run([str(program), "version", "--json"], check=True, capture_output=True, text=True, timeout=30).stdout)
+
+
+def built_for(data):
+    """The kind of machine a program file is for, read from its header (64-bit Mach-O or ELF); None for anything else."""
+    if data[:4] == b"\xcf\xfa\xed\xfe":
+        arch = {0x01000007: "x86_64", 0x0100000C: "aarch64"}.get(int.from_bytes(data[4:8], "little"))
+        return arch and arch + "-macos"
+    if data[:6] == b"\x7fELF\x02\x01":
+        arch = {0x3E: "x86_64", 0xB7: "aarch64"}.get(int.from_bytes(data[18:20], "little"))
+        return arch and arch + "-linux"
+    return None
+
+
+def describe(program, target=None, like=None):
+    """The fragment for one built program, from what the program itself reports.
+
+    With `like`, the report is that of the same build for this machine, and the fragment names `target` instead:
+    the program's header must be for `target`, and when the program does run here its own report must agree.
+    """
+    said = report(like or program)
     if not VERSION.fullmatch(said["version"]):
-        raise ValueError(f"{program} reports version {said['version']!r}; a release is X.Y.Z")
+        raise ValueError(f"{like or program} reports version {said['version']!r}; a release is X.Y.Z")
     data = program.read_bytes()
+    if like:
+        if target == said["target"] or target.rpartition("-")[2] != said["target"].rpartition("-")[2]:
+            raise ValueError(f"{like} is for {said['target']}; --like takes the same build for another kind of machine with the same system as {target}")
+        if built_for(data) != target:
+            raise ValueError(f"{program} is not a program for {target}")
+        said = {**said, "target": target}
+        try:
+            own = report(program)
+        except OSError as error:
+            # "Exec format error", or macOS's "Bad CPU type in executable": this machine cannot run it.
+            if error.errno not in (errno.ENOEXEC, getattr(errno, "EBADARCH", errno.ENOEXEC)):
+                raise
+            print(f"{program.name} cannot run on this machine; described from {like.name}.", file=sys.stderr)
+        else:
+            for key in ("version", "api", "api_min", "target"):
+                if own[key] != said[key]:
+                    raise ValueError(f"{program} reports {key} {own[key]!r}, and {like} makes it {said[key]!r}")
+            print(f"{program.name} runs on this machine and reports what {like.name} does.", file=sys.stderr)
     return {"product": PRODUCT, "version": said["version"], "api": said["api"], "api_min": said["api_min"],
             "asset": {"target": said["target"], "name": program.name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}}
 
@@ -61,6 +105,8 @@ def main(arguments):
     commands = parser.add_subparsers(dest="command", required=True)
     asset = commands.add_parser("asset")
     asset.add_argument("program", type=Path)
+    asset.add_argument("--target", help="With --like: the kind of machine PROGRAM is for, e.g. x86_64-macos")
+    asset.add_argument("--like", type=Path, help="With --target: the same build for this machine, asked in PROGRAM's place")
     manifest = commands.add_parser("manifest")
     manifest.add_argument("--tag", required=True)
     manifest.add_argument("--notes", required=True, help="One or two plain sentences on what changed for the person")
@@ -71,8 +117,10 @@ def main(arguments):
     args = parser.parse_args(arguments)
     try:
         if args.command == "asset":
+            if bool(args.target) != bool(args.like):
+                raise ValueError("--target and --like go together")
             out = args.program.with_name(args.program.name + ".asset.json")
-            out.write_text(json.dumps(describe(args.program), indent=2) + "\n")
+            out.write_text(json.dumps(describe(args.program, args.target, args.like), indent=2) + "\n")
         else:
             fragments = [json.loads(path.read_text()) for path in args.fragments]
             out = args.out
