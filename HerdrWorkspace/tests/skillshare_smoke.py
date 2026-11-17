@@ -97,6 +97,8 @@ class Scratch:
             "#!/bin/sh\n"
             f'case "$HOME" in {self.home}) ;; *) echo "refusing to run outside the scratch home" >&2; exit 97;; esac\n'
             'if [ "$1" = upgrade ]; then echo "$*" >> "$HOME/upgrade.log"; echo "Upgraded skillshare"; exit 0; fi\n'
+            # The one command that would ask the network: which release is newest.
+            'if [ "$1" = updates ]; then echo \'{"CurrentVersion":"0.30.8","LatestVersion":"99.0.0","UpdateAvailable":true}\'; exit 0; fi\n'
             'if [ "$1" = version ] && [ -s "$HOME/upgrade.log" ]; then echo "skillshare v99.0.0"; exit 0; fi\n'
             f'exec {skillshare} "$@"\n')
         self.launcher.chmod(0o755)
@@ -406,6 +408,112 @@ def install_update_remove(workspace, scratch):
     assert not settings.exists() or "make check" not in settings.read_text()
 
 
+def repository_and_server(workspace, scratch):
+    """Step c: the library's Git repository, a conflict with a choice per file, and skillshare on this server."""
+    source = workspace.get("/api/skillshare/source")
+    assert source["repo"] and source["folder"] == str(scratch.source) and source["remote"] is None, source
+    assert source["file_count"] > 0 and source["problem"] is None and "top" not in source, source
+    for route in ("pull", "push", "sync"):
+        refused = workspace.post(f"/api/skillshare/source/{route}", {"confirm": True}, expect=409)
+        assert "no remote" in refused["error"], refused
+    workspace.post("/api/skillshare/source/push", {}, expect=422)
+    workspace.post("/api/skillshare/source/push", {"confirm": True, "message": "-m sneaky"}, expect=422)
+    workspace.post("/api/skillshare/source/sync", {"message": "no yes"}, expect=422)
+
+    bare = scratch.root / "remotes/library.git"
+    scratch.git("init", "-q", "--bare", str(bare), cwd=scratch.root)
+    scratch.git("remote", "add", "origin", f"file://{bare}", cwd=scratch.source)
+    assert workspace.get("/api/skillshare/source")["remote"] == f"file://{bare}"[:-4], workspace.get("/api/skillshare/source")
+    pushed = workspace.post("/api/skillshare/source/push", {"confirm": True, "message": "First"})
+    source = pushed["source"]
+    assert pushed["conflict"] is None and "library" in pushed and source["upstream"].startswith("origin/"), pushed
+    assert (source["ahead"], source["behind"], source["file_count"]) == (0, 0, 0), source
+    branch = source["branch"]
+
+    # Another machine changes the library; a pull brings it here and to the agent programs.
+    other = scratch.root / "other"
+    scratch.git("clone", "-q", f"file://{bare}", str(other), cwd=scratch.root)
+
+    def elsewhere(changes, message):
+        for path, text in changes.items():
+            (other / path).parent.mkdir(parents=True, exist_ok=True)
+            (other / path).write_text(text)
+        scratch.git("add", "-A", cwd=other)
+        scratch.git("commit", "-qm", message, cwd=other)
+        scratch.git("push", "-q", "origin", f"HEAD:{branch}", cwd=other)
+
+    elsewhere({"gamma/SKILL.md": "---\nname: gamma\ndescription: From the other machine.\n---\n\n# gamma\n"}, "gamma")
+    assert workspace.get("/api/skillshare/source")["behind"] == 0
+    assert workspace.get("/api/skillshare/source", fetch="true")["behind"] == 1
+    pulled = workspace.post("/api/skillshare/source/pull")
+    assert pulled["conflict"] is None and pulled["source"]["behind"] == 0, pulled
+    assert by_id(pulled["library"])["skills:gamma"]["state"] == "in_sync", by_id(pulled["library"])["skills:gamma"]
+    assert (scratch.home / ".claude/skills/gamma/SKILL.md").is_file()
+
+    # Both sides change the same two files. Nothing is changed until there is a choice for each.
+    alpha, beta = scratch.source / "alpha/SKILL.md", scratch.source / "beta/SKILL.md"
+    elsewhere({"alpha/SKILL.md": alpha.read_text() + "\nA line from the other machine.\n",
+               "beta/SKILL.md": beta.read_text() + "\nBeta from the other machine.\n"}, "theirs")
+    alpha.write_text(alpha.read_text() + "\nA line from this server.\n")
+    beta.write_text(beta.read_text() + "\nBeta from this server.\n")
+    refused = workspace.post("/api/skillshare/source/pull", expect=409)
+    assert "not saved" in refused["error"], refused
+    stopped = workspace.post("/api/skillshare/source/sync", {"confirm": True, "message": "Mine"})
+    conflict = stopped["conflict"]
+    assert conflict["push"] and [file["path"] for file in conflict["files"]] == ["alpha/SKILL.md", "beta/SKILL.md"], stopped
+    assert "from this server" in conflict["files"][0]["mine"] and "from the other machine" not in conflict["files"][0]["mine"]
+    assert "from the other machine" in conflict["files"][0]["theirs"] and not conflict["files"][0]["cut"], conflict
+    assert (stopped["source"]["ahead"], stopped["source"]["behind"], stopped["source"]["file_count"]) == (1, 1, 0), stopped["source"]
+    assert not (scratch.source / ".git/MERGE_HEAD").exists() and "from this server" in alpha.read_text()
+    workspace.post("/api/skillshare/source/resolve", {"push": True, "choices": {"alpha/SKILL.md": "theirs"}}, expect=422)
+    workspace.post("/api/skillshare/source/resolve", {"confirm": True, "choices": {"alpha/SKILL.md": "both"}}, expect=422)
+    # A choice for one of two files: asked again, nothing changed.
+    again = workspace.post("/api/skillshare/source/resolve", {"confirm": True, "push": True, "choices": {"alpha/SKILL.md": "theirs"}})
+    assert [file["path"] for file in again["conflict"]["files"]] == ["alpha/SKILL.md", "beta/SKILL.md"], again
+    assert not (scratch.source / ".git/MERGE_HEAD").exists() and "from this server" in alpha.read_text()
+    resolved = workspace.post("/api/skillshare/source/resolve", {"confirm": True, "push": True, "choices": {
+        "alpha/SKILL.md": "theirs", "beta/SKILL.md": "mine", "../../outside": "theirs"}})
+    assert resolved["conflict"] is None, resolved
+    assert (resolved["source"]["ahead"], resolved["source"]["behind"], resolved["source"]["file_count"]) == (0, 0, 0), resolved["source"]
+    assert "from the other machine" in alpha.read_text() and "from this server" not in alpha.read_text()
+    assert "from this server" in beta.read_text() and "from the other machine" not in beta.read_text()
+    scratch.git("pull", "-q", "origin", branch, cwd=other)
+    assert "Beta from this server." in (other / "beta/SKILL.md").read_text()
+    assert "from the other machine" in (scratch.home / ".claude/skills/alpha/SKILL.md").read_text()
+    workspace.post("/api/skillshare/source/resolve", {"confirm": True, "choices": {"alpha/SKILL.md": "mine"}}, expect=409)
+
+    # Both sides install a skill: only skillshare's own record differs, and nobody is asked.
+    record = json.loads((other / ".metadata.json").read_text())
+    record["entries"]["elsewhere"] = {"source": "example.com/x/elsewhere", "type": "github", "installed_at": "2026-11-17T10:00:00Z"}
+    elsewhere({".metadata.json": json.dumps(record, indent=2) + "\n",
+               "elsewhere/SKILL.md": "---\nname: elsewhere\ndescription: Installed on the other machine.\n---\n"}, "install elsewhere")
+    good_address = f"file://{scratch.root}/remotes/good.git"
+    found = workspace.post("/api/skillshare/install/inspect", {"source": good_address})
+    workspace.post("/api/skillshare/install", {"ticket": found["ticket"], "skills": ["commit-helper"]})
+    both = workspace.post("/api/skillshare/source/sync", {"confirm": True})
+    assert both["conflict"] is None and (both["source"]["ahead"], both["source"]["behind"]) == (0, 0), both
+    entries = json.loads((scratch.source / ".metadata.json").read_text())["entries"]
+    assert {"elsewhere", "commit-helper", "pdf-tools"} <= set(entries), sorted(entries)
+    assert {"skills:elsewhere", "skills:commit-helper"} <= set(by_id(both["library"]))
+
+    # skillshare on this server, and its update, which the launcher stands in for.
+    server = workspace.get("/api/skillshare/machine")
+    assert server["installed"] and server["version"] and server["host"] and server["problem"] is None, server
+    assert server["latest"] is None and server["update_available"] is None, server
+    assert server["source"]["repo"] and server["source"]["remote"] and server["waiting"] == 0, server
+    assert sorted(target["name"] for target in server["targets"]) == ["claude", "universal"], server["targets"]
+    assert server["doctor"]["warnings"] >= 0 and all(note["status"] in ("warning", "error") for note in server["doctor"]["notes"])
+    newer = workspace.get("/api/skillshare/machine", check="true")
+    assert (newer["latest"], newer["update_available"]) == ("99.0.0", True), newer
+    workspace.post("/api/skillshare/upgrade", {}, expect=422)
+    workspace.post("/api/skillshare/upgrade", {"confirm": False}, expect=422)
+    assert not (scratch.home / "upgrade.log").exists()
+    upgraded = workspace.post("/api/skillshare/upgrade", {"confirm": True})
+    assert upgraded["version"] == "99.0.0" and "Upgraded" in upgraded["output"], upgraded
+    assert (scratch.home / "upgrade.log").read_text() == "upgrade --cli --force\n"
+    (scratch.home / "upgrade.log").unlink()
+
+
 def main(bridge, skillshare):
     assert Path(bridge).is_file() and Path(skillshare).is_file(), (bridge, skillshare)
     with tempfile.TemporaryDirectory(prefix="shskill-", dir=os.environ.get("SWARMHUB_TEST_TMPDIR", "/tmp")) as temp:
@@ -424,8 +532,9 @@ def main(bridge, skillshare):
             workspace = Workspace(port, token)
             code, update = workspace.wait(process)
             assert code == 200 and update["bridge"]["api"] >= 2, update
-            library_and_previews(workspace, scratch)
-            install_update_remove(workspace, scratch)
+            for step in (library_and_previews, install_update_remove, repository_and_server):
+                step(workspace, scratch)
+                print(f"{step.__doc__.split(':')[0].lower()} ok", flush=True)
             print("skillshare smoke: ok")
         except BaseException:
             log.flush()

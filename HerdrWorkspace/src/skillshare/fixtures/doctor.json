@@ -1,0 +1,158 @@
+{
+  "checks": [
+    {
+      "name": "source",
+      "status": "pass",
+      "message": "Source: /home/me/.config/skillshare/skills (3 skills)"
+    },
+    {
+      "name": "agents_source",
+      "status": "pass",
+      "message": "Agents source: /home/me/.config/skillshare/agents (1 agents)"
+    },
+    {
+      "name": "skillignore",
+      "status": "pass",
+      "message": ".skillignore: 1 patterns, 1 skills ignored",
+      "details": [
+        "beta",
+        "---",
+        "beta"
+      ]
+    },
+    {
+      "name": "symlink_support",
+      "status": "pass",
+      "message": "Link support: OK"
+    },
+    {
+      "name": "theme",
+      "status": "pass",
+      "message": "Theme: colors disabled (NO_COLOR is set)",
+      "details": [
+        "Unset NO_COLOR to re-enable colors"
+      ]
+    },
+    {
+      "name": "git_status",
+      "status": "warning",
+      "message": "Git: 6 uncommitted change(s)"
+    },
+    {
+      "name": "skills_validity",
+      "status": "pass",
+      "message": "All skills have valid SKILL.md"
+    },
+    {
+      "name": "skill_integrity",
+      "status": "pass",
+      "message": "Skill integrity: 1/1 verified"
+    },
+    {
+      "name": "bundled_references",
+      "status": "pass",
+      "message": "No broken bundled references"
+    },
+    {
+      "name": "skill_targets_field",
+      "status": "pass",
+      "message": "All skill target references are valid"
+    },
+    {
+      "name": "agent_target_claude",
+      "status": "warning",
+      "message": "Agent target claude: drift (0/1 agents linked)",
+      "details": [
+        "path: /home/me/.claude/agents",
+        "mode: merge"
+      ]
+    },
+    {
+      "name": "targets",
+      "status": "pass",
+      "message": "All 2 target(s) OK"
+    },
+    {
+      "name": "shared_target_paths",
+      "status": "pass",
+      "message": "No shared target paths"
+    },
+    {
+      "name": "cross_target_discovery",
+      "status": "pass",
+      "message": "No cross-target discovery overlap"
+    },
+    {
+      "name": "sync_drift",
+      "status": "pass",
+      "message": "No sync drift detected"
+    },
+    {
+      "name": "broken_symlinks",
+      "status": "pass",
+      "message": "No broken symlinks"
+    },
+    {
+      "name": "duplicate_skills",
+      "status": "pass",
+      "message": "No duplicate skills"
+    },
+    {
+      "name": "mcp",
+      "status": "error",
+      "message": "MCP: 4 error(s), 2 warning(s)",
+      "details": [
+        "docs: bearerToken reads DOCS_TOKEN, which is not set",
+        "local: env API_KEY reads COMPANY_API_KEY, which is not set",
+        "local: env REGION reads MY_REGION, which is not set",
+        "local: command company-mcp was not found on PATH",
+        "docs → claude: not synced yet; run skillshare sync mcp",
+        "local → claude: not synced yet; run skillshare sync mcp"
+      ]
+    },
+    {
+      "name": "hooks",
+      "status": "warning",
+      "message": "Hooks: 1 warning(s)",
+      "details": [
+        "check → claude: not synced (add)"
+      ]
+    },
+    {
+      "name": "plugins",
+      "status": "info",
+      "message": "No plugins configured"
+    },
+    {
+      "name": "backup",
+      "status": "pass",
+      "message": "Backups: none found"
+    },
+    {
+      "name": "trash",
+      "status": "pass",
+      "message": "Trash: 3 item(s) (406 B), oldest \u003c1 day"
+    },
+    {
+      "name": "cli_version",
+      "status": "pass",
+      "message": "CLI: 0.30.8"
+    },
+    {
+      "name": "skill_version",
+      "status": "warning",
+      "message": "Skill: not found"
+    }
+  ],
+  "summary": {
+    "total": 24,
+    "pass": 18,
+    "warnings": 4,
+    "errors": 1,
+    "info": 1
+  },
+  "version": {
+    "current": "0.30.8",
+    "update_available": false
+  }
+}

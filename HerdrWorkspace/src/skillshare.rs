@@ -39,12 +39,14 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 
+mod health;
 mod install;
 mod library;
 mod mcp;
 mod outcome;
 mod parse;
 mod read;
+mod source;
 
 const ENV: &str = "SWARMHUB_SKILLSHARE";
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
@@ -81,6 +83,7 @@ pub(crate) fn routes() -> Router<Workspace> {
         .route("/api/skillshare/targets/addable", get(addable))
         .merge(library::routes())
         .merge(install::routes())
+        .merge(source::routes())
 }
 
 /// Which library a request is about: the server account's global one, or the one of a project folder.
