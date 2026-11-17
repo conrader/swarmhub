@@ -103,4 +103,33 @@ struct ReplyLayoutTests {
         #expect(ReplyLayout.segments(content: "Text.", activity: nil) == nil)
         #expect(ReplyLayout.segments(content: "Text.", activity: activity([nil])) == nil)
     }
+
+    // MARK: Cards in a reply with steps
+
+    @Test @MainActor func aQuestionAfterStepsIsAnsweredAndStaysMarked() throws {
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in TestBackend() }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let bot = Bot(name: "Infra", backend: .herdr)
+        store.bots = [bot]; store.selectedBot = bot
+        let text = "I looked at the build box.\n\nIt can publish in two ways.\n\n```choices\nWhich one?\n- After every build\n- Once a night\n```\n\nTell me when you have decided."
+        let reply = ChatMessage(role: .assistant, content: text, turnState: .finished)
+        reply.activity = activity([offset(of: "\n\nIt can", in: text), offset(of: "ways.", in: text)])
+        bot.messages = [ChatMessage(role: .user, content: "Publish the tokens."), reply]
+        let segments = try #require(ReplyLayout.segments(content: text, activity: reply.activity))
+        // Two rows of steps divide the prose before the card: three pieces of prose where the whole reply has one.
+        #expect(segments.count == 5)
+        let indexes = ReplyLayout.blockIndexes(segments, content: text)
+        let whole = ChatCardParser.parse(text)
+        let place = try #require(whole.firstIndex { if case .choices = $0 { true } else { false } })
+        #expect(indexes.flatMap { $0 }.filter { $0 >= 0 } == [place], "the card has the place it has in the whole reply")
+        // The pick the card sends is accepted and remembered under that place, where the card looks for it.
+        #expect(store.performCardAction(target: .bot(botID: bot.id), sourceID: reply.id, index: place, expected: whole[place], choice: "Once a night"))
+        #expect(reply.metadata["picked.\(place)"] == "Once a night" && store.errorMessage == nil)
+        // A second card keeps its own place, also behind another row of steps.
+        let two = text + "\n\n```choices\nAnd when?\n- Now\n- Tonight\n```"
+        let more = activity([offset(of: "\n\nIt can", in: two), offset(of: "Tell me", in: two)])
+        let both = ReplyLayout.blockIndexes(try #require(ReplyLayout.segments(content: two, activity: more)), content: two).flatMap { $0 }.filter { $0 >= 0 }
+        let cards = ChatCardParser.parse(two).enumerated().filter { if case .choices = $0.element { true } else { false } }.map(\.offset)
+        #expect(both == cards && cards.count == 2)
+    }
 }
+

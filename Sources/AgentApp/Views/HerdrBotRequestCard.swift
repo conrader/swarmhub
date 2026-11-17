@@ -65,7 +65,7 @@ struct HerdrBotRequestCard: View {
                             if creating.contains(item.id) { ProgressView().controlSize(.small) }
                             else {
                                 Button("Not now") { store.refuseHerdrBot(item, manager: manager) }
-                                if !item.taken { Button("Create") { create(item) }.buttonStyle(.borderedProminent) }
+                                if !item.taken { Button("Create") { create(item) }.buttonStyle(.appleProminent) }
                             }
                         }
                     }

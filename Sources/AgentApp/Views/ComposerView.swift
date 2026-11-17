@@ -34,7 +34,8 @@ struct ComposerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(suggestions, id: \.self) { name in
                         Button { text = GroupRouting.complete(text, with: name) } label: { Text("@" + name).font(.system(size: 12, weight: .medium)).padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 24, alignment: .leading).contentShape(Rectangle()) }
-                            .buttonStyle(.plain).background(name == suggestions.first ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .buttonStyle(.plain).foregroundStyle(name == suggestions.first ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
+                            .background(name == suggestions.first ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
                     }
                 }.padding(4).background(AppColor.card, in: RoundedRectangle(cornerRadius: 9)).overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5)).frame(maxWidth: 260)
             }
@@ -151,13 +152,13 @@ enum ComposerMetrics {
 }
 
 /// Send, Stop and Add to this answer: a 28 pt circle drawn here, so it fills its slot exactly (the AppKit round bezels
-/// size themselves and overflowed it). Prominent is the accent with a white glyph.
+/// size themselves and overflowed it). Prominent is the accent with a glyph in the colour that reads on it.
 private struct ComposerRoundButtonStyle: ButtonStyle {
     let prominent: Bool
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .foregroundStyle(prominent ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
             .frame(width: ComposerMetrics.control, height: ComposerMetrics.control)
             .background(Circle().fill(prominent ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.quaternary)))
             .contentShape(Circle())

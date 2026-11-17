@@ -56,7 +56,7 @@ struct SidebarView: View {
                 // One button: the person's initial and "Settings" (two buttons that opened the same window read as two things).
                 SettingsLink {
                     HStack(spacing: 8) {
-                        Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                        Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(AppColor.onAccent)
                             .frame(width: 22, height: 22).background(Circle().fill(.tint))
                         Text("Settings").font(.system(size: 13, weight: .medium))
                     }.padding(.leading, 5).padding(.trailing, 14)

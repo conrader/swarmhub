@@ -37,6 +37,26 @@ enum ReplyLayout {
         return segments
     }
 
+    /// For each segment, the place each of its blocks has among the blocks of the whole reply (`ChatCardParser`);
+    /// empty for a steps segment. A card (a question with options, a draft) is answered and remembered by that
+    /// place, and the store checks the answer against the whole reply. Dividing the text for the steps rows makes
+    /// more prose blocks than the whole reply has, so the blocks are matched by what they are: the first card of the
+    /// segments is the first card of the reply. Prose has no place of its own (-1); nothing is stored for it.
+    static func blockIndexes(_ segments: [ReplySegment], content: String) -> [[Int]] {
+        func isProse(_ block: ChatBlock) -> Bool { if case .markdown = block { true } else { false } }
+        let whole = ChatCardParser.parse(SwarmhubBlock.visibleText(content))
+        let places = whole.indices.filter { !isProse(whole[$0]) }
+        var next = 0
+        return segments.map { segment in
+            guard case .text(let text) = segment else { return [] }
+            return ChatCardParser.parse(SwarmhubBlock.visibleText(text)).map { block in
+                guard !isProse(block), next < places.count, whole[places[next]] == block else { return -1 }
+                defer { next += 1 }
+                return places[next]
+            }
+        }
+    }
+
     /// The reply's last text segment (its conclusion), for the sidebar preview, notifications and Copy reply; the whole
     /// text when the reply has no ordered steps.
     static func finalText(content: String, activity: ToolActivity?) -> String {

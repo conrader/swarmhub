@@ -17,7 +17,7 @@ struct SetupEmptyState: View {
                 SetupAppMark(size: 84).padding(.bottom, 6)
                 Text(SimpleCopy.emptyTitle).font(.system(size: 26, weight: .bold))
                 Text(SimpleCopy.herdrEmptyDetail).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Button(SimpleCopy.emptySetUp) { store.openSetup(openWindow: openWindow) }.buttonStyle(.borderedProminent).controlSize(.large).padding(.top, 10)
+                Button(SimpleCopy.emptySetUp) { store.openSetup(openWindow: openWindow) }.buttonStyle(.appleProminent).controlSize(.large).padding(.top, 10)
                 Button(SetupCopy.sampleLink) { store.loadSamples() }.buttonStyle(.plain).foregroundStyle(.tint)
             }.padding(40).frame(maxWidth: .infinity, maxHeight: .infinity).background(AppColor.chat)
         }

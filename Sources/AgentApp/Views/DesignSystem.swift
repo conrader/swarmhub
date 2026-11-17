@@ -25,10 +25,6 @@ enum AppTheme {
         }
     }
 
-    /// What is written or drawn on a fill of the accent (a tick on a chosen tile, the label of a default button):
-    /// white, except on Graphite, whose fill is the text colour itself.
-    static func onAccent(for name: String) -> Color { name == "Graphite" ? Color(nsColor: .textBackgroundColor) : .white }
-
     static func colorScheme(for preference: String) -> ColorScheme? {
         switch preference {
         case "Light": .light
@@ -51,6 +47,10 @@ enum AppColor {
     static let selection = adaptive(Palette.selection)
     /// The line around a control that is not chosen: 3:1 on every surface above, so the control's edge can be seen.
     static let outline = adaptive(Palette.outline)
+    /// What is written or drawn on a fill of the accent (the name on a chosen tile, the tick, a default button's label).
+    static let onAccent = adaptive(Palette.onAccent)
+    /// Small marks drawn straight on a surface: 4.5:1 on every one of them.
+    static let mark = adaptive(Palette.mark)
 
     // The icon's faces, for tiles and marks.
     static let clay = adaptive(light: 0xD98F58, dark: 0xE0A070)

@@ -58,7 +58,7 @@ struct SoftwareUpdatePane: View {
             VStack(spacing: 14) {
                 HeroHeader(title: summary.headline, detail: Self.detail(summary, servers: servers.map(\.name))) { UpdateMark(summary: summary) }
                 HStack(spacing: 10) {
-                    if let action = summary.action { Button(action) { updateAll(summary) }.buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction) }
+                    if let action = summary.action { Button(action) { updateAll(summary) }.buttonStyle(.appleProminent).controlSize(.large).keyboardShortcut(.defaultAction) }
                     Button("Check Now") { checkNow() }.controlSize(.large).disabled(summary.isChecking || summary.isWorking || app.checking)
                 }
             }.frame(maxWidth: .infinity)
@@ -119,7 +119,7 @@ struct SoftwareUpdatePane: View {
                     if case .newer(let found) = release, let page = found.pageURL { Link(SimpleCopy.openRelease(found.name ?? found.tag), destination: page).font(.callout) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            if app.available != nil { Button("Update Now…") { updater.checkForUpdates() }.buttonStyle(.borderedProminent) }
+            if app.available != nil { Button("Update Now…") { updater.checkForUpdates() }.buttonStyle(.appleProminent) }
             else if app.checking { ProgressView().controlSize(.small) }
             else if app.state == .upToDate { Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(AppColor.good).accessibilityLabel("Up to date") }
         }.appleCard(padding: 12)
@@ -198,7 +198,7 @@ private struct ServerUpdateCard: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
                 if state.isBusy { ProgressView().controlSize(.small) }
-                else if state.installable != nil { Button("Update", action: update).buttonStyle(.borderedProminent) }
+                else if state.installable != nil { Button("Update", action: update).buttonStyle(.appleProminent) }
                 else if good { Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(AppColor.good).accessibilityLabel("Up to date") }
                 else if warns { Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 17)).foregroundStyle(AppColor.caution).accessibilityLabel("Needs attention") }
                 Menu {

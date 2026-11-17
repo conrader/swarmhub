@@ -48,23 +48,64 @@ struct HeroHeader<Mark: View>: View {
     }
 }
 
+/// How a chosen thing looks, everywhere in the app: it is filled with the accent and carries a tick. A thing that
+/// is not chosen has an outline that can be seen on every surface (3:1). A hairline in the accent alone, which is
+/// what marked a choice before, could not be told from the tile beside it on a dark window.
+enum Chosen {
+    /// How strongly a large card that is chosen is washed with the accent; small tiles are filled with it.
+    static let wash = 0.18
+    static let line: CGFloat = 2
+}
+
+/// The mark of a choice: a filled circle with a tick when chosen, an empty ring when not. `multiple`: a tick box.
+struct ChosenMark: View {
+    let selected: Bool
+    var multiple = false
+    var size: CGFloat = 18
+
+    var body: some View {
+        let shape = multiple ? AnyInsettableShape(RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)) : AnyInsettableShape(Circle())
+        ZStack {
+            if selected {
+                shape.fill(.tint)
+                Image(systemName: "checkmark").font(.system(size: size * 0.56, weight: .bold)).foregroundStyle(AppColor.onAccent)
+            } else {
+                shape.strokeBorder(AppColor.outline, lineWidth: 1.5)
+            }
+        }.frame(width: size, height: size).accessibilityHidden(true)
+    }
+}
+
+/// A circle or a rounded square, as one type.
+struct AnyInsettableShape: InsettableShape {
+    private let make: @Sendable (CGRect, CGFloat) -> Path
+    init<S: InsettableShape>(_ shape: S) { make = { rect, amount in shape.inset(by: amount).path(in: rect) } }
+    private var amount: CGFloat = 0
+    func path(in rect: CGRect) -> Path { make(rect, amount) }
+    func inset(by more: CGFloat) -> AnyInsettableShape { var copy = self; copy.amount += more; return copy }
+}
+
 /// A raised surface for one group of things that belong together.
 private struct AppleCard: ViewModifier {
     var padding: CGFloat
     var selected = false
+    /// One of several to choose from: it is outlined also when it is not the chosen one.
+    var choice = false
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous)
         content.padding(padding).frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppColor.raised, in: RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous).strokeBorder(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(Color.primary.opacity(0.06)), lineWidth: selected ? 2 : 1) }
+            .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(Chosen.wash)) : AnyShapeStyle(.clear), in: shape)
+            .background(AppColor.raised, in: shape)
+            .overlay { shape.strokeBorder(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(choice ? AppColor.outline : Color.primary.opacity(0.06)), lineWidth: selected ? Chosen.line : 1) }
     }
 }
 
 extension View {
-    func appleCard(padding: CGFloat = 14, selected: Bool = false) -> some View { modifier(AppleCard(padding: padding, selected: selected)) }
+    func appleCard(padding: CGFloat = 14, selected: Bool = false, choice: Bool = false) -> some View { modifier(AppleCard(padding: padding, selected: selected, choice: choice)) }
 }
 
-/// One of a few large options: a symbol tile, a title and one line. The chosen one is outlined and ticked; a second
-/// click (or a double click) can go on at once.
+/// One of a few large options: a symbol tile, a title and one line. The chosen one is washed with the accent,
+/// outlined and ticked; a second click (or a double click) can go on at once.
 struct OptionCard: View {
     let symbol: String
     var colour: Color = AppColor.sky
@@ -89,11 +130,10 @@ struct OptionCard: View {
                 if let badge {
                     Text(badge).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill(Color.primary.opacity(0.08)))
                 } else {
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle").font(.system(size: 18))
-                        .foregroundStyle(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.tertiary)).accessibilityHidden(true)
+                    ChosenMark(selected: selected, multiple: multiple, size: 20)
                 }
             }
-            .appleCard(padding: 12, selected: selected).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
+            .appleCard(padding: 12, selected: selected, choice: badge == nil).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
         }
         .buttonStyle(.plain)
         .simultaneousGesture(TapGesture(count: 2).onEnded { _ in open?() })
@@ -102,7 +142,8 @@ struct OptionCard: View {
     }
 }
 
-/// One tile of a gallery: whatever the choice looks like, outlined and ticked when it is the chosen one.
+/// One tile of a gallery: whatever the choice looks like. The chosen one is filled with the accent, its words are
+/// written in the colour that reads on it, and it carries a tick; the others are outlined.
 struct ChoiceTile<Label: View>: View {
     let selected: Bool
     var name: String? = nil
@@ -110,11 +151,18 @@ struct ChoiceTile<Label: View>: View {
     @ViewBuilder let label: () -> Label
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: AppleMetrics.tileCorner, style: .continuous)
         Button(action: action) {
-            label().frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 6)
-                .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(0.12)) : AnyShapeStyle(AppColor.raised), in: RoundedRectangle(cornerRadius: AppleMetrics.tileCorner, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: AppleMetrics.tileCorner, style: .continuous).strokeBorder(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(Color.primary.opacity(0.08)), lineWidth: selected ? 2 : 1) }
-                .contentShape(RoundedRectangle(cornerRadius: AppleMetrics.tileCorner, style: .continuous))
+            HStack(alignment: .center, spacing: 6) {
+                label().frame(maxWidth: .infinity, alignment: .leading)
+                if selected { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).accessibilityHidden(true) }
+            }
+            // `.primary` and `.secondary` inside the label follow this: the tile's own words turn with its fill.
+            .foregroundStyle(selected ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 6)
+            .background(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(AppColor.raised), in: shape)
+            .overlay { if !selected { shape.strokeBorder(AppColor.outline, lineWidth: 1) } }
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine).accessibilityLabel(name ?? "").accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
@@ -197,7 +245,7 @@ struct SettingSwitch: View {
                 if let detail, !detail.isEmpty { Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer(minLength: 8)
-            Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(.switch).accessibilityLabel(title)
+            Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(.appleSwitch).accessibilityLabel(title)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -403,5 +451,97 @@ struct FoldedWords: View {
         }
         .buttonStyle(.plain).help(open ? "Show less" : "Show all of the \(name)")
         .accessibilityLabel(text).accessibilityValue(open ? "Unfolded" : "Folded").accessibilityHint(open ? "Show less" : "Show all of the \(name)")
+    }
+}
+
+/// A switch drawn by the app, so that "on" can be seen with every accent and in a window that is not in front: the
+/// track is filled with the accent and the knob is on the right; off, the track is the outline colour. (The system's
+/// switch with the Graphite accent on a dark window is a white knob on a white track.)
+struct AppleSwitchStyle: ToggleStyle {
+    /// The switch's own words are drawn beside it; most switches in the app have their heading elsewhere.
+    var labelled = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let small = controlSize == .small || controlSize == .mini
+        let width: CGFloat = small ? 32 : 40, height: CGFloat = small ? 18 : 22
+        HStack(spacing: 8) {
+            if labelled { configuration.label }
+            Button { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) { configuration.isOn.toggle() } } label: {
+                Capsule().fill(configuration.isOn ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(AppColor.outline))
+                    .frame(width: width, height: height)
+                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                        Circle().fill(configuration.isOn ? AppColor.onAccent : Color.white).padding(2).shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
+                    }
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain).opacity(isEnabled ? 1 : 0.45)
+            // To VoiceOver and the keyboard it is the switch it looks like.
+            .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
+        }
+    }
+}
+
+extension ToggleStyle where Self == AppleSwitchStyle {
+    static var appleSwitch: AppleSwitchStyle { AppleSwitchStyle() }
+    /// With the switch's own words beside it.
+    static var appleSwitchLabelled: AppleSwitchStyle { AppleSwitchStyle(labelled: true) }
+}
+
+/// The default button of a place, drawn by the app: filled with the accent, its label in the colour that reads on
+/// it (4.5:1 with Clay, Sage and Graphite, light and dark). The system's prominent button writes white on every
+/// accent, which on Graphite in a dark window is white on white, and it turns grey in a window that is not in front.
+struct AppleProminentButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+
+    func makeBody(configuration: Configuration) -> some View {
+        let metrics: (font: CGFloat, pad: CGFloat, height: CGFloat, corner: CGFloat) = switch controlSize {
+        case .mini, .small: (11, 8, 19, 5)
+        case .large, .extraLarge: (13, 16, 30, 8)
+        default: (13, 11, 22, 6)
+        }
+        configuration.label.font(.system(size: metrics.font, weight: .semibold)).foregroundStyle(AppColor.onAccent).lineLimit(1)
+            .padding(.horizontal, metrics.pad).frame(minHeight: metrics.height)
+            .background(TintShapeStyle(), in: RoundedRectangle(cornerRadius: metrics.corner, style: .continuous))
+            .overlay { if configuration.isPressed { RoundedRectangle(cornerRadius: metrics.corner, style: .continuous).fill(Color.black.opacity(0.14)) } }
+            .opacity(isEnabled ? 1 : 0.4)
+            .contentShape(RoundedRectangle(cornerRadius: metrics.corner, style: .continuous))
+    }
+}
+
+extension ButtonStyle where Self == AppleProminentButtonStyle {
+    static var appleProminent: AppleProminentButtonStyle { AppleProminentButtonStyle() }
+}
+
+/// A choice between a few words in a row, drawn by the app: the chosen one is filled with the accent and ticked.
+/// (The system's segmented control draws both halves the same grey in a window that is not in front.)
+struct SegmentedChoice<Value: Hashable>: View {
+    let title: String
+    let options: [(value: Value, name: String)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                let selected = option.value == selection
+                Button { selection = option.value } label: {
+                    HStack(spacing: 4) {
+                        if selected { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).accessibilityHidden(true) }
+                        Text(option.name).font(.system(size: 12, weight: selected ? .semibold : .regular)).lineLimit(1)
+                    }
+                    .foregroundStyle(selected ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
+                    .padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 22)
+                    .background(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).accessibilityLabel(option.name).accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
+            }
+        }
+        .padding(2).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(AppColor.outline, lineWidth: 1) }
+        .accessibilityElement(children: .contain).accessibilityLabel(title)
     }
 }

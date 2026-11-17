@@ -332,7 +332,7 @@ private struct HerdrBotProjectsBody: View {
                     ForEach(model.projects) { project in
                         let on = chosen.contains { $0.id == project.id }
                         HerdrProjectCard(project: project, selected: on) {
-                            Toggle("\(bot.name) may use \(project.name)", isOn: Binding(get: { on }, set: { set(project, $0) })).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            Toggle("\(bot.name) may use \(project.name)", isOn: Binding(get: { on }, set: { set(project, $0) })).labelsHidden().toggleStyle(.appleSwitch).controlSize(.small)
                                 .accessibilityLabel("\(bot.name) may use \(project.name)")
                         }
                     }

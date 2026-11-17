@@ -57,13 +57,15 @@ struct MessageView: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 4) {
             Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }.help("Tapback")
             Button(action: reply) { Image(systemName: "arrowshape.turn.up.left") }.help("Reply")
             if message.role == .assistant && message.presentation == .text { Button { copyToPasteboard(SwarmhubBlock.visibleText(message.finalText)) } label: { Image(systemName: "doc.on.doc") }.help("Copy reply") }
-        }.buttonStyle(.plain).foregroundStyle(.tertiary).font(.caption)
+        }.buttonStyle(MessageActionStyle())
             .popover(isPresented: $showingReactions) {
-                HStack { ForEach(Self.tapbacks, id: \.self) { emoji in Button(emoji) { store.toggleReaction(emoji, on: message); showingReactions = false }.buttonStyle(.plain).padding(3).background(message.reactions.contains(emoji) ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 5)) } }.padding(10)
+                HStack { ForEach(Self.tapbacks, id: \.self) { emoji in Button(emoji) { store.toggleReaction(emoji, on: message); showingReactions = false }.buttonStyle(.plain).padding(4).background(message.reactions.contains(emoji) ? AnyShapeStyle(TintShapeStyle().opacity(0.3)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay { if message.reactions.contains(emoji) { RoundedRectangle(cornerRadius: 6).strokeBorder(.tint, lineWidth: 1.5) } }
+                    .accessibilityAddTraits(message.reactions.contains(emoji) ? .isSelected : []) } }.padding(10)
             }
     }
 
@@ -89,4 +91,21 @@ struct MessageView: View {
         }
     }
     private var markdown: AttributedString { (try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.content) }
+}
+
+/// The small actions under a message (tapback, reply, copy): symbols in a colour that reads at 4.5:1 on the chat
+/// (they were drawn in the faintest text colour), each on a round ground that shows under the pointer.
+struct MessageActionStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Mark(configuration: configuration) }
+
+    private struct Mark: View {
+        let configuration: Configuration
+        @State private var hovering = false
+        var body: some View {
+            configuration.label.font(.system(size: 12, weight: .medium)).foregroundStyle(hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(AppColor.mark))
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.16 : hovering ? 0.09 : 0)))
+                .contentShape(Circle()).onHover { hovering = $0 }
+        }
+    }
 }

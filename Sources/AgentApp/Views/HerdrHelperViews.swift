@@ -33,7 +33,8 @@ struct HerdrHelperRow: View {
                 }
             }
             .padding(.horizontal, 10).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
-            .background(selected ? AppColor.selection : hovering ? AppColor.selection.opacity(0.45) : .clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+            .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(SidebarMetrics.selectionWash)) : hovering ? AnyShapeStyle(AppColor.selection.opacity(0.6)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+            .overlay(alignment: .leading) { if selected { Capsule().fill(.tint).frame(width: 3, height: 18).padding(.leading, 3.5).accessibilityHidden(true) } }
             .onHover { hovering = $0 }
         }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.task ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")

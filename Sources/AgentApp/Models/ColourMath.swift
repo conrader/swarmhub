@@ -106,7 +106,12 @@ enum Palette {
     static let card: Pair = (0xFFFFFF, 0x282A23), raised: Pair = (0xEFEDE3, 0x2E3029)
     static let separator: Pair = (0xDDDACD, 0x3B3D34), selection: Pair = (0xE5E3D6, 0x35372F)
     /// The line around a control that is not chosen (a tile, a switch that is off), and the mark inside one that is.
-    static let outline: Pair = (0x8B8878, 0x7E8172)
+    static let outline: Pair = (0x858272, 0x7E8172)
+    /// Small marks drawn straight on a surface (the actions under a message): 4.5:1 on every surface.
+    static let mark: Pair = (0x6B6959, 0xA6A897)
+    /// What is written or drawn on a fill of the accent: white on a light window, charcoal on a dark one, where the
+    /// accents are brighter. Either reads at 4.5:1 on Clay, Sage and Graphite.
+    static let onAccent: Pair = (0xFFFFFF, 0x181915)
     static let clay: Pair = (0xB35F2B, 0xC4763F), sage: Pair = (0x55784F, 0x7FA079)
     /// Graphite follows the text colour.
     static let graphite: Pair = (0x262821, 0xF7F7F2)

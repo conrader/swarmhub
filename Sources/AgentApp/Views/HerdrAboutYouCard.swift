@@ -19,7 +19,7 @@ struct HerdrAboutYouCard: View {
                             Text(item.text).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 8)
                             Button(AboutYouCopy.dismiss) { problem = ""; store.dismissAboutYou(item) }
-                            Button(AboutYouCopy.save) { problem = store.acceptAboutYou(item) ? "" : AboutYouCopy.full }.buttonStyle(.borderedProminent)
+                            Button(AboutYouCopy.save) { problem = store.acceptAboutYou(item) ? "" : AboutYouCopy.full }.buttonStyle(.appleProminent)
                         }
                     }
                     if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(AppColor.caution).fixedSize(horizontal: false, vertical: true) }
@@ -46,7 +46,7 @@ struct HerdrIntroOffer: View {
                 }
                 Spacer(minLength: 8)
                 Button(AboutYouCopy.offerLater) { store.dismissHerdrIntro(bot) }
-                Button(AboutYouCopy.offerStart) { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot) }.buttonStyle(.borderedProminent)
+                Button(AboutYouCopy.offerStart) { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot) }.buttonStyle(.appleProminent)
             }.chatCard(tint: bot.colours)
         }
     }

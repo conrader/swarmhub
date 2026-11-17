@@ -38,7 +38,7 @@ struct BotEditorView: View {
             HStack {
                 Spacer()
                 Button(SimpleCopy.cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button(SimpleCopy.save) { save() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }.controlSize(.large).padding(16)
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
             fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(avatarSeed: newAvatarSeed)

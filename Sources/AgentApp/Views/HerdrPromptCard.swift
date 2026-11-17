@@ -41,7 +41,7 @@ struct HerdrPromptCard: View {
                 Spacer(minLength: 8)
                 if let answer {
                     Button(answer.button) { couldNotOpen = !store.answerHerdrPrompt(for: bot) }
-                        .buttonStyle(.borderedProminent).help(answer.help).accessibilityHint(answer.help).accessibilityIdentifier("chat.prompt.answer")
+                        .buttonStyle(.appleProminent).help(answer.help).accessibilityHint(answer.help).accessibilityIdentifier("chat.prompt.answer")
                 }
             }
             if !prompt.question.isEmpty {

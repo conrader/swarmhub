@@ -9,7 +9,11 @@ import SwiftUI
     /// A bot whose agent waits at a question in its terminal: the card above the message box, on this Mac and on a
     /// server reached by an address; and the sidebar, where its row is marked.
     static let waiting = ["polish-waiting-terminal", "polish-waiting-browser", "polish-waiting-sidebar"]
-    static let names = messages + waiting
+    /// Every control with a chosen or an on state, with each of the app's own accents: a gallery of them, Settings →
+    /// General, and a chat with a question whose option was picked.
+    static let accents = ["Clay", "Sage", "Graphite"]
+    static let controls = accents.flatMap { accent in ["polish-controls-\(accent.lowercased())", "polish-settings-\(accent.lowercased())"] } + ["polish-choices-chat", "polish-details-tabs"]
+    static let names = messages + waiting + controls
 
     /// What a waiting agent's terminal shows in the shots. Made up.
     static let screen = """
@@ -122,5 +126,59 @@ import SwiftUI
         store.selectedBot = cast.jarvis; infra.manualUnread = true
         let sidebar = NSSize(width: SidebarMetrics.width.ideal, height: 420)
         write(waiting[2], await png(AnyView(SidebarView(selection: .constant(cast.jarvis)).frame(width: sidebar.width, height: sidebar.height)), store, sidebar))
+
+        // Chosen and on states, accent by accent.
+        let gallery = NSSize(width: 620, height: 640)
+        for accent in accents {
+            store.defaults.set(accent, forKey: "accent")
+            write("polish-controls-\(accent.lowercased())", await png(AnyView(ControlsGallery().frame(width: gallery.width, height: gallery.height).background(AppColor.panel)), store, gallery))
+            write("polish-settings-\(accent.lowercased())", await png(AnyView(SettingsSimplePane().background(AppColor.panel)), store, NSSize(width: 760, height: 620)))
+        }
+        store.defaults.removeObject(forKey: "accent")
+        // A question in a reply, answered: the picked option, and the small actions under the messages.
+        let asking = ChatMessage(role: .assistant, content: "The build box can publish the tokens in two ways.\n\n```choices\nWhich one should I set up?\n- After every build\n- Once a night\n- Only when I ask\n```")
+        asking.metadata["picked.1"] = "Once a night"
+        let open = ChatMessage(role: .assistant, content: "One more thing before I start.\n\n```choices\nMay I restart the build agents tonight?\n- Yes, after 22:00\n- No, wait for me\n```")
+        infra.messages = [ChatMessage(role: .user, content: "Publish the design tokens from the build box."), asking, ChatMessage(role: .user, content: "Once a night"), open]
+        store.herdrPrompts[infra.id] = nil; store.setHerdrServer("", for: infra); store.selectedBot = infra
+        write(controls[6], await png(AnyView(ChatView(bot: infra).frame(width: chat.width, height: 700)), store, NSSize(width: chat.width, height: 700)))
+        store.infoTab = .model
+        write(controls[7], await png(AnyView(InfoTabBar(tabs: store.infoTabs(for: infra), selection: .model) { _ in }.frame(width: 360).padding(.vertical, 8).background(AppColor.panel)), store, NSSize(width: 360, height: 64)))
+    }
+}
+
+/// The app's own controls in both of their states, for the renders that check them.
+private struct ControlsGallery: View {
+    @State private var on = true; @State private var off = false; @State private var part = "Skills"
+    private let single = "b"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(spacing: 8) {
+                OptionCard(symbol: "laptopcomputer", colour: AppColor.sky, title: "This Mac", detail: "Bots run here while this Mac is on.", selected: true) {}
+                OptionCard(symbol: "server.rack", colour: AppColor.sage, title: "A server", detail: "Bots keep running when this Mac sleeps.", selected: false) {}
+            }
+            SettingBlock(title: "Model") {
+                TileGallery(items: [NamedChoice(id: "a", name: "Server model A", note: "Default"), NamedChoice(id: "b", name: "Server model B"), NamedChoice(id: "c", name: "Server model C")],
+                            isSelected: { $0.id == single }, name: \.name, select: { _ in }) { NameTile(name: $0.name, note: $0.note) }
+            }
+            HStack(alignment: .center, spacing: 22) {
+                SegmentedChoice(title: "Part", options: [("Helpers", "Helpers"), ("Skills", "Skills"), ("Projects", "Projects")], selection: $part).frame(width: 280)
+                Toggle("On", isOn: $on).toggleStyle(.appleSwitch)
+                Toggle("Off", isOn: $off).toggleStyle(.appleSwitch)
+                Toggle("Small", isOn: $on).toggleStyle(.appleSwitch).controlSize(.small)
+            }
+            HStack(spacing: 12) {
+                Button("Not now") {}
+                Button("Create") {}.buttonStyle(.appleProminent)
+                Button("Continue") {}.buttonStyle(.appleProminent).controlSize(.large)
+                Button("Check") {}.buttonStyle(.appleProminent).controlSize(.small)
+                Button("Create") {}.buttonStyle(.appleProminent).disabled(true)
+                ChosenMark(selected: true); ChosenMark(selected: false); ChosenMark(selected: true, multiple: true); ChosenMark(selected: false, multiple: true)
+            }
+            HStack(spacing: 12) {
+                OptionCard(symbol: "plus.bubble.fill", colour: AppColor.plum, title: "Codex", detail: "Also add a bot on this AI.", selected: true, multiple: true) {}
+                OptionCard(symbol: "plus.bubble.fill", colour: AppColor.plum, title: "Claude", detail: "Also add a bot on this AI.", selected: false, multiple: true) {}
+            }
+        }.padding(24).frame(maxHeight: .infinity, alignment: .top)
     }
 }
