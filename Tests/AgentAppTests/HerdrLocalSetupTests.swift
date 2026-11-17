@@ -179,3 +179,18 @@ private func checkClient(ready: [Bool], live: Bool = true, screen: String = " Tr
     #expect(Set(sizes).count == sizes.count)
     #expect(store.bots.isEmpty && store.defaults.string(forKey: HerdrServer.listKey) == nil)
 }
+
+/// This Mac's usual port can already lead to another server (a forward answers there). Setup then takes the port this
+/// Mac's own service is on, or the next one nothing uses, and never asks for the key of what answers.
+@Test @MainActor func thisMacTakesAnotherPortWhenItsUsualOneLeadsElsewhere() async {
+    let answering: @Sendable (Int) async -> Bool = { $0 == 8787 }, silent: @Sendable (Int) async -> Bool = { _ in false }
+    let next: @Sendable (Int) -> Int? = { HerdrTunnels.freePort(after: $0) { $0 != 8788 } }
+    #expect(await AppStore.thisMacPort(wanted: 8787, ownPort: nil, hasKey: false, answers: answering, free: next) == 8789, "something else answers and this Mac has no key for it: the next port nothing uses")
+    #expect(await AppStore.thisMacPort(wanted: 8787, ownPort: nil, hasKey: false, answers: silent, free: next) == nil, "nothing answers: the usual port is free to set up on")
+    #expect(await AppStore.thisMacPort(wanted: 8787, ownPort: nil, hasKey: true, answers: answering, free: next) == nil, "a key is here: what answers is tried with it")
+    #expect(await AppStore.thisMacPort(wanted: 8787, ownPort: 8790, hasKey: true, answers: answering, free: next) == 8790, "this Mac's own service says where it is")
+    #expect(await AppStore.thisMacPort(wanted: 8790, ownPort: 8790, hasKey: true, answers: answering, free: next) == nil)
+    #expect(HerdrTunnels.freePort(after: 65535) == nil && HerdrTunnels.freePort(after: 8787) { _ in false } == nil)
+    #expect(!HerdrTunnels.isFree(port: 0) && !HerdrTunnels.isFree(port: 70000))
+    #expect(WizardCopy.portMoved(from: 8787, to: 8788) == "Port 8787 on this Mac is already in use, so SwarmHub uses port 8788 here.")
+}

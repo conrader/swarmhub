@@ -311,6 +311,23 @@ final class HerdrTunnels: @unchecked Sendable {
         throw HerdrTunnel.Failure.timedOut
     }
 
+    /// Whether no program on this machine listens on the loopback port, found the way the service finds it: by binding it.
+    nonisolated static func isFree(port: Int) -> Bool {
+        guard (1...65535).contains(port) else { return false }
+        let handle = socket(AF_INET, SOCK_STREAM, 0)
+        guard handle >= 0 else { return false }
+        defer { Darwin.close(handle) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(port).bigEndian; address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        return withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(handle, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 } }
+    }
+
+    /// The first port after `port` that no program listens on, within the next twenty.
+    nonisolated static func freePort(after port: Int, isFree: (Int) -> Bool = HerdrTunnels.isFree) -> Int? {
+        (port + 1...port + 20).first { $0 <= 65535 && isFree($0) }
+    }
+
     /// Whether anything speaks HTTP on this machine's loopback port (the bridge's own page needs no token).
     static func answers(port: Int) async -> Bool {
         guard let url = URL(string: "\(HerdrServer.loopback(port: port))/") else { return false }

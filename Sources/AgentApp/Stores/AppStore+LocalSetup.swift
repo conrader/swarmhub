@@ -7,7 +7,13 @@ import Foundation
 extension AppStore {
     /// The service program on this Mac. A check names scratch folders and a job name of its own through the app's
     /// environment, which the program inherits.
-    var localService: HerdrLocalService { HerdrLocalService() }
+    /// A development launch that calls another folder home (for a store of its own) names the person's real home in
+    /// `SWARMHUB_SERVICE_HOME`, so this Mac is set up where its AI programs are signed in.
+    var localService: HerdrLocalService {
+        var service = HerdrLocalService()
+        if let home = ProcessInfo.processInfo.environment["SWARMHUB_SERVICE_HOME"], home.hasPrefix("/") { service.home = home }
+        return service
+    }
 
     /// Gets this Mac ready to run bots. The service program is fetched only when it is not here yet, and is put in
     /// place only after its signature and digest were checked against the release key (`WorkspaceRelease`). The
@@ -27,7 +33,7 @@ extension AppStore {
     }
 
     /// What the service on this Mac says is installed; nil when the app did not put a service here.
-    func localReport(port: Int) async -> HerdrLocalReport? {
+    func localReport(port: Int?) async -> HerdrLocalReport? {
         let service = localService
         return service.isPlaced ? try? await service.status(port: port) : nil
     }

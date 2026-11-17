@@ -30,6 +30,25 @@ extension AppStore {
         catch { return .failed(HerdrSetupProblem.of(error).line(for: server)) }
     }
 
+    /// "This Mac", before its Test: the port its service is on, or will be put on, when that is not the one in the
+    /// draft. The usual port can lead somewhere else: a forward to a server of yours answers there. The service this
+    /// Mac already has says its own port; with none here and no access key for what answers, the next port that
+    /// nothing uses is taken, so setting this Mac up does not stop at a question about a key or a port.
+    /// nil: the draft's port stands (also when the person typed a key, which says the port is meant).
+    func thisMacPort(for draft: HerdrServerDraft) async -> Int? {
+        guard draft.kind == .local, draft.typedKey.isEmpty, let server = draft.server(id: setupHerdrID(for: draft)) else { return nil }
+        let own = await localReport(port: nil)
+        return await Self.thisMacPort(wanted: server.port, ownPort: own?.service.installed == true ? own?.port : nil, hasKey: !herdrToken(for: server).isEmpty,
+                                      answers: { await HerdrTunnels.answers(port: $0) }, free: { HerdrTunnels.freePort(after: $0) })
+    }
+
+    /// The rule of `thisMacPort(for:)`, with what it reads passed in.
+    nonisolated static func thisMacPort(wanted: Int, ownPort: Int?, hasKey: Bool, answers: @Sendable (Int) async -> Bool, free: @Sendable (Int) -> Int?) async -> Int? {
+        if let ownPort { return ownPort == wanted ? nil : ownPort }
+        guard !hasKey, await answers(wanted) else { return nil }
+        return free(wanted)
+    }
+
     /// Cancel, Back to Welcome or closing the window: a forward Test opened for a server that was never saved is closed.
     func abandonSetupHerdr(_ server: HerdrServer?) {
         guard let server, server.kind == .ssh, herdrServers.first(where: { $0.id == server.id }) != server else { return }

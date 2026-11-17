@@ -134,12 +134,18 @@ struct SetupHerdrStep: View {
         }
     }
 
+    /// This Mac's port was moved off one that already answered for something else.
+    private var portNote: String? {
+        guard flow.herdr.kind == .local, let from = flow.localMovedFrom, let to = flow.herdr.server(id: "")?.port, from != to else { return nil }
+        return WizardCopy.portMoved(from: from, to: to)
+    }
+
     @ViewBuilder private var result: some View {
         if testing {
             StatusCard(kind: .working, title: SetupCopy.testing).transition(.opacity)
         } else if let setup = flow.localSetup {
             // This Mac is being set up, or setting it up is offered or has stopped.
-            SetupLocalOffer(setup: setup, answers: $flow.localAnswers).transition(.opacity)
+            SetupLocalOffer(setup: setup, answers: $flow.localAnswers, portNote: portNote).transition(.opacity)
         } else if let port = flow.herdrNothingHere {
             StatusCard(kind: .warning, title: WizardCopy.nothingHere(port: port), detail: WizardCopy.nothingElse).transition(.opacity)
         } else if let failure = flow.herdrFailure {
