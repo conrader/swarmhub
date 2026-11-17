@@ -52,7 +52,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     let mut note = format!(
         "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n\
          - Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. Finishing and reporting work that was already started is not new work.\n\
-         - Before deleting anything, sending something out (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n",
+         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n",
         line(&bot.name)
     );
     if bot.may_message {
@@ -70,7 +70,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
             )
         };
         note.push_str(&format!(
-            "- {names} Write to one from your shell, when its job is needed:\n  \
+            "- {names} Write to one from your shell, when its job is needed. A message to a bot is not \"sending out\": it needs no yes from the person, and neither does answering a bot.\n  \
              {cmd} bot ask NAME \"TEXT\"      you need an answer; it comes later as a message to you, so do not wait or poll for it\n  \
              {cmd} bot tell NAME \"TEXT\"     for its information; no answer comes\n  \
              {cmd} bot handoff NAME \"TEXT\"  it takes the work over and reports back when done\n  \
@@ -307,7 +307,8 @@ mod tests {
             "Do what the person asks of you",
             "you only offer",
             "wait for the person's yes",
-            "Before deleting anything, sending something out",
+            "Before deleting anything, sending something out of this server",
+            "it needs no yes from the person",
             "ask the person and wait for their yes",
             "\"Jarvis\", \"Shop\"",
             "swarmhub-herdr bot ask NAME",

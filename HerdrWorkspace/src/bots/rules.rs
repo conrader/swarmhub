@@ -1158,7 +1158,7 @@ pub(crate) fn on_reply(
         )?;
     }
     let mut quiet = false;
-    if let Some(checkin) = newest.and_then(|typed| typed.checkin) {
+    if let Some(checkin) = typed.iter().rev().find_map(|typed| typed.checkin) {
         quiet = only_ours && newest.is_some_and(|typed| typed.quiet) && notes::is_quiet(&visible);
         db.execute(
             "UPDATE bot_checkins SET last_outcome=?2 WHERE id=?1",
@@ -1174,7 +1174,10 @@ pub(crate) fn on_reply(
         .map(|id| message(db, id))
         .transpose()?
         .flatten();
+    // A check-in that fired into this turn is what the reply is the outcome of, whatever else was typed after it.
+    let checkin = typed.iter().rev().find_map(|typed| typed.checkin);
     let code = match (newest.cause.as_str(), &about) {
+        _ if checkin.is_some() => "checkin".to_owned(),
         ("message", Some(about)) => about.kind.clone(),
         (cause, _) => cause.to_owned(),
     };
@@ -1189,7 +1192,7 @@ pub(crate) fn on_reply(
             code: Some(&code),
             message: newest.message,
             journal: Some(reply),
-            checkin: newest.checkin,
+            checkin,
             promise: newest.promise,
         },
         true,
