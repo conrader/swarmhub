@@ -1,0 +1,54 @@
+{
+  "results": [
+    {
+      "skillName": "pdf-tools",
+      "findings": null,
+      "riskScore": 0,
+      "riskLabel": "clean",
+      "threshold": "CRITICAL",
+      "scanTarget": "/tmp/check/work-good/skills/pdf-tools",
+      "totalBytes": 118,
+      "auditableBytes": 118,
+      "analyzability": 1,
+      "binaryFiles": 0,
+      "skippedFiles": 0,
+      "oversizedFiles": 0,
+      "tierProfile": {
+        "counts": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "total": 0
+      }
+    }
+  ],
+  "summary": {
+    "scope": "path",
+    "path": "/tmp/check/work-good/skills/pdf-tools",
+    "scanned": 1,
+    "passed": 1,
+    "warning": 0,
+    "failed": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0,
+    "scanErrors": 0,
+    "mode": "global",
+    "threshold": "CRITICAL",
+    "riskScore": 0,
+    "riskLabel": "clean",
+    "avgAnalyzability": 1,
+    "binaryFiles": 0,
+    "skippedFiles": 0,
+    "oversizedFiles": 0,
+    "policyProfile": "default",
+    "policyDedupe": "global"
+  }
+}

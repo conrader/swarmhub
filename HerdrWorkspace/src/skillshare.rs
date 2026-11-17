@@ -39,8 +39,10 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 
+mod install;
 mod library;
 mod mcp;
+mod outcome;
 mod parse;
 mod read;
 
@@ -48,6 +50,8 @@ const ENV: &str = "SWARMHUB_SKILLSHARE";
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
 const CHANGE_TIMEOUT: Duration = Duration::from_secs(60);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(120);
+/// Installing and updating fetch from the network and audit what they fetched.
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
 /// How long a finished command's output may take to arrive before it is given up on.
 const PIPE_GRACE: Duration = Duration::from_secs(2);
 const MAX_OUTPUT: usize = 2 * 1024 * 1024;
@@ -76,6 +80,7 @@ pub(crate) fn routes() -> Router<Workspace> {
         .route("/api/skillshare/targets", get(targets).post(add_target))
         .route("/api/skillshare/targets/addable", get(addable))
         .merge(library::routes())
+        .merge(install::routes())
 }
 
 /// Which library a request is about: the server account's global one, or the one of a project folder.
@@ -389,6 +394,27 @@ async fn ask<T>(
     read(&ran.out)
         .filter(|_| ran.ok)
         .ok_or_else(|| ran.failure())
+}
+
+/// Runs another program of the server (Git) off the server's thread, the way skillshare is run.
+async fn run_tool(
+    tool: &'static str,
+    arguments: Vec<String>,
+    env: Vec<(&'static str, String)>,
+    limit: Duration,
+    folder: PathBuf,
+    largest_file: Option<u64>,
+) -> Result<Ran, Trouble> {
+    tokio::task::spawn_blocking(move || {
+        let program = found(tool).ok_or(Trouble::Start)?;
+        let env: Vec<_> = env
+            .iter()
+            .map(|(name, value)| (*name, value.as_str()))
+            .collect();
+        run_in(&program, &arguments, &env, limit, &folder, largest_file)
+    })
+    .await
+    .unwrap_or(Err(Trouble::Start))
 }
 
 /// What `skillshare status` reports, and skillshare's version whether or not it could report.
@@ -905,6 +931,26 @@ mod tests {
     fn more_output_than_the_workspace_reads_is_dropped() {
         let result = shell("head -c 3000000 /dev/zero", READ_TIMEOUT);
         assert!(matches!(result, Err(Trouble::Flood)));
+    }
+
+    #[test]
+    fn a_program_cannot_write_a_file_past_its_limit() {
+        let folder = tempfile::tempdir().unwrap();
+        let write = |bytes: u64| {
+            let script = format!("head -c {bytes} /dev/zero > out && echo done");
+            let arguments = ["-c".to_owned(), script];
+            run_in(
+                Path::new("/bin/sh"),
+                &arguments,
+                &[],
+                READ_TIMEOUT,
+                folder.path(),
+                Some(4_096),
+            )
+        };
+        assert!(write(4_096).is_ok_and(|ran| ran.ok && ran.out == "done\n"));
+        assert!(write(1_000_000).is_ok_and(|ran| !ran.ok && ran.out.is_empty()));
+        assert!(fs::metadata(folder.path().join("out")).unwrap().len() <= 4_096);
     }
 
     #[test]

@@ -1,0 +1,19 @@
+{
+  "source": "https://example.com/me/good.git",
+  "tracked": false,
+  "dry_run": true,
+  "skills": [],
+  "skipped": [],
+  "failed": [],
+  "duration": "649ms",
+  "planned": [
+    {
+      "name": "commit-helper",
+      "path": "skills/commit-helper"
+    },
+    {
+      "name": "pdf-tools",
+      "path": "skills/pdf-tools"
+    }
+  ]
+}

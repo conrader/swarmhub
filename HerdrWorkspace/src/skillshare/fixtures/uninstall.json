@@ -1,0 +1,9 @@
+{
+  "removed": [
+    "commit-helper"
+  ],
+  "failed": [],
+  "skipped": 0,
+  "dry_run": false,
+  "duration": "5ms"
+}

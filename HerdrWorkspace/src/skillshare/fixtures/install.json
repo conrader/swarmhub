@@ -1,0 +1,11 @@
+{
+  "source": "https://example.com/me/good.git",
+  "tracked": false,
+  "dry_run": false,
+  "skills": [
+    "commit-helper"
+  ],
+  "skipped": [],
+  "failed": [],
+  "duration": "2.512s"
+}

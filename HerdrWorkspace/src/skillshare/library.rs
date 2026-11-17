@@ -132,6 +132,25 @@ fn remembered(scope: &Scope) -> Option<Updates> {
     CHECKS.lock().ok()?.get(&scope.key()).cloned()
 }
 
+/// After something was updated, installed or removed: what the last check said about it no longer holds.
+pub(super) fn forget(scope: &Scope, names: &[String]) {
+    if let Ok(mut checks) = CHECKS.lock()
+        && let Some(updates) = checks.get_mut(&scope.key())
+    {
+        if names.is_empty() {
+            updates.skills.clear();
+            updates.agents.clear();
+            updates.repos.clear();
+        }
+        for name in names {
+            updates.skills.remove(name);
+            updates.agents.remove(name);
+            updates.repos.remove(name);
+            updates.versions.remove(name);
+        }
+    }
+}
+
 /// The start of a file, at most `limit` bytes of it, when it is an ordinary file.
 fn head(file: &Path, limit: u64) -> Option<Vec<u8>> {
     if !fs::symlink_metadata(file).is_ok_and(|found| found.is_file()) {
@@ -1183,6 +1202,31 @@ mod tests {
                 .unwrap()
                 .settings
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn what_a_check_found_is_forgotten_for_what_changed() {
+        let scope = Scope {
+            project: Some(PathBuf::from("/nonexistent/forget-test")),
+        };
+        let mut updates = Updates {
+            at: 5,
+            ..Updates::default()
+        };
+        updates.skills.extend(["a".to_owned(), "b".to_owned()]);
+        updates.repos.insert("_team".to_owned());
+        CHECKS.lock().unwrap().insert(scope.key(), updates);
+        forget(&scope, &["a".to_owned()]);
+        let left = remembered(&scope).unwrap();
+        assert_eq!((left.at, left.skills.len(), left.repos.len()), (5, 1, 1));
+        forget(&scope, &[]);
+        assert_eq!(remembered(&scope).unwrap().count(), 0);
+        assert!(
+            remembered(&Scope {
+                project: Some(PathBuf::from("/nonexistent/other"))
+            })
+            .is_none()
         );
     }
 }
