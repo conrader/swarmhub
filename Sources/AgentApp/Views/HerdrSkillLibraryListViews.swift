@@ -112,7 +112,7 @@ struct HerdrLibraryList: View {
                 Text(checked).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Button { Task { await model.check() } } label: { Label("Check for updates", systemImage: "arrow.clockwise") }.disabled(model.isBusy)
-            Button { model.startInstall() } label: { Label("Install…", systemImage: "plus") }.buttonStyle(.borderedProminent).disabled(model.isBusy)
+            Button { model.startInstall() } label: { Label("Install…", systemImage: "plus") }.buttonStyle(.appleProminent).disabled(model.isBusy)
         }
         .controlSize(.large)
     }
@@ -138,7 +138,7 @@ struct LibraryKindFilter: View {
                 Text(title).font(.system(size: 13, weight: .medium))
                 Text(count.map(String.init) ?? "?").font(.caption.weight(.semibold)).opacity(selected ? 0.85 : 0.55)
             }
-            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .foregroundStyle(selected ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
             .padding(.horizontal, 12).padding(.vertical, 7)
             .background(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(AppColor.raised), in: Capsule())
             .overlay { Capsule().strokeBorder(Color.primary.opacity(selected ? 0 : 0.06), lineWidth: 1) }
@@ -235,14 +235,14 @@ struct HerdrLibraryPreviewSheet: View {
             if item.canSwitch {
                 let on = model.isOn(item)
                 Toggle(isOn: Binding(get: { on }, set: { model.set(item, on: $0) })) { Text(on ? "On for your bots" : "Off").font(.callout.weight(.medium)) }
-                    .toggleStyle(.switch).disabled(model.work != nil)
+                    .toggleStyle(.appleSwitchLabelled).disabled(model.work != nil)
                 if model.isChanging(item) || model.work == .syncing { ProgressView().controlSize(.small) }
             } else if item.actions.isEmpty {
                 Label(Self.handled(item), systemImage: "info.circle").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             if item.can("update"), item.state == .update {
-                Button { Task { await model.update(item) } } label: { Label("Update", systemImage: "arrow.down.circle") }.buttonStyle(.borderedProminent).disabled(model.isBusy)
+                Button { Task { await model.update(item) } } label: { Label("Update", systemImage: "arrow.down.circle") }.buttonStyle(.appleProminent).disabled(model.isBusy)
             }
             if item.can("diff") { Button("Show changes") { Task { await model.showDiff(item) } }.disabled(model.work != nil) }
             if item.can("uninstall") { Button("Remove…", role: .destructive) { model.ask(.remove(item)) }.disabled(model.isBusy) }
@@ -385,9 +385,8 @@ struct HerdrLibraryDiffSheet: View {
                 }
                 Spacer()
                 if let diff = model.diff, diff.offersEdits, let item = diff.item {
-                    Picker("Which changes", selection: Binding(get: { diff.edits }, set: { edits in Task { await model.showDiff(item, edits: edits) } })) {
-                        Text("A sync").tag(false); Text("My edits").tag(true)
-                    }.pickerStyle(.segmented).labelsHidden().fixedSize().disabled(diff.loading)
+                    SegmentedChoice(title: "Which changes", options: [(false, "A sync"), (true, "My edits")],
+                                    selection: Binding(get: { diff.edits }, set: { edits in Task { await model.showDiff(item, edits: edits) } })).frame(width: 200).disabled(diff.loading)
                 }
                 Button("Done") { model.closeDiff() }.keyboardShortcut(.defaultAction).controlSize(.large)
             }

@@ -47,7 +47,7 @@ struct HerdrLibraryInstallSheet: View {
             HStack(spacing: 10) {
                 Button("Cancel") { Task { await model.cancelInstall() } }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(HerdrLibraryCopy.inspect, action: inspect).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Button(HerdrLibraryCopy.inspect, action: inspect).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                     .disabled(working || model.installSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .controlSize(.large).padding(.horizontal, 24).padding(.vertical, 16)
@@ -89,7 +89,7 @@ struct HerdrLibraryInstallSheet: View {
                 Spacer()
                 if installing { ProgressView().controlSize(.small); Text("Installing…").font(.callout).foregroundStyle(.secondary) }
                 Button(HerdrLibraryCopy.install(model.installPlan.skills.count)) { Task { await model.installChosen() } }
-                    .buttonStyle(.borderedProminent).disabled(installing || model.installPlan.skills.isEmpty)
+                    .buttonStyle(.appleProminent).disabled(installing || model.installPlan.skills.isEmpty)
             }
             .controlSize(.large).padding(.horizontal, 24).padding(.vertical, 16)
         }

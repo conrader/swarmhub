@@ -73,7 +73,7 @@ struct LibraryHero: View {
             HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Syncing…").font(.callout).foregroundStyle(.secondary) }
         } else if needsSync || behind != nil {
             Button(action: sync) { Label("Sync now", systemImage: "arrow.triangle.2.circlepath") }
-                .buttonStyle(.borderedProminent).controlSize(.large).disabled(work != nil)
+                .buttonStyle(.appleProminent).controlSize(.large).disabled(work != nil)
         } else if needsLook {
             Button("Check again", action: reload).controlSize(.large).disabled(work != nil)
         }
@@ -162,7 +162,7 @@ struct HerdrSkillsEntry: View {
             HStack(spacing: 10) {
                 // One prominent action at a time: Sync while something waits, else the way into the library.
                 if model.work == nil, model.behind == nil, library.waitingCount == 0 {
-                    Button("Open library") { open() }.buttonStyle(.borderedProminent).controlSize(.large)
+                    Button("Open library") { open() }.buttonStyle(.appleProminent).controlSize(.large)
                 } else {
                     Button("Open library") { open() }.controlSize(.large)
                 }
@@ -225,8 +225,7 @@ struct HerdrLibrarySheet: View {
                 Spacer()
                 Button("Done", action: close).keyboardShortcut(.defaultAction).controlSize(.large)
             }
-            Picker("Area", selection: $model.area) { ForEach(HerdrLibraryModel.Area.allCases) { Text($0.rawValue).tag($0) } }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 330).controlSize(.large)
+            SegmentedChoice(title: "Area", options: HerdrLibraryModel.Area.allCases.map { ($0, $0.rawValue) }, selection: $model.area).frame(width: 330)
         }
         .padding(.horizontal, 28).padding(.vertical, 16)
     }
@@ -411,8 +410,8 @@ struct LibraryQuestion<Extra: View>: View {
             extra()
             HStack(spacing: 10) {
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
-                if destructive { Button(action, role: .destructive, action: confirm).buttonStyle(.borderedProminent).tint(.red) }
-                else { Button(action, action: confirm).buttonStyle(.borderedProminent) }
+                if destructive { Button(action, role: .destructive, action: confirm).buttonStyle(.appleProminent).tint(.red) }
+                else { Button(action, action: confirm).buttonStyle(.appleProminent) }
             }
             .controlSize(.large).padding(.top, 2)
         }

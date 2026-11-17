@@ -71,7 +71,7 @@ struct HerdrLibraryConflictSheet: View {
                 Spacer()
                 if model.work == .resolving { ProgressView().controlSize(.small) }
                 Text("\(files.filter { model.choices[$0.path] != nil }.count) of \(files.count) chosen").font(.callout).foregroundStyle(.secondary)
-                Button("Apply…") { model.ask(.resolve) }.buttonStyle(.borderedProminent).disabled(!model.conflictDecided || model.isBusy)
+                Button("Apply…") { model.ask(.resolve) }.buttonStyle(.appleProminent).disabled(!model.conflictDecided || model.isBusy)
             }
             .controlSize(.large).padding(.horizontal, 24).padding(.vertical, 16)
         }
