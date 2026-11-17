@@ -5,7 +5,8 @@ What the macOS app does not do today. Each item was checked against the code in 
 ## Setup
 
 - The app does not install or start Herdr Core or the bridge. Start both yourself on the machine where the bots work. The first install of the bridge on a server is by hand; after that the app updates it ([Updates](updates.md)).
-- The packaged build on GitHub (0.6.8) is the earlier version of the app. Until a newer release is published, the app described here is built from source.
+- Bots from versions up to 0.6.8 do not carry over to 0.8. On first launch the app saves a copy of the old data beside it and removes them.
+- The SwarmHub service is published for x86_64 Linux only. **This Mac** works only where Herdr Core and a service built from source are already running on the Mac.
 - "Get a ready-made server from us" is one line marked "Coming soon". It is planned: today it cannot be chosen, no server is created and nothing is charged.
 - The bridge answers on its own machine's loopback only. A remote server is reached through an SSH port forward that uses the same port number on both ends, so two servers with the same bridge port cannot be connected at the same time. Give one a different `SWARMHUB_PORT`.
 - SSH runs in batch mode. A key with a passphrase must already be in the agent, because the app cannot ask for it.

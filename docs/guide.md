@@ -31,7 +31,7 @@ Build and run from a checkout on a Mac with Xcode:
 ./scripts/run.sh
 ```
 
-The packaged build on the [releases page](https://github.com/conrader/swarmhub/releases) (0.6.8) is the earlier version of the app, from before it moved to Herdr Core, and does not match this guide. Use it only once a newer release is published.
+The packaged build is on the [releases page](https://github.com/conrader/swarmhub/releases). From 0.8.0 on it is the app this guide describes. Versions up to 0.6.8 are the earlier app, from before it moved to Herdr Core; their bots do not carry over.
 
 ### 3. Connect
 
