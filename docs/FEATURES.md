@@ -1,6 +1,6 @@
 # SwarmHub features
 
-What the macOS app does. The app has one backend: agents that Herdr Core runs, reached through the SwarmHub bridge (`swarmhub-herdr`). For what the bridge and its browser workspace do, see [HerdrWorkspace/README.md](../HerdrWorkspace/README.md). For what the Mac app does not do, see [Limits](ROADMAP-AND-LIMITS.md).
+What the macOS app does. The app has one backend: agents that Herdr Core runs, reached through the SwarmHub bridge (`swarmhub-herdr`). For what the bridge and its browser workspace do, see [HerdrWorkspace/README.md](../HerdrWorkspace/README.md). For what the Mac app does not do, see [Limits](ROADMAP-AND-LIMITS.md). For how the parts fit together, see [Architecture](architecture.md).
 
 ## Setup and servers
 

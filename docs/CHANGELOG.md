@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Bots run on Herdr Core. A bot is one agent on a Herdr server: an agent program such as Claude Code or Codex in a terminal there, reached through the SwarmHub bridge (`HerdrWorkspace/`, `swarmhub-herdr`). How the parts fit together is in [Architecture](architecture.md).
+- A setup window that ends in the main bot's chat: where bots run (this Mac, a server over SSH with the port forward opened by the app, or a server by address and access key), a connection test that says what is wrong, the main bot, optional bots for the server's other agent programs.
+- Replies show as they are written, with each tool call as a step. The app follows a turn on the bridge's event stream and polls when the stream cannot be used. Codex replies stream too.
+- A message sent while an agent answers goes into the running answer (steer), by default. Stop presses the agent's own interrupt key.
+- A bot's agent program and model are chosen from what its server lists. The app names no model of its own; a bot without a choice starts on the first model the server lists.
+- Each server has one main bot, marked with a star. It creates bots, at once or after asking you; any other bot asks the main bot.
+- Helper agents: a bot's agent can start helpers, the server's helper settings decide what each difficulty runs on, and helpers show under the bot and open read-only. The server stops a helper after its answer.
+- Bots write to each other by name. The app passes the message and the answer on, both chats show them, and follow-ups are allowed within fixed limits (8 messages between two bots, 4 bots in a chain, 6 messages per bot in ten minutes).
+- A server's skill library (skillshare) is listed in Settings and in a bot's Details, with a switch per skill.
+- A bot's agent starts when its chat opens, so the first message does not wait for the agent program. The chat header says Starting or Ready, and a reply that has no text yet says what it is waiting for.
+- A new app icon, "Crew": three faces, the main bot in front. On macOS 26 the icon follows the Mac's icon style.
+- Documentation: an [architecture document](architecture.md) with four drawings (`docs/diagrams`), screens rendered by the app with sample content (`docs/screenshots`), and a README that describes the app as it is now.
 - Project servers: add the servers your projects live on to a Herdr server (its public key to paste, the SSH address, the host's fingerprint to check and trust), name folders on them as projects, and choose for each bot which projects it may use. The setup window has an optional last step for it, and **Settings → Advanced → Servers and keys** a Projects part.
 - A new look for the setup window, a bot's Details and settings, the helper view and Servers and keys, after Apple's own onboarding and settings: large options, galleries of tiles, fields that stand on their own, settings with a heading and a sentence. No screen is a table of labels and values.
 - Herdr only: the Hermes and OpenClaw backends are removed, with every feature that only worked with them: profiles and keys on a Hermes box, the bot manager and SwarmHub skills, routines, heartbeats, webhooks, off-app alerts, reports, usage, approvals and device approvals, connected apps, the ChatGPT connection and live voice, threads, workflows and team coordination, goals and loops, the box updater, QA mode and UI acceptance mode, and the Computer tab. The app now runs bots only as agents on Herdr Core, through the SwarmHub bridge.

@@ -20,6 +20,8 @@ The Swift package (`Package.swift`) has two targets besides the tests: `AgentApp
 
 ## Architecture
 
+[Architecture](architecture.md) describes the whole system: the Mac app, the bridge, Herdr Core and the agent programs, with drawings. The drawings are written by `python3 docs/diagrams/generate.py` (add `--png` for PNG renders; that needs Chrome or Chromium, and Pillow). This section is about the Mac app's own folders.
+
 | Folder in `Sources/AgentApp` | What it holds |
 | --- | --- |
 | `Backends` | `AgentBackend`, the protocol for whatever answers a bot. `HerdrBackend` is the one real implementation; `MockBackend` answers locally for the sample agents. `HerdrClient` and the other `Herdr*` files talk to the bridge. |
@@ -78,7 +80,7 @@ These run without a window and exit:
 | `--migrate-store` | Loads and saves the store in the current format. |
 | `--probe-attachment <file>` | Reads a PDF, RTF, DOC or DOCX like the composer does and prints counts. No network. |
 | `--render-snapshot <dir> [--bot "<name>"]...` | Renders the window to image files. |
-| `--render-setup <dir>` | Renders every setup step and the simple Settings page from a synthetic store. |
+| `--render-setup <dir> [--light]` | Renders the setup steps, Settings pages, chats and helper views from a synthetic store with sample content, dark unless `--light` is given. No network, no Keychain. The screens in the README and the guide (`docs/screenshots`) come from it. |
 
 Two flags apply to a normal launch with a window: `--ui-smoke <report.json>` and `--setup-preview`.
 

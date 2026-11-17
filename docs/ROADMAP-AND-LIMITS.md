@@ -5,6 +5,7 @@ What the macOS app does not do today. Each item was checked against the code in 
 ## Setup
 
 - The app does not install or start Herdr Core or the bridge. Start both yourself on the machine where the bots work.
+- The packaged build on GitHub (0.6.8) is the earlier version of the app. Until a newer release is published, the app described here is built from source.
 - "Get a ready-made server from us" is a placeholder. No server is created and nothing is charged.
 - The bridge answers on its own machine's loopback only. A remote server is reached through an SSH port forward that uses the same port number on both ends, so two servers with the same bridge port cannot be connected at the same time. Give one a different `SWARMHUB_PORT`.
 - SSH runs in batch mode. A key with a passphrase must already be in the agent, because the app cannot ask for it.
@@ -26,6 +27,12 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 - the Library, Pages, snapshots and published files,
 - connected folders, Google Drive and GitHub,
 - taking over an agent's terminal or desktop.
+
+## Bots and messages between them
+
+- A bot is a record in the Mac app. Messages between bots and requests for new bots are passed on by the app, so nothing moves between bots while the app is closed.
+- [How bots communicate](bot-communication.md) describes more than exists: there is one kind of message, no time limit on an answer, no hand-off of work, no planned check-ins, and no bot writes to you unprompted. [What exists today](architecture.md#communication-the-target-and-today).
+- All agents on a server run as the same account. The projects a bot may use, and whether it is told about helpers, are not isolation ([Trust and security](architecture.md#trust-and-security)).
 
 ## Helpers
 
