@@ -1,83 +1,133 @@
 import SwiftUI
 
-/// Settings → Advanced → Servers and keys: the Herdr servers. Each has its access key (Keychain), a Test, starter
-/// bots and Remove, and under it the server's helper settings (`HerdrHelperPolicySection`); below them a new server is added the same three ways the setup window offers, and a ready-made
-/// server is only announced. The template new bots start from applies to every server.
+/// Settings → Advanced → Servers and keys: the Herdr servers as a gallery, and under it the chosen server's parts,
+/// one at a time: its connection (name, access key in the Keychain, Test, starter bots, Remove), its helper settings
+/// (`HerdrHelperPolicySection`) and its skill library (`HerdrSkillsSection`). The last tile adds a server the same
+/// three ways the setup window offers; a ready-made server is only announced. The agent program new bots start from
+/// applies to every server.
 struct HerdrSettingsSection: View {
+    /// What of a server is showing.
+    enum Part: String, CaseIterable, Identifiable {
+        case connection = "Connection", helpers = "Helper agents", skills = "Skills"
+        var id: String { rawValue }
+    }
+    private static let addID = "+"
+
     @EnvironmentObject private var store: AppStore
     @AppStorage(HerdrBackend.templateKey) private var template = ""
     @State private var templates: [HerdrClient.Template] = []
-    @State private var draft = HerdrServerDraft(kind: .ssh); @State private var adding = false; @State private var addResult = ""
+    @State private var draft = HerdrServerDraft(kind: .ssh); @State private var adding = false; @State private var addResult = ""; @State private var addFailed = false
+    /// The server whose parts show (nil: the first), or `addID` for the form that adds one.
+    @State private var chosen: String?
+    @State private var part: Part
+
+    /// `chosen` and `part` (renders) open the section on one server's part, or on adding (`"+"`).
+    init(chosen: String? = nil, part: Part = .connection) { _chosen = State(initialValue: chosen); _part = State(initialValue: part) }
 
     var body: some View {
-        let servers = store.herdrServers
-        ForEach(servers) { server in
-            HerdrServerSection(server: server, canRemove: servers.count > 1) { templates = $0 }
-            HerdrHelperPolicySection(server: server, named: servers.count > 1)
-            HerdrSkillsSection(server: server, named: servers.count > 1)
-        }
-        Section("Add a Herdr server") {
-            Picker("Where it runs", selection: $draft.kind) {
-                Text(SetupCopy.herdrLocalTitle).tag(HerdrServer.Kind.local)
-                Text(SetupCopy.herdrSSHTitle).tag(HerdrServer.Kind.ssh)
-                Text(SetupCopy.herdrAddressTitle).tag(HerdrServer.Kind.address)
+        let servers = store.herdrServers, current = servers.first { $0.id == chosen } ?? (chosen == Self.addID ? nil : servers.first)
+        VStack(alignment: .leading, spacing: AppleMetrics.groupSpacing) {
+            VStack(alignment: .leading, spacing: 10) {
+                GroupHeading(title: "Herdr servers", detail: "Where your bots run. Choose a server to see its connection, its helper agents and its skills.")
+                let tiles = servers.map { NamedChoice(id: $0.id, name: $0.name, note: $0.place == $0.name ? nil : $0.place) } + [NamedChoice(id: Self.addID, name: "Add a server")]
+                TileGallery(items: tiles, minimum: 170, isSelected: { $0.id == (current?.id ?? Self.addID) }, name: \.name, select: { chosen = $0.id }) { tile in
+                    HStack(spacing: 10) {
+                        if let server = servers.first(where: { $0.id == tile.id }) { SymbolTile(symbol: server.kind.mark.symbol, colour: server.kind.mark.colour, size: 28) }
+                        else { SymbolTile(symbol: "plus", colour: .gray, size: 28) }
+                        NameTile(name: tile.name, note: tile.note)
+                    }
+                }
             }
-            HerdrServerFields(draft: $draft, submit: add)
-            HStack {
-                Button("Test and add", action: add).disabled(adding || draft.problem != nil)
+            if let current {
+                VStack(alignment: .leading, spacing: 18) {
+                    Picker("Part of \(current.name)", selection: $part) { ForEach(Part.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420)
+                    switch part {
+                    case .connection: HerdrServerSection(server: current, canRemove: servers.count > 1) { templates = $0 }.id(current.id)
+                    case .helpers: HerdrHelperPolicySection(server: current, named: servers.count > 1).id(current.id)
+                    case .skills: HerdrSkillsSection(server: current, named: servers.count > 1).id(current.id)
+                    }
+                }
+            } else { addForm }
+            SettingBlock(title: "Agent program for new bots", detail: templates.isEmpty ? "Press Test on a server to see the agent programs it can start." : "A bot you add starts on this agent program unless you choose another for it.") {
+                HerdrTemplatePicker(selection: $template, templates: templates, defaultName: templates.first?.name, defaultNote: "First available")
+            }
+        }
+    }
+
+    /// Adding a server: where it runs as a few large options, then that place's fields, each on its own.
+    private var addForm: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SettingBlock(title: "Where does it run?") {
+                VStack(spacing: 8) {
+                    ForEach([(HerdrServer.Kind.local, SetupCopy.herdrLocalTitle, WizardCopy.localDetail), (.ssh, SetupCopy.herdrSSHTitle, WizardCopy.sshDetail), (.address, SetupCopy.herdrAddressTitle, WizardCopy.addressDetail)], id: \.0) { kind, title, detail in
+                        OptionCard(symbol: kind.mark.symbol, colour: kind.mark.colour, title: title, detail: detail, selected: draft.kind == kind, select: { draft.kind = kind })
+                    }
+                    OptionCard(symbol: "shippingbox.fill", colour: .gray, title: SetupCopy.herdrReadyMadeTitle, detail: SetupCopy.herdrReadyMadeDetail + " Nothing can be ordered here.", badge: ManagedHosting.badge, selected: false, select: {})
+                        .disabled(true).opacity(0.55)
+                }
+            }
+            HerdrServerFields(draft: $draft, submit: add).frame(maxWidth: AppleMetrics.column)
+            HStack(spacing: 10) {
+                Button("Test and add", action: add).buttonStyle(.borderedProminent).controlSize(.large).disabled(adding || draft.problem != nil)
                 if adding { ProgressView().controlSize(.small) }
-                Text(addResult.isEmpty ? draft.problem ?? "" : addResult).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                if let problem = draft.problem, addResult.isEmpty { Text(problem).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             }
-            LabeledContent(SetupCopy.herdrReadyMadeTitle) { Button(ManagedHosting.badge) {}.disabled(true) }
-            Text(SetupCopy.herdrReadyMadeDetail + " Nothing can be ordered here.").font(.caption).foregroundStyle(.secondary)
-        }
-        Section("Herdr bots") {
-            HerdrTemplatePicker(title: "Agent runtime for new bots", automatic: templates.first.map { "\($0.label) (first available)" } ?? "First available", selection: $template, templates: templates)
+            if !addResult.isEmpty { StatusCard(kind: addFailed ? .warning : .good, title: addFailed ? "Not added" : "Added", detail: addResult) }
         }
     }
 
     private func add() {
         guard draft.problem == nil, !adding else { return }
         let draft = draft
-        adding = true; addResult = ""
+        adding = true; addResult = ""; addFailed = false
         Task {
             switch await store.testSetupHerdr(draft) {
             case .connected(let server, let key, _):
                 store.saveHerdrServer(server, token: key)
                 addResult = "Added \(server.name)."; self.draft = HerdrServerDraft(kind: draft.kind)
-            case .nothingHere(let port): addResult = SetupCopy.herdrNothingHere(port: port) + " " + SetupCopy.herdrStartHelp + " " + SetupHerdrStep.startCommand
-            case .failed(let line): addResult = line
+            case .nothingHere(let port): addFailed = true; addResult = SetupCopy.herdrNothingHere(port: port) + " " + SetupCopy.herdrStartHelp + " " + SetupHerdrStep.startCommand
+            case .failed(let line): addFailed = true; addResult = line
             }
             adding = false
         }
     }
 }
 
-/// One saved server: where it is, its token, Test, starter bots and Remove.
+/// One saved server's connection: its name typed beside its mark, where it is, its access key, Test, starter bots and Remove.
 struct HerdrServerSection: View {
     @EnvironmentObject private var store: AppStore
     let server: HerdrServer; let canRemove: Bool
     /// Hands the templates a passed Test read to the picker below the list.
     let loaded: ([HerdrClient.Template]) -> Void
     @State private var name = ""; @State private var token = ""; @State private var result = ""; @State private var working = false
+    @State private var failed = false
     @State private var confirmRemove = false
 
     var body: some View {
-        Section("Herdr server") {
-            TextField("Name", text: $name).onSubmit(rename)
-            LabeledContent("Where") { Text(server.place).foregroundStyle(.secondary).textSelection(.enabled) }
-            SecureField(SetupCopy.herdrAccessKeyLabel, text: $token, prompt: Text(tokenPrompt)).onChange(of: token) { _, value in
-                let typed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if typed != store.keyStore.key(for: server.keyAccount) { store.setHerdrToken(typed, for: server) }
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center, spacing: 14) {
+                SymbolTile(symbol: server.kind.mark.symbol, colour: server.kind.mark.colour, size: 48)
+                VStack(alignment: .leading, spacing: 3) {
+                    TextField("Name", text: $name, prompt: Text("Name")).textFieldStyle(.plain).font(.title2.bold()).onSubmit(rename).accessibilityLabel("Server name")
+                        .padding(.vertical, 3).padding(.horizontal, 8).background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous)).frame(maxWidth: 320)
+                    if server.place != server.name { Text(server.place).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).padding(.leading, 8) }
+                }
             }
-            HStack {
-                Button("Test") { test() }.disabled(working)
+            Text(caption).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            StandaloneField(title: SetupCopy.herdrAccessKeyLabel, text: $token, prompt: tokenPrompt, secure: true).frame(maxWidth: AppleMetrics.column)
+                .onChange(of: token) { _, value in
+                    let typed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if typed != store.keyStore.key(for: server.keyAccount) { store.setHerdrToken(typed, for: server) }
+                }
+            HStack(spacing: 10) {
+                Button("Test") { test() }.buttonStyle(.borderedProminent).disabled(working)
                 Button("Add starter bots") { addStarters() }.disabled(working).help("Adds one bot for each agent program this server has, on the model the server lists first.")
-                if canRemove { Button("Remove…", role: .destructive) { confirmRemove = true }.disabled(working) }
                 if working { ProgressView().controlSize(.small) }
-            }
-            if !result.isEmpty { Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-            Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                if canRemove { Button("Remove…", role: .destructive) { confirmRemove = true }.disabled(working) }
+            }.controlSize(.large)
+            if working { StatusCard(kind: .working, title: "Checking \(server.name)…") }
+            else if !result.isEmpty { StatusCard(kind: failed ? .warning : .good, title: result) }
         }
         .onAppear { name = server.name; token = store.keyStore.key(for: server.keyAccount) }
         .confirmationDialog("Remove \(server.name)?", isPresented: $confirmRemove) {
@@ -105,25 +155,25 @@ struct HerdrServerSection: View {
     }
 
     private func test() {
-        rename(); working = true; result = ""
+        rename(); working = true; result = ""; failed = false
         Task {
             do {
                 let tested = try await store.testHerdrServer(server)
                 if let found = tested.token { store.setHerdrToken(found, for: server); token = found }
                 result = tested.line
                 loaded(try await store.herdrTemplates(on: server))
-            } catch { result = error.localizedDescription }
+            } catch { result = error.localizedDescription; failed = true }
             working = false
         }
     }
 
     private func addStarters() {
-        working = true; result = ""
+        working = true; result = ""; failed = false
         Task {
             do {
                 let added = try await store.addHerdrStarterBots(on: server)
                 result = added.isEmpty ? "This server's agent programs already have a bot each." : "Added \(added.joined(separator: " and ")). Find them in the sidebar."
-            } catch { result = error.localizedDescription }
+            } catch { result = error.localizedDescription; failed = true }
             working = false
         }
     }
@@ -132,7 +182,12 @@ struct HerdrServerSection: View {
 /// A Herdr bot's agent in its editor's Advanced part: the same controls as the Details panel's Model tab.
 struct HerdrBotSection: View {
     @ObservedObject var bot: Bot
-    var body: some View { Section("Herdr agent") { HerdrAgentControls(bot: bot) } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            GroupHeading(title: "Agent", detail: "What this bot's agent runs on.")
+            HerdrAgentControls(bot: bot)
+        }
+    }
 }
 
 /// Which agent program and model a Herdr bot runs, and a way to start it afresh. Both choices are used when the bot
@@ -160,58 +215,67 @@ struct HerdrAgentControls: View {
     /// The template this bot would start from now: its own, else the one for new bots, else the first available.
     private var effective: HerdrClient.Template? { HerdrAgentReading.template(own: template, shared: shared, in: templates).template }
 
+    /// What "no choice of its own" means here: the agent program new bots use, else the server's first.
+    private var defaultTemplate: HerdrClient.Template? { HerdrAgentReading.template(own: nil, shared: shared, in: templates).template }
+
     var body: some View {
         let servers = store.herdrServers, reading = store.herdrAgentReadings[bot.id]
-        if servers.count > 1 {
-            // Another server has its own agent programs and models, so both choices start over there.
-            Picker("Server", selection: $serverID) { ForEach(servers) { Text($0.name).tag($0.id) } }
+        VStack(alignment: .leading, spacing: 22) {
+            if servers.count > 1 {
+                // Another server has its own agent programs and models, so both choices start over there.
+                SettingBlock(title: "Server", detail: "Where this bot's agent runs.") {
+                    TileGallery(items: servers, minimum: 130, isSelected: { $0.id == serverID }, name: \.name, select: { serverID = $0.id }) { server in
+                        NameTile(name: server.name, symbol: server.kind.mark.symbol)
+                    }
+                }
                 .onChange(of: serverID) { _, value in
                     guard loaded, value != store.herdrServer(for: bot).id else { return }
                     store.setHerdrServer(value, for: bot); template = ""; model = ""; store.setHerdrTemplate("", for: bot); store.setHerdrModel("", for: bot)
                     Task { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
                 }
-        }
-        HerdrTemplatePicker(title: "Agent runtime", automatic: HerdrAgentReading.defaultLabel(shared: shared, in: templates) ?? (listed ? "None this server can start" : "Reading…"),
-                            selection: $template, templates: templates)
+            }
+            SettingBlock(title: "Agent program", detail: listed ? (templates.isEmpty ? "None this server can start." : nil) : "Reading…") {
+                HerdrTemplatePicker(selection: $template, templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default")
+            }
             .onChange(of: template) { _, value in
                 guard loaded else { return }
                 store.setHerdrTemplate(value, for: bot); model = ""; store.setHerdrModel("", for: bot)
                 Task { await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
             }
-        if effective?.takesModel == true, !(listed && models.isEmpty) {
-            Picker("Model", selection: $model) {
+            if effective?.takesModel == true, !(listed && models.isEmpty) {
                 // No choice of its own: the first model the server offers, which the bot's next agent is started on.
-                Text(models.first.map { "\(HerdrAgentReading.name($0)) (default)" } ?? "Reading…").tag("")
-                ForEach(models, id: \.id) { Text(HerdrAgentReading.name($0)).tag($0.id) }
-                if !model.isEmpty, !models.contains(where: { $0.id == model }) { Text(model).tag(model) }
+                SettingBlock(title: "Model", detail: models.isEmpty ? "Reading…" : nil) {
+                    let first = models.first?.id
+                    let unlisted = !model.isEmpty && !models.contains(where: { $0.id == model }) ? [NamedChoice(id: model, name: model, note: "Not listed by this server")] : []
+                    let choices = models.map { NamedChoice(id: $0.id, name: HerdrAgentReading.name($0), note: $0.id == first ? "Default" : nil) } + unlisted
+                    TileGallery(items: choices, minimum: 130, isSelected: { model.isEmpty ? $0.id == first : $0.id == model }, name: \.name, select: { model = $0.id == first ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
+                }
+                .onChange(of: model) { _, value in
+                    guard loaded else { return }
+                    store.setHerdrModel(value, for: bot)
+                    Task { await store.refreshHerdrAgentReading(for: bot) }
+                }
+            } else if listed, effective != nil {
+                SettingBlock(title: "Model", detail: HerdrAgentReading.programPicks + ": this server lists no models for this agent program, so the program starts on its own choice.") { EmptyView() }
             }
-            .onChange(of: model) { _, value in
-                guard loaded else { return }
-                store.setHerdrModel(value, for: bot)
-                Task { await store.refreshHerdrAgentReading(for: bot) }
+            if let running = reading?.runningLine {
+                StatusCard(kind: reading?.pendingLine == nil ? .info : .warning, title: running, detail: reading?.pendingLine)
             }
-        } else if listed, effective != nil {
-            LabeledContent("Model") { Text(HerdrAgentReading.programPicks).foregroundStyle(.secondary) }
-                .help("This server lists no models for this agent program, so the program starts on its own choice.")
-        }
-        if let running = reading?.runningLine {
-            Text([running, reading?.pendingLine].compactMap { $0 }.joined(separator: " ")).font(.caption).foregroundStyle(reading?.pendingLine == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        Toggle("Add messages to the running answer (steer)", isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
-            .help("On: a message you send while the agent is answering goes straight to it. Off: the message waits until the answer ends.")
-        HStack {
-            Button("Start a fresh agent") { restart() }.disabled(restarting)
-            if restarting { ProgressView().controlSize(.small) }
-        }
-        Text(note.isEmpty ? "Runtime and model apply when this bot next starts an agent. A running agent keeps its own until you start a fresh one, which also clears what the agent remembers of this chat." : note)
-            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            .task {
-                template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
-                serverID = store.herdrServer(for: bot).id
-                if !preset { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
-                loaded = true
+            SettingSwitch(title: "Steer a running answer", detail: "On: a message you send while the agent is answering is added to that answer. Off: the message waits until the answer ends.",
+                          isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
+            SettingBlock(title: "Start afresh", detail: note.isEmpty ? "Agent program and model apply when this bot next starts an agent. A running agent keeps its own until you start a fresh one, which also clears what the agent remembers of this chat." : note) {
+                HStack {
+                    Button("Start a fresh agent") { restart() }.disabled(restarting)
+                    if restarting { ProgressView().controlSize(.small) }
+                }
             }
+        }
+        .task {
+            template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
+            serverID = store.herdrServer(for: bot).id
+            if !preset { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
+            loaded = true
+        }
     }
 
     private func loadTemplates() async {
@@ -234,39 +298,81 @@ struct HerdrAgentControls: View {
     }
 }
 
-/// Overview's lines for a Herdr bot: where its agent runs, and on which agent
-/// program and model, by the server's names for them.
+/// Overview's cards for a Herdr bot: the server its agent runs on, the role of a main bot, and the agent program and
+/// model by the server's names for them (a press opens the Model tab, where both are chosen).
 struct HerdrOverviewSection: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Agent").font(.headline)
-            Text("Runs on \(store.herdrServer(for: bot).name) as \((try? store.herdrBackend(for: bot).agentName) ?? "an agent named after this bot"). It keeps its own memory of the chat while it runs.\(store.createsHerdrBots(bot) ? " It is the main bot of \(store.herdrServer(for: bot).name): only it creates bots, and other bots ask it." : "")")
-                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        let server = store.herdrServer(for: bot)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                SymbolTile(symbol: server.kind.mark.symbol, colour: server.kind.mark.colour, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Runs on \(server.name)").font(.headline)
+                    Text("As \((try? store.herdrBackend(for: bot).agentName) ?? "an agent named after this bot"). It keeps its own memory of the chat while it runs.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }.appleCard(padding: 12)
+            if store.createsHerdrBots(bot) {
+                HStack(alignment: .top, spacing: 12) {
+                    SymbolTile(symbol: "star.fill", colour: .orange, size: 32)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Main bot of \(server.name)").font(.headline)
+                        Text("Only it creates bots, and other bots ask it.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }.appleCard(padding: 12)
+            }
             if let reading = store.herdrAgentReadings[bot.id] {
-                Text(reading.summary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Text("Change either under Model.").font(.caption).foregroundStyle(.secondary)
+                Button { store.infoTab = .model } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        fact("Agent program", reading.runtime?.label ?? "None this server can start", isDefault: reading.runtime != nil && !reading.runtimeIsOwn, symbol: "terminal.fill", colour: .gray)
+                        fact("Model", reading.model.map(HerdrAgentReading.name) ?? HerdrAgentReading.programPicks, isDefault: reading.model != nil && !reading.modelIsOwn, symbol: "cpu.fill", colour: .purple)
+                    }
+                }.buttonStyle(.plain).help("Change either under Model.").accessibilityLabel(reading.summary).accessibilityHint("Opens Model")
+                if let running = reading.runningLine, reading.pendingLine != nil || reading.running == .unstated || reading.running == .unknown {
+                    StatusCard(kind: reading.pendingLine == nil ? .info : .warning, title: running, detail: reading.pendingLine)
+                } else if case .model(_, let label) = reading.running {
+                    Text("Running on \(label) now.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             } else {
-                Text("Its agent program and model are under Model.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text("Its agent program and model are under Model.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         // Only the real app reads on its own; a preview or test store shows what it was given.
         .task(id: bot.id) { if store.launchWorkEnabled { await store.refreshHerdrAgentReading(for: bot) } }
     }
+
+    /// One fact as a tile: what it is, its value in full by the server's name, and "Default" when the bot did not choose it.
+    private func fact(_ title: String, _ value: String, isDefault: Bool, symbol: String, colour: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                SymbolTile(symbol: symbol, colour: colour, size: 20)
+                Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            }
+            Text(value).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
+            if isDefault { Text("Default").font(.caption).foregroundStyle(.secondary) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).appleCard(padding: 10)
+    }
 }
 
-/// The templates the bridge reported, plus the saved choice when it is not among them (not loaded yet, or removed).
+/// The agent programs the bridge reported as a gallery, plus the saved choice when it is not among them (not loaded
+/// yet, or removed). `selection` empty means no choice of its own: the tile of `defaultName` is the chosen one and
+/// says so (`defaultNote`), and pressing it goes back to no choice.
 struct HerdrTemplatePicker: View {
-    let title: String; let automatic: String
     @Binding var selection: String
     let templates: [HerdrClient.Template]
+    /// The template an empty selection resolves to; nil when the server's list is not read yet.
+    let defaultName: String?
+    let defaultNote: String
 
     var body: some View {
-        Picker(title, selection: $selection) {
-            Text(automatic).tag("")
-            ForEach(templates, id: \.name) { Text($0.label).tag($0.name) }
-            if !selection.isEmpty, !templates.contains(where: { $0.name == selection }) { Text(selection).tag(selection) }
+        let unlisted = !selection.isEmpty && !templates.contains(where: { $0.name == selection }) ? [NamedChoice(id: selection, name: selection, note: templates.isEmpty ? nil : "Not on this server")] : []
+        let choices = templates.map { NamedChoice(id: $0.name, name: $0.label, note: $0.name == defaultName ? defaultNote : nil) } + unlisted
+        if !choices.isEmpty {
+            TileGallery(items: choices, minimum: 150, isSelected: { selection.isEmpty ? $0.id == defaultName : $0.id == selection }, name: \.name,
+                        select: { selection = $0.id == defaultName ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
         }
     }
 }

@@ -29,59 +29,71 @@ struct HerdrHelperPolicySection: View {
     }
 
     var body: some View {
-        Section(named ? "Helper agents on \(server.name)" : "Helper agents") {
+        VStack(alignment: .leading, spacing: 22) {
+            GroupHeading(title: named ? "Helper agents on \(server.name)" : "Helper agents",
+                         detail: "A bot hands parts of its work to helpers, unless its “Can start helper agents” is off, and says how hard each part is. It cannot choose a model: these settings do, for every bot on \(server.name).")
             switch phase {
             case .idle: Button("Read this server's helper settings") { Task { await load() } }
-            case .reading: HStack { ProgressView().controlSize(.small); Text("Reading this server's helper settings…").foregroundStyle(.secondary) }
+            case .reading: StatusCard(kind: .working, title: "Reading this server's helper settings…")
             case .unavailable(let why):
-                Text(why).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                Button("Read again") { Task { await load() } }
+                StatusCard(kind: .warning, title: "The helper settings could not be read", detail: why) { Button("Read again") { Task { await load() } }.padding(.top, 4) }
             case .ready: form
             }
-            Text("A bot hands parts of its work to helpers, unless its “Can start helper agents” is off, and says how hard each part is. It cannot choose a model: these settings do, for every bot on \(server.name).")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         // Only the real app reads on its own; a preview or test store stays offline until asked.
         .task(id: server.id) { if phase == .idle, store.launchWorkEnabled { await load() } }
     }
 
+    /// Each difficulty is a heading with two galleries (the agent program, then its model); then how many helpers,
+    /// and the two waits as galleries of round times. Save sends the whole policy.
     @ViewBuilder private var form: some View {
         ForEach(HerdrHelperNote.difficulties, id: \.self) { difficulty in
             let tier = draft.tiers[difficulty]
-            Picker("\(difficulty.capitalized) tasks run on", selection: Binding(get: { tier?.template ?? "" }, set: { choose($0, for: difficulty) })) {
-                Text("Not allowed").tag("")
-                ForEach(templates, id: \.name) { Text($0.label).tag($0.name) }
-                if let chosen = tier?.template, !chosen.isEmpty, !templates.contains(where: { $0.name == chosen }) { Text(chosen).tag(chosen) }
-            }
-            if let tier, !tier.template.isEmpty {
-                let offered = models[tier.template] ?? []
-                Picker("Model for \(difficulty) tasks", selection: Binding(get: { tier.model }, set: { draft.tiers[difficulty]?.model = $0; note = "" })) {
-                    if tier.model.isEmpty { Text(offered.isEmpty ? "Reading…" : "Choose…").tag("") }
-                    ForEach(offered, id: \.id) { Text($0.label ?? $0.id).tag($0.id) }
-                    if !tier.model.isEmpty, !offered.contains(where: { $0.id == tier.model }) { Text(tier.model).tag(tier.model) }
+            SettingBlock(title: "\(difficulty.capitalized) tasks", detail: "The agent program and model a helper runs on when its task is \(difficulty).") {
+                let unlisted = tier.flatMap { chosen in !chosen.template.isEmpty && !templates.contains(where: { $0.name == chosen.template }) ? [NamedChoice(id: chosen.template, name: chosen.template)] : nil } ?? []
+                let programs = [NamedChoice(id: "", name: "Not allowed")] + templates.map { NamedChoice(id: $0.name, name: $0.label) } + unlisted
+                TileGallery(items: programs, minimum: 150, isSelected: { $0.id == (tier?.template ?? "") }, name: { "\(difficulty.capitalized) tasks run on \($0.name)" }, select: { choose($0.id, for: difficulty) }) { choice in
+                    NameTile(name: choice.name, symbol: choice.id.isEmpty ? "nosign" : nil)
+                }
+                if let tier, !tier.template.isEmpty {
+                    let offered = models[tier.template] ?? []
+                    let extra = !tier.model.isEmpty && !offered.contains(where: { $0.id == tier.model }) ? [NamedChoice(id: tier.model, name: tier.model)] : []
+                    let choices = offered.map { NamedChoice(id: $0.id, name: $0.label ?? $0.id) } + extra
+                    if choices.isEmpty { Text("Reading its models…").font(.callout).foregroundStyle(.secondary) }
+                    else {
+                        Text(tier.model.isEmpty ? "Choose a model" : "Model").font(.subheadline.weight(.medium)).foregroundStyle(.secondary).padding(.top, 4)
+                        TileGallery(items: choices, minimum: 150, isSelected: { $0.id == tier.model }, name: { "Model for \(difficulty) tasks: \($0.name)" }, select: { draft.tiers[difficulty]?.model = $0.id; note = "" }) { NameTile(name: $0.name) }
+                    }
                 }
             }
         }
-        Stepper("Helpers one agent may have at once: \(draft.maxRunning)", value: $draft.maxRunning, in: draft.runningRange)
-        Picker("A helper disappears after its answer in", selection: $draft.stopAfterSeconds) {
-            ForEach(draft.delays(), id: \.self) { Text(HerdrHelperPolicyDraft.delayLabel($0)).tag($0) }
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Helpers at once").font(.headline)
+                Text("How many helpers one agent may have running at the same time.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Stepper(value: $draft.maxRunning, in: draft.runningRange) { Text("\(draft.maxRunning)").font(.title3.weight(.semibold)).monospacedDigit().frame(minWidth: 24, alignment: .trailing) }
+                .accessibilityLabel("Helpers one agent may have at once").accessibilityValue("\(draft.maxRunning)")
+        }
+        SettingBlock(title: "After its answer", detail: "A helper disappears this long after it has answered.") {
+            TileGallery(items: draft.delays().map { NamedChoice(id: String($0), name: HerdrHelperPolicyDraft.delayLabel($0)) }, minimum: 96, isSelected: { $0.id == String(draft.stopAfterSeconds) }, name: \.name,
+                        select: { if let seconds = Int($0.id) { draft.stopAfterSeconds = seconds } }) { NameTile(name: $0.name) }
         }
         // Only a server that has this setting: an older workspace does not, and is not sent it.
         if let unanswered = draft.stopUnansweredSeconds {
-            Picker("A helper that has not answered is stopped after", selection: Binding(get: { unanswered }, set: { draft.stopUnansweredSeconds = $0 })) {
-                ForEach(draft.unansweredDelays(), id: \.self) { Text(HerdrHelperPolicyDraft.delayLabel($0)).tag($0) }
+            SettingBlock(title: "Without an answer", detail: "A helper that has not answered is stopped after this long. It counts from when the helper got its task, whether it waits at a prompt or is still working, so choose longer for long jobs.") {
+                TileGallery(items: draft.unansweredDelays().map { NamedChoice(id: String($0), name: HerdrHelperPolicyDraft.delayLabel($0)) }, minimum: 96, isSelected: { $0.id == String(unanswered) }, name: \.name,
+                            select: { if let seconds = Int($0.id) { draft.stopUnansweredSeconds = seconds } }) { NameTile(name: $0.name) }
             }
-            .help("Counts from when the helper got its task, whether it waits at a prompt or is still working. Choose longer for long jobs.")
         }
-        HStack {
-            Button("Save") { save() }.disabled(saving || draft == saved || draft.problem != nil)
+        if !problem.isEmpty { StatusCard(kind: .warning, title: problem) }
+        HStack(spacing: 10) {
+            Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(saving || draft == saved || draft.problem != nil)
             if draft != saved { Button("Revert") { draft = saved; note = "" }.disabled(saving) }
             if saving { ProgressView().controlSize(.small) }
-            Text(draft.problem ?? note).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-        }
-        if !problem.isEmpty {
-            Label(problem, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-        }
+            Text(draft.problem ?? note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        }.controlSize(.large)
     }
 
     /// Picks the agent program for a difficulty; its model becomes the first one the server lists for it, read now when

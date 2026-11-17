@@ -17,7 +17,11 @@ struct SettingsView: View {
                         Button(SimpleCopy.backToSimple) { advanced = false }.buttonStyle(.link).padding(.horizontal, 14).padding(.vertical, 8)
                         List(SettingsLayout.AdvancedPane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
                     }.navigationSplitViewColumnWidth(190)
-                } detail: { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
+                } detail: {
+                    // Servers and keys lays its own groups out; the other panes are grouped forms.
+                    if pane == .servers { ScrollView { content.padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }.navigationTitle(pane.rawValue) }
+                    else { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
+                }
             } else {
                 SettingsSimplePane(openAdvanced: { advanced = true })
             }

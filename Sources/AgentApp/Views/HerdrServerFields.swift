@@ -10,37 +10,41 @@ struct HerdrServerFields: View {
     var part = Part.all
     var submit: () -> Void = {}
 
+    /// Each field stands on its own, with what it is for above it and what to know about it beneath.
     var body: some View {
-        switch draft.kind {
-        case .local:
-            if part != .main {
-                SecureField(SetupCopy.herdrAccessKeyLabel, text: $draft.key, prompt: Text(SetupCopy.herdrLocalKeyPrompt)).onSubmit(submit)
-                TextField(SetupCopy.herdrPortLabel, text: $draft.port).onSubmit(submit)
-                Text(SetupCopy.herdrLocalCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        case .ssh:
-            if part != .details {
-                TextField(SetupCopy.herdrServerLabel, text: $draft.sshHost, prompt: Text(SetupCopy.herdrServerPrompt)).onSubmit(submit)
-                TextField(SetupCopy.herdrLoginLabel, text: $draft.sshUser, prompt: Text(SetupCopy.herdrOptional)).onSubmit(submit)
-                HStack {
-                    TextField(SetupCopy.herdrKeyFileLabel, text: $draft.sshKeyPath, prompt: Text(SetupCopy.herdrKeyFilePrompt)).onSubmit(submit)
-                    Button(SetupCopy.herdrChoose, action: chooseKeyFile)
+        VStack(alignment: .leading, spacing: 14) {
+            switch draft.kind {
+            case .local:
+                if part != .main {
+                    StandaloneField(title: SetupCopy.herdrAccessKeyLabel, text: $draft.key, prompt: SetupCopy.herdrLocalKeyPrompt, secure: true, note: SetupCopy.herdrLocalCaption, submit: submit)
+                    StandaloneField(title: SetupCopy.herdrPortLabel, text: $draft.port, submit: submit).frame(width: 140)
+                }
+            case .ssh:
+                if part != .details {
+                    // The login name and the server side by side, as ssh writes them.
+                    HStack(alignment: .top, spacing: 10) {
+                        StandaloneField(title: SetupCopy.herdrLoginLabel, text: $draft.sshUser, prompt: SetupCopy.herdrOptional, submit: submit).frame(width: 130)
+                        StandaloneField(title: SetupCopy.herdrServerLabel, text: $draft.sshHost, prompt: SetupCopy.herdrServerPrompt, submit: submit)
+                    }
+                    HStack(alignment: .bottom, spacing: 8) {
+                        StandaloneField(title: SetupCopy.herdrKeyFileLabel, text: $draft.sshKeyPath, prompt: SetupCopy.herdrKeyFilePrompt, submit: submit)
+                        Button(SetupCopy.herdrChoose, action: chooseKeyFile).controlSize(.large)
+                    }
+                }
+                if part == .main { Text(SetupCopy.herdrSSHCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                if part != .main {
+                    StandaloneField(title: SetupCopy.herdrAccessKeyLabel, text: $draft.key, prompt: SetupCopy.herdrSSHKeyPrompt, secure: true,
+                                    note: part == .all ? SetupCopy.herdrSSHCaption + " " + SetupCopy.herdrSSHKeyCaption : SetupCopy.herdrSSHKeyCaption, submit: submit)
+                    StandaloneField(title: SetupCopy.herdrPortLabel, text: $draft.port, submit: submit).frame(width: 140)
+                }
+            case .address:
+                if part != .details {
+                    StandaloneField(title: SetupCopy.herdrAddressLabel, text: $draft.address, prompt: SetupCopy.herdrAddressPrompt, submit: submit)
+                    StandaloneField(title: SetupCopy.herdrAccessKeyLabel, text: $draft.key, secure: true, note: SetupCopy.herdrAddressCaption, submit: submit)
                 }
             }
-            if part == .main { Text(SetupCopy.herdrSSHCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-            if part != .main {
-                SecureField(SetupCopy.herdrAccessKeyLabel, text: $draft.key, prompt: Text(SetupCopy.herdrSSHKeyPrompt)).onSubmit(submit)
-                TextField(SetupCopy.herdrPortLabel, text: $draft.port).onSubmit(submit)
-                Text(part == .all ? SetupCopy.herdrSSHCaption + " " + SetupCopy.herdrSSHKeyCaption : SetupCopy.herdrSSHKeyCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        case .address:
-            if part != .details {
-                TextField(SetupCopy.herdrAddressLabel, text: $draft.address, prompt: Text(SetupCopy.herdrAddressPrompt)).onSubmit(submit)
-                SecureField(SetupCopy.herdrAccessKeyLabel, text: $draft.key).onSubmit(submit)
-                Text(SetupCopy.herdrAddressCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+            if part != .main { StandaloneField(title: SetupCopy.herdrNameLabel, text: $draft.name, prompt: SetupCopy.herdrOptional, submit: submit) }
         }
-        if part != .main { TextField(SetupCopy.herdrNameLabel, text: $draft.name, prompt: Text(SetupCopy.herdrOptional)).onSubmit(submit) }
     }
 
     /// Only the file's path is taken; the key itself is never opened or copied.

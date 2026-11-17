@@ -4,7 +4,9 @@ import SwiftUI
 /// Grok Bot import.
 struct SettingsAccountPane: View {
     var body: some View {
-        HerdrSettingsSection()
-        SettingsGrokSection()
+        VStack(alignment: .leading, spacing: AppleMetrics.groupSpacing) {
+            HerdrSettingsSection()
+            SettingsGrokSection()
+        }
     }
 }

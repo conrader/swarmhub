@@ -63,20 +63,19 @@ struct HerdrHelperGlyph: View {
     }
 }
 
-/// Overview's list of a Herdr bot's helpers, with how many run of the number the server allows. Nothing without helpers.
+/// Overview's helpers of a Herdr bot, each as a card, with how many run of the number the server allows. Nothing without helpers.
 struct HerdrHelpersSection: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     var body: some View {
         if let list = store.herdrHelpers[bot.id], !list.helpers.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Helpers").font(.headline); Spacer()
                     Text(Self.count(list)).font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(list.helpers) { helper in
-                    HerdrHelperRow(helper: helper, selected: store.isOpen(helper, of: bot)) { store.open(helper, of: bot) }
-                        .background(AppColor.raised, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+                    HerdrHelperCard(helper: helper, selected: store.isOpen(helper, of: bot)) { store.open(helper, of: bot) }
                 }
                 Text("Agents \(bot.name) started for parts of its work. The server chose each one's model from the difficulty \(bot.name) gave the task\(list.stopAfterSeconds.map { ", and stops a helper \(HerdrHelperPolicyDraft.delayLabel($0)) after its answer" } ?? "").")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -88,6 +87,31 @@ struct HerdrHelpersSection: View {
     nonisolated static func count(_ list: HerdrClient.Helpers) -> String {
         let running = list.helpers.filter(\.isLive).count
         return list.limit.map { "\(running) of \($0) running" } ?? "\(running) running"
+    }
+}
+
+/// One helper as a card: its state and name, its task, and the difficulty and model as the server names them (in
+/// full, never shortened). Pressing it opens the helper's read-only view.
+struct HerdrHelperCard: View {
+    let helper: HerdrClient.Helper; let selected: Bool; let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    HerdrHelperGlyph(helper: helper).font(.system(size: 13, weight: .semibold))
+                    Text(helper.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(helper.statusLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if let task = helper.task, !task.isEmpty {
+                    Text(task).font(.callout).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                }
+                if !helper.runLine.isEmpty { Text(helper.runLine).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading) }
+            }
+            .appleCard(padding: 10, selected: selected).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
+        }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.task ?? "")")
+            .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
     }
 }
 
@@ -127,19 +151,18 @@ struct HerdrHelperView: View {
                 Spacer()
                 if let shown {
                     if !shown.runLine.isEmpty {
-                        Text(shown.runLine).font(.system(size: 12)).padding(.horizontal, 9).frame(height: 22).background(Capsule().fill(Color.primary.opacity(0.08)))
-                            .help("The difficulty \(bot.name) gave the task, and the model the server runs that difficulty on")
+                        FactChip(text: shown.runLine).help("The difficulty \(bot.name) gave the task, and the model the server runs that difficulty on")
                     }
-                    Text(listed == nil ? "No longer listed" : shown.statusLine).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    FactChip(text: listed == nil ? "No longer listed" : shown.statusLine)
                 }
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     if listed == nil, shown != nil {
-                        Text("This helper has ended and left the server's list. What you see is how it was last read.").font(.callout).foregroundStyle(.secondary)
+                        StatusCard(kind: .info, title: "This helper has ended and left the server's list.", detail: "What you see is how it was last read.")
                     }
-                    part("Task") {
+                    part("Task", symbol: "text.bubble.fill", colour: .blue) {
                         Text(shown?.task ?? log?.tasks.first?.text ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         ForEach(Array(followUps(after: shown?.task).enumerated()), id: \.offset) { _, text in
                             VStack(alignment: .leading, spacing: 2) {
@@ -148,14 +171,14 @@ struct HerdrHelperView: View {
                             }
                         }
                     }
-                    part("Steps", count: log?.tools.count) {
+                    part("Steps", symbol: "list.bullet", colour: .orange, count: log?.tools.count) {
                         if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
                         else { quiet(log == nil ? "Reading…" : "No tool steps yet.") }
                     }
-                    part(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply") {
+                    part(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", symbol: "arrowshape.turn.up.left.fill", colour: .green) {
                         if reply.content.isEmpty { quiet(log == nil ? "Reading…" : "No reply yet.") } else { MarkdownContent(message: reply).textSelection(.enabled) }
                     }
-                    part("Terminal") {
+                    part("Terminal", symbol: "terminal.fill", colour: .gray, boxed: false) {
                         if let screen = log?.screen, !screen.isEmpty {
                             ScrollView(.horizontal) {
                                 Text(screen).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize().padding(12)
@@ -174,13 +197,15 @@ struct HerdrHelperView: View {
             .onChange(of: store.herdrHelpers[bot.id]?.core) { _, now in if let now { core = now } }
     }
 
-    private func part<Content: View>(_ title: String, count: Int? = nil, @ViewBuilder content: () -> Content) -> some View {
+    /// One part of what the helper did: a small mark and a heading, and under them the content on its own card.
+    private func part<Content: View>(_ title: String, symbol: String, colour: Color, count: Int? = nil, boxed: Bool = true, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(title).font(.headline)
+            HStack(alignment: .center, spacing: 8) {
+                SymbolTile(symbol: symbol, colour: colour, size: 22)
+                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
                 if let count, count > 0 { Text("\(count)").font(.caption).foregroundStyle(.secondary) }
             }
-            content()
+            if boxed { VStack(alignment: .leading, spacing: 8) { content() }.appleCard(padding: 14) } else { content() }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 

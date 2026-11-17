@@ -27,6 +27,10 @@ enum WizardCopy {
     static let addressIntro = "The server must run Herdr Core, the program that runs your bots."
     static let details = "Connection details"
     static func connected(_ name: String) -> String { "Connected to \(name)." }
+    static let notConnected = "Not connected yet"
+    static let notReady = "Connected, but not ready"
+    static let copy = "Copy"
+    static let copied = "Copied"
     static func canRun(_ names: String, count: Int) -> String { count == 1 ? "It can run one agent program: \(names)." : "It can run \(count) agent programs: \(names)." }
     static func nothingHere(port: Int) -> String { "Nothing is running on this Mac yet: nothing answers at 127.0.0.1:\(port)." }
     static var nothingHelp: String {
@@ -42,6 +46,10 @@ enum WizardCopy {
     static let mainChoice = "Main bot"
     static let mainNew = "A new bot"
     static func mainExisting(_ name: String, isMain: Bool) -> String { isMain ? "\(name) (the main bot now)" : name }
+    /// Under the name of the server's main bot, where the bots of a server are offered as tiles.
+    static let mainNow = "The main bot now"
+    /// Under the model a bot starts on unless another is chosen.
+    static let defaultNote = "Default"
     static let name = "Name"
     static let instructions = "Instructions"
     static let instructionsPrompt = "Optional: what it should know or do"
@@ -89,6 +97,6 @@ enum WizardCopy {
                  mainExisting("Ada", isMain: false), name, instructions, instructionsPrompt, avatar, avatarHelp, program, model, defaultModel("One"), runsOn("This Mac"),
                  keeps("Ada", server: "This Mac", isMain: true), keeps("Ada", server: "This Mac", isMain: false), nameMissing, nameTaken("Ada"), programMissing, suggestedName,
                  moreTitle, moreIntro(server: "This Mac", main: "Ada"), moreDetail("One", model: "First"), moreDetail("One", model: nil), moreNone, create("Ada"), createMain, createBots(2),
-                 addBots(1), addBots(2), finish, titleOnHerdr("One"), firstReply("Ada"), avatarHint]
+                 addBots(1), addBots(2), finish, titleOnHerdr("One"), firstReply("Ada"), avatarHint, notConnected, notReady, copy, copied, mainNow, defaultNote]
     }
 }

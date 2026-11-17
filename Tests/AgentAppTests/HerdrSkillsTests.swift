@@ -177,10 +177,11 @@ private func skillsRequestBody(_ request: URLRequest) -> [String: Any] {
     #expect(store.infoTabs(for: bot) == [.overview, .model, .skills, .media])
     #expect(store.herdrSkillsModel(for: store.herdrServers[0]) === store.herdrSkillsModel(for: store.herdrServer(for: bot)), "Settings and Details show the same section")
     // The section renders in each of its states, each differently.
-    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"]), size = NSSize(width: 760, height: 640)
+    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"]), size = NSSize(width: 570, height: 1_180)
     var sizes: [Int] = []
     for model in HeadlessHerdrShots.skillModels().dropLast() {
-        let view = Form { HerdrSkillsSection(server: store.herdrServers[0], preset: model) }.formStyle(.grouped).frame(width: size.width, height: size.height)
+        // As Settings shows it: the section lays itself out, every skill a card, with what the last switch did beneath them.
+        let view = HerdrSkillsSection(server: store.herdrServers[0], preset: model).padding(28).frame(width: size.width, height: size.height, alignment: .top)
         let data = try #require(await HeadlessSetup.png(view, store: store, updater: updater, size: size))
         #expect(data.count > 4_000); sizes.append(data.count)
     }

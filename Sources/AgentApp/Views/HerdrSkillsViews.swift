@@ -9,8 +9,9 @@ struct HerdrSkillsSection: View {
     /// Renders and tests show a state without a server.
     var preset: HerdrSkillsModel? = nil
     var body: some View {
-        Section(named ? "Skills on \(server.name)" : "Skills") {
-            HerdrSkillsContent(model: preset ?? store.herdrSkillsModel(for: server), server: server, listHeight: 300)
+        VStack(alignment: .leading, spacing: 14) {
+            GroupHeading(title: named ? "Skills on \(server.name)" : "Skills", detail: "What the agents on \(server.name) know how to do. Turn a skill off to keep it from every agent there.")
+            HerdrSkillsContent(model: preset ?? store.herdrSkillsModel(for: server), server: server, listHeight: nil)
         }
     }
 }
@@ -23,10 +24,15 @@ struct HerdrSkillsPanel: View {
     var preset: HerdrSkillsModel? = nil
     var body: some View {
         let server = store.herdrServer(for: bot)
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Skills on \(server.name)").font(.headline)
-            Text("These belong to \(server.name), not to \(bot.name) alone: every bot there whose agent program the library is shared with gets the ones that are on.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                SymbolTile(symbol: "puzzlepiece.extension.fill", colour: .green, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Skills on \(server.name)").font(.headline)
+                    Text("These belong to \(server.name), not to \(bot.name) alone: every bot there whose agent program the library is shared with gets the ones that are on.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             HerdrSkillsContent(model: preset ?? store.herdrSkillsModel(for: server), server: server, listHeight: nil)
         }
     }
@@ -43,13 +49,12 @@ struct HerdrSkillsContent: View {
     let listHeight: CGFloat?
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 12) {
             switch model.phase {
             case .idle: Button("Read this server's skills") { Task { await model.load() } }
-            case .reading: HStack { ProgressView().controlSize(.small); Text("Reading this server's skills…").foregroundStyle(.secondary) }
+            case .reading: StatusCard(kind: .working, title: "Reading this server's skills…")
             case .unavailable(let why):
-                Text(why).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                Button("Read again") { Task { await model.load() } }
+                StatusCard(kind: .warning, title: "The skills could not be read", detail: why) { Button("Read again") { Task { await model.load() } }.padding(.top, 4) }
             case .ready: if let library = model.library { ready(library) }
             }
         }
@@ -60,21 +65,22 @@ struct HerdrSkillsContent: View {
     @ViewBuilder private func ready(_ library: HerdrSkillLibrary) -> some View {
         if !library.installed || (library.skills.isEmpty && library.problem != nil) {
             // skillshare is missing or not set up: the server's sentence, not an empty list.
-            Label(library.problem ?? "skillshare is not installed on this server.", systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Button("Read again") { Task { await model.load() } }
+            StatusCard(kind: .warning, title: library.problem ?? "skillshare is not installed on this server.") { Button("Read again") { Task { await model.load() } }.padding(.top, 4) }
         } else {
-            if let problem = library.problem {
-                Label(problem, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            }
-            Text("\(library.enabledCount) of \(HerdrSkillLibrary.skills(library.skills.count)) on. \(library.sharedLine)").fixedSize(horizontal: false, vertical: true)
+            if let problem = library.problem { StatusCard(kind: .warning, title: problem) }
+            Text("\(library.enabledCount) of \(HerdrSkillLibrary.skills(library.skills.count)) on. \(library.sharedLine)").font(.callout).fixedSize(horizontal: false, vertical: true)
             if library.skills.isEmpty {
-                Text(HerdrSkillsCopy.empty).font(.caption).foregroundStyle(.secondary)
+                Text(HerdrSkillsCopy.empty).font(.callout).foregroundStyle(.secondary)
             } else {
-                if library.skills.count > 8 { TextField("Search skills", text: $model.query, prompt: Text("Search skills")).textFieldStyle(.roundedBorder).labelsHidden() }
+                if library.skills.count > 8 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                        TextField("Search skills", text: $model.query, prompt: Text("Search skills")).textFieldStyle(.plain).labelsHidden()
+                    }.padding(.horizontal, 10).padding(.vertical, 7).background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
                 let shown = library.matching(model.query)
                 if shown.isEmpty { Text(HerdrSkillsCopy.noMatch(model.query)).foregroundStyle(.secondary) }
-                else if let listHeight { ScrollView { rows(shown) }.frame(height: min(listHeight, CGFloat(shown.count) * 52)) }
+                else if let listHeight { ScrollView { rows(shown) }.frame(height: min(listHeight, CGFloat(shown.count) * 64)) }
                 else { rows(shown) }
                 if library.hiddenCount > 0 { Text(HerdrSkillsCopy.more(library.hiddenCount)).font(.caption).foregroundStyle(.secondary) }
             }
@@ -84,22 +90,22 @@ struct HerdrSkillsContent: View {
         }
     }
 
+    /// Each skill is a card of its own: its name, what it does, and its switch beside them.
     private func rows(_ skills: [HerdrSkillLibrary.Skill]) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 6) {
             ForEach(skills) { skill in
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(skill.name)
+                        Text(skill.name).font(.system(size: 13, weight: .semibold))
                         if let description = skill.description, !description.isEmpty {
-                            Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2).help(description)
+                            Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).help(description)
                         }
                     }
                     Spacer(minLength: 8)
                     if model.isChanging(skill) { ProgressView().controlSize(.small) }
                     Toggle(skill.name, isOn: Binding(get: { model.isOn(skill) }, set: { model.set(skill, on: $0) })).labelsHidden().toggleStyle(.switch).controlSize(.small)
                         .accessibilityLabel(skill.name)
-                }.padding(.vertical, 6)
-                if skill.id != skills.last?.id { Divider() }
+                }.appleCard(padding: 10).opacity(model.isOn(skill) ? 1 : 0.7)
             }
         }
     }
@@ -107,22 +113,14 @@ struct HerdrSkillsContent: View {
     /// What the last switch and sync did; or that the agent programs are behind, with the way to bring them over.
     @ViewBuilder private var status: some View {
         if model.syncing {
-            HStack { ProgressView().controlSize(.small); Text("Updating the agent programs…").foregroundStyle(.secondary) }
+            StatusCard(kind: .working, title: "Updating the agent programs…")
         } else if let behind = model.behind {
-            HStack(alignment: .top) {
-                switch behind {
-                case .waiting:
-                    Label(HerdrSkillsCopy.notUpToDate, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Button("Update now") { Task { await model.sync() } }
-                case .failed(let line):
-                    Label(line, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    Button("Retry") { Task { await model.sync() } }
-                }
+            switch behind {
+            case .waiting: StatusCard(kind: .warning, title: HerdrSkillsCopy.notUpToDate) { Button("Update now") { Task { await model.sync() } }.padding(.top, 4) }
+            case .failed(let line): StatusCard(kind: .warning, title: "Not updated", detail: line) { Button("Retry") { Task { await model.sync() } }.padding(.top, 4) }
             }
         } else if !model.note.isEmpty {
-            Text(model.note).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            Text(model.note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -136,7 +134,7 @@ struct HerdrSkillsContent: View {
                 Spacer()
                 Button("Read again") { Task { await model.load() } }.disabled(model.isBusy)
             }
-        case .asking: HStack { ProgressView().controlSize(.small); Text("Asking \(server.name) which agent programs it finds…").foregroundStyle(.secondary) }
+        case .asking: StatusCard(kind: .working, title: "Asking \(server.name) which agent programs it finds…")
         case .failed(let why):
             Text(why).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             Button("Close") { model.closeSharing() }
@@ -148,9 +146,9 @@ struct HerdrSkillsContent: View {
                     HStack {
                         Spacer()
                         Button("Cancel") { model.confirming = nil }.keyboardShortcut(.cancelAction)
-                        Button("Share with \(agent)") { Task { await model.share(with: agent) } }.disabled(model.adding)
+                        Button("Share with \(agent)") { Task { await model.share(with: agent) } }.buttonStyle(.borderedProminent).disabled(model.adding)
                     }
-                }.padding(12).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
+                }.appleCard(padding: 14)
             } else if agents.isEmpty {
                 Text(HerdrSkillsCopy.nothingToShare).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button("Close") { model.closeSharing() }

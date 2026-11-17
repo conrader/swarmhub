@@ -7,10 +7,8 @@ struct HerdrMessagingSection: View {
     @ObservedObject var bot: Bot
 
     var body: some View {
-        Section("Messages between bots") {
-            Toggle("Other bots can message it", isOn: Binding(get: { store.herdrTakesMessages(bot) }, set: { store.setHerdrTakesMessages($0, for: bot) }))
-            Text(Self.caption(bot: bot.name, server: store.herdrServer(for: bot).name, takes: store.herdrTakesMessages(bot))).font(.caption).foregroundStyle(.secondary)
-        }
+        SettingSwitch(title: "Other bots can message it", detail: Self.caption(bot: bot.name, server: store.herdrServer(for: bot).name, takes: store.herdrTakesMessages(bot)),
+                      symbol: "bubble.left.and.bubble.right.fill", colour: .teal, isOn: Binding(get: { store.herdrTakesMessages(bot) }, set: { store.setHerdrTakesMessages($0, for: bot) }))
     }
 
     /// What the switch means, in the words of the state it is in.

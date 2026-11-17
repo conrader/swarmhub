@@ -23,7 +23,7 @@ struct SetupView: View {
     var presetTesting = false
 
     /// The size of the window, and of every render of it.
-    static let size = CGSize(width: 580, height: 520)
+    static let size = CGSize(width: 620, height: 640)
 
     /// Which of the wizard's four steps is showing.
     private var wizardStep: Int {
@@ -36,20 +36,20 @@ struct SetupView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // The optional bots are no step on a server whose only agent program the main bot already has.
-            SetupWizardProgress(current: wizardStep, count: flow.step == .mainBot && flow.herdrOffer != nil && flow.moreChoices.isEmpty ? 3 : 4).padding(.horizontal, 24).padding(.top, 18)
-            Group {
-                switch flow.step {
-                case .welcome: SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace)
-                case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr)
-                case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
-                case .moreBots: SetupMoreBotsStep(flow: $flow)
-                }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(24).padding(.top, -6)
-            if let failure { Text(failure).font(.caption).foregroundStyle(.orange).padding(.horizontal, 24) }
+        VStack(spacing: 0) {
+            ScrollView {
+                Group {
+                    switch flow.step {
+                    case .welcome: SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace)
+                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr)
+                    case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
+                    case .moreBots: SetupMoreBotsStep(flow: $flow)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .top).padding(.horizontal, 44).padding(.top, 34).padding(.bottom, 20)
+            }.scrollBounceBehavior(.basedOnSize)
+            if let failure { Text(failure).font(.callout).foregroundStyle(.orange).padding(.horizontal, 24).padding(.bottom, 8) }
             Divider()
-            footer.padding(16)
+            footer.padding(.horizontal, 20).padding(.vertical, 14)
         }
         .frame(width: Self.size.width, height: Self.size.height).background(AppColor.panel)
         .onAppear { if Self.cameBackUnasked(preset: preset, generation: store.setupGeneration) { closeUnasked() } else { restart() } }
@@ -78,30 +78,32 @@ struct SetupView: View {
         DispatchQueue.main.async { NSApp?.windows.first { $0.isVisible && $0.title == SetupCopy.windowTitle }?.close() }
     }
 
-    @ViewBuilder private var footer: some View {
-        HStack {
-            if flow.canGoBack { Button(SetupCopy.back, action: back) }
-            Spacer()
-            switch flow.step {
-            case .welcome:
+    /// Back on the left, the step dots in the middle, Cancel and the default button (Return) on the right.
+    private var footer: some View {
+        ZStack {
+            // The optional bots are no step on a server whose only agent program the main bot already has.
+            SetupWizardProgress(current: wizardStep, count: flow.step == .mainBot && flow.herdrOffer != nil && flow.moreChoices.isEmpty ? 3 : 4)
+            HStack(spacing: 10) {
+                if flow.canGoBack { Button(SetupCopy.back, action: back) }
+                Spacer()
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(WizardCopy.next, action: pickPlace).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            case .herdr:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                if flow.herdrReady, !testing {
-                    Button(WizardCopy.next) { failure = nil; flow.apply(.advance) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                } else {
-                    Button(testing ? SetupCopy.testing : flow.herdrOutcome != nil ? SetupCopy.testAgain : SetupCopy.test, action: testHerdr).buttonStyle(.borderedProminent)
-                        .disabled(testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
+                switch flow.step {
+                case .welcome:
+                    Button(WizardCopy.next, action: pickPlace).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                case .herdr:
+                    if flow.herdrReady, !testing {
+                        Button(WizardCopy.next) { failure = nil; flow.apply(.advance) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    } else {
+                        Button(testing ? SetupCopy.testing : flow.herdrOutcome != nil ? SetupCopy.testAgain : SetupCopy.test, action: testHerdr).buttonStyle(.borderedProminent)
+                            .disabled(testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
+                    }
+                case .mainBot:
+                    Button(flow.isLastWizardStep && flow.herdrOffer != nil ? finishTitle : WizardCopy.next, action: leaveMainBot).buttonStyle(.borderedProminent)
+                        .disabled(!flow.mainBotReady).keyboardShortcut(.defaultAction)
+                case .moreBots:
+                    Button(finishTitle, action: finishWizard).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 }
-            case .mainBot:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(flow.isLastWizardStep && flow.herdrOffer != nil ? finishTitle : WizardCopy.next, action: leaveMainBot).buttonStyle(.borderedProminent)
-                    .disabled(!flow.mainBotReady).keyboardShortcut(.defaultAction)
-            case .moreBots:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(finishTitle, action: finishWizard).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            }
+            }.controlSize(.large)
         }
     }
 

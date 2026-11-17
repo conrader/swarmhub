@@ -8,12 +8,15 @@ import SwiftUI
 @MainActor enum HeadlessSetup {
     static let size: NSSize = SetupView.size
     static let settingsSize = NSSize(width: 760, height: 560)
+    /// `--light` renders every shot in the light appearance; dark is the app's default.
+    static var scheme = ColorScheme.dark
 
     static func run(arguments: [String]) -> Int32 {
         guard let flag = arguments.firstIndex(of: "--render-setup"), arguments.indices.contains(flag + 1) else {
             print("Usage: AgentApp --render-setup <dir>"); return 64
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
+        scheme = arguments.contains("--light") ? .light : .dark
         return HeadlessRunLoop.wait { await render(to: directory, output: { print($0); fflush(stdout) }) }
     }
 
@@ -34,12 +37,12 @@ import SwiftUI
         // The line a person sees once, after a store of an older version was opened and its old bots were removed.
         let noticed = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); noticed.isSetupPreview = false
         noticed.legacyNotice = LegacyStore.notice(removed: 18, backup: URL(fileURLWithPath: "/Users/you/Library/Application Support/AgentApp/store.json.before-herdr-only-2026-11-17T09-00-00Z"))
-        write("legacy-notice", await SnapshotRenderer.contentPNG(store: noticed, size: NSSize(width: 1100, height: 520)))
+        write("legacy-notice", await SnapshotRenderer.contentPNG(store: noticed, size: NSSize(width: 1100, height: 520), scheme: scheme))
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }
 
-    static func png<V: View>(_ view: V, store: AppStore, updater: AppUpdater, size: NSSize, scheme: ColorScheme = .dark) async -> Data? {
-        await SnapshotRenderer.png(view.environmentObject(store).environmentObject(updater).defaultAppStorage(store.defaults), size: size, scheme: scheme)
+    static func png<V: View>(_ view: V, store: AppStore, updater: AppUpdater, size: NSSize, scheme: ColorScheme? = nil) async -> Data? {
+        await SnapshotRenderer.png(view.environmentObject(store).environmentObject(updater).defaultAppStorage(store.defaults), size: size, scheme: scheme ?? Self.scheme)
     }
 }

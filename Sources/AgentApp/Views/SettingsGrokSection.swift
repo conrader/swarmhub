@@ -10,15 +10,17 @@ struct SettingsGrokSection: View {
 
     var body: some View {
         if store.grokBotPresent {
-            Section("Grok Bot") {
-                LabeledContent("Status") { Text(status).foregroundStyle(.secondary) }
-                if let last = lastImport {
-                    LabeledContent("Last import") { Text(last.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary) }
+            HStack(alignment: .top, spacing: 12) {
+                SymbolTile(symbol: "square.and.arrow.down.fill", colour: .gray, size: 32)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Grok Bot").font(.headline)
+                    Text(status + (lastImport.map { ". Last import: \($0.formatted(date: .abbreviated, time: .shortened))." } ?? "."))
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text("Reads Grok Bot's bots and history on this Mac; All history also asks macOS once for Grok Bot's sign-in.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button("Import from Grok Bot…") { open() }.padding(.top, 4)
                 }
-                Button("Import from Grok Bot…") { open() }
-                Text("Reads Grok Bot's bots and history on this Mac; All history also asks macOS once for Grok Bot's sign-in.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            }.appleCard()
         }
     }
 

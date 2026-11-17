@@ -16,7 +16,8 @@ import SwiftUI
                          "herdr-w2-no-core", "herdr-w2-no-programs", "herdr-w3-main-bot", "herdr-w3-main-bot-reading", "herdr-w3-main-bot-keep", "herdr-w3-main-bot-name-taken",
                          "herdr-w3-main-bot-one-program", "herdr-w4-more-bots", "herdr-w4-more-bots-ticked", "herdr-w5-chat"]
     static let other = ["herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-second-bot", "herdr-bot-request",
-                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main", "herdr-model-tab", "herdr-model-overview", "herdr-model-no-list", "herdr-model-header"]
+                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main", "herdr-model-tab", "herdr-model-overview", "herdr-model-no-list", "herdr-model-header",
+                        "herdr-editor", "herdr-editor-new", "herdr-settings-add"]
     /// A server's skill library: the list, a search, skillshare missing, a sync that failed after a switch, the
     /// confirmation before sharing with another agent program, and the same library in a bot's Details.
     static let skills = ["herdr-skills-list", "herdr-skills-search", "herdr-skills-problem", "herdr-skills-sync-failed", "herdr-skills-share-confirm", "herdr-skills-details"]
@@ -95,14 +96,25 @@ import SwiftUI
         let jarvis = Bot(name: "Jarvis", title: "Chief of staff", persona: "You run the team.", backend: .herdr); jarvis.canManageBots = true
         let infra = Bot(name: "Infra", title: "Servers and backups", backend: .herdr)
         store.bots = [jarvis, infra]; store.setHerdrServer(server.id, for: jarvis)
-        let settings = NSSize(width: 760, height: 1_560)
-        write(other[0], await png(AnyView(Form { SettingsAccountPane() }.formStyle(.grouped).frame(width: settings.width, height: settings.height).background(AppColor.panel)), store, settings))
-        write(other[1], await png(AnyView(SettingsSimplePane(openAdvanced: {})), store, HeadlessSetup.settingsSize))
-        let editor = NSSize(width: 560, height: 980)
-        for (name, bot) in [(other[2], jarvis), (other[3], infra)] {
-            write(name, await png(AnyView(Form { BotEditorAdvancedSection(bot: bot, fields: .constant(BotEditorFields(bot: bot))) }.formStyle(.grouped)
-                .frame(width: editor.width, height: editor.height).background(AppColor.panel)), store, editor))
+        // Settings → Servers and keys beside its pane list is this wide.
+        let settings = NSSize(width: 570, height: 640)
+        func pane<V: View>(_ view: V, _ size: NSSize) -> AnyView {
+            AnyView(ScrollView { view.padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }.frame(width: size.width, height: size.height).background(AppColor.panel))
         }
+        write(other[0], await png(pane(SettingsAccountPane(), settings), store, settings))
+        let adding = NSSize(width: 570, height: 900)
+        write(other[18], await png(pane(HerdrSettingsSection(chosen: "+"), adding), store, adding))
+        write(other[1], await png(AnyView(SettingsSimplePane(openAdvanced: {})), store, HeadlessSetup.settingsSize))
+        let editor = NSSize(width: 560, height: 1_500)
+        func advanced(_ bot: Bot) -> AnyView {
+            AnyView(BotEditorAdvancedSection(bot: bot, fields: .constant(BotEditorFields(bot: bot))).padding(.horizontal, 32).padding(.vertical, 24)
+                .frame(width: editor.width, height: editor.height, alignment: .top).background(AppColor.panel))
+        }
+        for (name, bot) in [(other[2], jarvis), (other[3], infra)] { write(name, await png(advanced(bot), store, editor)) }
+        // A bot's settings as the sheet shows them, and the sheet for a new bot.
+        let sheet = NSSize(width: 560, height: 720)
+        write(other[16], await png(AnyView(BotEditorView(bot: jarvis)), store, sheet))
+        write(other[17], await png(AnyView(BotEditorView(bot: nil)), store, sheet))
         let block = "```swarmhub\n[{\"op\":\"create_bot\",\"name\":\"Research\",\"instructions\":\"You find and check sources, and answer with links.\",\"avatar\":{\"shape\":\"star\",\"colour\":\"blue\"}},{\"op\":\"create_bot\",\"name\":\"Writer\",\"instructions\":\"You turn notes into clear drafts.\",\"runtime\":\"Codex\"}]\n```"
         jarvis.messages = [ChatMessage(role: .user, content: "Create two bots: one for research and one for writing."), ChatMessage(role: .assistant, content: "I proposed Research and Writer.\n\n" + block)]
         let card = NSSize(width: 760, height: 220)
@@ -118,7 +130,7 @@ import SwiftUI
         let sidebar = NSSize(width: SidebarMetrics.width.ideal, height: 460)
         write(other[5], await png(AnyView(SidebarView(selection: .constant(jarvis)).frame(width: sidebar.width, height: sidebar.height)), store, sidebar))
         store.selectedBot = jarvis; store.infoTab = .overview
-        write(other[6], await png(AnyView(InfoPanel(bot: jarvis)), store, NSSize(width: 360, height: 760)))
+        write(other[6], await png(AnyView(InfoPanel(bot: jarvis)), store, NSSize(width: 360, height: 1_040)))
         let log = HerdrClient.HelperLog(tools: [.init(seq: 1, tool: "Grep", detail: "fetchAll", finished: true, failed: false), .init(seq: 2, tool: "Edit", detail: "Sources/Importer/CSVReader.swift", finished: true, failed: false),
                                                 .init(seq: 3, tool: "Bash", detail: "swift build", finished: true, failed: false)],
                                         screen: "● Renamed 14 call sites in 6 files; the build passes.\n\n✻ Worked for 41s\n────────────────────────────────────────\n❯ ")
@@ -133,8 +145,8 @@ import SwiftUI
                                                               "starter-two": [.init(id: "server-model-b", label: "Server model B")]]
         let policy = HerdrHelperPolicy(maxRunning: 3, stopAfterSeconds: 60, stopUnansweredAfterSeconds: 1_800, difficulties: ["easy": .init(template: "starter-one", model: "server-model-a"), "medium": .init(template: "starter-two", model: "server-model-b")])
         let read = HerdrHelperPolicySection.Loaded(settings: .init(policy: policy, problem: nil, bounds: .init(maxRunning: .init(min: 0, max: 16), stopAfterSeconds: .init(min: 5, max: 86_400, default: 60), stopUnansweredAfterSeconds: .init(min: 60, max: 604_800, default: 1_800))), templates: programs, models: offered)
-        let policySize = NSSize(width: 760, height: 520)
-        write(other[8], await png(AnyView(Form { HerdrHelperPolicySection(server: server, named: true, preset: read) }.formStyle(.grouped).frame(width: policySize.width, height: policySize.height).background(AppColor.panel)), store, policySize))
+        let policySize = NSSize(width: 570, height: 1_120)
+        write(other[8], await png(pane(HerdrHelperPolicySection(server: server, named: true, preset: read), policySize), store, policySize))
 
         // A bot asks the main bot for a bot. Jarvis created one on its own decision (Remove, Keep) and left another to the person.
         let boppy = Bot(name: "Boppy", title: "Product", persona: "You look after the product.", backend: .herdr)
@@ -163,8 +175,7 @@ import SwiftUI
             store.selectedBot = bot; store.openHerdrHelper = nil
             write(name, await png(AnyView(ChatView(bot: bot).frame(width: chat.width, height: chat.height)), store, chat))
         }
-        write(other[11], await png(AnyView(Form { BotEditorAdvancedSection(bot: boppy, fields: .constant(BotEditorFields(bot: boppy))) }.formStyle(.grouped)
-            .frame(width: editor.width, height: editor.height).background(AppColor.panel)), store, editor))
+        write(other[11], await png(advanced(boppy), store, editor))
 
         // What a bot runs on, by the server's names: no choice of its own, an agent running on another model than the next one would.
         store.bots = [jarvis, boppy, infra]
@@ -173,18 +184,18 @@ import SwiftUI
         let models = offered["starter-one"] ?? []
         store.herdrAgentReadings[jarvis.id] = HerdrAgentReading(templates: programs, ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: models, agent: running, profiles: [launched])
         store.herdrAgentReadings[boppy.id] = HerdrAgentReading(templates: programs, ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: models)
-        let tab = NSSize(width: 360, height: 420)
+        let tab = NSSize(width: 360, height: 700)
         write(other[12], await png(AnyView(VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: jarvis, templates: programs, models: models) }.padding(14)
             .frame(width: tab.width, height: tab.height, alignment: .top).background(AppColor.panel)), store, tab))
         store.selectedBot = boppy; store.infoTab = .overview
-        write(other[13], await png(AnyView(InfoPanel(bot: boppy)), store, NSSize(width: 360, height: 620)))
+        write(other[13], await png(AnyView(InfoPanel(bot: boppy)), store, NSSize(width: 360, height: 720)))
         let listless = [HerdrClient.Template(name: "starter-three", description: nil, error: nil, runtime: .init(harness: "Another agent", provider: nil, model: nil))]
         write(other[14], await png(AnyView(VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: boppy, templates: listless) }.padding(14)
-            .frame(width: tab.width, height: 300, alignment: .top).background(AppColor.panel)), store, NSSize(width: tab.width, height: 300)))
+            .frame(width: tab.width, height: 520, alignment: .top).background(AppColor.panel)), store, NSSize(width: tab.width, height: 520)))
         // The server's skill library in Settings, state by state, and in a bot's Details.
-        let skillStates = skillModels(), skillsSize = NSSize(width: 760, height: 640)
+        let skillStates = skillModels(), skillsSize = NSSize(width: 570, height: 1_180)
         for (name, model) in zip(skills.dropLast(), skillStates) {
-            write(name, await png(AnyView(Form { HerdrSkillsSection(server: server, named: true, preset: model) }.formStyle(.grouped).frame(width: skillsSize.width, height: skillsSize.height).background(AppColor.panel)), store, skillsSize))
+            write(name, await png(pane(HerdrSkillsSection(server: server, named: true, preset: model), skillsSize), store, skillsSize))
         }
         let panel = NSSize(width: 360, height: 900)
         write(skills[5], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: jarvis, preset: skillStates[5]).padding(14) }.frame(width: panel.width, height: panel.height).background(AppColor.panel)), store, panel))
