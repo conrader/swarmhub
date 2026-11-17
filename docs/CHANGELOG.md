@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Skills is a library. **Settings → Servers → Skills** and a bot's **Skills** tab say where the server's skillshare library stands and sync it with one button; **Open library** shows everything in it (skills, agents, MCP servers, plugins and hooks) grouped by what needs a sync, has an update, is in sync or is off, with a preview of each.
+- Skills are installed from a repository address after a security check: the server downloads the repository, skillshare audits it, and only what passes is installed. A blocked skill shows what was found, can be handed to a bot to review, and is installed only after **Install anyway**. Skills and agents are updated and removed from the library too.
+- The library's Git repository is pulled, pushed and synced both ways from the app, with a choice per file when both sides changed the same one. **Servers** shows skillshare on each server and updates it.
+- A bot whose project holds a skillshare project of its own can show that project's library.
+- The bridge's API is at level 2 for this (`/api/skillshare/library` and the routes beside it, in the [bridge manual](../HerdrWorkspace/README.md#manage-the-servers-skillshare-library)). An MCP server's secret values never leave the server. A server still at level 1 keeps the list of skill switches until it is updated.
+
 ## 0.8.0 (build 34)
 
 The first release on Herdr Core. Bots from earlier versions do not carry over; the app saves a copy of the old data and removes them on first launch.
