@@ -6,10 +6,11 @@ import SwiftUI
 /// be the light icon." So the icon is Light everywhere, for everyone who never picked one too; it is Dark only where
 /// Settings → Appearance → App icon says Dark and the app is shown dark (Theme Dark, or Theme System on a dark Mac).
 ///
-/// Why the app draws its own icon instead of leaving it to the bundle's `AppIcon.icns`: on macOS 26 with the icon style
-/// set to Dark (System Settings → Appearance), macOS redraws every bundle icon itself as a dark tile, whatever the app
-/// ships. The standard About panel and the Dock during launch showed that drawing. The app can replace it only once it
-/// runs, so it sets its icon first thing at launch and hands the same image to the About panel.
+/// Why the app draws its own icon instead of leaving it to the bundle: macOS 26 draws a bundle's icon in the icon style
+/// of the Mac (System Settings → Appearance), so on a Mac with dark icons the standard About panel and the Dock during
+/// launch show the dark drawing of `AppIcon.icon` whatever is picked here (and, for a bundle without that icon, a dark
+/// tile macOS makes up). The app can replace it only once it runs, so it sets its icon first thing at launch and hands
+/// the same image to the About panel. The light image is what macOS draws from `AppIcon.icon` in the Default style.
 @MainActor final class AppIconAppearance: NSObject, NSApplicationDelegate {
     static let preferenceKey = "appIcon"
     static let defaultPreference = "Light"

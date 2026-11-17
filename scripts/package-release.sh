@@ -36,7 +36,11 @@ cp "$BUILD_DIR/AgentApp" "$APP_DIR/Contents/MacOS/AgentApp"
 /usr/bin/ditto "$BUILD_DIR/Sparkle.framework" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
 rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources/Avatars" "$APP_DIR/Contents/Resources/ThemeIcons"
 cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
-# P23: the Swarm app icon (CFBundleIconFile/CFBundleIconName = AppIcon in Info.plist).
+# The Icon Composer icon, as Assets.car (CFBundleIconName = AppIcon): macOS 26 and later draw the app's icon from it in
+# the Default, Dark, Clear and Tinted icon styles. Without it macOS darkens the icns itself on a Mac with dark icons.
+# actool also writes an AppIcon.icns of its own; the iconset's icns below replaces it.
+/usr/bin/xcrun actool "$ROOT_DIR/Resources/AppIcon/AppIcon.icon" --compile "$APP_DIR/Contents/Resources" --platform macosx --minimum-deployment-target 14.0 --app-icon AppIcon --output-partial-info-plist "$ROOT_DIR/.build/appicon-partial.plist" >/dev/null
+# P23: the app icon for macOS before 26 (CFBundleIconFile = AppIcon in Info.plist), with its own 16 and 32 px drawings.
 /usr/bin/iconutil -c icns "$ROOT_DIR/Resources/AppIcon/AppIcon.iconset" -o "$APP_DIR/Contents/Resources/AppIcon.icns"
 # P38: the light and dark Dock icons AppIconAppearance picks at run time (the icns stays the light Finder fallback).
 cp -R "$ROOT_DIR/Resources/AppIcon/ThemeIcons" "$APP_DIR/Contents/Resources/ThemeIcons"
@@ -92,6 +96,10 @@ echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
 if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
   echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
+  exit 1
+fi
+if [[ ! -s "$APP_DIR/Contents/Resources/Assets.car" ]]; then
+  echo "ERROR: $APP_DIR lacks Contents/Resources/Assets.car (the Icon Composer icon)." >&2
   exit 1
 fi
 # P38 E: the dark Dock icon (both forms) and the light runtime image.
