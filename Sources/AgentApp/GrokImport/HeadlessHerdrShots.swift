@@ -27,9 +27,9 @@ import SwiftUI
     static let projects = ["herdr-w5-projects-key", "herdr-w5-projects-trust", "herdr-w5-projects-added", "herdr-w5-projects-first", "herdr-w5-projects-chosen",
                            "herdr-projects-settings-empty", "herdr-projects-settings", "herdr-projects-details"]
     /// What a chat says while its turn waits: the agent program starting, the agent working, a tool step running, the
-    /// agent waiting for the person in its terminal; and the header of a bot whose agent is ready, or starting ahead
-    /// of the first message.
-    static let statuses = ["herdr-status-starting", "herdr-status-working", "herdr-status-step", "herdr-status-waiting", "herdr-status-ready", "herdr-status-warming"]
+    /// agent waiting for the person in its terminal; and the header of a bot whose agent is ready, is starting ahead
+    /// of the first message, or shows a prompt before any message.
+    static let statuses = ["herdr-status-starting", "herdr-status-working", "herdr-status-step", "herdr-status-waiting", "herdr-status-ready", "herdr-status-warming", "herdr-status-prompt"]
     static let names = wizard + other + skills + projects + statuses
 
     /// The states of a server's project servers, in the order of `projects`. Everything is made up: the key, the
@@ -277,7 +277,7 @@ import SwiftUI
             write(name, await png(AnyView(ChatView(bot: boppy).frame(width: small.width, height: small.height)), store, small))
         }
         boppy.messages = [ChatMessage(role: .user, content: "hi"), ChatMessage(role: .assistant, content: "Hi! What would you like to work on?")]
-        for (name, readiness) in [(statuses[4], HerdrAgentReadiness.ready), (statuses[5], .starting(program: program))] {
+        for (name, readiness) in [(statuses[4], HerdrAgentReadiness.ready), (statuses[5], .starting(program: program)), (statuses[6], .blocked(program: program))] {
             store.herdrReadiness[boppy.id] = readiness
             write(name, await png(AnyView(ChatView(bot: boppy).frame(width: small.width, height: small.height)), store, small))
         }

@@ -162,6 +162,13 @@ private final class WarmBridge: @unchecked Sendable {
     running.take(tools: [.init(seq: 1, tool: "Bash", detail: nil, finished: false, failed: false)])
     running.take(agent: try agent(#"{"state":"blocked"}"#)); _ = running.judgeAgent(now: clock)
     #expect(running.drain() == [.status(.delivered(program: "Agent One")), .tool(.init(seq: 1, tool: "Bash", detail: nil, finished: false, failed: false), isNew: true), .status(.blocked(program: "Agent One"))])
+    // A message the bridge still keeps for a starting agent: what the program reports meanwhile is its start-up.
+    var kept = HerdrTurnFollower(after: 0, program: "Agent One", starting: true)
+    kept.take(rows: [.init(id: 1, kind: "task", text: "hi", state: "pending")])
+    for state in ["working", "done"] { kept.take(agent: try agent(#"{"state":"\#(state)"}"#)); _ = kept.judgeAgent(now: clock) }
+    #expect(kept.judgeAgent(now: clock + .seconds(600)) == .waiting && kept.drain() == [.status(.starting(program: "Agent One"))], "no \"working\", no \"finishing\", and no giving up while the bridge waits")
+    kept.take(rows: [.init(id: 1, kind: "task", text: "hi", state: "sent")]); kept.take(agent: try agent(#"{"state":"working"}"#)); _ = kept.judgeAgent(now: clock)
+    #expect(kept.drain() == [.status(.working(program: "Agent One"))])
 }
 
 /// A start ahead of time is a launch with no task and nothing else changed; a bot that has an agent gets no second
@@ -236,6 +243,10 @@ private final class WarmBridge: @unchecked Sendable {
     #expect(turn.launched && bridge.launches.count == 1 && bridge.launches[0]["warm"] == nil && heard.read() == [HerdrTurnStatus.starting(program: "Agent One").code])
     let now = try await client.workspace(), live = try #require(now.agents.first)
     #expect(live.ready == nil && !live.isStarting && HerdrAgentReadiness(live, in: now) == .ready, "an agent of a bridge that says nothing about readiness is ready")
+    // An agent that shows a prompt in its terminal is running but takes no message: the header says so.
+    let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let prompting = try decoder.decode(HerdrClient.Agent.self, from: Data(#"{"address":"t1","created_ms":5,"name":"x","state":"live","template":"tpl-one","status":{"state":"blocked"},"ready":true,"warm":true,"warm_ends_ms":9}"#.utf8))
+    #expect(prompting.warmEndsMs == 9 && HerdrAgentReadiness(prompting, in: now) == .blocked(program: "Agent One") && HerdrAgentReadiness.blocked(program: nil).word == "Waiting for you in its terminal")
 }
 
 /// Opening a chat starts that bot's agent, once, and only that bot's; the switch and a server that does not start

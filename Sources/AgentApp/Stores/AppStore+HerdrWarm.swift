@@ -6,20 +6,26 @@ enum HerdrAgentReadiness: Equatable, Sendable {
     case starting(program: String?)
     /// Running and ready: a message is answered without waiting for the agent program to start.
     case ready
+    /// Running, but showing a prompt in its terminal: it takes no message until the person has answered there.
+    case blocked(program: String?)
 
     /// What the server's list says about a bot's agent; nil when it has none.
-    init?(_ agent: HerdrClient.Agent?, in workspace: HerdrClient.Workspace) {
+    init?(_ agent: HerdrClient.Agent?, in workspace: HerdrClient.Workspace) { self.init(agent, program: agent.flatMap(workspace.program(of:))) }
+
+    init?(_ agent: HerdrClient.Agent?, program: String?) {
         guard let agent, agent.isLive else { return nil }
-        self = agent.isStarting ? .starting(program: workspace.program(of: agent)) : .ready
+        if agent.isStarting { self = .starting(program: program) } else if agent.status?.state == "blocked" { self = .blocked(program: program) } else { self = .ready }
     }
 
     var isStarting: Bool { if case .starting = self { true } else { false } }
+    var isBlocked: Bool { if case .blocked = self { true } else { false } }
 
     /// The header's word, and what it means when the pointer rests on it.
     var word: String {
         switch self {
         case .starting(let program): "Starting \(program ?? "its agent")…"
         case .ready: "Ready"
+        case .blocked: "Waiting for you in its terminal"
         }
     }
 
@@ -27,6 +33,7 @@ enum HerdrAgentReadiness: Equatable, Sendable {
         switch self {
         case .starting: "Its agent program is starting. You can write now: your message is delivered as soon as the agent is ready."
         case .ready: "Its agent is running, so a reply starts at once."
+        case .blocked(let program): "\(program ?? "Its agent") shows a prompt and waits for your answer there. Open the Herdr workspace to answer it: a message does not reach the agent until then."
         }
     }
 }
@@ -108,11 +115,11 @@ extension AppStore {
             case .started(let agent, let program)?:
                 // A new agent has the bot's projects as they are now.
                 if backend.projectsChanged { backend.onProjectsSynced?() }
-                self.herdrReadiness[id] = agent.isStarting ? .starting(program: program) : .ready
+                self.herdrReadiness[id] = HerdrAgentReadiness(agent, program: program)
                 // What the running agent was started on, for Details; a message that waits for this start does not wait for that.
                 if let bot = self.bots.first(where: { $0.id == id }) { Task { await self.refreshHerdrAgentReading(for: bot) } }
             case .running(let agent, let program)?:
-                self.herdrReadiness[id] = agent.isStarting ? .starting(program: program) : .ready
+                self.herdrReadiness[id] = HerdrAgentReadiness(agent, program: program)
             case .unavailable?: self.herdrNoWarmStarts.insert(refused)
             // The server could not be read, or refused this start: the first message starts the agent as before.
             case nil: break

@@ -2,7 +2,8 @@ import SwiftUI
 
 /// In the chat header, after the model: whether the bot's agent is running. A small green dot and "Ready" when a
 /// message is answered at once; a spinner and "Starting Codex…" while its agent program starts ahead of the first
-/// message. A bot with no agent shows nothing (`AppStore.herdrReadiness`).
+/// message; a hand when the agent shows a prompt in its terminal and takes no message until the person answers
+/// there. A bot with no agent shows nothing (`AppStore.herdrReadiness`).
 struct HerdrReadinessMark: View {
     let readiness: HerdrAgentReadiness
 
@@ -10,6 +11,8 @@ struct HerdrReadinessMark: View {
         HStack(spacing: 5) {
             if readiness.isStarting {
                 ProgressView().controlSize(.mini)
+            } else if readiness.isBlocked {
+                Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange).accessibilityHidden(true)
             } else {
                 Circle().fill(Color.green).frame(width: 6, height: 6).accessibilityHidden(true)
             }

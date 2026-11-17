@@ -97,6 +97,14 @@ struct HerdrTurnFollower: Sendable {
     /// agent that saved nothing has been quiet for too long.
     mutating func judgeAgent(now: ContinuousClock.Instant) -> Verdict {
         guard let state = agentState else { return .waiting }
+        // The bridge still keeps the turn's message for an agent that is starting: whatever the program reports
+        // meanwhile is its own start-up (Codex's counts as a turn), not work on the message.
+        if rows.values.contains(where: { $0.kind == "task" && $0.state == "pending" }) {
+            let status = HerdrTurnStatus.starting(program: program)
+            if status != lastStatus { steps.append(.status(status)); lastStatus = status }
+            quietSince = nil
+            return .waiting
+        }
         // Working again after a reply: the queued message is being answered, so keep waiting for it.
         if state == "working", settleSince != nil { settleSince = now }
         if state == "working" { began = true }
