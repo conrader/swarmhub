@@ -44,7 +44,8 @@ struct CommandPaletteView: View {
                 Text(item.title); Spacer()
                 if let shortcut = item.shortcut { Text(shortcut).font(.caption.monospaced()).foregroundStyle(.secondary) }
             }.padding(9).contentShape(Rectangle())
-            .background(model.highlighted == item.id ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
+            .foregroundStyle(model.highlighted == item.id ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
+            .background(model.highlighted == item.id ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).disabled(!item.isEnabled).id(item.id)
         .onHover { if $0 { model.highlight(item.id) } }
     }

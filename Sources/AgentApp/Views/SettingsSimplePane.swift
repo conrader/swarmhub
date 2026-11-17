@@ -33,7 +33,7 @@ struct SettingsSimplePane: View {
     private var you: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 14) {
-                Text(UserIdentity.initial(of: accountName)).font(.system(size: 24, weight: .bold)).foregroundStyle(.white)
+                Text(UserIdentity.initial(of: accountName)).font(.system(size: 24, weight: .bold)).foregroundStyle(AppColor.onAccent)
                     .frame(width: 56, height: 56).background(Circle().fill(.tint)).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     TextField(SimpleCopy.yourName, text: $accountName, prompt: Text(UserIdentity.fallback()))
@@ -65,21 +65,21 @@ struct SettingsSimplePane: View {
                 }
             }.accessibilityElement(children: .contain).accessibilityLabel(SimpleCopy.theme)
             SettingBlock(title: SimpleCopy.appIcon, detail: SimpleCopy.appIconCaption) {
-                Picker(SimpleCopy.appIcon, selection: $appIcon) { Text(SimpleCopy.light).tag("Light"); Text(SimpleCopy.dark).tag("Dark") }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
+                SegmentedChoice(title: SimpleCopy.appIcon, options: [("Light", SimpleCopy.light), ("Dark", SimpleCopy.dark)], selection: $appIcon).frame(maxWidth: 220)
             }
             SettingBlock(title: SimpleCopy.accent, detail: SimpleCopy.accentCaption) {
                 HStack(spacing: 10) {
                     ForEach(AppTheme.accentNames, id: \.self) { name in
                         Button { accent = name } label: {
                             Circle().fill(AppTheme.accentColor(for: name).gradient).frame(width: 22, height: 22)
-                                .overlay { if accent == name { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(name == "Graphite" ? Color(nsColor: .textBackgroundColor) : .white) } }
-                                .padding(3).overlay { Circle().strokeBorder(accent == name ? AppTheme.accentColor(for: name) : .clear, lineWidth: 2) }
+                                .overlay { if accent == name { Image(systemName: "checkmark").font(.system(size: 11, weight: .heavy)).foregroundStyle(AppColor.onAccent) } }
+                                .padding(3).overlay { Circle().strokeBorder(accent == name ? AnyShapeStyle(AppTheme.accentColor(for: name)) : AnyShapeStyle(.clear), lineWidth: 2.5) }
                         }.buttonStyle(.plain).help(name).accessibilityLabel(name).accessibilityAddTraits(accent == name ? .isSelected : [])
                     }
                 }
             }
             SettingBlock(title: "Avatar motion", detail: motion.preference.caption) {
-                Picker("Avatar motion", selection: $motion.preference) { ForEach(AvatarMotionPreference.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
+                SegmentedChoice(title: "Avatar motion", options: AvatarMotionPreference.allCases.map { ($0, $0.title) }, selection: $motion.preference).frame(maxWidth: 320)
             }
         }
     }
@@ -100,7 +100,9 @@ private struct ThemeTile: View {
                     }
                 }
                 .frame(width: 120, height: 76).clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(Color.primary.opacity(0.12)), lineWidth: selected ? 2.5 : 1) }
+                .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(AppColor.outline), lineWidth: selected ? 3 : 1) }
+                // The chosen theme is ringed and ticked, like the wallpaper and appearance pickers of System Settings.
+                .overlay(alignment: .bottomTrailing) { if selected { ChosenMark(selected: true, size: 20).overlay(Circle().strokeBorder(AppColor.panel, lineWidth: 1.5)).offset(x: 6, y: 6) } }
                 Text(name).font(.system(size: 12, weight: selected ? .semibold : .regular)).foregroundStyle(selected ? .primary : .secondary)
             }.contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(name).accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)

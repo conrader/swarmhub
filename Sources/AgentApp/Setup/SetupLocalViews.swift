@@ -98,7 +98,7 @@ struct SetupAIChecks: View {
                         .accessibilityLabel(screen)
                 }
                 HStack(spacing: 10) {
-                    Button(WizardCopy.aiAnswer) { answer(check) }.buttonStyle(.borderedProminent)
+                    Button(WizardCopy.aiAnswer) { answer(check) }.buttonStyle(.appleProminent)
                     if check.note != nil { Text(WizardCopy.aiAsksDetail(check.name)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 }
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)

@@ -1,35 +1,80 @@
 import SwiftUI
 
-/// Settings → Servers → Skills, for each Herdr server: that server's skill library (`HerdrSkillsModel`).
+/// Settings → Servers → Skills, for each Herdr server: that server's library (`HerdrSkillsEntry`), or for a server
+/// from before the library its list of switches (`HerdrSkillsModel`).
 struct HerdrSkillsSection: View {
     @EnvironmentObject private var store: AppStore
     let server: HerdrServer
     /// With several servers the section says whose skills these are.
     var named = false
-    /// Renders and tests show a state without a server.
+    /// Renders and tests show a state without a server: of the switch list an older server gets, or of the library.
     var preset: HerdrSkillsModel? = nil
+    var library: HerdrLibraryModel? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            GroupHeading(title: named ? "Skills on \(server.name)" : "Skills", detail: "What your bots know how to do. Every bot on \(server.name) gets the ones that are on.")
-            HerdrSkillsContent(model: preset ?? store.herdrSkillsModel(for: server), server: server, listHeight: nil)
+            GroupHeading(title: named ? "Skills on \(server.name)" : "Skills", detail: "What your bots know how to do. Every bot on \(server.name) gets what is in its library.")
+            HerdrSkillsEntry(model: library ?? (preset == nil ? store.herdrLibraryModel(for: server) : .olderServer), legacy: preset ?? store.herdrSkillsModel(for: server), server: server)
         }
     }
 }
 
-/// A Herdr bot's Details → Skills: the skill library of the server the bot runs on. It is the server's, not the
-/// bot's alone, and says so.
+/// A Herdr bot's Details → Skills: the library of the server the bot runs on. It is the server's, not the bot's
+/// alone, and says so. When one of the bot's projects on that server has a library of its own, the panel offers the
+/// choice between the two (`HerdrLibraryScopePicker`).
 struct HerdrSkillsPanel: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
+    /// Renders and tests show a state without a server: of the switch list, of the shared library, of a project's own.
     var preset: HerdrSkillsModel? = nil
+    var library: HerdrLibraryModel? = nil
+    var scoped: HerdrLibraryModel? = nil
     var body: some View {
         let server = store.herdrServer(for: bot)
+        HerdrSkillsPanelBody(bot: bot, server: server, shared: library ?? (preset == nil ? store.herdrLibraryModel(for: server) : .olderServer),
+                             legacy: preset ?? store.herdrSkillsModel(for: server), projects: store.herdrProjectsModel(for: server), scoped: scoped)
+    }
+}
+
+private struct HerdrSkillsPanelBody: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject var bot: Bot
+    let server: HerdrServer
+    @ObservedObject var shared: HerdrLibraryModel
+    @ObservedObject var legacy: HerdrSkillsModel
+    @ObservedObject var projects: HerdrProjectsModel
+    let scoped: HerdrLibraryModel?
+
+    /// The bot's projects with where each is: the ones on the server itself may have a library of their own.
+    private var candidates: [HerdrLibraryScope.Candidate] {
+        let own = store.herdrProjects(for: bot).map(\.id)
+        return projects.projects.filter { own.contains($0.id) }.map { project in
+            let machine = projects.machines.first { $0.name == project.machine }
+            return HerdrLibraryScope.Candidate(name: project.name, folder: project.folder, machineHost: machine?.host, machineTarget: machine?.target ?? "")
+        }
+    }
+
+    var body: some View {
+        let key = bot.id.uuidString, choices = shared.scopes[key] ?? []
+        let chosen = store.herdrLibraryScope(for: bot).flatMap { folder in choices.first { $0.folder == folder } }
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Skills").font(.headline)
-                Text("What \(bot.name) knows how to do. All your bots on \(server.name) share these.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(chosen.map { "What \(bot.name) knows how to do in \($0.name)." } ?? "What \(bot.name) knows how to do. All your bots on \(server.name) share these.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            HerdrSkillsContent(model: preset ?? store.herdrSkillsModel(for: server), server: server, listHeight: nil)
+            if !choices.isEmpty {
+                HerdrLibraryScopePicker(server: server, choices: choices, selection: chosen?.folder) { store.setHerdrLibraryScope($0, for: bot) }
+            }
+            if let chosen {
+                HerdrSkillsEntry(model: scoped ?? store.herdrLibraryModel(for: server, project: chosen.folder), legacy: legacy, server: server, compact: true, scopeName: chosen.name).id(chosen.folder)
+            } else {
+                HerdrSkillsEntry(model: shared, legacy: legacy, server: server, compact: true)
+            }
+        }
+        // The projects are read when nothing has read them yet; which of them hold a library is asked once both are known.
+        .task(id: bot.id) { if projects.phase == .idle, store.launchWorkEnabled { await projects.load() } }
+        .task(id: "\(shared.isOpen)|\(candidates.map(\.folder).joined(separator: "|"))") {
+            if store.launchWorkEnabled { await shared.findScopes(for: key, among: candidates) }
         }
     }
 }
@@ -113,7 +158,7 @@ struct HerdrSkillsContent: View {
                     }
                     Spacer(minLength: 8)
                     if model.isChanging(skill) { ProgressView().controlSize(.small) }
-                    Toggle(skill.name, isOn: Binding(get: { on }, set: { model.set(skill, on: $0) })).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    Toggle(skill.name, isOn: Binding(get: { on }, set: { model.set(skill, on: $0) })).labelsHidden().toggleStyle(.appleSwitch).controlSize(.small)
                         .accessibilityLabel(HerdrSkillsCopy.readable(skill.name))
                 }.padding(.horizontal, 10).padding(.vertical, 8).help(skill.name)
             }
@@ -157,7 +202,7 @@ struct HerdrSkillsContent: View {
                     HStack {
                         Spacer()
                         Button("Cancel") { model.confirming = nil }.keyboardShortcut(.cancelAction)
-                        Button("Share with \(agent)") { Task { await model.share(with: agent) } }.buttonStyle(.borderedProminent).disabled(model.adding)
+                        Button("Share with \(agent)") { Task { await model.share(with: agent) } }.buttonStyle(.appleProminent).disabled(model.adding)
                     }
                 }.appleCard(padding: 14)
             } else if agents.isEmpty {

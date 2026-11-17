@@ -30,8 +30,6 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SwarmHub connects to a Herdr server on your local network only when you add one in Settings.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>SwarmHub records with your microphone only while you dictate, and sends the stopped recording to deAPI to create a message draft.</string>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>

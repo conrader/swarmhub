@@ -292,15 +292,26 @@ extension AppStore {
     }
 
     /// A message the app put into a chat for the agent, as the chat shows it: who it is from, in a few words, and
-    /// only the part that is someone's words (`HerdrPassedOn`). nil for what the person wrote.
-    struct PassedOnRow { let title: String; let sender: Bot?; let shown: HerdrPassedOn }
+    /// only the part that is someone's words (`HerdrPassedOn`). nil for what the person wrote. `id` is the message's,
+    /// which is what the chat remembers an unfolded card by.
+    struct PassedOnRow { let id: UUID; let title: String; let sender: Bot?; let shown: HerdrPassedOn }
     func herdrPassedOnRow(_ message: ChatMessage) -> PassedOnRow? {
+        if let sent = herdrSentRow(message) { return sent }
         guard let title = herdrRelayCaption(message), let kind = message.metadata[HerdrBotRelay.Key.kind] else { return nil }
         // The bot whose words these are: the one that asked or wrote, or the one whose answer came back.
         let key = kind == HerdrBotRelay.answer ? HerdrBotRelay.ExchangeKey.from : HerdrBotRelay.Key.asker
         let sender = kind == HerdrBotRelay.request || kind == HerdrBotRelay.message || kind == HerdrBotRelay.answer
             ? message.metadata[key].flatMap { id in bots.first { $0.id.uuidString.lowercased() == id.lowercased() } } : nil
-        return PassedOnRow(title: title, sender: sender, shown: HerdrPassedOn(message.content))
+        return PassedOnRow(id: message.id, title: title, sender: sender, shown: HerdrPassedOn(message.content))
+    }
+
+    /// The other side of a message between bots, in the chat of the bot that wrote it: the app's line "Infra wrote
+    /// to Jarvis: “…”" as the same kind of card, in the writer's own colour. The line is read as it was stored, so
+    /// lines written by an older version fold too.
+    func herdrSentRow(_ message: ChatMessage) -> PassedOnRow? {
+        guard message.role == .system, message.metadata[AppOnlyLine.key] != nil,
+              let parts = HerdrMessageLine.sent.values(in: message.content), parts.count == 3 else { return nil }
+        return PassedOnRow(id: message.id, title: HerdrMessageLine.sentTitle(to: parts[1]), sender: bots.first { $0.name == parts[0] }, shown: HerdrPassedOn(words: parts[2]))
     }
 
     /// The person did not write this row: the app did, for the agent (a passed-on message, or the note that starts

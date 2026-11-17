@@ -13,18 +13,18 @@ struct HerdrAboutYouCard: View {
         Group {
             if !pending.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label(AboutYouCopy.cardTitle(bot.name), systemImage: "person.text.rectangle").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Label(AboutYouCopy.cardTitle(bot.name), systemImage: "person.text.rectangle").font(.caption.weight(.semibold)).foregroundStyle(bot.tintInk)
                     ForEach(pending) { item in
                         HStack(alignment: .center, spacing: 10) {
                             Text(item.text).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 8)
                             Button(AboutYouCopy.dismiss) { problem = ""; store.dismissAboutYou(item) }
-                            Button(AboutYouCopy.save) { problem = store.acceptAboutYou(item) ? "" : AboutYouCopy.full }.buttonStyle(.borderedProminent)
+                            Button(AboutYouCopy.save) { problem = store.acceptAboutYou(item) ? "" : AboutYouCopy.full }.buttonStyle(.appleProminent)
                         }
                     }
                     if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(AppColor.caution).fixedSize(horizontal: false, vertical: true) }
                 }
-                .chatCard(tint: bot.tint).transition(.opacity.combined(with: .move(edge: .bottom)))
+                .chatCard(tint: bot.colours).transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: pending)
     }
@@ -46,8 +46,8 @@ struct HerdrIntroOffer: View {
                 }
                 Spacer(minLength: 8)
                 Button(AboutYouCopy.offerLater) { store.dismissHerdrIntro(bot) }
-                Button(AboutYouCopy.offerStart) { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot) }.buttonStyle(.borderedProminent)
-            }.chatCard(tint: bot.tint)
+                Button(AboutYouCopy.offerStart) { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot) }.buttonStyle(.appleProminent)
+            }.chatCard(tint: bot.colours)
         }
     }
 }

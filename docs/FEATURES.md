@@ -87,9 +87,15 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 
 ## Skills
 
-- If skillshare is installed on the Herdr server, **Settings → Servers → Skills** and the **Skills** tab of a bot's Details list the server's skill library, by readable names ("Code review" for `code-review`), with a search field and a switch per skill.
-- A switch changes the library and then runs a sync, so the AIs the library is shared with get the change. **Share with another AI…** (under **Advanced**) shares the library with one more.
-- Skills belong to the server and its AIs, not to one bot. The app does not install or remove skills.
+- If skillshare is installed on the Herdr server, **Settings → Servers → Skills** and the **Skills** tab of a bot's Details say where the server's library stands (in sync, or how many changes wait, with one **Sync now** button) and count what is in it: skills, agents, MCP servers, plugins and hooks.
+- **Open library** opens the library in three parts. **Overview**: the summary, each AI the library is shared with and what waits for it, **Share with another AI…**, and the library's Git repository (pull, commit and push, sync both ways, and a choice per file when both sides changed the same one). **Library**: everything grouped into Needs sync, Update available, In sync and Off, with a filter by kind and a search. **Servers**: skillshare on every server, with its version, what waits, its warnings, and **Update skillshare…**.
+- A thing opens to read: a skill's `SKILL.md` as a page with its other files, an agent's file, the settings of an MCP server, a plugin or a hook. Secrets show as names only; their values stay on the server.
+- A skill, an agent or a hook has a switch. A change (a switch, an install, an update, a removal) is followed by a sync, so the AIs get it; when the sync fails the app says so and offers it again.
+- **Install…** takes a repository, has the server download and audit it, and shows each skill with the result. What passed is ticked; a blocked skill is installed only through **Install anyway…**, after a confirmation, and then stays at the checked version. **Ask a bot to review** sends the audit to a bot, which is told to read and report, not to install.
+- Removing, pushing, syncing both ways, resolving a conflict, installing a blocked skill, sharing with another AI and updating skillshare each ask first and say what happens. A refusal is shown in the server's own sentence.
+- When one of a bot's projects on the server itself has a skillshare library of its own, the bot's Skills tab offers the choice between that library and the shared one.
+- A server from before the library (API level 1) keeps its list of switches, with one line that an update brings the rest. A part of the library that could not be read is named, and the library is then never called in sync.
+- The library belongs to the server and its AIs, not to one bot. MCP servers, plugins and hooks are added and changed with skillshare on the server.
 
 ## Group chats
 
@@ -103,11 +109,6 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 - An agent receives text only. An attached image is kept in the chat and is not sent to the agent.
 - The **Media** tab of the Details panel lists the documents saved for a bot. From there you can read, export or attach one, share it with another bot, or remove a bot's access.
 
-## Voice
-
-- Dictation: save a deAPI API key under **Settings → Voice**, and a microphone button appears in every chat's composer. Record, stop, and the recording is transcribed by deAPI with your own key. The text is added to the draft and is never sent by itself. A recording is at most 5 minutes and is removed from the Mac after transcription or cancellation.
-- Read aloud: the speaker button under a finished reply speaks it with the Mac's built-in speech; press it again to stop. Nothing is sent anywhere.
-
 ## Import
 
 - **Grok Bot** (the **Grok Bot** card in **Settings → Servers**, and the **+** menu at the top of the sidebar; both show only when Grok Bot is on this Mac): reads Grok Bot's bots and history on this Mac. Each bot becomes a Herdr bot with a read-only history archive. Importing again adds what is missing without duplicates. Fetching all history asks macOS once for Grok Bot's sign-in.
@@ -115,7 +116,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 
 ## Appearance and settings
 
-- Settings is one window with five panes: **General**, **Servers**, **Voice**, **Software Update** and **About**.
+- Settings is one window with four panes: **General**, **Servers**, **Software Update** and **About**.
 - **General** holds your name (shown in group chats), **About you**, the theme (Light, Dark or System), the app icon (Light or Dark), the accent colour, avatar motion and notifications.
 - The look comes from the app icon: warm surfaces (cream in light, olive charcoal in dark) and a clay accent by default. Sage, Graphite and five other accents can be chosen.
 - Each chat carries its bot's colour, taken from its avatar: a soft wash behind its name in the header, its face and name above the first reply of each run, and the cards above the composer.

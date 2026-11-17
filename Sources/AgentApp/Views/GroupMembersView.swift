@@ -47,7 +47,7 @@ struct GroupInfoPanel: View {
             Menu {
                 ForEach(candidates) { bot in Button(bot.name) { store.addMember(bot, to: group) } }
             } label: { Label(InspectorCopy.addAgent, systemImage: "plus") }.disabled(candidates.isEmpty).fixedSize()
-            Toggle(InspectorCopy.mute, isOn: Binding(get: { group.isMuted }, set: { group.isMuted = $0; store.save() })).toggleStyle(.switch).controlSize(.small)
+            Toggle(InspectorCopy.mute, isOn: Binding(get: { group.isMuted }, set: { group.isMuted = $0; store.save() })).toggleStyle(.appleSwitchLabelled).controlSize(.small)
             AdvancedFold { GroupRoutingDetails(members: members) }
         }
     }

@@ -10,16 +10,21 @@ enum ReplySegment: Equatable, Sendable {
 /// P43: a reply is drawn text → steps → text, as it streamed. Each step keeps the text offset it started at; consecutive
 /// steps with no text between them form one burst. Replies saved before P43 (steps without offsets) keep one Steps row
 /// under the whole text.
+/// A steps row never stands inside a paragraph: text and tool events arrive on their own clocks, so a step often
+/// starts while a sentence is half written. Its row then goes after that paragraph (the sentence that announced the
+/// work reads whole, then the work), between two blocks of the text. This is decided from the text each time it is
+/// drawn, so a reply that is still streaming and one saved long ago are laid out by the same rule.
 enum ReplyLayout {
     /// The reply's segments, or nil when it has no ordered steps (no steps, or steps saved before P43).
     static func segments(content: String, activity: ToolActivity?) -> [ReplySegment]? {
         guard let steps = activity?.steps, !steps.isEmpty, steps.allSatisfy({ $0.textOffset != nil }) else { return nil }
-        let length = content.utf16.count
+        let length = content.utf16.count, gaps = blockGaps(in: content)
+        func place(_ step: ToolStep, after cursor: Int) -> Int { clamp(betweenBlocks(clamp(step.textOffset ?? 0, 0, length), gaps: gaps, length: length), cursor, length) }
         var segments: [ReplySegment] = []; var cursor = 0; var start = 0
         while start < steps.count {
-            let offset = clamp(steps[start].textOffset ?? 0, cursor, length)
+            let offset = place(steps[start], after: cursor)
             var end = start + 1
-            while end < steps.count, clamp(steps[end].textOffset ?? 0, cursor, length) == offset { end += 1 }
+            while end < steps.count, place(steps[end], after: cursor) == offset { end += 1 }
             let text = slice(content, cursor, offset)
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { segments.append(.text(text)) }
             // Whitespace between two bursts does not split them.
@@ -32,12 +37,66 @@ enum ReplyLayout {
         return segments
     }
 
+    /// For each segment, the place each of its blocks has among the blocks of the whole reply (`ChatCardParser`);
+    /// empty for a steps segment. A card (a question with options, a draft) is answered and remembered by that
+    /// place, and the store checks the answer against the whole reply. Dividing the text for the steps rows makes
+    /// more prose blocks than the whole reply has, so the blocks are matched by what they are: the first card of the
+    /// segments is the first card of the reply. Prose has no place of its own (-1); nothing is stored for it.
+    static func blockIndexes(_ segments: [ReplySegment], content: String) -> [[Int]] {
+        func isProse(_ block: ChatBlock) -> Bool { if case .markdown = block { true } else { false } }
+        let whole = ChatCardParser.parse(SwarmhubBlock.visibleText(content))
+        let places = whole.indices.filter { !isProse(whole[$0]) }
+        var next = 0
+        return segments.map { segment in
+            guard case .text(let text) = segment else { return [] }
+            return ChatCardParser.parse(SwarmhubBlock.visibleText(text)).map { block in
+                guard !isProse(block), next < places.count, whole[places[next]] == block else { return -1 }
+                defer { next += 1 }
+                return places[next]
+            }
+        }
+    }
+
     /// The reply's last text segment (its conclusion), for the sidebar preview, notifications and Copy reply; the whole
     /// text when the reply has no ordered steps.
     static func finalText(content: String, activity: ToolActivity?) -> String {
         guard let segments = segments(content: content, activity: activity) else { return content }
         for segment in segments.reversed() { if case .text(let text) = segment { return text.trimmingCharacters(in: .whitespacesAndNewlines) } }
         return content
+    }
+
+    /// Where the text may be divided, as UTF-16 ranges: the start, every run of blank lines that is not inside a code
+    /// fence, and the end. A range runs from the end of one block's last line to the start of the next block's first.
+    static func blockGaps(in content: String) -> [ClosedRange<Int>] {
+        var gaps: [ClosedRange<Int>] = [], offset = 0, fence: Character?
+        // The end of the last line with words on it, and whether a blank line followed it.
+        var lastEnd = 0, blank = true
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let size = line.utf16.count, words = line.trimmingCharacters(in: .whitespaces)
+            if words.isEmpty {
+                if fence == nil { blank = true }
+            } else {
+                if blank, fence == nil { gaps.append(lastEnd...offset) }
+                blank = false; lastEnd = offset + size
+                if let mark = words.first, words.hasPrefix("```") || words.hasPrefix("~~~") {
+                    if fence == nil { fence = mark } else if fence == mark { fence = nil }
+                }
+            }
+            offset += size + 1
+        }
+        // Text that ends inside an open fence (a reply still streaming) ends where it ends.
+        let length = content.utf16.count
+        gaps.append((fence == nil ? lastEnd : length)...length)
+        return gaps
+    }
+
+    /// `offset` when it already lies between two blocks; otherwise the end of the block it lies in.
+    static func betweenBlocks(_ offset: Int, gaps: [ClosedRange<Int>], length: Int) -> Int {
+        for gap in gaps {
+            if gap.contains(offset) { return offset }
+            if gap.lowerBound > offset { return gap.lowerBound }
+        }
+        return length
     }
 
     private static func clamp(_ value: Int, _ low: Int, _ high: Int) -> Int { min(max(value, low), high) }

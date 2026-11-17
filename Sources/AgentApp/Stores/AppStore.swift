@@ -32,13 +32,18 @@ import UserNotifications
     /// Whether each Herdr bot's agent is running, and ready for a message or still starting (`AppStore+HerdrWarm.swift`):
     /// the chat header says it. `herdrWarming`: the starts ahead of time that are on their way, by bot; a message to
     /// such a bot waits for its start. `herdrNoWarmStarts`: the servers and agent programs that refused such a start.
-    @Published var herdrReadiness: [UUID: HerdrAgentReadiness] = [:]
+    @Published var herdrReadiness: [UUID: HerdrAgentReadiness] = [:] { didSet { if herdrReadiness != oldValue { herdrPromptsFollowReadiness() } } }
+    /// The bots whose agent waits at a question in its terminal, with what it asks (`AppStore+HerdrPrompt.swift`).
+    @Published var herdrPrompts: [UUID: HerdrPrompt] = [:]
+    var herdrPromptBook = HerdrPromptBook()
     var herdrWarming: [UUID: Task<Void, Never>] = [:]
     @Published var herdrNoWarmStarts: Set<String> = []
     /// Applied to every Herdr client the store makes; tests point it at a scripted server.
     var herdrClientSetup: (@Sendable (inout HerdrClient) -> Void)?
     /// Each Herdr server's Skills section, by server id (`HerdrSkillsModel`).
     var herdrSkillModels: [String: HerdrSkillsModel] = [:]
+    /// Each Herdr server's library, and skillshare on every server (`HerdrSkillLibraryModel.swift`).
+    var herdrLibraryModels: [String: HerdrLibraryModel] = [:]; var herdrLibraryServersModel: HerdrLibraryServersModel?
     /// One per Herdr server: its project servers and projects (`HerdrProjectsModel`).
     var herdrProjectModels: [String: HerdrProjectsModel] = [:]
     /// The setup wizard's ending (`AppStore+SetupHerdr.swift`): the bot whose composer takes the keyboard once, and the
@@ -48,9 +53,6 @@ import UserNotifications
     /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
     var herdrSettling: Set<String> = []
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
-    /// Whether dictation has its key, looked up once (attributes only) and again when Settings saves or removes it:
-    /// the composer shows its microphone only then (`dictationIsSetUp`).
-    var dictationKeyKnown: Bool?
     /// The sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
     @Published var infoTab = AgentInfoTab.overview
@@ -206,7 +208,14 @@ import UserNotifications
         setHerdrServer(herdrServers[0].id, for: bot)
         bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot
     }
-    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save() }
+    /// Removes the bot and its chat from this Mac, and ends its agent on its server (`AppStore+HerdrRemoval.swift`).
+    func delete(_ bot: Bot) {
+        let removal = herdrEndingBeforeRemoval(of: bot)
+        grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }
+        if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }
+        save()
+        if let removal { herdrAgentRemoved(removal, botID: bot.id) }
+    }
     /// Writes store.json; a failed write is reported once per streak instead of being swallowed.
     var storeFile: StoreFile { StoreFile(bots: bots, groups: groups, scrollPositions: chatScroll.stored) }
 

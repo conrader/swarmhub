@@ -27,10 +27,10 @@ The Swift package (`Package.swift`) has two targets besides the tests: `AgentApp
 | `Backends` | `AgentBackend`, the protocol for whatever answers a bot. `HerdrBackend` is the one real implementation; `MockBackend` answers locally for the sample bots. `HerdrClient` and the other `Herdr*` files talk to the bridge. |
 | `Stores` | `AppStore` and its extensions: bots, groups, turns, the message queue, servers, the first conversation and "About you", saving. `AppUpdater` (Sparkle) and `SoftwareUpdateModel` (the servers' updates). |
 | `Models` | Bots, messages, groups, turn state, cards. |
-| `Views` | SwiftUI views: sidebar, chat, composer, Details panel, Settings and its panes (General, Servers, Voice, Software Update, About). |
+| `Views` | SwiftUI views: sidebar, chat, composer, Details panel, Settings and its panes (General, Servers, Software Update, About). |
 | `Setup` | The setup window, and the visible words of the setup window and Settings (`WizardCopy`, `SetupCopy`, `SimpleCopy`, `SettingsLayout`). |
 | `GrokExport`, `GrokImport`, `TemplateImport` | Reading Grok Bot's data and templates, and the command-line entry points. |
-| `Avatars`, `Voice` | Avatar drawing and settings; dictation through deAPI. |
+| `Avatars` | Avatar drawing and settings. |
 
 ### How a message reaches an agent
 
@@ -57,7 +57,7 @@ The app keeps its data in `~/Library/Application Support/AgentApp/`:
 
 A `store.json` that cannot be read is moved aside as `store.json.corrupt-<time>`, and the app offers to restore the newest readable copy. A store from an older version that holds bots of a removed backend is copied to `store.json.before-herdr-only-<time>` before those bots are left out.
 
-The server list, each bot's server, template and model, "About you", and other preferences are in the app's `UserDefaults`. Access tokens and the deAPI key are in the Keychain. For an SSH server the app saves the path of the key file, never the key.
+The server list, each bot's server, template and model, "About you", and other preferences are in the app's `UserDefaults`. Access tokens are in the Keychain. For an SSH server the app saves the path of the key file, never the key.
 
 ## Environment
 
@@ -81,7 +81,7 @@ These run without a window and exit:
 | `--migrate-store` | Loads and saves the store in the current format. |
 | `--probe-attachment <file>` | Reads a PDF, RTF, DOC or DOCX like the composer does and prints counts. No network. |
 | `--render-snapshot <dir> [--bot "<name>"]...` | Renders the window to image files. |
-| `--render-setup <dir> [--light]` | Renders the setup steps, Settings pages, the states of Software Update, chats and helper views from a synthetic store with sample content, dark unless `--light` is given. No network, no Keychain. It refuses a folder inside the repository. The screens in the README and the guide (`docs/screenshots`) come from it. |
+| `--render-setup <dir> [--light] [--only <prefix>]` | Renders the setup steps, Settings pages, the states of Software Update, chats and helper views from a synthetic store with sample content, dark unless `--light` is given; `--only` keeps the screens whose file name starts with the prefix. No network, no Keychain. It refuses a folder inside the repository. The screens in the README and the guide (`docs/screenshots`) come from it. |
 
 Two flags apply to a normal launch with a window: `--ui-smoke <report.json>` and `--setup-preview`.
 

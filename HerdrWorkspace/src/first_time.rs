@@ -309,7 +309,7 @@ fn prepare_claude(home: &Path, data: &Path, folder: &Path) -> Value {
     let named = folder
         .canonicalize()
         .unwrap_or_else(|_| folder.to_path_buf());
-    let claude = match named.to_str() {
+    match named.to_str() {
         None => json!({"id": "claude", "done": false, "changed": false,
                        "why": "The bots' folder has a name SwarmHub cannot write down for Claude Code."}),
         Some(named) => match trust(&file, named) {
@@ -330,8 +330,7 @@ fn prepare_claude(home: &Path, data: &Path, folder: &Path) -> Value {
             Err(left) => json!({"id": "claude", "done": false, "changed": false, "file": file,
                                 "why": left.sentence(&file)}),
         },
-    };
-    claude
+    }
 }
 
 /// Removes what `prepare` wrote. Returns what it did, one sentence each.

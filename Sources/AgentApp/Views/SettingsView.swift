@@ -16,12 +16,11 @@ struct SettingsView: View {
                         Label { Text(item.rawValue) } icon: { SymbolTile(symbol: item.icon, colour: item.colour, size: 22) }.padding(.vertical, 3).tag(item)
                     }.navigationSplitViewColumnWidth(180)
                 } detail: {
-                    // General, Servers and Software Update lay their own groups out; Voice and About are grouped forms.
+                    // General, Servers and Software Update lay their own groups out; About is a grouped form.
                     Group {
                         switch pane {
                         case .general: SettingsSimplePane()
                         case .servers: ScrollView { SettingsAccountPane().padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }
-                        case .voice: Form { SettingsVoicePane() }.formStyle(.grouped)
                         case .updates: ScrollView { SoftwareUpdatePane().padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }
                         case .about: Form { Section { UpdateCheckRow() }; SettingsAboutPane() }.formStyle(.grouped)
                         }

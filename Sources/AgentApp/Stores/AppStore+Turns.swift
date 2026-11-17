@@ -44,7 +44,10 @@ extension AppStore {
                 objectWillChange.send(); autosaveIfDue()
             case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
             case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
-            case .status(let value) where HerdrTurnStatus(code: value) != nil: agentStatus = value; row.metadata[TurnKey.agent] = value
+            case .status(let value) where HerdrTurnStatus(code: value) != nil:
+                agentStatus = value; row.metadata[TurnKey.agent] = value
+                // An agent that waits in its terminal is raised to the person, with what it asks.
+                herdrTurnStatus(HerdrTurnStatus(code: value), for: bot)
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
@@ -69,6 +72,7 @@ extension AppStore {
         assistant.isStreaming = false
         // The live "first tool" status ends with the turn.
         assistant.metadata["status"] = nil; assistant.metadata[TurnKey.reconnecting] = nil; assistant.metadata[TurnKey.agent] = nil
+        herdrTurnStatus(nil, for: bot)
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)

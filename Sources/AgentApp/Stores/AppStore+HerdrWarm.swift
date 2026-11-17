@@ -33,7 +33,7 @@ enum HerdrAgentReadiness: Equatable, Sendable {
         switch self {
         case .starting: "It is starting. You can write now: your message is delivered as soon as it is ready."
         case .ready: "Ready: a reply starts at once."
-        case .blocked(let program): "\(program ?? "Its agent") is asking a question in its terminal. Answer it at the server's address in a browser: a message does not get through until then."
+        case .blocked(let program): "\(program ?? "Its agent") is asking a question in its terminal. Answer it with the button above the message box: a message does not get through until then."
         }
     }
 }

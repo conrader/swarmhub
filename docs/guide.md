@@ -156,12 +156,73 @@ A bot can hand parts of its work to helpers. They show under the bot in the side
 
 ### Skills
 
-If [skillshare](https://skillshare.runkids.cc) is installed on the Herdr server, **Settings → Servers → Skills** lists the server's skill library, and so does the **Skills** tab of a bot's Details (⌘7). A switch turns a skill on or off for the AIs the library is shared with; the app then updates them. A bot picks up a change the next time it starts fresh. Skills belong to the server and its AIs, not to one bot. The app does not install or remove skills: use `skillshare` on the server for that.
+What your bots know how to do is kept in a library on the server. A separate program there, [skillshare](https://skillshare.runkids.cc), looks after it. The library holds five kinds of things:
+
+- **Skills**: instructions a bot follows for one kind of job.
+- **Agents**: ready-made helpers a bot can hand a job to.
+- **MCP servers**: outside tools and services a bot can use.
+- **Plugins**: add-ons for the AI program itself.
+- **Hooks**: small commands the AI program runs at set moments.
+
+A sync brings the library to the AI programs on that server, and through them to your bots. The library belongs to the server, so every bot on it shares it. A bot picks up a change the next time it starts fresh.
+
+**Settings → Servers → Skills** and the **Skills** tab of a bot's Details (⌘7) say where the library stands: that everything is in sync, or how many changes are waiting, with one **Sync now** button. The tiles count what is in it. **Open library** opens the whole library, in three parts.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="screenshots/dark/skills.png">
-  <img src="screenshots/light/skills.png" alt="Settings: a server's skill library with a switch per skill." width="480">
+  <img src="screenshots/light/skills.png" alt="Settings: a server's library with three changes waiting for a sync, a Sync now button and a count for each kind of thing." width="480">
 </picture>
+
+**Overview** repeats that summary, lists each AI the library is shared with and what is waiting for it, and offers **Share with another AI…**. Sharing asks first: from then on that AI gets your library in every session on the server, including the ones you start yourself. If a part of the library could not be read, the Overview says which part and why, and does not call the library in sync.
+
+**Library** lists everything, grouped by where it stands: Needs sync, Update available, In sync and Off. Choose a kind at the top, or search. Click a thing to read it:
+
+- A skill shows its instructions as a page, with its other files to choose from. An agent shows its file.
+- An MCP server, a plugin or a hook shows its settings. Passwords and keys stay on the server: you see only their names.
+- Every thing shows which AIs have it and which are waiting for it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/dark/skills-library.png">
+  <img src="screenshots/light/skills-library.png" alt="The library: skills, agents, MCP servers, plugins and hooks in the groups Needs sync, Update available, In sync and Off." width="640">
+</picture>
+
+**Servers** shows skillshare on each of your servers: its version, whether the AIs there are in sync, the state of the library's repository, and anything skillshare warns about. When a newer skillshare is out, **Update skillshare…** installs it after you confirm.
+
+#### Turn things on and off
+
+Open a skill, an agent or a hook and use its switch. The app changes the library and then syncs, so your bots get the change. If the sync fails, the app says that the change is in the library and your bots do not have it yet; **Sync now** tries again. MCP servers and plugins have no switch.
+
+#### Install skills
+
+In **Library**, choose **Install…** and name a repository, such as `owner/repo`. The server downloads it and checks every skill in it. Nothing is installed yet, and nothing from the download is run. You then see each skill with the result of the check:
+
+- A skill that passed is ticked. One the library already has is marked **Replaces the one you have**.
+- A skill the check blocked is left out, and you see what was found: how serious it is, in which file and line, and the line itself. **Install anyway…** asks first. A skill installed this way stays exactly at the version that was checked until you install it again.
+- **Ask a bot to review** sends the findings to a bot you pick. It is told to read and report, not to install. Its answer comes in its chat.
+
+**Install** installs what is ticked and syncs. **Cancel** removes the download from the server.
+
+#### Update and remove
+
+The library looks for newer versions when you open it, at most every ten minutes, and when you choose **Check for updates**; this can take a minute. Things with a newer version are listed under **Update available**: open one and choose **Update**, or use **Update all**. If the security check refuses a new version, that thing stays as it is and the app says so.
+
+**Remove…** asks first. A removed skill, agent or hook goes to skillshare's trash on the server for 7 days. **Show changes** shows what a sync would change in a thing, line by line.
+
+#### The library's repository
+
+If the library is kept in a Git repository, the bottom of the Overview says how the two compare, for example “3 changes not saved to the repository, 2 to pull”. **Pull** brings the repository's changes to the server. **Commit and push…** saves the server's changes and sends them to the repository, and **Sync both ways…** does both; each asks first, because others who use the repository get what you send. If the same file changed in both places, nothing is changed: you see both versions side by side, choose one for each file, and confirm.
+
+#### A project's own library
+
+A project folder on the server itself can have a library of its own. When one of a bot's projects has one, the bot's **Skills** tab offers **Which library**: the one all bots on the server share, or that project's.
+
+#### Older servers
+
+A server that has not been updated yet shows its skills as a list of switches, as before, and says that an update brings the full library. Update it under **Settings → Software Update**. A server without skillshare says so.
+
+#### What the app leaves to the server
+
+Use `skillshare` on the server to add or change MCP servers, plugins and hooks, to follow a whole repository, to install agents from a repository, to bring something back from the trash, to back up and restore, and to change how an AI program receives the library. The library is about the server your bots run on; skillshare on your project servers is not shown.
 
 ### Projects on other servers
 
@@ -178,11 +239,12 @@ Then open a bot's settings, **Advanced**, or the **Overview** tab of its Details
 
 **File → New Group…** (⇧⌘N) puts several bots in one thread. Write `@Name` to address one member; a message without a mention goes to every member.
 
-### Files and voice
+<a id="files-and-voice"></a>
+<a id="files"></a>
+
+### Files
 
 Drop or attach images, text files, PDF, RTF, DOC or DOCX files. Text and document contents reach the bot as text. Images are kept in the chat and are not sent to the bot.
-
-For dictation, open **Settings → Voice**, paste a deAPI API key and press **Save key**. A microphone button then appears in every chat's composer. The transcript is added to the draft for you to review.
 
 ### Import from Grok Bot
 
