@@ -69,7 +69,8 @@ struct HerdrLibraryList: View {
                     Text(group.title).font(.headline).accessibilityAddTraits(.isHeader)
                     Text("\(items.count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(Color.primary.opacity(0.07)))
                     Spacer()
-                    if group == .update, library.updatable.count > 1 {
+                    // "Update all" means all of them, so it shows only while all of them are on the screen.
+                    if group == .update, library.updatable.count > 1, items.filter({ $0.can("update") }).count == library.updatable.count {
                         Button("Update all") { Task { await model.update(nil) } }.controlSize(.small).disabled(model.isBusy)
                     }
                 }

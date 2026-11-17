@@ -311,7 +311,7 @@ enum HerdrLibraryCopy {
 
     static func removeTitle(_ item: HerdrLibraryItem) -> String { "Remove “\(item.readable)”?" }
     static func removeDetail(_ item: HerdrLibraryItem) -> String {
-        "It leaves your library, and your bots lose it with the next sync. skillshare keeps it in its trash on the server for 7 days, in case you want it back."
+        "It leaves your library, and with the sync that follows your bots lose it too. skillshare keeps it in its trash on the server for 7 days, in case you want it back."
     }
     static func removed(_ names: [String]) -> String { names.isEmpty ? "Removed." : "Removed \(list(names.map(readable))). It is in skillshare’s trash for 7 days." }
 
