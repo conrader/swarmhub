@@ -4517,9 +4517,9 @@ reply(second, {"data":[{"id":"other-alias","model":"provider/gpt-exact","hidden"
                     }
                     state = request("/api/workspace")
                     options = {choice["name"]: choice for choice in state["templates"]}
-                    assert options["approval-fixture"]["runtime"] == known
+                    assert options["approval-fixture"]["runtime"] == {**known, "display_name": "Claude"}
                     assert options["fixture"]["runtime"] == local
-                    assert options["codex-fixture"]["runtime"] == {"harness": "Codex", "provider": None, "model": None}
+                    assert options["codex-fixture"]["runtime"] == {"harness": "Codex", "provider": None, "model": None, "display_name": "Codex"}
                     assert "models" not in options["approval-fixture"]
                     assert options["codex-choice"]["model_agent"] == "Codex" and options["codex-choice"]["models"] == [codex_selection]
                     assert options["claude-choice"]["model_agent"] == "Claude Code" and options["claude-choice"]["models"] == [claude_selection]
@@ -4595,7 +4595,7 @@ reply(second, {"data":[{"id":"other-alias","model":"provider/gpt-exact","hidden"
                     stored = next(p for p in profiles if p["name"] == "custom-entered")["sessions"][0]["runtime"]
                     assert stored == {"harness":"Custom runner","model_id":manual_id,"model":manual_id,"provider":None}
                     if chrome:
-                        assert next(p for p in profiles if p["name"] == "browser-test")["sessions"][0]["runtime"] == known
+                        assert next(p for p in profiles if p["name"] == "browser-test")["sessions"][0]["runtime"] == {**known, "display_name": "Claude"}
                         entered = next(p for p in profiles if p["name"] == "codex-entered")
                         assert entered["sessions"][0]["runtime"]["model_id"] == "gpt-outside-catalog"
                     return

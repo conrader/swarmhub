@@ -143,6 +143,8 @@ To show provider and model names, add a `runtime-catalog.json` file next to `wor
 }
 ```
 
+An entry can also carry `display_name`: the short name clients show for the agent program. Without it the workspace gives `Claude` for Claude Code, and Codex and OpenCode their own names; `GET /api/workspace` carries it as `display_name` in each template's `runtime` when there is one.
+
 The `provider` and `model` fields are display labels for a template's default. Keep credentials in the agent's own configuration. SwarmHub recognizes a few common direct commands without showing the command or its arguments, and still lists custom templates with no catalog entry. Changes to the catalog apply to future launches. Session details retain the launch choice and labels, including after Core disconnects.
 
 For built-in model choice support, use a direct `/absolute/path/to/swarmhub-herdr` template command with one of these endings:
@@ -268,7 +270,7 @@ Either way, if the workspace server is not running, the command changes nothing 
 A helper is an ordinary session: its replies, tool activity, terminal and history work as for any agent. It has no profile of its own.
 
 - `GET /api/agents/{address}/{created_ms}/events` sends the same list whenever it changes ([Follow a session without polling](#follow-a-session-without-polling)).
-- `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s running helpers, newest first, with each one’s name, difficulty, template, model, task, status and latest saved reply, plus `limit`, `stop_after_seconds` and `stop_unanswered_after_seconds`.
+- `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s running helpers, newest first, with each one’s name, difficulty, template, model, `model_label` (the catalog’s label for that model, such as “Sonnet 5.5”, when it lists the model), task, status and latest saved reply, plus `limit`, `stop_after_seconds` and `stop_unanswered_after_seconds`.
 - In `/api/workspace`, a running helper carries `parent` with the address and creation time of the agent that started it.
 - `GET /api/helper-policy` returns `policy` (the file’s four fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the three numbers.
 - `POST /api/helper-policy` takes the policy as its body and saves the file. It answers like `GET`, or with status 422 and an `error` when a number is out of bounds, Herdr has no such template, or the template cannot take the model.

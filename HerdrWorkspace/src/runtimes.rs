@@ -143,6 +143,19 @@ pub struct Runtime {
     model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     model_id: Option<String>,
+    /// The agent program's short name for people ("Claude" for Claude Code): the catalog's, or the one the
+    /// workspace knows for the program.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
+}
+
+/// The short name of an agent program the workspace knows.
+fn short_name(harness: &str) -> Option<String> {
+    match harness {
+        "Claude Code" => Some("Claude".to_owned()),
+        "Codex" | "OpenCode" => Some(harness.to_owned()),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -159,6 +172,8 @@ struct Entry {
     harness: String,
     provider: Option<String>,
     model: Option<String>,
+    /// The agent program's short name for people, when the workspace's own is not wanted.
+    display_name: Option<String>,
     #[serde(default)]
     models: Vec<ModelChoice>,
     model_transport: Option<ModelTransport>,
@@ -231,11 +246,15 @@ impl Catalog {
         self.entries
             .get(&template.name)
             .map(Entry::runtime)
-            .unwrap_or_else(|| Runtime {
-                harness: recognize(&template.command).to_owned(),
-                provider: None,
-                model: None,
-                model_id: None,
+            .unwrap_or_else(|| {
+                let harness = recognize(&template.command);
+                Runtime {
+                    harness: harness.to_owned(),
+                    provider: None,
+                    model: None,
+                    model_id: None,
+                    display_name: short_name(harness),
+                }
             })
     }
 
@@ -302,6 +321,18 @@ impl Catalog {
     }
 }
 
+impl Catalog {
+    /// The label the catalog gives a model of a template ("Sonnet 5.5"), when it lists that model.
+    pub(crate) fn model_label(&self, template: &str, model: &str) -> Option<String> {
+        self.entries
+            .get(template)?
+            .models
+            .iter()
+            .find(|choice| choice.id == model)
+            .map(|choice| choice.label.clone())
+    }
+}
+
 impl Runtime {
     pub fn with_model(mut self, target: ModelTarget, choice: &ModelChoice) -> Self {
         self.harness = target.name(&self.harness);
@@ -338,11 +369,16 @@ impl Entry {
             provider: self.provider.clone(),
             model: self.model.clone(),
             model_id: None,
+            display_name: self
+                .display_name
+                .clone()
+                .or_else(|| short_name(&self.harness)),
         }
     }
 
     fn valid(&self) -> bool {
         label(&self.harness)
+            && self.display_name.as_deref().is_none_or(label)
             && self.provider.as_deref().is_none_or(label)
             && self.model.as_deref().is_none_or(label)
             && self.models.len() <= 32
@@ -457,5 +493,58 @@ mod tests {
         assert_eq!(recognize("echo claude"), "Custom agent");
         assert_eq!(recognize("codex && other-agent"), "Custom agent");
         assert_eq!(recognize("codex --model \"$MODEL\""), "Custom agent");
+    }
+
+    #[test]
+    fn a_runtime_carries_the_programs_short_name_and_the_catalog_labels_its_models() {
+        use super::{Catalog, Entry};
+        let entries: std::collections::BTreeMap<String, Entry> = serde_json::from_str(
+            r#"{"claude-work":{"harness":"Claude Code","models":[{"id":"sonnet","label":"Sonnet 5.5","provider":"Anthropic"}]},
+                "codex-work":{"harness":"Codex","display_name":"Codex CLI"},
+                "local":{"harness":"Local runner"}}"#,
+        )
+        .unwrap();
+        assert!(entries.values().all(Entry::valid));
+        let catalog = Catalog {
+            entries,
+            warning: None,
+        };
+        let template = |name: &str, command: &str| -> crate::core::Template {
+            serde_json::from_value(
+                serde_json::json!({"name":name,"description":"","error":null,"command":command}),
+            )
+            .unwrap()
+        };
+        let shown = |name: &str, command: &str| {
+            serde_json::to_value(catalog.runtime(&template(name, command))).unwrap()
+        };
+        // The workspace's own short name, the catalog's when it gives one, and none for a program it does not know.
+        assert_eq!(shown("claude-work", "x")["display_name"], "Claude");
+        assert_eq!(shown("codex-work", "x")["display_name"], "Codex CLI");
+        assert!(shown("local", "x").get("display_name").is_none());
+        // A template the catalog does not list is named by its command.
+        assert_eq!(
+            shown("plain", "/usr/bin/swarmhub-herdr run-codex")["display_name"],
+            "Codex"
+        );
+        assert!(shown("other", "echo hi").get("display_name").is_none());
+        // What a client sends back as `expected_runtime` is the same runtime.
+        let sent: super::Runtime = serde_json::from_value(shown("claude-work", "x")).unwrap();
+        assert_eq!(sent, catalog.runtime(&template("claude-work", "x")));
+        let old: super::Runtime =
+            serde_json::from_str(r#"{"harness":"Codex","provider":null,"model":null}"#).unwrap();
+        assert!(
+            serde_json::to_value(old)
+                .unwrap()
+                .get("display_name")
+                .is_none()
+        );
+
+        assert_eq!(
+            catalog.model_label("claude-work", "sonnet").as_deref(),
+            Some("Sonnet 5.5")
+        );
+        assert_eq!(catalog.model_label("claude-work", "opus"), None);
+        assert_eq!(catalog.model_label("nowhere", "sonnet"), None);
     }
 }

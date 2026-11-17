@@ -38,8 +38,11 @@ pub(super) struct View {
     pub(super) name: String,
     /// The terminal's name in Herdr Core.
     terminal: String,
-    template: String,
-    model: String,
+    pub(super) template: String,
+    pub(super) model: String,
+    /// The catalog's label for the model ("Sonnet 5.5"), when it lists the model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) model_label: Option<String>,
     difficulty: String,
     task: String,
     started_ms: i64,
@@ -315,6 +318,7 @@ pub(super) fn views(
             terminal: row.get(4)?,
             template: row.get(10)?,
             model: row.get(11)?,
+            model_label: None,
             difficulty: row.get(9)?,
             task: row.get(5)?,
             started_ms: row.get(6)?,

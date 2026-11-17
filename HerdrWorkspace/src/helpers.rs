@@ -734,6 +734,12 @@ pub(crate) async fn listing(
         Vec::new()
     };
     helpers.retain(View::live);
+    if !helpers.is_empty() {
+        let catalog = crate::runtimes::Catalog::load(w.history.file());
+        for helper in &mut helpers {
+            helper.model_label = catalog.model_label(&helper.template, &helper.model);
+        }
+    }
     let (stop_after_seconds, stop_unanswered_after_seconds) = Policy::delays(w.history.file());
     Ok(Listing {
         core: core_id,
