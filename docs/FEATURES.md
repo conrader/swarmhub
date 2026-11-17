@@ -87,9 +87,15 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 
 ## Skills
 
-- If skillshare is installed on the Herdr server, **Settings → Servers → Skills** and the **Skills** tab of a bot's Details list the server's skill library, by readable names ("Code review" for `code-review`), with a search field and a switch per skill.
-- A switch changes the library and then runs a sync, so the AIs the library is shared with get the change. **Share with another AI…** (under **Advanced**) shares the library with one more.
-- Skills belong to the server and its AIs, not to one bot. The app does not install or remove skills.
+- If skillshare is installed on the Herdr server, **Settings → Servers → Skills** and the **Skills** tab of a bot's Details say where the server's library stands (in sync, or how many changes wait, with one **Sync now** button) and count what is in it: skills, agents, MCP servers, plugins and hooks.
+- **Open library** opens the library in three parts. **Overview**: the summary, each AI the library is shared with and what waits for it, **Share with another AI…**, and the library's Git repository (pull, commit and push, sync both ways, and a choice per file when both sides changed the same one). **Library**: everything grouped into Needs sync, Update available, In sync and Off, with a filter by kind and a search. **Servers**: skillshare on every server, with its version, what waits, its warnings, and **Update skillshare…**.
+- A thing opens to read: a skill's `SKILL.md` as a page with its other files, an agent's file, the settings of an MCP server, a plugin or a hook. Secrets show as names only; their values stay on the server.
+- A skill, an agent or a hook has a switch. A change (a switch, an install, an update, a removal) is followed by a sync, so the AIs get it; when the sync fails the app says so and offers it again.
+- **Install…** takes a repository, has the server download and audit it, and shows each skill with the result. What passed is ticked; a blocked skill is installed only through **Install anyway…**, after a confirmation, and then stays at the checked version. **Ask a bot to review** sends the audit to a bot, which is told to read and report, not to install.
+- Removing, pushing, syncing both ways, resolving a conflict, installing a blocked skill, sharing with another AI and updating skillshare each ask first and say what happens. A refusal is shown in the server's own sentence.
+- When one of a bot's projects on the server itself has a skillshare library of its own, the bot's Skills tab offers the choice between that library and the shared one.
+- A server from before the library (API level 1) keeps its list of switches, with one line that an update brings the rest. A part of the library that could not be read is named, and the library is then never called in sync.
+- The library belongs to the server and its AIs, not to one bot. MCP servers, plugins and hooks are added and changed with skillshare on the server.
 
 ## Group chats
 
