@@ -316,7 +316,7 @@ This is guidance and bookkeeping, not isolation. All agents run as the workspace
 - One answer carries 96 KB of a command’s output and 24 KB of what it wrote to standard error. Longer output keeps its start and its end and says what was left out.
 - `read` gives at most 2000 lines and 100 KB at a time and says how to continue. `write` takes up to 128 KB of text. Files that are not text are handled on the server with `run`.
 - `PATH` is inside the project’s folder: `src/main.rs`, not `/etc/hosts` and not `../x`. This keeps mistakes out; it is not a wall, since `run` can do anything the account can.
-- After a command, a line on standard error says where it ran and how it ended: `[project shop on box: exit 0 after 0.4 s]`. When the `project` command itself could not do its work, it says why and exits with 125.
+- After a command, a line on standard error says where it ran and how it ended: `[project shop on web-1: exit 0 after 0.4 s]`. When the `project` command itself could not do its work, it says why and exits with 125.
 
 The command reaches the workspace the same way `helper` does ([How the command reaches the workspace](#how-the-command-reaches-the-workspace)), so it works in Claude Code and in Codex’s sandbox alike. Herdr’s own `hc run --on` does not work in Codex’s sandbox, which refuses the connection to Herdr Core. What an agent runs with `project run` runs on the project server, outside that sandbox and without the agent program’s permission prompts.
 
@@ -327,8 +327,8 @@ Every route needs the access token. A refused request answers with `error`, word
 Servers:
 
 - `GET /api/machines` returns `machines`, `can_add`, `problem` (why a server cannot be added from this workspace, or `null`) and `adding` (a sentence about the helper program). Each machine has `name`, `target`, `host` (what it calls itself), `version` (its helper’s), `state` (`connecting`, `connected`, `needs_login`, `needs_update` or `unreachable`), `reachable`, `since_ms`, `why`, `keeps_running_after_logout`, `warnings` (sentences) and `projects` (names), plus Core’s own `session`, `via` and `temporary` for machines that were added with `hc` on the server.
-- `POST /api/machines` takes `{"target": "deploy@10.0.0.7", "name": "box"}`; `name` may be left out, and `accept_host_key` takes a fingerprint this route offered. It answers 201 with `machine`, `helper_installed` and `message`. It can take a few minutes when the helper is copied.
-- `POST /api/machines/remove` and `POST /api/machines/connect` take `{"name": "box"}`. Remove answers like the `GET` plus `removed`. Connect has Herdr try the server now, for after the key was pasted, and answers with `machine`.
+- `POST /api/machines` takes `{"target": "deploy@10.0.0.7", "name": "web-1"}`; `name` may be left out, and `accept_host_key` takes a fingerprint this route offered. It answers 201 with `machine`, `helper_installed` and `message`. It can take a few minutes when the helper is copied.
+- `POST /api/machines/remove` and `POST /api/machines/connect` take `{"name": "web-1"}`. Remove answers like the `GET` plus `removed`. Connect has Herdr try the server now, for after the key was pasted, and answers with `machine`.
 - `GET /api/machines/ssh-key` returns `keys`, `can_create`, `where_to_paste` and `problem`. Each key has `public_key` (the line to paste), `type`, `fingerprint`, `comment` and `file`. With `?target=deploy@10.0.0.7` it gives the keys ssh would use for that server.
 - `POST /api/machines/ssh-key` makes the key pair when `can_create` is true and answers 201 like the `GET`.
 
@@ -349,7 +349,7 @@ Servers:
 Projects:
 
 - `GET /api/projects` returns `projects`. Each has `id`, `name`, `machine`, `folder`, `note`, `created_ms`, `machine_state` (the server’s state, `missing` when Herdr no longer has a machine by that name, `unknown` when Herdr Core could not be asked) and `reachable`.
-- `POST /api/projects` takes `{"name": "shop", "machine": "box", "folder": "/srv/shop", "note": "…"}` and answers 201 with `project`.
+- `POST /api/projects` takes `{"name": "shop", "machine": "web-1", "folder": "/srv/shop", "note": "…"}` and answers 201 with `project`.
 - `POST /api/projects/{id}` takes any of the four fields and answers with `project`. `POST /api/projects/{id}/remove` answers with `removed` and the remaining `projects`.
 - `POST /api/agents` takes `projects`, a list of project ids, for the new agent.
 - `GET /api/agents/{address}/{created_ms}/projects` returns `projects` and `inherited` (true for a helper). `POST` there takes `{"projects": [1, 2]}`, replaces the agent’s list and answers like the `GET`; an empty list takes all projects away.
