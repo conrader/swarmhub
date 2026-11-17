@@ -363,11 +363,45 @@ struct FactChip: View {
 
 extension View {
     /// A card above the composer, as wide as the composer: a soft wash of the bot's own colour on the card surface.
-    func chatCard(tint: Color) -> some View {
+    func chatCard(tint: BotTint) -> some View {
         padding(.horizontal, 12).padding(.vertical, 10)
-            .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(tint.wash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .background(AppColor.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(0.28), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.border, lineWidth: 1))
             .padding(.horizontal, 24).frame(maxWidth: 768)
+    }
+}
+
+/// Words that may be long, in a card where something else matters more (its buttons): one line until the person
+/// unfolds them. Short words are simply shown.
+struct FoldedWords: View {
+    let text: String
+    var colour: Color = .secondary
+    /// What the words are, for VoiceOver and the tooltip: "instructions".
+    var name = "text"
+    @State private var open = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if open || text.contains("\n") { fold }
+        else {
+            // Words that fit on the card's one line are simply shown; only longer ones get the fold.
+            ViewThatFits(in: .horizontal) {
+                Text(text).font(.caption).foregroundStyle(colour).lineLimit(1).fixedSize().textSelection(.enabled)
+                fold
+            }
+        }
+    }
+
+    private var fold: some View {
+        Button { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { open.toggle() } } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(text).font(.caption).foregroundStyle(colour).lineLimit(open ? nil : 1).truncationMode(.tail).multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(colour).rotationEffect(.degrees(open ? 90 : 0)).accessibilityHidden(true)
+            }.contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).help(open ? "Show less" : "Show all of the \(name)")
+        .accessibilityLabel(text).accessibilityValue(open ? "Unfolded" : "Folded").accessibilityHint(open ? "Show less" : "Show all of the \(name)")
     }
 }

@@ -29,7 +29,7 @@ struct MessageView: View {
                 if let author, message.role == .assistant {
                     HStack(spacing: 6) {
                         BotAvatar(bot: author, size: 18)
-                        Text(author.name).font(.caption.weight(.semibold)).foregroundStyle(author.tint)
+                        Text(author.name).font(.caption.weight(.semibold)).foregroundStyle(author.tintInk)
                     }.accessibilityElement(children: .combine).accessibilityLabel(author.name)
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
@@ -69,13 +69,14 @@ struct MessageView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if message.role == .system {
+        if let passedOn = store.herdrPassedOnRow(message) {
+            // A message between bots, on either side of it: one folded row in the colour of the bot whose words it is.
+            PassedOnCard(row: passedOn)
+        } else if message.role == .system {
             Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).textSelection(.enabled)
         } else if let intro = message.metadata[HerdrIntro.Key.kind] {
             // The note that asks the main bot to introduce itself: one line says so, the note is the agent's to read.
             Label(HerdrIntro.caption(bot: store.selectedBot?.name ?? "your bot", again: intro == HerdrIntro.again), systemImage: "hand.wave").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
-        } else if let passedOn = store.herdrPassedOnRow(message) {
-            PassedOnCard(row: passedOn)
         } else if message.role == .user {
             if !message.content.isEmpty {
                 Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)

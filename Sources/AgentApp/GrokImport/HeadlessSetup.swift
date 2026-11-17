@@ -10,6 +10,8 @@ import SwiftUI
     static let settingsSize = NSSize(width: 760, height: 560)
     /// `--light` renders every shot in the light appearance; dark is the app's default.
     static var scheme = ColorScheme.dark
+    /// `--only <prefix>`: nil renders everything.
+    static var only: String?
 
     static func run(arguments: [String]) -> Int32 {
         guard let flag = arguments.firstIndex(of: "--render-setup"), arguments.indices.contains(flag + 1) else {
@@ -17,6 +19,7 @@ import SwiftUI
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
         scheme = arguments.contains("--light") ? .light : .dark
+        only = arguments.firstIndex(of: "--only").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
         return HeadlessRunLoop.wait { await render(to: directory, output: { print($0); fflush(stdout) }) }
     }
 
@@ -31,7 +34,16 @@ import SwiftUI
             let file = directory.appending(path: "\(name).png")
             if let data, (try? data.write(to: file)) != nil { output("\(file.path) \(data.count) bytes") } else { failures += 1; output("Failed: \(name)") }
         }
-        await HeadlessHerdrShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        // `--only <prefix>` renders the shots whose name starts with it (a quick look at one screen).
+        let only = Self.only
+        func wanted(_ name: String, _ data: Data?) { if only.map(name.hasPrefix) ?? true { write(name, data) } }
+        if only.map({ $0.hasPrefix("herdr") }) ?? true {
+            await HeadlessHerdrShots.render(write: wanted) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        }
+        if only.map({ $0.hasPrefix("polish") }) ?? true {
+            await HeadlessPolishShots.render(write: wanted) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        }
+        if only != nil { output("Rendered setup to \(directory.path); \(failures) failed"); return failures == 0 ? 0 : 1 }
         let empty = SetupPreview.makeStore(); empty.isSetupPreview = false
         write("empty-state", await png(SetupEmptyState().frame(width: settingsSize.width, height: settingsSize.height).background(AppColor.chat), store: empty, updater: updater, size: settingsSize))
         // The line a person sees once, after a store of an older version was opened and its old bots were removed.

@@ -5,7 +5,11 @@ struct ChatView: View {
     @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
+    /// The messages between bots that are unfolded, while this chat is on screen.
+    @StateObject private var folds: ChatFolds
     @Environment(\.grokHistoryExpanded) private var historyExpanded
+    /// `unfolded`: cards that start unfolded (renders); the app starts every card folded.
+    init(bot: Bot, unfolded: Set<UUID> = []) { self.bot = bot; _folds = StateObject(wrappedValue: ChatFolds(open: unfolded)) }
     var body: some View {
         let shown = bot.messages.filter { !$0.isSilent }
         let _ = viewport.show(bot.id, order: shown.map(\.id))
@@ -41,10 +45,10 @@ struct ChatView: View {
                                 .selectableMessage(message.id, in: selection)
                         }
                         ChatBottomMarker(viewport: viewport, conversationID: bot.id)
-                    }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection)
+                    }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection).environment(\.chatFolds, folds)
                 }.id(bot.id).background(AppColor.chat)
                 // ⌘/⇧-click picks rows, ⌘C copies them; another conversation starts with none picked.
-                .messageSelection(selection).onChange(of: bot.id) { _, _ in selection.clear() }
+                .messageSelection(selection).onChange(of: bot.id) { _, _ in selection.clear(); folds.state.foldAll() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
                 .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, proxy: proxy) }
                 .task(id: bot.id) { await viewport.open(bot.id, model: store.chatScroll, proxy: proxy) }
