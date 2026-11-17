@@ -65,10 +65,10 @@ struct SidebarView: View {
                 Spacer()
             }.padding(.horizontal, SidebarMetrics.listInset + 4).frame(height: SidebarMetrics.bottomBar)
         }.background(AppColor.sidebar)
-        .alert("Delete \(botToDelete?.name ?? "bot")?", isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
+        .alert(BotRemovalCopy.title(botToDelete?.name ?? "bot"), isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
             Button("Cancel", role: .cancel) { botToDelete = nil }
             Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
-        } message: { Text("Its chat is removed from this Mac. This can’t be undone.") }
+        } message: { Text(BotRemovalCopy.message(server: botToDelete.flatMap(store.herdrEndingPlace(for:)))) }
         .alert("Delete group \(groupToDelete?.name ?? "")?", isPresented: Binding(get: { groupToDelete != nil }, set: { if !$0 { groupToDelete = nil } })) {
             Button("Cancel", role: .cancel) { groupToDelete = nil }
             Button("Delete", role: .destructive) { if let groupToDelete { store.deleteGroup(groupToDelete) }; groupToDelete = nil }

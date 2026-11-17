@@ -206,7 +206,14 @@ import UserNotifications
         setHerdrServer(herdrServers[0].id, for: bot)
         bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot
     }
-    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save() }
+    /// Removes the bot and its chat from this Mac, and ends its agent on its server (`AppStore+HerdrRemoval.swift`).
+    func delete(_ bot: Bot) {
+        let removal = herdrEndingBeforeRemoval(of: bot)
+        grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }
+        if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }
+        save()
+        if let removal { herdrAgentRemoved(removal, botID: bot.id) }
+    }
     /// Writes store.json; a failed write is reported once per streak instead of being swallowed.
     var storeFile: StoreFile { StoreFile(bots: bots, groups: groups, scrollPositions: chatScroll.stored) }
 
