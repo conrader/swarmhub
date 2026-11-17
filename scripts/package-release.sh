@@ -112,8 +112,15 @@ for ICON in AppIcon-dark.icns ThemeIcons/SwarmHub-light.png ThemeIcons/SwarmHub-
 done
 rm -f "$ZIP_PATH"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
+# Notarization signs in with a Keychain profile, or with an App Store Connect API key file (no Keychain needed).
+NOTARY_ARGS=()
 if [[ -n "${SWARMHUB_NOTARY_PROFILE:-}" ]]; then
-  /usr/bin/xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$SWARMHUB_NOTARY_PROFILE" --wait
+  NOTARY_ARGS=(--keychain-profile "$SWARMHUB_NOTARY_PROFILE")
+elif [[ -n "${SWARMHUB_NOTARY_KEY:-}" ]]; then
+  NOTARY_ARGS=(--key "$SWARMHUB_NOTARY_KEY" --key-id "${SWARMHUB_NOTARY_KEY_ID:?set SWARMHUB_NOTARY_KEY_ID}" --issuer "${SWARMHUB_NOTARY_ISSUER:?set SWARMHUB_NOTARY_ISSUER}")
+fi
+if (( ${#NOTARY_ARGS[@]} )); then
+  /usr/bin/xcrun notarytool submit "$ZIP_PATH" "${NOTARY_ARGS[@]}" --wait
   /usr/bin/xcrun stapler staple "$APP_DIR"
   rm -f "$ZIP_PATH"
   /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"

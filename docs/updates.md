@@ -95,7 +95,7 @@ Then restart the workspace the way you start it (`sh HerdrWorkspace/dev/start-lo
 
 ## Releasing
 
-For whoever publishes SwarmHub. A release is built on the Mac that holds the keys. It needs three things that cannot be used over SSH, because the login Keychain is locked there:
+For whoever publishes SwarmHub. A release is built on the Mac that holds the keys. It needs three things from the login Keychain, which is locked for an SSH session: run the scripts in a Terminal window on the Mac itself (from SSH, `open -a Terminal <script>.command` starts one in the logged-in session). They are:
 
 - the **Developer ID Application** certificate, for signing;
 - a **notarization profile**, for Apple's check;
@@ -104,7 +104,7 @@ For whoever publishes SwarmHub. A release is built on the Mac that holds the key
 ### Once per Mac
 
 1. Install the Developer ID Application certificate in the login Keychain. `security find-identity -v -p codesigning` then lists it.
-2. Save the notarization credentials: `xcrun notarytool store-credentials swarmhub-notary` (an app-specific password or an API key; the name is yours to choose).
+2. Save the notarization credentials: `xcrun notarytool store-credentials swarmhub-notary` (an app-specific password or an API key; the name is yours to choose). Or skip the profile and give the scripts an App Store Connect API key directly: `SWARMHUB_NOTARY_KEY` (the `AuthKey_….p8` file), `SWARMHUB_NOTARY_KEY_ID` and `SWARMHUB_NOTARY_ISSUER`.
 3. Make sure the release key is in the Keychain: `./scripts/setup-updates.sh`. It refuses a key that differs from the one in `Resources/Info.plist`. To move the key to another Mac, export it on the old one with Sparkle's `generate_keys --account com.konrad.agentapp -x FILE`, import it with `-f FILE`, and delete the file. **Never make a new key**: installed apps and servers would refuse every later update. Keep one offline backup of the exported key.
 
 ### Each release

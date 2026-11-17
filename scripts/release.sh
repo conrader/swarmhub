@@ -6,6 +6,9 @@
 #   SWARMHUB_SIGN_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
 #   SWARMHUB_NOTARY_PROFILE='swarmhub-notary' ./scripts/release.sh v<version>
 #
+# Notarization can sign in with an App Store Connect API key instead of a Keychain profile:
+#   SWARMHUB_NOTARY_KEY=<AuthKey file> SWARMHUB_NOTARY_KEY_ID=<id> SWARMHUB_NOTARY_ISSUER=<issuer id>
+#
 # Before: set CFBundleShortVersionString and raise CFBundleVersion in Resources/Info.plist, write
 # docs/releases/v<version>.md, commit, and (for a release with a new workspace server) bring the output of
 # scripts/package-workspace.sh from each build machine into dist/workspace. docs/updates.md has every step.
@@ -28,7 +31,8 @@ SIGNATURE_TOOL=(/usr/bin/xcrun swift "$ROOT_DIR/scripts/release-signature.swift"
 [[ "$TAG" == "v$VERSION" ]] || die "the tag is $TAG but Resources/Info.plist says version $VERSION."
 [[ -s "$NOTES" ]] || die "write the release notes first: $NOTES (plain words; they show in the update window)."
 [[ "${SWARMHUB_SIGN_IDENTITY:-}" == "Developer ID Application: "* ]] || die "set SWARMHUB_SIGN_IDENTITY to your Developer ID Application certificate's name (security find-identity -v -p codesigning)."
-[[ -n "${SWARMHUB_NOTARY_PROFILE:-}" ]] || die "set SWARMHUB_NOTARY_PROFILE to the Keychain profile made with: xcrun notarytool store-credentials."
+[[ -n "${SWARMHUB_NOTARY_PROFILE:-}" || ( -s "${SWARMHUB_NOTARY_KEY:-}" && -n "${SWARMHUB_NOTARY_KEY_ID:-}" && -n "${SWARMHUB_NOTARY_ISSUER:-}" ) ]] \
+  || die "set SWARMHUB_NOTARY_PROFILE to the Keychain profile made with xcrun notarytool store-credentials, or SWARMHUB_NOTARY_KEY, SWARMHUB_NOTARY_KEY_ID and SWARMHUB_NOTARY_ISSUER to an App Store Connect API key file, its id and its issuer."
 /usr/bin/security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || die "the login Keychain is locked. Run this in a terminal on the Mac itself, not over SSH."
 if [[ -n "$(git status --porcelain --untracked-files=normal)" && "${SWARMHUB_ALLOW_DIRTY:-}" != 1 ]]; then
   die "the working tree has uncommitted changes; a release is built from a commit."
