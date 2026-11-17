@@ -33,7 +33,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = f"{os.uname().machine}-{sys.platform.replace('darwin', 'macos')}"
+# As the server names it (`update::target`): Rust says aarch64 where macOS says arm64.
+TARGET = f"{os.uname().machine.replace('arm64', 'aarch64')}-{sys.platform.replace('darwin', 'macos')}"
 VARIANTS = {"0.2.0": None, "0.2.1": None, "0.2.2": "start", "0.2.3": None, "0.2.4": "hang"}
 
 
@@ -187,6 +188,9 @@ def main(hc, builds):
             assert pid == process.pid and started["can_update"] and not started["previous"] and started["last"] is None
             assert started["app"] == {"version": "9.9.9 (99)", "api": 1}, started
             code, workspace = server.call("/api/workspace")
+            # What the server cannot do where it runs: nothing on Linux, an agent's graphical desktop on macOS.
+            lacks = [entry["feature"] for entry in workspace["bridge"].pop("unsupported")]
+            assert lacks == ([] if sys.platform == "linux" else ["agent_desktop"]), lacks
             assert code == 200 and workspace["bridge"] == {
                 "version": "0.2.0", "api": 1, "api_min": 1, "target": TARGET, "updates": True}, workspace
             assert "agent" in cli("ls")

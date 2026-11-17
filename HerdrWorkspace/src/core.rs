@@ -308,6 +308,14 @@ impl Core {
                 ));
             }
         };
+        let mut env: BTreeMap<&str, String> = env
+            .iter()
+            .map(|(name, value)| (*name, (*value).to_owned()))
+            .collect();
+        // The agent program is found through the person's PATH, as when an agent is started (`launch`).
+        if let Some(path) = agent_path() {
+            env.entry("PATH").or_insert(path);
+        }
         self.rpc(
             "machine.exec",
             json!({"argv":[helper,command],"env":env,"timeout":35}),
@@ -540,6 +548,11 @@ impl Core {
                    (crate::helpers::SPOOL_ENV):crate::helpers::spool_directory()
                        .and_then(|folder| folder.into_os_string().into_string().ok()).unwrap_or_default()}
         });
+        // Started by `service run`, the server knows the PATH the person's own shell has. Core may have been
+        // started with a shorter one (by launchd, at login), and an agent program is found through it.
+        if let Some(path) = agent_path() {
+            params["env"]["PATH"] = path.into();
+        }
         if let Some(helper) = &env.helper {
             // Core ends a child when its parent's program ends. Core's own notes stay off: they would be typed
             // into the parent as if a person had written them.
@@ -696,6 +709,13 @@ impl Terminal {
             Err(Failure::Input("This agent process is not running."))
         }
     }
+}
+
+/// The `PATH` agents are started with, when `service run` found the person's own (`service`); otherwise Core's.
+fn agent_path() -> Option<String> {
+    std::env::var(crate::service::AGENT_PATH_ENV)
+        .ok()
+        .filter(|path| !path.is_empty())
 }
 
 pub const AGENT_CWD_ERROR: &str =

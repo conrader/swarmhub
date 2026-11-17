@@ -46,6 +46,7 @@ mod routine_routes;
 mod routines;
 mod runtimes;
 mod search;
+mod service;
 mod skill_proposals;
 mod skills;
 mod skillshare;
@@ -163,7 +164,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if command == codex_agent::stream::COMMAND {
             return codex_agent::stream::run().await;
         }
-        return agent::run(&command);
+        if command != "service" {
+            return agent::run(&command);
+        }
+        // `service run` readies this process and then serves like a server started by hand.
+        if std::env::args_os().nth(2).is_none_or(|verb| verb != "run") {
+            return service::cli().await;
+        }
+        service::prepare_run()?;
     }
     let served = serve().await;
     // A new version that cannot start gives its place back to the one before it (`update`).
@@ -231,6 +239,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     helpers::start_serving(workspace.clone());
     bots::start_serving(workspace.clone());
     warm::start_sweeping(workspace.clone());
+    service::keep_core_running();
     workspace.history.watch_changes();
     let app = Router::new()
         .route(

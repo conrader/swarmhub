@@ -1116,17 +1116,37 @@ pub(crate) fn cli_watch() -> Done {
     let Some(mut record) = Record::load().filter(|record| record.state == "trial") else {
         return Ok(());
     };
+    // A server that launchd keeps running is started by launchd, which would start the new program again the
+    // moment it ended. So that one is only held still while the previous program is put back, and then launchd
+    // is asked to end whatever it runs for the job and start the program that is back under the name.
+    let supervisor = crate::service::supervised();
     if alive() {
         // SAFETY: the process is the server this watcher was started for.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
+        unsafe {
+            libc::kill(
+                pid,
+                if supervisor.is_some() {
+                    libc::SIGSTOP
+                } else {
+                    libc::SIGKILL
+                },
+            )
+        };
         for _ in 0..50 {
-            if !alive() {
+            if supervisor.is_some() || !alive() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
     undo(&mut record, why)?;
+    if let Some(label) = supervisor {
+        return if crate::service::restart_job(&label) {
+            Ok(())
+        } else {
+            Err("launchd did not restart the previous version.".into())
+        };
+    }
     let log = |name: &str| {
         fs::OpenOptions::new()
             .create(true)
