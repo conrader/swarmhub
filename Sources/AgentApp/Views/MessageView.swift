@@ -71,6 +71,9 @@ struct MessageView: View {
     @ViewBuilder private var content: some View {
         if message.role == .system {
             Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).textSelection(.enabled)
+        } else if let intro = message.metadata[HerdrIntro.Key.kind] {
+            // The note that asks the main bot to introduce itself: one line says so, the note is the agent's to read.
+            Label(HerdrIntro.caption(bot: store.selectedBot?.name ?? "your bot", again: intro == HerdrIntro.again), systemImage: "hand.wave").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
         } else if let passedOn = store.herdrPassedOnRow(message) {
             PassedOnCard(row: passedOn)
         } else if message.role == .user {

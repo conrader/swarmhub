@@ -1,7 +1,8 @@
 import SwiftUI
 import UserNotifications
 
-/// Settings → General: your name, how the app looks, and notifications. Laid out the way Apple lays out a person and an appearance: your initial with your name typed
+/// Settings → General: you (your name, and what your bots should know about you), how the app looks, and
+/// notifications. Laid out the way Apple lays out a person and an appearance: your initial with your name typed
 /// beside it, choices as galleries of tiles and swatches, a switch beside its heading. Nothing here is a row of a
 /// table, and opening the pane makes no network call and reads no key.
 struct SettingsSimplePane: View {
@@ -10,6 +11,7 @@ struct SettingsSimplePane: View {
     @AppStorage(AppIconAppearance.preferenceKey) private var appIcon = AppIconAppearance.defaultPreference
     @AppStorage("notifications") private var notifications = false
     @AppStorage(UserIdentity.key) private var accountName = ""
+    @AppStorage(AppStore.aboutYouKey) private var aboutYou = ""
     @ObservedObject private var motion = AvatarMotionSettings.shared
 
     var body: some View {
@@ -27,7 +29,7 @@ struct SettingsSimplePane: View {
         }
     }
 
-    /// Your initial as the sidebar shows it, and your name typed beside it.
+    /// Your initial as the sidebar shows it, your name typed beside it, and "About you" beneath.
     private var you: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 14) {
@@ -39,6 +41,15 @@ struct SettingsSimplePane: View {
                         .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9, style: .continuous)).accessibilityLabel(SimpleCopy.yourName)
                     Text(SimpleCopy.yourNameCaption).font(.callout).foregroundStyle(.secondary).padding(.leading, 2)
                 }
+            }
+            SettingBlock(title: AboutYouCopy.title, detail: AboutYouCopy.detail) {
+                TextEditor(text: Binding(get: { aboutYou }, set: { aboutYou = String($0.prefix(HerdrAboutYou.limit)) }))
+                    .font(.body).scrollContentBackground(.hidden).padding(8).frame(height: 96)
+                    .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous)).accessibilityLabel(AboutYouCopy.title)
+                    .overlay(alignment: .topLeading) {
+                        if aboutYou.isEmpty { Text(AboutYouCopy.prompt).foregroundStyle(.tertiary).padding(.horizontal, 13).padding(.vertical, 8).allowsHitTesting(false) }
+                    }
+                Text(AboutYouCopy.count(aboutYou.count)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
         }
     }

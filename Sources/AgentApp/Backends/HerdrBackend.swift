@@ -52,6 +52,11 @@ struct HerdrBackend: AgentBackend {
     /// `helperNote`. `roster` is the line of names it can write to: a new agent reads it after the notes, and a
     /// running agent again, alone, whenever it has changed (`HerdrClient.deliver`'s `changing`).
     var messageNote: String? = nil, roster: String? = nil
+    /// "About you" (`HerdrAboutYou`): what the app keeps about the person. `aboutYou` is the text with its lead, given
+    /// to every bot: a new agent reads it after the notes, and a running agent again, alone, whenever it has changed,
+    /// like `roster`. `aboutHow` is set for a server's main bot only: how to propose an addition; delivered like
+    /// `helperNote`.
+    var aboutYou: String? = nil, aboutHow: String? = nil
     /// The projects on other servers this bot may use (`HerdrProjects.swift`): a new agent is launched with them and
     /// told by the bridge itself; a running agent is told when the list has changed. `projectsChanged`: the list
     /// changed since the bot's running agent was last given it, so the next message gives it first, and
@@ -69,13 +74,16 @@ struct HerdrBackend: AgentBackend {
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (HerdrBotMessage.marker, messageNote)].compactMap { marker, note in
+        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (HerdrBotMessage.marker, messageNote),
+         (HerdrAboutYou.marker, aboutHow)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }
     }
 
     /// The notes that change, each with the words every version of it starts with.
-    var rosters: [(lead: String, note: String)] { roster.flatMap { $0.isEmpty ? nil : [(HerdrBotMessage.rosterLead, $0)] } ?? [] }
+    var rosters: [(lead: String, note: String)] {
+        (aboutYou.flatMap { $0.isEmpty ? nil : [(HerdrAboutYou.lead, $0)] } ?? []) + (roster.flatMap { $0.isEmpty ? nil : [(HerdrBotMessage.rosterLead, $0)] } ?? [])
+    }
 
     /// What a new agent is told once: the bot's own instructions, then the notes. The notes have their own room
     /// (`HerdrClient.notesBytes`), so they never shorten the bot's instructions.

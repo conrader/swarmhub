@@ -20,12 +20,13 @@ enum ManagementIntent {
     }
 }
 
-/// The main bot's "+" menu in its composer: the item fills the composer with a plain request.
+/// The main bot's "+" menu in its composer. "New bot…" fills the composer with a plain request; "Get to know me"
+/// has the bot ask its few questions about the person (again), which the app sends at once.
 enum ManageBotsAction: String, CaseIterable, Identifiable {
-    case newBot
+    case newBot, getToKnowMe
     var id: String { rawValue }
-    var title: String { "New bot…" }
-    var systemImage: String { "plus.circle" }
-    /// The request placed in the composer.
-    var request: String { "Create a new bot called <name> that " }
+    var title: String { self == .newBot ? "New bot…" : HerdrIntro.menu }
+    var systemImage: String { self == .newBot ? "plus.circle" : "hand.wave" }
+    /// The request placed in the composer; nil for an action the app carries out itself.
+    var request: String? { self == .newBot ? "Create a new bot called <name> that " : nil }
 }

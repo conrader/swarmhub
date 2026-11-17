@@ -41,6 +41,7 @@ enum SwarmhubSummary {
         /// The symbol that goes with what the block asked for.
         var symbol: String {
             if summary.hasPrefix("Wrote to") { return "paperplane" }
+            if summary.hasPrefix("Noted") { return "person.text.rectangle" }
             return summary.hasPrefix("Said no") ? "xmark.circle" : "person.crop.circle.badge.plus"
         }
     }
@@ -67,6 +68,7 @@ enum SwarmhubSummary {
         case "request_bot": return "Asked the main bot for a new bot: \(name)"
         case "decline_bot": return "Said no to a new bot: \(name)"
         case "message_bot": return "Wrote to " + ((object["to"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "another bot")
+        case "about_you": return "Noted something about you"
         default: return ""
         }
     }

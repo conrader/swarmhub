@@ -139,6 +139,9 @@ extension AppStore {
         if startsHerdrHelpers(bot) { backend.helperNote = HerdrHelperNote.text }
         // Every bot is told how to write to the other bots of its server, and who they are right now.
         if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.messageNote = HerdrBotMessage.note; backend.roster = herdrRoster(for: bot) }
+        // Every bot reads "About you"; the main bot is also told how to propose an addition to it.
+        if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.aboutYou = HerdrAboutYou.note(aboutYou) }
+        if createsHerdrBots(bot) { backend.aboutHow = HerdrAboutYou.how }
         // A turn on the event stream brings the agent's helpers with it (`herdrLive`).
         let botID = bot.id
         // A start ahead of time that is on its way: the message waits for it and then finds that agent.

@@ -282,7 +282,7 @@ struct HerdrClient: Sendable {
     /// The bridge takes up to 16 KB of plain text per task: the message and the bot's own instructions each get
     /// under half. The app's notes (`notesBytes`) come on top of the instructions when an agent starts; a first message
     /// that would not fit beside all of it is the part that is cut, never the bot's instructions.
-    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 4_600, taskBytes = 16_000
+    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 6_200, taskBytes = 16_000
 
     /// Plain text as the bridge accepts it: no control characters except new lines and tabs, cut to `bytes` of UTF-8
     /// on a character boundary.

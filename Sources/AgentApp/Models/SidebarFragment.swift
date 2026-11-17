@@ -16,7 +16,7 @@ enum SidebarFragment {
         if let draft, case let value = plain(draft), !value.isEmpty { return "Draft: " + value }
         if isWorking { return working ?? ChatActivityPhase.thinking.label }
         for message in messages.reversed() {
-            guard message.role != .system && !message.isSilent else { continue }
+            guard message.role != .system && !message.isSilent, message.metadata[HerdrIntro.Key.kind] == nil else { continue }
             let passedOn = message.role == .user && message.metadata[HerdrBotRelay.Key.kind] != nil
             let body = plain(line(message))
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body
@@ -32,6 +32,8 @@ enum SidebarFragment {
     /// The text a row reads as outside its transcript: a reply without its ```swarmhub fences, or, when the reply is
     /// only such a fence, that fence's line; any other row's own text.
     static func line(_ message: ChatMessage) -> String {
+        // The note that asks the main bot to introduce itself is the agent's to read: a copied row or a quote says so.
+        if message.role == .user, let intro = message.metadata[HerdrIntro.Key.kind] { return HerdrIntro.caption(bot: "the bot", again: intro == HerdrIntro.again) }
         // A message the app passed on for the agent reads as the words in it, without the lines for the agent.
         if message.role == .user, message.metadata[HerdrBotRelay.Key.kind] != nil {
             let shown = HerdrPassedOn(message.content)

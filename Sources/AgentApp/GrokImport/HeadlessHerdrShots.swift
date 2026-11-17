@@ -17,7 +17,7 @@ import SwiftUI
                          "herdr-w3-main-bot-one-program", "herdr-w4-more-bots", "herdr-w4-more-bots-ticked", "herdr-w5-chat"]
     static let other = ["herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-second-bot", "herdr-bot-request",
                         "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main", "herdr-model-tab", "herdr-model-overview", "herdr-model-no-list", "herdr-model-header",
-                        "herdr-editor", "herdr-editor-new", "herdr-settings-add"]
+                        "herdr-editor", "herdr-editor-new", "herdr-settings-add", "herdr-intro-chat", "herdr-intro-offer"]
     /// A server's skill library: the list, a search, skillshare missing, a sync that failed after a switch, the
     /// confirmation before sharing with another agent program, and the same library in a bot's Details.
     static let skills = ["herdr-skills-list", "herdr-skills-search", "herdr-skills-problem", "herdr-skills-sync-failed", "herdr-skills-share-confirm", "herdr-skills-details"]
@@ -120,12 +120,15 @@ import SwiftUI
         for (name, flow) in zip(wizard, wizardFlows(server: server, thisMac: store.herdrServers[0])) {
             write(name, await png(AnyView(SetupView(preset: flow, presetTesting: name.hasSuffix("-testing"))), store, HeadlessSetup.size))
         }
-        // The chat the wizard ends in: the main bot, nothing said yet, and the line about its first reply.
+        // The chat the wizard ends in: the app has asked the new main bot to say hello, and the reply row says that it is starting.
         do {
             let landing = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); landing.isSetupPreview = false
             var flow = wizardFlows(server: server, thisMac: landing.herdrServers[0])[19]; flow.mainBot.instructions = ""
             let size = NSSize(width: 860, height: 420)
             if let main = try? landing.commitSetupWizard(server: flow.herdrServer, key: nil, main: flow.mainBot, more: flow.moreChosen, offer: flow.herdrOffer) {
+                landing.defaults.set(AppStore.introStarted, forKey: AppStore.herdrIntroKey(main.id))
+                let hello = ChatMessage(role: .assistant, content: "", createdAt: .now - 6, isStreaming: true, metadata: [TurnKey.agent: HerdrTurnStatus.starting(program: "Claude").code], turnState: .incomplete)
+                main.messages = [ChatMessage(role: .user, content: HerdrIntro.note(name: main.name), createdAt: .now - 6, metadata: [HerdrIntro.Key.kind: HerdrIntro.first]), hello]
                 write(wizard[20], await png(AnyView(ChatView(bot: main).frame(width: size.width, height: size.height)), landing, size))
             } else { write(wizard[20], nil) }
         }
@@ -134,6 +137,8 @@ import SwiftUI
         let jarvis = Bot(name: "Jarvis", title: "Chief of staff", persona: "You run the team.", backend: .herdr); jarvis.canManageBots = true
         let infra = Bot(name: "Infra", title: "Servers and backups", backend: .herdr)
         store.bots = [jarvis, infra]; store.setHerdrServer(server.id, for: jarvis)
+        // Jarvis introduced itself long ago; the offer to do so has its own shot below.
+        store.defaults.set(AppStore.introStarted, forKey: AppStore.herdrIntroKey(jarvis.id))
         // Settings → Servers and keys beside its pane list is this wide.
         let settings = NSSize(width: 570, height: 640)
         func pane<V: View>(_ view: V, _ size: NSSize) -> AnyView {
@@ -256,6 +261,26 @@ import SwiftUI
             store.setHerdrProjects([HerdrBotProject(id: 1, name: "shop", machine: "web-1")], for: boppy)
             let details = NSSize(width: 360, height: 620)
             write(projects[7], await png(AnyView(ScrollView { HerdrBotProjectsSection(bot: boppy, preset: states[7]).padding(14) }.frame(width: details.width, height: details.height).background(AppColor.panel)), store, details))
+        }
+
+        // The main bot's first conversation: the note the app sent shows as one line, the bot greets and asks, and what
+        // it would like to remember waits above the message box. Then the quiet offer of a main bot that never did.
+        do {
+            let robin = Bot(name: "Robin", persona: Bot.defaultPersona, backend: .herdr); robin.canManageBots = true
+            let before = store.bots
+            store.bots = [robin, infra]; store.setHerdrServer(server.id, for: robin)
+            robin.messages = [ChatMessage(role: .user, content: HerdrIntro.note(name: robin.name), metadata: [HerdrIntro.Key.kind: HerdrIntro.first]),
+                              ChatMessage(role: .assistant, content: "Hi, I'm Robin. 👋\n\nI can work with you on this computer (files, commands, research, writing), and I can set up other bots for jobs that deserve their own chat. I have a few quick questions to get to know you; skip any of them, or stop whenever you like.\n\nWhat should I call you?"),
+                              ChatMessage(role: .user, content: "Call me Sam."),
+                              ChatMessage(role: .assistant, content: "Nice to meet you, Sam! I noted that for you to confirm.\n\nWhat do you work on?\n\n" + fence("{\"op\":\"about_you\",\"add\":\"Goes by Sam.\"}"))]
+            store.defaults.set(AppStore.introStarted, forKey: AppStore.herdrIntroKey(robin.id))
+            store.selectedBot = robin
+            let intro = NSSize(width: chat.width, height: 640)
+            write(other[19], await png(AnyView(ChatView(bot: robin).frame(width: intro.width, height: intro.height)), store, intro))
+            store.defaults.removeObject(forKey: AppStore.herdrIntroKey(robin.id))
+            robin.messages = []
+            write(other[20], await png(AnyView(ChatView(bot: robin).frame(width: chat.width, height: 420)), store, NSSize(width: chat.width, height: 420)))
+            store.bots = before
         }
 
         // The chat header names the model beside the bot.

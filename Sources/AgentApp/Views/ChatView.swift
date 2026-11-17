@@ -59,8 +59,15 @@ struct ChatView: View {
             if bot.isReadOnlyArchive {
                 Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
-                // The main bot's suggestions for new bots wait here for Create or Not now.
-                if store.createsHerdrBots(bot) { HerdrBotRequestCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
+                // What the main bot asks the person waits here: new bots (Create or Not now), additions to "About you"
+                // (Remember or Don't save), and, once, the offer to get to know them.
+                if store.createsHerdrBots(bot) {
+                    VStack(spacing: 8) {
+                        HerdrIntroOffer(bot: bot)
+                        HerdrAboutYouCard(bot: bot)
+                        HerdrBotRequestCard(manager: bot)
+                    }.padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat)
+                }
                 composer.background(AppColor.chat)
             }
         }.background(AppColor.chat)
@@ -94,7 +101,8 @@ struct ChatView: View {
         ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
                      send: send, stop: { store.stop(bot) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                     manageActions: store.createsHerdrBots(bot) ? [.newBot] : [], manage: { draft = $0.request },
+                     manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
+                     manage: { action in if let request = action.request { draft = request } else { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot, again: true) } },
                      dictationContext: store.dictationIsSetUp ? "\(bot.id):chat" : nil,
                      wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name, dictation: dictation)
     }

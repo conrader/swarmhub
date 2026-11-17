@@ -184,6 +184,9 @@ struct SetupView: View {
                                                    projects: flow.step == .projects ? flow.mainProjects : [])
             finished = true
             store.open(main); store.composerFocus = main.id
+            // A main bot the wizard just created opens the conversation itself, once. One that was kept offers it
+            // quietly in its chat instead (`HerdrIntroOffer`). Only the real app sends anything.
+            if flow.keptMainBot == nil, store.launchWorkEnabled { store.startHerdrIntro(for: main) }
             showMainWindow(); closeWindow()
         } catch { failure = SetupCopy.failed }
     }
