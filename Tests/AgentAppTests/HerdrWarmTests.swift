@@ -28,7 +28,7 @@ private final class WarmBridge: @unchecked Sendable {
     /// The agent never becomes ready: what was kept for it is given up when it would have been typed.
     func neverReady() { lock.withLock { givesUp = true } }
     /// What was typed so far was never typed after all.
-    func forgetDelivery() { lock.withLock { rows = rows.map { row in row["kind"] as? String == "task" ? row.merging(["state": "not_sent"]) { _, new in new } : row } } }
+    func forgetDelivery() { lock.withLock { agent?["warm"] = true; rows = rows.map { row in row["kind"] as? String == "task" ? row.merging(["state": "not_sent"]) { _, new in new } : row } } }
 
     func client() -> HerdrClient {
         let (host, session) = MockHTTPProtocol.serve { [self] in answer($0) }
@@ -227,7 +227,8 @@ private final class WarmBridge: @unchecked Sendable {
     _ = try await stuckClient.warm(name: "ada-abc123", template: nil)
     let lost = try await stuckClient.deliver("hi", name: "ada-abc123", template: nil, instructions: "Be brief.")
     await #expect(throws: HerdrClient.Failure.notDelivered("it did not report in time")) { try await stuckClient.reply(to: lost) }
-    #expect(HerdrClient.Failure.notDelivered("it did not report in time").localizedDescription == "The agent did not become ready, so your message was not delivered (it did not report in time). Open the Herdr workspace to see its terminal, then send the message again.")
+    #expect(HerdrClient.Failure.notDelivered("It did not report in time.").localizedDescription == "It did not report in time. Then send the message again."
+            && HerdrClient.Failure.notDelivered(nil).localizedDescription == "The agent did not become ready, so your message was not delivered. Open the Herdr workspace to see its terminal, then send the message again.")
     _ = try await stuckClient.deliver("again", name: "ada-abc123", template: nil, instructions: "Be brief.")
     #expect(stuck.texts.last == HerdrClient.firstTask("again", instructions: "Be brief."), "a message that was never typed taught the agent nothing")
 }

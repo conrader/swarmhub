@@ -106,7 +106,8 @@ struct HerdrClient: Sendable {
             case .noTemplate: "Choose an agent runtime for this bot. Herdr Core has no template the workspace can start."
             case .ended: "The agent's session ended before it replied. Send the message again to start a new one."
             case .silent: "The agent finished without a saved reply. Open the Herdr workspace to see its terminal."
-            case .notDelivered(let why): "The agent did not become ready, so your message was not delivered\(why.map { " (\($0))" } ?? ""). Open the Herdr workspace to see its terminal, then send the message again."
+            // The server's own sentence says why and what to look at; without one, the same in the app's words.
+            case .notDelivered(let why): why.map { "\($0) Then send the message again." } ?? "The agent did not become ready, so your message was not delivered. Open the Herdr workspace to see its terminal, then send the message again."
             case .waitingAtPrompt: "The agent started but is showing a prompt, so it has not taken your message. Answer the prompt in the Herdr workspace (Take over), then send the message again."
             }
         }
@@ -328,11 +329,13 @@ struct HerdrClient: Sendable {
             let tasks = saved.filter(\.reachedAgent).map(\.text)
             let notes = Self.notes(reminder: reminder, once: once, tasks: tasks, changing: changing,
                                    revised: applied ? [(HerdrProjectNote.lead, HerdrProjectNote.note(projects), projects.isEmpty)] : [])
-            // An agent that has read nothing yet was started ahead of time: this message is its first task, so it
+            // An agent that was started ahead of time and has read nothing yet (the bridge says `warm` until a task
+            // has reached it): this message is its first task, and the bridge adds nothing of the app's to it, so it
             // carries what a first task carries (the bot's instructions and the notes, which `instructions` holds),
-            // whole. Any later message finds that task saved and carries none of it again; a task that was never
-            // typed into the agent does not count (`Item.reachedAgent`), so the next one carries it all again.
-            let first = tasks.isEmpty ? Self.firstTask(text, instructions: instructions) : text
+            // whole. Any later message finds that task saved, also while the bridge still keeps it, and carries none
+            // of it again; a task that was never typed does not count (`Item.reachedAgent`), so the next one
+            // carries it all again.
+            let first = agent.warm == true && tasks.isEmpty ? Self.firstTask(text, instructions: instructions) : text
             let body = first != text ? first
                 : (notes.isEmpty ? text : Self.plain(notes.joined(separator: "\n\n"), bytes: Self.instructionsBytes) + "\n\n" + text)
             let queued = try await message(body, to: agent)
