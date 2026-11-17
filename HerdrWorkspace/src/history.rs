@@ -338,6 +338,19 @@ impl History {
     ) -> Result<(i64, Option<String>), StoreError> {
         let mut db = self.db()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // The first message to an agent that was started ahead of it is that agent's launch row (`warm`).
+        if quote.is_none()
+            && let Some(id) = crate::warm::take_first_task(&tx, core_id, agent, task, now())?
+        {
+            for file in files {
+                tx.execute(
+                    "INSERT INTO direct_task_files (task_id,name,data) VALUES (?1,?2,?3)",
+                    params![id, file.name, file.data.as_ref()],
+                )?;
+            }
+            tx.commit()?;
+            return Ok((id, None));
+        }
         let (id,token) = tx.query_row(
             "INSERT INTO journal (core_id, address, created_ms, agent, kind, state, text, at_ms, in_reply_to, reply_excerpt, thread_reply_token)
              VALUES (?1, ?2, ?3, ?4, 'task', 'pending', ?5, ?6, ?7, ?8,
@@ -436,7 +449,7 @@ impl History {
         before: Option<i64>,
     ) -> Result<Page, StoreError> {
         let db = self.db()?;
-        let mut statement = db.prepare(
+        let mut statement = db.prepare(&format!(
             "SELECT journal.id, CASE WHEN kind='artifact' AND page_id IS NOT NULL THEN 'page' ELSE kind END, state,
                     CASE kind WHEN 'snapshot' THEN '' ELSE text END,
                     CASE WHEN kind='artifact' AND page_id IS NOT NULL THEN workspace_pages.title ELSE detail END,
@@ -448,9 +461,10 @@ impl History {
                     ) END,
                     answers_task, (SELECT substr(text,1,180) FROM journal task WHERE task.id=journal.answers_task)
              FROM journal LEFT JOIN workspace_pages ON workspace_pages.id=journal.page_id
-             WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND journal.id<?4
+             WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND journal.id<?4 AND {}
              ORDER BY journal.id DESC LIMIT 31",
-        )?;
+            crate::warm::SHOWN
+        ))?;
         let mut items = statement
             .query_map(
                 params![core_id, address, created, before.unwrap_or(i64::MAX)],
@@ -663,12 +677,13 @@ impl History {
 
     pub fn conversations(&self) -> Result<Vec<Archive>, StoreError> {
         let db = self.db()?;
-        let mut statement = db.prepare(
+        let mut statement = db.prepare(&format!(
             "SELECT core_id, address, created_ms, agent, max(at_ms) FROM journal
-             WHERE address IS NOT NULL
+             WHERE address IS NOT NULL AND {}
              GROUP BY core_id, address, created_ms
              ORDER BY max(id) DESC LIMIT 100",
-        )?;
+            crate::warm::SHOWN
+        ))?;
         Ok(statement
             .query_map([], |row| {
                 Ok(Archive {
@@ -776,6 +791,7 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         include_str!("migrate-page-sharing.sql"),
         include_str!("migrate-helpers.sql"),
         include_str!("migrate-projects.sql"),
+        include_str!("migrate-warm-launches.sql"),
     ];
     let version: usize = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     for script in migrations

@@ -53,6 +53,7 @@ mod terminal;
 mod tool_activity;
 mod transcripts;
 mod vault;
+mod warm;
 mod webdav;
 
 use axum::{
@@ -101,8 +102,20 @@ impl Workspace {
         prompt: String,
         group: Option<group_preview::Binding>,
     ) -> Result<core::Delivery, Failure> {
+        self.send_to_agent_waiting(agent, prompt, group, warm::Wait::Held)
+            .await
+    }
+
+    /// `wait`: who waits if the agent was started ahead of its first task and is not ready yet (`warm`).
+    async fn send_to_agent_waiting(
+        &self,
+        agent: &core::Terminal,
+        prompt: String,
+        group: Option<group_preview::Binding>,
+        wait: warm::Wait,
+    ) -> Result<core::Delivery, Failure> {
         if !agent.uses_opencode_api() {
-            return self.core.send(agent, prompt).await;
+            return warm::send(self, agent, prompt, wait).await;
         }
         core::validate_task(&prompt)?;
         let current = self
@@ -203,6 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("SwarmHub agent access to GitHub is unavailable: {error}");
     }
     helpers::start_serving(workspace.clone());
+    warm::start_sweeping(workspace.clone());
     workspace.history.watch_changes();
     let app = Router::new()
         .route(
@@ -446,10 +460,14 @@ impl IntoResponse for Failure {
             Self::Rejected(kind, message) => {
                 let status = match kind.as_str() {
                     "not_found" => StatusCode::NOT_FOUND,
-                    "blocked" | "status_mismatch" | "name_taken" | "finished" => StatusCode::CONFLICT,
+                    "blocked" | "status_mismatch" | "name_taken" | "finished" | warm::NOT_READY => StatusCode::CONFLICT,
                     "invalid_params" | "invalid_template" => StatusCode::UNPROCESSABLE_ENTITY,
                     _ => StatusCode::BAD_GATEWAY,
                 };
+                // A warm agent that is still starting: a client tells this refusal from the others by its kind.
+                if kind == warm::NOT_READY {
+                    return (status, Json(json!({ "error":message, "kind":kind }))).into_response();
+                }
                 (status, message)
             }
         };
@@ -531,6 +549,7 @@ fn delivery_failure(error: &Failure) -> (DeliveryState, Option<&str>) {
                     | "invalid_params"
                     | "invalid_template"
                     | "spawn_failed"
+                    | warm::NOT_READY
             ) =>
         {
             (DeliveryState::NotSent, Some(detail.as_str()))
@@ -557,6 +576,9 @@ struct AgentView<'a> {
     /// (`codex_agent::stream`). Its replies still arrive, each in one piece.
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_arrives_whole: Option<String>,
+    /// `ready`, `warm` and `warm_ends_ms`: whether a task sent now is typed at once (`warm`).
+    #[serde(flatten)]
+    start: warm::Start,
 }
 
 impl<'a> AgentView<'a> {
@@ -573,6 +595,7 @@ impl<'a> AgentView<'a> {
                 .launch_key()
                 .filter(|_| terminal.state == "live")
                 .and_then(|key| codex_agent::stream::whole_reason(history.file(), key)),
+            start: warm::Start::of(history, terminal),
         }
     }
 }
@@ -616,7 +639,12 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
 struct Launch {
     name: String,
     template: String,
+    /// The first task. Left out with `warm`.
+    #[serde(default)]
     task: String,
+    /// Start the agent's program and type nothing: the first task comes later, as a message (`warm`).
+    #[serde(default)]
+    warm: bool,
     profile_id: Option<i64>,
     expected_runtime: Option<runtimes::Runtime>,
     model_choice: Option<runtimes::ModelChoice>,
@@ -638,13 +666,22 @@ struct CreatedLaunch {
     profile_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     open_code_first_task: Option<opencode_agent::first_task::Outcome>,
+    #[serde(flatten)]
+    start: warm::Start,
 }
 
 async fn launch(
     State(w): State<Workspace>,
     Json(body): Json<Launch>,
 ) -> Result<impl IntoResponse, ApiError> {
-    core::validate_task(&body.task)?;
+    if !body.warm {
+        core::validate_task(&body.task)?;
+    } else if !body.task.is_empty() {
+        return Err(Failure::Input(
+            "Leave out the task to start an agent ahead of it, or leave out warm to start it with the task.",
+        )
+        .into());
+    }
     if (body.profile_id.is_some() && body.standing_instructions.is_some())
         || (body.profile_id.is_none() && body.instructions_revision.is_some())
     {
@@ -685,6 +722,12 @@ async fn launch(
     let api_first_task = opencode_agent::first_task::OptIn::new(&template).is_some();
     if !api_first_task && opencode_agent::first_task::OptIn::requested(&template) {
         return Err(Failure::Input(runtimes::INVALID_API_TEMPLATE).into());
+    }
+    if body.warm && api_first_task {
+        return Err(Failure::Input(
+            "This template gives OpenCode its first task as it starts, so it cannot be started ahead of one.",
+        )
+        .into());
     }
     let catalog = runtimes::Catalog::load(w.history.file());
     let runtime = catalog.runtime(&template);
@@ -739,34 +782,34 @@ async fn launch(
     } else {
         first_instructions.to_owned()
     };
-    const HINT: &str = "To share a finished file, move it into the folder named by the SWARMHUB_RESULTS environment variable after writing it. SwarmHub will add it to this conversation.";
     let hints: Vec<&str> = body
         .collect_results
-        .then_some(HINT)
+        .then_some(warm::RESULTS_HINT)
         .into_iter()
         .chain(project_hint.as_deref())
         .collect();
-    let message = if hints.is_empty() {
-        profiles::launch_message(&body.task, &instructions)?
-    } else if instructions.is_empty() {
-        let message = format!("{} | {}", body.task, hints.join(" "));
-        core::validate_task(&message).map_err(|_| {
-            Failure::Input(if body.collect_results {
-                "Leave a little room in the first task for the results folder instructions."
-            } else {
-                "Leave a little room in the first task for the note about this agent's projects."
-            })
-        })?;
-        message
-    } else {
-        profiles::launch_message(
-            &body.task,
-            &format!("{instructions}\n\n{}", hints.join("\n\n")),
+    // A warm agent reads the same words around its first message. Check now that a message still fits.
+    let message = warm::first_message(
+        if body.warm {
+            "A first message."
+        } else {
+            &body.task
+        },
+        &instructions,
+        &hints,
+    )?;
+    let started = if body.warm {
+        warm::start(
+            &w.history,
+            &hello.core.id,
+            &body.name,
+            body.profile_id,
+            &runtime,
+            &instructions,
+            &hints,
         )?
-    };
-    let (record, key) = w
-        .history
-        .start_launch(
+    } else {
+        w.history.start_launch(
             &hello.core.id,
             &body.name,
             &body.task,
@@ -774,9 +817,10 @@ async fn launch(
             &runtime,
             &instructions,
         )?
-        .ok_or(ApiError::Conflict(
-            "A session for this profile is already starting.",
-        ))?;
+    };
+    let (record, key) = started.ok_or(ApiError::Conflict(
+        "A session for this profile is already starting.",
+    ))?;
     if !body.projects.is_empty() && !projects::grant_launch(&w.history, &key, &body.projects)? {
         w.history.finish(
             record,
@@ -831,6 +875,8 @@ async fn launch(
                 body.name,
                 if api_first_task {
                     core::LaunchSource::DirectOpenCode(body.template, template.command)
+                } else if body.warm {
+                    core::LaunchSource::Warm(body.template)
                 } else {
                     core::LaunchSource::Template(body.template, message)
                 },
@@ -868,6 +914,8 @@ async fn launch(
                         ),
                     ),
                     (None, Some(first)) => (DeliveryState::NotSent, first.reason.as_deref()),
+                    // Nothing was to be typed: the program runs, which is all a warm launch asks for.
+                    (None, None) if body.warm => (DeliveryState::Sent, None),
                     (None, None) => (DeliveryState::Unconfirmed, None),
                 };
                 w.history
@@ -887,6 +935,7 @@ async fn launch(
                     });
                 }
                 Ok(CreatedLaunch {
+                    start: warm::Start::of(&w.history, &terminal),
                     terminal,
                     core: hello.core.id,
                     profile_id,
@@ -936,7 +985,7 @@ async fn send(
     State(w): State<Workspace>,
     Path((id, created)): Path<(String, u64)>,
     Json(body): Json<Message>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     send_message(w, id, created, body, vec![]).await
 }
 
@@ -944,7 +993,7 @@ async fn send_with_files(
     State(w): State<Workspace>,
     Path((id, created)): Path<(String, u64)>,
     multipart: Multipart,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     let (body, files): (Message, _) = task_files::read(multipart).await?;
     if body.expected_core.is_none() {
         return Err(Failure::Input(
@@ -961,7 +1010,7 @@ async fn send_message(
     created: u64,
     body: Message,
     files: Vec<groups::Upload>,
-) -> Result<Json<core::Delivery>, ApiError> {
+) -> Result<Response, ApiError> {
     core::validate_task(&body.text)?;
     let hello = w.core.identify().await?;
     const CHANGED: ApiError = ApiError::Conflict("Herdr Core changed. The task was not sent.");
@@ -1066,7 +1115,23 @@ async fn send_message(
     if let (Some(instruction), Some(token)) = (instruction, token) {
         prompt.insert_str(INTRO.len(), &format!("{instruction}{token}"));
     }
-    Ok(Json(deliver_task(w, agent, record, prompt).await?))
+    if warm::starting(&w.history, &agent) {
+        // The agent was started ahead of this message and is not ready for it. The message is saved, and typed
+        // when the agent is: its row says how that went.
+        tokio::spawn(deliver_task_waiting(
+            w,
+            agent,
+            record,
+            prompt,
+            warm::Wait::Queued,
+        ));
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(json!({"status":null,"started":null,"queued":true})),
+        )
+            .into_response());
+    }
+    Ok(Json(deliver_task(w, agent, record, prompt).await?).into_response())
 }
 
 async fn deliver_task(
@@ -1075,8 +1140,19 @@ async fn deliver_task(
     record: i64,
     prompt: String,
 ) -> Result<core::Delivery, Failure> {
+    deliver_task_waiting(w, agent, record, prompt, warm::Wait::Held).await
+}
+
+/// Types a recorded task into its agent and records how that went.
+async fn deliver_task_waiting(
+    w: Workspace,
+    agent: core::Terminal,
+    record: i64,
+    prompt: String,
+    wait: warm::Wait,
+) -> Result<core::Delivery, Failure> {
     let action = tokio::spawn(async move {
-        match w.send_to_agent(&agent, prompt).await {
+        match w.send_to_agent_waiting(&agent, prompt, None, wait).await {
             Ok(delivery) => {
                 let state = if delivery.started == Some(false) {
                     DeliveryState::StartNotObserved

@@ -697,6 +697,48 @@ In a running API-backed OpenCode session, open **Details → Change OpenCode mod
 
 Plain `run-opencode mini` keeps the existing Herdr template behavior. The Mini client [does not report when its composer is ready](https://github.com/anomalyco/opencode/issues/61191), so Herdr's quiet readiness can type the first task too early on a slow startup. If no reply appears, open the terminal. Submit the task there if it is still in the composer. Enter it again only after confirming it is missing from both the composer and the conversation. SwarmHub does not resend a task automatically when delivery is uncertain.
 
+## Start an agent before the first message
+
+An agent's program takes a while to start: on a busy server Claude Code needs 6 to 20 seconds and Codex longer. A launch with a task makes the person wait that long for the first answer. A client can start the agent when the person opens the chat instead, and send the first message to an agent that already runs.
+
+`POST /api/agents` with `"warm": true` and no `task` starts the template's program and types nothing, so no model turn is spent:
+
+```json
+{"name": "jarvis-a79b16", "template": "swarmhub-codex", "warm": true, "profile_id": 12, "model_id": "gpt-6-astra"}
+```
+
+Every other field means what it means in a launch with a task (`profile_id`, `model_choice` or `model_id`, `standing_instructions`, `instructions_revision`, `collect_results`, `projects`, `expected_runtime`), and the launch is recorded the same way, so the session has its history, its event stream and its place in `/api/workspace` at once. The answer (status 201) comes as soon as the program runs, in about a second, and is the agent as a launch with a task answers it, with `first_message` left `null`.
+
+The first message goes through `POST /api/agents/{address}/{created_ms}/messages` like any later one. It is saved as the session's first task, and replies, tool calls, helpers and files work as in a session that started with a task. What a launch with a task types around the task (the profile's standing instructions, the note about the results folder, the note about the agent's projects) is typed around the first task that reaches a warm agent, whether it comes as a message, a group task or a routine.
+
+### Tell a starting agent from a ready one
+
+Every agent in `/api/workspace`, in the answer to a launch, and in the event stream's `snapshot` and `agent` events carries:
+
+| Field | Meaning |
+| --- | --- |
+| `ready` | `true` when a task sent now is typed at once. `false` only for a warm agent whose program has not reported its status yet, and for an agent that has ended. |
+| `warm` | `true` from a warm launch until a task has reached the agent. |
+| `warm_ends_ms` | Only while nothing was sent to a warm agent: when the workspace ends it for being idle. |
+
+An agent is ready once its program has reported its status to Herdr Core for the first time, which is what Core waits for before it types a launch's first task. The event stream sends an `agent` event when `ready` or `warm` changes.
+
+A message sent to a warm agent before it is ready is not lost and is not typed into a start-up prompt. The workspace saves it, answers at once with status 202 and `{"status": null, "started": null, "queued": true}`, and types it when the agent is ready. Its row is `pending` in the history until then and `sent` afterwards, and the event stream sends the row each time it changes. A message to an agent that is ready answers with status 200 as before, once it is typed.
+
+- If the program has not reported 5 minutes after it started, the queued message is given up: its row turns `not_sent`, with a `detail` that says so. Nothing was typed. The program is probably showing a prompt: open its terminal. A later message is tried again and carries the instructions.
+- Put `SWARMHUB_WARM_START_WAIT=600` (30 to 1800 seconds) in the bridge's environment to change that limit. It is generous because a start is slow exactly when the server's disk is busy: Codex has taken more than three minutes to report on such a server. Core gives a launch's first task 60 seconds.
+- A group task or a routine for a warm agent that is not ready holds its caller instead, for at most 75 seconds after the agent's start. It is then refused with status 409 and `{"error": "…", "kind": "not_ready"}`.
+- Warm starts suit programs that report their status when they start, such as Claude Code and Codex. A program that reports only once it works stays not ready, and its first message is given up after the limit; start it with a task.
+- Codex reports a little before its conversation is open. A message typed in between waits in Codex's own composer and is submitted when the conversation opens, so nothing is lost, but the answer starts that much later.
+- A template whose command gives OpenCode its first task (`--api-first-task`) can't be started warm. The request is refused with status 422.
+- A template with a Markdown body still gets that body typed as its opening message once the program is ready, as Core does for every start from that template. That is a model turn, and the launch answers only after it was typed.
+
+### An agent nobody writes to
+
+A warm agent that gets no task is ended 30 minutes after it started. Put `SWARMHUB_WARM_IDLE_MINUTES` in the bridge's environment to change that; `0` keeps warm agents until someone ends them. The workspace looks once a minute.
+
+An agent is only ended while all of this holds: no task was sent to it through the workspace (not even one whose delivery was never confirmed), no reply of it was saved, its program is not working or waiting for an answer, and it has finished at most the one turn that starting counts as for Codex. Together that covers text typed in its terminal. An agent that has had a task is never ended this way. A warm agent that was never written to leaves no conversation in the Library.
+
 ## Follow a session without polling
 
 `GET /api/agents/{address}/{created_ms}/events` sends one running session as [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html): everything a client needs to follow a turn, on one connection. It takes the same access token and `Host` as every `/api/` route, and no `Origin`. The polling routes stay as they are, and both read the same state, so a row has the same `id` and a tool call the same `seq` on either.
@@ -710,7 +752,7 @@ The first event is a `snapshot`. After it, an event is sent when something chang
 | `draft` | `{"id", "text"}`, or `null` | The reply so far starts, is replaced, or is gone. Replace what you have. |
 | `draft_append` | `{"id", "offset", "text"}` | The reply so far gained `text`. `offset` is the length in UTF-8 bytes of the text you should already have. |
 | `tool` | `{"seq", "tool", "detail", "finished", "failed"}` | A tool call starts, and again with the same `seq` when it ends. |
-| `agent` | The agent as in `/api/workspace` | Its `state` or `status` changes. |
+| `agent` | The agent as in `/api/workspace` | Its `state`, `status`, `ready` or `warm` changes ([Start an agent before the first message](#start-an-agent-before-the-first-message)). |
 | `helpers` | The list as in `GET …/helpers` | A helper starts, answers, changes status or goes away. |
 | `end` | `{"reason"}`: `ended` or `gone` | The agent's program has ended, or Core no longer has the terminal. The connection closes after it. |
 

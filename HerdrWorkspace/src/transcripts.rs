@@ -189,7 +189,7 @@ fn direct_session(
         params![core,address,created], |row| row.get::<_, String>(0),
     ).optional().map_err(StoreError::from)?.ok_or(ApiError::NotFound)?;
     let mut transcript = Transcript::new(title);
-    let mut stmt = db.prepare(
+    let mut stmt = db.prepare(&format!(
         "SELECT journal.id,CASE
                     WHEN kind='snapshot' THEN 'Terminal snapshot'
                     WHEN kind='attachment' THEN 'Attached file'
@@ -200,8 +200,9 @@ fn direct_session(
                 (SELECT group_concat(name,char(10)) FROM
                  (SELECT name FROM direct_task_files WHERE task_id=journal.id ORDER BY id))
          FROM journal LEFT JOIN workspace_pages ON workspace_pages.id=journal.page_id
-         WHERE core_id=?1 AND address=?2 AND created_ms=?3 ORDER BY journal.id",
-    ).map_err(StoreError::from)?;
+         WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND {} ORDER BY journal.id",
+        crate::warm::SHOWN
+    )).map_err(StoreError::from)?;
     for item in stmt
         .query_map(params![core, address, created], direct_row)
         .map_err(StoreError::from)?

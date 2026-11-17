@@ -71,6 +71,12 @@ pub struct Terminal {
     pub exit_code: Option<i32>,
     pub reason: Option<String>,
     pub first_message: Option<FirstMessage>,
+    /// Whether the program ever reported its status. Core types a launch's first task only after that.
+    #[serde(default, skip_serializing)]
+    reported: bool,
+    /// How many times the program's status left `working`.
+    #[serde(default, skip_serializing)]
+    turn: u64,
     #[serde(default, skip_serializing)]
     labels: BTreeMap<String, String>,
     #[serde(default, skip_serializing)]
@@ -104,6 +110,8 @@ pub struct HelperOf<'a> {
 
 pub enum LaunchSource {
     Template(String, String),
+    /// The template's program alone: nothing is typed (`warm`).
+    Warm(String),
     DirectOpenCode(String, String),
 }
 
@@ -498,6 +506,7 @@ impl Core {
     ) -> Result<Terminal, Failure> {
         let (template, task, line) = match source {
             LaunchSource::Template(template, task) => (template, Some(task), None),
+            LaunchSource::Warm(template) => (template, None, None),
             LaunchSource::DirectOpenCode(template, command) => (template, None, Some(command)),
         };
         if !valid_name(&name) || !valid_name(&template) {
@@ -509,12 +518,15 @@ impl Core {
             validate_task(task)?;
         }
         let mut labels = BTreeMap::from([(LABEL, LABEL_VALUE), (LAUNCH_LABEL, env.key)]);
-        let argv = if let Some(task) = task {
-            vec![template.clone(), task]
-        } else {
-            // Calling terminal.run with a template name would paste its Markdown body.
-            labels.insert(TEMPLATE_LABEL, &template);
-            Vec::new()
+        let argv = match (task, &line) {
+            (Some(task), _) => vec![template.clone(), task],
+            // Core starts the template's command and, with no task and no Markdown body, types nothing.
+            (None, None) => vec![template.clone()],
+            (None, Some(_)) => {
+                // Calling terminal.run with a template name would paste its Markdown body.
+                labels.insert(TEMPLATE_LABEL, &template);
+                Vec::new()
+            }
         };
         let mut params = json!({
             "name":name,"argv":argv,"line":line,"wait":false,"no_parent":true,
@@ -656,6 +668,15 @@ impl Terminal {
 
     pub fn launch_key(&self) -> Option<&str> {
         self.labels.get(LAUNCH_LABEL).map(String::as_str)
+    }
+
+    /// The program has reported its status at least once, so text typed now reaches its composer.
+    pub(crate) fn reported(&self) -> bool {
+        self.reported || self.status.is_some()
+    }
+
+    pub(crate) fn turn(&self) -> u64 {
+        self.turn
     }
 
     fn managed(&self) -> bool {
