@@ -51,6 +51,8 @@ const MAX_FILES: usize = 5_000;
 /// Skills of one source that are audited and offered.
 const MAX_OFFERED: usize = 50;
 const MAX_SOURCE: usize = 500;
+/// How the workspace names its downloads in the temporary folder.
+const SCRATCH: &str = "swarmhub-skill-check.";
 
 const INSPECT_SHAPE: &str = "Send source: owner/repo, owner/repo/path/to/skill, or an https://, ssh://, git@ or file:// Git address; and project: a skillshare project's folder, to install into that project.";
 const INSTALL_SHAPE: &str = "Send ticket: the ticket of a checked source; skills: the names to install, or leave it out for all; replace: true to install again what the library already has; force: true to install what the audit blocked.";
@@ -240,7 +242,6 @@ fn quiet_git(templates: &Path) -> Vec<(&'static str, String)> {
         ),
         ("GIT_ALLOW_PROTOCOL", "https:ssh:file".into()),
         ("GIT_TEMPLATE_DIR", templates.to_string_lossy().into_owned()),
-        ("GIT_CONFIG_NOSYSTEM", "1".into()),
     ]
 }
 
@@ -406,6 +407,29 @@ fn taken(id: &str) -> Option<Ticket> {
     Some(tickets.remove(at))
 }
 
+/// Removes downloads an earlier run of the workspace left behind: folders of the workspace's own name in the
+/// temporary folder that nothing has touched for an hour. A ticket lives a quarter of that.
+fn sweep(folder: &Path) {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let named = entry.file_name().to_string_lossy().starts_with(SCRATCH);
+        // A link of that name is not followed, and a folder still in use is younger than this.
+        let stale = fs::symlink_metadata(entry.path()).is_ok_and(|found| {
+            found.is_dir()
+                && found
+                    .modified()
+                    .ok()
+                    .and_then(|changed| changed.elapsed().ok())
+                    .is_some_and(|age| age > TICKET_LIFE * 4)
+        });
+        if named && stale {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 /// Downloads a source, lists the skills skillshare would install from it, and audits them. Installs nothing.
 async fn inspect(body: Bytes) -> Response {
     #[derive(Deserialize)]
@@ -440,10 +464,8 @@ async fn inspect(body: Bytes) -> Response {
 }
 
 async fn inspected(program: &Path, scope: Scope, source: String, origin: Origin) -> Response {
-    let Ok(folder) = tempfile::Builder::new()
-        .prefix("swarmhub-skill-check.")
-        .tempdir()
-    else {
+    let _ = tokio::task::spawn_blocking(|| sweep(&std::env::temp_dir())).await;
+    let Ok(folder) = tempfile::Builder::new().prefix(SCRATCH).tempdir() else {
         return refused(
             StatusCode::INTERNAL_SERVER_ERROR,
             "The workspace could not make its scratch folder.",
@@ -1263,6 +1285,28 @@ mod tests {
             names(chosen(&half, None, true, false)),
             Err(StatusCode::UNPROCESSABLE_ENTITY)
         );
+    }
+
+    #[test]
+    fn downloads_left_behind_are_removed_and_nothing_else_is() {
+        let folder = tempfile::tempdir().unwrap();
+        let old = std::time::SystemTime::now() - TICKET_LIFE * 5;
+        let aged = |name: &str| {
+            let path = folder.path().join(name);
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("file"), "x").unwrap();
+            fs::File::open(&path).unwrap().set_modified(old).unwrap();
+            path
+        };
+        let left = aged(&format!("{SCRATCH}left"));
+        let other = aged("someone-elses.folder");
+        let fresh = folder.path().join(format!("{SCRATCH}fresh"));
+        fs::create_dir(&fresh).unwrap();
+        let outside = aged("outside");
+        std::os::unix::fs::symlink(&outside, folder.path().join(format!("{SCRATCH}link"))).unwrap();
+        sweep(folder.path());
+        assert!(!left.exists());
+        assert!(other.exists() && fresh.exists() && outside.join("file").exists());
     }
 
     #[test]

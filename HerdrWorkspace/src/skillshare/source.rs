@@ -461,7 +461,13 @@ async fn commit_merge(top: &Path) -> Result<(), String> {
 /// After skillshare's pull stopped: reads what it stopped on and puts the repository back as it was, or, when
 /// only skillshare's record was in the way, merges that and commits. `None` when nothing is in conflict.
 async fn stopped(top: &Path, push: bool) -> Result<Option<Stopped>, String> {
-    let all = conflicts(top).await?;
+    let all = match conflicts(top).await {
+        Ok(all) => all,
+        Err(problem) => {
+            abort(top).await;
+            return Err(problem);
+        }
+    };
     let files: Vec<&String> = all.iter().filter(|path| !is_record(path)).collect();
     if files.is_empty() && !all.is_empty() {
         let merged = match merge_records(top, &all).await {
