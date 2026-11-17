@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 @testable import AgentApp
 
-// The composer row (0.6.0 report: the `+` sat lower than the paperclip, the send button lower than the microphone, and
+// The composer row (0.6.0 report: the `+` sat lower than the paperclip, the send button lower than its neighbour, and
 // the placeholder off centre). The composer is rendered offscreen in dark mode at 2×, and the checks read where each
 // control's pixels land: the AppKit-drawn controls (the `+` menu, the round buttons) ignore their SwiftUI label frames,
 // so slot frames alone cannot catch the bug. Set SWARMHUB_COMPOSER_SHOTS=<folder> to also write the renders as PNGs.
@@ -18,7 +18,7 @@ private let scale: CGFloat = 2
     /// The editor's text view and the height its scroll view shows.
     let textViewHeight: CGFloat?, visibleHeight: CGFloat?
 
-    var controls: [String] { ["composer_attach", "composer_manage", "composer_dictation", "composer_send"] }
+    var controls: [String] { ["composer_attach", "composer_manage", "composer_send"] }
 
     /// The vertical middle (points) of the pixels in `rect` that differ from the composer's background.
     func inkMidY(in rect: CGRect) -> CGFloat? { inkRows(in: rect).map { ($0.lowerBound + $0.upperBound) / 2 } }
@@ -72,7 +72,7 @@ private let scale: CGFloat = 2
     return nil
 }
 
-/// The composer as a 1:1 chat with the manager bot shows it: paperclip, `+`, draft, microphone, send.
+/// The composer as a 1:1 chat with the manager bot shows it: paperclip, `+`, draft, send.
 @MainActor private func renderComposer(_ text: String, shot: String) async throws -> RenderedComposer {
     _ = NSApplication.shared
     let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
@@ -80,7 +80,7 @@ private let scale: CGFloat = 2
     let root = VStack(spacing: 0) {
         Spacer(minLength: 0)
         ComposerView(text: .constant(text), attachments: .constant([]), isStreaming: false, send: {}, stop: {},
-                     manageActions: [.newBot], dictationContext: "composer-layout")
+                     manageActions: [.newBot])
     }
     .frame(width: canvas.width, height: canvas.height).background(AppColor.chat).environment(\.colorScheme, .dark).environmentObject(store)
     let host = NSHostingView(rootView: root)
@@ -108,7 +108,7 @@ private let scale: CGFloat = 2
 /// Every control slot is 28 × 28, shares the draft's bottom edge, and the gaps between neighbours are equal.
 @MainActor private func expectRow(_ composer: RenderedComposer) throws {
     let input = try #require(composer.slots["composer_input"])
-    let order = ["composer_attach", "composer_manage", "composer_input", "composer_dictation", "composer_send"]
+    let order = ["composer_attach", "composer_manage", "composer_input", "composer_send"]
     let frames = try order.map { id in try #require(composer.slots[id], "\(id) is missing: \(composer.slots.keys.sorted())") }
     for id in composer.controls {
         let slot = try #require(composer.slots[id])

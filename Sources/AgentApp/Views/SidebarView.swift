@@ -50,30 +50,39 @@ struct SidebarView: View {
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
+            // The bottom bar floats over the list where the Mac has Liquid Glass: the rows pass beneath it.
+            .floatingBar(edge: .bottom, backing: AppColor.sidebar) { bottomBar }
+        }.background(AppColor.sidebar)
+        .alert(BotRemovalCopy.title(botToDelete?.name ?? "bot"), isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
+            Button("Cancel", role: .cancel) { botToDelete = nil }
+            Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
+        } message: { Text(BotRemovalCopy.message(server: botToDelete.flatMap(store.herdrEndingPlace(for:)))) }
+        .alert("Delete group \(groupToDelete?.name ?? "")?", isPresented: Binding(get: { groupToDelete != nil }, set: { if !$0 { groupToDelete = nil } })) {
+            Button("Cancel", role: .cancel) { groupToDelete = nil }
+            Button("Delete", role: .destructive) { if let groupToDelete { store.deleteGroup(groupToDelete) }; groupToDelete = nil }
+        } message: { Text("The group chat is removed from this Mac. Its bots and their own chats stay.") }
+    }
+
+    /// The line about a waiting update, and the one button to Settings.
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
             // Only while an update is waiting: the app's own, or a server's workspace (`UpdateNotice`).
             UpdateNoticeLine().padding(.horizontal, SidebarMetrics.listInset + 4).padding(.bottom, 4)
             HStack(spacing: 10) {
                 // One button: the person's initial and "Settings" (two buttons that opened the same window read as two things).
                 SettingsLink {
                     HStack(spacing: 8) {
-                        Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                        Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(AppColor.onAccent)
                             .frame(width: 22, height: 22).background(Circle().fill(.tint))
                         Text("Settings").font(.system(size: 13, weight: .medium))
                     }.padding(.leading, 5).padding(.trailing, 14)
-                        .frame(height: SidebarMetrics.roundButton).background(Capsule().fill(Color.primary.opacity(0.08))).contentShape(Capsule())
+                        .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
                 }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
                 Spacer()
             }.padding(.horizontal, SidebarMetrics.listInset + 4).frame(height: SidebarMetrics.bottomBar)
-        }.background(AppColor.sidebar)
-        .alert("Delete \(botToDelete?.name ?? "bot")?", isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
-            Button("Cancel", role: .cancel) { botToDelete = nil }
-            Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
-        } message: { Text("Its chat is removed from this Mac. This can’t be undone.") }
-        .alert("Delete group \(groupToDelete?.name ?? "")?", isPresented: Binding(get: { groupToDelete != nil }, set: { if !$0 { groupToDelete = nil } })) {
-            Button("Cancel", role: .cancel) { groupToDelete = nil }
-            Button("Delete", role: .destructive) { if let groupToDelete { store.deleteGroup(groupToDelete) }; groupToDelete = nil }
-        } message: { Text("The group chat is removed from this Mac. Its bots and their own chats stay.") }
+        }.frame(maxWidth: .infinity)
     }
+
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
     /// helper's row is the selected one.
     @ViewBuilder private func row(_ bot: Bot) -> some View {

@@ -113,7 +113,7 @@ struct HerdrSkillsContent: View {
                     }
                     Spacer(minLength: 8)
                     if model.isChanging(skill) { ProgressView().controlSize(.small) }
-                    Toggle(skill.name, isOn: Binding(get: { on }, set: { model.set(skill, on: $0) })).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    Toggle(skill.name, isOn: Binding(get: { on }, set: { model.set(skill, on: $0) })).labelsHidden().toggleStyle(.appleSwitch).controlSize(.small)
                         .accessibilityLabel(HerdrSkillsCopy.readable(skill.name))
                 }.padding(.horizontal, 10).padding(.vertical, 8).help(skill.name)
             }
@@ -157,7 +157,7 @@ struct HerdrSkillsContent: View {
                     HStack {
                         Spacer()
                         Button("Cancel") { model.confirming = nil }.keyboardShortcut(.cancelAction)
-                        Button("Share with \(agent)") { Task { await model.share(with: agent) } }.buttonStyle(.borderedProminent).disabled(model.adding)
+                        Button("Share with \(agent)") { Task { await model.share(with: agent) } }.buttonStyle(.appleProminent).disabled(model.adding)
                     }
                 }.appleCard(padding: 14)
             } else if agents.isEmpty {

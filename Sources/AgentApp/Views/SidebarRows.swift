@@ -6,6 +6,8 @@ enum SidebarMetrics {
     /// The selected row's highlight sits this far in from the column edges.
     static let listInset: CGFloat = 12
     static let selectionRadius: CGFloat = 10, nameSize: CGFloat = 15, fragmentSize: CGFloat = 14, badge: CGFloat = 12
+    /// How strongly the open chat's row is washed with the accent.
+    static let selectionWash = 0.22
     /// The top row holds the 32 pt round search and + buttons; it is taller than the 28 pt title zone it covers.
     static let topRow: CGFloat = 32, roundButton: CGFloat = 32, bottomBar: CGFloat = 56
     static let width: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 280, 320)
@@ -40,7 +42,10 @@ struct RowChrome: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius)
         content.padding(.horizontal, SidebarMetrics.rowPadding).frame(height: SidebarMetrics.rowHeight).contentShape(shape)
-            .background(selected ? AppColor.selection : hovering ? AppColor.selection.opacity(0.45) : .clear, in: shape)
+            .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(SidebarMetrics.selectionWash)) : hovering ? AnyShapeStyle(AppColor.selection.opacity(0.6)) : AnyShapeStyle(.clear), in: shape)
+            // The open chat is washed with the accent and marked at its leading edge: the grey it had could hardly
+            // be told from the row under the pointer.
+            .overlay(alignment: .leading) { if selected { Capsule().fill(.tint).frame(width: 3, height: SidebarMetrics.rowHeight - 30).padding(.leading, 3.5).accessibilityHidden(true) } }
     }
 }
 
@@ -59,7 +64,8 @@ struct BotRow: View {
         let working = store.isWorking(bot), attention = store.needsAttention(bot)
         // Sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
-            bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
+            // An agent that waits at a question says so, whatever its last message was.
+            bot.isDemo ? SimpleCopy.sampleLabel : !working && store.herdrPrompts[bot.id] != nil ? HerdrPrompt.sidebar : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
                                                                        archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
         }
         Button { store.open(bot) } label: {

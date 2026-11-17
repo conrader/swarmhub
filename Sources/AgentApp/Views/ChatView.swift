@@ -2,10 +2,14 @@ import SwiftUI
 
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
-    @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
+    @StateObject private var intake = AttachmentIntake()
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
+    /// The messages between bots that are unfolded, while this chat is on screen.
+    @StateObject private var folds: ChatFolds
     @Environment(\.grokHistoryExpanded) private var historyExpanded
+    /// `unfolded`: cards that start unfolded (renders); the app starts every card folded.
+    init(bot: Bot, unfolded: Set<UUID> = []) { self.bot = bot; _folds = StateObject(wrappedValue: ChatFolds(open: unfolded)) }
     var body: some View {
         let shown = bot.messages.filter { !$0.isSilent }
         let _ = viewport.show(bot.id, order: shown.map(\.id))
@@ -41,12 +45,13 @@ struct ChatView: View {
                                 .selectableMessage(message.id, in: selection)
                         }
                         ChatBottomMarker(viewport: viewport, conversationID: bot.id)
-                    }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection)
+                    }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection).environment(\.chatFolds, folds)
                 }.id(bot.id).background(AppColor.chat)
                 // ⌘/⇧-click picks rows, ⌘C copies them; another conversation starts with none picked.
-                .messageSelection(selection).onChange(of: bot.id) { _, _ in selection.clear() }
+                .messageSelection(selection).onChange(of: bot.id) { _, _ in selection.clear(); folds.state.foldAll() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
-                .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, proxy: proxy) }
+                // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
+                .floatingBar(edge: .bottom, backing: AppColor.chat) { bottomBar(proxy) }
                 .task(id: bot.id) { await viewport.open(bot.id, model: store.chatScroll, proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in viewport.grew(proxy: proxy) }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
@@ -54,21 +59,6 @@ struct ChatView: View {
                     guard let target else { return }
                     DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center); store.scrollTarget = nil }
                 }
-            }
-            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
-            if bot.isReadOnlyArchive {
-                Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
-            } else {
-                // What the main bot asks the person waits here: new bots (Create or Not now), additions to "About you"
-                // (Remember or Don't save), and, once, the offer to get to know them.
-                if store.createsHerdrBots(bot) {
-                    VStack(spacing: 8) {
-                        HerdrIntroOffer(bot: bot)
-                        HerdrAboutYouCard(bot: bot)
-                        HerdrBotRequestCard(manager: bot)
-                    }.padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat)
-                }
-                composer.background(AppColor.chat)
             }
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in
@@ -96,6 +86,32 @@ struct ChatView: View {
         return found
     }
 
+    /// Under the transcript: whom a reply answers, what waits for the person, and the message box. One group, so
+    /// that glass surfaces standing close together are drawn together. "Jump to latest" hangs above it.
+    private func bottomBar(_ proxy: ScrollViewProxy) -> some View {
+        VStack(spacing: 0) {
+            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
+            if bot.isReadOnlyArchive {
+                Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
+            } else {
+                // What needs the person waits here, above the message box: an agent that asks something in its
+                // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
+                // (Remember or Don't save), and, once, the offer to get to know them.
+                VStack(spacing: 8) {
+                    if bot.backend == .herdr { HerdrPromptCard(bot: bot) }
+                    if store.createsHerdrBots(bot) {
+                        HerdrIntroOffer(bot: bot)
+                        HerdrAboutYouCard(bot: bot)
+                        HerdrBotRequestCard(manager: bot)
+                    }
+                }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil ? 8 : 0).frame(maxWidth: .infinity)
+                composer
+            }
+        }
+        .frame(maxWidth: .infinity).glassGroup(spacing: 4)
+        .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, proxy: proxy).alignmentGuide(.top) { $0[.bottom] } }
+    }
+
     private var composer: some View {
         // The main bot's "+" menu: its one action writes a request for a new bot into the composer.
         ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
@@ -103,8 +119,7 @@ struct ChatView: View {
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
                      manage: { action in if let request = action.request { draft = request } else { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot, again: true) } },
-                     dictationContext: store.dictationIsSetUp ? "\(bot.id):chat" : nil,
-                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name, dictation: dictation)
+                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name)
     }
     /// Media tab → Attach puts a saved document into this chat's composer.
     private func takePendingAttachment() {

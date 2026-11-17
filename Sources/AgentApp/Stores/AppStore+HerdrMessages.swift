@@ -4,6 +4,8 @@ import Foundation
 enum HerdrMessageLine {
     /// In the sender's chat: what it wrote, since its own reply hides the block.
     static let sent = LineTemplate("", " wrote to ", ": “", "”")
+    /// What the folded card of such a line is called, as "Message from …" names the other side.
+    static func sentTitle(to name: String) -> String { "Message to \(name)" }
     static let notSent = LineTemplate("", "’s message to ", " could not be delivered.")
     static let tooMany = LineTemplate("", "’s message to “", "” was not sent: it has written to other bots ", " times in the last ", " minutes.")
     /// A bot that was told a message was not sent wrote one again that cannot be sent: it is not told a second time.

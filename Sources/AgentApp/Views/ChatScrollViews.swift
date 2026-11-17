@@ -92,8 +92,7 @@ struct JumpToLatestButton: View {
             } label: {
                 Label(label, systemImage: "arrow.down").font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.regularMaterial, in: Capsule()).overlay(Capsule().stroke(AppColor.separator, lineWidth: 0.5))
-                    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+                    .glassSurface(in: Capsule(), interactive: true, fallback: .regularMaterial).plainSurfaceShadow()
             }
             .buttonStyle(.plain).padding(.bottom, 12)
             .accessibilityLabel("Jump to latest message")

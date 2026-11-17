@@ -89,7 +89,7 @@ struct HerdrHelperPolicySection: View {
         }
         if !problem.isEmpty { StatusCard(kind: .warning, title: problem) }
         HStack(spacing: 10) {
-            Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(saving || draft == saved || draft.problem != nil)
+            Button("Save") { save() }.buttonStyle(.appleProminent).disabled(saving || draft == saved || draft.problem != nil)
             if draft != saved { Button("Revert") { draft = saved; note = "" }.disabled(saving) }
             if saving { ProgressView().controlSize(.small) }
             Text(draft.problem ?? note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)

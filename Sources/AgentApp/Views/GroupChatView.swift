@@ -3,7 +3,7 @@ import SwiftUI
 /// A group's shared thread: the user's messages and each member's replies under its own avatar.
 struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
-    @State private var draft = ""; @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
+    @State private var draft = ""; @StateObject private var intake = AttachmentIntake()
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
@@ -39,22 +39,26 @@ struct GroupChatView: View {
                 // ⌘/⇧-click picks rows, ⌘C copies them; another group starts with none picked.
                 .messageSelection(selection).onChange(of: group.id) { _, _ in selection.clear() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
-                .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy) }
+                // The message box floats at the bottom: the transcript passes beneath it.
+                .floatingBar(edge: .bottom, backing: AppColor.chat) {
+                    VStack(spacing: 0) {
+                    if let reply = store.replyTo {
+                        HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
+                            .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
+                    }
+                    ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
+                                 send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
+                                 pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
+                                 reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
+                                 mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), recipient: group.name)
+                    }
+                    .frame(maxWidth: .infinity).glassGroup(spacing: 4)
+                    .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy).alignmentGuide(.top) { $0[.bottom] } }
+                }
                 .task(id: group.id) { await viewport.open(group.id, model: store.chatScroll, proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in viewport.grew(proxy: proxy) }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
             }
-            if let reply = store.replyTo {
-                HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
-            }
-            ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
-                         send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
-                         pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
-                         reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                         mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name),
-                         dictationContext: store.dictationIsSetUp ? group.id.uuidString : nil, recipient: group.name, dictation: dictation)
-                .background(AppColor.chat)
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in
                 let files = urls.filter(\.isFileURL)

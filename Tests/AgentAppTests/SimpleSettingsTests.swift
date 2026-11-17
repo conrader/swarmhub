@@ -6,7 +6,7 @@ import Testing
 
 @Test func everySettingHasOneHomeInOnePane() {
     // One Settings: General is what most people open it for, and each other pane is one thing. No "Advanced" behind it.
-    #expect(SettingsLayout.Pane.allCases == [.general, .servers, .voice, .updates, .about])
+    #expect(SettingsLayout.Pane.allCases == [.general, .servers, .updates, .about])
     #expect(SettingsLayout.ids(in: .general) == ["you.name", "you.about", "appearance.theme", "appearance.accent", "appearance.appIcon", "appearance.avatarMotion", "notifications.master"])
     for pane in SettingsLayout.Pane.allCases { #expect(!SettingsLayout.ids(in: pane).isEmpty, "\(pane.rawValue) is reachable and not empty") }
     #expect(SettingsLayout.home(of: "servers.herdr") == .servers && SettingsLayout.home(of: "servers.projects") == .servers && SettingsLayout.home(of: "servers.grokBot") == .servers)
@@ -14,7 +14,7 @@ import Testing
     #expect(SettingsLayout.home(of: "updates.autoInstall") == .updates && SettingsLayout.home(of: "updates.servers") == .updates, "everything about updates is in Software Update")
     #expect(SettingsLayout.home(of: "about.version") == .about && SettingsLayout.home(of: "about.checkUpdates") == .about && SettingsLayout.home(of: "nothing") == nil)
     // Where something is, in the words the app's own sentences use.
-    #expect(SettingsLayout.path(.servers, "Projects") == "Settings → Servers → Projects" && SettingsLayout.path(.voice) == "Settings → Voice")
+    #expect(SettingsLayout.path(.servers, "Projects") == "Settings → Servers → Projects" && SettingsLayout.path(.updates) == "Settings → Software Update")
     // What a bot runs on has one home, its Details; the editor's Advanced part no longer repeats it.
     #expect(!SettingsLayout.editorAdvanced.contains("editor.herdrAgent") && SettingsLayout.editorAdvanced.contains("editor.herdrProjects"))
 }

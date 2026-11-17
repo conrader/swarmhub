@@ -8,12 +8,13 @@ struct MarkdownContent: View {
     @ObservedObject var message: ChatMessage
     /// Where the cards answer; nil (renders) shows them without actions.
     var actionTarget: ConversationActionTarget? = nil
-    /// One text segment of an ordered reply (nil = the whole text) and the card index its first block has.
-    var text: String? = nil; var indexBase = 0
+    /// One text segment of an ordered reply (nil = the whole text), and for each of its blocks the place that block
+    /// has in the whole reply (`ReplyLayout.blockIndexes`), which is what a card's answer is stored and checked by.
+    var text: String? = nil; var indexes: [Int]? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(ChatCardParser.parse(SwarmhubBlock.visibleText(text ?? message.content)).enumerated()), id: \.offset) { offset, block in
-                let index = indexBase + offset
+                let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset
                 switch block {
                 case .markdown(let text): ProseBlock(text: text)
                 case .code(_, let body): CodeBlock(code: body)
@@ -85,10 +86,9 @@ private struct ChoicesCard: View {
             if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
             ForEach(options, id: \.self) { option in
                 Button { pick(option) } label: {
-                    HStack { Text(option).multilineTextAlignment(.leading); Spacer(); if picked == option { Image(systemName: "checkmark") } }
-                        .padding(.horizontal, 11).padding(.vertical, 7).contentShape(Rectangle())
-                        .background(picked == option ? AppColor.selection : AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
-                }.buttonStyle(.plain).disabled(target == nil || picked != nil || message.isStreaming || target.map(store.isStreaming(for:)) == true)
+                    HStack { Text(option).multilineTextAlignment(.leading); Spacer(); if picked == option { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).accessibilityHidden(true) } }
+                }.buttonStyle(ChoiceOptionStyle(picked: picked == option, answered: picked != nil))
+                    .accessibilityAddTraits(picked == option ? .isSelected : []).disabled(target == nil || picked != nil || message.isStreaming || target.map(store.isStreaming(for:)) == true)
             }
         }.padding(12).frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
@@ -160,3 +160,24 @@ struct RemoteOrDataImage: View {
 }
 
 func copyToPasteboard(_ value: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) }
+
+/// One option of a question a bot asks in its reply. The one that was picked is filled with the accent and ticked,
+/// and stays at full strength when the card can no longer be answered; the others step back. (The picked one was
+/// drawn a shade lighter than the rest and dimmed with them, so it could not be told which had been chosen.)
+struct ChoiceOptionStyle: ButtonStyle {
+    let picked: Bool
+    /// One of the options was picked already.
+    let answered: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        configuration.label
+            .foregroundStyle(picked ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
+            .padding(.horizontal, 11).padding(.vertical, 7).contentShape(Rectangle())
+            .background(picked ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(AppColor.raised), in: shape)
+            .overlay { if !picked { shape.strokeBorder(AppColor.outline, lineWidth: 1) } }
+            .overlay { if configuration.isPressed { shape.fill(Color.primary.opacity(0.08)) } }
+            .opacity(picked ? 1 : answered ? 0.5 : isEnabled ? 1 : 0.7)
+    }
+}

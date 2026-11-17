@@ -13,7 +13,7 @@ enum AppTheme {
     /// follows the primary text colour; anything unknown is Clay.
     static func accentColor(for name: String) -> Color {
         switch name {
-        case "Sage": AppColor.adaptive(light: 0x55784F, dark: 0x7FA079)
+        case "Sage": AppColor.adaptive(Palette.sage)
         case "Blue": .blue
         case "Purple": .purple
         case "Pink": .pink
@@ -21,7 +21,7 @@ enum AppTheme {
         case "Green": .green
         case "Teal": .teal
         case "Graphite": .primary
-        default: AppColor.adaptive(light: 0xB35F2B, dark: 0xC4763F)
+        default: AppColor.adaptive(Palette.clay)
         }
     }
 
@@ -38,13 +38,19 @@ enum AppTheme {
 /// light and olive charcoal in dark, never a blue-grey or a pure black; the few named colours mark states and tiles.
 /// Text on every surface is the system's primary and secondary, which read at 12:1 and more on all of them.
 enum AppColor {
-    static let sidebar = adaptive(light: 0xF2F1E8, dark: 0x181915)
-    static let chat = adaptive(light: 0xFDFCF8, dark: 0x1E1F1B)
-    static let panel = adaptive(light: 0xF8F7F0, dark: 0x21231E)
-    static let card = adaptive(light: 0xFFFFFF, dark: 0x282A23)
-    static let raised = adaptive(light: 0xEFEDE3, dark: 0x2E3029)
-    static let separator = adaptive(light: 0xDDDACD, dark: 0x3B3D34)
-    static let selection = adaptive(light: 0xE5E3D6, dark: 0x35372F)
+    static let sidebar = adaptive(Palette.sidebar)
+    static let chat = adaptive(Palette.chat)
+    static let panel = adaptive(Palette.panel)
+    static let card = adaptive(Palette.card)
+    static let raised = adaptive(Palette.raised)
+    static let separator = adaptive(Palette.separator)
+    static let selection = adaptive(Palette.selection)
+    /// The line around a control that is not chosen: 3:1 on every surface above, so the control's edge can be seen.
+    static let outline = adaptive(Palette.outline)
+    /// What is written or drawn on a fill of the accent (the name on a chosen tile, the tick, a default button's label).
+    static let onAccent = adaptive(Palette.onAccent)
+    /// Small marks drawn straight on a surface: 4.5:1 on every one of them.
+    static let mark = adaptive(Palette.mark)
 
     // The icon's faces, for tiles and marks.
     static let clay = adaptive(light: 0xD98F58, dark: 0xE0A070)
@@ -58,6 +64,8 @@ enum AppColor {
     // States, as text and symbols on any surface above (4.5:1 or more): something is fine, or needs a look.
     static let good = adaptive(light: 0x4B7045, dark: 0x9BBB95)
     static let caution = adaptive(light: 0x9A5B0A, dark: 0xE8B25C)
+
+    static func adaptive(_ pair: Palette.Pair) -> Color { adaptive(light: pair.light, dark: pair.dark) }
 
     static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
@@ -73,32 +81,69 @@ enum AppColor {
 }
 
 extension AvatarColour {
-    /// A bot's own colour as a tint for the things around it in its chat (its header, its replies' mark, its cards):
-    /// its avatar's colour, softened where the swatch is loud; black and gray avatars take the olive of the icon.
-    var tint: Color {
-        switch self {
-        case .black, .gray: AppColor.olive
-        case .brown: AppColor.adaptive(light: 0x936439, dark: 0xB98A60)
-        case .red: AppColor.adaptive(light: 0xD8344A, dark: 0xF0707F)
-        case .orange: AppColor.adaptive(light: 0xD9641A, dark: 0xF08A45)
-        case .yellow: AppColor.adaptive(light: 0xC47F00, dark: 0xF0AE3C)
-        case .green: AppColor.adaptive(light: 0x16935C, dark: 0x4CC58F)
-        case .cyan: AppColor.adaptive(light: 0x0F9080, dark: 0x45C4B4)
-        case .blue: AppColor.adaptive(light: 0x2A78D6, dark: 0x5EA2F2)
-        case .violet: AppColor.adaptive(light: 0x7E55D8, dark: 0xA689F5)
-        case .magenta: AppColor.adaptive(light: 0xD63A8A, dark: 0xF272B0)
+    /// The avatar's colour softened where the swatch is loud, as numbers, in one scheme. Black is drawn white on
+    /// dark, and grey is grey: `BotTintPair` gives those a warm neutral.
+    func swatch(dark: Bool) -> RGB {
+        let pair: Palette.Pair = switch self {
+        case .black: (0x000000, 0xFFFFFF)
+        case .gray: (0x777777, 0x777777)
+        case .brown: (0x936439, 0xB98A60)
+        case .red: (0xD8344A, 0xF0707F)
+        case .orange: (0xD9641A, 0xF08A45)
+        case .yellow: (0xC47F00, 0xF0AE3C)
+        case .green: (0x16935C, 0x4CC58F)
+        case .cyan: (0x0F9080, 0x45C4B4)
+        case .blue: (0x2A78D6, 0x5EA2F2)
+        case .violet: (0x7E55D8, 0xA689F5)
+        case .magenta: (0xD63A8A, 0xF272B0)
         }
+        return Palette.rgb(pair, dark: dark)
     }
 }
 
+/// A bot's own colour, for everything it says: the wash and outline of its cards and its header (`fill`), and its
+/// name and marks on them (`ink`, which reads at 4.5:1 on a card washed with `fill`). The rule is the same wherever
+/// a bot speaks: in its own chat, and in a card that carries its words into another bot's chat.
+struct BotTint {
+    let fill: Color, ink: Color
+
+    init(light: BotTintPair, dark: BotTintPair) {
+        fill = AppColor.adaptive(light: light.fill.hex, dark: dark.fill.hex); ink = AppColor.adaptive(light: light.ink.hex, dark: dark.ink.hex)
+    }
+
+    /// From the avatar's colour as drawn in each scheme.
+    init(avatar: (light: RGB, dark: RGB)) {
+        self.init(light: Self.pair(avatar.light, dark: false), dark: Self.pair(avatar.dark, dark: true))
+    }
+
+    /// One scheme's pair: the colour is chosen against the chat, and its ink also reads on the card surface.
+    static func pair(_ avatar: RGB, dark: Bool) -> BotTintPair {
+        BotTintPair(avatar: avatar, dark: dark, surface: Palette.rgb(Palette.chat, dark: dark), also: [Palette.rgb(Palette.card, dark: dark)])
+    }
+
+    /// What the app itself says in a card (a note that is no bot's words): the icon's olive.
+    static let app = BotTint(avatar: (RGB(0x5C5F4C), RGB(0x8C8F78)))
+
+    /// A card's surface and outline in this colour, over the chat.
+    var wash: Color { fill.opacity(BotTintPair.wash) }
+    var border: Color { fill.opacity(BotTintPair.border) }
+}
+
 extension Bot {
-    /// The colour this bot carries through its chat: its mark's colour; a classic avatar's own accent, else the app's.
-    @MainActor var tint: Color {
+    /// The avatar's colour in each scheme: its mark's; a classic avatar's own accent, else the app's.
+    func avatarRGB(accent: String) -> (light: RGB, dark: RGB) {
         switch avatarLook {
-        case .mark(_, let colour): colour.tint
-        case .classic: accentColor.flatMap(Color.init(hex:)) ?? AppTheme.accentColor(for: UserDefaults.standard.string(forKey: "accent") ?? AppTheme.defaultAccent)
+        case .mark(_, let colour): (colour.swatch(dark: false), colour.swatch(dark: true))
+        case .classic:
+            if let own = accentColor.flatMap(RGB.init(hex:)) { (own, own) } else { (Palette.accent(accent, dark: false), Palette.accent(accent, dark: true)) }
         }
     }
+
+    @MainActor var colours: BotTint { BotTint(avatar: avatarRGB(accent: UserDefaults.standard.string(forKey: "accent") ?? AppTheme.defaultAccent)) }
+    /// The colour this bot carries through its chat, as a wash or an outline.
+    @MainActor var tint: Color { colours.fill }
+    /// The same colour as text.
+    @MainActor var tintInk: Color { colours.ink }
 }
 
 struct AvatarImage: View {
