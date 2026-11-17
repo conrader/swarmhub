@@ -186,12 +186,13 @@ import SwiftUI
         let details = NSSize(width: 360, height: 640)
         write(entry[2], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: bot, library: model()).padding(14) }.frame(width: details.width, height: details.height).background(AppColor.panel)), store, details))
         let choice = HerdrLibraryScope.Choice(name: "shop", folder: "/srv/shop")
+        let own = HerdrLibraryScope.Choice(name: HerdrLibraryCopy.botsFolder, folder: "/home/deploy/swarmhub-agents", botsFolder: true)
         let project = HerdrLibrary(version: "0.30.8", project: choice.folder, source: "/srv/shop/.skillshare/skills",
                                    items: [item(.skills, "shop-returns", "How a return is booked, refunded and put back into stock."), item(.skills, "price-rules", "The discount and rounding rules of the shop."),
                                            item(.hooks, "run-shop-tests", "Runs the shop's tests after a change.")], targets: [.init(name: "claude", linked: 2, waiting: 0)])
         store.setHerdrLibraryScope(choice.folder, for: bot)
         let scopeSize = NSSize(width: 360, height: 760)
-        write(entry[3], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: bot, library: model { $0.scopes = [bot.id.uuidString: [choice]] }, scoped: HerdrLibraryModel(preset: Preset(library: project, project: choice.folder))).padding(14) }
+        write(entry[3], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: bot, library: model { $0.scopes = [bot.id.uuidString: [own, choice]] }, scoped: HerdrLibraryModel(preset: Preset(library: project, project: choice.folder))).padding(14) }
             .frame(width: scopeSize.width, height: scopeSize.height).background(AppColor.panel)), store, scopeSize))
         store.setHerdrLibraryScope(nil, for: bot)
 
