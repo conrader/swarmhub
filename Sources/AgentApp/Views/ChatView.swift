@@ -63,15 +63,17 @@ struct ChatView: View {
             if bot.isReadOnlyArchive {
                 Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
-                // What the main bot asks the person waits here: new bots (Create or Not now), additions to "About you"
+                // What needs the person waits here, above the message box: an agent that asks something in its
+                // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
                 // (Remember or Don't save), and, once, the offer to get to know them.
-                if store.createsHerdrBots(bot) {
-                    VStack(spacing: 8) {
+                VStack(spacing: 8) {
+                    if bot.backend == .herdr { HerdrPromptCard(bot: bot) }
+                    if store.createsHerdrBots(bot) {
                         HerdrIntroOffer(bot: bot)
                         HerdrAboutYouCard(bot: bot)
                         HerdrBotRequestCard(manager: bot)
-                    }.padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat)
-                }
+                    }
+                }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil ? 8 : 0).frame(maxWidth: .infinity).background(AppColor.chat)
                 composer.background(AppColor.chat)
             }
         }.background(AppColor.chat)

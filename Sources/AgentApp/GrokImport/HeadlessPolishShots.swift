@@ -6,7 +6,27 @@ import SwiftUI
 /// `HeadlessHerdrShots`: nothing connects and nothing of the real app is read.
 @MainActor enum HeadlessPolishShots {
     static let messages = ["polish-messages-folded", "polish-messages-unfolded", "polish-messages-sender"]
-    static let names = messages
+    /// A bot whose agent waits at a question in its terminal: the card above the message box, on this Mac and on a
+    /// server reached by an address; and the sidebar, where its row is marked.
+    static let waiting = ["polish-waiting-terminal", "polish-waiting-browser", "polish-waiting-sidebar"]
+    static let names = messages + waiting
+
+    /// What a waiting agent's terminal shows in the shots. Made up.
+    static let screen = """
+        ╭─────────────────────────────────────────────────────────────╮
+        │ Would you like to run the following command?                │
+        ╰─────────────────────────────────────────────────────────────╯
+
+          Reason: May I connect to the build box to read its registry settings?
+
+          $ ssh build-box 'cat /etc/registry/settings.toml'
+
+        › 1. Yes, proceed (y)
+          2. Yes, and don't ask again for commands that start with `ssh build-box` (p)
+          3. No, and tell Codex what to do differently (esc)
+
+          Press enter to confirm or esc to cancel
+        """
 
     /// What one bot asks of another in the shots: a long message, as bots write them.
     static let brief = """
@@ -78,5 +98,29 @@ import SwiftUI
         cast.store.selectedBot = cast.jarvis
         let small = NSSize(width: chat.width, height: 520)
         write(messages[2], await png(AnyView(ChatView(bot: cast.jarvis).frame(width: small.width, height: small.height)), cast.store, small))
+
+        // Infra's agent has waited at a question for almost four hours.
+        let store = cast.store, infra = cast.infra, asked = Date.now - (3 * 3600 + 49 * 60)
+        var steps = ToolActivity()
+        for (index, command) in ["registry-client register --all", "registry-client ping"].enumerated() {
+            steps.apply(ToolEvent(phase: .started, name: "bash", preview: command, callID: "\(index)"), at: asked - 40 + Double(index * 9))
+            steps.apply(ToolEvent(phase: .completed, name: "bash", callID: "\(index)"), at: asked - 36 + Double(index * 9))
+        }
+        steps.apply(ToolEvent(phase: .started, name: "bash", preview: "ssh build-box 'cat /etc/registry/settings.toml'", callID: "9"), at: asked)
+        let reply = ChatMessage(role: .assistant, content: "The server is registered. I will read the build box's own settings next, to compare them.", createdAt: asked - 60, isStreaming: true,
+                                metadata: [TurnKey.agent: HerdrTurnStatus.blocked(program: "Codex").code], turnState: .incomplete)
+        reply.activity = steps
+        infra.messages = [ChatMessage(role: .user, content: "Check that the build box uses the same registry settings as the laptops.", createdAt: asked - 70), reply]
+        store.selectedBot = infra
+        store.herdrPrompts[infra.id] = HerdrPrompt(program: "Codex", question: HerdrPrompt.question(from: screen), agent: .init(address: "t7", createdMs: 1), since: asked)
+        let waitingSize = NSSize(width: chat.width, height: 640)
+        write(waiting[0], await png(AnyView(ChatView(bot: infra).frame(width: waitingSize.width, height: waitingSize.height)), store, waitingSize))
+        // The same on a server the app reaches by an address: its page in the browser is the way to the terminal.
+        let typed = HerdrServer(id: "typed", name: "Studio server", kind: .address, address: "http://10.0.0.5:8787")
+        store.saveHerdrServer(typed, token: nil); store.setHerdrServer(typed.id, for: infra)
+        write(waiting[1], await png(AnyView(ChatView(bot: infra).frame(width: waitingSize.width, height: waitingSize.height)), store, waitingSize))
+        store.selectedBot = cast.jarvis; infra.manualUnread = true
+        let sidebar = NSSize(width: SidebarMetrics.width.ideal, height: 420)
+        write(waiting[2], await png(AnyView(SidebarView(selection: .constant(cast.jarvis)).frame(width: sidebar.width, height: sidebar.height)), store, sidebar))
     }
 }
