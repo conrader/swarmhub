@@ -14,32 +14,32 @@ swift test              # the Mac tests in Tests/AgentAppTests
 
 `scripts/build.sh` uses SwiftPM when `xcrun` finds the macOS SDK and falls back to calling `swiftc` directly otherwise. Both link Sparkle and the vendored BotAvatarsKit. `SWARMHUB_FORCE_SWIFTC=1` takes the fallback on purpose.
 
-`scripts/package-release.sh` builds a release `.app` under `dist/`, embeds and signs Sparkle, and notarizes when `SWARMHUB_NOTARY_PROFILE` is set. Release steps are in [Automatic updates](updates.md).
+`scripts/package-release.sh` builds a release `.app` under `dist/`, embeds and signs Sparkle, and notarizes when `SWARMHUB_NOTARY_PROFILE` is set. `scripts/release.sh` makes a whole release from it: the app archive, the appcast, and the signed manifest for the bridge's programs, which `scripts/package-workspace.sh` builds on Linux. The release steps, and `Tests/Scripts/update-rehearsal.sh`, which rehearses an update without credentials, are in [Updates](updates.md#releasing).
 
 The Swift package (`Package.swift`) has two targets besides the tests: `AgentApp` and `BotAvatarsKit`. Its only remote dependency is Sparkle.
 
 ## Architecture
 
-[Architecture](architecture.md) describes the whole system: the Mac app, the bridge, Herdr Core and the agent programs, with drawings. The drawings are written by `python3 docs/diagrams/generate.py` (add `--png` for PNG renders; that needs Chrome or Chromium, and Pillow). This section is about the Mac app's own folders.
+[Architecture](architecture.md) describes the whole system: the Mac app, the bridge, Herdr Core and the agent programs, with drawings. The drawings are written by `python3 docs/diagrams/generate.py` (add `--png` for PNG renders; that needs Chrome or Chromium, and Pillow). This section is about the Mac app's own folders. The code keeps the technical names; the interface says "bot", "AI" for an agent program, and "helper".
 
 | Folder in `Sources/AgentApp` | What it holds |
 | --- | --- |
-| `Backends` | `AgentBackend`, the protocol for whatever answers a bot. `HerdrBackend` is the one real implementation; `MockBackend` answers locally for the sample agents. `HerdrClient` and the other `Herdr*` files talk to the bridge. |
-| `Stores` | `AppStore` and its extensions: bots, groups, turns, the message queue, servers, saving. |
+| `Backends` | `AgentBackend`, the protocol for whatever answers a bot. `HerdrBackend` is the one real implementation; `MockBackend` answers locally for the sample bots. `HerdrClient` and the other `Herdr*` files talk to the bridge. |
+| `Stores` | `AppStore` and its extensions: bots, groups, turns, the message queue, servers, the first conversation and "About you", saving. `AppUpdater` (Sparkle) and `SoftwareUpdateModel` (the servers' updates). |
 | `Models` | Bots, messages, groups, turn state, cards. |
-| `Views` | SwiftUI views: sidebar, chat, composer, Details panel, settings. |
-| `Setup` | The setup window and the words it uses. |
+| `Views` | SwiftUI views: sidebar, chat, composer, Details panel, Settings and its panes (General, Servers, Voice, Software Update, About). |
+| `Setup` | The setup window, and the visible words of the setup window and Settings (`WizardCopy`, `SetupCopy`, `SimpleCopy`, `SettingsLayout`). |
 | `GrokExport`, `GrokImport`, `TemplateImport` | Reading Grok Bot's data and templates, and the command-line entry points. |
 | `Avatars`, `Voice` | Avatar drawing and settings; dictation through deAPI. |
 
 ### How a message reaches an agent
 
 1. `HerdrBackend.send` takes the newest user message. Earlier messages are not sent: the agent keeps its own conversation.
-2. `HerdrClient.deliver` types the message into the bot's running agent (`POST /api/agents/{address}/{created_ms}/messages`), or starts one from the bot's template with the bot's instructions and the message as its first task (`POST /api/agents`).
+2. `HerdrClient.deliver` types the message into the bot's running agent (`POST /api/agents/{address}/{created_ms}/messages`), or starts one from the bot's template with the bot's instructions, "About you", the app's notes and the message as its first task (`POST /api/agents`).
 3. `HerdrClient.reply` follows the turn on the bridge's event stream (`GET /api/agents/{address}/{created_ms}/events`). When the stream cannot be opened or keeps breaking, it polls the saved rows and the reply so far instead.
 4. The reply is final when the agent's own hook has saved it on the bridge.
 
-Every request carries the server's access token as a bearer token. The bridge listens on loopback only and refuses a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>`, so a remote server is reached through a forward of the same port number.
+Every request carries the server's access token as a bearer token, and the app's version and API level (`X-SwarmHub-App`, `X-SwarmHub-Api`). The bridge listens on loopback only and refuses a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>`, so a remote server is reached through a forward of the same port number.
 
 A message is cut to what the bridge accepts: plain text, up to 16 KB for a first task including the bot's instructions.
 
@@ -57,14 +57,15 @@ The app keeps its data in `~/Library/Application Support/AgentApp/`:
 
 A `store.json` that cannot be read is moved aside as `store.json.corrupt-<time>`, and the app offers to restore the newest readable copy. A store from an older version that holds bots of a removed backend is copied to `store.json.before-herdr-only-<time>` before those bots are left out.
 
-The server list, each bot's server, template and model, and other preferences are in the app's `UserDefaults`. Access tokens and the deAPI key are in the Keychain. For an SSH server the app saves the path of the key file, never the key.
+The server list, each bot's server, template and model, "About you", and other preferences are in the app's `UserDefaults`. Access tokens and the deAPI key are in the Keychain. For an SSH server the app saves the path of the key file, never the key.
 
 ## Environment
 
 | Variable | Effect |
 | --- | --- |
 | `SWARMHUB_HERDR_TOKEN` | Access token for the first server, used only when the Keychain has none. For development launches. |
-| `SWARMHUB_DISABLE_UPDATES=1` | Turns the automatic updater off for this launch. |
+| `SWARMHUB_DISABLE_UPDATES=1` | Turns the app's updater off for this launch. A bare executable, a test run, a snapshot, a UI smoke run and a benchmark never look for updates. |
+| `SWARMHUB_WORKSPACE_FEED` | Another place for the app to read the bridge's releases from when it hands one to a server: `https`, or `http` on this Mac's loopback. The signature is checked all the same. |
 | `SWARMHUB_BUILD_CONFIGURATION` | `debug` or `release`, read by `scripts/build.sh`. |
 
 ## Command-line flags
@@ -80,7 +81,7 @@ These run without a window and exit:
 | `--migrate-store` | Loads and saves the store in the current format. |
 | `--probe-attachment <file>` | Reads a PDF, RTF, DOC or DOCX like the composer does and prints counts. No network. |
 | `--render-snapshot <dir> [--bot "<name>"]...` | Renders the window to image files. |
-| `--render-setup <dir> [--light]` | Renders the setup steps, Settings pages, chats and helper views from a synthetic store with sample content, dark unless `--light` is given. No network, no Keychain. The screens in the README and the guide (`docs/screenshots`) come from it. |
+| `--render-setup <dir> [--light]` | Renders the setup steps, Settings pages, the states of Software Update, chats and helper views from a synthetic store with sample content, dark unless `--light` is given. No network, no Keychain. It refuses a folder inside the repository. The screens in the README and the guide (`docs/screenshots`) come from it. |
 
 Two flags apply to a normal launch with a window: `--ui-smoke <report.json>` and `--setup-preview`.
 
@@ -106,11 +107,11 @@ A reply can use these Markdown conventions. The app draws them as cards; elsewhe
 | Link pills | A bare `http(s)://` URL in prose. | A pill per link under the paragraph. |
 | Image | `![alt](https://…)` or `![alt](data:image/…)`. | Shown inline. |
 
-A fenced block with info string `swarmhub` is how a bot's agent asks the app for something (a new bot, or the main bot's help). The chat shows it as one folded line.
+A fenced block with info string `swarmhub` is how a bot's agent asks the app for something: a new bot (`create_bot`, `request_bot`, `decline_bot`), a message to another bot (`message_bot`), or an addition to "About you" (`about_you`). The chat never draws the block. It shows one plain line under the reply, such as "Suggested a new bot: Legal"; **Copy original** in that line's context menu copies the block. The blocks are described in [Architecture](architecture.md#bots-the-main-bot-and-helpers).
 
 ## Other code in this repository
 
-- `HerdrWorkspace/`: the bridge and browser workspace, in Rust. Build and test instructions are in its README.
+- `HerdrWorkspace/`: the bridge and browser workspace, in Rust. Build and test instructions are in its README; how it updates itself is in [Updates](updates.md).
 - `Apps/iOS-seed`: starting material for a future iPhone app (two SwiftUI source files, the app icon, screen drawings). It is not an app and nothing builds it; its [README](../Apps/iOS-seed/README.md) says what a phone app needs first.
 - `scripts/export-grokbot.py` and the other Grok Bot export tools, with their tests (`scripts/test_*.py`). `bash Tests/Scripts/pysuites.sh <worktree> <log dir>` runs every Python test in `scripts/`.
 
