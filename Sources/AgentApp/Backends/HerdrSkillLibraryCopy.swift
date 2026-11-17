@@ -387,7 +387,7 @@ enum HerdrLibraryCopy {
 
     static func scopeAll(_ server: String) -> (title: String, detail: String) { ("All bots on this server", "The library every bot on \(server) shares.") }
     static func scopeProject(_ choice: HerdrLibraryScope.Choice) -> (title: String, detail: String) {
-        choice.botsFolder ? (choice.name, "The library of the folder your bots work in, \(choice.folder). Only bots get it, not the sessions you start yourself elsewhere.")
+        choice.botsFolder ? (choice.name, "A library only your bots get, kept in the folder they work in.")
             : (choice.name, "This project’s own library, kept in \(choice.folder).")
     }
     /// The name of the choice for the folder the server's bots work in.
