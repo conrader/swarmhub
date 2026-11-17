@@ -39,6 +39,8 @@ import UserNotifications
     var herdrClientSetup: (@Sendable (inout HerdrClient) -> Void)?
     /// Each Herdr server's Skills section, by server id (`HerdrSkillsModel`).
     var herdrSkillModels: [String: HerdrSkillsModel] = [:]
+    /// Each Herdr server's library, and skillshare on every server (`HerdrSkillLibraryModel.swift`).
+    var herdrLibraryModels: [String: HerdrLibraryModel] = [:]; var herdrLibraryServersModel: HerdrLibraryServersModel?
     /// One per Herdr server: its project servers and projects (`HerdrProjectsModel`).
     var herdrProjectModels: [String: HerdrProjectsModel] = [:]
     /// The setup wizard's ending (`AppStore+SetupHerdr.swift`): the bot whose composer takes the keyboard once, and the
