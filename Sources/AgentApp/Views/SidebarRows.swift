@@ -45,7 +45,7 @@ struct RowChrome: ViewModifier {
 }
 
 private struct UnreadDot: View {
-    var body: some View { Circle().fill(.primary.opacity(0.72)).frame(width: 8, height: 8) }
+    var body: some View { Circle().fill(.tint).frame(width: 8, height: 8) }
 }
 
 /// A bot in the sidebar: its 36 pt mark (with a badge when it needs attention), name, latest-message line and context actions.
@@ -67,7 +67,7 @@ struct BotRow: View {
                 BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: working, isHovered: hovering, probe: "sidebar")
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
-                            Circle().fill(Color.orange).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
+                            Circle().fill(AppColor.clay).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
                                 .overlay(Circle().stroke(selected ? AppColor.selection : AppColor.sidebar, lineWidth: 2))
                                 .offset(x: 2, y: 2).accessibilityLabel("Needs attention")
                         }

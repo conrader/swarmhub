@@ -96,10 +96,10 @@ struct AvatarPickerView: View {
                             Text(body.preset.label).font(.system(size: 10)).lineLimit(1)
                         }
                         .frame(width: 60, height: 68)
-                        .background(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2) }
+                        .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(0.12)) : AnyShapeStyle(Color.primary.opacity(0.035)), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(Color.clear), lineWidth: 2) }
                         .overlay(alignment: .topTrailing) {
-                            if selected { Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Color.accentColor).padding(3) }
+                            if selected { Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(.tint).padding(3) }
                         }
                         .contentShape(Rectangle())
                     }.buttonStyle(.plain).help(body.preset.label)
@@ -112,7 +112,7 @@ struct AvatarPickerView: View {
                 ForEach(AvatarColour.allCases, id: \.self) { swatch in
                     Button { choice.selectColour(swatch, seed: seed) } label: {
                         Circle().fill(Color(hex: swatch.hex(dark: colorScheme == .dark)) ?? .gray).frame(width: 22, height: 22)
-                            .overlay(Circle().stroke(Color.accentColor, lineWidth: colour == swatch && selectedBody != nil ? 2 : 0).padding(-3))
+                            .overlay(Circle().stroke(TintShapeStyle(), lineWidth: colour == swatch && selectedBody != nil ? 2 : 0).padding(-3))
                             .frame(width: 30, height: 30).contentShape(Rectangle())
                     }.buttonStyle(.plain).help(swatch.rawValue.capitalized)
                         .accessibilityLabel(swatch.rawValue.capitalized).accessibilityValue(colour == swatch && selectedBody != nil ? "Selected" : "")

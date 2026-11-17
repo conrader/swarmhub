@@ -53,9 +53,9 @@ struct InfoTabBar: View {
             }
             .padding(.horizontal, style == .symbolOnly ? 8 : 2).frame(height: style == .symbolOnly ? 28 : 36)
             .contentShape(Rectangle())
-            .background(selected ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(0.14)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
         }
-        .buttonStyle(.plain).foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+        .buttonStyle(.plain).foregroundStyle(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.secondary))
         .help(tab.rawValue).accessibilityLabel(tab.rawValue).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

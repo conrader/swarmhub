@@ -43,7 +43,7 @@ struct SetupView: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .top).padding(.horizontal, 44).padding(.top, 34).padding(.bottom, 20)
             }.scrollBounceBehavior(.basedOnSize)
-            if let failure { Text(failure).font(.callout).foregroundStyle(.orange).padding(.horizontal, 24).padding(.bottom, 8) }
+            if let failure { Text(failure).font(.callout).foregroundStyle(AppColor.caution).padding(.horizontal, 24).padding(.bottom, 8) }
             Divider()
             footer.padding(.horizontal, 20).padding(.vertical, 14)
         }

@@ -33,7 +33,7 @@ struct HerdrSettingsSection: View {
                 TileGallery(items: tiles, minimum: 170, isSelected: { $0.id == (current?.id ?? Self.addID) }, name: \.name, select: { chosen = $0.id }) { tile in
                     HStack(spacing: 10) {
                         if let server = servers.first(where: { $0.id == tile.id }) { SymbolTile(symbol: server.kind.mark.symbol, colour: server.kind.mark.colour, size: 28) }
-                        else { SymbolTile(symbol: "plus", colour: .gray, size: 28) }
+                        else { SymbolTile(symbol: "plus", colour: AppColor.olive, size: 28) }
                         NameTile(name: tile.name, note: tile.note)
                     }
                 }
@@ -63,7 +63,7 @@ struct HerdrSettingsSection: View {
                     ForEach([(HerdrServer.Kind.local, SetupCopy.herdrLocalTitle, WizardCopy.localDetail), (.ssh, SetupCopy.herdrSSHTitle, WizardCopy.sshDetail), (.address, SetupCopy.herdrAddressTitle, WizardCopy.addressDetail)], id: \.0) { kind, title, detail in
                         OptionCard(symbol: kind.mark.symbol, colour: kind.mark.colour, title: title, detail: detail, selected: draft.kind == kind, select: { draft.kind = kind })
                     }
-                    OptionCard(symbol: "shippingbox.fill", colour: .gray, title: SetupCopy.herdrReadyMadeTitle, detail: SetupCopy.herdrReadyMadeDetail + " Nothing can be ordered here.", badge: ManagedHosting.badge, selected: false, select: {})
+                    OptionCard(symbol: "shippingbox.fill", colour: AppColor.olive, title: SetupCopy.herdrReadyMadeTitle, detail: SetupCopy.herdrReadyMadeDetail + " Nothing can be ordered here.", badge: ManagedHosting.badge, selected: false, select: {})
                         .disabled(true).opacity(0.55)
                 }
             }
@@ -344,7 +344,7 @@ struct HerdrOverviewSection: View {
             }.appleCard(padding: 12)
             if store.createsHerdrBots(bot) {
                 HStack(alignment: .top, spacing: 12) {
-                    SymbolTile(symbol: "star.fill", colour: .orange, size: 32)
+                    SymbolTile(symbol: "star.fill", colour: AppColor.clay, size: 32)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Main bot of \(server.name)").font(.headline)
                         Text("Only it creates bots, and other bots ask it.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -354,8 +354,8 @@ struct HerdrOverviewSection: View {
             if let reading = store.herdrAgentReadings[bot.id] {
                 Button { store.infoTab = .model } label: {
                     HStack(alignment: .top, spacing: 8) {
-                        fact("Agent program", reading.runtime?.label ?? "None this server can start", isDefault: reading.runtime != nil && !reading.runtimeIsOwn, symbol: "terminal.fill", colour: .gray)
-                        fact("Model", reading.model.map(HerdrAgentReading.name) ?? HerdrAgentReading.programPicks, isDefault: reading.model != nil && !reading.modelIsOwn, symbol: "cpu.fill", colour: .purple)
+                        fact("Agent program", reading.runtime?.label ?? "None this server can start", isDefault: reading.runtime != nil && !reading.runtimeIsOwn, symbol: "terminal.fill", colour: AppColor.olive)
+                        fact("Model", reading.model.map(HerdrAgentReading.name) ?? HerdrAgentReading.programPicks, isDefault: reading.model != nil && !reading.modelIsOwn, symbol: "cpu.fill", colour: AppColor.plum)
                     }
                 }.buttonStyle(.plain).help("Change either under Model.").accessibilityLabel(reading.summary).accessibilityHint("Opens Model")
                 if let running = reading.runningLine, reading.pendingLine != nil || reading.running == .unstated || reading.running == .unknown {

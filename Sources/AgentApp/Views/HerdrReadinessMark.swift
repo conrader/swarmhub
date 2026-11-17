@@ -12,9 +12,9 @@ struct HerdrReadinessMark: View {
             if readiness.isStarting {
                 ProgressView().controlSize(.mini)
             } else if readiness.isBlocked {
-                Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange).accessibilityHidden(true)
+                Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(AppColor.caution).accessibilityHidden(true)
             } else {
-                Circle().fill(Color.green).frame(width: 6, height: 6).accessibilityHidden(true)
+                Circle().fill(AppColor.good).frame(width: 6, height: 6).accessibilityHidden(true)
             }
             Text(readiness.word).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
         }

@@ -11,7 +11,7 @@ struct SettingsGrokSection: View {
     var body: some View {
         if store.grokBotPresent {
             HStack(alignment: .top, spacing: 12) {
-                SymbolTile(symbol: "square.and.arrow.down.fill", colour: .gray, size: 32)
+                SymbolTile(symbol: "square.and.arrow.down.fill", colour: AppColor.olive, size: 32)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Grok Bot").font(.headline)
                     Text(status + (lastImport.map { ". Last import: \($0.formatted(date: .abbreviated, time: .shortened))." } ?? "."))

@@ -7,16 +7,19 @@ struct SetupEmptyState: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         if FirstRun.hasRealAgents(store.bots) {
-            ContentUnavailableView(SimpleCopy.chooseTitle, systemImage: "bubble.left.and.bubble.right", description: Text(SimpleCopy.chooseDetail))
+            VStack(spacing: 10) {
+                SetupAppMark(size: 64).padding(.bottom, 4)
+                Text(SimpleCopy.chooseTitle).font(.title2.bold())
+                Text(SimpleCopy.chooseDetail).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity).background(AppColor.chat)
         } else {
-            ContentUnavailableView {
-                Label(SimpleCopy.emptyTitle, systemImage: "link")
-            } description: {
-                Text(SimpleCopy.herdrEmptyDetail)
-            } actions: {
-                Button(SimpleCopy.emptySetUp) { store.openSetup(openWindow: openWindow) }.buttonStyle(.borderedProminent)
-                Button(SetupCopy.sampleLink) { store.loadSamples() }.buttonStyle(.link)
-            }
+            VStack(spacing: 10) {
+                SetupAppMark(size: 84).padding(.bottom, 6)
+                Text(SimpleCopy.emptyTitle).font(.system(size: 26, weight: .bold))
+                Text(SimpleCopy.herdrEmptyDetail).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button(SimpleCopy.emptySetUp) { store.openSetup(openWindow: openWindow) }.buttonStyle(.borderedProminent).controlSize(.large).padding(.top, 10)
+                Button(SetupCopy.sampleLink) { store.loadSamples() }.buttonStyle(.plain).foregroundStyle(.tint)
+            }.padding(40).frame(maxWidth: .infinity, maxHeight: .infinity).background(AppColor.chat)
         }
     }
 }

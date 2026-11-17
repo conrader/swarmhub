@@ -13,7 +13,7 @@ struct SetupProjectsStep: View {
     var body: some View {
         VStack(spacing: 22) {
             HeroHeader(title: WizardCopy.projectsTitle, detail: WizardCopy.projectsIntro(server: flow.herdrServer?.name ?? "", main: flow.mainBotName)) {
-                SymbolTile(symbol: "folder.fill", colour: .cyan, size: 60)
+                SymbolTile(symbol: "folder.fill", colour: AppColor.clay, size: 60)
             }
             VStack(alignment: .leading, spacing: 18) {
                 switch model.phase {

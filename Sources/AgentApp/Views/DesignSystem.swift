@@ -3,19 +3,25 @@ import SwiftUI
 
 enum AppTheme {
     static let defaultPreference = "Dark"
-    static let defaultAccent = "Graphite"
-    static let accentNames = ["Graphite", "Blue", "Purple", "Pink", "Orange", "Green", "Teal"]
+    /// Clay, from the app icon: warm, and the colour of every default button, switch and selection until the person
+    /// picks another. Graphite (the earlier default) is still offered.
+    static let defaultAccent = "Clay"
+    static let accentNames = ["Clay", "Sage", "Blue", "Purple", "Pink", "Orange", "Teal", "Graphite"]
 
-    /// The app-wide tint; Graphite (and anything unknown) follows the primary text colour.
+    /// The app-wide tint. Clay and Sage are the icon's own colours, deepened until white text on a button reads
+    /// (4.5:1 in light, 3.4:1 in dark, where the same tint is also text on the dark surface at 4.8:1); Graphite
+    /// follows the primary text colour; anything unknown is Clay.
     static func accentColor(for name: String) -> Color {
         switch name {
+        case "Sage": AppColor.adaptive(light: 0x55784F, dark: 0x7FA079)
         case "Blue": .blue
         case "Purple": .purple
         case "Pink": .pink
         case "Orange": .orange
         case "Green": .green
         case "Teal": .teal
-        default: .primary
+        case "Graphite": .primary
+        default: AppColor.adaptive(light: 0xB35F2B, dark: 0xC4763F)
         }
     }
 
@@ -28,16 +34,32 @@ enum AppTheme {
     }
 }
 
+/// The app's colours, drawn from its icon ("Crew": cream, olive, sage and clay). Surfaces are warm neutrals, cream in
+/// light and olive charcoal in dark, never a blue-grey or a pure black; the few named colours mark states and tiles.
+/// Text on every surface is the system's primary and secondary, which read at 12:1 and more on all of them.
 enum AppColor {
-    static let sidebar = adaptive(light: 0xF2F2F4, dark: 0x0E0E10)
-    static let chat = adaptive(light: 0xFFFFFF, dark: 0x141416)
-    static let panel = adaptive(light: 0xF8F8FA, dark: 0x19191C)
-    static let card = adaptive(light: 0xFFFFFF, dark: 0x1D1D20)
-    static let raised = adaptive(light: 0xF0F0F3, dark: 0x232327)
-    static let separator = adaptive(light: 0xD9D9DE, dark: 0x2C2C30)
-    static let selection = adaptive(light: 0xE3E3E7, dark: 0x29292D)
+    static let sidebar = adaptive(light: 0xF2F1E8, dark: 0x181915)
+    static let chat = adaptive(light: 0xFDFCF8, dark: 0x1E1F1B)
+    static let panel = adaptive(light: 0xF8F7F0, dark: 0x21231E)
+    static let card = adaptive(light: 0xFFFFFF, dark: 0x282A23)
+    static let raised = adaptive(light: 0xEFEDE3, dark: 0x2E3029)
+    static let separator = adaptive(light: 0xDDDACD, dark: 0x3B3D34)
+    static let selection = adaptive(light: 0xE5E3D6, dark: 0x35372F)
 
-    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+    // The icon's faces, for tiles and marks.
+    static let clay = adaptive(light: 0xD98F58, dark: 0xE0A070)
+    static let sage = adaptive(light: 0x7FA079, dark: 0x8FAE8A)
+    static let olive = adaptive(light: 0x5C5F4C, dark: 0x8C8F78)
+    // Three quiet companions, so a screen with several tiles is not all one colour.
+    static let sky = adaptive(light: 0x6F9BC0, dark: 0x86AED0)
+    static let plum = adaptive(light: 0xA283B4, dark: 0xB79AC6)
+    static let sand = adaptive(light: 0xC2A45A, dark: 0xD3B872)
+
+    // States, as text and symbols on any surface above (4.5:1 or more): something is fine, or needs a look.
+    static let good = adaptive(light: 0x4B7045, dark: 0x9BBB95)
+    static let caution = adaptive(light: 0x9A5B0A, dark: 0xE8B25C)
+
+    static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let value = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
             return NSColor(
@@ -47,6 +69,35 @@ enum AppColor {
                 alpha: 1
             )
         })
+    }
+}
+
+extension AvatarColour {
+    /// A bot's own colour as a tint for the things around it in its chat (its header, its replies' mark, its cards):
+    /// its avatar's colour, softened where the swatch is loud; black and gray avatars take the olive of the icon.
+    var tint: Color {
+        switch self {
+        case .black, .gray: AppColor.olive
+        case .brown: AppColor.adaptive(light: 0x936439, dark: 0xB98A60)
+        case .red: AppColor.adaptive(light: 0xD8344A, dark: 0xF0707F)
+        case .orange: AppColor.adaptive(light: 0xD9641A, dark: 0xF08A45)
+        case .yellow: AppColor.adaptive(light: 0xC47F00, dark: 0xF0AE3C)
+        case .green: AppColor.adaptive(light: 0x16935C, dark: 0x4CC58F)
+        case .cyan: AppColor.adaptive(light: 0x0F9080, dark: 0x45C4B4)
+        case .blue: AppColor.adaptive(light: 0x2A78D6, dark: 0x5EA2F2)
+        case .violet: AppColor.adaptive(light: 0x7E55D8, dark: 0xA689F5)
+        case .magenta: AppColor.adaptive(light: 0xD63A8A, dark: 0xF272B0)
+        }
+    }
+}
+
+extension Bot {
+    /// The colour this bot carries through its chat: its mark's colour; a classic avatar's own accent, else the app's.
+    @MainActor var tint: Color {
+        switch avatarLook {
+        case .mark(_, let colour): colour.tint
+        case .classic: accentColor.flatMap(Color.init(hex:)) ?? AppTheme.accentColor(for: UserDefaults.standard.string(forKey: "accent") ?? AppTheme.defaultAccent)
+        }
     }
 }
 

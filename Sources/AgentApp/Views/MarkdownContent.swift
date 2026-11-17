@@ -45,7 +45,7 @@ private struct ProseBlock: View {
         } else if paragraph.hasPrefix("- ") {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(paragraph.components(separatedBy: "\n"), id: \.self) { line in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) { Text("•").foregroundStyle(Color.accentColor); Text(inlineMarkdown(String(line.dropFirst(2)))).fixedSize(horizontal: false, vertical: true) }
+                    HStack(alignment: .firstTextBaseline, spacing: 8) { Text("•").foregroundStyle(.tint); Text(inlineMarkdown(String(line.dropFirst(2)))).fixedSize(horizontal: false, vertical: true) }
                 }
             }
         } else {

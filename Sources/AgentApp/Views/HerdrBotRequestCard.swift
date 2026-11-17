@@ -5,7 +5,7 @@ import SwiftUI
 struct HerdrMainBotStar: View {
     let label: String; var size: CGFloat = 10
     var body: some View {
-        Image(systemName: "star.fill").font(.system(size: size, weight: .semibold)).foregroundStyle(Color.accentColor)
+        Image(systemName: "star.fill").font(.system(size: size, weight: .semibold)).foregroundStyle(.tint)
             .help(label).accessibilityLabel(label)
     }
 }
@@ -64,8 +64,7 @@ struct HerdrBotRequestCard: View {
                         }
                     }
                 }
-            }.padding(10).background(AppColor.card, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColor.separator, lineWidth: 0.5))
-                .padding(.horizontal, 24).frame(maxWidth: 768)
+            }.chatCard(tint: manager.tint)
         }
     }
 

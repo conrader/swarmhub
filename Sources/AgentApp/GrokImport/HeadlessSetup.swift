@@ -33,7 +33,7 @@ import SwiftUI
         }
         await HeadlessHerdrShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         let empty = SetupPreview.makeStore(); empty.isSetupPreview = false
-        write("empty-state", await png(SetupEmptyState().frame(width: 700, height: 560).background(AppColor.chat), store: empty, updater: updater, size: settingsSize))
+        write("empty-state", await png(SetupEmptyState().frame(width: settingsSize.width, height: settingsSize.height).background(AppColor.chat), store: empty, updater: updater, size: settingsSize))
         // The line a person sees once, after a store of an older version was opened and its old bots were removed.
         let noticed = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); noticed.isSetupPreview = false
         noticed.legacyNotice = LegacyStore.notice(removed: 18, backup: URL(fileURLWithPath: "/Users/you/Library/Application Support/AgentApp/store.json.before-herdr-only-2026-11-17T09-00-00Z"))
@@ -43,6 +43,8 @@ import SwiftUI
     }
 
     static func png<V: View>(_ view: V, store: AppStore, updater: AppUpdater, size: NSSize, scheme: ColorScheme? = nil) async -> Data? {
-        await SnapshotRenderer.png(view.environmentObject(store).environmentObject(updater).defaultAppStorage(store.defaults), size: size, scheme: scheme ?? Self.scheme)
+        // The accent every window of the app carries (`AgentAppMain`), so a shot shows the app's own colour.
+        let accent = AppTheme.accentColor(for: store.defaults.string(forKey: "accent") ?? AppTheme.defaultAccent)
+        return await SnapshotRenderer.png(view.tint(accent).environmentObject(store).environmentObject(updater).defaultAppStorage(store.defaults), size: size, scheme: scheme ?? Self.scheme)
     }
 }

@@ -11,8 +11,10 @@ struct MessageView: View {
     let actionTarget: ConversationActionTarget?
     @State private var showingReactions = false
     static let tapbacks = ["👍", "❤️", "😂", "‼️", "?"]
-    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}) {
-        self.actionTarget = actionTarget; self.message = message; self.repliedMessage = repliedMessage; self.reply = reply
+    /// Set on the reply that opens a run of the bot's rows: its face and name go above it, in its colour.
+    var author: Bot? = nil
+    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, author: Bot? = nil) {
+        self.actionTarget = actionTarget; self.message = message; self.repliedMessage = repliedMessage; self.reply = reply; self.author = author
     }
     var body: some View { row }
 
@@ -27,6 +29,12 @@ struct MessageView: View {
                 // A request for a bot, or its answer, that the app passed on between two Herdr bots: not the person's words.
                 if let passedOn = store.herdrRelayCaption(message) {
                     Label(passedOn, systemImage: "arrow.left.arrow.right").font(.caption2).foregroundStyle(.secondary)
+                }
+                if let author, message.role == .assistant {
+                    HStack(spacing: 6) {
+                        BotAvatar(bot: author, size: 18)
+                        Text(author.name).font(.caption.weight(.semibold)).foregroundStyle(author.tint)
+                    }.accessibilityElement(children: .combine).accessibilityLabel(author.name)
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
                 content
@@ -67,7 +75,9 @@ struct MessageView: View {
         } else if message.role == .user {
             if !message.content.isEmpty {
                 Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(message.isSteer || message.isCorrection ? AppColor.card : AppColor.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    // The person's own words sit on a wash of the accent, so the two sides of a chat differ by colour, not only by side.
+                    .background(message.isSteer || message.isCorrection ? AnyShapeStyle(AppColor.card) : AnyShapeStyle(TintShapeStyle().opacity(0.16)), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(AppColor.chat, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay { if message.isSteer || message.isCorrection { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
             }
         } else {

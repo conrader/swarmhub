@@ -165,15 +165,15 @@ enum ComposerMetrics {
 }
 
 /// Send, Stop and Add to this answer: a 28 pt circle drawn here, so it fills its slot exactly (the AppKit round bezels
-/// size themselves and overflowed it). Prominent is solid primary with the composer's colour for the glyph.
+/// size themselves and overflowed it). Prominent is the accent with a white glyph.
 private struct ComposerRoundButtonStyle: ButtonStyle {
     let prominent: Bool
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(prominent ? AnyShapeStyle(AppColor.raised) : AnyShapeStyle(.primary))
+            .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .frame(width: ComposerMetrics.control, height: ComposerMetrics.control)
-            .background(Circle().fill(prominent ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary)))
+            .background(Circle().fill(prominent ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.quaternary)))
             .contentShape(Circle())
             .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.3)
     }
@@ -230,7 +230,7 @@ private struct DictationStatusRow: View {
                 ProgressView().controlSize(.small)
                 Text(dictation.state == .transcribing ? "Transcribing with deAPI…" : "Requesting microphone access…")
             } else if let error = dictation.errorMessage {
-                Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(AppColor.caution)
                 Text(error).lineLimit(2)
             }
             Spacer()

@@ -21,7 +21,7 @@ struct HerdrAddMachineFlow: View {
             case .done(let message, let warnings):
                 StatusCard(kind: .good, title: message) {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                        ForEach(warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
                         Button(HerdrProjectsCopy.another) { model.addAgain() }.padding(.top, 2)
                     }
                 }
@@ -46,7 +46,7 @@ struct HerdrAddMachineFlow: View {
             } else if model.phase == .ready {
                 Text(model.keys?.problem ?? HerdrProjectsCopy.keyMissing).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            if let problem = model.keys?.problem, model.publicKey != nil || model.keys?.canCreate == true { Text(problem).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
+            if let problem = model.keys?.problem, model.publicKey != nil || model.keys?.canCreate == true { Text(problem).font(.caption).foregroundStyle(AppColor.caution).fixedSize(horizontal: false, vertical: true) }
         }
         SettingBlock(title: HerdrProjectsCopy.addressTitle, detail: HerdrProjectsCopy.addressDetail) {
             HStack(alignment: .top, spacing: 10) {
@@ -64,7 +64,7 @@ struct HerdrAddMachineFlow: View {
     @ViewBuilder private func trust(_ question: HerdrRefusal) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                SymbolTile(symbol: "touchid", colour: .orange, size: 36)
+                SymbolTile(symbol: "touchid", colour: AppColor.clay, size: 36)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(HerdrProjectsCopy.trustTitle).font(.headline)
                     Text(question.hostKeys.isEmpty ? question.message : HerdrProjectsCopy.hostKeyQuestion(question.message))
@@ -108,7 +108,7 @@ struct HerdrMachineCard: View {
                 Spacer(minLength: 0)
             }
             ForEach(machine.warnings, id: \.self) { warning in
-                Label(warning, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Label(warning, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
             if let said = model.said[machine.name] { Text(said).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
             HStack(spacing: 10) {
@@ -148,7 +148,7 @@ struct HerdrProjectEditor: View {
                 }
                 StandaloneField(title: HerdrProjectsCopy.projectNote, text: binding(\.note), prompt: HerdrProjectsCopy.projectNotePrompt, lines: 1...3)
                 if !model.projectProblem.isEmpty {
-                    Label(model.projectProblem, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    Label(model.projectProblem, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 10) {
                     Button(draft.id == nil ? HerdrProjectsCopy.addProject : HerdrProjectsCopy.saveProject, action: save).disabled(!draft.isComplete || model.savingProject)
@@ -174,12 +174,12 @@ struct HerdrProjectCard<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            SymbolTile(symbol: "folder.fill", colour: .cyan, size: 32)
+            SymbolTile(symbol: "folder.fill", colour: AppColor.clay, size: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(project.name).font(.headline)
                 Text("\(project.folder) on \(project.machine)").font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 if !project.note.isEmpty { Text(project.note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                if project.reachable == false { Text("Its server is not connected now.").font(.caption).foregroundStyle(.orange) }
+                if project.reachable == false { Text("Its server is not connected now.").font(.caption).foregroundStyle(AppColor.caution) }
             }
             Spacer(minLength: 8)
             trailing()
@@ -244,7 +244,7 @@ private struct HerdrProjectsBody: View {
                 if model.projects.isEmpty, model.draft == nil { Text(HerdrProjectsCopy.noProjects).font(.callout).foregroundStyle(.secondary) }
                 if model.draft != nil { HerdrProjectEditor(model: model) }
                 else {
-                    if !model.projectProblem.isEmpty { Text(model.projectProblem).font(.callout).foregroundStyle(.orange).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                    if !model.projectProblem.isEmpty { Text(model.projectProblem).font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
                     Button("Add a project…") { model.newProject() }
                 }
             }

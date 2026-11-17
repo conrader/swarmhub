@@ -26,7 +26,7 @@ struct HerdrSkillsPanel: View {
         let server = store.herdrServer(for: bot)
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
-                SymbolTile(symbol: "puzzlepiece.extension.fill", colour: .green, size: 32)
+                SymbolTile(symbol: "puzzlepiece.extension.fill", colour: AppColor.sage, size: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Skills on \(server.name)").font(.headline)
                     Text("These belong to \(server.name), not to \(bot.name) alone: every bot there whose agent program the library is shared with gets the ones that are on.")

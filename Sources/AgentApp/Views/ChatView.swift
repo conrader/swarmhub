@@ -23,7 +23,9 @@ struct ChatView: View {
                 if bot.backend == .herdr, !store.isWorking(bot), let readiness = store.herdrReadiness[bot.id] { HerdrReadinessMark(readiness: readiness) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
-            }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
+            }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header")
+                // The bot's own colour, as a soft wash behind its name: each chat is recognisably its bot's.
+                .background(LinearGradient(colors: [bot.tint.opacity(0.13), bot.tint.opacity(0.03)], startPoint: .leading, endPoint: .trailing)).background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollViewReader { proxy in
                 ScrollView {
@@ -31,9 +33,10 @@ struct ChatView: View {
                         Color.clear.frame(height: 20)
                         if bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                         if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
+                        let openers = Self.openers(shown)
                         ForEach(shown) { message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
-                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }).id(message.id).chatRow(message.id, in: viewport)
+                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: openers.contains(message.id) ? bot : nil).id(message.id).chatRow(message.id, in: viewport)
                                 .selectableMessage(message.id, in: selection)
                         }
                         ChatBottomMarker(viewport: viewport, conversationID: bot.id)
@@ -74,6 +77,17 @@ struct ChatView: View {
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.pendingComposerAttachment) { _, _ in takePendingAttachment() }
     }
+    /// The replies that open a run of the bot's own rows (the first after something the person, or the app, wrote):
+    /// they carry the bot's face and name, so a long chat always shows who is talking.
+    static func openers(_ shown: [ChatMessage]) -> Set<UUID> {
+        var found: Set<UUID> = [], previous: MessageRole?
+        for message in shown where message.role != .system {
+            if message.role == .assistant, previous != .assistant { found.insert(message.id) }
+            previous = message.role
+        }
+        return found
+    }
+
     private var composer: some View {
         // The main bot's "+" menu: its one action writes a request for a new bot into the composer.
         ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),

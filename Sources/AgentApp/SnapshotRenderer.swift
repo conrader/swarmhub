@@ -25,7 +25,7 @@ import SwiftUI
                     return AnyView(InfoPanel(bot: bot).environmentObject(store).defaultAppStorage(store.defaults))
                 }
             }
-            return AnyView(SidebarView(selection: .constant(store.selectedBot)).environmentObject(store).defaultAppStorage(store.defaults))
+            return AnyView(SidebarView(selection: .constant(store.selectedBot)).tint(AppTheme.accentColor(for: store.defaults.string(forKey: "accent") ?? AppTheme.defaultAccent)).environmentObject(store).defaultAppStorage(store.defaults))
         }
     }
 

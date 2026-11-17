@@ -11,7 +11,7 @@ struct SetupWizardProgress: View {
     var body: some View {
         HStack(spacing: 7) {
             ForEach(0..<count, id: \.self) { index in
-                Circle().fill(index == current ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary)).frame(width: 6, height: 6)
+                Circle().fill(index == current ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.quaternary)).frame(width: index == current ? 7 : 6, height: index == current ? 7 : 6)
             }
         }
         .accessibilityElement(children: .ignore).accessibilityLabel(WizardCopy.stepLabel(current, of: count, name: name))
@@ -22,7 +22,7 @@ struct SetupWizardProgress: View {
 struct SetupAppMark: View {
     var size: CGFloat = 72
     var body: some View {
-        AppIconMark(size: size) { SymbolTile(symbol: "bubble.left.and.bubble.right.fill", colour: .blue, size: size * 0.86) }
+        AppIconMark(size: size) { SymbolTile(symbol: "bubble.left.and.bubble.right.fill", colour: AppColor.sky, size: size * 0.86) }
     }
 }
 
@@ -30,9 +30,9 @@ extension HerdrServer.Kind {
     /// The symbol and colour a place bots can run has wherever it is offered.
     var mark: (symbol: String, colour: Color) {
         switch self {
-        case .local: ("laptopcomputer", .blue)
-        case .ssh: ("server.rack", .indigo)
-        case .address: ("link", .teal)
+        case .local: ("laptopcomputer", AppColor.clay)
+        case .ssh: ("server.rack", AppColor.sage)
+        case .address: ("link", AppColor.sky)
         }
     }
 }
@@ -52,7 +52,7 @@ struct SetupHerdrWelcomeStep: View {
                 place(.local, SetupCopy.herdrLocalTitle, WizardCopy.localDetail)
                 place(.ssh, SetupCopy.herdrSSHTitle, WizardCopy.sshDetail)
                 place(.address, SetupCopy.herdrAddressTitle, WizardCopy.addressDetail)
-                OptionCard(symbol: "shippingbox.fill", colour: .gray, title: SetupCopy.herdrReadyMadeTitle, detail: SetupCopy.herdrReadyMadeDetail, badge: ManagedHosting.badge, selected: false, select: {})
+                OptionCard(symbol: "shippingbox.fill", colour: AppColor.olive, title: SetupCopy.herdrReadyMadeTitle, detail: SetupCopy.herdrReadyMadeDetail, badge: ManagedHosting.badge, selected: false, select: {})
                     .disabled(!ManagedHosting.isAvailable).opacity(ManagedHosting.isAvailable ? 1 : 0.55)
             }.frame(maxWidth: AppleMetrics.column + 40)
         }
@@ -159,7 +159,7 @@ struct SetupMainBotStep: View {
                     }
                 }.frame(maxWidth: AppleMetrics.column)
             } else {
-                HeroHeader(title: WizardCopy.mainTitle, detail: WizardCopy.mainIntro) { SymbolTile(symbol: "star.fill", colour: .orange, size: 60) }
+                HeroHeader(title: WizardCopy.mainTitle, detail: WizardCopy.mainIntro) { SymbolTile(symbol: "star.fill", colour: AppColor.clay, size: 60) }
                 StatusCard(kind: .working, title: WizardCopy.reading(flow.herdr.server(id: "")?.name ?? "")).frame(maxWidth: AppleMetrics.column)
             }
         }
@@ -186,11 +186,11 @@ struct SetupMainBotStep: View {
                 TextField(WizardCopy.name, text: $flow.mainBot.name, prompt: Text(WizardCopy.name))
                     .textFieldStyle(.plain).font(.system(size: 24, weight: .bold)).multilineTextAlignment(.center)
                     .padding(.vertical, 6).padding(.horizontal, 14).frame(width: 300)
-                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .focused($nameFocused).onSubmit(submit).accessibilityLabel(WizardCopy.name)
                     .onAppear { nameFocused = true }
                 if let problem = flow.mainBotProblem {
-                    Text(problem).font(.callout).foregroundStyle(.orange).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: AppleMetrics.column)
+                    Text(problem).font(.callout).foregroundStyle(AppColor.caution).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: AppleMetrics.column)
                 } else {
                     Text(WizardCopy.mainIntro).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: AppleMetrics.column)
                 }
@@ -251,12 +251,12 @@ struct SetupMoreBotsStep: View {
     var body: some View {
         VStack(spacing: 22) {
             HeroHeader(title: WizardCopy.moreTitle, detail: WizardCopy.moreIntro(server: flow.herdrServer?.name ?? "", main: flow.mainBotName)) {
-                SymbolTile(symbol: "person.2.fill", colour: .green, size: 60)
+                SymbolTile(symbol: "person.2.fill", colour: AppColor.sage, size: 60)
             }
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(flow.moreChoices) { program in
                     let chosen = flow.moreBots.contains(program.template)
-                    OptionCard(symbol: "plus.bubble.fill", colour: .purple, title: flow.herdrOffer?.label(program) ?? program.name,
+                    OptionCard(symbol: "plus.bubble.fill", colour: AppColor.plum, title: flow.herdrOffer?.label(program) ?? program.name,
                                detail: WizardCopy.moreDetail(program.name, model: program.defaultModel.map(HerdrProgram.modelName)), selected: chosen, multiple: true,
                                select: { if chosen { flow.moreBots.remove(program.template) } else { flow.moreBots.insert(program.template) } })
                 }

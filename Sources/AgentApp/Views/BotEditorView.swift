@@ -27,9 +27,9 @@ struct BotEditorView: View {
                     identity
                     SettingBlock(title: SimpleCopy.instructions, detail: SimpleCopy.herdrInstructionsCaption) {
                         TextEditor(text: $fields.persona).font(.body).scrollContentBackground(.hidden).padding(8).frame(height: 110)
-                            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous)).accessibilityLabel(SimpleCopy.instructions)
+                            .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous)).accessibilityLabel(SimpleCopy.instructions)
                     }
-                    SettingSwitch(title: SimpleCopy.notifyAgent, symbol: "bell.badge.fill", colour: .red, isOn: $fields.notifications)
+                    SettingSwitch(title: SimpleCopy.notifyAgent, symbol: "bell.badge.fill", colour: AppColor.clay, isOn: $fields.notifications)
                     QuietFold(title: SimpleCopy.editorAdvanced, isOpen: $showAdvanced) { BotEditorAdvancedSection(bot: bot, fields: $fields) }
                     if !showAdvanced { Text(SimpleCopy.herdrEditorAdvancedCaption).font(.caption).foregroundStyle(.secondary).padding(.top, -18).padding(.leading, 16) }
                 }.padding(.horizontal, 32).padding(.vertical, 24)
@@ -72,7 +72,7 @@ struct BotEditorView: View {
                 TextField(SimpleCopy.name, text: $fields.name, prompt: Text(SimpleCopy.name))
                     .textFieldStyle(.plain).font(.system(size: 24, weight: .bold)).multilineTextAlignment(.center)
                     .padding(.vertical, 6).padding(.horizontal, 14).frame(width: 300)
-                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .focused($nameFocused).accessibilityLabel(SimpleCopy.name)
             }
             if let bot, let main = store.herdrMainBotLabel(bot) {

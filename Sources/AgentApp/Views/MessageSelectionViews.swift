@@ -163,8 +163,8 @@ private struct SelectableMessageRow: ViewModifier {
         content
             .background {
                 if picked {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor.opacity(0.14))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.accentColor.opacity(0.45), lineWidth: 1))
+                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(TintShapeStyle().opacity(0.14))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(TintShapeStyle().opacity(0.45), lineWidth: 1))
                         .padding(.horizontal, 14)
                 }
             }

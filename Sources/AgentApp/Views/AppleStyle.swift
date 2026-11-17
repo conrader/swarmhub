@@ -18,7 +18,7 @@ enum AppleMetrics {
 /// An SF Symbol on a coloured, rounded tile, as System Settings marks its panes.
 struct SymbolTile: View {
     let symbol: String
-    var colour: Color = .blue
+    var colour: Color = AppColor.sky
     var size: CGFloat = 32
 
     var body: some View {
@@ -67,7 +67,7 @@ extension View {
 /// click (or a double click) can go on at once.
 struct OptionCard: View {
     let symbol: String
-    var colour: Color = .blue
+    var colour: Color = AppColor.sky
     let title: String
     let detail: String
     var badge: String? = nil
@@ -186,7 +186,7 @@ struct SettingSwitch: View {
     let title: String
     var detail: String? = nil
     var symbol: String? = nil
-    var colour: Color = .blue
+    var colour: Color = AppColor.sky
     @Binding var isOn: Bool
 
     var body: some View {
@@ -248,20 +248,20 @@ struct StatusCard<Extra: View>: View {
             Spacer(minLength: 0)
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(kind == .working || kind == .info ? 0.06 : 0.12), in: RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
+        .background(tint.opacity(kind == .working || kind == .info ? 0.09 : 0.16), in: RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: kind)
         .accessibilityElement(children: .combine)
     }
 
     private var tint: Color {
-        switch kind { case .working, .info: .primary; case .good: .green; case .warning: .orange }
+        switch kind { case .working, .info: AppColor.olive; case .good: AppColor.sage; case .warning: AppColor.clay }
     }
 
     @ViewBuilder private var mark: some View {
         switch kind {
         case .working: ProgressView().controlSize(.small)
-        case .good: Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(.green).transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
-        case .warning: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 18)).foregroundStyle(.orange).transition(.opacity)
+        case .good: Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(AppColor.good).transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
+        case .warning: Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 18)).foregroundStyle(AppColor.caution).transition(.opacity)
         case .info: Image(systemName: "info.circle.fill").font(.system(size: 18)).foregroundStyle(.secondary)
         }
     }
@@ -299,6 +299,7 @@ struct QuietFold<Content: View>: View {
     let title: String
     @Binding var isOpen: Bool
     @ViewBuilder let content: () -> Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -308,8 +309,28 @@ struct QuietFold<Content: View>: View {
                     Text(title).font(.subheadline.weight(.medium))
                 }.foregroundStyle(.secondary).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityValue(isOpen ? Text(verbatim: "open") : Text(verbatim: "folded"))
-            if isOpen { content() }
+            if isOpen { content().transition(.opacity) }
         }.frame(maxWidth: .infinity, alignment: .leading)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: isOpen)
+    }
+}
+
+/// An empty place that says what belongs here and what to do, kindly: a soft mark, a title and one sentence.
+struct EmptyNote: View {
+    let symbol: String
+    let title: String
+    var detail: String? = nil
+    var colour: Color = AppColor.sage
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 18, weight: .medium)).foregroundStyle(colour)
+                .frame(width: 40, height: 40).background(colour.opacity(0.16), in: Circle()).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                if let detail, !detail.isEmpty { Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            }
+            Spacer(minLength: 0)
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityElement(children: .combine)
     }
 }
 
@@ -337,5 +358,16 @@ struct FactChip: View {
         }
         .foregroundStyle(colour.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
         .padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill((colour ?? .primary).opacity(colour == nil ? 0.07 : 0.14)))
+    }
+}
+
+extension View {
+    /// A card above the composer, as wide as the composer: a soft wash of the bot's own colour on the card surface.
+    func chatCard(tint: Color) -> some View {
+        padding(.horizontal, 12).padding(.vertical, 10)
+            .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(AppColor.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(0.28), lineWidth: 1))
+            .padding(.horizontal, 24).frame(maxWidth: 768)
     }
 }

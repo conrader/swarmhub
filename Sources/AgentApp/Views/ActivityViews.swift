@@ -84,7 +84,7 @@ struct ActivityRow: View {
             let said = ActivityCopy.agentStatus(reported, phase: phase)
             if said?.needsPerson == true {
                 // Nothing moves until the person acts, so no spinner: a hand.
-                Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityHidden(true)
+                Image(systemName: "hand.raised.fill").foregroundStyle(AppColor.caution).accessibilityHidden(true)
             } else { ProgressView().controlSize(.mini) }
             Text(ActivityCopy.liveLine(activity, since: message.createdAt, lastText: message.lastTextAt, now: now, status: reported)).monospacedDigit()
                 .accessibilityIdentifier("reply.status")
@@ -93,7 +93,7 @@ struct ActivityRow: View {
             }
         } else if let shown, let summary = ActivityCopy.summary(shown, since: range == nil ? message.createdAt : shown.steps.first?.startedAt ?? message.createdAt) {
             Text(summary).monospacedDigit()
-            if shown.steps.contains(where: \.failed) { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+            if shown.steps.contains(where: \.failed) { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(AppColor.caution) }
         }
     }
 }
