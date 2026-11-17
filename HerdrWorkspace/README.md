@@ -811,6 +811,44 @@ For a `read` of one regular file inside the agent’s working folder, the inbox 
 
 There are no automatic approvals or saved permission rules. The agent still enforces its own configuration. If the bridge is unavailable, the hook is canceled, or no choice is made within 45 seconds, the hook returns no decision and leaves the normal provider flow in place. Interactive forms and prompts the installed agent does not expose through this hook remain in the terminal. Decision history stores the agent name, provider, tool, times, and decision sent. Tool arguments are kept in memory only while a request is pending.
 
+## Versions and updates
+
+The server says what it is, and it can replace itself with a newer signed release. `docs/updates.md` in the repository is the guide for people; this is the server's side.
+
+```sh
+swarmhub-herdr version          # swarmhub-herdr 0.2.0 (workspace API 1, x86_64-linux)
+swarmhub-herdr version --json
+```
+
+`GET /api/workspace` carries the same in `bridge`: `version`, `api` (the level of the API this server serves; it goes up whenever an app would have to know that something changed), `api_min` (the oldest app level it still serves), `target` and `updates`. `version` beside it is Herdr Core's. An app sends `X-SwarmHub-App` and `X-SwarmHub-Api` with its requests; `GET /api/update` shows the last one seen.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/update` | This server, whether it can replace its own program (`can_update`), whether a previous one is kept, and how the last update ended (`last`). |
+| `POST /api/update/check` | Fetches the newest signed release and says whether it is newer (`available`) and has a program for this machine (`installable`). |
+| `POST /api/update/apply` | `{"version": "0.2.1"}`: installs that release and answers `{"state": "restarting"}`, or `{"state": "current"}` when there is nothing newer. |
+| `POST /api/update/upload` | The same release handed over as a form (`manifest`, `signature`, `program`, in that order), for a server with no way out to the internet. |
+| `POST /api/update/rollback` | Goes back to the program the last update replaced, while the journal still has the layout it knew. |
+| `POST /api/update/core` | Runs `hc update --json`. |
+| `POST /api/update/machine` | `{"name": "box"}`: runs `hc machine update box --json`. |
+
+A refusal is `{"error": sentence, "kind": word}`. The words: `feed_unreachable`, `signature`, `manifest`, `digest`, `no_build`, `changed`, `not_writable`, `does_not_run`, `busy`, `no_previous`, `journal_changed`, `hc_failed`, `malformed`, `failed`.
+
+A release is `workspace-manifest.json`, `workspace-manifest.json.sig` and one program per kind of machine, published as assets of the latest GitHub release. The signature is Ed25519 over the manifest's bytes by the release key, whose public half is compiled into the server (the Mac app's `SUPublicEDKey`). The manifest gives each program's name, size and SHA-256. The server installs only a release that is newer than itself.
+
+An update changes nothing until the new program has reported the manifest's version and opened a copy of the journal. Then the journal is backed up to `backups/` in the data folder (the newest three are kept), the running program is kept as `swarmhub-herdr.previous`, the new one takes its place in one rename, and the server process becomes the new program: the same process, in the same terminal, with the same settings. Agents run in Herdr Core and are not touched. A new program that fails to start puts the previous one back and starts it. A watcher does the same when the new program ends or has not served after 90 seconds; the server it starts then runs outside the terminal it was in. `update.json` in the data folder records the last update.
+
+`SWARMHUB_UPDATE_FEED` names another place to read releases from: `https`, or `http` on `127.0.0.1`. The signature is checked all the same.
+
+Three settings exist only at build time, for checks: `SWARMHUB_UPDATE_PUBLIC_KEY` (trust a throwaway key), `SWARMHUB_BRIDGE_VERSION` (report another version) and `SWARMHUB_BRIDGE_TEST_FAULT` (`start`: never start; `hang`: never finish starting). `scripts/package-workspace.sh` refuses to package a build made with any of them.
+
+```sh
+cargo test update::
+python3 tests/update_smoke.py "$(command -v hc)"
+```
+
+The second builds five check servers and updates one for real against an isolated Herdr Core and a local releases folder: an unsigned release, a damaged program, a program that reports another version, an update, a replay, the way back, an update handed over by an app, a version that cannot start and a version that hangs.
+
 ## Verify
 
 ```sh

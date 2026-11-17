@@ -72,6 +72,9 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("propose-email") => crate::email_drafts::publish(),
         Some("drive-list") => crate::drive_access::cli(false),
         Some("drive-read") => crate::drive_access::cli(true),
+        Some("version" | "--version") => crate::update::cli_version(),
+        Some("update-probe") => crate::update::cli_probe(),
+        Some("update-watch") => crate::update::cli_watch(),
         Some("publish-file") => publish_file(),
         Some(command @ ("publish-page" | "read-page" | "update-page")) => {
             crate::pages::run(command)
@@ -85,6 +88,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
                 "swarmhub-herdr [(run-claude|run-codex) [--workspace-approvals] [AGENT_ARGS...] | capture-reply | publish-file PATH | group-reply TOKEN [--draft | --question | --form] [--file PATH]...]"
             );
             println!("OpenCode V2: run-opencode [OPENCODE_ARGS...]");
+            println!("This program: version [--json]");
             println!("Direct threads: thread-reply TOKEN (answer on standard input)");
             println!("Groups: group-handoff TOKEN (to and task JSON on standard input)");
             println!("Routines: routine-result TOKEN succeeded|failed (outcome on standard input)");

@@ -973,7 +973,7 @@ fn chronological_page(mut items: Vec<Item>) -> Page {
     Page { items, before }
 }
 
-fn private_directory() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub(crate) fn private_directory() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let directory = if let Some(value) = std::env::var_os("SWARMHUB_DATA_DIR") {
         PathBuf::from(value)
     } else if let Some(value) = std::env::var_os("XDG_STATE_HOME") {

@@ -52,6 +52,7 @@ mod task_files;
 mod terminal;
 mod tool_activity;
 mod transcripts;
+mod update;
 mod vault;
 mod warm;
 mod webdav;
@@ -162,6 +163,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return agent::run(&command);
     }
+    let served = serve().await;
+    // A new version that cannot start gives its place back to the one before it (`update`).
+    if let Err(error) = &served {
+        update::failed_start(&error.to_string());
+    }
+    served
+}
+
+async fn serve() -> Result<(), Box<dyn std::error::Error>> {
+    update::init()?;
     let socket = PathBuf::from(
         std::env::var_os("HC_SOCKET")
             .ok_or("Set HC_SOCKET to the running Herdr Core's Unix socket.")?,
@@ -312,6 +323,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(search::routes())
         .merge(live_reply::routes())
         .merge(transcripts::routes())
+        .merge(update::routes())
         .merge(task_files::routes())
         .merge(webdav::routes())
         .merge(drive_files::routes())
@@ -372,6 +384,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .with_state(workspace);
     println!("SwarmHub · http://127.0.0.1:{port}");
+    update::started();
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -401,6 +414,7 @@ async fn local_browser(State(state): State<Workspace>, request: Request, next: N
         )
             .into_response();
     }
+    update::seen(request.headers());
     let pdf_worker = request.uri().path() == "/vendor/pdfjs/pdf.worker.min.mjs";
     let page_viewer = request.uri().path() == "/view/page";
     let mut response = next.run(request).await;
@@ -626,7 +640,7 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         .map(|(terminal, helper)| AgentView::new(&w.history, terminal, helper.cloned().flatten()))
         .collect();
     Ok(Json(
-        json!({"version":hello.version,"core":hello.core.id,"agents":agents,"templates":templates,
+        json!({"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
                "attachments":hello.supports("terminal.put"),"terminal_attach":hello.supports("terminal.attach"),

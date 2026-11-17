@@ -117,7 +117,7 @@ fn tool(name: &str) -> Result<PathBuf, String> {
 }
 
 /// Herdr Core's own command, under either of its names.
-fn hc() -> Result<PathBuf, String> {
+pub(crate) fn hc() -> Result<PathBuf, String> {
     tool("hc").or_else(|_| tool("herdr-core"))
 }
 
