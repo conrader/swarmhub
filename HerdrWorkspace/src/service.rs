@@ -1030,9 +1030,14 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     }
     let mut folders = search_folders(&places.home);
     if hc(&folders).is_none() {
-        let (version, _) = install_core(&places.home).await?;
+        let (version, installed) = install_core(&places.home).await?;
         did.push(format!("Installed Herdr Core {version}."));
-        folders = merged_path(Some(&joined(&folders)), &usual_folders(&places.home));
+        // Herdr Core's command is in a folder of its own choosing: look there too from now on, and nowhere new.
+        if let Some(folder) = installed.parent().map(Path::to_path_buf)
+            && !folders.contains(&folder)
+        {
+            folders.push(folder);
+        }
     }
     if ensure_token(&places.token)?.1 {
         did.push("Made the access key.".into());
