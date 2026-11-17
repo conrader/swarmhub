@@ -44,9 +44,12 @@ def public(key):
 
 
 def build(folder, key):
-    """One server per version, each trusting `key`; rebuilt only when the key file beside them is another."""
+    """One server per version, each trusting `key`; kept between runs until the key file is gone or the source changed."""
     seed = folder / "key"
-    if seed.exists() and all((folder / version).exists() for version in VARIANTS):
+    # Kept builds are used only while no source file is newer than they are: a check must run the code as it is now.
+    sources = max(path.stat().st_mtime for path in [ROOT / "Cargo.toml", ROOT / "Cargo.lock", *(ROOT / "src").rglob("*")])
+    kept = all((folder / version).exists() and (folder / version).stat().st_mtime >= sources for version in VARIANTS)
+    if seed.exists() and kept:
         return Ed25519PrivateKey.from_private_bytes(seed.read_bytes())
     folder.mkdir(parents=True, exist_ok=True)
     for version, fault in VARIANTS.items():
@@ -54,7 +57,7 @@ def build(folder, key):
         if fault:
             env["SWARMHUB_BRIDGE_TEST_FAULT"] = fault
         subprocess.run(["cargo", "build", "--offline", "--locked"], cwd=ROOT, env=env, check=True)
-        shutil.copy2(ROOT / "target/debug/swarmhub-herdr", folder / version)
+        shutil.copy(ROOT / "target/debug/swarmhub-herdr", folder / version)
     subprocess.run(["cargo", "build", "--offline", "--locked"], cwd=ROOT, check=True)
     seed.write_bytes(key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
                                        serialization.NoEncryption()))

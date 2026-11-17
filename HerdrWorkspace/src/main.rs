@@ -14,6 +14,7 @@ mod drive_oauth;
 mod email_drafts;
 mod events;
 mod file_preview;
+mod first_time;
 mod github_project;
 mod grok_import;
 mod group_forms;

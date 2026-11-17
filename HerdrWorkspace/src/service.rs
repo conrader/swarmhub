@@ -904,14 +904,20 @@ fn port_free(port: u16) -> bool {
 
 struct Asked {
     json: bool,
+    /// The person agreed that the agent programs' first-time questions are answered for them (`first_time`).
+    answer: bool,
+    /// `prepare --undo`: take those answers back.
+    undo: bool,
     port: Option<u16>,
     label: String,
 }
 
 fn asked(arguments: impl Iterator<Item = OsString>) -> Result<Asked, Stop> {
-    const USAGE: &str = "Usage: swarmhub-herdr service status|install|run|remove [--port N] [--label NAME] [--json]";
+    const USAGE: &str = "Usage: swarmhub-herdr service status|install|run|remove|prepare [--port N] [--label NAME] [--answer-first-time] [--undo] [--json]";
     let mut asked = Asked {
         json: false,
+        answer: false,
+        undo: false,
         port: None,
         label: setting(LABEL_ENV)
             .and_then(|label| label.into_string().ok())
@@ -921,6 +927,8 @@ fn asked(arguments: impl Iterator<Item = OsString>) -> Result<Asked, Stop> {
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--json" => asked.json = true,
+            "--answer-first-time" => asked.answer = true,
+            "--undo" => asked.undo = true,
             "--port" => {
                 asked.port = Some(
                     arguments
@@ -1083,6 +1091,13 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
                 job.display()
             ))
         })?;
+    // With the person's agreement, the questions the agent programs would ask the first time are answered now,
+    // before the first agent starts. Only the programs that are here, and never more than the one bots' folder.
+    let answered = asked.answer.then(|| {
+        let said = first_time(places, &folders);
+        did.extend(did_lines(&said));
+        said
+    });
     load(&job)?;
     did.push("Started the SwarmHub service. It starts again when you log in.".into());
     let until = Instant::now() + Duration::from_secs(45);
@@ -1106,6 +1121,9 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     }
     let mut status = look(places, asked, &folders);
     status["did"] = json!(did);
+    if let Some(answered) = answered {
+        status["first_time"] = answered;
+    }
     Ok(status)
 }
 
@@ -1181,6 +1199,8 @@ fn remove(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     if was_loaded {
         did.push("Stopped the SwarmHub service.".into());
     }
+    // What the agent programs were told to trust on SwarmHub's word is taken back.
+    did.extend(crate::first_time::undo(&places.data));
     if fs::remove_file(&job).is_ok() {
         did.push("Removed the background service, so it no longer starts at login.".into());
     }
@@ -1246,6 +1266,38 @@ fn print(json: bool, result: Result<Value, Stop>) -> Result<(), Failed> {
     }
 }
 
+/// Answers the agent programs' first-time questions ahead (`first_time`), for the programs found in `folders`.
+fn first_time(places: &Places, folders: &[PathBuf]) -> Value {
+    let _ = fs::create_dir_all(&places.agents);
+    let _ = private_folder(&places.data);
+    let codex = find("codex", folders).map(|codex| {
+        let mut command = std::process::Command::new(codex);
+        command
+            .env("PATH", joined(folders))
+            .current_dir(&places.agents);
+        command
+    });
+    let claude = find("claude", folders).is_some();
+    crate::first_time::prepare(
+        &places.home,
+        &places.data,
+        &places.agents,
+        &places.exe,
+        claude,
+        codex,
+    )
+}
+
+/// What was done about each program's first-time question, one sentence each.
+fn did_lines(said: &Value) -> Vec<String> {
+    said.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|answer| answer["what"].as_str().or(answer["why"].as_str()))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// `swarmhub-herdr service status|install|remove`. (`run` is taken before this: it becomes the server.)
 pub(crate) async fn cli() -> Result<(), Failed> {
     let mut arguments = env::args_os().skip(2);
@@ -1263,8 +1315,14 @@ pub(crate) async fn cli() -> Result<(), Failed> {
         Some("status") => Ok(look(&places, &asked, &search_folders(&places.home))),
         Some("install") => install(&places, &asked).await,
         Some("remove") => remove(&places, &asked),
+        Some("prepare") if asked.undo => Ok(json!({"did": crate::first_time::undo(&places.data)})),
+        Some("prepare") => {
+            let folders = search_folders(&places.home);
+            let said = first_time(&places, &folders);
+            Ok(json!({"first_time": said, "did": did_lines(&said)}))
+        }
         _ => Err(Stop::failed(
-            "Usage: swarmhub-herdr service status|install|run|remove [--port N] [--label NAME] [--json]",
+            "Usage: swarmhub-herdr service status|install|run|remove|prepare [--port N] [--label NAME] [--answer-first-time] [--undo] [--json]",
         )),
     };
     print(json, result)
@@ -1651,6 +1709,8 @@ mod tests {
         let places = places(scratch.path());
         let asked = Asked {
             json: true,
+            answer: false,
+            undo: false,
             port: None,
             label: LABEL.into(),
         };
