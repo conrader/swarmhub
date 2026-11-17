@@ -2,7 +2,7 @@ import Foundation
 @preconcurrency import BotAvatarsKit
 
 /// Grok shape word → the BotAvatarsKit body drawn for it. The word stays the stored truth; the body is resolved at
-/// render. Where the kit has no matching body the nearest one is used and flagged `approximate` (briefs/P15.md item 9):
+/// render. Where the kit has no matching body the nearest one is used and flagged `approximate`:
 /// gem → hexagon (as hex), leaf → drop (as teardrop), shield → alien (a head with a chin), cylinder → pill (flat).
 enum AvatarKitMap {
     struct Body: Equatable, Sendable {

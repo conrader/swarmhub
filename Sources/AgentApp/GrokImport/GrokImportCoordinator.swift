@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// The import sheet's state (briefs/P10.md P10d 2): one `GrokImportRun` per sheet session, the same pipeline as
+/// The import sheet's state: one `GrokImportRun` per sheet session, the same pipeline as
 /// `--grok-fetch`. Nothing is read from the Keychain before the user presses Continue on the Permission step, and at
 /// most one read happens per sheet session (a pause and Retry included); closing the sheet is Cancel and forgets the
 /// sign-in. Published state is names, counts and secret-free reasons only.

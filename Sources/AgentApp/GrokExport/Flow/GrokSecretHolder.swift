@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which secrets are alive right now (the lifetime table in briefs/P10.md; tests assert it state by state).
+/// Which secrets are alive right now (tests assert it state by state).
 /// The Keychain bytes never appear here: they live in one local and are zeroed as soon as the key is derived.
 struct GrokSecretLifetime: Sendable, Equatable {
     var derivedKey = false

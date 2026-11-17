@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// Whether Grok Bot is on this Mac, and what the import sheet can offer (briefs/P10.md P10d 1). Pure apart from the
+/// Whether Grok Bot is on this Mac, and what the import sheet can offer. Pure apart from the
 /// injected lookups: never prompts, never uses the network, and gates on shape, never on version.
 struct GrokLocator: Sendable {
     var location: GrokLocation

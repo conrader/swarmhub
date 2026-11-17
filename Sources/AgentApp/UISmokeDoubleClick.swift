@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// `--ui-smoke`'s `top_bar_double_click` (briefs/P24.md item 5): a synthetic double-click on blank top-row space of each pane
+/// `--ui-smoke`'s `top_bar_double_click`: a synthetic double-click on blank top-row space of each pane
 /// (high up, inside the hidden title bar's zone, where it used to do nothing) must zoom the window; the frame is restored after each.
 @MainActor enum UISmokeDoubleClick {
     /// Blank points in top-left window coordinates, 10 pt below the top edge: the sidebar row between the lights and its

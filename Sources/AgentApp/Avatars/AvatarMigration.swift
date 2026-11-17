@@ -1,6 +1,6 @@
 import Foundation
 
-/// Lazy, additive migration of bots stored before marks existed (briefs/P15.md item 8). Runs in `Bot.init(from:)` when
+/// Lazy, additive migration of bots stored before marks existed. Runs in `Bot.init(from:)` when
 /// no mark is stored and recovers a mark only where the P6 importer provably wrote the avatar; everything else stays
 /// classic. Nothing is saved here: the next normal save persists the mark beside the untouched `avatarName`/`accentColor`.
 enum AvatarMigration {

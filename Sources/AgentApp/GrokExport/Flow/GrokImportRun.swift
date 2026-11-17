@@ -1,6 +1,6 @@
 import Foundation
 
-/// The pipeline the `--grok-fetch` command and the sheet share (briefs/P10.md P10c 1–2): preflight with no prompt →
+/// The pipeline the `--grok-fetch` command and the sheet share: preflight with no prompt →
 /// [full] the one Keychain read → derive the key, zero the password → decrypt the three values, shape checks, `exp` more
 /// than 60 s away → canary (the newest page of the first conversation must decode before anything is written) → per
 /// conversation, bots first and groups last: fetch → merge with the cache → map → redact → build → commit → report row.

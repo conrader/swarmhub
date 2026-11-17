@@ -41,7 +41,7 @@ struct GrokCache: Sendable {
     var accountSlot: String?
 }
 
-/// Reads `sand-client-persistence/*.blob` read-only (port of `load_cache` with stricter gates; briefs/P10.md P10a 4).
+/// Reads `sand-client-persistence/*.blob` read-only (port of `load_cache` with stricter gates).
 /// Never prompts, never writes, never follows a link.
 struct GrokCacheReader: Sendable {
     static let maximumBlobBytes = 64 * 1024 * 1024

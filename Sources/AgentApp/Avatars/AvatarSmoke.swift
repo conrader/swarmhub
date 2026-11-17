@@ -35,7 +35,7 @@ enum AvatarFacts {
     }
 }
 
-/// `--ui-smoke`'s `avatars` object (briefs/P15.md item 14): facts reported by the real views, then three probes:
+/// `--ui-smoke`'s `avatars` object: facts reported by the real views, then three probes:
 /// by context after a settle, Calm forced for the probe, and one bot forced to working for a moment.
 @MainActor enum AvatarSmoke {
     struct Budget {

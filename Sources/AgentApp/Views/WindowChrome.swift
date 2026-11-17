@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The main window has no title bar (briefs/P14.md): each pane's header is the window's top edge and drag strip.
+/// The main window has no title bar: each pane's header is the window's top edge and drag strip.
 enum ChromeMetrics {
     /// The sidebar's top row: the system title zone (28 pt with a hidden title bar).
     static let titleRow: CGFloat = 28
@@ -116,7 +116,7 @@ enum RightColumnMechanism: String {
     static let current = RightColumnMechanism.inspector
 }
 
-/// The right column slides like the sidebar (briefs/P14.md item 8): SwiftUI's inspector, or a trailing move as the fallback.
+/// The right column slides like the sidebar: SwiftUI's inspector, or a trailing move as the fallback.
 /// Reduce Motion: no slide.
 struct RightColumn<Panel: View>: ViewModifier {
     @Binding var isPresented: Bool

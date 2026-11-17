@@ -1,7 +1,7 @@
 import Foundation
 
 /// Cached or fetched transcript entries → bundle messages and rename events (port of `map_entries`, same allowlist and
-/// branch order). Deliberate differences from the script (briefs/P10.md P10a 4): `fromAgent`/`toAgent` present but
+/// branch order). Deliberate differences from the script: `fromAgent`/`toAgent` present but
 /// `null` count as absent; non-string `content`/`text` is empty; `seq` must be an integer JSON number and `id` a string;
 /// drops are also counted per kind and card or event type. Automation events and connector cards feed `staged`
 /// (routines and connector requests) instead of being dropped.

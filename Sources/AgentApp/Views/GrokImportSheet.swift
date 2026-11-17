@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// "Import from Grok Bot" (briefs/P10.md P10d 2): Found → Permission → Importing → Done, a plain step switch over
+/// "Import from Grok Bot": Found → Permission → Importing → Done, a plain step switch over
 /// `GrokImportCoordinator`. 680×680 like the template import. Closing the sheet is Cancel: the run stops after the
 /// in-flight request, every secret is forgotten, and finished bots stay. Progress is text and static bars only.
 struct GrokImportSheet: View {

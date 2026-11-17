@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// Window rects in top-left coordinates: x from the window's left edge, y down from its top edge (briefs/P14.md item 4).
+/// Window rects in top-left coordinates: x from the window's left edge, y down from its top edge.
 enum ChromeGeometry {
     /// AppKit window coordinates (origin bottom-left) → top-left coordinates for a window `height` points tall.
     static func topLeft(_ rect: CGRect, windowHeight height: CGFloat) -> CGRect {
@@ -211,7 +211,7 @@ enum ChromeHit {
     }
 }
 
-/// `--ui-smoke`'s `chrome` object (briefs/P14.md item 4): what macOS draws above the content and where, then C1-C12.
+/// `--ui-smoke`'s `chrome` object: what macOS draws above the content and where, then C1-C12.
 @MainActor enum UISmokeChrome {
     static func fullScreenRequested(arguments: [String] = CommandLine.arguments) -> Bool { arguments.contains("--ui-smoke-fullscreen") }
 

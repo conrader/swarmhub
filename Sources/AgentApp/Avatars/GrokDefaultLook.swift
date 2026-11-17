@@ -1,7 +1,7 @@
 import Foundation
 
 /// Grok Bot's default look for a bot with no avatar words, reimplemented as our own code from the rule read in
-/// Grok Bot 0.70.2 (briefs/P15.md item 6). The constants are frozen once shipped: changing one changes every derived bot.
+/// Grok Bot 0.70.2. The constants are frozen once shipped: changing one changes every derived bot.
 enum GrokDefaultLook {
     static let shapes = ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"]
     /// Every colour but black.

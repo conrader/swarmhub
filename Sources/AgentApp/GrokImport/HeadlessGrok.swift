@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Grok Bot commands (briefs/P10.md P10c 3). Unlike the other headless commands they never call
+/// The Grok Bot commands. Unlike the other headless commands they never call
 /// `SecKeychainSetUserInteractionAllowed(false)` (it is process-wide, and `--grok-fetch --mode full` / `--grok-probe --live`
 /// need the one macOS dialog). Output is counts, booleans and states only: no names, ids, text or anything secret.
 ///   AgentApp --grok-fetch --mode recent|full [--bots "<name>,<name>"] [--store <store.json>] [--report <file>]
