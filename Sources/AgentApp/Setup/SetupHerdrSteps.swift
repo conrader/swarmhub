@@ -18,15 +18,11 @@ struct SetupWizardProgress: View {
     }
 }
 
-/// The app's own icon where it runs as an app; a plain mark where it runs as a bare program (a render, a test).
+/// The app's own icon, the one `AppIconAppearance` picks; a plain mark where no icon file can be read.
 struct SetupAppMark: View {
     var size: CGFloat = 72
     var body: some View {
-        if Bundle.main.bundleIdentifier != nil {
-            Image(nsImage: NSApplication.shared.applicationIconImage).resizable().interpolation(.high).frame(width: size, height: size).accessibilityHidden(true)
-        } else {
-            SymbolTile(symbol: "bubble.left.and.bubble.right.fill", colour: .blue, size: size * 0.86)
-        }
+        AppIconMark(size: size) { SymbolTile(symbol: "bubble.left.and.bubble.right.fill", colour: .blue, size: size * 0.86) }
     }
 }
 

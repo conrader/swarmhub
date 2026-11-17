@@ -178,7 +178,9 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         // The Settings scene supplies the native Settings… item and ⌘, binding.
-        CommandGroup(after: .appInfo) {
+        // About with the icon AppIconAppearance picks: the standard item shows the bundle's icon, which macOS redraws dark.
+        CommandGroup(replacing: .appInfo) {
+            Button("About \(AppConstants.name)") { AppIconAppearance.showAboutPanel() }
             Button("Check for Updates…", action: updater.checkForUpdates).disabled(!updater.canCheckForUpdates)
         }
         // Replace the default New Window binding so ⌘N creates exactly one agent.

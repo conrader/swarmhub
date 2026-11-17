@@ -28,7 +28,7 @@ enum SimpleCopy {
     static let appIcon = "App icon"
     static let dark = "Dark", light = "Light", system = "System"
     static let accent = "Accent"
-    static let accentCaption = "Dark is the default theme. The app icon in the Dock is Light unless you pick Dark, whatever the theme. "
+    static let accentCaption = "Dark is the default theme. The app icon is Light; pick Dark and it is dark while the app is dark. "
         + "The accent colours buttons, selections and usage bars; Graphite follows the text colour."
 
     static let notifications = "Notifications"

@@ -21,17 +21,26 @@ iconutil --convert icns Resources/AppIcon/AppIcon.iconset \
 
 `scripts/package-release.sh` builds `SwarmHub.icns` directly from the iconset and places it in the app's `Contents/Resources/` before signing. `CFBundleIconFile` in `Resources/Info.plist` points to it, so Finder and Dock use the icon in packaged apps. Existing published installers retain their original signed resources until a new app release is built.
 
-## Light and dark Dock icon (P38)
+## Light and dark icon (P38)
 
 `SwarmHub-logo-dark.svg` and `SwarmHub-icon-dark.svg` are the dark drawing: a cream face with olive eyes on an olive
 tile. `AppIcon-dark.iconset/` holds its ten Mac sizes. `ThemeIcons/SwarmHub-light.png` and `SwarmHub-dark.png` (1024 px)
-are bundled for `AppIconAppearance`, which sets the running app's Dock icon from Settings → Appearance → App icon: Light
-(the default, also for installs that never picked one) or Dark, apart from the theme (Konrad 2026-10-22). SwiftPM, the `swiftc` fallback and `package-release.sh` all include
-`ThemeIcons/`. `AppIcon.icns` stays the light icon Finder shows before launch.
+are bundled for `AppIconAppearance`, the one place that decides which icon the running app draws: in the Dock, in the
+About panel and on the setup wizard's first page. The icon is Light everywhere, also for installs that never picked
+one; it is Dark only where Settings → Appearance → App icon says Dark and the app is shown dark (Theme Dark, or Theme
+System on a dark Mac) (Konrad 2026-10-22 and 2026-11-17). SwiftPM, the `swiftc` fallback and `package-release.sh` all
+include `ThemeIcons/`. `AppIcon.icns` is the light icon the bundle carries for Finder.
+
+On macOS 26 with the icon style set to Dark (System Settings → Appearance → Icon & widget style), macOS does not show
+`AppIcon.icns` as drawn: it redraws every bundle icon as a dark tile, and it ignores `AppIcon-dark.icns` and dark
+variants in an asset catalog's Mac icon set (checked on macOS 26.6 with Xcode 27.2). The standard About panel and the
+Dock during launch used that drawing. The app therefore sets its own icon as the first step of launch and gives the
+same image to the About panel. Finder, Launchpad and the Dock before the app runs still show the system's drawing on
+such a Mac; only an Icon Composer icon with its own dark variant changes that.
 
 `SwarmHub-logo-light.svg` and `SwarmHub-icon-light.svg` are the light drawing under explicit names (the default paths
 above keep the same drawing). `SwarmHub-dark.icns` is the dark iconset as a native icon (`iconutil --convert icns
 Resources/AppIcon/AppIcon-dark.iconset --output Resources/AppIcon/SwarmHub-dark.icns`); `package-release.sh` builds it
 into the app as `AppIcon-dark.icns` and the `swiftc` fallback copies it beside the binary, so `AppIconAppearance` still
-finds a dark icon when the dark PNG cannot be read. `preview-appearances.png` (from `preview-appearances.svg`) shows both
-drawings at large and small sizes.
+finds a dark icon when the dark PNG cannot be read (the light icon falls back to the app's `AppIcon.icns` the same
+way). `preview-appearances.png` (from `preview-appearances.svg`) shows both drawings at large and small sizes.

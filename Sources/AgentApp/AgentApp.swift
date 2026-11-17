@@ -11,6 +11,7 @@ import SwiftUI
     private let snapshotAppearance: String?
     init() {
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
+        AppIconAppearance.applyAtLaunch()
         SidebarWidth.dropStaleSavedWidths()
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
         let appStore = SetupPreview.isRequested() ? SetupPreview.makeStore()
