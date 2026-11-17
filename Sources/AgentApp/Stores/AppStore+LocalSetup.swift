@@ -54,9 +54,13 @@ extension AppStore {
     /// Opens the terminal of an AI that waits for an answer. Returns false when Terminal could not be opened.
     @discardableResult func answerInTerminal(_ check: HerdrAICheck) -> Bool {
         guard case .asks(_, let agent) = check.state else { return false }
+        return openInTerminal(script: Self.terminalScript(core: localService.corePath, address: agent.address, name: check.name, environment: ProcessInfo.processInfo.environment), name: check.name)
+    }
+
+    /// Writes `script` as a file only this account can read and run, and opens it in Terminal.
+    @discardableResult func openInTerminal(script: String, name: String) -> Bool {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(AppConstants.name)-answers", isDirectory: true)
-        let file = folder.appendingPathComponent("Answer \(check.name.filter { $0.isLetter || $0.isNumber || $0 == " " }).command")
-        let script = Self.terminalScript(core: localService.corePath, address: agent.address, name: check.name, environment: ProcessInfo.processInfo.environment)
+        let file = folder.appendingPathComponent("Answer \(name.filter { $0.isLetter || $0.isNumber || $0 == " " }).command")
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try script.write(to: file, atomically: true, encoding: .utf8)

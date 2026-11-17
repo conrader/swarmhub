@@ -12,6 +12,21 @@ struct LineTemplate: Sendable {
         parts.enumerated().map { index, part in index == 0 ? part : (index - 1 < values.count ? values[index - 1] : "") + part }.joined()
     }
 
+    /// The values in the gaps of `text`, in order; nil when `text` is not this template (`matches`).
+    func values(in text: String) -> [String]? {
+        guard parts.count > 1, let head = parts.first, text.hasPrefix(head) else { return nil }
+        var rest = text.dropFirst(head.count), found: [String] = []
+        for (index, part) in parts.enumerated().dropFirst() {
+            if index == parts.count - 1 {
+                guard rest.count > part.count, rest.hasSuffix(part) else { return nil }
+                return found + [String(rest.dropLast(part.count))]
+            }
+            guard !rest.isEmpty, let next = rest.dropFirst().range(of: part) else { return nil }
+            found.append(String(rest[rest.startIndex..<next.lowerBound])); rest = rest[next.upperBound...]
+        }
+        return nil
+    }
+
     /// True when `text` is this template with non-empty values in its gaps.
     func matches(_ text: String) -> Bool {
         guard let head = parts.first else { return false }

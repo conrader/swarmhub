@@ -29,7 +29,7 @@ struct MessageView: View {
                 if let author, message.role == .assistant {
                     HStack(spacing: 6) {
                         BotAvatar(bot: author, size: 18)
-                        Text(author.name).font(.caption.weight(.semibold)).foregroundStyle(author.tint)
+                        Text(author.name).font(.caption.weight(.semibold)).foregroundStyle(author.tintInk)
                     }.accessibilityElement(children: .combine).accessibilityLabel(author.name)
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
@@ -57,25 +57,27 @@ struct MessageView: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 10) {
-            SpeakReplyButton(message: message)
+        HStack(spacing: 4) {
             Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }.help("Tapback")
             Button(action: reply) { Image(systemName: "arrowshape.turn.up.left") }.help("Reply")
             if message.role == .assistant && message.presentation == .text { Button { copyToPasteboard(SwarmhubBlock.visibleText(message.finalText)) } label: { Image(systemName: "doc.on.doc") }.help("Copy reply") }
-        }.buttonStyle(.plain).foregroundStyle(.tertiary).font(.caption)
+        }.buttonStyle(MessageActionStyle())
             .popover(isPresented: $showingReactions) {
-                HStack { ForEach(Self.tapbacks, id: \.self) { emoji in Button(emoji) { store.toggleReaction(emoji, on: message); showingReactions = false }.buttonStyle(.plain).padding(3).background(message.reactions.contains(emoji) ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 5)) } }.padding(10)
+                HStack { ForEach(Self.tapbacks, id: \.self) { emoji in Button(emoji) { store.toggleReaction(emoji, on: message); showingReactions = false }.buttonStyle(.plain).padding(4).background(message.reactions.contains(emoji) ? AnyShapeStyle(TintShapeStyle().opacity(0.3)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay { if message.reactions.contains(emoji) { RoundedRectangle(cornerRadius: 6).strokeBorder(.tint, lineWidth: 1.5) } }
+                    .accessibilityAddTraits(message.reactions.contains(emoji) ? .isSelected : []) } }.padding(10)
             }
     }
 
     @ViewBuilder private var content: some View {
-        if message.role == .system {
+        if let passedOn = store.herdrPassedOnRow(message) {
+            // A message between bots, on either side of it: one folded row in the colour of the bot whose words it is.
+            PassedOnCard(row: passedOn)
+        } else if message.role == .system {
             Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).textSelection(.enabled)
         } else if let intro = message.metadata[HerdrIntro.Key.kind] {
             // The note that asks the main bot to introduce itself: one line says so, the note is the agent's to read.
             Label(HerdrIntro.caption(bot: store.selectedBot?.name ?? "your bot", again: intro == HerdrIntro.again), systemImage: "hand.wave").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
-        } else if let passedOn = store.herdrPassedOnRow(message) {
-            PassedOnCard(row: passedOn)
         } else if message.role == .user {
             if !message.content.isEmpty {
                 Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
@@ -89,4 +91,21 @@ struct MessageView: View {
         }
     }
     private var markdown: AttributedString { (try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.content) }
+}
+
+/// The small actions under a message (tapback, reply, copy): symbols in a colour that reads at 4.5:1 on the chat
+/// (they were drawn in the faintest text colour), each on a round ground that shows under the pointer.
+struct MessageActionStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Mark(configuration: configuration) }
+
+    private struct Mark: View {
+        let configuration: Configuration
+        @State private var hovering = false
+        var body: some View {
+            configuration.label.font(.system(size: 12, weight: .medium)).foregroundStyle(hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(AppColor.mark))
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.16 : hovering ? 0.09 : 0)))
+                .contentShape(Circle()).onHover { hovering = $0 }
+        }
+    }
 }

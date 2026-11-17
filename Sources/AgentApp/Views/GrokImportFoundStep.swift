@@ -123,29 +123,29 @@ struct GrokImportFooter: View {
                 Button("Cancel") { close() }
             case .found:
                 Button("Cancel") { close() }
-                Button(primaryTitle) { Task { await coordinator.proceed() } }.buttonStyle(.borderedProminent)
+                Button(primaryTitle) { Task { await coordinator.proceed() } }.buttonStyle(.appleProminent)
                     .disabled(coordinator.selected.isEmpty || coordinator.availability?.canImport != true)
             case .permission:
                 Button("Cancel") { close() }
-                Button("Continue") { coordinator.continueToMacOS() }.buttonStyle(.borderedProminent).disabled(coordinator.keychainBusy)
+                Button("Continue") { coordinator.continueToMacOS() }.buttonStyle(.appleProminent).disabled(coordinator.keychainBusy)
             case .awaitingMacOS, .running:
                 Button("Cancel") { coordinator.cancel() }
             case .paused(let pause):
                 Button("Cancel") { coordinator.cancel() }
                 Button(pause == .tokenExpired ? "Check again" : pause == .signInInvalid ? "Continue" : "Retry remaining") {
                     pause == .tokenExpired ? coordinator.checkAgain() : coordinator.retryRemaining()
-                }.buttonStyle(.borderedProminent).disabled(coordinator.keychainBusy && pause == .signInInvalid)
+                }.buttonStyle(.appleProminent).disabled(coordinator.keychainBusy && pause == .signInInvalid)
             case .failed(let error):
                 if error.recentStillAvailable { Button("Recent messages only") { coordinator.recentOnly() } }
                 if error.isSignInStep {
                     Button("Try again") { coordinator.continueToMacOS() }.disabled(coordinator.keychainBusy)
                 }
-                Button("Close") { close() }.buttonStyle(.borderedProminent)
+                Button("Close") { close() }.buttonStyle(.appleProminent)
             case .cancelled:
                 if coordinator.canImportWhatWasFetched { Button("Import what was fetched") { coordinator.importWhatWasFetched() } }
-                Button("Done") { close() }.buttonStyle(.borderedProminent)
+                Button("Done") { close() }.buttonStyle(.appleProminent)
             case .finished:
-                Button("Done") { close() }.buttonStyle(.borderedProminent)
+                Button("Done") { close() }.buttonStyle(.appleProminent)
             }
         }
     }

@@ -80,7 +80,7 @@ SIGN_ARGS=(--force --sign "$SIGN_ID")
 if [[ "$SIGN_ID" != - ]]; then
   SIGN_ARGS+=(--options runtime --timestamp)
 fi
-# P38 C: the app binary and bundle carry SwarmHub.entitlements (microphone input, needed under the hardened runtime).
+# The app binary and bundle are signed with SwarmHub.entitlements, which claims nothing: the app needs no entitlement under the hardened runtime.
 # Sign inside out, preserving the helpers' own identifiers and entitlements.
 # --deep is only used to verify, never to apply the app's identity to nested helpers.
 FRAMEWORK="$APP_DIR/Contents/Frameworks/Sparkle.framework"

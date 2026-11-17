@@ -92,5 +92,7 @@ extension AppStore {
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
         recoverInterruptedRounds()
         resumeRestoredNextMessages()
+        // Agents of bots that were removed while their server could not be reached are ended now.
+        if !herdrEndings.isEmpty { Task { await settleHerdrEndings() } }
     }
 }

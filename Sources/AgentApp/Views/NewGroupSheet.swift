@@ -25,7 +25,7 @@ struct NewGroupSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Create") { if store.createGroup(name: name, memberIDs: ordered(bots)) != nil { dismiss() } }
-                    .buttonStyle(.borderedProminent).disabled(picked.count < 2)
+                    .buttonStyle(.appleProminent).disabled(picked.count < 2)
             }
         }.padding(20).frame(width: 380).background(AppColor.panel)
             .onAppear { picked = preselected }

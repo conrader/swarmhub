@@ -109,11 +109,6 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 - An agent receives text only. An attached image is kept in the chat and is not sent to the agent.
 - The **Media** tab of the Details panel lists the documents saved for a bot. From there you can read, export or attach one, share it with another bot, or remove a bot's access.
 
-## Voice
-
-- Dictation: save a deAPI API key under **Settings → Voice**, and a microphone button appears in every chat's composer. Record, stop, and the recording is transcribed by deAPI with your own key. The text is added to the draft and is never sent by itself. A recording is at most 5 minutes and is removed from the Mac after transcription or cancellation.
-- Read aloud: the speaker button under a finished reply speaks it with the Mac's built-in speech; press it again to stop. Nothing is sent anywhere.
-
 ## Import
 
 - **Grok Bot** (the **Grok Bot** card in **Settings → Servers**, and the **+** menu at the top of the sidebar; both show only when Grok Bot is on this Mac): reads Grok Bot's bots and history on this Mac. Each bot becomes a Herdr bot with a read-only history archive. Importing again adds what is missing without duplicates. Fetching all history asks macOS once for Grok Bot's sign-in.
@@ -121,7 +116,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 
 ## Appearance and settings
 
-- Settings is one window with five panes: **General**, **Servers**, **Voice**, **Software Update** and **About**.
+- Settings is one window with four panes: **General**, **Servers**, **Software Update** and **About**.
 - **General** holds your name (shown in group chats), **About you**, the theme (Light, Dark or System), the app icon (Light or Dark), the accent colour, avatar motion and notifications.
 - The look comes from the app icon: warm surfaces (cream in light, olive charcoal in dark) and a clay accent by default. Sage, Graphite and five other accents can be chosen.
 - Each chat carries its bot's colour, taken from its avatar: a soft wash behind its name in the header, its face and name above the first reply of each run, and the cards above the composer.

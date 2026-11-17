@@ -33,7 +33,7 @@ struct TemplateImportView: View {
                         guard !isImporting else { return }
                         isImporting = true
                         do { try store.importGrokBundles(grokBundles); dismiss() } catch { isImporting = false; self.grokBundles = nil; show(error) }
-                    }.buttonStyle(.borderedProminent).disabled(isImporting)
+                    }.buttonStyle(.appleProminent).disabled(isImporting)
                 }
                 if let plan {
                     Button(isImporting ? "Importing…" : "Import agent") {
@@ -41,7 +41,7 @@ struct TemplateImportView: View {
                         isImporting = true
                         _ = store.importTemplate(plan)
                         dismiss()
-                    }.buttonStyle(.borderedProminent).disabled(isImporting)
+                    }.buttonStyle(.appleProminent).disabled(isImporting)
                 }
             }.padding(16)
         }

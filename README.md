@@ -46,7 +46,7 @@ The full picture, with the message flow, the security boundaries and a map of th
 - **Work on projects on other servers.** Add the servers your projects live on, name folders on them as projects, and choose for each bot which it may use.
 - **Share skills.** A server's library of skills, agents, MCP servers, plugins and hooks ([skillshare](https://skillshare.runkids.cc)) is managed in the app: sync it, switch things on and off, install skills from a repository after a security check, update and remove them.
 - **Keep everything up to date.** **Settings → Software Update** shows the app, which updates through Sparkle, and for each server the version of the bridge (the app calls it the workspace) and of Herdr Core, with one button when something is behind. See [Updates](docs/updates.md).
-- **Also in the app:** group chats with `@Name`, attachments (documents are sent as text), dictation with your own deAPI key, import from Grok Bot, sample bots that answer locally.
+- **Also in the app:** group chats with `@Name`, attachments (documents are sent as text), import from Grok Bot, sample bots that answer locally.
 
 Details: [Features](docs/FEATURES.md).
 

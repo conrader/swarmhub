@@ -40,7 +40,7 @@ struct SetupProjectsStep: View {
                 ForEach(model.projects) { project in
                     let on = flow.mainProjects.contains { $0.id == project.id }
                     HerdrProjectCard(project: project, selected: on) {
-                        Toggle(WizardCopy.projectsMayUse(flow.mainBotName, project.name), isOn: Binding(get: { on }, set: { choose(project, $0) })).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        Toggle(WizardCopy.projectsMayUse(flow.mainBotName, project.name), isOn: Binding(get: { on }, set: { choose(project, $0) })).labelsHidden().toggleStyle(.appleSwitch).controlSize(.small)
                             .accessibilityLabel(WizardCopy.projectsMayUse(flow.mainBotName, project.name))
                     }
                 }

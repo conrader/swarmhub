@@ -40,7 +40,7 @@ struct HerdrSettingsSection: View {
             }
             if let current {
                 VStack(alignment: .leading, spacing: 18) {
-                    Picker("Part of \(current.name)", selection: $part) { ForEach(Part.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 480)
+                    SegmentedChoice(title: "Part of \(current.name)", options: Part.allCases.map { ($0, $0.rawValue) }, selection: $part).frame(maxWidth: 480)
                     switch part {
                     case .connection: HerdrServerSection(server: current, canRemove: servers.count > 1) { templates = $0 }.id(current.id)
                     case .helpers: HerdrHelperPolicySection(server: current, named: servers.count > 1).id(current.id)
@@ -71,7 +71,7 @@ struct HerdrSettingsSection: View {
             }
             HerdrServerFields(draft: $draft, submit: add).frame(maxWidth: AppleMetrics.column)
             HStack(spacing: 10) {
-                Button("Connect and add", action: add).buttonStyle(.borderedProminent).controlSize(.large).disabled(adding || draft.problem != nil)
+                Button("Connect and add", action: add).buttonStyle(.appleProminent).controlSize(.large).disabled(adding || draft.problem != nil)
                 if adding { ProgressView().controlSize(.small) }
                 if let problem = draft.problem, addResult.isEmpty { Text(problem).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             }
@@ -123,7 +123,7 @@ struct HerdrServerSection: View {
             }
             Text(caption).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button("Check connection") { test() }.buttonStyle(.borderedProminent).disabled(working)
+                Button("Check connection") { test() }.buttonStyle(.appleProminent).disabled(working)
                 Button("Add a bot for each AI") { addStarters() }.disabled(working).help("Adds one bot for each AI this server has that no bot here uses yet.")
                 if working { ProgressView().controlSize(.small) }
                 Spacer()

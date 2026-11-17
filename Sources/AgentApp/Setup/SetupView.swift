@@ -86,29 +86,29 @@ struct SetupView: View {
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
                 switch flow.step {
                 case .welcome:
-                    Button(WizardCopy.next, action: pickPlace).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    Button(WizardCopy.next, action: pickPlace).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                 case .herdr:
                     if let setup = flow.localSetup, !testing {
                         // Nothing runs on this Mac yet: the one button sets it up.
-                        Button(setup.isWorking ? WizardCopy.settingUp : WizardCopy.setUp, action: setUpThisMac).buttonStyle(.borderedProminent)
+                        Button(setup.isWorking ? WizardCopy.settingUp : WizardCopy.setUp, action: setUpThisMac).buttonStyle(.appleProminent)
                             .disabled(setup.isWorking || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
                     } else if flow.herdrNoPrograms, flow.herdr.kind == .local, flow.localReport != nil, !testing {
                         // An AI program installed since is found by setting this Mac up again, which changes nothing else.
-                        Button(SetupCopy.testAgain, action: setUpThisMac).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        Button(SetupCopy.testAgain, action: setUpThisMac).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                     } else if flow.herdrReady, !testing {
-                        Button(WizardCopy.next) { failure = nil; flow.apply(.advance) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        Button(WizardCopy.next) { failure = nil; flow.apply(.advance) }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                     } else {
-                        Button(testing ? SetupCopy.testing : flow.herdrOutcome != nil ? SetupCopy.testAgain : SetupCopy.test, action: testHerdr).buttonStyle(.borderedProminent)
+                        Button(testing ? SetupCopy.testing : flow.herdrOutcome != nil ? SetupCopy.testAgain : SetupCopy.test, action: testHerdr).buttonStyle(.appleProminent)
                             .disabled(testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
                     }
                 case .mainBot:
-                    Button(flow.isLastWizardStep && flow.herdrOffer != nil ? finishTitle : WizardCopy.next, action: leaveMainBot).buttonStyle(.borderedProminent)
+                    Button(flow.isLastWizardStep && flow.herdrOffer != nil ? finishTitle : WizardCopy.next, action: leaveMainBot).buttonStyle(.appleProminent)
                         .disabled(!flow.mainBotReady).keyboardShortcut(.defaultAction)
                 case .moreBots:
                     Button(flow.isLastWizardStep ? finishTitle : WizardCopy.next) { if flow.isLastWizardStep { finishWizard() } else { failure = nil; flow.apply(.advance) } }
-                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                 case .projects:
-                    Button(finishTitle, action: finishWizard).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    Button(finishTitle, action: finishWizard).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                 }
             }.controlSize(.large)
         }
