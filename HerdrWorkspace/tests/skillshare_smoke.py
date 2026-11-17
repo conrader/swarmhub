@@ -514,6 +514,50 @@ def repository_and_server(workspace, scratch):
     (scratch.home / "upgrade.log").unlink()
 
 
+def project_library(workspace, scratch):
+    """Step d: a project's own library, beside the global one."""
+    shop = scratch.root / "shop"
+    (shop / ".claude").mkdir(parents=True)
+    scratch.run("init", "-p", "--targets", "claude", cwd=shop)
+    scratch.skill(shop / ".skillshare/skills/checkout", "checkout", "How this shop takes payment.")
+    folders = workspace.get("/api/skillshare/projects", folder=[str(shop), "/nonexistent", str(scratch.root), "relative"])
+    assert folders == {"projects": [{"folder": str(shop), "config": str(shop / ".skillshare/config.yaml")}]}, folders
+    assert workspace.get("/api/skillshare/projects") == {"projects": []}
+
+    library = workspace.get("/api/skillshare/library", project=str(shop))
+    assert (library["scope"], library["project"], library["problem"]) == ("project", str(shop), None), library
+    assert library["source"] == str(shop / ".skillshare/skills") and [target["name"] for target in library["targets"]] == ["claude"]
+    assert [(item["id"], item["state"]) for item in library["items"] if item["kind"] == "skills"] == [("skills:checkout", "waiting")]
+    assert "skills:checkout" not in by_id(workspace.get("/api/skillshare/library"))
+    preview = workspace.get("/api/skillshare/preview", id="skills:checkout", project=str(shop))
+    assert preview["folder"] == str(shop / ".skillshare/skills/checkout") and "# checkout" in preview["text"], preview
+    assert workspace.call("/api/skillshare/preview", id="skills:checkout")[0] == 404
+
+    off = workspace.post("/api/skillshare/disable", {"id": "skills:checkout", "project": str(shop)})
+    assert off["changed"] == ["skills:checkout"] and off["library"]["scope"] == "project", off
+    workspace.post("/api/skillshare/enable", {"id": "skills:checkout", "project": str(shop)})
+    found = workspace.post("/api/skillshare/install/inspect", {"source": f"file://{scratch.root}/remotes/good.git", "project": str(shop)})
+    assert [skill["installed"] for skill in found["skills"]] == [False, False], found["skills"]
+    done = workspace.post("/api/skillshare/install", {"ticket": found["ticket"], "skills": ["pdf-tools"]})
+    assert done["installed"] == ["pdf-tools"] and done["library"]["scope"] == "project", done
+    assert (shop / ".skillshare/skills/pdf-tools/SKILL.md").is_file()
+    synced = workspace.post("/api/skillshare/sync", {"all": True, "project": str(shop)})
+    assert synced["library"]["waiting"] == 0 and synced["library"]["scope"] == "project", synced["library"]
+    assert (shop / ".claude/skills/checkout/SKILL.md").is_file() and not (scratch.home / ".claude/skills/checkout").exists()
+    checked = workspace.post("/api/skillshare/check", {"project": str(shop)})
+    assert checked["library"]["scope"] == "project" and checked["library"]["updates_checked"], checked
+    gone = workspace.post("/api/skillshare/uninstall", {"id": "skills:pdf-tools", "confirm": True, "project": str(shop)})
+    assert gone["removed"] == ["pdf-tools"] and not (shop / ".skillshare/skills/pdf-tools").exists(), gone
+    assert (scratch.source / "pdf-tools/SKILL.md").is_file()
+    for path, body in (("/api/skillshare/enable", {"id": "skills:checkout", "project": str(scratch.root)}),
+                       ("/api/skillshare/check", {"project": "/nonexistent"}),
+                       ("/api/skillshare/uninstall", {"id": "skills:checkout", "confirm": True, "project": "shop"}),
+                       ("/api/skillshare/install/inspect", {"source": "owner/repo", "project": "/nonexistent"})):
+        refused = workspace.post(path, body, expect=422)
+        assert "skillshare project" in refused["error"], refused
+    assert workspace.call("/api/skillshare/preview", id="skills:checkout", project="/nonexistent")[0] == 422
+
+
 def main(bridge, skillshare):
     assert Path(bridge).is_file() and Path(skillshare).is_file(), (bridge, skillshare)
     with tempfile.TemporaryDirectory(prefix="shskill-", dir=os.environ.get("SWARMHUB_TEST_TMPDIR", "/tmp")) as temp:
@@ -532,7 +576,7 @@ def main(bridge, skillshare):
             workspace = Workspace(port, token)
             code, update = workspace.wait(process)
             assert code == 200 and update["bridge"]["api"] >= 2, update
-            for step in (library_and_previews, install_update_remove, repository_and_server):
+            for step in (library_and_previews, install_update_remove, repository_and_server, project_library):
                 step(workspace, scratch)
                 print(f"{step.__doc__.split(':')[0].lower()} ok", flush=True)
             print("skillshare smoke: ok")

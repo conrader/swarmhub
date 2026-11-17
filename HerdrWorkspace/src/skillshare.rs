@@ -957,6 +957,64 @@ mod tests {
     }
 
     #[test]
+    fn a_library_is_the_global_one_or_a_folder_that_holds_a_project() {
+        let global = Scope::of(None).unwrap();
+        assert_eq!(
+            (
+                global.flag(),
+                global.name(),
+                global.project(),
+                global.folder()
+            ),
+            ("-g", "global", None, Path::new("/"))
+        );
+        assert_eq!(Scope::of(Some("")).unwrap(), global);
+        let folder = tempfile::tempdir().unwrap();
+        let shop = folder.path().join("shop");
+        fs::create_dir_all(shop.join(".skillshare")).unwrap();
+        fs::create_dir_all(folder.path().join("visible/skillshare")).unwrap();
+        fs::create_dir_all(folder.path().join("empty/.skillshare/config.yaml")).unwrap();
+        fs::write(
+            shop.join(".skillshare/config.yaml"),
+            "targets:\n  - claude\n",
+        )
+        .unwrap();
+        fs::write(
+            folder.path().join("visible/skillshare/config.yaml"),
+            "targets: []\n",
+        )
+        .unwrap();
+        let named = shop.to_string_lossy().into_owned();
+        let project = Scope::of(Some(&named)).unwrap();
+        let whole = fs::canonicalize(&shop).unwrap();
+        assert_eq!((project.flag(), project.name()), ("-p", "project"));
+        assert_eq!(
+            (project.folder(), project.key()),
+            (whole.as_path(), whole.to_string_lossy().into_owned())
+        );
+        assert!(Scope::of(Some(&folder.path().join("visible").to_string_lossy())).is_ok());
+        // Not a project, not a folder, a configuration that is a folder, and a path that is not a full one.
+        for folder in [
+            folder.path().to_string_lossy().into_owned(),
+            format!("{named}/missing"),
+            format!("{}/empty", folder.path().display()),
+            "shop".into(),
+            "../shop".into(),
+        ] {
+            assert_eq!(
+                Scope::of(Some(&folder)),
+                Err(NOT_A_PROJECT.to_owned()),
+                "{folder}"
+            );
+        }
+        assert_eq!(
+            project_config(&named),
+            Some(shop.join(".skillshare/config.yaml"))
+        );
+        assert_eq!(project_config("shop"), None);
+    }
+
+    #[test]
     fn a_program_that_is_not_there_does_not_start() {
         let result = run_blocking(
             Path::new("/nonexistent/skillshare"),

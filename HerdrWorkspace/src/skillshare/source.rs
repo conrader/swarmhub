@@ -16,7 +16,7 @@
 use super::{
     CHANGE_TIMEOUT, READ_TIMEOUT, Ran, SYNC_TIMEOUT, Scope, Trouble, alone, health, inside,
     library::Library,
-    parse, program,
+    parse, program, project_config,
     read::{self},
     refused, run, run_tool, status,
 };
@@ -46,6 +46,7 @@ const MAX_CHANGED: usize = 200;
 const MAX_SIDE: usize = 16_000;
 const MAX_CONFLICTS: usize = 50;
 const MAX_MESSAGE: usize = 200;
+const MAX_FOLDERS: usize = 50;
 const MESSAGE: &str = "Update skills from SwarmHub";
 
 const NO_REPOSITORY: &str = "The library is not in a Git repository, so there is nothing to pull or push. Set one up on the server with `skillshare init --remote <address>`.";
@@ -65,6 +66,7 @@ pub(super) fn routes() -> Router<Workspace> {
         .route("/api/skillshare/source/resolve", post(resolve))
         .route("/api/skillshare/machine", get(machine))
         .route("/api/skillshare/upgrade", post(upgrade))
+        .route("/api/skillshare/projects", get(projects))
 }
 
 /// One file with a change that is not committed.
@@ -897,6 +899,28 @@ async fn upgrade(body: Bytes) -> Response {
         Json(json!({ "version": version, "output": ran.said() })).into_response()
     })
     .await
+}
+
+/// Which of the folders a request names hold a skillshare project.
+async fn projects(Query(asked): Query<Vec<(String, String)>>) -> Json<Value> {
+    let folders: Vec<String> = asked
+        .into_iter()
+        .filter(|(key, _)| key == "folder")
+        .map(|(_, folder)| folder)
+        .take(MAX_FOLDERS)
+        .collect();
+    let found = tokio::task::spawn_blocking(move || {
+        folders
+            .into_iter()
+            .filter_map(|folder| {
+                let config = project_config(&folder)?;
+                Some(json!({ "folder": folder, "config": config.to_string_lossy() }))
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    Json(json!({ "projects": found }))
 }
 
 #[cfg(test)]
