@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="450" viewBox="0 0 1280 450" fill="none" role="img" aria-labelledby="title description">
   <title id="title">SwarmHub — your agents, all together</title>
-  <desc id="description">A cream banner with the SwarmHub wordmark, a desktop workspace tagline for macOS, Windows, and Linux, and the SwarmHub app icon: three rounded faces close together.</desc>
+  <desc id="description">A cream banner with the SwarmHub wordmark, a tagline, the labels "A native Mac app", "Your own server" and "Your own agent programs", and the SwarmHub app icon: three rounded faces close together.</desc>
   <defs>
     <linearGradient id="canvas" x1="0" y1="0" x2="1280" y2="450" gradientUnits="userSpaceOnUse">
       <stop stop-color="#f7f7f2"/>
@@ -34,14 +34,14 @@
       <text x="360" y="83" text-anchor="middle" fill="#6e7166" font-size="11" font-weight="600" letter-spacing="1.4">PROTOTYPE</text>
       <text x="68" y="203" fill="#262821" font-size="68" font-weight="650" letter-spacing="-2.6">Your agents.</text>
       <text x="68" y="282" fill="url(#accent)" font-size="68" font-weight="650" letter-spacing="-2.6">All together.</text>
-      <text x="72" y="329" fill="#6e7166" font-size="22">A desktop workspace for your own agents.</text>
+      <text x="72" y="329" fill="#6e7166" font-size="22">A Mac app for your own team of agents.</text>
       <path d="M72 381H1208" stroke="#688554" stroke-opacity="0.15"/>
       <circle cx="77" cy="412" r="4" fill="#e75a32"/>
-      <text x="94" y="417" fill="#6e7166" font-size="13" font-weight="500" letter-spacing="0.7">macOS</text>
+      <text x="94" y="417" fill="#6e7166" font-size="13" font-weight="500" letter-spacing="0.7">A native Mac app</text>
       <circle cx="248" cy="412" r="4" fill="#e75a32"/>
-      <text x="265" y="417" fill="#6e7166" font-size="13" font-weight="500" letter-spacing="0.7">Windows</text>
-      <circle cx="382" cy="412" r="4" fill="#688554"/>
-      <text x="399" y="417" fill="#6e7166" font-size="13" font-weight="500" letter-spacing="0.7">Linux</text>
+      <text x="265" y="417" fill="#6e7166" font-size="13" font-weight="500" letter-spacing="0.7">Your own server</text>
+      <circle cx="412" cy="412" r="4" fill="#688554"/>
+      <text x="429" y="417" fill="#6e7166" font-size="13" font-weight="500" letter-spacing="0.7">Your own agent programs</text>
       <text x="1208" y="417" text-anchor="end" fill="#6e7166" font-size="12" letter-spacing="1.1">YOUR AGENTS. YOUR WORKSPACE.</text>
     </g>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" x="865" y="26" width="380" height="380">

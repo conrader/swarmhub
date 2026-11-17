@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="760" viewBox="0 0 720 760" fill="none" role="img" aria-labelledby="title description">
   <title id="title">SwarmHub — your agents, all together</title>
-  <desc id="description">A compact dark blue banner with the SwarmHub wordmark, macOS, Windows, and Linux platform labels, and the SwarmHub app icon below the headline: three rounded faces close together.</desc>
+  <desc id="description">A compact dark blue banner with the SwarmHub wordmark, the label "A native Mac app", and the SwarmHub app icon below the headline: three rounded faces close together.</desc>
   <defs>
     <linearGradient id="canvas" x1="0" y1="0" x2="720" y2="760" gradientUnits="userSpaceOnUse">
       <stop stop-color="#f7f7f2"/><stop offset="0.55" stop-color="#f7f7f2"/><stop offset="1" stop-color="#f7f7f2"/>
@@ -29,10 +29,10 @@
       <text x="610.5" y="78" text-anchor="middle" fill="#6e7166" font-size="13" font-weight="600" letter-spacing="1.4">PROTOTYPE</text>
       <text x="45" y="181" fill="#262821" font-size="66" font-weight="650" letter-spacing="-2.6">Your agents.</text>
       <text x="45" y="259" fill="url(#accent)" font-size="66" font-weight="650" letter-spacing="-2.6">All together.</text>
-      <text x="48" y="308" fill="#6e7166" font-size="26">A desktop workspace</text>
-      <text x="48" y="343" fill="#6e7166" font-size="26">for your own agents.</text>
+      <text x="48" y="308" fill="#6e7166" font-size="26">A Mac app for your</text>
+      <text x="48" y="343" fill="#6e7166" font-size="26">own team of agents.</text>
       <path d="M48 703H672" stroke="#688554" stroke-opacity="0.15"/>
-      <text x="48" y="737" fill="#6e7166" font-size="16">macOS · Windows · Linux</text>
+      <text x="48" y="737" fill="#6e7166" font-size="16">A native Mac app</text>
       <text x="672" y="737" text-anchor="end" fill="#6e7166" font-size="14" letter-spacing="0.8">YOUR WORKSPACE</text>
     </g>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" x="175" y="344" width="370" height="370">
