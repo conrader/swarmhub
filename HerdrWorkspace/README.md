@@ -273,6 +273,382 @@ A helper is an ordinary session: its replies, tool activity, terminal and histor
 - `GET /api/helper-policy` returns `policy` (the file’s four fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the three numbers.
 - `POST /api/helper-policy` takes the policy as its body and saves the file. It answers like `GET`, or with status 422 and an `error` when a number is out of bounds, Herdr has no such template, or the template cannot take the model.
 
+## Bots on the server
+
+The Mac app's bots write to each other, plan to come back to something, and record what they promised. The workspace carries all of it, so it goes on with the app closed: a message still reaches the other bot, a check-in still fires, and what happened is waiting when the app returns. The rules are in [How bots communicate and take initiative](../docs/bot-communication.md). This section says how the workspace holds them and what a client does. A client can be built from this section alone.
+
+A workspace that does this says `"api": 2` or more in `bridge` of `GET /api/workspace` ([Versions and updates](#versions-and-updates)).
+
+The workspace does this only for bots it knows. A client registers its bots ([Register the bots](#register-the-bots)). In a workspace where no bot is registered, nothing here happens: no note is added to any task, no agent is started by the workspace, and the commands below answer with a refusal.
+
+### Who keeps what
+
+| | Keeps |
+| --- | --- |
+| The app | The bots themselves and the chats. It registers a copy of each bot here and updates it when the bot changes. |
+| The workspace | The registered copy, every message between bots, each bot's history, the planned check-ins, the promises, and what is waiting to be typed into an agent. All of it is in the journal file, in tables of its own. |
+| A bot's agent | Nothing. It runs a command, and the workspace decides. |
+
+### How a message travels
+
+1. A bot's agent runs `swarmhub-herdr bot ask Infra "Which port does staging use?"` in its shell. The command returns at once with the message's number. The agent does not wait: it ends its reply.
+2. The workspace checks the rules, records the message, and adds a line to both bots' histories.
+3. Within two seconds the workspace types the message into the other bot's agent, marked with who sent it and how to answer. If that bot has no agent running, the workspace starts one first, from the registered template, model, instructions and projects. If the agent is busy, the message is typed into the running turn, as a message of the person would be.
+4. The other agent answers with `swarmhub-herdr bot reply 12 "5432"`. The workspace records the answer, adds it to both histories, and types it into the first bot's agent as its next message.
+5. What each agent writes at the end of a turn the workspace started is added to that bot's history as what the bot said, so the app can show it and raise the bot's unread mark.
+
+### What an agent runs
+
+| Command | What it does |
+| --- | --- |
+| `swarmhub-herdr bot list` | The other bots, and what is open: what the agent waits for and what waits for it. |
+| `swarmhub-herdr bot ask NAME TEXT` | Sends an ask: the agent needs an answer. Prints its number. |
+| `swarmhub-herdr bot tell NAME TEXT` | Sends a tell: for the other bot's information. No answer comes. |
+| `swarmhub-herdr bot handoff NAME TEXT` | Sends a hand-off: the other bot is to take the work over and report when it is done. |
+| `swarmhub-herdr bot reply ID TEXT` | Answers ask `ID`, or reports the result of hand-off `ID`. |
+| `swarmhub-herdr bot accept ID` | Takes over the work of hand-off `ID`. |
+| `swarmhub-herdr bot decline ID REASON` | Refuses ask or hand-off `ID`. The reason is required. |
+| `swarmhub-herdr checkin in 30m WHAT` | Plans a one-off check-in. Also `at 17:30`. |
+| `swarmhub-herdr checkin every 2h WHAT` | Plans a recurring check-in. Also `every day at 9:00` and `every weekday at 9:00`. |
+| `swarmhub-herdr checkin list`, `checkin cancel ID` | Lists the agent's planned check-ins; cancels one. |
+| `swarmhub-herdr promise add --by 30m WHAT` | Records a promise. Also `--by 17:30`. |
+| `swarmhub-herdr promise done ID [NOTE]`, `promise list` | Closes a promise; lists the open ones. |
+
+- `NAME` is the bot's name, whatever its case; quote a name of several words. `TEXT` as `-` reads standard input. A message carries up to 4,000 characters, an answer up to 6,000.
+- Durations are `90s`, `30m`, `2h`, `1d`. Clock times are `9`, `9:15`, `17:30`, `5pm`, in the time zone of the [settings](#settings).
+- A command exits with 0 and prints what was done, or exits with 1 and prints on standard error why nothing was done. A refusal is written for the agent: it says what to do instead, which at a limit is to bring the matter to the person.
+- The command reaches the workspace the same way `helper` does ([How the command reaches the workspace](#how-the-command-reaches-the-workspace)), so it works in Claude Code and in Codex's sandbox alike.
+- Who is asking is the agent's launch, never an argument. An agent that is not a registered bot's agent is refused. A helper is refused: it talks only to the agent that started it.
+
+### The rules the workspace enforces
+
+Each of these is checked in the workspace, in one database transaction, before anything is sent. An agent cannot talk its way past them.
+
+**Three kinds, and how each ends.**
+
+| Kind | States | Ends as |
+| --- | --- | --- |
+| ask | `open` | `answered` (a reply), `declined` (with a reason), `expired` (not answered in time), `stopped` |
+| tell | `sent` | It is done when it is sent. It cannot be answered. |
+| hand-off | `open`, then `accepted` | `answered` (accepted, and its result reported), `declined`, `expired` (not accepted in time), `stopped` |
+
+- **Time limits.** An ask has `ask_seconds` (600) to be answered. A hand-off has `handoff_accept_seconds` (300) to be accepted. Both count from the moment the message was typed into the other bot's agent, not from when it was sent. An accepted hand-off has no time limit.
+- **A message that cannot be typed** ends too. If the other bot's agent cannot be started, or cannot take the message within `deliver_seconds` (600) because it stays at a prompt, an ask or a hand-off ends as `expired` with the reason, and a tell leaves a notice in both histories.
+- **The sender is told every ending.** The answer, the report, the refusal with its reason, "not answered in time" and "stopped" are each typed into the sender's agent as its next message. An acceptance is not typed: nothing is asked of the sender then. It is a line in both histories.
+- **Nothing ends twice.** A reply to something that has ended is refused, and the refusal says how it ended.
+
+**Both histories show everything.** Every message, answer, acceptance and refusal is one line in the sender's history and one in the receiver's, each with who sent it. So is every ending the workspace decides (expired, stopped, a limit).
+
+**One owner.** A piece of work belongs to the bot that started it. Accepting a hand-off moves it to the bot that accepted; declining an accepted hand-off gives it back. Only the owner can hand the work off, and only to one bot at a time: a second hand-off is refused while one is open.
+
+**What a piece of work is.** A message a bot sends while it answers something the workspace typed about a piece of work (another bot's message, an answer, an ending) belongs to that piece of work. Any other message starts a new piece of work: one sent in a turn the person started, or in a check-in. Further messages of that same turn join it. So a new message of the person starts the counts below afresh, and nothing else does.
+
+**Limits.** A new ask, tell or hand-off is refused when:
+
+- the same two bots have exchanged `pair_messages` (8) messages about this piece of work, counting every kind in both directions;
+- the piece of work has passed through `chain_bots` (4) bots and the message would bring in one more;
+- the sender has sent `messages_per_window` (6) new messages in the last `window_seconds` (600).
+
+At a limit the sender's command is refused with the instruction to bring the matter to the person. Both bots' histories get one notice for the person (only the sender's, for the third limit). The other bot's agent is not woken. A reply, an acceptance or a refusal of something that is still open always goes through, so a limit leaves nothing hanging.
+
+**Stop.** `POST /api/agents/{address}/{created_ms}/interrupt` (the person's Stop), `…/end` and `POST /api/bots/{id}/stop` end every piece of work in which the bot has something open:
+
+- every ask and hand-off in it that is open or accepted becomes `stopped`;
+- a message of it that was not yet typed into an agent is not typed;
+- every bot that waited for an answer has the ending typed into its agent; the stopped bot's agent is not typed to;
+- any further message or reply about that piece of work is refused, until a message of the person starts a new one.
+
+**The switches.** Each is a field of the registered bot.
+
+| Field | Off means |
+| --- | --- |
+| `may_message` | The bot's messages to other bots are refused, and it is told to ask the person. Turning it off ends the exchanges the bot is part of, as a stop does. The note for its agent leaves the commands out. |
+| `takes_messages` | Other bots' messages to it are refused, and the sender is told. |
+| `takes_initiative` | Its planned check-ins do not fire and it can plan none. For the main bot: it is told nothing about problems. |
+| `notifications` | No history line of the bot has `notify` set. `unread` is not affected. |
+
+**The blocks agents used to write.** Before this, the Mac app taught agents to end a reply with a fenced `swarmhub` block, and passed it on itself. For a registered bot the workspace does that:
+
+- `{"op":"message_bot","to":…,"message":…}` in a saved reply is sent as an ask (or, with `"kind":"tell"` or `"kind":"handoff"`, as that), under the same rules. A block that cannot be sent leaves a notice and is told to the agent once.
+- `{"op":"request_bot","name":…,"purpose":…}` is sent to the main bot as an ask.
+- `create_bot` and `decline_bot` are not touched. The app reads them from the main bot's replies, as before.
+- When a bot is asked and ends its turn with words instead of `bot reply`, those words (without blocks) are the answer. This holds only when the turn was started by that one ask, the person wrote nothing into it, and the bot wrote to no bot in it. Otherwise the ask stays open until it is answered or runs out of time.
+
+### Planned check-ins
+
+A check-in is the workspace typing "you planned this" into the bot's agent at the planned time, starting the agent if none runs. No client has to be connected.
+
+- **Limits.** A bot has at most `checkins_per_bot` (10) planned. Its check-ins are at least `checkin_gap_seconds` (300) apart: a recurring one cannot recur faster, a new one cannot be planned within that distance of another planned one or of the last one that fired, and at firing time one that would follow another too closely waits.
+- **A one-off always leaves its outcome.** What the agent answers is added to the bot's history with `unread` and `notify`. If the agent has not answered after `checkin_answer_seconds` (900), or the check-in could not be typed at all, a notice says so.
+- **A recurring one stays quiet when there is nothing to say.** Its text tells the agent to reply with exactly `NOTHING TO REPORT` in that case. Then nothing is added to the history and nothing is notified. Any other reply is added like a one-off's.
+- **After downtime** a recurring check-in that was due fires once, not once for every time it missed, and goes on from then. A one-off that was due while the workspace was stopped fires when it starts.
+- The person can plan and cancel check-ins too ([For a client](#for-a-client)).
+
+### Open promises
+
+A promise is "I will do or report this by then". `promise done` closes it.
+
+1. When it is due and still open, the workspace types a reminder into the bot's agent, once (`raised`).
+2. If it is still open `promise_grace_seconds` (600) later, a notice for the person is added to the bot's history (`overdue`), and the main bot is told.
+
+A bot has at most `promises_per_bot` (20) open.
+
+### What the main bot is told
+
+The main bot is the registered bot with `main` set; there is at most one. While its `takes_initiative` is on, the workspace types a note into its agent about:
+
+- an agent of a bot, or a helper, that has been waiting at a prompt in its terminal for a minute;
+- a helper that ended without an answer to its task;
+- a hand-off nobody accepted;
+- a project server that has projects and cannot be reached;
+- a promise that is overdue.
+
+Each thing is told once. At most one note is sent per `initiative_seconds` (300); what is noticed meanwhile goes into the next one, up to five things per note. Something that could not be told within an hour is dropped. No other bot gets these notes. The note tells the main bot to tell the person and to offer, not to act.
+
+### What an agent is told
+
+The workspace adds one note to the first task of every agent of a registered bot, after everything else in that task. An agent that was already running when its bot was registered gets the note in front of the first thing the workspace types into it. The note says, in about 250 words:
+
+- offer first, and wait for the person's yes before starting new work;
+- ask the person before deleting, sending something out, spending or deploying;
+- the other bots' names and the `bot` commands (left out when `may_message` is off);
+- the `checkin` commands (left out when `takes_initiative` is off) and the `promise` commands;
+- for the main bot, that it will get notes about problems and must offer, not act.
+
+A note that does not fit into the first task beside a very long first message is left out of it.
+
+Everything the workspace types for another bot starts with a marker, so an agent and a client can tell it from the person's words:
+
+| Starts with | Is |
+| --- | --- |
+| `[Message from the bot NAME, passed on by SwarmHub] ask #12` (or `tell`, `hand-off`) | A message from another bot. |
+| `[Answer from the bot NAME, passed on by SwarmHub] to your ask #12` | The answer to an ask. |
+| `[Report from the bot NAME, passed on by SwarmHub] on your hand-off #14` | The result of a hand-off. |
+| `[From SwarmHub]` | An ending (declined, not answered in time, stopped), a block that could not be sent, or a promise that is due. |
+| `[Planned check-in #7, from SwarmHub]` | A check-in. |
+| `[SwarmHub note for the main bot]` | A note about problems. |
+| `[SwarmHub notes for the bot "NAME"]` | The standing note. |
+
+These rows are ordinary `task` rows in the session's history (`GET /api/history/…`).
+
+### For a client
+
+Every route needs the access token, and a `POST` the `Origin` header, as everywhere else. A refusal answers with `error` (words to show) and `kind`:
+
+| Status | `kind` | Meaning |
+| --- | --- | --- |
+| 404 | `bot_unknown`, `checkin_unknown`, `promise_unknown` | Nothing with this id. |
+| 409 | `refused` | A limit refused a check-in; `error` says which. |
+| 422 | `invalid` | The body is not the expected one, or a value is out of bounds; `error` says what. |
+| 429 | `busy` | Sixteen event streams are open already. |
+
+#### Register the bots
+
+`POST /api/bots` takes the client's bots and answers with the directory.
+
+```json
+{
+  "replace": true,
+  "bots": [
+    {
+      "id": "a79b16c2-5f0e-4a51-9d0c-3f1f6e3b2a10",
+      "name": "Jarvis",
+      "main": true,
+      "template": "swarmhub-claude",
+      "model": "sonnet",
+      "instructions": "You are Jarvis…",
+      "projects": [1, 2],
+      "may_message": true,
+      "takes_messages": true,
+      "takes_initiative": true,
+      "notifications": true
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Required. The client's own id for the bot, 1 to 64 letters, digits and dashes. It is kept in lower case and must never change for a bot. |
+| `name` | Required for a new bot. 1 to 40 characters on one line. Bots address each other by it, so two bots with the same name cannot be written to. |
+| `agent_name` | The name the bot's agent runs under in Herdr. Leave it out: the workspace derives the name the Mac app uses (the name in lower-case letters, digits and dashes, then `-` and the first six letters and digits of the id, 32 characters at most). An agent belongs to a bot when it has this name, or the same ending after its last dash. |
+| `main` | The main bot. Setting it on one bot takes it from the others. |
+| `template`, `model` | What the workspace starts the bot's agent from when it has to. An empty template means the first one Herdr can start; an empty model the first the catalog lists for the template. Register what the app itself would start, so both start the same agent. |
+| `instructions` | The bot's standing instructions, up to 12 KB, with whatever the client's own agents are told. An agent the workspace starts gets them with its first task. |
+| `projects` | Project ids, as in `POST /api/agents`. |
+| The four switches | See [The switches](#the-rules-the-workspace-enforces). Each defaults to `true`. |
+
+- A field that is left out keeps its value; for a new bot it gets its default.
+- With `"replace": true` every registered bot that is not in the list is removed. Without it, the list only adds and changes.
+- The whole request is saved or nothing is: one bot that cannot be saved answers 422 and names it.
+- Send it when the client connects and whenever a bot is added, renamed, removed or changed. Sending the same again changes nothing.
+
+`POST /api/bots/{id}` takes the same fields without `id` and changes one bot; it answers `{"bot": …}`. `POST /api/bots/{id}/remove` removes one: its exchanges end as with a stop, its planned check-ins are cancelled and its open promises dropped. Its history stays readable.
+
+`GET /api/bots` answers:
+
+```json
+{
+  "bots": [
+    {
+      "id": "a79b16c2-…", "name": "Jarvis", "agent_name": "jarvis-a79b16", "main": true,
+      "template": "swarmhub-claude", "model": "sonnet", "instructions": "…", "projects": [1, 2],
+      "may_message": true, "takes_messages": true, "takes_initiative": true, "notifications": true,
+      "read_through": 812, "created_ms": 1794830400000, "updated_ms": 1794830400000,
+      "unread": 2, "checkins": 1, "promises": 0, "open_exchanges": 1
+    }
+  ],
+  "main": "a79b16c2-…",
+  "settings": { "ask_seconds": 600 },
+  "command": "swarmhub-herdr"
+}
+```
+
+`unread` counts the bot's history lines with `unread` set and an id above `read_through`. `checkins` counts planned check-ins, `promises` open promises, `open_exchanges` asks and hand-offs that have not ended. `command` is how an agent's shell runs the commands on this server.
+
+#### A bot's history
+
+A history line is what a bot's chat shows beside the person's own turns. Lines have one sequence of ids for all bots, which only grows.
+
+`GET /api/bots/history?after=812` answers `{"items": […], "more": false}` with up to 200 lines after that id, oldest first, for all bots. `bot=ID` reads one bot's, `kind=notice` one kind, `limit` up to 500. Without `after` it answers the newest lines; `before=ID` pages back from there. `more` says that lines were left out.
+
+```json
+{
+  "id": 815, "bot": "a79b16c2-…", "kind": "message", "text": "Which port does staging use?",
+  "at_ms": 1794830400000, "unread": false, "notify": false, "code": "ask", "direction": "out",
+  "message": {
+    "id": 12, "work": 7, "kind": "ask",
+    "from": {"id": "a79b16c2-…", "name": "Jarvis"}, "to": {"id": "f1c39f00-…", "name": "Infra"},
+    "text": "Which port does staging use?", "about": null, "state": "answered", "via": "command",
+    "sent_ms": 1794830400000, "delivered_ms": 1794830402000, "deadline_ms": null, "ended_ms": 1794830460000
+  }
+}
+```
+
+| `kind` | What it is | `code` | Other fields |
+| --- | --- | --- | --- |
+| `message` | A message between two bots. One line in each bot's history. `text` is the message. | The message's kind: `ask`, `tell`, `handoff`, `reply`, `accept`, `decline` | `direction`: `out` in the history of the bot that wrote it, `in` in the other's. `message`: the message. |
+| `said` | What the bot's agent wrote at the end of a turn the workspace started. `text` is the reply as saved, with any `swarmhub` blocks still in it. | What the turn answered: `ask`, `tell`, `handoff` (a message from another bot), `outcome` (an answer, a report or an ending came back), `checkin`, `promise`, `note` (a note for the main bot), `notice` | `journal`: the id of the reply's row in the session history. `message`, `checkin`, `promise`: what it answered, when there is one. |
+| `notice` | A line from the workspace for the person. | `limit_pair`, `limit_chain`, `limit_rate`, `expired`, `stopped`, `undelivered`, `not_sent`, `checkin_unanswered`, `promise_overdue` | `message`, `checkin`, `promise`: what it is about, when there is one. |
+
+- `unread` says that the line should raise the bot's unread mark: every `said` line, and the notices about a limit, an undelivered message, an unanswered check-in and an overdue promise. Messages between bots and the notices `expired` and `stopped` do not, because the bot that was told speaks up itself.
+- `notify` says that it should also raise a notification. It is set on the same lines, except a `said` line with the code `ask` or `tell`, and never for a bot whose `notifications` is off.
+- In a `message` object, `about` is the ask or hand-off a `reply`, `accept` or `decline` belongs to. `state` is the message's state now, so a line read later shows how an ask ended. `via` is `command`, `block` (a `swarmhub` block) or `turn` (the words of a turn taken as the answer). `deadline_ms` is set while a time limit runs.
+- A `said` line is added when the newest thing typed into the agent before the reply came from the workspace. If the person had written into the same turn before that, a client that followed the turn already has the reply: compare `journal` with the id of the reply row it took, and show it once.
+- A reply to a turn the person started is not in the bot's history. It is in the session history, as before.
+
+`POST /api/bots/{id}/read` with `{"through": 815}` records that the person has read that bot's history up to that line; `read_through` only grows. `GET /api/bots/{id}/exchanges` answers `{"exchanges": […]}`: the asks, tells and hand-offs the bot sent or was sent that have not ended, newest first, as `message` objects; `?all=1` includes the ended ones (100 at most).
+
+#### Check-ins and promises
+
+- `GET /api/bots/{id}/checkins` answers `{"checkins": […], "limit": 10, "gap_seconds": 300}` with the planned ones, soonest first; `?all=1` adds the ones that fired or were cancelled.
+- `POST /api/bots/{id}/checkins` takes `{"what": "Check the deploy.", "when": …}` and answers 201 with `{"checkin": …}`, or 409 `refused` with the limit that refused it. `when` is one of:
+
+  | `when` | Fields | Means |
+  | --- | --- | --- |
+  | `in` | `seconds` | That long from now, once. |
+  | `at` | `hour`, `minute` | The next time the clock shows it, once. |
+  | `on` | `at_ms` | That moment, once. |
+  | `every` | `seconds` | Again and again. |
+  | `daily` | `hour`, `minute`, `weekdays` | Every day, or Monday to Friday, at that time. |
+
+  For example `{"when": "daily", "hour": 9, "minute": 0, "weekdays": true}`.
+- `POST /api/bots/{id}/checkins/{checkin}/cancel` answers `{"cancelled": 7}`.
+- `GET /api/bots/{id}/promises` answers `{"promises": […]}` with the open ones; `?all=1` adds the closed ones. `POST /api/bots/{id}/promises/{promise}/close` takes `{"state": "done"}` or `{"state": "dropped"}`, with an optional `note`.
+
+```json
+{
+  "id": 7, "bot": "a79b16c2-…", "what": "Check the deploy.",
+  "schedule": {"kind": "daily", "hour": 9, "minute": 0, "weekdays": true, "timezone": "Europe/Warsaw"},
+  "next_ms": 1794906000000, "state": "planned", "planned_by": "bot", "created_ms": 1794830400000,
+  "last_fired_ms": null, "last_outcome": null, "fires": 0, "paused": false
+}
+```
+
+- `schedule.kind` is `once` (with `at_ms`), `interval` (with `seconds`) or `daily`.
+- `state` is `planned`, `done` (a one-off that fired) or `cancelled`. `planned_by` is `bot` or `person`.
+- `last_outcome` is `reported` (the agent answered with something), `quiet` (a recurring one had nothing to report), `no_answer`, `not_delivered`, or `null` while the answer is awaited.
+- `paused` is true while the bot's `takes_initiative` is off.
+
+```json
+{
+  "id": 3, "bot": "f1c39f00-…", "what": "Send the weekly report.", "due_ms": 1794832200000,
+  "state": "open", "created_ms": 1794830400000, "raised_ms": null, "overdue_ms": null, "closed_ms": null, "note": null
+}
+```
+
+A promise's `state` is `open`, `raised` (due, and the bot was reminded), `overdue` (the person was told), `done` or `dropped`.
+
+#### Settings
+
+`GET /api/bots/settings` answers `{"settings": …, "bounds": {"ask_seconds": [30, 86400], …}}`. `POST /api/bots/settings` takes any of the settings and answers the same, or 422 when a value is out of its bounds. A change applies from then on; a time limit that is already running keeps its end.
+
+| Setting | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `ask_seconds` | 600 | 30 to 86400 | Time to answer an ask. |
+| `handoff_accept_seconds` | 300 | 30 to 86400 | Time to accept a hand-off. |
+| `pair_messages` | 8 | 2 to 64 | Messages between the same two bots about one piece of work. |
+| `chain_bots` | 4 | 2 to 16 | Bots a piece of work passes through. |
+| `messages_per_window` | 6 | 1 to 100 | New messages one bot sends within `window_seconds`. |
+| `window_seconds` | 600 | 60 to 86400 | |
+| `deliver_seconds` | 600 | 60 to 3600 | How long a message waits to be typed before it is given up. |
+| `checkin_gap_seconds` | 300 | 60 to 86400 | Least distance between two check-ins of a bot. |
+| `checkins_per_bot` | 10 | 0 to 50 | Planned check-ins per bot. |
+| `checkin_answer_seconds` | 900 | 60 to 86400 | How long a check-in's answer is awaited. |
+| `promises_per_bot` | 20 | 0 to 100 | Open promises per bot. |
+| `promise_grace_seconds` | 600 | 30 to 86400 | From the reminder to the notice for the person. |
+| `initiative_seconds` | 300 | 30 to 86400 | Least time between two notes for the main bot. |
+| `timezone` | The server's (`TZ`, `/etc/timezone`), else `UTC` | An IANA name | The time zone of clock times in commands and of times the workspace writes to agents. Set it to the person's. |
+
+#### One stream of events
+
+`GET /api/bots/events` is a Server-Sent Events stream for all bots, like the one for a session ([Follow a session without polling](#follow-a-session-without-polling)). It needs the access token and no `Origin`. A comment line (`: heartbeat`) is sent after 15 seconds without an event. At most 16 are open at once.
+
+| Event | Data | Sent when |
+| --- | --- | --- |
+| `snapshot` | Everything `GET /api/bots` answers, plus `checkins` (all planned ones), `promises` (all open ones), `history` (`items`, `more`) and `last` | Once, first. |
+| `entry` | One history line | A line was added. |
+| `bots` | What `GET /api/bots` answers, without `settings` | A bot was registered, changed or removed, or one of its counts changed. |
+| `checkins` | `{"checkins": […]}`: all planned ones | One was planned, cancelled or fired. |
+| `promises` | `{"promises": […]}`: all open ones | One was recorded, closed, raised or became overdue. |
+| `settings` | `{"settings": …}` | A setting changed. |
+
+- Add `?after=<id>` with the newest history line the client has. The snapshot's `history` then holds the lines after it, up to 200; when `more` is true, read the rest with the history route. `last` is the id the stream goes on from. Without `after` the snapshot holds no lines and the stream starts at the newest one.
+- The stream looks once a second. A reader that takes nothing for 60 seconds is dropped.
+- A message's later change of state (an ask that was answered) is not an event of its own: the answer, or the notice of how it ended, is a new line, and carries the message in its new state.
+
+#### What a client does
+
+A client that registers its bots takes these over from what the Mac app did before:
+
+1. Register the bots on connecting and on every change, with `"replace": true`.
+2. Stop passing on `message_bot` and `request_bot` blocks itself. The workspace does, and both doing it would send every message twice. Keep reading `create_bot` and `decline_bot`, also from `said` lines.
+3. Stop telling agents how to write to bots (the block, the list of names): the workspace's note says it. Other notes of the client (creating bots, helpers) stay as they are.
+4. Hold one event stream. For each `entry`, show the line in that bot's chat: a `message` with who sent it, a `said` line as the bot's own message, a `notice` as a line from the app. Raise the unread mark for `unread` and a notification for `notify`. Call `…/read` when the person has read a chat.
+5. On start, pass the newest line id it has as `after`: what happened while it was closed arrives in the snapshot.
+6. Show a bot's planned check-ins and open promises in its details, with Cancel, from the `checkins` and `promises` events or routes.
+7. Stop needs nothing new: `…/interrupt` and `…/end` end the bot's exchanges. A client that withdraws a message without interrupting an agent calls `POST /api/bots/{id}/stop`.
+8. Starting an agent needs nothing new either. `POST /api/agents` for an agent whose name belongs to a registered bot gets the workspace's note added.
+
+### The journal
+
+This version adds nine tables to the journal (`bots`, `bot_work`, `bot_messages`, `bot_history`, `bot_outbox`, `bot_checkins`, `bot_promises`, `bot_flags`, `bot_state`) and raises its version from 49 to 50. It changes no table, row or index that existed before.
+
+- The replies that were saved before the upgrade are not read as bots' replies, and helpers that ended before it are not reported: two cursors in `bot_state` start at the newest journal row.
+- To go back to a workspace from before this version: stop the workspace, then run `sqlite3 workspace.sqlite3 "PRAGMA user_version=49"`. The older workspace then opens the file; it ignores the new tables. To remove them as well, drop the nine tables first. A backup taken before the upgrade (`sqlite3 workspace.sqlite3 ".backup before-bots.sqlite3"`) is the other way back.
+- What the workspace was typing into an agent when it stopped is not typed again after a restart, like a task of the journal. Time limits go on: an ask that ran out while the workspace was stopped ends when it starts.
+
+### What this does not do
+
+- The workspace types into terminals. An agent that sits at a prompt cannot take a message; the message waits for `deliver_seconds` and is then given up, and the main bot is told about the prompt.
+- A message typed into an agent that is in the middle of a turn of the person is read when the agent program gets to it. The time limit runs meanwhile.
+- A bot's agent is found by its name. An agent started under another name than the registered one is not the bot's.
+- The person's Stop is seen when it goes through this API. A stop key pressed in the agent's own terminal ends the turn but not the bot's exchanges; they end by their time limits.
+- An accepted hand-off has no time limit. Its owner is asked to record a promise when it says it will report later; nothing forces it to.
+- Whether a bot chooses the right kind, reports back, offers instead of acting and asks before a risky action is up to the model. Those are measured, not enforced: see [the results](../docs/bot-communication-results.md).
+- A recurring check-in is quiet only when the agent replies with the agreed words. A reply in other words is shown.
+- All bots of a server are in one directory. Two clients that register different lists with `"replace": true` remove each other's bots.
+
 ## Work on projects on other servers
 
 Your projects may live on other machines than the one Herdr runs on. Add each such machine once as a project server, name the folders on it that matter as projects, and say for each bot which projects it may use. A bot then runs commands and changes files in a project with one command, and never needs the host or the path.
@@ -816,7 +1192,7 @@ There are no automatic approvals or saved permission rules. The agent still enfo
 The server says what it is, and it can replace itself with a newer signed release. `docs/updates.md` in the repository is the guide for people; this is the server's side.
 
 ```sh
-swarmhub-herdr version          # swarmhub-herdr 0.2.0 (workspace API 1, x86_64-linux)
+swarmhub-herdr version          # swarmhub-herdr 0.2.0 (workspace API 2, x86_64-linux)
 swarmhub-herdr version --json
 ```
 
