@@ -43,7 +43,7 @@ struct ContentView: View {
                 }
             }
         }
-        .task { store.startHerdrHelperPolling(); store.startLaunchWork(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
+        .task { store.startHerdrHelperPolling(); store.startLaunchWork(); store.startTeamCoordination(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
         // "New agent" with no server opens the setup window instead of an editor whose bot could not answer.
         .sheet(isPresented: Binding(get: { store.showingNewBot && store.herdrConfigured }, set: { store.showingNewBot = $0 })) { BotEditorView(bot: nil) }
         .onChange(of: store.showingNewBot) { _, shown in if shown, !store.herdrConfigured { store.showingNewBot = false; store.openSetup(openWindow: openWindow) } }

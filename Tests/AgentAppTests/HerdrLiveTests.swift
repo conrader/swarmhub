@@ -39,7 +39,7 @@ func aRealAgentAnswersThroughTheAppsOwnClient() async throws {
                 if transcript.firstPartial.isEmpty { transcript.firstPartial = text }
                 transcript.reply = text
             case .token(let text): transcript.reply += text
-            case .launchModel, .runActivity, .completed, .failed: break
+            case .journal, .published, .launchModel, .runActivity, .completed, .failed: break
             }
         }
     } catch { transcript.failure = error.localizedDescription }

@@ -63,11 +63,11 @@ import Testing
      {"id":2,"runtime_name":"an-older-bridge-without-sessions"}]
     """.utf8))
     let running = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: profiles)
-    #expect(running.running == .model(id: "m-b", label: "Model B") && running.short == "Model B" && running.runningLine == "Running on Model B now.")
-    #expect(running.pendingLine == "Press “Start fresh” to switch to Model A.", "another model is chosen than the one running: it says when it applies")
+    #expect(running.running == .model(id: "m-b", label: "Model B") && running.short == "Model B" && running.runningLine == "Started on Model B.")
+    #expect(running.pendingLine == "Model A is selected for the next launch.", "another model is chosen than the one running: it says when it applies")
     let same = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: "m-b", offered: offered, agent: agent, profiles: profiles)
-    #expect(same.pendingLine == nil && same.summary == "AI: Agent One (default). Model: Model B. Running on Model B now.")
+    #expect(same.pendingLine == nil && same.summary == "AI: Agent One (default). Model: Model B. Started on Model B.")
     let unstated = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: older, profiles: profiles)
-    #expect(unstated.running == .unstated && unstated.short == nil && unstated.runningLine?.contains("it picked itself") == true && unstated.pendingLine == "Press “Start fresh” to switch to Model A.", "an agent started without a model is not given one by guess")
+    #expect(unstated.running == .unstated && unstated.short == nil && unstated.runningLine?.contains("it picked itself") == true && unstated.pendingLine == "Model A is selected for the next launch.", "an agent started without a model is not given one by guess")
     #expect(HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: []).running == .unknown)
 }

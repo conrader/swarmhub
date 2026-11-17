@@ -27,6 +27,10 @@ struct HerdrAgentReading: Equatable, Sendable {
     var modelIsOwn = false
     var usesRecommendation = false
     var running = Running.none
+    var session: HerdrClient.AgentRef?
+    var core: String?
+    var activeTemplate: String?
+    var confirmed = false
 
     /// The template a bot starts from: its own, else the one chosen for new bots, else the server's first usable one.
     /// A name the server does not have resolves to nothing, as `deliver` refuses it.
@@ -54,6 +58,7 @@ struct HerdrAgentReading: Equatable, Sendable {
             else { model = HerdrClient.defaultModel(offered: offered).flatMap { id in offered.first { $0.id == id } } }
         }
         guard let agent else { return }
+        self.session = agent.ref; activeTemplate = agent.template
         let session = profiles.lazy.flatMap { $0.sessions ?? [] }.first { $0.address == agent.address && $0.createdMs == agent.createdMs }
         guard let session else { running = .unknown; return }
         guard let id = session.runtime?.modelId, !id.isEmpty else { running = .unstated; return }
@@ -84,7 +89,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     var runningLine: String? {
         switch running {
         case .none: nil
-        case .model(_, let label): "Running on \(label) now."
+        case .model(_, let label): confirmed ? "Last confirmed model: \(label)." : "Started on \(label)."
         case .unstated: "Running on a model it picked itself."
         case .unknown: "Running, but the server does not say on which model."
         }
@@ -94,8 +99,8 @@ struct HerdrAgentReading: Equatable, Sendable {
     var pendingLine: String? {
         guard let model else { return nil }
         switch running {
-        case .model(let id, _) where id != model.id: return "Press “\(Self.startFresh)” to switch to \(Self.name(model))."
-        case .unstated: return "Press “\(Self.startFresh)” to switch to \(Self.name(model))."
+        case .model(let id, _) where id != model.id: return "\(Self.name(model)) is selected for the next launch."
+        case .unstated: return "\(Self.name(model)) is selected for the next launch."
         default: return nil
         }
     }
@@ -129,6 +134,13 @@ extension HerdrClient {
         let agent = liveAgent(named: agentName, in: current)
         // The profiles only matter for a running agent, and a failed read of them leaves its model unknown, not wrong.
         let saved = agent == nil ? [] : ((try? await profiles()) ?? [])
-        return HerdrAgentReading(templates: usable, ownTemplate: ownTemplate, sharedTemplate: sharedTemplate, ownModel: ownModel, offered: offered, agent: agent, profiles: saved)
+        var reading = HerdrAgentReading(templates: usable, ownTemplate: ownTemplate, sharedTemplate: sharedTemplate, ownModel: ownModel, offered: offered, agent: agent, profiles: saved)
+        reading.core = current.core
+        if let agent, let core = current.core, current.templates.first(where: { $0.name == agent.template })?.modelAgent == "OpenCode",
+           let live = try? await sessionModel(agent.ref, core: core), let id = live.effective {
+            reading.running = .model(id: id, label: offered.first(where: { $0.id == id })?.label ?? id)
+            reading.confirmed = true
+        }
+        return reading
     }
 }

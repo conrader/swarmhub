@@ -36,6 +36,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 
 - The reply is shown while the bot writes it, and each tool call is a step under the reply.
 - While a reply has no text yet, the line under it says what it is waiting for, as the server reports it: **Starting Codex… · the first reply takes longer**, **Delivered to Codex…**, **Codex is working…**, the running tool step (**Working… · Running a command · step 3**), **Codex is waiting for you in its terminal** (with a hand instead of the spinner), or **Finishing…**. The name is the AI's. The sidebar row says the same.
+- Mac chat shows the current bot’s pending permission request with **Allow once** and **Deny**. **Answer here** opens its terminal for interactive prompts. Published files and Pages open from the reply.
 - The app follows a turn on the bridge's event stream and falls back to polling when the stream is unavailable or keeps breaking.
 - **Stop** (**Chat → Stop Answer**) presses the agent's interrupt key. The agent stays open for the next message.
 - A message sent while the bot answers is typed into the running agent. With **Read new messages mid-answer** off for a bot (Details, **Model**, **Advanced**), or when the message has attachments, the message waits and goes when the answer ends.

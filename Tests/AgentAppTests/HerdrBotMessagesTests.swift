@@ -146,8 +146,8 @@ private func pair(_ one: Bot, _ other: Bot) -> String { HerdrBotRelay.pair(id(on
     let (store, _, bots) = exchangeStore()
     let jarvis = try #require(bots["Jarvis"]), boppy = try #require(bots["Boppy"]), tax = try #require(bots["Tax"])
     var backend = try store.herdrBackend(for: boppy)
-    #expect(backend.messageNote == HerdrBotMessage.note && backend.roster == HerdrBotMessage.roster(["Jarvis", "Legal", "Tax"]) && backend.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker])
-    #expect(backend.launchInstructions?.hasSuffix(HerdrBotMessage.note + "\n\n" + HerdrBotMessage.roster(["Jarvis", "Legal", "Tax"])) == true && backend.rosters.map(\.lead) == [HerdrBotMessage.rosterLead])
+    #expect(backend.messageNote == HerdrBotMessage.note && backend.roster == HerdrBotMessage.roster(["Jarvis", "Legal", "Tax"]) && backend.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
+    #expect(backend.launchInstructions?.hasSuffix(HerdrBotMessage.note + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Jarvis", "Legal", "Tax"])) == true && backend.rosters.map(\.lead) == [HerdrBotMessage.rosterLead])
     let main = try store.herdrBackend(for: jarvis)
     #expect(main.creationNote == AppStore.herdrCreationNote && main.messageNote == HerdrBotMessage.note && main.roster == HerdrBotMessage.roster(["Boppy", "Legal", "Tax"]), "the main bot still creates bots, and writes to bots like any other")
     #expect((main.launchInstructions?.utf8.count ?? 0) <= HerdrClient.notesBytes && main.launchInstructions?.contains(main.roster ?? "-") == true, "all its notes fit")
@@ -463,4 +463,41 @@ private final class SlowClock: @unchecked Sendable {
     try await waitUntil { answered(legal, relayed(legal, HerdrBotRelay.answer).first) && store.bots.contains { $0.name == "Runner" } && store.bots.allSatisfy { store.isIdle($0) } }
     #expect(relayed(legal, HerdrBotRelay.answer).first?.content == HerdrBotRelay.reply(from: "Jarvis", "I will set one up."), "the main bot's block is not passed back, only its words")
     #expect(store.pendingHerdrBots(for: jarvis).isEmpty && script.heard("Runner").isEmpty)
+}
+
+@MainActor @Test func registeredTeamRecoversHistoryWithoutDuplicatingALiveReplyOrReplayingAHandoff() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Jarvis", backend: .herdr)
+    let id = bot.id.uuidString.lowercased()
+    let serverID = HerdrServer.defaultID
+    let http = MockHTTPProtocol.serve { request in
+        switch request.url?.path {
+        case "/api/workspace": return (200, ["core":"c", "agents":[], "templates":[]])
+        case "/api/bots": return (200, ["bots":[]])
+        case "/api/bots/history":
+            let entries: [[String: Any]] = [
+                ["id":1, "bot":id, "kind":"said", "journal":50, "text":"Read live.", "at_ms":1000, "unread":true, "notify":false],
+                ["id":2, "bot":id, "kind":"said", "journal":51, "text":"Reviewer confirmed the failure.", "at_ms":2000, "unread":true, "notify":false]]
+            return (200, ["items":request.url?.query?.hasPrefix("after=0&") == true ? entries : [], "more":false])
+        default: return (404, [:])
+        }
+    }
+    let server = HerdrServer(id: serverID, name: "Test", kind: .address, address: "http://\(http.host)")
+    store.saveHerdrServer(server, token: "fixture")
+    store.herdrClientSetup = { $0.session = http.session }
+    store.bots = [bot]
+    store.selectedBot = nil
+    bot.messages = [ChatMessage(role: .assistant, content: "Read live.", metadata:["herdrJournal":"\(serverID):50"])]
+    await store.syncTeam(server)
+    #expect(store.bridgeCoordinates(bot))
+    #expect(bot.messages.map(\.content) == ["Read live.", "Reviewer confirmed the failure."])
+    #expect(bot.unreadCount == 1)
+    store.defaults.removeObject(forKey: "herdrTeamCursor.\(serverID)")
+    await store.syncTeam(server)
+    #expect(bot.messages.count == 2 && bot.unreadCount == 1)
+    let registrations = MockHTTPProtocol.recorded(http.host).filter { $0.url?.path == "/api/bots" }
+    #expect(registrations.count == 1)
+    let data = try #require(registrations.first?.bodyData)
+    let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(body["replace"] as? Bool != true)
 }

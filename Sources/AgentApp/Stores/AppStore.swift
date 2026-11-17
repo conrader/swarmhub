@@ -23,6 +23,10 @@ import UserNotifications
     /// The helper agents each Herdr bot's agent has now, by bot (`AppStore+HerdrHelpers.swift`); the helper open in the
     /// detail column; the poll that reads them, and the failed reads in a row per server.
     @Published var herdrHelpers: [UUID: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
+    var teamPolling: Task<Void, Never>?
+    var teamRegistrations: [String: Task<Bool, Error>] = [:]
+    var teamSynced: [String: ([HerdrClient.TeamMember], Date, Bool)] = [:]
+    @Published var teamErrors: [String: String] = [:]
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
     /// The bots whose running turn is on the bridge's event stream: the stream brings their helpers, so the poll leaves them out.
     var herdrStreaming: Set<UUID> = []

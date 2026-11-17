@@ -36,6 +36,14 @@ pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/attach/{id}/{created}", get(upgrade))
         .route(
+            "/chat-model.js",
+            get(|| async { js(include_str!("../web/chat-model.js")) }),
+        )
+        .route(
+            "/chat-terminal",
+            get(|| async { axum::response::Html(include_str!("../web/chat-terminal.html")) }),
+        )
+        .route(
             "/terminal.js",
             get(|| async { js(include_str!("../web/terminal.js")) }),
         )

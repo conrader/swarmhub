@@ -35,6 +35,7 @@ The full picture, with the message flow, the security boundaries and a map of th
 
 ## What you can do
 
+- **Finish a task in Mac chat.** Review a permission request, answer a terminal prompt, and open the files or Pages published with the reply.
 - **Choose where bots run.** This Mac, or a server the app reaches with your SSH login. A server by address and access key is under **Advanced**. The setup window checks the connection and says what is wrong when it fails.
 - **Keep a team of bots.** A bot has a name, an avatar, instructions, an AI and a model. The AIs and models offered are the ones your server lists; the app keeps no list of its own.
 - **Let the main bot build the team.** Each server has one main bot, marked with a star. It creates other bots, at once or after asking you. Any other bot that wants a new bot asks the main bot.
@@ -111,7 +112,7 @@ Rendered by the app (`AgentApp --render-setup`) with sample content. No real ser
 | [Guide](docs/guide.md) | Setup and everyday use. |
 | [Architecture](docs/architecture.md) | The pieces, how a message travels, what is enforced in code, the security boundaries, where the code is. |
 | [The bridge's manual](HerdrWorkspace/README.md) | Running the bridge, its HTTP API, agent templates, helpers, projects, the browser workspace. |
-| [How bots communicate](docs/bot-communication.md) | The behaviour SwarmHub is being built towards. A specification: [what exists today](docs/architecture.md#communication-the-target-and-today). |
+| [How bots communicate](docs/bot-communication.md) | Server-side handoffs, check-ins, limits and promises. [Implementation](docs/architecture.md#communication-the-target-and-today). |
 | [Approvals](docs/approvals.md) | A second specification, mostly not built yet. |
 | [Features](docs/FEATURES.md) · [Limits](docs/ROADMAP-AND-LIMITS.md) | What the Mac app does, and what it does not. |
 | [Technical reference](docs/reference.md) | Build, files on disk, command-line flags, card syntax. |
@@ -120,11 +121,10 @@ Rendered by the app (`AgentApp --render-setup`) with sample content. No real ser
 
 ## Status
 
-- The Mac app is the only app. There is no iPhone, Windows, Linux or Android app. The bridge also serves a [browser workspace](HerdrWorkspace/README.md) to the same agents, with features the Mac app does not have (a Library, Pages, routines, approvals, connected files).
+- The Mac app is the only app. There is no iPhone, Windows, Linux or Android app. The bridge also serves a [browser workspace](HerdrWorkspace/README.md) to the same agents, with features the Mac app does not have (workspace-wide Library search, Page editing, routines, and connected files).
 - On this Mac, setup installs Herdr Core and the bridge. Install and sign in to the agent program yourself. Remote servers need a manual first install. The app updates compatible bridges ([Updates](docs/updates.md)). "Get a ready-made server from us" in the setup window is marked "Coming soon": it is planned, and nothing is behind it yet.
 - All agents on a server run as one account. The per-bot choices (projects, helpers) are bookkeeping, not isolation: see [Trust and security](docs/architecture.md#trust-and-security).
-- Bots pass messages to each other only while the Mac app runs, because the app does the passing on.
-- Most of [How bots communicate](docs/bot-communication.md) (kinds of messages, time limits, initiative, planned check-ins) and of [Approvals](docs/approvals.md) is not built.
+- Bots can hand work to a teammate, plan a check-in, or watch a public PR for failing CI. Open **Details → Team activity** to see who owns the work. [Bot communication](docs/bot-communication.md) · [Approvals](docs/approvals.md)
 - An agent gets text only. An attached image stays in the chat.
 
 ## Repository

@@ -453,7 +453,9 @@ impl History {
             "SELECT journal.id, CASE WHEN kind='artifact' AND page_id IS NOT NULL THEN 'page' ELSE kind END, state,
                     CASE kind WHEN 'snapshot' THEN '' ELSE text END,
                     CASE WHEN kind='artifact' AND page_id IS NOT NULL THEN workspace_pages.title ELSE detail END,
-                    at_ms, launch_instructions, page_id, page_revision, workspace_pages.title,
+                    at_ms, launch_instructions, page_id,
+                    CASE WHEN kind='artifact' AND page_id IS NOT NULL THEN workspace_pages.revision ELSE page_revision END,
+                    workspace_pages.title,
                     CASE WHEN journal.event_key LIKE 'opencode:%' THEN substr(journal.event_key, 10) END,
                     reaction, in_reply_to, reply_excerpt,
                     CASE WHEN kind='reply' AND in_reply_to IS NULL THEN (

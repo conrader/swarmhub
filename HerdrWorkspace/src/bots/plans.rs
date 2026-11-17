@@ -38,6 +38,11 @@ pub(crate) fn one_line(text: &str, limit: usize) -> String {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Schedule {
+    Ci {
+        url: String,
+        #[serde(default)]
+        failure: Option<String>,
+    },
     Once {
         at_ms: i64,
     },
@@ -57,14 +62,26 @@ pub(crate) enum Schedule {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "when", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum When {
+    Ci {
+        url: String,
+    },
     /// "in 30m".
-    In { seconds: u64 },
+    In {
+        seconds: u64,
+    },
     /// "at 17:30": the next time the clock shows it.
-    At { hour: u8, minute: u8 },
+    At {
+        hour: u8,
+        minute: u8,
+    },
     /// A moment.
-    On { at_ms: i64 },
+    On {
+        at_ms: i64,
+    },
     /// "every 2h".
-    Every { seconds: u64 },
+    Every {
+        seconds: u64,
+    },
     /// "every day at 9:00", "every weekday at 9:00".
     Daily {
         hour: u8,
@@ -91,12 +108,16 @@ impl When {
                 daily(hour, minute, false, &ctx.set.timezone)?.next(ctx.now)
             }
             Self::On { at_ms } => Some(at_ms),
-            Self::Every { .. } | Self::Daily { .. } => None,
+            Self::Ci { .. } | Self::Every { .. } | Self::Daily { .. } => None,
         }
     }
 
     pub(crate) fn schedule(&self, ctx: &Ctx<'_>) -> Option<Schedule> {
         Some(match *self {
+            Self::Ci { ref url } => Schedule::Ci {
+                url: super::ci::pull_request(url)?,
+                failure: None,
+            },
             Self::Every { seconds } => Schedule::Interval { seconds },
             Self::Daily {
                 hour,
@@ -117,13 +138,14 @@ impl When {
 
 impl Schedule {
     pub(crate) fn recurring(&self) -> bool {
-        !matches!(self, Self::Once { .. })
+        !matches!(self, Self::Once { .. } | Self::Ci { .. })
     }
 
     /// When it fires next after `after`. `None` for a one-off whose moment has passed, and for a schedule that
     /// names no time.
     pub(crate) fn next(&self, after: i64) -> Option<i64> {
         match self {
+            Self::Ci { .. } => Some(after),
             Self::Once { at_ms } => (*at_ms > after).then_some(*at_ms),
             Self::Interval { seconds: count } if *count > 0 => after.checked_add(seconds(*count)),
             Self::Interval { .. } => None,
@@ -139,6 +161,7 @@ impl Schedule {
     /// "every 30 minutes", "every weekday at 09:00 (Europe/Warsaw)".
     pub(crate) fn words(&self, ctx: &Ctx<'_>) -> String {
         match self {
+            Self::Ci { url, .. } => format!("when a check fails on {url}"),
             Self::Once { at_ms } => format!("once, on {}", notes::clock(*at_ms, ctx.set)),
             Self::Interval { seconds } => format!("every {}", notes::span(*seconds)),
             Self::Daily {
@@ -254,11 +277,16 @@ pub(crate) fn plan(
         )));
     }
     let apart = seconds(ctx.set.checkin_gap_seconds);
-    if let Some(near) = planned.iter().find(|other| {
-        other
-            .next_ms
-            .is_some_and(|next| (next - first).abs() < apart)
-    }) {
+    if !matches!(schedule, Schedule::Ci { .. })
+        && let Some(near) = planned
+            .iter()
+            .filter(|c| !matches!(c.schedule, Schedule::Ci { .. }))
+            .find(|other| {
+                other
+                    .next_ms
+                    .is_some_and(|next| (next - first).abs() < apart)
+            })
+    {
         return Ok(Err(format!(
             "Check-ins of one bot are at least {gap} apart, and #{} (\"{}\") is planned for {}. Nothing was planned: pick a time at least {gap} away from it, or put both into one check-in.",
             near.id,
@@ -271,7 +299,9 @@ pub(crate) fn plan(
         [&bot.id],
         |row| row.get(0),
     )?;
-    if let Some(fired) = fired.filter(|fired| first - fired < apart) {
+    if !matches!(schedule, Schedule::Ci { .. })
+        && let Some(fired) = fired.filter(|fired| first - fired < apart)
+    {
         return Ok(Err(format!(
             "Check-ins of one bot are at least {gap} apart, and one fired at {}. Nothing was planned: the earliest time is {}.",
             notes::clock(fired, ctx.set),
@@ -314,7 +344,7 @@ pub(crate) fn fire_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
     let due: Vec<Checkin> = ctx
         .db
         .prepare_cached(&format!(
-            "SELECT {CHECKIN} FROM bot_checkins c WHERE c.state='planned' AND c.next_ms<=?1 ORDER BY c.next_ms,c.id LIMIT 64"
+            "SELECT {CHECKIN} FROM bot_checkins c WHERE c.state='planned' AND c.next_ms<=?1 AND (json_extract(c.schedule,'$.kind')!='ci' OR json_extract(c.schedule,'$.failure') IS NOT NULL) ORDER BY c.next_ms,c.id LIMIT 64"
         ))?
         .query_map([ctx.now], read_checkin)?
         .collect::<Result<_, _>>()?;
@@ -337,10 +367,20 @@ pub(crate) fn fire_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
         }
         let recurring = checkin.schedule.recurring();
         let often = recurring.then(|| checkin.schedule.words(ctx));
+        let task = match &checkin.schedule {
+            Schedule::Ci {
+                url,
+                failure: Some(link),
+            } => format!(
+                "A check failed on {url}. Check details: {link}\n{}",
+                checkin.what
+            ),
+            _ => checkin.what.clone(),
+        };
         let text = notes::checkin(
             ctx.cmd,
             checkin.id,
-            &checkin.what,
+            &task,
             often.as_deref(),
             checkin.created_ms,
             ctx.set,

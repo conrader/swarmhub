@@ -6,7 +6,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{StatusCode, header},
     response::IntoResponse,
     routing::{get, post},
@@ -224,7 +224,16 @@ pub fn routes() -> Router<Workspace> {
         .route("/api/approval-rules/{id}/revoke", post(revoke_read))
 }
 
-async fn inbox(State(w): State<Workspace>) -> Result<impl IntoResponse, StoreError> {
+#[derive(Default, Deserialize)]
+struct InboxQuery {
+    #[serde(default)]
+    pending_only: bool,
+}
+
+async fn inbox(
+    State(w): State<Workspace>,
+    Query(query): Query<InboxQuery>,
+) -> Result<impl IntoResponse, StoreError> {
     let pending = w
         .approvals
         .pending
@@ -234,6 +243,28 @@ async fn inbox(State(w): State<Workspace>) -> Result<impl IntoResponse, StoreErr
         .filter(|item| item.answer.is_some() && Instant::now() < item.until)
         .map(|item| item.info.clone())
         .collect::<Vec<_>>();
+    if query.pending_only {
+        // Native chat can act only on the exact launch it is following. A terminal
+        // address may already belong to another session when a review expires.
+        let sessions: BTreeMap<_, _> = w
+            .approvals
+            .summary(&w.history)?
+            .into_iter()
+            .filter_map(|item| Some((item.id, item.terminal?)))
+            .collect();
+        let pending: Vec<_> = pending
+            .into_iter()
+            .filter_map(|review| {
+                let (core, address, created) = sessions.get(&review.id)?;
+                let mut row = json!(review);
+                row["core"] = json!(core);
+                row["address"] = json!(address);
+                row["created_ms"] = json!(created);
+                Some(row)
+            })
+            .collect();
+        return Ok(Json(json!({"pending": pending})));
+    }
     let rules = w.approvals.rules.lock().map_err(|_| StoreError)?.list();
     let db = w.history.db()?;
     let mut stmt = db

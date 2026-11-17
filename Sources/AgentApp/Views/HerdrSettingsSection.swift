@@ -246,6 +246,9 @@ struct HerdrAgentControls: View {
     @Environment(\.inspectorStartsAdvanced) private var renderOpen
     /// The server's lists were read (a render passes them in); until then the default entries cannot be named.
     @State private var listed: Bool
+    @State private var switchTarget: HerdrPickerTarget?
+    @State private var switching = false
+    @State private var confirmFresh = false
     private let preset: Bool
 
     /// `templates` and `models` (renders and tests) show a read without making one.
@@ -268,35 +271,40 @@ struct HerdrAgentControls: View {
                 HerdrTemplatePicker(selection: $template, templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default")
             }
             .onChange(of: template) { _, value in
-                guard loaded else { return }
+                guard loaded, value != (store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? "") else { return }
                 store.setHerdrTemplate(value, for: bot); model = HerdrModelChoice.recommended; store.setHerdrModel(model, for: bot)
                 Task { await loadModels(); await applyChoice() }
             }
             if effective?.takesModel == true {
                 // No choice of its own: the first model the server offers, which the bot's next agent is started on.
                 SettingBlock(title: "Model", detail: listed ? nil : "Checking…") {
-                    HerdrModelPicker(model: $model, program: effective?.modelAgent ?? effective?.programName, models: models)
+                    HerdrModelPicker(model: Binding(get: { model }, set: { value in
+                        guard loaded, value != model else { return }
+                        model = value
+                        store.setHerdrModel(value, for: bot)
+                        Task { await switchCurrentModel() }
+                    }), program: effective?.modelAgent ?? effective?.programName, models: models)
                 }
-                .onChange(of: model) { _, value in
-                    guard loaded else { return }
-                    store.setHerdrModel(value, for: bot)
-                    Task { await applyChoice() }
-                }
+                .disabled(switching || store.isWorking(bot))
             } else if listed, effective != nil {
                 SettingBlock(title: "Model", detail: HerdrAgentReading.programPicks) { EmptyView() }
             }
             if let running = reading?.runningLine {
                 StatusCard(kind: reading?.pendingLine == nil ? .info : .warning, title: running, detail: reading?.pendingLine)
             }
-            SettingBlock(title: "Start fresh", detail: note.isEmpty ? "\(bot.name) starts over on the AI and model chosen here, and forgets what was said in this chat. The chat itself stays." : note) {
-                HStack {
-                    Button(HerdrAgentReading.startFresh) { restart() }.disabled(restarting)
-                    if restarting { ProgressView().controlSize(.small) }
-                }
+            if !note.isEmpty { Text(note).font(.callout).textSelection(.enabled) }
+            if reading?.session != nil, reading?.activeTemplate == effective?.name,
+               let program = effective?.modelAgent, ["OpenCode", "Claude Code", "Codex"].contains(program),
+               reading?.pendingLine != nil || reading?.running == .unknown || !note.isEmpty && reading?.confirmed != true {
+                Button("Switch in this conversation") { Task { await switchCurrentModel() } }
+                    .disabled(switching || store.isWorking(bot))
             }
             // What few people change: both are on for every bot.
             QuietFold(title: "Advanced", isOpen: Binding(get: { showAdvanced || renderOpen }, set: { showAdvanced = $0 })) {
                 VStack(alignment: .leading, spacing: 18) {
+                    SettingBlock(title: "New conversation", detail: "Start \(bot.name) with empty context. Earlier messages stay visible here.") {
+                        Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isWorking(bot))
+                    }
                     if servers.count > 1 {
                         // Another server has its own agent programs and models, so both choices start over there.
                         SettingBlock(title: "Server") {
@@ -319,6 +327,14 @@ struct HerdrAgentControls: View {
                                   isOn: Binding(get: { ahead && store.herdrKeepsReady(bot) }, set: { store.setHerdrKeepsReady($0, for: bot) }))
                         .disabled(!ahead)
                 }
+            }
+        }
+        .confirmationDialog("Start a new conversation for \(bot.name)?", isPresented: $confirmFresh) {
+            Button(HerdrAgentReading.startFresh, role: .destructive) { restart() }
+        }
+        .sheet(item: $switchTarget, onDismiss: { Task { await store.refreshHerdrAgentReading(for: bot) } }) { target in
+            HerdrTerminalSheet(bot: bot, agent: target.agent, target: target) {
+                note = "Switched to \(target.record.label) in this conversation."
             }
         }
         .task {
@@ -344,6 +360,39 @@ struct HerdrAgentControls: View {
     private func applyChoice() async {
         if store.launchWorkEnabled { await store.herdrChoiceChanged(for: bot) }
         await store.refreshHerdrAgentReading(for: bot)
+    }
+
+    private func switchCurrentModel() async {
+        guard !switching else { return }
+        switching = true
+        defer { switching = false }
+        note = ""
+        let server = store.herdrServer(for: bot), choice = store.herdrModel(for: bot)
+        guard let reading = await store.refreshHerdrAgentReading(for: bot, requireFresh: true) else {
+            note = "Couldn’t check the running session. Your model choice is saved for the next launch."
+            return
+        }
+        guard choice == store.herdrModel(for: bot), server == store.herdrServer(for: bot) else { return }
+        guard let session = reading.session, let core = reading.core else { await applyChoice(); return }
+        guard let runtime = reading.runtime, reading.activeTemplate == runtime.name else {
+            note = "The selected agent program will be used for a new conversation."
+            return
+        }
+        do {
+            if runtime.modelAgent == "OpenCode" {
+                let client = try store.herdrClient(for: server)
+                let state = try await client.selectModel(reading.model?.id, for: session, core: core)
+                if let id = state.effective {
+                    let label = models.first { $0.id == id }?.label ?? id
+                    store.rememberModel(.init(server: server.id, core: core, address: session.address, created: session.createdMs, id: id, label: label), for: bot)
+                    note = "Switched to \(label) in this conversation."
+                }
+                await store.refreshHerdrAgentReading(for: bot)
+            } else if let program = runtime.modelAgent, ["Claude Code", "Codex"].contains(program), let selected = reading.model {
+                let record = HerdrModelConfirmation(server: server.id, core: core, address: session.address, created: session.createdMs, id: selected.id, label: HerdrAgentReading.name(selected))
+                switchTarget = HerdrPickerTarget(record: record, agent: session, program: program)
+            } else { note = "This agent program applies the selected model on its next launch." }
+        } catch { note = error.localizedDescription }
     }
 
     private func restart() {

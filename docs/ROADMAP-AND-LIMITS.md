@@ -19,23 +19,23 @@ What the macOS app does not do today. Each item was checked against the code in 
 - An agent receives text only. An attached image is kept in the chat and is not sent to the agent.
 - Only the newest message is sent. The agent keeps its own conversation, so the app's copy of earlier messages is not replayed to a fresh agent.
 - A first task, with the bot's instructions, is cut to what the bridge accepts (16 KB).
-- A reply is saved by the agent's own hook when its turn ends. An agent that stops at a prompt in its terminal saves none; the app stops waiting after the agent has been quiet for a while. Answer the prompt in the browser workspace or with `hc attach`.
+- A reply is saved by the agent's own hook when its turn ends. An agent that stops at a prompt in its terminal saves none; the app stops waiting after the agent has been quiet for a while. Choose **Answer here** in chat. Older bridges also support the external terminal option.
 - Stop presses the agent's interrupt key. What the agent does with it is up to the agent program.
 
 ## Not in the Mac app
 
 These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspace/README.md)) but not in the Mac app:
 
-- approvals of an agent's permission requests,
+- workspace-wide approval history and remembered read rules,
 - routines and webhooks,
-- the Library, Pages, snapshots and published files,
+- Library browsing, editing Pages, and snapshots,
 - connected folders, Google Drive and GitHub,
-- taking over an agent's terminal or desktop.
+- taking over an agent’s graphical desktop.
 
 ## Bots and messages between them
 
-- A bot is a record in the Mac app. Messages between bots and requests for new bots are passed on by the app, so nothing moves between bots while the app is closed.
-- [How bots communicate](bot-communication.md) describes more than exists: there is one kind of message, no time limit on an answer, no hand-off of work, no planned check-ins, and no bot writes to you unprompted. [What exists today](architecture.md#communication-the-target-and-today).
+- The bridge delivers messages between registered bots and tracks handoffs while the Mac app is closed. Creating a new bot from a proposal still requires the Mac app.
+- PR watches support public GitHub Checks. They end after the first observed failure, a closed PR, or seven days. [Bot communication](bot-communication.md)
 - All agents on a server run as the same account. The projects a bot may use, and whether it is told about helpers, are not isolation ([Trust and security](architecture.md#trust-and-security)).
 - "About you" is one text for all bots on all servers, at most 800 characters. Only a main bot suggests additions, and the first conversation's rules (one question per reply, no other work until asked) are instructions to the bot, not something the app enforces.
 

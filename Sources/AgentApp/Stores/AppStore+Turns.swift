@@ -57,7 +57,13 @@ extension AppStore {
                 // A step remembers where in the text it started, so the reply draws text → steps → text.
                 var activity = row.activity ?? ToolActivity(); activity.apply(tool, at: now(), textOffset: row.content.utf16.count)
                 if activity.total > 0 { row.activity = activity; objectWillChange.send() }
+            case .journal(let server, let ids): row.metadata["herdrJournal"] = ids.map { "\(server):\($0)" }.joined(separator: " ")
             case .launchModel(let model): launchModel = model
+            case .published(let server, let result):
+                var saved = row.publishedResults ?? HerdrReplyResults(serverID: server, items: [])
+                saved.items.append(result)
+                row.publishedResults = saved
+                autosaveIfDue()
             case .runActivity(let seconds, let tools): activitySummary = (seconds, tools)
             case .completed: completed = true
             case .failed(let value): failure = value

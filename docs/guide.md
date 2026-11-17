@@ -144,7 +144,7 @@ Opening a chat starts that bot if it is not running, so the first reply does not
 
 ### Change what a bot runs on
 
-Open the bot's Details (⇧⌘I) and choose **Model** (⌘6). Pick the **AI** and the **Model**; both lists come from the server. A change applies the next time the bot starts. **Start fresh** makes it start over now on what you chose: the chat stays, and the bot forgets what was said in it. A bot that was started when you opened the chat and has not been written to yet is switched at once.
+Open the bot's Details (⇧⌘I) and choose **Model** (⌘6). Pick the **AI** and the **Model**; both lists come from the server. Changing the model within the same agent program keeps the conversation. OpenCode applies the change in the session. Claude Code and Codex open their model picker in the app. In Claude, use the session-only shortcut. In Codex, confirm the model and reasoning effort. Changing agent programs takes effect on the next launch. **Advanced → Start fresh** clears the agent’s context when you want a new conversation.
 
 **New bots run on**, in **Settings → Servers**, chooses the AI that new bots start on.
 
@@ -310,7 +310,9 @@ How this works, what is trusted, and the one-time install by hand on a server wh
 - **The access key is refused.** The key in the app is not the one the bridge runs with. Empty the access key field so the app reads the key again, or paste the current one. The field is under **Connection details** in the setup window and under **Advanced** in **Settings → Servers → Connection**.
 - **The bridge answers without Herdr Core.** Start Herdr Core on that machine.
 - **The server has no AI to start.** Add an agent template to Herdr Core.
-- **A reply never arrives.** The bot may be waiting at a prompt in its terminal; the chat header then says **Waiting for you in its terminal**. Answer it in the browser workspace or with `hc attach`.
+- **A bot needs permission.** In the bot’s chat, review the tool, working directory, and arguments. **Allow once** or **Deny** sends one decision to the running task. Codex may ask you to trust its permission hook first. New local starter templates include the hook. With a custom template, enable `--workspace-approvals` on its agent wrapper.
+- **Open a report or file.** Choose **Open** under the reply. Pages open for reading. Files open in Quick Look with **Save a copy**. The server that ran the task must be reachable.
+- **A reply never arrives.** The bot may be waiting at a prompt in its terminal; the chat header then says **Waiting for you in its terminal**. Choose **Answer here** to use the bot’s terminal inside chat. **Done** detaches from the terminal and leaves the bot running. If the first message was never delivered, choose **Retry** once the bot is ready.
 - **"This server needs an update."** Open **Settings → Software Update**. A server whose workspace cannot update itself yet needs one install by hand: [First install on a server](updates.md#first-install-on-a-server).
 
 <a id="build--contribute"></a>

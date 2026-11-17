@@ -110,7 +110,10 @@ struct ChatView: View {
                 // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
                 // (Remember or Don't save), and, once, the offer to get to know them.
                 VStack(spacing: 8) {
-                    if bot.backend == .herdr { HerdrPromptCard(bot: bot) }
+                    if bot.backend == .herdr {
+                        let server = store.herdrServer(for: bot)
+                        HerdrChatApprovals(bot: bot, server: server).id(bot.id.uuidString + server.id + server.address)
+                    }
                     if store.createsHerdrBots(bot) {
                         if !bot.messages.isEmpty { HerdrIntroOffer(bot: bot) }
                         HerdrAboutYouCard(bot: bot)

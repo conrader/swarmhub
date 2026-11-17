@@ -70,7 +70,7 @@ The app keeps a list of servers (`HerdrServer`, in `UserDefaults`); each bot is 
 
 **When the stream cannot be used.** The bridge allows 48 open streams. If the stream cannot be opened or breaks three times in a row, the app polls `GET /api/history/…` and `…/draft` instead. Both read the same state, so nothing is shown twice (`Backends/HerdrTurnFollower.swift`).
 
-**When no reply comes.** A reply exists only if the Stop hook saved one. An agent that stops at a prompt in its terminal (a trust question, a sign-in) saves none; the app stops waiting once the agent has been idle without a reply for 45 seconds (150 while its program is still starting) and says so. You answer the prompt in the browser workspace or with `hc attach`.
+**When no reply comes.** A reply exists only if the Stop hook saved one. An agent that stops at a prompt in its terminal (a trust question, a sign-in) saves none; the app stops waiting once the agent has been idle without a reply for 45 seconds (150 while its program is still starting) and says so. Mac chat opens the attached terminal in a sheet. The bridge verifies its session address and creation time before accepting input.
 
 Code: `Backends/HerdrBackend.swift`, `HerdrClient.swift`, `HerdrEvents.swift` on the Mac; `main.rs`, `events.rs`, `live_reply.rs`, `tool_activity.rs`, `agent.rs`, `codex_agent.rs`, `history.rs` in the bridge.
 
@@ -91,21 +91,9 @@ Code: `Stores/AppStore+HerdrWarm.swift`, `HerdrWorkspace/src/warm.rs`.
   <img src="diagrams/bots-and-helpers-light.svg" alt="In the Mac app, bots ask the main bot for new bots and write to each other, passed on by the app. On the Herdr server each bot has one agent, and an agent starts helpers through the bridge." width="1080">
 </picture>
 
-Two different mechanisms are at work here, and they live in different places.
+**Between bots.** The Mac app registers each bot’s stable ID, agent program, model, instructions and switches with its bridge. The bridge delivers asks, tells and handoffs, enforces limits and saves the exchange in both bots’ histories. Bots can work with the Mac closed. When the app reconnects, it fetches history after its saved cursor. A journal ID links a live reply to its saved copy.
 
-**Between bots: the Mac app passes things on.** A bot is a record in the app; the bridge knows agents, not bots. An agent asks the app for something by ending its reply with a fenced block marked `swarmhub` that holds JSON. The app reads these blocks from the finished reply and acts. The chat never draws a block: it shows one plain line under the reply, such as "Suggested a new bot: Legal". A message the app puts into a chat for another bot shows as a card with that bot's face and only its own words; the lines that tell the receiving agent how to answer are sent and not drawn.
-
-| Block | Who writes it | What the app does |
-| --- | --- | --- |
-| `create_bot` | The server's main bot (the one with the star; one per server) | With `"decision":"decided"` it adds the bot at once and lists it above the composer with **Keep** and **Remove**. Otherwise, or with **Ask me before creating bots** on, it shows the request there with **Create** and **Not now**. |
-| `request_bot` | Any other bot | Puts the request into the main bot's chat, marked as passed on, and the main bot's answer back into the asking bot's chat. |
-| `decline_bot` | The main bot | Tells the asking bot why not. |
-| `message_bot` | Any bot | Puts the message into the named bot's chat as its next message, and that bot's reply back into the sender's chat. Both chats show everything. |
-| `about_you` | The main bot | Shows the sentence above the composer with **Remember** and **Don’t save**. Only **Remember** adds it to "About you". |
-
-A new bot is only a record. Nothing is created on the server until it gets its first message or its chat is opened.
-
-Because the app does the passing on, it happens only while the app runs. With the app closed, no message moves between bots.
+The main bot can propose or create a new bot with a `create_bot` block. The Mac app handles the creation decision and the **Ask me before creating bots** setting. **Remember** saves a proposed `about_you` addition. An older bridge without the bot directory uses the app’s original relay while the app is running.
 
 **Under a bot: the bridge starts helpers.** An agent hands a task to a helper by running `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"` in its own shell. The command only asks; the bridge decides. It takes the agent program and the model for that difficulty from the server's helper policy (`helper-policy.json`), starts the helper as one more terminal in Herdr Core, and stops it some time after its answer. The agent reads the answer with `helper wait`. The Mac app shows running helpers under the bot and opens one read-only; it never starts or stops one.
 
@@ -117,18 +105,9 @@ Code: `Backends/HerdrBotRequest.swift`, `HerdrBotRelay.swift`, `HerdrBotMessage.
 
 ### Communication: the target and today
 
-[How bots communicate](bot-communication.md) is the behaviour SwarmHub is being built towards. It is a specification, and most of it does not exist yet.
+The bridge owns message delivery, handoff deadlines, check-ins and promises. The main bot receives rate-limited notices and can offer to help. A requested check-in can wake its assigned bot directly. A public PR watch checks the head commit on the bridge and wakes the bot on a failed check. The Mac app surfaces open work in **Details → Team activity**. [Communication rules](bot-communication.md) · [Agent scenario results](bot-communication-results.md)
 
-| | Today | In the specification, not built |
-| --- | --- | --- |
-| Messages between bots | One kind of message. Delivered as the receiver's next message, answer passed back, both chats show it, follow-ups allowed. | Three kinds (ask, tell, hand off), ownership of a piece of work, accept or decline of a hand-off. |
-| Endings | An exchange ends when no bot writes on, when a limit is reached, or when you stop a bot. | "Not answered in time" with time limits (10 minutes for an ask, 5 to accept a hand-off). |
-| Limits | 8 messages between the same two bots in one exchange, 4 bots in a chain, 6 messages per bot in 10 minutes. | The same numbers. |
-| Switches | **Other bots can message it**, per bot. | **Takes initiative**. |
-| Initiative | None. A bot writes only in reply to a message. | The main bot offering work and flagging problems, planned check-ins that run on the server, tracking of promises. |
-| Measurement | Unit tests of the parsing, the limits and the passing on. | Thirteen scenarios run ten times each with real Claude Code and Codex agents, with a bar of 9 in 10. No results have been published. |
-
-[Approvals](approvals.md) is a second specification of the same kind. Today the bridge can show Claude Code and Codex permission requests in the browser workspace when a template opts in. Levels, rules, reviewer bots, and anything in the Mac app are not built.
+[Approvals](approvals.md) is a second specification of the same kind. Mac chat can approve or deny a request from the current agent session when its template enables the approval hook. The browser workspace also provides the workspace-wide inbox, history, and temporary read rules.
 
 ## Models, skills and projects
 
@@ -152,7 +131,7 @@ Code: `Views/SoftwareUpdatePane.swift`, `Stores/SoftwareUpdateModel.swift`, `Bac
 
 ## The browser workspace
 
-The bridge serves a browser interface at its own address (`HerdrWorkspace/web`, compiled into the binary). It was built first and does more than the Mac app in some areas: a Library of results, Pages, routines and webhooks, approval of permission requests, connected files, taking over an agent's terminal. It uses the same API and the same access key. The Mac app and the browser can be used side by side on the same agents. Its manual is [HerdrWorkspace/README.md](../HerdrWorkspace/README.md).
+The bridge serves a browser interface at its own address (`HerdrWorkspace/web`, compiled into the binary). It was built first and does more than the Mac app in some areas: workspace-wide Library browsing, Page editing, routines and webhooks, approval history, and connected files. It uses the same API and the same access key. The Mac app and the browser can be used side by side on the same agents. Its manual is [HerdrWorkspace/README.md](../HerdrWorkspace/README.md).
 
 ## Enforced in code, or asked of the model
 

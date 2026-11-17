@@ -132,6 +132,18 @@ extension AppStore {
     /// The bot's instructions go out as `outboundPersona` (a bot imported from Grok has its secrets blanked).
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
         var backend = HerdrBackend(client: try herdrClient(for: herdrServer(for: bot)), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
+        if launchWorkEnabled {
+            let server = herdrServer(for: bot), id = bot.id
+            backend.coordinate = { [weak self] in
+                do { return try await self?.ensureTeam(server) ?? false }
+                catch {
+                    if await self?.teamPreviouslyRegistered(id, on: server) == true { return true }
+                    throw error
+                }
+            }
+        }
+        backend.confirmation = modelConfirmation(bot)
+        backend.serverID = herdrServer(for: bot).id
         backend.steers = herdrSteers(bot)
         // The main bot is told how to create bots; every other bot how to ask it for one.
         if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }
@@ -161,12 +173,24 @@ extension AppStore {
 
     /// Reads what the bot's agent runs on (agent program, model, and what the running agent was started on) and keeps
     /// it for the Details panel and the chat header. A server that cannot be read leaves the last reading in place.
-    @discardableResult func refreshHerdrAgentReading(for bot: Bot) async -> HerdrAgentReading? {
-        guard bot.backend == .herdr, !bot.isReadOnlyArchive, let client = try? herdrClient(for: herdrServer(for: bot)) else { return herdrAgentReadings[bot.id] }
-        let reading = try? await client.agentReading(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id), ownTemplate: defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)),
+    @discardableResult func refreshHerdrAgentReading(for bot: Bot, requireFresh: Bool = false) async -> HerdrAgentReading? {
+        guard bot.backend == .herdr, !bot.isReadOnlyArchive, let client = try? herdrClient(for: herdrServer(for: bot)) else { return requireFresh ? nil : herdrAgentReadings[bot.id] }
+        var reading = try? await client.agentReading(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id), ownTemplate: defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)),
                                                      sharedTemplate: defaults.string(forKey: HerdrBackend.templateKey), ownModel: herdrModel(for: bot))
+        if let record = modelConfirmation(bot), record.matches(server: herdrServer(for: bot).id, core: reading?.core, agent: reading?.session), reading?.confirmed == false {
+            reading?.running = .model(id: record.id, label: record.label)
+            reading?.confirmed = true
+        }
         if let reading, herdrAgentReadings[bot.id] != reading { herdrAgentReadings[bot.id] = reading }
-        return herdrAgentReadings[bot.id]
+        return requireFresh ? reading : herdrAgentReadings[bot.id]
+    }
+
+    func modelConfirmation(_ bot: Bot) -> HerdrModelConfirmation? {
+        defaults.data(forKey: "herdr.confirmed.\(bot.id)").flatMap { try? JSONDecoder().decode(HerdrModelConfirmation.self, from: $0) }
+    }
+
+    func rememberModel(_ record: HerdrModelConfirmation, for bot: Bot) {
+        defaults.set(try? JSONEncoder().encode(record), forKey: "herdr.confirmed.\(bot.id)")
     }
 
     /// Steer is the default: a message sent while the agent answers goes into that answer.

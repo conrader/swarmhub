@@ -140,7 +140,7 @@ A new bot runs on Herdr. Open its settings and choose **Advanced → Herdr agent
 
 The first message starts an agent on the server, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A new agent gets the bot's instructions once, before your first message. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. A Codex template that ends in `run-codex` shows its reply growing a few words at a time. For both agents, each tool call shows as a step under the reply while it runs. **Stop** presses the agent's interrupt key and leaves it open. A message you send while the agent answers is typed into the running agent (steer); turn that off per bot under **Herdr agent** to hold the message until the answer ends. **Start a fresh agent** ends the running agent, so the next message starts a new one on the chosen runtime and model.
 
-The app sends text only. An attached text file or document goes as text inside the message; an attached image stays in the chat and is not sent to the agent. The workspace's approvals, routines, and Library are not in the Mac app. Use the browser workspace for them, or `hc attach` to answer a prompt in the agent's terminal.
+The app sends text only. An attached text file or document goes as text inside the message; an attached image stays in the chat and is not sent to the agent. Mac chat shows pending approvals, an interactive terminal, and published file and Page cards. Use the browser workspace for routines and the full Library.
 
 ### Let the main bot create bots
 
@@ -311,6 +311,8 @@ A helper is an ordinary session: its replies, tool activity, terminal and histor
 - `POST /api/helper-policy` takes the policy as its body and saves the file. It answers like `GET`, or with status 422 and an `error` when a number is out of bounds, Herdr has no such template, or the template cannot take the model.
 
 ## Bots on the server
+
+The Mac app registers its bots, reads durable team history and shows open work in Details. To watch a public pull request, use `swarmhub-herdr checkin ci https://github.com/OWNER/REPO/pull/123 "Ask Reviewer what broke and report whether it blocks release."` The bridge checks the current head’s GitHub Checks every five minutes. A failure wakes the bot once. A closed PR or a seven-day timeout ends the watch. No GitHub credentials are used.
 
 The Mac app's bots write to each other, plan to come back to something, and record what they promised. The workspace carries all of it, so it goes on with the app closed: a message still reaches the other bot, a check-in still fires, and what happened is waiting when the app returns. The rules are in [How bots communicate and take initiative](../docs/bot-communication.md). This section says how the workspace holds them and what a client does. A client can be built from this section alone.
 

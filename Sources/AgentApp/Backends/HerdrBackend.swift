@@ -36,6 +36,9 @@ struct HerdrBackend: AgentBackend {
     let instructions: String?
     /// A message sent while the agent answers is typed into the running agent (steer), which reads it as soon as it
     /// can. Off: the app holds the message until the answer ends.
+    var coordinate: (@Sendable () async throws -> Bool)?
+    var confirmation: HerdrModelConfirmation?
+    var serverID: String?
     var steers = true
     static func botSteerKey(_ botID: UUID) -> String { "herdrSteer.\(botID.uuidString.lowercased())" }
     /// Set for a server's main bot (`HerdrBotRequest.note`): how to have the app create a bot, and how to answer
@@ -72,10 +75,18 @@ struct HerdrBackend: AgentBackend {
     struct Starting: Sendable { let program: String?; let settled: @Sendable () async -> Void }
     var starting: Starting? = nil
 
+    static let teamNote = """
+    SwarmHub team commands: use swarmhub-herdr bot list to find peers, bot ask NAME "QUESTION" for a reply, or bot handoff NAME "TASK" to delegate. Use checkin ci PUBLIC_PR_URL "WHAT" for a GitHub CI failure watch, checkin list for plans and promise list for commitments. Use the command path in your SwarmHub instructions when provided. Report the result to the person in this chat.
+    """
+    static let publishMarker = "Publishing a requested deliverable"
+    static let publishNote = """
+    Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. The user can open a successful publication from the reply.
+    """
+
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (HerdrBotMessage.marker, messageNote),
-         (HerdrAboutYou.marker, aboutHow)].compactMap { marker, note in
+        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "SwarmHub team commands:" : HerdrBotMessage.marker, messageNote),
+         (HerdrAboutYou.marker, aboutHow), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }
     }
@@ -110,7 +121,12 @@ struct HerdrBackend: AgentBackend {
         guard let text = request.messages.last(where: { $0.role == "user" })?.content, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BackendError.unavailable("There is no message to send.")
         }
-        let backend = self
+        var configured = self
+        if try await coordinate?() == true {
+            configured.roster = nil
+            configured.messageNote = Self.teamNote
+        }
+        let backend = configured
         return AsyncThrowingStream { continuation in
             let task = Task {
                 let started = ContinuousClock.now
@@ -130,6 +146,16 @@ struct HerdrBackend: AgentBackend {
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     // Read the launch model from this exact session. Following the answer proceeds concurrently.
                     let modelRead = Task {
+                        let ref = HerdrClient.AgentRef(address: turn.address, createdMs: turn.createdMs)
+                        if turn.program?.lowercased() == "opencode",
+                           let state = try? await backend.client.sessionModel(ref, core: turn.core), let model = state.effective {
+                            continuation.yield(.launchModel(model))
+                            return
+                        }
+                        if let saved = backend.confirmation, saved.matches(server: backend.serverID, core: turn.core, agent: ref) {
+                            continuation.yield(.launchModel(saved.label))
+                            return
+                        }
                         let profiles = try? await backend.client.profiles()
                         let sessions = profiles?.lazy.flatMap { $0.sessions ?? [] }
                         let runtime = sessions?.first { $0.address == turn.address && $0.createdMs == turn.createdMs }?.runtime
@@ -140,7 +166,13 @@ struct HerdrBackend: AgentBackend {
                     defer { modelRead.cancel() }
                     let reply = try await backend.client.replyWithActivity(to: turn, status: { continuation.yield(.status($0.code)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },
-                                                               partial: { continuation.yield(.replace($0)) }, live: { backend.onLive?($0) })
+                                                               partial: { continuation.yield(.replace($0)) }, live: { backend.onLive?($0) },
+                                                               published: { result in
+                                                                   if let serverID = backend.serverID { continuation.yield(.published(serverID, result)) }
+                                                               })
+                    if let server = backend.serverID, !reply.ids.isEmpty {
+                        continuation.yield(.journal(server, reply.ids))
+                    }
                     continuation.yield(.replace(reply.text))
                     continuation.yield(.runActivity(seconds: Int(started.duration(to: .now).components.seconds), tools: reply.tools))
                     continuation.yield(.completed)

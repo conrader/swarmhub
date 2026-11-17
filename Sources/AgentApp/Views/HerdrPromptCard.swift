@@ -6,7 +6,7 @@ import SwiftUI
 /// there. The card goes when the agent moves again.
 struct HerdrPromptCard: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot
-    @State private var couldNotOpen = false
+    @State private var terminal = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -26,7 +26,6 @@ struct HerdrPromptCard: View {
     }
 
     private func card(_ prompt: HerdrPrompt) -> some View {
-        let answer = store.herdrPromptAnswer(for: bot)
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: "hand.raised.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(AppColor.caution)
@@ -39,9 +38,12 @@ struct HerdrPromptCard: View {
                     }.font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                if let answer {
-                    Button(answer.button) { couldNotOpen = !store.answerHerdrPrompt(for: bot) }
-                        .buttonStyle(.appleProminent).help(answer.help).accessibilityHint(answer.help).accessibilityIdentifier("chat.prompt.answer")
+                if let agent = prompt.agent {
+                    Button("Answer here") { terminal = true }
+                        .buttonStyle(.appleProminent).accessibilityIdentifier("chat.prompt.answer")
+                        .sheet(isPresented: $terminal) {
+                            HerdrTerminalSheet(bot: bot, agent: agent)
+                        }
                 }
             }
             if !prompt.question.isEmpty {
@@ -55,7 +57,6 @@ struct HerdrPromptCard: View {
             } else if prompt.agent != nil {
                 Text(HerdrPrompt.unread).font(.caption).foregroundStyle(.secondary)
             }
-            if couldNotOpen { Text("Terminal could not be opened.").font(.caption).foregroundStyle(AppColor.caution) }
         }
         .chatCard(tint: bot.colours)
         .accessibilityElement(children: .contain).accessibilityLabel(prompt.title)

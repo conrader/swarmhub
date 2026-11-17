@@ -40,6 +40,7 @@ struct HerdrClient: Sendable {
         struct FirstMessage: Decodable, Sendable, Equatable { let sent: Bool? }
         let address: String; let name: String; let state: String; let createdMs: UInt64; let template: String?; let status: Status?
         var firstMessage: FirstMessage? = nil
+        var openCodeFirstTask: String? = nil
         /// Set for a helper: the agent that started it (`HerdrHelpers.swift`). A bot's own agent has none.
         var parent: AgentRef? = nil
         /// From a bridge that starts agents ahead of their first message (`warm`). `ready` is false only while such an
@@ -76,12 +77,15 @@ struct HerdrClient: Sendable {
     struct Item: Decodable, Sendable, Equatable {
         let id: Int; let kind: String; let text: String
         var state: String? = nil, detail: String? = nil
-        enum CodingKeys: CodingKey { case id, kind, text, state, detail }
+        var pageId: Int?, pageRevision: Int?
+        enum CodingKeys: CodingKey { case id, kind, text, state, detail, pageId, pageRevision }
         init(id: Int, kind: String, text: String, state: String? = nil, detail: String? = nil) { self.id = id; self.kind = kind; self.text = text; self.state = state; self.detail = detail }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = try c.decode(Int.self, forKey: .id); kind = try c.decode(String.self, forKey: .kind)
             text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
+            pageId = try c.decodeIfPresent(Int.self, forKey: .pageId)
+            pageRevision = try c.decodeIfPresent(Int.self, forKey: .pageRevision)
             state = try? c.decodeIfPresent(String.self, forKey: .state); detail = try? c.decodeIfPresent(String.self, forKey: .detail)
         }
         /// A task that was never typed into the agent.
@@ -108,7 +112,7 @@ struct HerdrClient: Sendable {
     }
 
     enum Failure: LocalizedError, Equatable {
-        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, notDelivered(String?)
+        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, unconfirmedDelivery, notDelivered(String?)
         var errorDescription: String? {
             switch self {
             case .invalidURL: "The server address is not valid. Use http://127.0.0.1:8787, or the port you forwarded."
@@ -117,10 +121,11 @@ struct HerdrClient: Sendable {
             case .http(_, let message): message
             case .noTemplate: "This server has no AI this bot can run on. Choose one in its Details, under Model."
             case .ended: "The bot stopped before it replied. Send your message again."
-            case .silent: "The bot finished without a reply. Send your message again; if it keeps happening, look at its terminal at the server's address in a browser."
+            case .silent: "The bot finished without a reply. If its chat shows a terminal prompt, choose Answer here to inspect it."
             // The server's own sentence says why and what to look at; without one, the same in the app's words.
-            case .notDelivered(let why): why.map { "\($0) Then send the message again." } ?? "The bot did not get ready, so your message was not delivered. Send it again; if it keeps happening, look at its terminal at the server's address in a browser."
-            case .waitingAtPrompt: "The bot started, but its program is asking a question in its terminal, so it has not read your message. Answer it at the server's address in a browser (Take over), then send the message again."
+            case .notDelivered(let why): why.map { "\($0) Choose Retry in chat once the bot is ready." } ?? "The bot did not get ready. Answer any terminal prompt in this chat, then choose Retry."
+            case .unconfirmedDelivery: "OpenCode could not confirm delivery. Check the conversation before sending the message again."
+            case .waitingAtPrompt: "The first message did not start. If the bot is asking a question, choose Answer here in chat. Once the bot is ready, choose Retry."
             }
         }
     }
@@ -357,6 +362,8 @@ struct HerdrClient: Sendable {
         status(.starting(program: Self.program(template: template, in: current)))
         let agent = try await start(name: name, template: template, model: model, task: Self.firstTask(text, instructions: instructions), projects: projects.map(\.id), in: current)
         if resync { synced() }
+        if agent.openCodeFirstTask == "uncertain" { throw Failure.unconfirmedDelivery }
+        if agent.openCodeFirstTask == "not_sent" { throw Failure.notDelivered("OpenCode did not accept the first task.") }
         if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true, program: current.program(of: agent))
     }
@@ -422,7 +429,7 @@ struct HerdrClient: Sendable {
 
     func replyWithActivity(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (HerdrTurnStatus) -> Void,
                            tool: @Sendable (ToolCall, Bool) -> Void, partial: @Sendable (String) -> Void,
-                           live: @Sendable (LiveNote) -> Void) async throws -> (text: String, tools: Int) {
+                           live: @Sendable (LiveNote) -> Void, published: @Sendable (HerdrPublishedResult) -> Void = { _ in }) async throws -> (text: String, tools: Int, ids: [Int]) {
         var follower = HerdrTurnFollower(after: turn.after, afterTool: turn.afterTool, quietLimit: quietLimit, program: turn.program, starting: turn.starting)
         func emit(_ steps: [HerdrTurnFollower.Step]) {
             for step in steps {
@@ -430,14 +437,15 @@ struct HerdrClient: Sendable {
                 case .status(let now): status(now)
                 case .tool(let call, let isNew): tool(call, isNew)
                 case .partial(let text): partial(text)
+                case .published(let result): published(result)
                 }
             }
         }
         defer { live(.following(false)) }
-        if following == .stream, let reply = try await streamedReply(to: turn, follower: &follower, emit: emit, live: live) { return (reply, follower.toolCount) }
+        if following == .stream, let reply = try await streamedReply(to: turn, follower: &follower, emit: emit, live: live) { return (reply, follower.toolCount, follower.replyIDs) }
         live(.following(false))
         let reply = try await polledReply(to: turn, follower: &follower, emit: emit)
-        return (reply, follower.toolCount)
+        return (reply, follower.toolCount, follower.replyIDs)
     }
 
     /// What a turn tells its bot beside the reply: the agent's helpers as the stream reports them, and whether the
@@ -466,6 +474,7 @@ struct HerdrClient: Sendable {
                 guard let agent, agent.isLive else {
                     // One more read: the hook may have saved the reply as the session closed.
                     follower.take(rows: try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs))
+                    emit(follower.drain())
                     return try follower.ended()
                 }
                 follower.take(agent: agent)
@@ -523,7 +532,7 @@ struct HerdrClient: Sendable {
         return .http(code, (try? JSONDecoder().decode(Problem.self, from: body))?.error ?? "The Herdr workspace answered HTTP \(code).")
     }
 
-    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+    func send<T: Decodable>(_ request: URLRequest) async throws -> T {
         try await prepare?()
         let (data, response) = try await session.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0

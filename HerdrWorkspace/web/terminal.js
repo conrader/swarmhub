@@ -1,6 +1,7 @@
 (() => {
   "use strict";
 
+  const $ = (id) => document.getElementById(id);
   const dialog = $("terminal-dialog");
   const host = $("terminal-host");
   const encoder = new TextEncoder();
@@ -42,14 +43,13 @@
     host.replaceChildren();
   }
 
-  function open() {
-    const agent = active();
-    if (!app.online || !live(agent) || !app.terminalAttach || session) return;
+  function open(address, created, name, token) {
+    if (session) return;
     if (!window.Terminal || !window.FitAddon?.FitAddon) {
-      show("notice", "The terminal viewer could not load. Reload the workspace and try again.");
+      throw new Error("The terminal viewer could not load.");
       return;
     }
-    $("terminal-heading").textContent = `${title(agent)} · Terminal`;
+    $("terminal-heading").textContent = `${name} · Terminal`;
     $("terminal-status").textContent = "Connecting to Herdr…";
     dialog.showModal();
     const terminal = new window.Terminal({
@@ -63,19 +63,35 @@
     terminal.open(host);
     terminal.textarea?.setAttribute("aria-label", "Control the agent terminal");
     const origin = location.origin.replace(/^http/, "ws");
-    const socket = new WebSocket(`${origin}/attach/${idOf(agent)}`);
+    const socket = new WebSocket(`${origin}/attach/${encodeURIComponent(address)}/${created}`);
     socket.binaryType = "arraybuffer";
     const observer = new ResizeObserver(() => {
       if (session === state && dialog.open) fit(state);
     });
     const state = { terminal, fit: addon, socket, observer, ready: false, ended: false };
     session = state;
+    if (!$("takeover")) {
+      window.chatModelTerminal = {
+        ready: () => state.ready,
+        closed: () => session !== state || state.ended || socket.readyState >= WebSocket.CLOSING,
+        key: key => sendBytes(state, encoder.encode(key)),
+        promptLine: () => {
+          const buffer = terminal.buffer.active;
+          return buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true).trim() ?? "";
+        },
+        lines: () => {
+          const buffer = terminal.buffer.active;
+          return Array.from({ length: terminal.rows }, (_, i) =>
+            buffer.getLine(buffer.baseY + i)?.translateToString(true) ?? "");
+        },
+      };
+    }
     fit(state);
     observer.observe(host);
 
     socket.addEventListener("open", () => {
       if (session !== state) return;
-      socket.send(JSON.stringify({ token: app.token, cols: terminal.cols, rows: terminal.rows }));
+      socket.send(JSON.stringify({ token, cols: terminal.cols, rows: terminal.rows }));
     });
     socket.addEventListener("message", ({data}) => {
       if (session !== state) return;
@@ -123,14 +139,25 @@
   }
 
   let listeners = new AbortController();
-  $("takeover").addEventListener("click", open);
-  $("terminal-close").addEventListener("click", () => dialog.close());
+  if ($("takeover")) {
+    $("takeover").addEventListener("click", () => {
+      const agent = active();
+      if (!app.online || !live(agent) || !app.terminalAttach) return;
+      try { open(agent.address, agent.created_ms, title(agent), app.token); }
+      catch (error) { show("notice", error.message); }
+    });
+  } else {
+    window.openChatTerminal = open;
+  }
+  $("terminal-close")?.addEventListener("click", () => dialog.close());
   dialog.addEventListener("close", () => {
     listeners.abort();
     listeners = new AbortController();
     detach();
-    if (!$("takeover").hidden) $("takeover").focus();
-    void refresh();
+    if ($("takeover")) {
+      if (!$("takeover").hidden) $("takeover").focus();
+      void refresh();
+    }
   });
   dialog.addEventListener("cancel", (event) => {
     if (host.contains(document.activeElement)) event.preventDefault();

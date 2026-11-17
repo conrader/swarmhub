@@ -21,6 +21,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 mod blocks;
+mod ci;
 pub(crate) mod cli;
 pub(crate) mod desk;
 mod notes;
@@ -366,7 +367,7 @@ pub(crate) struct Registration {
 pub(crate) const ID_SHAPE: &str =
     "Give each bot an id of 1 to 64 letters, digits and dashes that stays the same for that bot.";
 pub(crate) const NAME_SHAPE: &str = "Give the bot a name of 1 to 40 characters on one line.";
-pub(crate) const TEXT_SHAPE: &str = "Use plain text: up to 32 characters for a template, 128 for a model and 12 KB for instructions.";
+pub(crate) const TEXT_SHAPE: &str = "Use plain text: up to 32 characters for a template, 160 for a model and 12 KB for instructions.";
 
 pub(crate) fn valid_id(id: &str) -> bool {
     (1..=64).contains(&id.len())
@@ -415,7 +416,7 @@ pub(crate) fn register(
         wanted.instructions.as_ref(),
         before.as_ref().map(|b| &b.instructions),
     );
-    if !plain(&template, 32) || !plain(&model, 128) || !plain(&instructions, 12 * 1024) {
+    if !plain(&template, 32) || !plain(&model, 160) || !plain(&instructions, 12 * 1024) {
         return Ok(Err(TEXT_SHAPE.into()));
     }
     let agent = match (&wanted.agent_name, &before) {

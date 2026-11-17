@@ -227,8 +227,8 @@ private final class WarmBridge: @unchecked Sendable {
     _ = try await stuckClient.warm(name: "ada-abc123", template: nil)
     let lost = try await stuckClient.deliver("hi", name: "ada-abc123", template: nil, instructions: "Be brief.")
     await #expect(throws: HerdrClient.Failure.notDelivered("it did not report in time")) { try await stuckClient.reply(to: lost) }
-    #expect(HerdrClient.Failure.notDelivered("It did not report in time.").localizedDescription == "It did not report in time. Then send the message again."
-            && HerdrClient.Failure.notDelivered(nil).localizedDescription == "The bot did not get ready, so your message was not delivered. Send it again; if it keeps happening, look at its terminal at the server's address in a browser.")
+    #expect(HerdrClient.Failure.notDelivered("It did not report in time.").localizedDescription == "It did not report in time. Choose Retry in chat once the bot is ready."
+            && HerdrClient.Failure.notDelivered(nil).localizedDescription == "The bot did not get ready. Answer any terminal prompt in this chat, then choose Retry.")
     _ = try await stuckClient.deliver("again", name: "ada-abc123", template: nil, instructions: "Be brief.")
     #expect(stuck.texts.last == HerdrClient.firstTask("again", instructions: "Be brief."), "a message that was never typed taught the agent nothing")
 }

@@ -19,6 +19,7 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
 Check-ins (the server brings you back to something, also with the app closed):
   swarmhub-herdr checkin in 30m WHAT          once; also: at 17:30
   swarmhub-herdr checkin every 2h WHAT        again and again; also: every day at 9:00, every weekday at 9:00
+  swarmhub-herdr checkin ci PUBLIC_PR_URL WHAT   once, on a failed GitHub check
   swarmhub-herdr checkin list
   swarmhub-herdr checkin cancel ID
 Promises (what you told the person you will do or report later):
@@ -132,6 +133,13 @@ fn when(words: &[&str]) -> Result<(When, usize), String> {
         })
     };
     match words {
+        ["ci", url, ..] => Ok((
+            When::Ci {
+                url: super::ci::pull_request(url)
+                    .ok_or("Give a public GitHub pull request URL.")?,
+            },
+            2,
+        )),
         ["in", ..] => {
             let (seconds, used) = span(1).ok_or(SHAPE)?;
             Ok((When::In { seconds }, 1 + used))
@@ -232,7 +240,7 @@ fn parse(
                 id: id(rest.first())?,
             }
         }
-        ("checkin", "in" | "at" | "every") => {
+        ("checkin", "ci" | "in" | "at" | "every") => {
             let (when, used) = when(&words)?;
             Ask::Checkin {
                 when,

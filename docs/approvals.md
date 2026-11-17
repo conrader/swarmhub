@@ -46,4 +46,4 @@ A request that reaches you waits. The bot is told it is waiting and may continue
 
 ## What exists today
 
-The workspace can already receive permission requests from Claude Code and Codex when a template opts in, show the exact action, and take allow once, deny, or "use the terminal" from its browser page, with a decision record. Not built: levels, rules beyond one remembered file read, reviewers, time-limited rules, anything in the Mac app.
+The workspace can already receive permission requests from Claude Code and Codex when a template opts in, show the exact action, and take allow once, deny, or "use the terminal" from its browser page, with a decision record. The Mac chat also offers **Allow once** and **Deny** for its current session. Configurable levels and reviewer bots remain on the roadmap.

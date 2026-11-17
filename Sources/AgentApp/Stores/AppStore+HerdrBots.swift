@@ -206,7 +206,8 @@ extension AppStore {
         herdrReadiness[bot.id] = finished ? .ready : nil
         let triggers = herdrTriggers(of: reply, in: bot)
         // What it wrote to other bots is delivered, and its answer to another bot's message goes back (`AppStore+HerdrMessages.swift`).
-        herdrMessagesEnded(reply, from: bot, triggers: triggers, finished: finished)
+        let managed = bridgeCoordinates(bot)
+        if !managed { herdrMessagesEnded(reply, from: bot, triggers: triggers, finished: finished) }
         if createsHerdrBots(bot) {
             let request = triggers.first { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.request }
             guard finished else {
@@ -217,7 +218,7 @@ extension AppStore {
             let waiting = herdrRequests(in: reply, of: bot, askerID: herdrAsker(of: request)?.id)
             herdrSettling.formUnion(waiting.map(\.id))
             Task { await settleHerdrReply(reply, main: bot, waiting: waiting, request: request) }
-        } else if finished, triggers.allSatisfy({ HerdrBotRelay.mayAsk(replyingTo: $0.metadata) }) {
+        } else if !managed, finished, triggers.allSatisfy({ HerdrBotRelay.mayAsk(replyingTo: $0.metadata) }) {
             passOnHerdrAsks(HerdrBotAsk.asks(in: reply.content), from: bot)
         }
     }

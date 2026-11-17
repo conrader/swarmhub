@@ -6,7 +6,7 @@ import Foundation
 /// when an agent that saved nothing has gone quiet. Because it also remembers what it already reported, a turn can
 /// move from the stream to polling in the middle and no step is shown twice.
 struct HerdrTurnFollower: Sendable {
-    enum Step: Sendable, Equatable { case status(HerdrTurnStatus), tool(HerdrClient.ToolCall, isNew: Bool), partial(String) }
+    enum Step: Sendable, Equatable { case status(HerdrTurnStatus), tool(HerdrClient.ToolCall, isNew: Bool), partial(String), published(HerdrPublishedResult) }
     enum Verdict: Sendable, Equatable { case waiting, reply(String), failed(HerdrClient.Failure) }
 
     /// The newest saved row and tool call before the turn: its own are the ones after those.
@@ -45,7 +45,12 @@ struct HerdrTurnFollower: Sendable {
     // MARK: What was learned
 
     /// Saved rows, in any order and as often as they come: a row replaces the one with its id.
-    mutating func take(rows new: [HerdrClient.Item]) { for row in new where row.id > after { rows[row.id] = row } }
+    mutating func take(rows new: [HerdrClient.Item]) {
+        for row in new where row.id > after {
+            if rows[row.id] == nil, let result = HerdrPublishedResult(row) { steps.append(.published(result)) }
+            rows[row.id] = row
+        }
+    }
 
     /// Tool calls: each is reported when first seen, and once more when it has ended.
     mutating func take(tools calls: [HerdrClient.ToolCall]) {
@@ -76,6 +81,7 @@ struct HerdrTurnFollower: Sendable {
 
     // MARK: What it means
 
+    var replyIDs: [Int] { replies.map(\.id) }
     private var replies: [HerdrClient.Item] { rows.values.filter { $0.kind == "reply" }.sorted { $0.id < $1.id } }
     private var answered: String { replies.map(\.text).joined(separator: "\n\n") }
 

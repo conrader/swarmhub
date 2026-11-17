@@ -277,3 +277,15 @@ extension AppStore {
     /// P39: tests with one chat streaming read its turn without naming the chat.
     var soleTurn: ConversationTurn? { runningTurns.count == 1 ? runningTurns.values.first : nil }
 }
+
+extension URLRequest {
+    /// The body of a request as a URL protocol sees it: `httpBody`, or the stream URLSession turned it into.
+    var bodyData: Data? {
+        if let httpBody { return httpBody }
+        guard let stream = httpBodyStream else { return nil }
+        stream.open(); defer { stream.close() }
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 4_096)
+        while stream.hasBytesAvailable { let read = stream.read(&buffer, maxLength: buffer.count); if read <= 0 { break }; data.append(buffer, count: read) }
+        return data
+    }
+}

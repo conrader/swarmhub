@@ -118,7 +118,7 @@ const PROGRAMS: [Program; 3] = [
         full: "Claude Code",
         bin: "claude",
         template: "swarmhub-claude",
-        wrapper: "run-claude --workspace-preview",
+        wrapper: "run-claude --workspace-approvals --workspace-preview",
         description: "Claude Code with replies saved to SwarmHub",
         how: "Install Claude Code from claude.com/claude-code, then open Terminal, type claude, and sign in.",
         first_time: "The first time, Claude Code asks whether it may work in your bots’ folder ({folder}). “Yes, I trust this folder” lets it read, change and run files there.",
@@ -129,7 +129,7 @@ const PROGRAMS: [Program; 3] = [
         full: "Codex",
         bin: "codex",
         template: "swarmhub-codex",
-        wrapper: "run-codex",
+        wrapper: "run-codex --workspace-approvals",
         description: "Codex with replies saved to SwarmHub",
         how: "Install Codex from developers.openai.com/codex, then open Terminal, type codex, and sign in.",
         first_time: "The first time, Codex asks you to review three small commands that SwarmHub adds so the app can show Codex’s steps and save its replies. They only report what Codex does. “Trust all and continue” lets Codex run them.",
@@ -140,7 +140,7 @@ const PROGRAMS: [Program; 3] = [
         full: "OpenCode",
         bin: "opencode",
         template: "swarmhub-opencode",
-        wrapper: "run-opencode --api-first-task mini",
+        wrapper: "run-opencode --workspace-approvals --api-first-task mini",
         description: "OpenCode with your configured API provider",
         how: "Install OpenCode V2.3 or later, connect your provider in OpenCode, then run opencode models to see its model IDs.",
         first_time: "Configure and try your provider in OpenCode on this computer first.",
@@ -761,17 +761,20 @@ fn ensure_token(file: &Path) -> Result<(String, bool), Stop> {
     Ok((token, true))
 }
 
-/// One template per program found, where there is none of that name yet. A template that is already there is
-/// the person's and stays as it is. Returns the names written.
+/// Install missing starters and upgrade the exact previous stock templates. Preserve custom templates.
 fn write_templates(places: &Places, found: &[(&Program, PathBuf)]) -> Result<Vec<String>, Stop> {
     let mut written = Vec::new();
     for (program, _) in found {
         let file = places.templates.join(format!("{}.md", program.template));
-        if file.exists() {
-            continue;
+        let text = template_text(program, &places.exe);
+        if let Ok(meta) = file.symlink_metadata() {
+            let previous = text.replacen(" --workspace-approvals", "", 1);
+            if !meta.is_file() || !fs::read_to_string(&file).is_ok_and(|old| old == previous) {
+                continue;
+            }
         }
         fs::create_dir_all(&places.templates)
-            .and_then(|_| write_private(&file, &template_text(program, &places.exe), 0o644))
+            .and_then(|_| write_private(&file, &text, 0o644))
             .map_err(|_| {
                 Stop::failed(format!(
                     "The starter template could not be written to {}.",
@@ -785,7 +788,10 @@ fn write_templates(places: &Places, found: &[(&Program, PathBuf)]) -> Result<Vec
 
 /// Whether a template file is one `install` wrote and nobody changed since: only those are removed.
 fn own_template(file: &Path, program: &Program, exe: &Path) -> bool {
-    fs::read_to_string(file).is_ok_and(|text| text == template_text(program, exe))
+    let current = template_text(program, exe);
+    fs::read_to_string(file).is_ok_and(|text| {
+        text == current || text == current.replacen(" --workspace-approvals", "", 1)
+    })
 }
 
 // MARK: launchd
@@ -1665,6 +1671,18 @@ mod tests {
         let codex = places.templates.join("swarmhub-codex.md");
         assert!(own_template(&codex, &PROGRAMS[1], &places.exe));
         assert!(!places.templates.join("swarmhub-claude.md").exists());
+        let previous =
+            template_text(&PROGRAMS[1], &places.exe).replacen(" --workspace-approvals", "", 1);
+        fs::write(&codex, previous).unwrap();
+        assert_eq!(
+            write_templates(&places, &found).unwrap(),
+            ["swarmhub-codex"]
+        );
+        assert!(
+            fs::read_to_string(&codex)
+                .unwrap()
+                .contains("run-codex --workspace-approvals")
+        );
         // Written once: a second install changes nothing, and a template someone edited is theirs.
         assert!(write_templates(&places, &found).unwrap().is_empty());
         fs::write(&codex, "---\ncommand: codex --my-own-way\n---\n").unwrap();

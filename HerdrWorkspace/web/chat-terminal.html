@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Agent terminal</title>
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <style>
+    :root { color-scheme: light dark; font: 14px system-ui; }
+    dialog[open] { display: flex; flex-direction: column; box-sizing: border-box; position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border: 0; margin: 0; padding: 8px; }
+    h1 { font-size: 1rem; margin: 0; }
+    #terminal-status { margin: .4rem 0; }
+    #terminal-host { flex: 1; min-height: 0; background: #111318; }
+  </style>
+  <script src="/vendor/xterm.js" defer></script>
+  <script src="/vendor/addon-fit.js" defer></script>
+  <script src="/chat-model.js" defer></script>
+  <script src="/terminal.js" defer></script>
+</head>
+<body>
+  <dialog id="terminal-dialog" aria-labelledby="terminal-heading">
+    <h1 id="terminal-heading">Agent terminal</h1>
+    <p id="terminal-status" role="status"></p>
+    <div id="terminal-host" aria-label="Interactive agent terminal"></div>
+  </dialog>
+</body>
+</html>

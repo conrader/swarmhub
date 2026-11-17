@@ -33,7 +33,10 @@ struct MessageView: View {
                     }.accessibilityElement(children: .combine).accessibilityLabel(author.name)
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
-                content
+                if let title = message.metadata["herdrExchangeTitle"] {
+                    DisclosureGroup(title) { Text(message.content).textSelection(.enabled) }.font(.callout)
+                } else { content }
+                if let results = message.publishedResults { HerdrReplyFiles(results: results) }
                 if message.turnState == .finished, let summary = message.runSummary {
                     Text(summary.line).font(.caption).foregroundStyle(.secondary)
                         .help("Elapsed time and tool calls observed by SwarmHub. The launch model appears when reported by the server.")

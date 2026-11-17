@@ -29,7 +29,7 @@ struct MarkdownContent: View {
     }
 }
 
-private struct ProseBlock: View {
+struct ProseBlock: View {
     let text: String
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {

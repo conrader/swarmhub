@@ -156,6 +156,7 @@ pub(crate) fn start_serving(w: Workspace) {
             [now()],
         );
     }
+    tokio::spawn(super::ci::serve(w.history.clone()));
     let clock = w.clone();
     tokio::spawn(async move {
         loop {
@@ -358,6 +359,7 @@ async fn start(w: &Workspace, bot: &Bot) -> Result<Terminal, String> {
     let catalog = crate::runtimes::Catalog::load(w.history.file());
     // A bot with no model of its own starts on the first one the server lists, as in the app.
     let model_id = match catalog.models(template) {
+        Some(_) if bot.model == "@provider-default" => None,
         Some(_) if !bot.model.is_empty() => Some(bot.model.clone()),
         Some((_, offered)) => offered.first().map(|model| model.id.clone()),
         None => None,

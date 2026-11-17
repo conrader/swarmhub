@@ -548,6 +548,11 @@ impl Core {
                    (crate::helpers::SPOOL_ENV):crate::helpers::spool_directory()
                        .and_then(|folder| folder.into_os_string().into_string().ok()).unwrap_or_default()}
         });
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(path) = exe.to_str()
+        {
+            params["env"]["SWARMHUB_PUBLISHER"] = path.into();
+        }
         // Started by `service run`, the server knows the PATH the person's own shell has. Core may have been
         // started with a shorter one (by launchd, at login), and an agent program is found through it.
         if let Some(path) = agent_path() {

@@ -9,6 +9,8 @@ struct HerdrMessagingSection: View {
     var body: some View {
         SettingSwitch(title: "Other bots can message it", detail: Self.caption(bot: bot.name, server: store.herdrServer(for: bot).name, takes: store.herdrTakesMessages(bot)),
                       symbol: "bubble.left.and.bubble.right.fill", colour: AppColor.sky, isOn: Binding(get: { store.herdrTakesMessages(bot) }, set: { store.setHerdrTakesMessages($0, for: bot) }))
+        SettingSwitch(title: "Takes initiative", detail: "Run planned check-ins. The main bot can also offer help when work needs attention.",
+                      symbol: "clock", colour: AppColor.sky, isOn: Binding(get: { store.takesInitiative(bot) }, set: { store.setInitiative($0, for: bot) }))
     }
 
     /// What the switch means, in the words of the state it is in.

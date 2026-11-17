@@ -340,18 +340,6 @@ private final class UpdatingServer: @unchecked Sendable {
     }
 }
 
-private extension URLRequest {
-    /// The body of a request as a URL protocol sees it: `httpBody`, or the stream URLSession turned it into.
-    var bodyData: Data? {
-        if let httpBody { return httpBody }
-        guard let stream = httpBodyStream else { return nil }
-        stream.open(); defer { stream.close() }
-        var data = Data(), buffer = [UInt8](repeating: 0, count: 4_096)
-        while stream.hasBytesAvailable { let read = stream.read(&buffer, maxLength: buffer.count); if read <= 0 { break }; data.append(buffer, count: read) }
-        return data
-    }
-}
-
 @MainActor private func updateStore(_ server: UpdatingServer) -> (store: AppStore, server: HerdrServer, model: SoftwareUpdateModel) {
     let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let saved = HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: "http://\(server.host):8787")

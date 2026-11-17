@@ -51,9 +51,13 @@ This is the behaviour SwarmHub promises. It is also the test plan: every rule be
 
 ## What is built
 
-The workspace server (`HerdrWorkspace`) holds the rules above for the bots an app registers with it. The Mac app does not use it yet: it still passes messages on itself, so until it registers its bots nothing changes for it.
+The workspace server (`HerdrWorkspace`) holds the rules above for the bots an app registers with it. The Mac app registers its bots and imports each server’s saved history. Open **Details → Team activity** to inspect open exchanges, cancel check-ins or close promises. In the bot editor, **Takes initiative** controls planned work.
 
 - **On the server, in code, unit-tested:** the three kinds and their endings with both time limits; a line in both bots' histories for every message and every ending; one owner per piece of work; the three limits; what a stop, the "may message other bots" switch and removing a bot end, and who is told; that a helper cannot message bots; planned check-ins with their two limits, the outcome a one-off always leaves and the silence of a recurring one with nothing to report; promises raised with the bot once and then with you; the notes for the main bot, only for it, at most one per five minutes, and only while "Takes initiative" is on. Messages are typed into the other bot's agent by the server, which starts that agent when it is not running, so all of it works with the app closed.
 - **How:** an agent runs `swarmhub-herdr bot ask|tell|handoff|reply|accept|decline`, `checkin` and `promise` in its shell. The server tells every bot's agent the commands and the two rules of conduct (offer first; ask before deleting, sending out, spending or deploying) in one note with its first task. The contract for an app is in [the workspace's manual](../HerdrWorkspace/README.md#bots-on-the-server).
 - **Measured:** the thirteen scenarios, with real Claude Code and Codex agents, by `HerdrWorkspace/tests/bot_scenarios.py`. The table is in [bot-communication-results.md](bot-communication-results.md).
-- **Not built:** everything in the Mac app (registering its bots, showing the exchanges in both chats, the check-ins in a bot's Details, unread marks and notifications from the server's events, the switches and time limits in Settings).
+- The bridge controls exchange limits and timeouts. The Mac app catches up while connected and after reopening.
+
+### Watch CI without spending model turns
+
+Ask the main bot, “Watch https://github.com/OWNER/REPO/pull/123. If CI fails, ask Reviewer what broke and tell me whether it blocks release.” The bot can register `swarmhub-herdr checkin ci PR_URL "Ask Reviewer to diagnose the failure and report whether it blocks release."` A bridge checks the latest GitHub Checks on the public PR’s head commit every five minutes, sharing each lookup between watchers. Pending and successful checks consume no model turns. The first observed failed check wakes the requesting bot once. Closing the PR or reaching seven days ends the watch. Private repositories and legacy commit statuses are outside this watcher’s scope.

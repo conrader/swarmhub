@@ -81,7 +81,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     }
     if bot.takes_initiative {
         note.push_str(&format!(
-            "- To come back to something later, plan a check-in: {cmd} checkin in 30m \"WHAT\" (also: at 17:00, every 2h, every weekday at 9:00). It runs on the server, also with the app closed. `{cmd} checkin list`, `{cmd} checkin cancel ID`.\n"
+            "- To come back to something later, plan a check-in: {cmd} checkin in 30m \"WHAT\" (also: at 17:00, every 2h, every weekday at 9:00). For a public GitHub PR use {cmd} checkin ci PR_URL \"WHAT to do on failure\". The bridge checks CI without model calls and wakes you on the first failed check. Include the reviewer and the requested report in WHAT. It runs on the server, also with the app closed. `{cmd} checkin list`, `{cmd} checkin cancel ID`.\n"
         ));
     }
     note.push_str(&format!(
