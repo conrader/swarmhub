@@ -579,7 +579,9 @@ def main(bridge, skillshare):
         env = {**scratch.env, "SWARMHUB_PORT": str(port), "SWARMHUB_ACCESS_TOKEN": token,
                "SWARMHUB_AGENT_CWD": str(root / "agents"), "SWARMHUB_SKILLSHARE": str(scratch.launcher),
                # These routes never ask Herdr Core for anything: there is none here.
-               "HC_SOCKET": str(root / "no-core.sock")}
+               "HC_SOCKET": str(root / "no-core.sock"),
+               # Where the workspace keeps a download while it is checked, so that this can look there.
+               "TMPDIR": tempfile.gettempdir()}
         log = open(root / "workspace.log", "w")
         process = subprocess.Popen([str(Path(bridge).resolve())], env=env, cwd=root, stdout=log, stderr=log)
         try:
