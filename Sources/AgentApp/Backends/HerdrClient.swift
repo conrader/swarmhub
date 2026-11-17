@@ -55,6 +55,9 @@ struct HerdrClient: Sendable {
 
     struct Workspace: Decodable, Sendable {
         let core: String?; let version: String?; let agents: [Agent]; let templates: [Template]
+        /// What the workspace server says it is (`HerdrUpdates.swift`); `version` above is Herdr Core's. A server
+        /// from before it said so sends none.
+        var bridge: HerdrBridgeInfo? = nil
         /// The server's name for the agent program `agent` runs ("Codex"); nil when its template names none.
         func program(of agent: Agent) -> String? { templates.first { $0.name == agent.template }?.programName }
     }
@@ -473,6 +476,9 @@ struct HerdrClient: Sendable {
     }
 
     static let requestSeconds: TimeInterval = 100
+    /// "0.7.0 (34)": the running app, as its bundle names it.
+    static let appIdentity = HerdrCompatibility.appIdentity(version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                                                            build: Bundle.main.infoDictionary?["CFBundleVersion"] as? String)
 
     func request(_ path: String, method: String, body: Data?, timeout: TimeInterval = Self.requestSeconds) throws -> URLRequest {
         guard let url = URL(string: baseURL.absoluteString + path), let host = baseURL.host else { throw Failure.invalidURL }
@@ -482,6 +488,9 @@ struct HerdrClient: Sendable {
         // The bridge compares Origin with Host on every POST (its browser page sends both).
         let port = baseURL.port.map { ":\($0)" } ?? ""
         request.setValue("\(baseURL.scheme ?? "http")://\(host)\(port)", forHTTPHeaderField: "Origin")
+        // Which app asks, and the API level it is written for (`HerdrCompatibility`).
+        request.setValue(Self.appIdentity, forHTTPHeaderField: HerdrCompatibility.appHeader)
+        request.setValue(String(HerdrCompatibility.level), forHTTPHeaderField: HerdrCompatibility.levelHeader)
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         return request
     }

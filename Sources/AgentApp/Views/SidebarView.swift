@@ -50,6 +50,8 @@ struct SidebarView: View {
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
+            // Only while an update is waiting: the app's own, or a server's workspace (`UpdateNotice`).
+            UpdateNoticeLine().padding(.horizontal, SidebarMetrics.listInset + 4).padding(.bottom, 4)
             HStack(spacing: 10) {
                 // One button: the person's initial and "Settings" (two buttons that opened the same window read as two things).
                 SettingsLink {

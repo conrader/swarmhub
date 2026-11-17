@@ -21,7 +21,9 @@ private var updateInfo: [String: Any] {
         info["SUPublicEDKey"] = key
         #expect(reason(info) != nil)
     }
-    for feed in ["http://example.com/appcast.xml", "https:///appcast.xml", "file:///tmp/appcast.xml", "https://user:password@example.com/feed", "https://example.com/feed#fragment"] {
+    info = updateInfo; info["SUFeedURL"] = "http://127.0.0.1:8123/appcast.xml"
+    #expect(reason(info) == nil, "a rehearsal's feed on this Mac's own loopback address")
+    for feed in ["http://example.com/appcast.xml", "http://127.0.0.1/appcast.xml", "http://localhost:8123/appcast.xml", "http://127.0.0.1.example.com:8123/appcast.xml", "https:///appcast.xml", "file:///tmp/appcast.xml", "https://user:password@example.com/feed", "https://example.com/feed#fragment"] {
         info = updateInfo; info["SUFeedURL"] = feed
         #expect(reason(info) != nil)
     }

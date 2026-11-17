@@ -41,7 +41,8 @@ enum SimpleCopy {
     static let autoCheck = "Automatically check for updates"
     static let checkForUpdates = "Check for Updates…"
     static let checkNow = "Check for updates"
-    static let autoCheckCaption = "Checked once a day. You can install an update now or when you quit."
+    static let showUpdates = "Show Updates…"
+    static let autoCheckCaption = "Checked once a day, quietly. You can install an update now or when you quit."
     static func openRelease(_ name: String) -> String { "Open \(name)" }
 
     static let previewOff = "Settings are off in preview."
@@ -72,7 +73,7 @@ enum SimpleCopy {
         [connection, notConnected, connected(to: SetupCopy.thisMac, agents: 3), testConnection, testingConnection, setUp,
          connectedServers(2, agents: 3), addServer, herdrCaption, serverSaid("This Mac", "Connected."), you,
          yourName, yourNameCaption, appearance, theme, appIcon, dark, light, system, accent, accentCaption, appIconCaption, notifications, notifyMaster,
-         notifyCaption, notifyNeedsApp, about, version, autoCheck, checkForUpdates, checkNow, autoCheckCaption, openRelease("1.0"),
+         notifyCaption, notifyNeedsApp, about, version, autoCheck, checkForUpdates, checkNow, showUpdates, autoCheckCaption, openRelease("1.0"),
          previewOff, newAgent, agentSettings, avatar, name, instructions,
          herdrInstructionsCaption, herdrEditorAdvancedCaption, herdrEmptyDetail, notifyAgent, cancel, save, editorAdvanced,
          emptyTitle, emptySetUp, chooseTitle, chooseDetail, sampleLabel]

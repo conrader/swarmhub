@@ -132,29 +132,21 @@ private struct ThemeTile: View {
     }
 }
 
-/// Version, the automatic check and Check for Updates (Sparkle), or a GitHub check when Sparkle cannot run here.
+/// Settings → About: the version with what Software Update would say in one line, and Check for Updates, which opens
+/// Software Update (the app, every server, its switches, and the one button when something is behind).
 struct UpdateCheckRow: View {
-    @EnvironmentObject private var updater: AppUpdater
-    @State private var status: UpdateStatus?; @State private var checking = false
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject private var notice = UpdateNotice.shared
     private let info = AppBuildInfo.current()
 
     var body: some View {
-        LabeledContent(SimpleCopy.version, value: info.version + (info.build.map { " (\($0))" } ?? ""))
-        if updater.unavailableReason == nil {
-            Toggle(SimpleCopy.autoCheck, isOn: Binding(get: { updater.automaticallyChecksForUpdates }, set: updater.setAutomaticallyChecksForUpdates))
-            Button(SimpleCopy.checkForUpdates, action: updater.checkForUpdates).disabled(!updater.canCheckForUpdates)
-            Text(SimpleCopy.autoCheckCaption).font(.caption).foregroundStyle(.secondary)
-        } else {
-            HStack { Button(SimpleCopy.checkNow) { check() }.disabled(checking); if checking { ProgressView().controlSize(.small) } }
-            if let status {
-                Text(status.message).foregroundStyle(.secondary)
-                if case .newer(let release) = status, let page = release.pageURL { Link(SimpleCopy.openRelease(release.name ?? release.tag), destination: page) }
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(AppConstants.name) \(info.version)" + (info.build.map { " (\($0))" } ?? "")).accessibilityLabel("\(SimpleCopy.version) \(info.version)")
+                Text(notice.line ?? SimpleCopy.autoCheckCaption).font(.caption).foregroundStyle(.secondary)
             }
+            Spacer()
+            Button(notice.line == nil ? SimpleCopy.checkForUpdates : SimpleCopy.showUpdates) { store.settingsPane = .updates }
         }
-    }
-
-    private func check() {
-        checking = true
-        Task { status = await ReleaseChecker.check(current: info.version); checking = false }
     }
 }

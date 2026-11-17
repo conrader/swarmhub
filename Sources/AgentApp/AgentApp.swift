@@ -22,6 +22,7 @@ import SwiftUI
         if ProcessInfo.processInfo.environment["AGENTAPP_BENCHMARK"] == "1" { exit(0) }
         if let path = ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] { SnapshotRenderer.capture(store: appStore, to: path); exit(0) }
         _updater = StateObject(wrappedValue: AppUpdater())
+        SoftwareUpdateModel.shared.startDailyChecks(store: appStore)
     }
     var body: some Scene {
         normalScenes

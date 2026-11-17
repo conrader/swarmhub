@@ -30,7 +30,30 @@ import SwiftUI
     /// agent waiting for the person in its terminal; and the header of a bot whose agent is ready, is starting ahead
     /// of the first message, or shows a prompt before any message.
     static let statuses = ["herdr-status-starting", "herdr-status-working", "herdr-status-step", "herdr-status-waiting", "herdr-status-ready", "herdr-status-warming", "herdr-status-prompt"]
-    static let names = wizard + other + skills + projects + statuses
+    /// Settings → Software Update: everything current, updates ready, a server restarting into its update, and what
+    /// needs a hand (a server from before updates, an update that was undone, a project server whose Herdr is old).
+    static let updates = ["herdr-updates-current", "herdr-updates-available", "herdr-updates-working", "herdr-updates-attention"]
+    static let names = wizard + other + skills + projects + statuses + updates
+
+    /// The states of Software Update in the order of `updates`, for a first and a second server. All made up.
+    @MainActor static func updateStates(first: String, second: String) -> [(app: SoftwareUpdatePane.AppLine, model: SoftwareUpdateModel)] {
+        func state(_ events: [HerdrServerUpdate.Event]) -> HerdrServerUpdate { var state = HerdrServerUpdate(); events.forEach { state.take($0) }; return state }
+        let bridge = HerdrBridgeInfo(version: "0.2.0", api: 1, apiMin: 1, target: "x86_64-linux", updates: true)
+        let same = HerdrClient.UpdateCheck(current: "0.2.0", available: false, latest: .init(version: "0.2.0", api: 1))
+        let newer = HerdrClient.UpdateCheck(current: "0.2.0", available: true,
+            latest: .init(version: "0.2.1", api: 1, notes: "Agents start faster, and project servers reconnect by themselves.", installable: true))
+        let answered = HerdrServerUpdate.Event.answered(bridge: bridge, core: "0.1.21")
+        let current = state([answered, .checked(same, canUpdate: true)]), behind = state([answered, .checked(newer, canUpdate: true)])
+        let app = SoftwareUpdatePane.AppLine(version: "0.7.0 (34)", lastCheck: .now - 2 * 60 * 60)
+        var appBehind = app; appBehind.available = "0.7.1"
+        let restarting = state([answered, .checked(newer, canUpdate: true), .installBegan(version: "0.2.1"), .accepted(.init(state: "restarting", from: "0.2.0", to: "0.2.1"))])
+        let undone = state([answered, .checked(newer, canUpdate: true), .installBegan(version: "0.2.1"), .accepted(.init(state: "restarting", from: "0.2.0", to: "0.2.1")),
+                            .cameBack(version: "0.2.0", last: .init(state: "rolled_back", from: "0.2.0", to: "0.2.1", error: "The journal could not be opened."))])
+        return [(app, SoftwareUpdateModel(servers: [first: current, second: current])),
+                (appBehind, SoftwareUpdateModel(servers: [first: current, second: behind])),
+                (app, SoftwareUpdateModel(servers: [first: state([.checkBegan]), second: restarting])),
+                (app, SoftwareUpdateModel(servers: [first: state([.answered(bridge: nil, core: "0.1.21")]), second: undone], staleMachines: [second: ["build-box"]]))]
+    }
 
     /// The states of a server's project servers, in the order of `projects`. Everything is made up: the key, the
     /// addresses and the fingerprints belong to no machine.
@@ -307,5 +330,11 @@ import SwiftUI
             write(name, await png(AnyView(ChatView(bot: boppy).frame(width: small.width, height: small.height)), store, small))
         }
         store.herdrReadiness[boppy.id] = nil
+
+        // Settings → Software Update, state by state.
+        let updatesSize = NSSize(width: 570, height: 860)
+        for (name, shown) in zip(updates, updateStates(first: store.herdrServers[0].id, second: server.id)) {
+            write(name, await png(pane(SoftwareUpdatePane(preset: shown.model, presetApp: shown.app), updatesSize), store, updatesSize))
+        }
     }
 }
