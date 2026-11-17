@@ -8,7 +8,7 @@ import Testing
 
 private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-private func bridge(_ version: String = "0.2.0", api: Int = 1, apiMin: Int? = 1, target: String? = "x86_64-linux") -> HerdrBridgeInfo {
+private func bridge(_ version: String = "0.2.0", api: Int = HerdrCompatibility.level, apiMin: Int? = 1, target: String? = "x86_64-linux") -> HerdrBridgeInfo {
     HerdrBridgeInfo(version: version, api: api, apiMin: apiMin, target: target, updates: true)
 }
 private func check(_ latest: String, current: String = "0.2.0", available: Bool = true, installable: Bool? = true, notes: String? = nil) -> HerdrClient.UpdateCheck {
@@ -25,6 +25,7 @@ private let restarting: [HerdrServerUpdate.Event] = [answered, .checked(check("0
     }
     #expect(HerdrCompatibility.verdict(for: nil) == .serverUnversioned, "a server that says nothing about itself is from before versions")
     #expect(HerdrCompatibility.verdict(for: bridge()) == .fits, "today's server and today's app")
+    #expect(HerdrCompatibility.verdict(for: bridge(api: 1)) == .serverOlder && HerdrCompatibility.oldestServer == 1, "the first published server still works with this app; only what came later stays off")
     #expect(verdict(3, min: 1, level: 3, oldest: 2) == .fits)
     #expect(verdict(4, min: 2, level: 3, oldest: 2) == .serverNewer, "a newer server that still serves this app")
     #expect(verdict(2, min: 1, level: 3, oldest: 2) == .serverOlder, "older than the app is written for, but one it works with")

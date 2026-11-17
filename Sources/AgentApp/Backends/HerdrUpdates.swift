@@ -19,8 +19,9 @@ struct HerdrBridgeInfo: Decodable, Sendable, Equatable {
 /// app would have to know that something changed; the app is written for one level and says which server levels it
 /// still works with. Nothing here is guessed from a route that is or is not there.
 enum HerdrCompatibility {
-    /// The level this app is written for (`API` in the server).
-    static let level = 1
+    /// The level this app is written for (`API` in the server). Level 2 added the skill library (`HerdrLibraryGate`);
+    /// on a level-1 server the app keeps the list of switches it had.
+    static let level = 2
     /// The oldest server level this app still works with.
     static let oldestServer = 1
     /// What this app says it is with every request (`X-SwarmHub-App`, `X-SwarmHub-Api`).
