@@ -386,7 +386,17 @@ enum HerdrLibraryCopy {
     // MARK: Scope
 
     static func scopeAll(_ server: String) -> (title: String, detail: String) { ("All bots on this server", "The library every bot on \(server) shares.") }
-    static func scopeProject(_ choice: HerdrLibraryScope.Choice) -> (title: String, detail: String) { (choice.name, "This project’s own library, kept in \(choice.folder).") }
+    static func scopeProject(_ choice: HerdrLibraryScope.Choice) -> (title: String, detail: String) {
+        choice.botsFolder ? (choice.name, "The library of the folder your bots work in, \(choice.folder). Only bots get it, not the sessions you start yourself elsewhere.")
+            : (choice.name, "This project’s own library, kept in \(choice.folder).")
+    }
+    /// The name of the choice for the folder the server's bots work in.
+    static let botsFolder = "Your bots’ folder"
+    /// Under a bot's Skills heading: whose library this is.
+    static func scopeLine(bot: String, server: String, choice: HerdrLibraryScope.Choice?) -> String {
+        guard let choice else { return "What \(bot) knows how to do. All your bots on \(server) share these." }
+        return choice.botsFolder ? "What \(bot) knows how to do in the folder your bots work in." : "What \(bot) knows how to do in \(choice.name)."
+    }
 
     // MARK: Sharing with another AI
 

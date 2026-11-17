@@ -59,7 +59,7 @@ private struct HerdrSkillsPanelBody: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Skills").font(.headline)
-                Text(chosen.map { "What \(bot.name) knows how to do in \($0.name)." } ?? "What \(bot.name) knows how to do. All your bots on \(server.name) share these.")
+                Text(HerdrLibraryCopy.scopeLine(bot: bot.name, server: server.name, choice: chosen))
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if !choices.isEmpty {

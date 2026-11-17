@@ -521,8 +521,15 @@ def project_library(workspace, scratch):
     scratch.run("init", "-p", "--targets", "claude", cwd=shop)
     scratch.skill(shop / ".skillshare/skills/checkout", "checkout", "How this shop takes payment.")
     folders = workspace.get("/api/skillshare/projects", folder=[str(shop), "/nonexistent", str(scratch.root), "relative"])
-    assert folders == {"projects": [{"folder": str(shop), "config": str(shop / ".skillshare/config.yaml")}]}, folders
+    assert folders == {"projects": [{"folder": str(shop), "config": str(shop / ".skillshare/config.yaml"), "bots": False}]}, folders
     assert workspace.get("/api/skillshare/projects") == {"projects": []}
+    # The folder the bots work in is offered without being asked for, once it holds a project.
+    agents = scratch.root / "agents"
+    scratch.run("init", "-p", "--targets", "claude", cwd=agents)
+    own = {"folder": str(agents), "config": str(agents / ".skillshare/config.yaml"), "bots": True}
+    assert workspace.get("/api/skillshare/projects") == {"projects": [own]}
+    assert workspace.get("/api/skillshare/projects", folder=[str(shop), str(agents)])["projects"][0] == own
+    assert workspace.get("/api/skillshare/library", project=str(agents))["scope"] == "project"
 
     library = workspace.get("/api/skillshare/library", project=str(shop))
     assert (library["scope"], library["project"], library["problem"]) == ("project", str(shop), None), library

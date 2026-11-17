@@ -501,17 +501,21 @@ import Foundation
 
     // MARK: A project's own library
 
-    /// Finds which of a bot's projects hold a library of their own: only projects on the server itself are asked
-    /// about, and nothing is said about the others. Quiet when the server cannot say.
+    /// Finds the libraries a bot can have beside the shared one: the folder the server's bots work in, when it
+    /// holds a project, and those of the bot's projects that are on the server itself. Nothing is said about the
+    /// others. Quiet when the server cannot say.
     func findScopes(for bot: String, among candidates: [HerdrLibraryScope.Candidate]) async {
-        guard isOpen, project == nil, !candidates.isEmpty else { scopes[bot] = []; return }
+        guard isOpen, project == nil else { scopes[bot] = []; return }
         do {
             let client = try client()
-            if host == nil { host = try await client.skillshareMachine().host ?? "" }
-            let local = HerdrLibraryScope.local(candidates, host: host)
-            guard !local.isEmpty else { scopes[bot] = []; return }
-            let holding = try await client.skillshareProjects(folders: local.map(\.folder)).projects.map(\.folder)
-            scopes[bot] = local.filter { holding.contains($0.folder) }
+            var local: [HerdrLibraryScope.Choice] = []
+            if !candidates.isEmpty {
+                if host == nil { host = try await client.skillshareMachine().host ?? "" }
+                local = HerdrLibraryScope.local(candidates, host: host)
+            }
+            let found = try await client.skillshareProjects(folders: local.map(\.folder)).projects
+            let own = found.filter { $0.bots == true }.map { HerdrLibraryScope.Choice(name: HerdrLibraryCopy.botsFolder, folder: $0.folder, botsFolder: true) }
+            scopes[bot] = own + local.filter { choice in found.contains { $0.folder == choice.folder } && !own.contains { $0.folder == choice.folder } }
         } catch { scopes[bot] = [] }
     }
 }

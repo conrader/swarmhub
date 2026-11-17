@@ -1152,7 +1152,7 @@ Each answers `{"source": …, "library": …, "output": "…", "conflict": null}
 
 `latest` and `update_available` are filled only with `?check=true`, which asks GitHub for skillshare’s newest release. `doctor` carries what `skillshare doctor` warns about, at most 50 notes. `POST /api/skillshare/upgrade` with `{"confirm": true}` runs `skillshare upgrade --cli --force`, which replaces the skillshare program on the server with the newest release, and answers `{"version": "0.30.10", "output": "…"}`.
 
-`GET /api/skillshare/projects?folder=/srv/shop&folder=/srv/api` answers `{"projects": [{"folder": "/srv/shop", "config": "/srv/shop/.skillshare/config.yaml"}]}`: which of these folders hold a skillshare project.
+`GET /api/skillshare/projects?folder=/srv/shop&folder=/srv/api` answers `{"projects": [{"folder": "/root/swarmhub-agents", "config": "/root/swarmhub-agents/.skillshare/config.yaml", "bots": true}, {"folder": "/srv/shop", "config": "/srv/shop/.skillshare/config.yaml", "bots": false}]}`: which folders hold a skillshare project. The folder this server’s bots work in (`SWARMHUB_AGENT_CWD`) is always asked about, comes first and has `bots: true`; the folders the request names follow. A folder without a project is left out.
 
 #### The first routes
 

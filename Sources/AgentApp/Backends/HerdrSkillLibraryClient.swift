@@ -126,9 +126,8 @@ extension HerdrClient {
         try await libraryRoute("/api/skillshare/upgrade", body: ["confirm": true], timeout: Self.libraryUpgradeSeconds)
     }
 
-    /// Which of these folders on the server hold a skillshare project.
+    /// Which of these folders on the server hold a skillshare project, and whether the folder its bots work in does.
     func skillshareProjects(folders: [String]) async throws -> HerdrSkillshareProjects {
-        guard !folders.isEmpty else { return HerdrSkillshareProjects() }
-        return try await libraryRoute("/api/skillshare/projects" + Self.libraryQuery(folders.map { ("folder", Optional($0)) }), timeout: Self.libraryReadSeconds)
+        try await libraryRoute("/api/skillshare/projects" + Self.libraryQuery(folders.map { ("folder", Optional($0)) }), timeout: Self.libraryReadSeconds)
     }
 }

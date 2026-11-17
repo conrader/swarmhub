@@ -214,7 +214,7 @@ If the library is kept in a Git repository, the bottom of the Overview says how 
 
 #### A project's own library
 
-A project folder on the server itself can have a library of its own. When one of a bot's projects has one, the bot's **Skills** tab offers **Which library**: the one all bots on the server share, or that project's.
+A folder on the server itself can have a library of its own (a skillshare project). When the folder your bots work in has one, or one of a bot's projects on that server does, the bot's **Skills** tab offers **Which library**: the one all bots on the server share, **Your bots’ folder**, or that project's. A library of the bots' folder reaches only the bots, not the sessions you start yourself elsewhere on the server.
 
 #### Older servers
 

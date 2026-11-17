@@ -58,7 +58,7 @@ private let restarting: [HerdrServerUpdate.Event] = [answered, .checked(check("0
     let old = try decoder.decode(HerdrClient.Workspace.self, from: Data(#"{"core":"c","version":"0.1.21","agents":[],"templates":[]}"#.utf8))
     #expect(old.bridge == nil && old.version == "0.1.21")
     let new = try decoder.decode(HerdrClient.Workspace.self, from: Data(#"{"core":"c","version":"0.1.21","agents":[],"templates":[],"bridge":{"version":"0.2.0","api":1,"api_min":1,"target":"x86_64-linux","updates":true,"later":"ignored"}}"#.utf8))
-    #expect(new.bridge == bridge())
+    #expect(new.bridge == bridge(api: 1))
 
     let client = HerdrClient(baseURL: URL(string: "http://127.0.0.1:8787")!, token: "t")
     let request = try client.request("/api/workspace", method: "GET", body: nil)

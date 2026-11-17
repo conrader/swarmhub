@@ -907,26 +907,39 @@ async fn upgrade(body: Bytes) -> Response {
     .await
 }
 
-/// Which of the folders a request names hold a skillshare project.
+/// Which folders hold a skillshare project: the folder this server's bots work in, which is asked about with every
+/// request and marked `bots`, and the folders the request names.
 async fn projects(Query(asked): Query<Vec<(String, String)>>) -> Json<Value> {
-    let folders: Vec<String> = asked
+    let named: Vec<String> = asked
         .into_iter()
         .filter(|(key, _)| key == "folder")
         .map(|(_, folder)| folder)
         .take(MAX_FOLDERS)
         .collect();
     let found = tokio::task::spawn_blocking(move || {
-        folders
-            .into_iter()
-            .filter_map(|folder| {
-                let config = project_config(&folder)?;
-                Some(json!({ "folder": folder, "config": config.to_string_lossy() }))
-            })
-            .collect::<Vec<_>>()
+        let bots = crate::core::agent_cwd().ok().flatten();
+        held(bots.as_deref(), &named)
     })
     .await
     .unwrap_or_default();
     Json(json!({ "projects": found }))
+}
+
+/// The folders among `bots` and `named` that hold a project, the bots' own first and each once.
+fn held(bots: Option<&str>, named: &[String]) -> Vec<Value> {
+    let mut found: Vec<Value> = Vec::new();
+    for (folder, own) in bots
+        .map(|folder| (folder, true))
+        .into_iter()
+        .chain(named.iter().map(|folder| (folder.as_str(), false)))
+    {
+        let known = found.iter().any(|project| project["folder"] == folder);
+        if let Some(config) = project_config(folder).filter(|_| !known) {
+            found
+                .push(json!({ "folder": folder, "config": config.to_string_lossy(), "bots": own }));
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -1188,6 +1201,47 @@ mod tests {
             outward(br#"{"confirm":true,"message":"Tidy"}"#).as_deref(),
             Some("Tidy")
         );
+    }
+
+    #[test]
+    fn the_bots_folder_is_asked_about_beside_the_named_ones() {
+        let folder = tempfile::tempdir().unwrap();
+        let project = |name: &str| {
+            let path = folder.path().join(name);
+            fs::create_dir_all(path.join(".skillshare")).unwrap();
+            fs::write(path.join(".skillshare/config.yaml"), "targets: []\n").unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        let (bots, shop) = (project("bots"), project("shop"));
+        let plain = folder.path().join("plain").to_string_lossy().into_owned();
+        fs::create_dir_all(&plain).unwrap();
+        let named = [
+            shop.clone(),
+            plain.clone(),
+            bots.clone(),
+            shop.clone(),
+            "relative".to_owned(),
+        ];
+        let found = held(Some(&bots), &named);
+        let brief: Vec<_> = found
+            .iter()
+            .map(|project| {
+                (
+                    project["folder"].as_str().unwrap(),
+                    project["bots"].as_bool().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(brief, [(bots.as_str(), true), (shop.as_str(), false)]);
+        assert!(
+            found[0]["config"]
+                .as_str()
+                .unwrap()
+                .ends_with("bots/.skillshare/config.yaml")
+        );
+        // A bots' folder without a project is not offered, and without one the named folders still are.
+        assert!(held(Some(&plain), &[]).is_empty());
+        assert_eq!(held(None, std::slice::from_ref(&shop)).len(), 1);
     }
 
     #[test]

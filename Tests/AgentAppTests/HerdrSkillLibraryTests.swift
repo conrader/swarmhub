@@ -303,6 +303,8 @@ private final class ScriptedLibrary: @unchecked Sendable {
     private var queries: [String: [String]] = [:]
     private var syncFails = false, conflicts = 0, checked: Double?, ahead = 0, changed = 2, skillshare = "0.30.8", installed = true
     private var ticket: String? = nil
+    /// The folder this server's bots work in, when it holds a project of its own.
+    var botsFolder: String? = nil
 
     init(api: Int = 2) { self.api = api }
     func failSync(_ fails: Bool) { lock.withLock { syncFails = fails } }
@@ -420,7 +422,8 @@ private final class ScriptedLibrary: @unchecked Sendable {
             skillshare = "0.30.10"
             return (200, ["version": skillshare, "output": "ok"])
         case "GET /api/skillshare/projects":
-            return (200, ["projects": (request.url?.query ?? "").contains("%2Fsrv%2Fshop") ? [["folder": "/srv/shop", "config": "/srv/shop/.skillshare/config.yaml"]] : []])
+            let own: [[String: Any]] = botsFolder.map { [["folder": $0, "config": $0 + "/.skillshare/config.yaml", "bots": true]] } ?? []
+            return (200, ["projects": own + ((request.url?.query ?? "").contains("%2Fsrv%2Fshop") ? [["folder": "/srv/shop", "config": "/srv/shop/.skillshare/config.yaml", "bots": false]] : [])])
         case "GET /api/skillshare/targets/addable": return (200, ["installed": true, "problem": NSNull(), "agents": ["three"]])
         case "POST /api/skillshare/targets": return (200, ["installed": true, "targets": [], "added": body["agent"] as? String ?? "", "output": "added"])
         default: return (404, Data())
@@ -687,8 +690,17 @@ private func libraryRequestBody(_ request: URLRequest) -> [String: Any] {
                       .init(name: "docs", folder: "/srv/docs", machineHost: "web-1", machineTarget: "deploy@10.0.0.9")]
     await shared.findScopes(for: "bot", among: candidates)
     #expect(shared.scopes["bot"] == [.init(name: "shop", folder: "/srv/shop")] && plain.queried("GET /api/skillshare/projects") == ["folder=%2Fsrv%2Fshop&folder=%2Fsrv%2Fapi"], "docs is on another server: nothing is asked or said about it")
+    // A bot whose projects are all elsewhere is still asked about: the server names the folder its bots work in.
     await shared.findScopes(for: "other", among: [candidates[2]])
-    #expect(shared.scopes["other"] == [] && plain.asked("GET /api/skillshare/projects") == 1)
+    #expect(shared.scopes["other"] == [] && plain.queried("GET /api/skillshare/projects").last == "")
+    plain.botsFolder = "/home/bots"
+    await shared.findScopes(for: "none", among: [])
+    #expect(shared.scopes["none"] == [.init(name: "Your bots’ folder", folder: "/home/bots", botsFolder: true)])
+    await shared.findScopes(for: "bot", among: candidates)
+    #expect(shared.scopes["bot"]?.map(\.folder) == ["/home/bots", "/srv/shop"], "the bots' own folder first")
+    #expect(HerdrLibraryCopy.scopeLine(bot: "Jarvis", server: "box", choice: shared.scopes["none"]?.first) == "What Jarvis knows how to do in the folder your bots work in."
+            && HerdrLibraryCopy.scopeLine(bot: "Jarvis", server: "box", choice: .init(name: "shop", folder: "/srv/shop")) == "What Jarvis knows how to do in shop."
+            && HerdrLibraryCopy.scopeLine(bot: "Jarvis", server: "box", choice: nil) == "What Jarvis knows how to do. All your bots on box share these.")
 }
 
 @MainActor @Test func everyServerSaysHowSkillshareIsDoingThere() async throws {

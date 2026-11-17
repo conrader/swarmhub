@@ -630,11 +630,14 @@ struct HerdrSkillshareUpgraded: Decodable, Sendable, Equatable {
     var output: String? = nil
 }
 
-/// `GET /api/skillshare/projects`: which of the asked folders hold a skillshare project.
+/// `GET /api/skillshare/projects`: which folders hold a skillshare project: the folder the server's bots work in,
+/// which the server asks about by itself, and the asked ones.
 struct HerdrSkillshareProjects: Decodable, Sendable, Equatable {
     struct Project: Decodable, Sendable, Equatable, Identifiable {
         var folder: String = ""
         var config: String? = nil
+        /// The folder the server's bots work in, which the server names itself.
+        var bots: Bool? = nil
         var id: String { folder }
     }
     var projects: [Project] = []
@@ -677,6 +680,8 @@ enum HerdrLibraryScope {
     struct Choice: Equatable, Sendable, Identifiable {
         var name: String
         var folder: String
+        /// The folder the server's bots work in, not one of the bot's projects.
+        var botsFolder = false
         var id: String { folder }
     }
     /// A project as this needs it, and the server it is on (the name, what that machine calls itself, and how ssh reaches it).
