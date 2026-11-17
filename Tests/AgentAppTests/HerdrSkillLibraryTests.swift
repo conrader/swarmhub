@@ -219,7 +219,9 @@ private func thing(_ kind: HerdrLibraryKind, _ name: String, _ state: HerdrLibra
     #expect(bare.standing == .missing("skillshare is not installed on this server.") && bare.note == nil, "the headline already is the server's sentence")
     // A library that is there but may be incomplete keeps the server's sentence beside what was read.
     let unsure = HerdrLibrary(problem: "skillshare answered slowly; the list may be incomplete.", items: [thing(.skills, "alpha")], targets: both)
-    #expect(unsure.note == "skillshare answered slowly; the list may be incomplete." && unsure.standing == .inSync(things: 1, targets: 2) && calm.note == nil)
+    #expect(unsure.standing == .unsure("skillshare answered slowly; the list may be incomplete.") && unsure.note == nil && HerdrLibraryCopy.headline(unsure).title == "The library may be incomplete" && calm.note == nil)
+    let unsureAndBehind = HerdrLibrary(problem: "The list may be incomplete.", items: [thing(.skills, "alpha", .waiting)], targets: both)
+    #expect(unsureAndBehind.note == "The list may be incomplete." && unsureAndBehind.waitingCount == 1, "beside a sync that waits, the sentence shows on its own")
 }
 
 @Test func theLibraryIsGroupedCountedAndSearched() {

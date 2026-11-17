@@ -50,6 +50,7 @@ enum HerdrLibraryCopy {
             return (things == 1 ? "1 change is waiting for a sync" : "\(things) changes are waiting for a sync", "\(who) not have the latest yet. A sync brings it over.")
         case .partUnread(let parts):
             return ("Part of the library could not be read", "\(unread(parts)) Nothing else is waiting for a sync.")
+        case .unsure(let why): return ("The library may be incomplete", why)
         case .inSync(_, let count):
             let names = library.targets.map(\.name)
             return ("Everything is in sync", "\(contents(library).withCapital), shared with \(count == 1 ? names.first ?? "1 AI" : Self.targets(names)).")

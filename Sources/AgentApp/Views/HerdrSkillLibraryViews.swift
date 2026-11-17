@@ -41,12 +41,12 @@ struct LibraryHero: View {
         switch library.standing {
         case .inSync: ("checkmark", AppColor.sage)
         case .needsSync: ("arrow.triangle.2.circlepath", AppColor.clay)
-        case .blocked, .partUnread, .missing: ("exclamationmark", AppColor.sand)
+        case .blocked, .partUnread, .unsure, .missing: ("exclamationmark", AppColor.sand)
         case .empty, .noTargets: ("tray", AppColor.olive)
         }
     }
     private var needsSync: Bool { if case .needsSync = library.standing { library.canSync } else { false } }
-    private var needsLook: Bool { switch library.standing { case .blocked, .partUnread, .missing: true; default: false } }
+    private var needsLook: Bool { switch library.standing { case .blocked, .partUnread, .unsure, .missing: true; default: false } }
 
     var body: some View {
         let words = HerdrLibraryCopy.headline(library)

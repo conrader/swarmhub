@@ -275,6 +275,8 @@ struct HerdrLibrary: Decodable, Sendable, Equatable {
         case needsSync(things: Int, targets: [String])
         /// Nothing is known to wait, but these parts could not be read.
         case partUnread([Unread])
+        /// Nothing is known to wait, but the server says that what it read may be incomplete, in its sentence.
+        case unsure(String)
         case inSync(things: Int, targets: Int)
     }
     var standing: Standing {
@@ -283,6 +285,7 @@ struct HerdrLibrary: Decodable, Sendable, Equatable {
         if let syncBlocked, !syncBlocked.isEmpty { return .blocked(syncBlocked) }
         if waitingCount > 0 { return .needsSync(things: waitingCount, targets: waitingTargets.map(\.name)) }
         if !unread.isEmpty { return .partUnread(unread) }
+        if let problem, !problem.isEmpty { return .unsure(problem) }
         if total == 0 { return .empty }
         if targets.isEmpty { return .noTargets }
         return .inSync(things: total, targets: targets.count)
@@ -290,8 +293,7 @@ struct HerdrLibrary: Decodable, Sendable, Equatable {
     /// The server's sentence about a library that is there but may be incomplete; nil when the headline already is that sentence.
     var note: String? {
         guard installed, let problem, !problem.isEmpty else { return nil }
-        if case .missing = standing { return nil }
-        return problem
+        switch standing { case .missing, .unsure: return nil; default: return problem }
     }
     /// One press of Sync would do something, and skillshare would let it.
     var canSync: Bool { installed && (syncBlocked ?? "").isEmpty && !targets.isEmpty }
