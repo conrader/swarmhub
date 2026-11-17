@@ -18,7 +18,7 @@ There is no Xcode project, no app entry point and no networking here.
 | `design/core-screens.png`, `design/work-screens.png` | Two boards of six drawings each, captured from `screens.html` (`#board-core`, `#board-work`) at 1440 px. |
 | `design/screenshots/mobile-dark.png`, `mobile-light.png` | The earlier app running in an iPhone simulator: Chats, Conversation, Approvals, Settings. They show how `DesignSystem.swift` looks in a real build. |
 
-The two Swift files were compiled as part of the earlier app (Xcode 27, Swift 6.4, iOS 18). They have not been compiled on their own since.
+The two Swift files were compiled as part of the earlier app. On 17 November 2026 both passed a type check on their own (Xcode 27, Swift 6 language mode, iPhone simulator SDK, iOS 18 target). Nothing has run them since the earlier app was removed.
 
 ## Read the drawings as layouts
 
