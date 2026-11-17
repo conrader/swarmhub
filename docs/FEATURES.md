@@ -41,6 +41,13 @@ What the macOS app does. The app has one backend: agents that Herdr Core runs, r
 - Any other bot that wants a new bot asks the main bot. The app passes the request into the main bot's chat and the answer back.
 - A new bot is a record in the app. Nothing is created on the server until the bot gets its first message.
 
+## Messages between bots
+
+- A bot writes to another bot on its server by name. The app puts the message into that bot's chat, marked as passed on, and that bot's reply back into the sender's chat, so both chats show everything. A bot that is answering another bot may write to one further bot first; its own answer goes back when that bot has answered.
+- **Follow-ups.** A bot that has its answer may write to the same bot again, as Grok Bot's Bots hand work to each other and reply later. There is no one-round rule.
+- **Limits, so that bots never go on by themselves for ever** ([How bots communicate](bot-communication.md), rule 6): within one piece of work the same two bots write to each other at most 8 times, the work passes through at most 4 bots, and one bot has at most 6 messages passed on in ten minutes. At a limit the message is not sent; the sender is told once, with the reason, to bring the matter to you, and the other bot's chat says so in a line. A bot that then tries again is not told again. Your next message to a bot starts a new piece of work.
+- **Other bots can message it** (a bot's settings) turns incoming messages off for one bot. **Stop** in a bot's chat ends the exchanges it is part of, and the bots that wait for it read why.
+
 ## Helper agents
 
 - A bot is told how to start helpers unless **Can start helper agents** is off in its settings.

@@ -6,6 +6,10 @@ enum HerdrMessageLine {
     static let sent = LineTemplate("", " wrote to ", ": “", "”")
     static let notSent = LineTemplate("", "’s message to ", " could not be delivered.")
     static let tooMany = LineTemplate("", "’s message to “", "” was not sent: it has written to other bots ", " times in the last ", " minutes.")
+    /// A bot that was told a message was not sent wrote one again that cannot be sent: it is not told a second time.
+    static let refusedAgain = LineTemplate("", "’s message to “", "” was not sent either. ", " was not told again, so it stops here.")
+    /// In the chat of the bot that was to be written to, when the two have reached their limit.
+    static let limitReached = LineTemplate("", " and ", " have written to each other ", " times about this, which is the limit. ", " was told to bring the matter to you.")
     static let oneWhileAnswering = LineTemplate("", " is answering another bot and may write to one bot before it answers. Only its message to “", "” was looked at.")
     /// In the answering bot's chat.
     static let answered = LineTemplate("", "’s answer was passed back to ", ".")
@@ -24,9 +28,10 @@ enum HerdrMessageLine {
 /// (`HerdrBotMessage`): the app puts the message into that bot's chat as its next message, marked as passed on, and
 /// passes the reply back into the sender's chat, so both chats show everything the bots said. A bot that is asked
 /// while it answers another bot's message may write to one further bot first; its own answer then goes back when that
-/// bot has answered. What keeps an exchange short is in `HerdrBotRelay`: a bot is written to once per exchange, an
-/// exchange passes through four bots at most, and one bot has six messages passed on in ten minutes. The person ends
-/// an exchange by stopping the bot that is answering.
+/// bot has answered. A bot that has its answer may write to the same bot again (a follow-up), as Grok Bot's Bots
+/// hand work to each other and reply later. What keeps an exchange from running by itself is in `HerdrBotRelay`: it
+/// passes through four bots at most, the same two bots write to each other eight times at most, and one bot has six
+/// messages passed on in ten minutes. The person ends an exchange by stopping the bot that is answering.
 extension AppStore {
     // MARK: Who can be written to
 
@@ -76,6 +81,8 @@ extension AppStore {
         guard finished else { herdrExchangeBroke(at: bot, owed: owed, line: HerdrMessageLine.unfinished); return }
         let own = Self.herdrID(bot)
         let before = HerdrBotRelay.ids(part?.metadata[HerdrBotRelay.ExchangeKey.chain]), chain = before.isEmpty ? [own] : before
+        // How often each two bots have written to each other in this exchange: what bounds two that keep following up.
+        let rounds = HerdrBotRelay.rounds(part?.metadata[HerdrBotRelay.ExchangeKey.rounds])
         let peers = herdrPeers(of: bot), open = peers.filter(herdrTakesMessages).map(\.name)
         let candidates = peers.map { HerdrBotMessage.Candidate(id: Self.herdrID($0), name: $0.name, open: herdrTakesMessages($0)) }
         var messages = HerdrBotMessage.messages(in: reply.content)
@@ -101,16 +108,29 @@ extension AppStore {
                 continue
             }
             herdrCount(times)
-            var metadata = [HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined(chain), HerdrBotRelay.ExchangeKey.waiting: HerdrBotRelay.joined(owed)]
-            switch HerdrBotMessage.target(named: message.to, among: candidates, chain: chain) {
+            var metadata = [HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined(chain), HerdrBotRelay.ExchangeKey.waiting: HerdrBotRelay.joined(owed),
+                            HerdrBotRelay.ExchangeKey.rounds: HerdrBotRelay.joined(rounds: rounds)]
+            switch HerdrBotMessage.target(named: message.to, among: candidates, chain: chain, from: own, rounds: rounds) {
             case .bot(let id):
                 guard let target = peers.first(where: { Self.herdrID($0) == id }) else { continue }
-                metadata[HerdrBotRelay.ExchangeKey.chain] = HerdrBotRelay.joined(chain + [id])
+                // A bot that already took part is written to again (a follow-up); a new one joins the exchange.
+                metadata[HerdrBotRelay.ExchangeKey.chain] = HerdrBotRelay.joined(chain.contains(id) ? chain : chain + [id])
+                metadata[HerdrBotRelay.ExchangeKey.rounds] = HerdrBotRelay.joined(rounds: rounds.merging([HerdrBotRelay.pair(own, id): 1], uniquingKeysWith: +))
                 if herdrPassOn(HerdrBotRelay.message(from: bot.name, message.text), to: target, kind: HerdrBotRelay.message, asker: bot, name: bot.name, extra: metadata) {
                     notice(HerdrMessageLine.sent.render(bot.name, target.name, HerdrMessageLine.quote(message.text)), in: bot)
                     carried = true; askedOn = target
                 } else { notice(HerdrMessageLine.notSent.render(bot.name, target.name), in: bot) }
             case .refused(let refusal):
+                // A bot is told once why a message was not sent. One that answers that with another message that
+                // cannot be sent is not told again, or it could go on trying for ever with nobody but the app.
+                if part?.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.notice {
+                    notice(HerdrMessageLine.refusedAgain.render(bot.name, message.to, bot.name), in: bot)
+                    continue
+                }
+                // At the limit of two bots the other one's chat says so too; its agent is not woken for it.
+                if refusal == .spent, let other = HerdrBotMessage.bots(named: message.to, among: candidates).first.flatMap({ match in peers.first { Self.herdrID($0) == match.id } }) {
+                    notice(HerdrMessageLine.limitReached.render(bot.name, other.name, "\(HerdrBotRelay.roundLimit)", bot.name), in: other)
+                }
                 if herdrPassOn(HerdrBotRelay.refusal(refusal, to: message.to, names: open), to: bot, kind: HerdrBotRelay.notice, asker: bot, name: message.to, extra: metadata) { carried = true }
             }
         }
@@ -120,7 +140,7 @@ extension AppStore {
             return
         }
         let metadata = [HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined(chain), HerdrBotRelay.ExchangeKey.waiting: HerdrBotRelay.joined(Array(owed.dropLast())),
-                        HerdrBotRelay.ExchangeKey.from: own]
+                        HerdrBotRelay.ExchangeKey.from: own, HerdrBotRelay.ExchangeKey.rounds: HerdrBotRelay.joined(rounds: rounds)]
         if herdrPassOn(HerdrBotRelay.reply(from: bot.name, answer.filter { !$0.isEmpty }.joined(separator: "\n\n")), to: asker, kind: HerdrBotRelay.answer, asker: asker, name: bot.name, extra: metadata) {
             notice(HerdrMessageLine.answered.render(bot.name, asker.name), in: bot)
         } else { notice(HerdrMessageLine.answerNotPassed.render(bot.name, asker.name), in: bot) }

@@ -85,6 +85,7 @@ private func standard(_ bot: String, _ text: String) -> String {
     return bot.messages[index...].contains { $0.role == .assistant && !$0.isStreaming && !$0.content.isEmpty }
 }
 private func id(_ bot: Bot) -> String { bot.id.uuidString.lowercased() }
+private func pair(_ one: Bot, _ other: Bot) -> String { HerdrBotRelay.pair(id(one), id(other)) }
 
 /// The block, the note, the line of names and the rules, without a store.
 @MainActor @Test func aMessageToABotIsReadFromAReplyAndItsRulesHold() {
@@ -123,11 +124,18 @@ private func id(_ bot: Bot) -> String { bot.id.uuidString.lowercased() }
     #expect(HerdrBotMessage.target(named: " legal ", among: others, chain: ["a"]) == .bot("b") && HerdrBotMessage.target(named: "Cafe", among: others, chain: ["a"]) == .bot("f"))
     #expect(HerdrBotMessage.target(named: "Nobody", among: others, chain: ["a"]) == .refused(.unknown) && HerdrBotMessage.target(named: "Ops", among: others, chain: ["a"]) == .refused(.ambiguous))
     #expect(HerdrBotMessage.target(named: "Tax", among: others, chain: ["a"]) == .refused(.closed))
-    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["x", "b", "a"]) == .refused(.inChain), "a bot is written to once in an exchange")
-    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "y"]) == .bot("b") && HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "y", "z"]) == .refused(.tooLong), "four bots at most")
+    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["x", "b", "a"]) == .bot("b"), "a bot that already took part can be written to again: a follow-up")
+    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "y"]) == .bot("b") && HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "y", "z"]) == .refused(.tooLong)
+            && HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "b", "z"]) == .bot("b"), "four different bots at most, and any of the four again")
+    let pair = HerdrBotRelay.pair("B", "a")
+    #expect(pair == "a+b" && pair == HerdrBotRelay.pair("a", "b") && HerdrBotRelay.rounds(nil).isEmpty && HerdrBotRelay.rounds("a+b:3,a+c:1,junk,x:0") == ["a+b": 3, "a+c": 1] && HerdrBotRelay.joined(rounds: ["a+c": 1, "a+b": 3]) == "a+b:3,a+c:1")
+    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["a", "b"], from: "a", rounds: [pair: HerdrBotRelay.roundLimit - 1]) == .bot("b")
+            && HerdrBotMessage.target(named: "Legal", among: others, chain: ["a", "b"], from: "a", rounds: [pair: HerdrBotRelay.roundLimit]) == .refused(.spent)
+            && HerdrBotMessage.target(named: "Legal", among: others, chain: ["a", "b", "d"], from: "d", rounds: [pair: HerdrBotRelay.roundLimit]) == .bot("b"), "the same two bots write to each other eight times at most; another bot still may")
+    #expect(HerdrBotRelay.roundLimit == 8 && note.contains("write to it again to follow up") && note.contains("at most 8 times about one matter"), "the bots are told that they may follow up, and where it ends")
     let refused = HerdrBotRelay.refusal(.unknown, to: "Nobody", names: ["Legal", "Ops"])
     #expect(refused.hasPrefix("[From SwarmHub]\nNo bot named \"Nobody\"") && refused.hasSuffix(HerdrBotMessage.roster(["Legal", "Ops"])) && HerdrBotMessage.messages(in: refused).isEmpty)
-    for refusal in [HerdrBotMessage.Refusal.ambiguous, .closed, .inChain, .tooLong] { #expect(HerdrBotRelay.refusal(refusal, to: "X", names: []).contains("not sent")) }
+    for refusal in [HerdrBotMessage.Refusal.ambiguous, .closed, .tooLong, .spent] { #expect(HerdrBotRelay.refusal(refusal, to: "X", names: []).contains("not sent")) }
     #expect(HerdrBotRelay.ids("A,b,,C") == ["a", "b", "c"] && HerdrBotRelay.joined(["A", "b"]) == "a,b" && HerdrBotRelay.ids(nil).isEmpty)
     #expect(!HerdrBotRelay.mayAsk(replyingTo: [HerdrBotRelay.Key.kind: HerdrBotRelay.message]), "a reply to a bot's message asks for no bot by itself")
     #expect(HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: true).contains("can write to each other by name") && HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: false).hasPrefix("Off: a bot that writes to Legal is told"))
@@ -204,8 +212,27 @@ private func id(_ bot: Bot) -> String { bot.id.uuidString.lowercased() }
     #expect(replies(legal) == ["Legal here.", "Legal says: fine."] && relayed(boppy, HerdrBotRelay.answer).first?.content.contains("Legal says: fine.") == true, "the answer to the person is not passed on; the answer to the bot is")
 }
 
-/// Two bots cannot answer each other for ever. A sender that writes to the same bot again in every reply is refused,
-/// since that bot is already part of the exchange, and after six tries in ten minutes it is not answered any more.
+/// A bot that has its answer may write to the same bot again: a follow-up, as Grok Bot's Bots hand work to each
+/// other and reply later. Both messages and both answers are in both chats, and nothing is refused.
+@MainActor @Test func aBotFollowsUpWithTheBotThatAnswered() async throws {
+    let (store, script, bots) = exchangeStore { bot, text in
+        if bot == "Boppy", text.hasPrefix(HerdrBotRelay.replyLead), !text.contains("second") { return "Thanks.\n\n" + write(to: "Legal", "And clause 5, second question?") }
+        if bot == "Legal", text.contains("second question") { return "The second is fine too." }
+        return standard(bot, text)
+    }
+    let boppy = try #require(bots["Boppy"]), legal = try #require(bots["Legal"])
+    say(store, boppy, "Ask Legal: Is clause 4 fine?")
+    try await waitUntil { relayed(boppy, HerdrBotRelay.answer).count == 2 && answered(boppy, relayed(boppy, HerdrBotRelay.answer).last) && store.isIdle(boppy) && store.isIdle(legal) }
+    let sent = relayed(legal, HerdrBotRelay.message)
+    #expect(sent.map(\.content) == [HerdrBotRelay.message(from: "Boppy", "Is clause 4 fine?"), HerdrBotRelay.message(from: "Boppy", "And clause 5, second question?")])
+    #expect(sent.map { $0.metadata[HerdrBotRelay.ExchangeKey.rounds] } == ["\(pair(boppy, legal)):1", "\(pair(boppy, legal)):2"] && sent.allSatisfy { $0.metadata[HerdrBotRelay.ExchangeKey.chain] == "\(id(boppy)),\(id(legal))" }, "the same two bots, two messages")
+    #expect(relayed(boppy, HerdrBotRelay.answer).map(\.content) == [HerdrBotRelay.reply(from: "Legal", "Legal says: fine."), HerdrBotRelay.reply(from: "Legal", "The second is fine too.")])
+    #expect(relayed(boppy, HerdrBotRelay.notice).isEmpty && script.heard("Legal").count == 2 && replies(boppy).last == "Boppy has the answer.")
+    #expect(lines(boppy).contains("Boppy wrote to Legal: “And clause 5, second question?”") && lines(legal).filter { $0 == "Legal’s answer was passed back to Boppy." }.count == 2)
+}
+
+/// Two bots cannot answer each other for ever. A sender that follows up after every answer has six messages passed on
+/// in ten minutes; the seventh is not sent, nobody answers it, and the exchange ends.
 @MainActor @Test func twoBotsCannotAnswerEachOtherForEver() async throws {
     let (store, script, bots) = exchangeStore { bot, text in
         if bot == "Boppy", text.hasPrefix("[") { return "Once more.\n\n" + write(to: "Legal", "And again?") }
@@ -214,14 +241,49 @@ private func id(_ bot: Bot) -> String { bot.id.uuidString.lowercased() }
     let boppy = try #require(bots["Boppy"]), legal = try #require(bots["Legal"])
     say(store, boppy, "Ask Legal: Is clause 4 fine?")
     try await waitUntil { lines(boppy).contains { $0.contains("was not sent: it has written to other bots 6 times in the last 10 minutes") } && store.isIdle(boppy) && store.isIdle(legal) }
-    #expect(script.heard("Legal").count == 1 && relayed(legal, HerdrBotRelay.message).count == 1, "the other bot is written to once")
-    let notices = relayed(boppy, HerdrBotRelay.notice)
-    #expect(notices.count == 5 && notices.allSatisfy { $0.content.contains("\"Legal\" is already part of this exchange") } && store.herdrRelayCaption(notices[0]) == "From SwarmHub: a message to Legal that was not sent")
-    #expect(script.heard("Boppy").count == 7 && relayed(boppy, HerdrBotRelay.answer).count == 1, "its seventh try is answered by nobody, so it ends")
+    #expect(script.heard("Legal").count == 6 && relayed(legal, HerdrBotRelay.message).count == 6, "six messages reach the other bot")
+    #expect(relayed(boppy, HerdrBotRelay.notice).isEmpty && script.heard("Boppy").count == 7 && relayed(boppy, HerdrBotRelay.answer).count == 6, "its seventh try is answered by nobody, so it ends")
     // The person writes again: a new exchange, but the ten minutes still count.
     say(store, boppy, "Ask Legal: One more?")
     try await waitUntil { store.isIdle(boppy) && lines(boppy).filter { $0.contains("was not sent: it has written to other bots") }.count == 2 }
-    #expect(script.heard("Legal").count == 1)
+    #expect(script.heard("Legal").count == 6)
+}
+
+/// A clock the scripted agents move, so their turns are minutes apart.
+private final class SlowClock: @unchecked Sendable {
+    private let lock = NSLock(); private var date = Date(timeIntervalSinceReferenceDate: 3_000_000), quiet = false
+    var now: Date { lock.withLock { date } }
+    func pass(_ seconds: TimeInterval) { lock.withLock { date += seconds } }
+    /// From now on the sender answers in words.
+    var isQuiet: Bool { lock.withLock { quiet } }
+    func hush() { lock.withLock { quiet = true } }
+}
+
+/// Bots that take minutes for every turn never write six times in ten minutes, so the exchange itself has an end:
+/// when two bots have written to each other eight times the ninth message is refused, the sender is told once to
+/// bring the matter to the person, and a sender that tries again is not told a second time. Only the person starts a
+/// new exchange.
+@MainActor @Test func twoBotsWriteToEachOtherEightTimesAtMost() async throws {
+    let clock = SlowClock()
+    let (store, script, bots) = exchangeStore { bot, text in
+        if bot == "Boppy", text.hasPrefix("["), !clock.isQuiet { clock.pass(300); return "Once more.\n\n" + write(to: "Legal", "And again?") }
+        return standard(bot, text)
+    }
+    store.now = { clock.now }
+    let boppy = try #require(bots["Boppy"]), legal = try #require(bots["Legal"])
+    say(store, boppy, "Ask Legal: Is clause 4 fine?")
+    try await waitUntil { lines(boppy).contains("Boppy’s message to “Legal” was not sent either. Boppy was not told again, so it stops here.") && store.isIdle(boppy) && store.isIdle(legal) }
+    let sent = relayed(legal, HerdrBotRelay.message)
+    #expect(script.heard("Legal").count == HerdrBotRelay.roundLimit && sent.count == 8 && sent.last?.metadata[HerdrBotRelay.ExchangeKey.rounds] == "\(pair(boppy, legal)):8" && sent.last?.metadata[HerdrBotRelay.ExchangeKey.chain] == "\(id(boppy)),\(id(legal))")
+    let notices = relayed(boppy, HerdrBotRelay.notice)
+    #expect(notices.count == 1 && notices[0].content.contains("You and \"Legal\" have written to each other 8 times about this") && store.herdrRelayCaption(notices[0]) == "From SwarmHub: a message to Legal that was not sent", "told once")
+    #expect(lines(legal).contains("Boppy and Legal have written to each other 8 times about this, which is the limit. Boppy was told to bring the matter to you."), "the other bot's chat says so, and its agent is not woken")
+    #expect(script.heard("Boppy").count == 10 && relayed(boppy, HerdrBotRelay.answer).count == 8 && !lines(boppy).contains { $0.contains("it has written to other bots") }, "the ten-minute limit never applied")
+    // The person writes again: a new exchange.
+    clock.hush()
+    say(store, boppy, "Ask Legal: One more?")
+    try await waitUntil { relayed(boppy, HerdrBotRelay.answer).count == 9 && answered(boppy, relayed(boppy, HerdrBotRelay.answer).last) && store.isIdle(boppy) && store.isIdle(legal) }
+    #expect(script.heard("Legal").count == 9 && relayed(legal, HerdrBotRelay.message).last?.metadata[HerdrBotRelay.ExchangeKey.rounds] == "\(pair(boppy, legal)):1")
 }
 
 /// The receiver answers by addressing the sender with a block: those words are its answer, not a new message.
@@ -237,8 +299,8 @@ private func id(_ bot: Bot) -> String { bot.id.uuidString.lowercased() }
     #expect(relayed(boppy, HerdrBotRelay.message).isEmpty && relayed(legal, HerdrBotRelay.notice).isEmpty && script.heard("Legal").count == 1)
 }
 
-/// A asks B, B asks C before it answers: C's answer goes to B, and B's answer then goes back to A. C cannot write to A,
-/// which is already part of the exchange.
+/// A asks B, B asks C before it answers: C's answer goes to B, and B's answer then goes back to A. C may write to A,
+/// which is already part of the exchange, before it answers: A's answer goes to C, and the answers travel back in order.
 @MainActor @Test func aBotThatIsAskedMayAskOneFurtherBotBeforeItAnswers() async throws {
     let (store, script, bots) = exchangeStore { bot, text in
         if bot == "Tax", text.hasPrefix(HerdrBotRelay.messageLead) { return "19 percent.\n\n" + write(to: "Boppy", "Hello from Tax.") }
@@ -249,15 +311,18 @@ private func id(_ bot: Bot) -> String { bot.id.uuidString.lowercased() }
     try await waitUntil { answered(boppy, relayed(boppy, HerdrBotRelay.answer).first) && store.isIdle(boppy) && store.isIdle(legal) && store.isIdle(tax) }
     let toTax = try #require(relayed(tax, HerdrBotRelay.message).first)
     #expect(toTax.content == HerdrBotRelay.message(from: "Legal", "What is the rate?") && toTax.metadata[HerdrBotRelay.ExchangeKey.chain] == "\(id(boppy)),\(id(legal)),\(id(tax))" && toTax.metadata[HerdrBotRelay.ExchangeKey.waiting] == id(boppy))
-    #expect(lines(boppy).contains("Legal wrote to Tax before answering Boppy.") && lines(legal).contains("Legal wrote to Tax: “What is the rate?”"))
-    // Tax tried to write to Boppy: refused, and what Tax said to that refusal is its answer to Legal.
-    let refusal = try #require(relayed(tax, HerdrBotRelay.notice).first)
-    #expect(refusal.content.contains("\"Boppy\" is already part of this exchange") && relayed(boppy, HerdrBotRelay.message).isEmpty)
+    #expect(HerdrBotRelay.rounds(toTax.metadata[HerdrBotRelay.ExchangeKey.rounds]) == [pair(boppy, legal): 1, pair(legal, tax): 1] && lines(boppy).contains("Legal wrote to Tax before answering Boppy.") && lines(legal).contains("Legal wrote to Tax: “What is the rate?”"))
+    // Tax wrote to Boppy, which started the exchange: Boppy answers Tax, and Tax then answers Legal.
+    let toBoppy = try #require(relayed(boppy, HerdrBotRelay.message).first)
+    #expect(toBoppy.content == HerdrBotRelay.message(from: "Tax", "Hello from Tax.") && toBoppy.metadata[HerdrBotRelay.ExchangeKey.chain] == toTax.metadata[HerdrBotRelay.ExchangeKey.chain]
+            && toBoppy.metadata[HerdrBotRelay.ExchangeKey.waiting] == "\(id(boppy)),\(id(legal))" && HerdrBotRelay.rounds(toBoppy.metadata[HerdrBotRelay.ExchangeKey.rounds]) == [pair(boppy, legal): 1, pair(legal, tax): 1, pair(boppy, tax): 1], "no new bot joined, and each two bots wrote once")
+    #expect(relayed(tax, HerdrBotRelay.notice).isEmpty && lines(legal).contains("Tax wrote to Boppy before answering Legal."))
+    #expect(relayed(tax, HerdrBotRelay.answer).map(\.content) == [HerdrBotRelay.reply(from: "Boppy", "Boppy says: fine.")])
     let fromTax = try #require(relayed(legal, HerdrBotRelay.answer).first)
-    #expect(fromTax.content == HerdrBotRelay.reply(from: "Tax", "Tax understood.") && fromTax.metadata[HerdrBotRelay.ExchangeKey.waiting] == id(boppy) && store.herdrRelayCaption(fromTax) == "Passed on by SwarmHub: the answer from Tax")
+    #expect(fromTax.content == HerdrBotRelay.reply(from: "Tax", "Tax has the answer.") && fromTax.metadata[HerdrBotRelay.ExchangeKey.waiting] == id(boppy) && store.herdrRelayCaption(fromTax) == "Passed on by SwarmHub: the answer from Tax")
     // Boppy hears from Legal once: Legal's answer after it heard from Tax, not its "Let me check."
     #expect(relayed(boppy, HerdrBotRelay.answer).map(\.content) == [HerdrBotRelay.reply(from: "Legal", "Legal has the answer.")])
-    #expect(script.heard("Boppy").count == 2 && script.heard("Legal").count == 2 && script.heard("Tax").count == 2 && replies(boppy).last == "Boppy has the answer.")
+    #expect(script.heard("Boppy").count == 3 && script.heard("Legal").count == 2 && script.heard("Tax").count == 2 && replies(boppy).last == "Boppy has the answer.")
 }
 
 /// An exchange passes through four bots at most: the fourth bot's message to a fifth is refused, and the answers
