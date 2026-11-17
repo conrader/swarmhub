@@ -3,7 +3,7 @@ import SwiftUI
 /// A group's shared thread: the user's messages and each member's replies under its own avatar.
 struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
-    @State private var draft = ""; @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
+    @State private var draft = ""; @StateObject private var intake = AttachmentIntake()
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
@@ -52,8 +52,7 @@ struct GroupChatView: View {
                          send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
                          pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                          reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                         mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name),
-                         dictationContext: store.dictationIsSetUp ? group.id.uuidString : nil, recipient: group.name, dictation: dictation)
+                         mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), recipient: group.name)
                 .background(AppColor.chat)
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in

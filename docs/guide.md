@@ -178,11 +178,11 @@ Then open a bot's settings, **Advanced**, or the **Overview** tab of its Details
 
 **File → New Group…** (⇧⌘N) puts several bots in one thread. Write `@Name` to address one member; a message without a mention goes to every member.
 
-### Files and voice
+<a id="files-and-voice"></a>
+
+### Files
 
 Drop or attach images, text files, PDF, RTF, DOC or DOCX files. Text and document contents reach the bot as text. Images are kept in the chat and are not sent to the bot.
-
-For dictation, open **Settings → Voice**, paste a deAPI API key and press **Save key**. A microphone button then appears in every chat's composer. The transcript is added to the draft for you to review.
 
 ### Import from Grok Bot
 

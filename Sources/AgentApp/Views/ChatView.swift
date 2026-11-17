@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
-    @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
+    @StateObject private var intake = AttachmentIntake()
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     /// The messages between bots that are unfolded, while this chat is on screen.
@@ -109,8 +109,7 @@ struct ChatView: View {
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
                      manage: { action in if let request = action.request { draft = request } else { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot, again: true) } },
-                     dictationContext: store.dictationIsSetUp ? "\(bot.id):chat" : nil,
-                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name, dictation: dictation)
+                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name)
     }
     /// Media tab → Attach puts a saved document into this chat's composer.
     private func takePendingAttachment() {

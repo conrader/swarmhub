@@ -18,16 +18,11 @@ struct ComposerView: View {
     var mentionNames: [String] = []
     /// P22: the manager bot's chat offers the Manage bots menu (each item fills this composer with a plain request).
     var manageActions: [ManageBotsAction] = []; var manage: (ManageBotsAction) -> Void = { _ in }
-    /// P38 C: deAPI dictation. The chat this composer writes into (nil: no microphone); changing it cancels a recording,
-    /// and a transcript is only appended to the draft of the chat it was recorded in.
-    var dictationContext: String? = nil
     /// The setup wizard ends in a chat with the keyboard in its composer: true asks for it, and `tookFocus` says it happened.
     var wantsFocus = false; var tookFocus: () -> Void = {}
     /// Who the message goes to (a bot's or a group's name), for the placeholder.
     var recipient: String? = nil
-    @ObservedObject var dictation: VoiceDictation = VoiceDictation()
     @State private var importing = false; @State private var pasteMonitor: Any?; @FocusState private var focused: Bool
-    private var dictationBusy: Bool { dictationContext != nil && dictation.isBusy }
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
     private var suggestions: [String] {
         guard !mentionNames.isEmpty, let partial = GroupRouting.typedMention(in: text) else { return [] }
@@ -53,7 +48,6 @@ struct ComposerView: View {
                     }
                 }
             }
-            if dictationContext != nil, dictation.isBusy || dictation.errorMessage != nil { DictationStatusRow(dictation: dictation) }
             // One row of 28 pt slots: each control is centred in its slot (the `+` menu is drawn by AppKit and ignores its
             // label's frame), and the slots sit on the draft's last line as it grows.
             HStack(alignment: .bottom, spacing: ComposerMetrics.spacing) {
@@ -62,11 +56,10 @@ struct ComposerView: View {
                     .composerSlot("composer_attach")
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus") }.composerSlot("composer_manage") }
                 input.chromeProbe("composer_input")
-                if let dictationContext { DictationButton(dictation: dictation, context: dictationContext) { focused = true }.composerSlot("composer_dictation") }
                 if isStreaming && hasContent {
                     Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
                         .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(canSteer ? "Send now, into this answer" : "Send when this answer ends")
-                        .disabled(dictationBusy || !reading.isEmpty).composerSlot("composer_steer")
+                        .disabled(!reading.isEmpty).composerSlot("composer_steer")
                 }
                 if isStreaming {
                     Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)) }
@@ -74,7 +67,7 @@ struct ComposerView: View {
                         .composerSlot("composer_send")
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).disabled(!hasContent || !reading.isEmpty || dictationBusy)
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).disabled(!hasContent || !reading.isEmpty)
                         .composerSlot("composer_send")
                 }
             }
@@ -86,17 +79,8 @@ struct ComposerView: View {
                 let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
                 attach(urls); scoped.forEach { $0.stopAccessingSecurityScopedResource() }
             }
-            .onAppear(perform: installPasteMonitor).onDisappear { removePasteMonitor(); dictation.cancel() }
+            .onAppear(perform: installPasteMonitor).onDisappear { removePasteMonitor() }
             .onAppear(perform: takeFocus).onChange(of: wantsFocus) { _, _ in takeFocus() }
-            .onChange(of: dictationContext) { _, _ in dictation.cancel() }
-            .onChange(of: dictation.transcript) { _, transcript in
-                guard let transcript, let dictationContext, dictation.transcriptContext == dictationContext else { return }
-                text = VoiceDictation.appending(transcript, to: text)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-                if dictation.state == .recording { dictation.cancel() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in dictation.cancel() }
     }
 
     /// The draft, sized by a hidden copy of its text (wrapped lines included): one line fills a 28 pt slot with the line
@@ -119,7 +103,7 @@ struct ComposerView: View {
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.shift) { return .ignored }
                         if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
-                        if reading.isEmpty && !dictationBusy { send() }; return .handled
+                        if reading.isEmpty { send() }; return .handled
                     }
                     .onKeyPress(.tab) { guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
             }
@@ -198,47 +182,5 @@ private struct ReadingChip: View {
             Button(action: cancel) { Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary) }.buttonStyle(.plain).help("Stop reading")
         }.padding(.horizontal, 10).padding(.vertical, 7)
             .background(AppColor.card, in: RoundedRectangle(cornerRadius: 9)).overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5))
-    }
-}
-
-/// P38 C: the composer's microphone: record, then stop to transcribe with deAPI into the draft.
-private struct DictationButton: View {
-    @ObservedObject var dictation: VoiceDictation
-    let context: String; let focus: () -> Void
-    var body: some View {
-        let recording = dictation.state == .recording
-        Button {
-            if recording { dictation.finish() } else { focus(); dictation.start(context: context) }
-        } label: { Image(systemName: recording ? "stop.circle.fill" : "mic").frame(width: 28, height: 28) }
-            .buttonStyle(.plain).foregroundStyle(recording ? Color.red : Color.secondary)
-            .disabled(dictation.state == .requestingPermission || dictation.state == .transcribing)
-            .help(recording ? "Stop recording and transcribe" : "Dictate a message")
-            .accessibilityLabel(recording ? "Stop recording and transcribe" : "Dictate a message")
-            .accessibilityIdentifier("composer.dictation")
-    }
-}
-
-/// P38 C: recording time, transcription progress, or what dictation needs (a deAPI key, microphone access).
-private struct DictationStatusRow: View {
-    @ObservedObject var dictation: VoiceDictation
-    @EnvironmentObject private var store: AppStore
-    @Environment(\.openSettings) private var openSettings
-    var body: some View {
-        HStack(spacing: 8) {
-            if dictation.state == .recording {
-                Image(systemName: "record.circle").foregroundStyle(.red)
-                Text("Recording \(dictation.elapsedText) · 5 min max").monospacedDigit()
-            } else if dictation.isBusy {
-                ProgressView().controlSize(.small)
-                Text(dictation.state == .transcribing ? "Transcribing…" : "Waiting for microphone access…")
-            } else if let error = dictation.errorMessage {
-                Image(systemName: "exclamationmark.triangle").foregroundStyle(AppColor.caution)
-                Text(error).lineLimit(2)
-            }
-            Spacer()
-            if dictation.needsConfiguration { Button("Voice settings") { store.settingsPane = .voice; openSettings() } }
-            if dictation.needsMicrophonePermission { Button("Open Microphone settings") { ExternalLink.open(ExternalLink.microphoneSettings) } }
-            Button(dictation.isBusy ? "Cancel" : "Dismiss") { dictation.cancel() }.buttonStyle(.plain)
-        }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 6)
     }
 }

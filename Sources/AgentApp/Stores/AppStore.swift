@@ -51,9 +51,6 @@ import UserNotifications
     /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
     var herdrSettling: Set<String> = []
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
-    /// Whether dictation has its key, looked up once (attributes only) and again when Settings saves or removes it:
-    /// the composer shows its microphone only then (`dictationIsSetUp`).
-    var dictationKeyKnown: Bool?
     /// The sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
     @Published var infoTab = AgentInfoTab.overview
