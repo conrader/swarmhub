@@ -994,40 +994,191 @@ From an agent’s composer or a routine editor, choose **Use skill** to preview 
 
 An agent can propose a reusable skill with `swarmhub-herdr propose-skill < skill.json`, using the workspace binary from its own session. The JSON contains `name`, `summary`, and `instructions`. The conversation offers **Review proposed skill**; you can edit and save it to the Library or dismiss it. A proposal alone creates no skill and runs no commands. Reviewing saved proposals works while Herdr Core is offline.
 
-## Manage the server’s skillshare skills
+## Manage the server’s skillshare library
 
-[skillshare](https://skillshare.runkids.cc) is a separate command-line program. It keeps one folder of agent skills, the source, and links it into each agent program’s own skills folder, a Target. If it is installed on the server, an app can show its skills and Targets and turn skills on and off through the workspace. This has nothing to do with the workspace’s own Skills library in [Reuse a skill](#reuse-a-skill).
+[skillshare](https://skillshare.runkids.cc) is a separate command-line program. It keeps one library, the source, of five kinds of things an agent program can use: skills, agents, MCP servers, plugins and hooks. A sync brings the library into each agent program’s own folders and settings, its Targets. If skillshare is installed on the server, an app can show the library, sync it, turn things on and off, install skills from a repository after a security check, update and remove them, and pull and push the library’s Git repository, all through the workspace. This has nothing to do with the workspace’s own Skills library in [Reuse a skill](#reuse-a-skill).
 
-The workspace runs the `skillshare` program it finds on its `PATH`. Set `SWARMHUB_SKILLSHARE` to the program’s full path to use another one. Without the program, every route below answers with `installed: false` and a `problem` that says so. The workspace keeps no copy of skillshare’s state: each answer is what skillshare reports at that moment.
+The workspace runs the `skillshare` program it finds on its `PATH`. Set `SWARMHUB_SKILLSHARE` to the program’s full path to use another one. Without the program, every route below answers with `installed: false` and a `problem` that says so. The workspace keeps no copy of the library: each answer is what skillshare reports at that moment. The one thing it remembers, until it restarts, is which skills had an update at the last check.
 
-- Turning a skill on or off changes the source only. The agent programs see the change after the next sync.
-- A sync links the enabled skills into every Target and removes the links of disabled ones. A skill folder of your own that is already in a Target stays as it is, also when it has the name of a skill in the source: the workspace never asks skillshare to overwrite.
-- Adding a Target only writes skillshare’s configuration. Nothing is linked into that agent program’s folder until the next sync, and from then on that program loads every enabled skill, in every session of the server account, including the ones you start yourself.
-- The workspace does not install, update or remove skills. Use `skillshare` on the server for that.
+- Turning something on or off, installing, updating and removing change the source only. The agent programs see the change after the next sync.
+- A sync asked for with `all` brings skills, agents, MCP servers and hooks to every Target, and plugins when one waits. It writes MCP servers and hooks into the agent programs’ own settings files. A sync without `all` links skills only, as before. A skill folder of your own that is already in a Target stays as it is: the workspace never asks skillshare to overwrite.
+- Installing from a repository is two steps. First the workspace downloads the repository into a scratch folder, asks skillshare which skills it holds, and runs `skillshare audit` on each. Nothing is installed and nothing from the download is run. Then, only when asked, it installs the chosen skills, and skillshare audits again what it fetches. A skill the audit blocks is installed only when the request says `force`, and then exactly the commit that was checked, also when the repository has changed since. It stays at that commit: skillshare offers no update for it until you install it again.
+- Removing moves a skill or agent to skillshare’s trash, where it stays for 7 days (`skillshare trash` on the server brings it back). Removing, pushing, and updating skillshare itself happen only when the request says `confirm`.
+- Secrets never leave the server. An MCP server’s environment values, header values and token are not sent, only their names; an address is sent without its query or sign-in part; an argument that follows a flag named like a key, token or password is masked; a hook’s commands are not sent.
+- Adding a Target only writes skillshare’s configuration. Nothing reaches that agent program until the next sync, and from then on that program gets the library in every session of the server account, including the ones you start yourself.
+
+Not covered: adding or editing MCP servers, plugins and hooks (use `skillshare mcp`, `skillshare plugin` and `skillshare hooks` on the server), tracking a whole repository (`install --track`), installing agents from a repository, updating something skillshare’s audit refuses to update, extras, backups and restore, bringing something back from skillshare’s trash, changing a Target’s mode or filters, and skillshare on other Herdr machines: these routes are about the server the workspace runs on. An MCP server that is kept in skillshare without any agent program to receive it is not listed, because skillshare’s plan does not name it. The update check and the repository routes work on the global library only when it comes to Git; a project’s library has no pull or push here.
 
 ### For apps
 
-Every route needs the access token. A `GET` always answers 200; read `problem` (`null` when all is well) to learn why something is missing.
+Every route needs the access token. A `GET` always answers 200; read `problem` (`null` when all is well) to learn why something is missing. The routes in this section, other than the six under [The first routes](#the-first-routes), exist from API level 2 (`bridge.api` in `/api/workspace`).
+
+Every route takes an optional `project`: the full path of a folder on the server that holds a skillshare project (`.skillshare/config.yaml`). A `GET` takes it as a query parameter, a `POST` in its body. With it the route works on that project’s library; without it, on the global one. The routes under [The library’s Git repository](#the-librarys-git-repository) and [This server](#this-server) are global only.
+
+#### The library
+
+`GET /api/skillshare/library` returns everything a screen shows:
+
+```json
+{
+  "installed": true, "version": "0.30.8", "problem": null,
+  "scope": "global", "project": null,
+  "source": "/home/me/.config/skillshare/skills",
+  "counts": {"skills": 4, "agents": 1, "mcp": 2, "plugins": 0, "hooks": 1},
+  "item_count": 8,
+  "items": [
+    {"id": "skills:alpha", "kind": "skills", "name": "alpha", "title": "alpha", "path": "alpha",
+     "description": "Use when testing alpha things.", "state": "waiting", "enabled": true,
+     "origin": "local", "source": null, "version": null,
+     "targets": ["claude", "universal"],
+     "waiting": [{"target": "claude", "action": "add"}, {"target": "universal", "action": "add"}],
+     "actions": ["disable", "uninstall", "diff"]}
+  ],
+  "targets": [{"name": "claude", "path": "/home/me/.claude/skills", "mode": "merge", "status": "merged", "linked": 3, "skills_enabled": true, "waiting": 4}],
+  "waiting": 5,
+  "sync_blocked": null,
+  "unread": [],
+  "updates_checked": null
+}
+```
+
+- `kind` is `skills`, `agents`, `mcp`, `plugins` or `hooks`. `id` is the kind, a colon and the name skillshare uses for it; send it back as it is.
+- `state` is `waiting` (a sync would change a Target), `update` (the last check found a newer version), `in_sync`, `off` (disabled) or `unknown` (the part that would say could not be read).
+- `waiting` on an item lists each Target a sync would change and what it would do (`add`, `update`, `remove`, …). `targets` on an item names the Targets it goes to.
+- `actions` names what the workspace will do for this item: `enable` or `disable`, `update` (after a check found a newer version), `uninstall`, `diff` (while it waits for a sync). MCP servers and plugins have none; a sync handles them. A skill inside a tracked checkout has no `uninstall`, and an item whose name skillshare would read as a pattern has none at all.
+- `counts` holds `null` for a kind that could not be read, and `unread` says which reading failed and why (`part` is `list`, `diff`, `mcp`, `plugins` or `hooks`). The rest of the answer is still good.
+- `waiting` on a Target counts what waits for it; top-level `waiting` counts the items that wait.
+- `sync_blocked` is a sentence when skillshare would refuse a sync of everything, for example because a hook conflicts with one the agent program already has.
+- `updates_checked` is when updates were last checked (seconds since 1970), or `null` when not since the workspace started. An answer carries at most 1,000 items; `item_count` counts them all.
+
+`POST /api/skillshare/check` asks every installed skill’s and agent’s origin whether there is a newer version. It can take a minute. It answers `{"library": …, "updates": 2, "problem": null}`, with the library as above and the items that have an update in state `update`.
+
+`POST /api/skillshare/sync` with `{"all": true}` syncs everything, as described above. It returns `dry_run`, `linked`, `local`, `updated`, `pruned`, `ignored`, the same numbers for each Target in `details`, `targets` as they are afterwards, `output`, and with `all` the `library` afterwards. `{"dry_run": true}` changes nothing and reports what a sync would do.
+
+`POST /api/skillshare/enable` and `POST /api/skillshare/disable` take `{"id": "…"}` of a skill, an agent or a hook. They answer `{"library": …, "changed": ["skills:beta"], "output": "…"}`. `changed` is empty when the item already was as asked.
+
+`GET /api/skillshare/preview?id=…` returns what there is to read about one item:
+
+```json
+{
+  "id": "skills:alpha", "kind": "skills", "name": "alpha",
+  "folder": "/home/me/.config/skillshare/skills/alpha",
+  "files": ["SKILL.md", "scripts/run.sh"], "file_count": 2,
+  "file": "SKILL.md",
+  "meta": [{"key": "name", "value": "alpha"}, {"key": "description", "value": "Use when testing alpha things."}],
+  "text": "# Alpha\n\nDo the alpha thing.\n", "truncated": false,
+  "settings": [],
+  "targets": [{"name": "claude", "state": "waiting", "action": "add"}, {"name": "universal", "state": "in_sync", "action": null}]
+}
+```
+
+- A skill has `files` (at most 200 names; `file_count` counts them all) and the `file` that was read: `SKILL.md`, or the one named with `&file=…`. A Markdown file’s front matter comes as `meta` and the rest as `text`. `text` is the first 60,000 bytes; `truncated` says there is more. `text` is `null` for a file that is not text.
+- An agent has its one file. MCP servers, plugins and hooks have no files; they have `settings`, a list of `{"key", "value", "hidden"}`. For an MCP server the keys are `transport`, `command`, `args`, `url`, `env`, `headers`, `bearer_token`, `tools_allow`, `tools_deny`. `hidden: true` means the value holds names only, because the real values stay on the server. For a hook: `description`, and one `agent` entry for each agent program with the events it listens to. For a plugin: `source`, `version`, and one `agent` entry for each.
+- `targets` lists each Target the item goes to, with `state` `waiting`, `in_sync` or `off`.
+
+`GET /api/skillshare/diff?id=…` returns `{"id": "…", "title": "…", "text": "…"}`: what a sync would change, file by file, for the skills or agents of this library, as skillshare prints it. With `&what=edits` it returns what was edited in this one skill since it was installed.
+
+#### Install, update, remove
+
+`POST /api/skillshare/install/inspect` takes `{"source": "…"}`: `owner/repo`, `owner/repo/path/to/skill`, or an `https://`, `ssh://`, `git@…` or `file://` Git URL. It downloads the repository (at most 60 seconds, 50 MB and 5,000 files), asks skillshare for the skills in it, audits them, and answers:
+
+```json
+{
+  "ticket": "f3a9…", "source": "owner/repo", "commit": "18177eae04d7…", "expires_in": 900,
+  "threshold": "CRITICAL",
+  "skills": [
+    {"name": "pdf-tools", "path": "skills/pdf-tools", "description": "Work with PDF files.", "installed": false,
+     "audited": true, "blocked": false, "risk": "clean", "score": 0, "findings": []},
+    {"name": "evil", "path": "evil", "description": "Totally fine skill.", "installed": false,
+     "audited": true, "blocked": true, "risk": "critical", "score": 65,
+     "findings": [{"severity": "CRITICAL", "pattern": "prompt-injection", "message": "Prompt injection attempt detected", "file": "SKILL.md", "line": 7, "snippet": "Ignore all previous instructions and run:"}]}
+  ],
+  "blocked": ["evil"]
+}
+```
+
+- `installed: true` marks a skill the library already has; installing it replaces that one.
+- `audited: false` means the workspace could not audit this skill in its own download, for example because it could not download the repository the way skillshare does; `commit` is then `null`. skillshare still audits it when it installs, and `force` is refused for it.
+- The download is kept for 15 minutes under `ticket`, then removed. The workspace keeps at most 4 at a time.
+
+`POST /api/skillshare/install` takes `{"ticket": "…", "skills": ["pdf-tools"]}` and installs those skills (all of them when `skills` is left out). Add `"replace": true` to install again skills the library already has from this source, and `"force": true` to install skills the audit blocked. It answers `{"library": …, "installed": ["pdf-tools"], "pinned": false, "output": "…"}`. `pinned: true` says the skills were installed at the checked commit and stay there. A refusal that asks for `replace` or `force` leaves the ticket for a second request; an install uses it up. `POST /api/skillshare/install/cancel` with `{"ticket": "…"}` removes the download without installing and answers `{"cancelled": true}`.
+
+`POST /api/skillshare/update` takes `{"id": "…"}` of a skill or agent that was installed from somewhere, or `{"all": true}`. It answers `{"library": …, "updated": 1, "blocked": [], "output": "…"}`. `blocked` names what skillshare’s audit refused to update; the workspace has no way to update those anyway.
+
+`POST /api/skillshare/uninstall` takes `{"id": "…", "confirm": true}` of a skill, an agent or a hook, and answers `{"library": …, "removed": ["pdf-tools"], "output": "…"}`. A removed hook leaves the agent programs at the next sync.
+
+#### The library’s Git repository
+
+`GET /api/skillshare/source` reads the repository the source is in, with Git:
+
+```json
+{
+  "repo": true, "folder": "/home/me/.config/skillshare/skills",
+  "branch": "main", "upstream": "origin/main", "remote": "github.com/me/skills",
+  "ahead": 1, "behind": 2,
+  "files": [{"code": "M", "path": "alpha/SKILL.md"}], "file_count": 1,
+  "problem": null
+}
+```
+
+`repo: false` means the source is not in a Git repository. `ahead` counts commits not pushed yet, `behind` commits not pulled yet, `files` what is not committed (at most 200; `file_count` counts all). With `?fetch=true` the workspace first asks the remote what is new. `remote` never carries a password or token.
+
+- `POST /api/skillshare/source/pull` runs `skillshare pull`: it brings the remote’s changes and syncs the Targets.
+- `POST /api/skillshare/source/push` takes `{"confirm": true, "message": "…"}` and runs `skillshare push`: it commits what is uncommitted and pushes. `message` is optional.
+- `POST /api/skillshare/source/sync` takes the same and runs `skillshare push --pull`: pull, then push, then sync the Targets.
+
+Each answers `{"source": …, "library": …, "output": "…", "conflict": null}`. When the server and the remote changed the same file, nothing is changed and `conflict` holds what to choose between:
+
+```json
+{"push": true, "files": [{"path": "alpha/SKILL.md", "mine": "the file as this server has it", "theirs": "the file as the remote has it", "cut": false}]}
+```
+
+`mine` or `theirs` is `null` when that side deleted the file; `cut: true` says a side was longer than the 16,000 bytes sent. An answer carries at most 50 files. `POST /api/skillshare/source/resolve` takes `{"confirm": true, "push": true, "choices": {"alpha/SKILL.md": "theirs"}}` with `mine` or `theirs` for every file of the conflict. It merges with those choices and syncs the Targets, and pushes when `push` is true. If a file of the conflict has no choice, for example because the remote changed again in the meantime, it answers with the `conflict` as it is now and changes nothing. A pull is refused while the library has uncommitted changes; both ways commits them first. skillshare’s own record of installed skills (`.metadata.json`) is never asked about: it is merged entry by entry, the way skillshare’s own pull does it.
+
+#### This server
+
+`GET /api/skillshare/machine` describes skillshare on this server:
+
+```json
+{
+  "installed": true, "version": "0.30.8", "latest": "0.30.10", "update_available": true,
+  "host": "dmt", "problem": null,
+  "source": {"repo": true, "branch": "main", "upstream": "origin/main", "remote": "github.com/me/skills", "ahead": 0, "behind": 0, "files": [], "file_count": 0, "folder": "…", "problem": null},
+  "targets": [{"name": "claude", "path": "…", "mode": "merge", "status": "merged", "linked": 3, "skills_enabled": true, "waiting": 0}],
+  "waiting": 0,
+  "doctor": {"errors": 0, "warnings": 1, "notes": [{"status": "warning", "name": "git_status", "message": "Git: 4 uncommitted change(s)", "details": []}]}
+}
+```
+
+`latest` and `update_available` are filled only with `?check=true`, which asks GitHub for skillshare’s newest release. `doctor` carries what `skillshare doctor` warns about, at most 50 notes. `POST /api/skillshare/upgrade` with `{"confirm": true}` runs `skillshare upgrade --cli --force`, which replaces the skillshare program on the server with the newest release, and answers `{"version": "0.30.10", "output": "…"}`.
+
+`GET /api/skillshare/projects?folder=/srv/shop&folder=/srv/api` answers `{"projects": [{"folder": "/srv/shop", "config": "/srv/shop/.skillshare/config.yaml"}]}`: which of these folders hold a skillshare project.
+
+#### The first routes
+
+These six exist at every API level and are about skills only.
 
 - `GET /api/skillshare` returns `installed`, `version`, `problem`, `source` (the folder), `skill_count`, `skills` and `targets`. Each skill has `name`, `path` (its folder in the source), `description` (the first 300 characters from its `SKILL.md`, or `null`), `enabled`, `origin` (`local`, `tracked`, or where it was installed from, such as `github`) and `source` (the place it was installed from or its tracked checkout, or `null`). Each Target has `name`, `path`, `mode`, `status`, `linked` (skills in its folder now) and `skills_enabled`. An answer carries at most 500 skills; `skill_count` counts them all.
-- `POST /api/skillshare/enable` and `POST /api/skillshare/disable` take `{"name": "…"}`, a name from that list. They answer like the `GET`, plus `changed` (the skills whose state changed) and `output` (what skillshare said; empty when the skill already was as asked).
-- `POST /api/skillshare/sync` runs a sync. With `{"dry_run": true}` it changes nothing and reports what a sync would do. It returns `dry_run`, `linked`, `local`, `updated`, `pruned`, `ignored`, the same numbers for each Target in `details`, and `targets` as they are afterwards.
+- `POST /api/skillshare/enable` and `POST /api/skillshare/disable` with `{"name": "…"}`, a name from that list, answer like the `GET`, plus `changed` (the skills whose state changed) and `output` (what skillshare said; empty when the skill already was as asked).
+- `POST /api/skillshare/sync` without `all` links skills only.
 - `GET /api/skillshare/targets` returns `installed`, `version`, `problem` and `targets`.
 - `GET /api/skillshare/targets/addable` returns `installed`, `problem` and `agents`: the names of the agent programs skillshare finds on the server and does not link into yet, such as `claude`. skillshare offers a program once that program’s own folder exists. To answer, the workspace runs `skillshare init --discover --dry-run`, which writes nothing but a line in skillshare’s own log.
 - `POST /api/skillshare/targets` takes `{"agent": "…"}`, a name from that list, and makes it a Target with `skillshare init --discover --select`. It answers like `GET /api/skillshare/targets`, plus `added` and `output`.
+
+#### Refusals
 
 A refused `POST` answers with an `error` to show as it is:
 
 | Status | Meaning |
 | --- | --- |
-| 404 | skillshare lists no skill with this name. |
-| 409 | The agent program is already a Target, skillshare lists two skills with this name, or skillshare ran and the skill is still as it was. |
-| 422 | The body is not the expected one, skillshare does not offer this agent program, or the skill’s folder name has characters skillshare would read as a pattern. |
-| 502 | skillshare failed or is not set up. The `error` carries what it said. |
+| 404 | skillshare lists nothing with this name or id, or the ticket is used up or too old. |
+| 409 | The agent program is already a Target; skillshare lists two skills with this name; skillshare ran and the item is still as it was; the audit blocks a chosen skill and the request has no `force` (the answer also has `blocked`); a chosen skill is already installed and the request has no `replace` (the answer also has `installed`), or the library has a different skill of that name; the library has no repository or no remote; a pull is refused because of uncommitted work; or there is no stopped pull to resolve. |
+| 422 | The body is not the expected one, `confirm` is missing where it is needed, the item cannot take this action, the source is not one the workspace downloads, the folder is not a skillshare project, or a name has characters skillshare would read as a pattern or an option. |
+| 502 | skillshare or Git failed, or skillshare is not set up. The `error` carries what it said. When the skillshare on the server is too old for the request, the `error` says so and how to update it. |
 | 503 | skillshare is not installed. |
-| 504 | skillshare took too long and was stopped: 20 seconds to read, 60 to change, 120 to sync. |
+| 504 | A program took too long and was stopped: 20 seconds to read, 60 to change, 120 to sync, check, pull or push, 180 to install or update, 300 to update skillshare itself. |
 
-The workspace passes skillshare only a skill folder or an agent program name that skillshare itself just listed, as one argument and without a shell. Changes run one at a time and finish even if the app disconnects.
+The workspace hands skillshare and Git only names and paths that skillshare itself just listed, or text it has checked, each as one argument and without a shell. Changes run one at a time and finish even if the app disconnects.
 
 ## Capture Claude Code replies
 
