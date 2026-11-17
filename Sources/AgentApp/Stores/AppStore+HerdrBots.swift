@@ -41,7 +41,7 @@ extension AppStore {
     /// "Main bot of This Mac" for a server's main bot, which wears a star (`HerdrMainBotStar`); nil for every other bot.
     func herdrMainBotLabel(_ bot: Bot) -> String? { createsHerdrBots(bot) ? "Main bot of \(herdrServer(for: bot).name)" : nil }
 
-    /// "Ask me before creating bots", off unless the person turned it on: every new bot waits for their Create.
+    /// Stores whether this main bot needs the user's confirmation before it creates a bot.
     static func herdrAsksFirstKey(_ botID: UUID) -> String { "herdrAsksFirst.\(botID.uuidString.lowercased())" }
     func herdrAsksFirst(_ bot: Bot) -> Bool { defaults.bool(forKey: Self.herdrAsksFirstKey(bot.id)) }
     func setHerdrAsksFirst(_ on: Bool, for bot: Bot) { defaults.set(on, forKey: Self.herdrAsksFirstKey(bot.id)); objectWillChange.send() }
@@ -102,20 +102,36 @@ extension AppStore {
                                            offered: [HerdrClient.Template.Model] = []) -> Bot? {
         guard createsHerdrBots(manager), !pending.taken else { dismissHerdrBot(pending); return nil }
         let request = pending.request, server = herdrServer(for: manager)
+        guard !herdrBots(on: server).contains(where: { $0.name.caseInsensitiveCompare(request.name) == .orderedSame }) else {
+            dismissHerdrBot(pending)
+            return nil
+        }
+        let template = HerdrBotRequest.template(for: request.runtime, in: templates)
+        let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
+        let effective = template ?? inherited
+        if let runtime = request.runtime, template == nil {
+            errorMessage = "Couldn’t find the requested agent \(runtime) on \(server.name). Check its setup or ask for another agent."
+            return nil
+        }
+        var model = HerdrModelChoice.recommended
+        if let requested = request.model {
+            if let listed = offered.first(where: { $0.id == requested }) {
+                model = listed.id
+            } else if effective?.modelAgent == "OpenCode", let id = HerdrModelChoice.apiModelID(requested) {
+                model = id
+            } else {
+                errorMessage = "Couldn’t confirm model \(requested) on \(server.name). Choose a listed model or ask for Recommended."
+                return nil
+            }
+        }
         let bot = Bot(name: request.name, title: "Created by \(manager.name)", persona: request.instructions.isEmpty ? Bot.defaultPersona : request.instructions, backend: .herdr)
         if request.shape != nil || request.colour != nil {
             bot.avatarMark = AvatarLook.effectiveMark(shape: request.shape, colour: request.colour, seed: bot.avatarSeed); bot.avatarMarkMigrated = false
         }
         bots.append(bot)
         setHerdrServer(server.id, for: bot)
-        if let template = HerdrBotRequest.template(for: request.runtime, in: templates) {
-            // Another agent program: its own first model, or the requested one when the server offers it.
-            setHerdrTemplate(template.name, for: bot)
-            setHerdrModel(offered.first { $0.id == request.model }?.id ?? Self.starterModel(offered: offered) ?? "", for: bot)
-        } else {
-            setHerdrTemplate(defaults.string(forKey: HerdrBackend.botTemplateKey(manager.id)) ?? "", for: bot)
-            setHerdrModel(herdrModel(for: manager), for: bot)
-        }
+        setHerdrTemplate(template?.name ?? herdrTemplate(for: manager) ?? "", for: bot)
+        setHerdrModel(model, for: bot)
         dismissHerdrBot(pending)
         notice(AppOnlyLine.created.render(manager.name, bot.name), in: manager)
         return bot
@@ -125,12 +141,13 @@ extension AppStore {
     /// like the main bot. `byPerson`: Create was pressed, so a bot that asked for this one is told now.
     @discardableResult func acceptHerdrBot(_ pending: PendingHerdrBot, manager: Bot, byPerson: Bool = true) async -> Bot? {
         var templates: [HerdrClient.Template] = [], offered: [HerdrClient.Template.Model] = []
-        if pending.request.runtime != nil, let client = try? herdrClient(for: herdrServer(for: manager)) {
+        if pending.request.runtime != nil || pending.request.model != nil, let client = try? herdrClient(for: herdrServer(for: manager)) {
             templates = (try? await client.workspace().templates.filter { $0.error == nil }) ?? []
-            if let template = HerdrBotRequest.template(for: pending.request.runtime, in: templates) { offered = (try? await client.models(for: template)) ?? template.models ?? [] }
+            let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
+            if let template = HerdrBotRequest.template(for: pending.request.runtime, in: templates) ?? inherited { offered = (try? await client.models(for: template)) ?? template.models ?? [] }
         }
         let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered)
-        if byPerson { tellHerdrAsker(of: pending, HerdrBotRelay.decision(bot.map { .created($0.name) } ?? .taken(pending.request.name), main: manager.name)) }
+        if byPerson, let bot { tellHerdrAsker(of: pending, HerdrBotRelay.decision(.created(bot.name), main: manager.name)) }
         return bot
     }
 
@@ -222,7 +239,7 @@ extension AppStore {
             }
             if let bot = await acceptHerdrBot(pending, manager: main, byPerson: false) {
                 herdrCount(Self.herdrCreateTimesKey(main.id)); setHerdrUnasked(bot, by: main); outcomes.append(.created(bot.name))
-            } else { outcomes.append(.taken(pending.request.name)) }
+            } else { outcomes.append(.waiting(pending.request.name)) }
         }
         guard let request, let asker = herdrAsker(of: request) else { save(); return }
         let asked = request.metadata[HerdrBotRelay.Key.name]

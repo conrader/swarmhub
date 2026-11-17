@@ -114,14 +114,14 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(store.createHerdrBot(pending[1], manager: jarvis) == nil && store.bots.count == 2, "a taken name is not created")
     let created = try #require(store.createHerdrBot(pending[0], manager: jarvis))
     #expect(created.name == "Research" && created.persona == "You find sources." && created.backend == .herdr && created.avatarMark == AvatarMark(shape: "star", colour: "blue"))
-    #expect(store.herdrServer(for: created).id == "box1" && store.herdrTemplate(for: created) == "one" && store.herdrModel(for: created) == "own-model", "it runs where and how the asking bot runs")
+    #expect(store.herdrServer(for: created).id == "box1" && store.herdrTemplate(for: created) == "one" && store.herdrModel(for: created) == HerdrModelChoice.recommended, "a new bot inherits the agent program and follows its recommended model")
     #expect(store.pendingHerdrBots(for: jarvis).isEmpty && jarvis.messages.last?.content == "Jarvis created Research")
     // Another agent program by name, on the model the server lists first.
     jarvis.messages.append(ChatMessage(role: .assistant, content: "```swarmhub\n{\"op\":\"create_bot\",\"name\":\"Coder\",\"runtime\":\"Codex\"}\n```"))
     let templates = [HerdrClient.Template(name: "two", description: nil, error: nil, runtime: .init(harness: "Codex", provider: nil, model: nil))]
     let wanted = try #require(store.pendingHerdrBots(for: jarvis).first)
     let coder = try #require(store.createHerdrBot(wanted, manager: jarvis, templates: templates, offered: [.init(id: "first-model", label: nil)]))
-    #expect(store.herdrTemplate(for: coder) == "two" && store.herdrModel(for: coder) == "first-model" && coder.persona == Bot.defaultPersona)
+    #expect(store.herdrTemplate(for: coder) == "two" && store.herdrModel(for: coder) == HerdrModelChoice.recommended && coder.persona == Bot.defaultPersona)
     jarvis.messages.append(ChatMessage(role: .assistant, content: "```swarmhub\n{\"op\":\"create_bot\",\"name\":\"Extra\"}\n```"))
     let extra = try #require(store.pendingHerdrBots(for: jarvis).first)
     store.dismissHerdrBot(extra)

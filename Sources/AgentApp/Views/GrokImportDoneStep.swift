@@ -5,6 +5,7 @@ import SwiftUI
 struct GrokDoneStep: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var coordinator: GrokImportCoordinator
+    @Environment(\.openWindow) private var openWindow
     @State private var showingDetails = false
 
     var body: some View {
@@ -13,7 +14,12 @@ struct GrokDoneStep: View {
                 Text("Imported bots").font(.headline)
                 VStack(spacing: 6) { ForEach(coordinator.botOutcomes) { outcome in botRow(outcome) } }
                 if coordinator.botOutcomes.isEmpty { Text("No bot was imported.").foregroundStyle(.secondary) }
-                if !store.herdrConfigured { SettingsPaneButton(title: "Set up a server…", pane: .servers).help("Opens \(SettingsLayout.path(.servers)).") }
+                if !store.herdrConfigured && !coordinator.botOutcomes.isEmpty {
+                    Button("Connect an agent to use my bot") {
+                        store.showingGrokImport = false
+                        store.openSetup(openWindow: openWindow)
+                    }
+                }
                 Text("Each bot keeps its name, avatar and instructions and runs as an agent on your Herdr server. Imported chats are a read-only archive on this Mac; the bots start fresh and do not remember them.")
                     .font(.callout).foregroundStyle(.secondary)
                 DisclosureGroup("Details", isExpanded: $showingDetails) { details }.font(.callout)

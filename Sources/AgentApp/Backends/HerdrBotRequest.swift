@@ -58,14 +58,14 @@ struct HerdrBotRequest: Equatable, Sendable {
     /// nil unless the object is a `create_bot` with a usable name.
     init?(_ object: [String: Any]) {
         guard object["op"] as? String == Self.op, let name = Self.name(object["name"]) else { return nil }
-        func word(_ value: Any?) -> String? {
-            (value as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty || $0.count > 80 ? nil : $0 }
+        func word(_ value: Any?, limit: Int = 80) -> String? {
+            (value as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty || $0.count > limit ? nil : $0 }
         }
         self.name = name
         instructions = String(((object["instructions"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.instructionsLimit))
         let avatar = object["avatar"] as? [String: Any]
         shape = word(avatar?["shape"])?.lowercased(); colour = word(avatar?["colour"] ?? avatar?["color"])?.lowercased()
-        runtime = word(object["runtime"]); model = word(object["model"])
+        runtime = word(object["runtime"]); model = word(object["model"], limit: 160)
         decided = word(object["decision"])?.lowercased() == Self.decidedWord
     }
 
@@ -88,7 +88,7 @@ struct HerdrBotRequest: Equatable, Sendable {
             : "\"decision\" is \"\(decidedWord)\" when you have decided the bot should exist (the person asked you for it, or you judge it clearly worth having): the app creates it at once. Use \"\(askWord)\" when the person should decide: the app shows them your request with Create and Dismiss, so say that you proposed the bot, not that it exists."
         return """
         You are the main bot here: the only bot that can have SwarmHub, the app the person is chatting from, create \
-        another bot. To create one, settle its name and purpose, then end your reply with one fenced block like this:
+        another bot. Propose a bot when it serves a specific need the person has described. To create one, settle its name and purpose, then end your reply with one fenced block like this:
 
         ```swarmhub
         {"op":"create_bot","decision":"\(decidedWord)","name":"Research","instructions":"Who this bot is and how it should work, written to the bot itself.","avatar":{"shape":"\(shapes.first ?? "star")","colour":"\(colours.first ?? "blue")"}}
@@ -96,7 +96,7 @@ struct HerdrBotRequest: Equatable, Sendable {
 
         \(decision) "name" is at most \(nameLimit) characters. "instructions" become the new bot's standing instructions. "avatar" is optional: \
         "shape" is one of \(shapes.joined(separator: ", ")); "colour" is one of \(colours.joined(separator: ", ")). \
-        Optional "runtime" names the agent program to run it on (for example "Claude" or "Codex"); leave it out to run it like you. \
+        Optional "runtime" names the agent program to run it on (for example "Claude", "Codex" or "OpenCode"); leave it out to use your agent program. Supply "model" only when the person specifies a model ID. Otherwise SwarmHub uses Recommended. \
         For several bots put the objects in one JSON array. The app hides the block. \
         Other bots cannot create bots and ask you instead. Such a request reaches you as a message that starts with \
         "\(HerdrBotRelay.requestLead)". Answer it with a create_bot block, or refuse with \

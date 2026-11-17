@@ -34,6 +34,10 @@ struct MessageView: View {
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
                 content
+                if message.turnState == .finished, let summary = message.runSummary {
+                    Text(summary.line).font(.caption).foregroundStyle(.secondary)
+                        .help("Elapsed time and tool calls observed by SwarmHub. The launch model appears when reported by the server.")
+                }
                 if store.canSendAsNextMessage(message) {
                     Button(SteerCopy.sendAsNext) { store.sendAsNextMessage(message) }
                         .controlSize(.small).help("Sends this text as a normal message once the current answer ends")

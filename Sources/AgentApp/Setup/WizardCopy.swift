@@ -12,6 +12,12 @@ enum WizardCopy {
     /// `name`: the step's own name where it is not one of the four (the projects, which come last wherever they are offered).
     static func stepLabel(_ index: Int, of count: Int = steps.count, name: String? = nil) -> String { "Step \(index + 1) of \(count): \(name ?? steps[min(max(index, 0), steps.count - 1)])" }
     static let next = "Continue"
+    static let chooseAvailable = "Use an available agent instead"
+    static func missingPrograms(_ programs: [String]) -> String {
+        let names = programs.map { ["claude": "Claude Code", "opencode": "OpenCode", "codex": "Codex"][$0] ?? $0 }.joined(separator: " and ")
+        return "Install and sign in to \(names) on this Mac, then check again."
+    }
+    static let allowHelpers = "Give this bot instructions for starting helpers"
 
     // 1 Where bots run. The four places keep the titles Settings uses for them (`SetupCopy.herdrLocalTitle` and the rest).
     static var welcomeTitle: String { "Welcome to \(AppConstants.name)" }

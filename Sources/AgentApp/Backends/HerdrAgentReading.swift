@@ -25,6 +25,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     /// The model the next agent starts on; nil when the server offers no list and the agent program picks.
     var model: HerdrClient.Template.Model?
     var modelIsOwn = false
+    var usesRecommendation = false
     var running = Running.none
 
     /// The template a bot starts from: its own, else the one chosen for new bots, else the server's first usable one.
@@ -46,7 +47,10 @@ struct HerdrAgentReading: Equatable, Sendable {
          agent: HerdrClient.Agent? = nil, profiles: [HerdrClient.Profile] = []) {
         (runtime, runtimeIsOwn) = Self.template(own: ownTemplate, shared: sharedTemplate, in: usable)
         if runtime?.takesModel == true {
-            if let ownModel, !ownModel.isEmpty { model = offered.first { $0.id == ownModel } ?? .init(id: ownModel, label: nil); modelIsOwn = true }
+            if ownModel == HerdrModelChoice.recommended {
+                usesRecommendation = true
+                model = HerdrModelChoice.suggested(program: runtime?.modelAgent ?? runtime?.programName, offered: offered)
+            } else if let ownModel, !ownModel.isEmpty { model = offered.first { $0.id == ownModel } ?? .init(id: ownModel, label: nil); modelIsOwn = true }
             else { model = HerdrClient.defaultModel(offered: offered).flatMap { id in offered.first { $0.id == id } } }
         }
         guard let agent else { return }
@@ -68,6 +72,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     /// The model by the server's name for it, with "(default)" when the bot did not choose it.
     var modelLine: String {
         guard let model else { return Self.programPicks }
+        if usesRecommendation { return "\(Self.name(model)) (recommended)" }
         return modelIsOwn ? Self.name(model) : "\(Self.name(model)) (default)"
     }
 

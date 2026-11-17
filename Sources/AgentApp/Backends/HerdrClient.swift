@@ -371,7 +371,12 @@ struct HerdrClient: Sendable {
         // A bot with no model of its own starts on the first one the server offers for the template (`defaultModel`):
         // the model the app shows for it. Only a template with no list leaves the choice to the agent program.
         var modelID = chosen.takesModel ? model.flatMap { $0.isEmpty ? nil : $0 } : nil
-        if modelID == nil, chosen.takesModel { modelID = Self.defaultModel(offered: (try? await models(for: chosen)) ?? chosen.models ?? []) }
+        if chosen.takesModel, modelID == nil || modelID == HerdrModelChoice.recommended {
+            let offered = (try? await models(for: chosen)) ?? chosen.models ?? []
+            modelID = modelID == HerdrModelChoice.recommended
+                ? HerdrModelChoice.suggested(program: chosen.modelAgent ?? chosen.programName, offered: offered)?.id
+                : Self.defaultModel(offered: offered)
+        }
         return try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: task, profileID: known?.id, modelID: modelID, projects: projects)
     }
 
@@ -412,6 +417,12 @@ struct HerdrClient: Sendable {
     func reply(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (HerdrTurnStatus) -> Void = { _ in },
                tool: @Sendable (ToolCall, _ isNew: Bool) -> Void = { _, _ in }, partial: @Sendable (String) -> Void = { _ in },
                live: @Sendable (LiveNote) -> Void = { _ in }) async throws -> String {
+        try await replyWithActivity(to: turn, quietLimit: quietLimit, status: status, tool: tool, partial: partial, live: live).text
+    }
+
+    func replyWithActivity(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (HerdrTurnStatus) -> Void,
+                           tool: @Sendable (ToolCall, Bool) -> Void, partial: @Sendable (String) -> Void,
+                           live: @Sendable (LiveNote) -> Void) async throws -> (text: String, tools: Int) {
         var follower = HerdrTurnFollower(after: turn.after, afterTool: turn.afterTool, quietLimit: quietLimit, program: turn.program, starting: turn.starting)
         func emit(_ steps: [HerdrTurnFollower.Step]) {
             for step in steps {
@@ -423,9 +434,10 @@ struct HerdrClient: Sendable {
             }
         }
         defer { live(.following(false)) }
-        if following == .stream, let reply = try await streamedReply(to: turn, follower: &follower, emit: emit, live: live) { return reply }
+        if following == .stream, let reply = try await streamedReply(to: turn, follower: &follower, emit: emit, live: live) { return (reply, follower.toolCount) }
         live(.following(false))
-        return try await polledReply(to: turn, follower: &follower, emit: emit)
+        let reply = try await polledReply(to: turn, follower: &follower, emit: emit)
+        return (reply, follower.toolCount)
     }
 
     /// What a turn tells its bot beside the reply: the agent's helpers as the stream reports them, and whether the

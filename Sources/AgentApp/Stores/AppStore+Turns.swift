@@ -27,6 +27,8 @@ extension AppStore {
     /// Reads the stream into `assistant` (and the parts a delivered steer opens after it, `endTurnParts`). Returns how it ended; throws what the backend threw (and cancellation).
     func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot) async throws -> TurnEnd {
         var completed = false; var failure: String?
+        var launchModel: String?
+        var activitySummary: (seconds: Int, tools: Int)?
         // A delivered steer moves the rest of the reply into a new row below its bubble.
         var row = assistant
         // What the agent's server says the turn is waiting for; it goes with the reply into each new part.
@@ -55,13 +57,20 @@ extension AppStore {
                 // A step remembers where in the text it started, so the reply draws text → steps → text.
                 var activity = row.activity ?? ToolActivity(); activity.apply(tool, at: now(), textOffset: row.content.utf16.count)
                 if activity.total > 0 { row.activity = activity; objectWillChange.send() }
+            case .launchModel(let model): launchModel = model
+            case .runActivity(let seconds, let tools): activitySummary = (seconds, tools)
             case .completed: completed = true
             case .failed(let value): failure = value
             }
         }
         if Task.isCancelled { throw CancellationError() }
         if let failure { return .failedByAgent(failure) }
-        if completed { return .completed }
+        if completed {
+            if let activitySummary {
+                row.runSummary = RunSummary(model: launchModel, seconds: activitySummary.seconds, tools: activitySummary.tools)
+            }
+            return .completed
+        }
         return .endedWithoutTerminal
     }
 

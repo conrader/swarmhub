@@ -24,6 +24,12 @@ struct ChatView: View {
                 // A Herdr bot's model by the server's name for it: the running agent's, else the one its next agent starts on.
                 if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model \(bot.name) runs on") }
                 // Whether its agent is running: ready for a message, or still starting. Nothing while it answers.
+                if bot.backend == .herdr, !bot.isReadOnlyArchive {
+                    let helpers = store.startsHerdrHelpers(bot)
+                    Button(helpers ? "Helper instructions on" : "Helper instructions off") { store.editingBot = bot }
+                        .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                        .help("Edit this bot’s helper instructions in Advanced settings")
+                }
                 if bot.backend == .herdr, !store.isWorking(bot), let readiness = store.herdrReadiness[bot.id] { HerdrReadinessMark(readiness: readiness).transition(.opacity).id(readiness.word) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
@@ -38,6 +44,12 @@ struct ChatView: View {
                         Color.clear.frame(height: 20)
                         if bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                         if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
+                        if bot.messages.isEmpty, bot.backend == .herdr, !bot.isReadOnlyArchive, draft.isEmpty {
+                            Button("Draft release notes") {
+                                draft = ReleaseNotesExample.prompt
+                                store.composerFocus = bot.id
+                            }.buttonStyle(.bordered).help("Edit the example changes or send them as written.")
+                        }
                         let openers = Self.openers(shown)
                         ForEach(shown) { message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
@@ -100,7 +112,7 @@ struct ChatView: View {
                 VStack(spacing: 8) {
                     if bot.backend == .herdr { HerdrPromptCard(bot: bot) }
                     if store.createsHerdrBots(bot) {
-                        HerdrIntroOffer(bot: bot)
+                        if !bot.messages.isEmpty { HerdrIntroOffer(bot: bot) }
                         HerdrAboutYouCard(bot: bot)
                         HerdrBotRequestCard(manager: bot)
                     }

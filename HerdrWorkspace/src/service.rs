@@ -111,7 +111,7 @@ struct Program {
     first_time: &'static str,
 }
 
-const PROGRAMS: [Program; 2] = [
+const PROGRAMS: [Program; 3] = [
     Program {
         id: "claude",
         name: "Claude",
@@ -134,6 +134,17 @@ const PROGRAMS: [Program; 2] = [
         how: "Install Codex from developers.openai.com/codex, then open Terminal, type codex, and sign in.",
         first_time: "The first time, Codex asks you to review three small commands that SwarmHub adds so the app can show Codex’s steps and save its replies. They only report what Codex does. “Trust all and continue” lets Codex run them.",
     },
+    Program {
+        id: "opencode",
+        name: "OpenCode",
+        full: "OpenCode",
+        bin: "opencode",
+        template: "swarmhub-opencode",
+        wrapper: "run-opencode --api-first-task mini",
+        description: "OpenCode with your configured API provider",
+        how: "Install OpenCode V2.3 or later, connect your provider in OpenCode, then run opencode models to see its model IDs.",
+        first_time: "Configure and try your provider in OpenCode on this computer first.",
+    },
 ];
 
 /// The model list a fresh install starts with (`runtime-catalog.json`, which the person may edit): Codex is asked
@@ -148,6 +159,10 @@ const STARTER_CATALOG: &str = r#"{
       {"id": "opus", "label": "Opus 5.5", "provider": "Anthropic"},
       {"id": "haiku", "label": "Haiku 5.5", "provider": "Anthropic"}
     ]
+  },
+  "swarmhub-opencode": {
+    "harness": "OpenCode",
+    "discover_models": true
   },
   "swarmhub-codex": {
     "harness": "Codex",
@@ -284,6 +299,7 @@ fn usual_folders(home: &Path) -> Vec<PathBuf> {
         ".volta/bin",
         ".cargo/bin",
         ".claude/local",
+        ".opencode/bin",
     ]
     .iter()
     .map(|folder| home.join(folder))
@@ -700,6 +716,30 @@ fn write_private(path: &Path, text: &str, mode: u32) -> std::io::Result<()> {
     fs::rename(draft, path)
 }
 
+/// Add discovery when OpenCode is installed after the original starter catalog was written.
+fn install_catalog(file: &Path, has_opencode: bool) -> std::io::Result<bool> {
+    if !file.exists() {
+        write_private(file, STARTER_CATALOG, 0o600)?;
+        return Ok(true);
+    }
+    if !has_opencode || !file.symlink_metadata()?.is_file() {
+        return Ok(false);
+    }
+    let mut catalog: Value = serde_json::from_slice(&fs::read(file)?)?;
+    let Some(entries) = catalog.as_object_mut() else {
+        return Ok(false);
+    };
+    if entries.contains_key("swarmhub-opencode") {
+        return Ok(false);
+    }
+    entries.insert(
+        "swarmhub-opencode".into(),
+        json!({"harness":"OpenCode", "discover_models":true}),
+    );
+    write_private(file, &serde_json::to_string_pretty(&catalog)?, 0o600)?;
+    Ok(true)
+}
+
 /// The access key in its file; made when the file is missing or does not hold one. True when it was made now.
 fn ensure_token(file: &Path) -> Result<(String, bool), Stop> {
     let kept = fs::read_to_string(file)
@@ -1062,8 +1102,10 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
         did.push(format!("Wrote the starter template {template}."));
     }
     let catalog = places.data.join("runtime-catalog.json");
-    if !catalog.exists() && write_private(&catalog, STARTER_CATALOG, 0o600).is_ok() {
-        did.push("Wrote the starter model list.".into());
+    match install_catalog(&catalog, found.iter().any(|(program, _)| program.id == "opencode")) {
+        Ok(true) => did.push("Wrote the starter model list.".into()),
+        Ok(false) => {}
+        Err(_) => did.push("Could not update runtime-catalog.json. Check its JSON and permissions to enable model discovery.".into()),
     }
     let mut settings = BTreeMap::from([
         ("SWARMHUB_PORT".to_owned(), port.to_string()),
@@ -1545,6 +1587,25 @@ mod tests {
         for program in &PROGRAMS {
             assert_eq!(named[program.template]["harness"], program.full);
         }
+    }
+
+    #[test]
+    fn adding_opencode_to_an_existing_catalog_preserves_custom_providers() {
+        let scratch = tempfile::tempdir().unwrap();
+        let file = scratch.path().join("runtime-catalog.json");
+        let old = r#"{"custom":{"harness":"My CLI","provider":"Local"}}"#;
+        fs::write(&file, old).unwrap();
+        assert!(!install_catalog(&file, false).unwrap());
+        assert!(install_catalog(&file, true).unwrap());
+        let upgraded: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(upgraded["custom"]["provider"], "Local");
+        assert_eq!(upgraded["swarmhub-opencode"]["discover_models"], true);
+        assert!(!install_catalog(&file, true).unwrap());
+        let override_json =
+            r#"{"swarmhub-opencode":{"harness":"OpenCode","discover_models":false}}"#;
+        fs::write(&file, override_json).unwrap();
+        assert!(!install_catalog(&file, true).unwrap());
+        assert_eq!(fs::read_to_string(file).unwrap(), override_json);
     }
 
     #[test]

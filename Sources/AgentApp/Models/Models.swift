@@ -34,6 +34,18 @@ enum BotAvatarName: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+struct RunSummary: Codable, Equatable, Sendable {
+    let model: String?
+    let seconds: Int
+    let tools: Int
+
+    var line: String {
+        let elapsed = seconds < 1 ? "<1 s" : "\(seconds) s"
+        let calls = tools == 1 ? "1 tool call" : "\(tools) tool calls"
+        return [model, elapsed, calls].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
 final class ChatMessage: ObservableObject, Identifiable, Codable {
     let id: UUID; let role: MessageRole; @Published var content: String; let createdAt: Date
     @Published var isStreaming: Bool; var presentation: MessagePresentation; @Published var metadata: [String: String]
@@ -42,6 +54,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     var authorID: UUID?
     /// P16: the state of the turn whose reply this row holds (nil = written before P16); encoded only when set.
     @Published var turnState: TurnState?
+    @Published var runSummary: RunSummary?
     /// P27: the tools this reply ran (bounded); encoded only when set. `lastTextAt` (memory only): when text last arrived.
     @Published var activity: ToolActivity?; @Published var lastTextAt: Date?
     init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = [], authorID: UUID? = nil, turnState: TurnState? = nil) {
@@ -49,7 +62,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
         self.turnState = turnState
     }
-    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity }
+    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); role = try c.decode(MessageRole.self, forKey: .role)
@@ -63,6 +76,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         // An unknown value (a newer build's state) must not make the whole store undecodable.
         turnState = (try? c.decodeIfPresent(TurnState.self, forKey: .turnState)) ?? nil
         activity = (try? c.decodeIfPresent(ToolActivity.self, forKey: .activity)) ?? nil
+        runSummary = try? c.decodeIfPresent(RunSummary.self, forKey: .runSummary)
         isStreaming = false
     }
     func encode(to encoder: Encoder) throws {
@@ -73,6 +87,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
         try c.encodeIfPresent(authorID, forKey: .authorID); try c.encodeIfPresent(turnState, forKey: .turnState)
         try c.encodeIfPresent(activity, forKey: .activity)
+        try c.encodeIfPresent(runSummary, forKey: .runSummary)
     }
 }
 
@@ -159,4 +174,4 @@ enum StopTarget: Sendable, Equatable { case serverRun(String), noRunControl, noA
 enum StopOutcome: Sendable, Equatable { case requested, noRunControl, noActiveRun }
 /// What a backend's stream says about a turn. `replace`: the whole reply text so far, when a snapshot no longer
 /// extends what was streamed. `tool`: a tool started, progressed or finished; the reply keeps these as its activity steps.
-enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), completed, failed(String) }
+enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), launchModel(String), runActivity(seconds: Int, tools: Int), completed, failed(String) }

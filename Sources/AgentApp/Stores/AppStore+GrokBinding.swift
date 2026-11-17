@@ -54,7 +54,11 @@ extension AppStore {
             bot.archivedMembers = nil; bot.isDemo = false
             bot.grokSourceID = bundle.sourceId
             bot.grokHistoryCount = historyCount
-            if kind == .new { bots.append(bot); setHerdrServer(herdrServers[0].id, for: bot) }
+            if kind == .new {
+                bots.append(bot)
+                setHerdrServer(herdrServers[0].id, for: bot)
+                setHerdrModel(HerdrModelChoice.recommended, for: bot)
+            }
             return GrokImportRow(name: bot.name, historyCount: historyCount, mark: mapped,
                                  sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour,
                                  isGroup: false, created: kind == .new)

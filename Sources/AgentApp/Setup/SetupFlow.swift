@@ -10,7 +10,7 @@ enum HerdrSetupOutcome: Equatable, Sendable {
 
 /// A bot that is already on the server the wizard is setting up: it can stay or become the main bot, its name is
 /// taken, and its agent program needs no second bot. `template` nil: it starts from the server's first.
-struct HerdrSetupBot: Equatable, Identifiable, Sendable { let id: UUID; let name: String; let isMain: Bool; var template: String? = nil }
+struct HerdrSetupBot: Equatable, Identifiable, Sendable { let id: UUID; let name: String; let isMain: Bool; var template: String? = nil; var needsFirstConnection = false }
 
 /// The wizard's main bot until its last button: an existing bot that stays or becomes the main bot (`keep`), or a new
 /// one with a name, an avatar, optional instructions, and the agent program and model it starts on. `model` empty is
@@ -18,11 +18,12 @@ struct HerdrSetupBot: Equatable, Identifiable, Sendable { let id: UUID; let name
 struct HerdrMainBotDraft: Equatable {
     /// The look every new main bot starts with is derived from this, so the avatar shown is the avatar created.
     static let avatarSeed = "main-bot"
+    var allowHelpers = false
     var keep: UUID?
     var name = WizardCopy.suggestedName
     var instructions = ""
     var avatar = AvatarChoice.unpicked
-    var template = "", model = ""
+    var template = "", model = HerdrModelChoice.recommended
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -31,8 +32,40 @@ struct HerdrMainBotDraft: Equatable {
     mutating func begin(offer: HerdrOffer, bots: [HerdrSetupBot]) {
         keep = bots.first(where: \.isMain)?.id
         if case .unpicked = avatar { let mark = GrokDefaultLook.mark(for: Self.avatarSeed); avatar = .mark(shape: mark.shape, colour: mark.colour) }
-        if offer.program(template) == nil { template = offer.programs.first?.template ?? ""; model = "" }
-        if !model.isEmpty, offer.program(template)?.models.contains(where: { $0.id == model }) != true { model = "" }
+        if offer.program(template) == nil {
+            model = template.isEmpty ? HerdrModelChoice.recommended : ""
+            template = offer.programs.first?.template ?? ""
+        }
+        if let program = offer.program(template), !model.isEmpty, model != HerdrModelChoice.recommended,
+           !program.models.contains(where: { $0.id == model }),
+           !(program.starterName == "opencode" && HerdrModelChoice.apiModelID(model) != nil) {
+            model = ""
+        }
+    }
+}
+
+enum StarterAgents: String, CaseIterable {
+    case codex = "Codex"
+    case claude = "Claude Code"
+    case both = "Both"
+    case api = "API provider"
+
+    var detail: String {
+        switch self {
+        case .codex: "Codex recommends Sol or Terra when available."
+        case .claude: "For Sonnet, sign in to Claude Code with your Claude subscription."
+        case .both: "Choose Codex or Claude Code per bot. Start with one bot and add others as you need them."
+        case .api: "Connect OpenRouter or another provider in OpenCode. Choose its default model or one it lists, such as DeepSeek or Qwen."
+        }
+    }
+
+    var programs: [String] {
+        switch self {
+        case .codex: ["codex"]
+        case .claude: ["claude"]
+        case .both: ["codex", "claude"]
+        case .api: ["opencode"]
+        }
     }
 }
 
@@ -56,6 +89,18 @@ struct SetupFlow: Equatable {
     private(set) var history: [Step] = []
     /// Where bots run, as selected on Welcome (This Mac unless the person picks another).
     var place = HerdrServer.Kind.local
+    var starter: StarterAgents?
+
+    var missingStarterPrograms: [String] {
+        guard let offer = herdrOffer, let starter else { return [] }
+        return starter.programs.filter { name in !offer.programs.contains { $0.starterName == name } }
+    }
+
+    mutating func selectMainProgram(_ program: HerdrProgram) {
+        mainBot.template = program.template
+        mainBot.model = HerdrModelChoice.recommended
+    }
+
     /// The Herdr screen's fields, its last Test and the fields that Test ran with: a result counts while they are unchanged.
     var herdr = HerdrServerDraft()
     private(set) var herdrOutcome: HerdrSetupOutcome?
@@ -101,7 +146,7 @@ struct SetupFlow: Equatable {
     /// The port nothing answered on, when this Mac has no Herdr running.
     var herdrNothingHere: Int? { if case .nothingHere(let port) = herdrOutcome { port } else { nil } }
     /// Test passed for the fields as they are now and the server has an agent program: Connect can be left.
-    var herdrReady: Bool { herdrServer != nil && herdrTested == herdr && herdrOffer?.programs.isEmpty == false }
+    var herdrReady: Bool { herdrServer != nil && herdrTested == herdr && herdrOffer?.programs.isEmpty == false && missingStarterPrograms.isEmpty }
     /// Test reached Herdr Core, but it has no agent program to start: a bot there could not answer.
     var herdrNoPrograms: Bool { herdrServer != nil && herdrOffer?.programs.isEmpty == true }
     /// The wizard is still waiting for what a saved server offers.
@@ -112,7 +157,9 @@ struct SetupFlow: Equatable {
     var mainBotName: String { keptMainBot?.name ?? mainBot.trimmedName }
     /// One plain line for what the main bot still needs; nil when the step can be left.
     var mainBotProblem: String? {
-        guard keptMainBot == nil else { return nil }
+        if let keptMainBot {
+            return keptMainBot.needsFirstConnection && herdrOffer?.program(mainBot.template) == nil ? WizardCopy.programMissing : nil
+        }
         let name = mainBot.trimmedName
         if name.isEmpty { return WizardCopy.nameMissing }
         if herdrBots.contains(where: { $0.name.lowercased() == name.lowercased() }) { return WizardCopy.nameTaken(name) }
@@ -122,9 +169,9 @@ struct SetupFlow: Equatable {
 
     /// "More bots": one per agent program of the server that has no bot yet and is not the main bot's own.
     var moreChoices: [HerdrProgram] {
-        guard let offer = herdrOffer else { return [] }
+        guard starter == nil, let offer = herdrOffer else { return [] }
         let first = offer.programs.first?.template
-        let main = keptMainBot.map { $0.template ?? first } ?? mainBot.template
+        let main = keptMainBot.flatMap { $0.needsFirstConnection ? mainBot.template : ($0.template ?? first) } ?? mainBot.template
         let names = herdrBots.map { $0.name.lowercased() } + [mainBotName.lowercased()]
         return offer.others(than: main, taken: Set(herdrBots.compactMap { $0.template ?? first }), names: Set(names))
     }
@@ -168,7 +215,11 @@ struct SetupFlow: Equatable {
                 if step == .mainBot || step == .moreBots || step == .projects { history = [.welcome]; step = .herdr }
                 return
             }
+            let needsStarter = mainBot.template.isEmpty || offer.program(mainBot.template) == nil
             mainBot.begin(offer: offer, bots: bots); moreBots = []; mainProjects = []
+            if needsStarter, let requested = starter?.programs.first, let program = offer.programs.first(where: { $0.starterName == requested }) {
+                selectMainProgram(program)
+            }
         case .advance:
             if step == .herdr, herdrReady { go(.mainBot) }
             else if step == .mainBot, mainBotReady, !moreChoices.isEmpty { moreBots.formIntersection(moreChoices.map(\.template)); go(.moreBots) }

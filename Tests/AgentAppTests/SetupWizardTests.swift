@@ -81,7 +81,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     #expect(store.herdrTemplate(for: ada) == "one" && store.herdrModel(for: ada) == "second-model")
     #expect(store.bots.map(\.name) == ["Ada", "Program Two"] && store.selectedBot === ada && !store.bots.contains(where: \.isDemo))
     let two = store.bots[1]
-    #expect(two.backend == .herdr && !two.canManageBots && store.herdrTemplate(for: two) == "two" && store.herdrModel(for: two).isEmpty, "the other bot keeps no model of its own: the server's first applies")
+    #expect(two.backend == .herdr && !two.canManageBots && store.herdrTemplate(for: two) == "two" && store.herdrModel(for: two) == HerdrModelChoice.recommended, "an explicitly added bot uses its agent’s recommendation")
     #expect(store.herdrServers == [server] && keys.key(for: "herdr") == "read-from-server" && FirstRun.state(store.defaults) == .done)
     #expect(store.herdrLanding?.bot == ada.id && store.herdrFirstReplyHint(for: ada) == WizardCopy.firstReply("Ada"), "no agent runs for it yet, so the first reply takes longer")
     #expect(!FirstRun.needsWizard(defaults: store.defaults, bots: store.bots) && store.wizardStart().step == .welcome && store.setupAddsServer, "set up: the wizard now opens only to add a server")
@@ -104,7 +104,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     // A new main bot beside them.
     var third = HerdrMainBotDraft(); third.begin(offer: serverOffer, bots: store.setupHerdrBots(on: server)); third.keep = nil; third.name = "Grace"
     let grace = try store.commitSetupWizard(server: server, key: nil, main: third, more: [], offer: serverOffer)
-    #expect(store.bots.first === grace && store.herdrMainBot(on: server) === grace && !store.createsHerdrBots(two) && grace.persona == Bot.defaultPersona && store.herdrModel(for: grace).isEmpty)
+    #expect(store.bots.first === grace && store.herdrMainBot(on: server) === grace && !store.createsHerdrBots(two) && grace.persona == Bot.defaultPersona && store.herdrModel(for: grace) == HerdrModelChoice.recommended)
 }
 
 @MainActor @Test func theWizardOpensOnTheMainBotOfAServerThatHasNone() {
@@ -189,7 +189,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     flow.herdr.sshUser = "other"; #expect(!flow.herdrReady, "a result only counts for the fields it was tested with")
     flow.herdr.sshUser = ""; flow.apply(.advance)
     #expect(flow.step == .mainBot && flow.mainBot.keep == nil && flow.mainBot.name == WizardCopy.suggestedName)
-    #expect(flow.mainBot.template == "one" && flow.mainBot.model.isEmpty && flow.mainBotReady, "the server's first program, on its default model")
+    #expect(flow.mainBot.template == "one" && flow.mainBot.model == HerdrModelChoice.recommended && flow.mainBotReady, "the first program uses its recommendation")
     #expect(flow.moreChoices.map(\.template) == ["two"] && !flow.isLastWizardStep)
     flow.mainBot.name = "  "; #expect(flow.mainBotProblem == WizardCopy.nameMissing && !flow.mainBotReady)
     flow.apply(.advance); #expect(flow.step == .mainBot, "a main bot without a name does not go on")
@@ -215,4 +215,32 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     }
     #expect(Set(sizes).count == sizes.count)
     #expect(store.bots.isEmpty && store.defaults.string(forKey: HerdrServer.listKey) == nil, "showing the wizard writes nothing")
+}
+
+@Test func bothProgramsStartWithOneBotAndAnEditableRecommendation() {
+    let codex = HerdrProgram(template: "cx", name: "Codex", takesModel: true, models: [model("other"), model("gpt-sol")])
+    let claude = HerdrProgram(template: "cc", name: "Claude", takesModel: true, models: [model("opus"), model("sonnet")])
+    let offer = HerdrOffer(programs: [claude, codex])
+    var flow = SetupFlow()
+    flow.starter = .both
+    flow.apply(.pickHerdr(.local))
+    flow.apply(.herdrTest(.connected(server: boxServer, key: nil, offer: offer)))
+    #expect(flow.herdrReady && flow.moreChosen.isEmpty && flow.moreChoices.isEmpty)
+    #expect(flow.mainBot.template == "cx" && flow.mainBot.model == HerdrModelChoice.recommended)
+    flow.selectMainProgram(claude)
+    #expect(flow.mainBot.template == "cc" && flow.moreChosen.isEmpty)
+    #expect(HerdrModelChoice.suggested(program: "Claude Code", offered: claude.models)?.id == "sonnet")
+    #expect(HerdrModelChoice.suggested(program: "Codex", offered: codex.models)?.id == "gpt-sol")
+    #expect(HerdrModelChoice.suggested(program: "OpenCode", offered: [model("openrouter/qwen/example")]) == nil)
+    flow.mainBot.model = "opus"
+    flow.apply(.advance)
+    #expect(flow.mainBot.model == "opus")
+}
+
+
+@Test func apiModelIDsKeepTheirProviderAndVendorSegments() {
+    #expect(HerdrModelChoice.apiModelID(" openrouter/deepseek/deepseek-chat ") == "openrouter/deepseek/deepseek-chat")
+    #expect(HerdrModelChoice.apiModelID("custom/qwen-coder") == "custom/qwen-coder")
+    #expect(HerdrModelChoice.apiModelID("model without provider") == nil)
+    #expect(HerdrModelChoice.apiModelID("openrouter/") == nil)
 }

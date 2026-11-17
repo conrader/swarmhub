@@ -113,6 +113,7 @@ struct HerdrBackend: AgentBackend {
         let backend = self
         return AsyncThrowingStream { continuation in
             let task = Task {
+                let started = ContinuousClock.now
                 do {
                     // A start ahead of time that is still on its way ends first, so this message never starts a second agent.
                     if let starting = backend.starting {
@@ -127,10 +128,23 @@ struct HerdrBackend: AgentBackend {
                                                                 status: { continuation.yield(.status($0.code)) })
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
-                    let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0.code)) },
+                    // Read the launch model from this exact session. Following the answer proceeds concurrently.
+                    let modelRead = Task {
+                        let profiles = try? await backend.client.profiles()
+                        let sessions = profiles?.lazy.flatMap { $0.sessions ?? [] }
+                        let runtime = sessions?.first { $0.address == turn.address && $0.createdMs == turn.createdMs }?.runtime
+                        if let model = runtime?.model ?? runtime?.modelId, !model.isEmpty, !Task.isCancelled {
+                            continuation.yield(.launchModel(model))
+                        }
+                    }
+                    defer { modelRead.cancel() }
+                    let reply = try await backend.client.replyWithActivity(to: turn, status: { continuation.yield(.status($0.code)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },
                                                                partial: { continuation.yield(.replace($0)) }, live: { backend.onLive?($0) })
-                    continuation.yield(.replace(reply)); continuation.yield(.completed); continuation.finish()
+                    continuation.yield(.replace(reply.text))
+                    continuation.yield(.runActivity(seconds: Int(started.duration(to: .now).components.seconds), tools: reply.tools))
+                    continuation.yield(.completed)
+                    continuation.finish()
                 } catch is CancellationError { continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }

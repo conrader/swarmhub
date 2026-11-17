@@ -20,8 +20,8 @@ enum AboutYouCopy {
 /// "About you" (`HerdrAboutYou`) and the main bot's first conversation (`HerdrIntro`).
 /// The text lives in the app's settings and is given to every bot's agent with its instructions. Only a server's main
 /// bot proposes additions, in its replies; each waits above the composer until the person says Remember or Don't save.
-/// The introduction is one message the app sends for the person: once, when the setup wizard has created a main bot;
-/// later only when the person asks ("Get to know me"), or accepts the quiet offer a main bot from before shows once.
+/// The introduction is one message the app sends for the person: when the person accepts its offer;
+/// the composer menu also lets them ask for it later.
 extension AppStore {
     static let aboutYouKey = "aboutYou"
     /// `UserDefaults`: the additions already saved or dismissed, as `<message id>#<line number>`, newest last.

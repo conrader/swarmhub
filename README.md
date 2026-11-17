@@ -1,23 +1,21 @@
 # SwarmHub
 
+**Bring your Grok bot to your Mac and choose the model it runs on.** Start with one assistant on your Mac or your server, then add a bot when you have a job for it. Use Codex, Claude Code, both, or your own API provider through OpenCode. Each bot can use **Recommended** or a model you pick.
+
+[Mac releases](https://github.com/conrader/swarmhub/releases) · [Try the sample](#try-the-sample) · [Set up a real bot](#quick-start)
+
 <picture>
-  <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile.svg">
-  <img src="docs/readme/hero.svg" alt="SwarmHub — your agents, all together." width="1280">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dark/chat-steps.png">
+  <img src="docs/screenshots/light/chat-steps.png" alt="A bot working in chat with the commands it runs visible under its reply." width="760">
 </picture>
 
-SwarmHub is a native Mac app for working with a team of bots. Each bot is a real agent program, such as Claude Code or Codex, that runs in a terminal on a computer you choose: this Mac or your own server. You chat with a bot; it reads files, runs commands and writes code there, and you watch its reply and its tool steps as they happen. In the app, the agent program is the bot's **AI** and goes by its short name: "Claude", "Codex".
+### Try the sample
 
-The terminals are run by [Herdr Core](https://github.com/herdrdev/herdr-core), a separate open-source project. SwarmHub adds two things: the Mac app in this repository, and a small service that runs beside Herdr Core, the SwarmHub bridge (`HerdrWorkspace/`, the `swarmhub-herdr` binary). SwarmHub calls no model itself. Each agent program uses its own sign-in.
+On a fresh launch of this checkout, choose **Try a sample**. Patch opens with three changes and a finished release-note draft. The example is stored locally and uses no model quota. On builds with the previous setup window, close it and choose **Look around with sample bots** to explore the samples bundled with that build. In a new real bot’s chat, choose **Draft release notes** for the same editable input. Compare the answer with [the sample output](docs/guide.md#release-notes-example).
 
-This is early software. What it does not do is listed under [Status](#status) and in [Limits](docs/ROADMAP-AND-LIMITS.md).
+### Switching from Grok Bot
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dark/chat-main-bot.png">
-    <img src="docs/screenshots/light/chat-main-bot.png" alt="The main bot's chat: another bot's requests for new bots, shown as cards, and above the composer a bot the main bot created (Remove or Keep) and one it suggests (Not now or Create)." width="760">
-  </picture>
-</p>
-<p align="center"><sub>The main bot's chat. Every screen on this page is rendered by the app itself with sample content.</sub></p>
+Choose **Bring my Grok bot**, select a bot, and review the available history. You can import recent messages from the local cache. The archive stays readable on your Mac. Your agent starts a fresh conversation with the imported bot’s instructions.
 
 ## How it works
 
@@ -40,7 +38,7 @@ The full picture, with the message flow, the security boundaries and a map of th
 - **Choose where bots run.** This Mac, or a server the app reaches with your SSH login. A server by address and access key is under **Advanced**. The setup window checks the connection and says what is wrong when it fails.
 - **Keep a team of bots.** A bot has a name, an avatar, instructions, an AI and a model. The AIs and models offered are the ones your server lists; the app keeps no list of its own.
 - **Let the main bot build the team.** Each server has one main bot, marked with a star. It creates other bots, at once or after asking you. Any other bot that wants a new bot asks the main bot.
-- **Tell your bots about yourself once.** A new main bot opens the conversation: it says hello and asks a few short questions, each of which you can skip. What it learns is kept as **About you**, a short text every bot reads. Nothing is added without your OK, and you can edit it in **Settings → General**.
+- **Tell your bots about yourself once.** Use **Get to know me** to start an optional introduction. What it learns is kept as **About you**, a short text every bot reads. Nothing is added without your OK, and you can edit it in **Settings → General**.
 - **Have bots write to each other.** A bot names another bot and writes to it; the app passes the message on and the answer back, and both chats show everything. Fixed limits stop two bots from going on by themselves.
 - **Hand work to helpers.** A bot can start short-lived helpers for parts of its work. The server's settings decide which AI and model each difficulty runs on; the bot cannot choose. Helpers show under the bot and open read-only.
 - **Work on projects on other servers.** Add the servers your projects live on, name folders on them as projects, and choose for each bot which it may use.
@@ -52,33 +50,12 @@ Details: [Features](docs/FEATURES.md).
 
 ## Quick start
 
-You need a Mac with macOS 14 or later, and Herdr Core with at least one agent program (Claude Code or Codex) on the computer where the bots should work.
+The native app requires macOS 14 or later. Check the version on the [releases page](https://github.com/conrader/swarmhub/releases). The Herdr-based app starts at 0.8.0. The new welcome screen and run summaries described here are in this checkout. For an upgrade from 0.6.x, read the [migration note](docs/releases/v0.8.0.md) first.
 
-1. **Start Herdr Core and the bridge** on that computer: [Run locally](HerdrWorkspace/README.md#run-locally). The Mac app does not install or start them.
-2. **Build and start the app** from this checkout, on a Mac with Xcode:
-
-   ```sh
-   ./scripts/run.sh
-   ```
-
-3. **Follow the setup window.** It opens while there is no bot.
-
-   | Step | What you do |
-   | --- | --- |
-   | Where | Choose **This Mac** or **A server**. A server by address and access key is under **Advanced**. |
-   | Connect | This Mac is checked at once. For a server, give its name and press **Connect**; the app opens the SSH connection and reads the access key itself. |
-   | Main bot | Give it a name, an avatar, an AI and a model. |
-   | More bots | Optional: a bot for each other AI the server has. |
-   | Projects | Optional: add a server your projects are on. |
-
-   The window ends in the main bot's chat, where the main bot says hello and asks a few questions about you.
-
-To look around without a server, close the setup window and choose **Look around with sample bots** in the main window.
-
-> [!NOTE]
-> The packaged build is on the [releases page](https://github.com/conrader/swarmhub/releases). From 0.8.0 on it is the app this README describes; bots from earlier versions do not carry over. On this Mac the app installs what bots need (Herdr Core and the SwarmHub service) when you choose **This Mac**; on a server they are installed by hand the first time: see the [guide](docs/guide.md).
-
-More: the [guide](docs/guide.md).
+1. Open the packaged app, or run `./scripts/run.sh` from this checkout on a Mac with Xcode.
+2. Choose **Codex**, **Claude Code**, **Both**, or **API provider**, then **Set up on this Mac**. For Codex, Recommended prefers Sol, then Terra. With Claude Code, it prefers Sonnet. For API access, connect OpenRouter or another provider in OpenCode and use its configured default or choose a listed model such as DeepSeek or Qwen. **Set Up This Mac** installs Herdr Core and the SwarmHub service if needed. For a remote machine, use the [server setup guide](docs/guide.md#get-started).
+3. Review the bot and model. Create the bot to open its chat immediately, or use **More options** for project setup when available. Choosing Both creates one main bot. Add another later for a specific task.
+4. Choose **Draft release notes**, edit the changes, and press Send. The finished reply shows elapsed time, observed tool calls, and the launch model when the server reports it. Your agent provider handles billing.
 
 ## Screens
 
@@ -144,7 +121,7 @@ Rendered by the app (`AgentApp --render-setup`) with sample content. No real ser
 ## Status
 
 - The Mac app is the only app. There is no iPhone, Windows, Linux or Android app. The bridge also serves a [browser workspace](HerdrWorkspace/README.md) to the same agents, with features the Mac app does not have (a Library, Pages, routines, approvals, connected files).
-- The app does not install Herdr Core, the bridge or an agent program. Once a bridge that can update itself is installed, the app updates it ([Updates](docs/updates.md)). "Get a ready-made server from us" in the setup window is marked "Coming soon": it is planned, and nothing is behind it yet.
+- On this Mac, setup installs Herdr Core and the bridge. Install and sign in to the agent program yourself. Remote servers need a manual first install. The app updates compatible bridges ([Updates](docs/updates.md)). "Get a ready-made server from us" in the setup window is marked "Coming soon": it is planned, and nothing is behind it yet.
 - All agents on a server run as one account. The per-bot choices (projects, helpers) are bookkeeping, not isolation: see [Trust and security](docs/architecture.md#trust-and-security).
 - Bots pass messages to each other only while the Mac app runs, because the app does the passing on.
 - Most of [How bots communicate](docs/bot-communication.md) (kinds of messages, time limits, initiative, planned check-ins) and of [Approvals](docs/approvals.md) is not built.

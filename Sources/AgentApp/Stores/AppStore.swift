@@ -200,7 +200,22 @@ import UserNotifications
         persistenceEnabled = true; unreadableStoreSetAside = false
         if errorMessage?.hasPrefix("The saved store could not be decoded.") == true { errorMessage = nil }
     }
-    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
+    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, template: String? = nil, model: String = HerdrModelChoice.recommended) {
+        let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName)
+        avatar.apply(to: bot)
+        if backend == .herdr {
+            if let template {
+                setHerdrTemplate(template, for: bot)
+            } else if let main = herdrMainBot(on: herdrServer(for: bot)) {
+                setHerdrTemplate(herdrTemplate(for: main) ?? "", for: bot)
+            }
+            setHerdrModel(model, for: bot)
+        }
+        bots.insert(bot, at: 0)
+        selectedBot = bot
+        rememberSelection(bot: bot)
+        save()
+    }
     /// A template becomes a Herdr bot on the first server: its name, title, description, instructions and avatar.
     @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {
         let manifest = plan.manifest

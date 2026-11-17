@@ -11,6 +11,7 @@ struct SetupView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @State private var flow = SetupFlow()
+    @State private var firstChoice = StarterAgents.codex
     @State private var testing = false
     @State private var failure: String?
     @State private var closed = false
@@ -35,7 +36,12 @@ struct SetupView: View {
             ScrollView {
                 Group {
                     switch flow.step {
-                    case .welcome: SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace)
+                    case .welcome:
+                        if !store.herdrConfigured {
+                            firstRunChoices
+                        } else {
+                            SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace)
+                        }
                     case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, checkAgain: checkAIs)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
@@ -75,6 +81,43 @@ struct SetupView: View {
         DispatchQueue.main.async { NSApp?.windows.first { $0.isVisible && $0.title == SetupCopy.windowTitle }?.close() }
     }
 
+    private var firstRunChoices: some View {
+        VStack(spacing: 18) {
+            HeroHeader(title: "Start with one bot", detail: "Use an agent you already have, or explore a local sample.") { SetupAppMark() }
+            Picker("Local agents", selection: $firstChoice) {
+                ForEach(StarterAgents.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented)
+            Text(firstChoice.detail)
+                .font(.callout).foregroundStyle(.secondary)
+            if firstChoice == .api, let guide = URL(string: "https://opencode.ai/docs/providers/") {
+                Link("Connect an API provider in OpenCode", destination: guide)
+            }
+            Button("Set up on this Mac") {
+                if flow.starter != firstChoice { flow.mainBot.template = "" }
+                flow.starter = firstChoice
+                flow.place = .local
+                pickPlace()
+            }.buttonStyle(.appleProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+            if !store.hasRealBots {
+                Button("Bring my Grok bot") {
+                    showMainWindow()
+                    closeWindow()
+                    store.showingGrokImport = true
+                }
+                Button("Try a sample") {
+                    store.loadSamples()
+                    if let example = store.bots.first(where: { $0.isDemo && $0.name == "Patch" }) { store.open(example) }
+                    showMainWindow()
+                    closeWindow()
+                }
+            }
+            Divider()
+            Button("Connect my own server") { flow.starter = nil; flow.place = .ssh; pickPlace() }
+            Button("Connect by address and access key") { flow.starter = nil; flow.place = .address; pickPlace() }
+                .buttonStyle(.link)
+        }
+    }
+
     /// Back on the left, the step dots in the middle, Cancel and the default button (Return) on the right.
     private var footer: some View {
         ZStack {
@@ -86,13 +129,15 @@ struct SetupView: View {
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
                 switch flow.step {
                 case .welcome:
-                    Button(WizardCopy.next, action: pickPlace).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                    if store.herdrConfigured {
+                        Button(WizardCopy.next, action: pickPlace).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                    }
                 case .herdr:
                     if let setup = flow.localSetup, !testing {
                         // Nothing runs on this Mac yet: the one button sets it up.
                         Button(setup.isWorking ? WizardCopy.settingUp : WizardCopy.setUp, action: setUpThisMac).buttonStyle(.appleProminent)
                             .disabled(setup.isWorking || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
-                    } else if flow.herdrNoPrograms, flow.herdr.kind == .local, flow.localReport != nil, !testing {
+                    } else if flow.herdrNoPrograms || !flow.missingStarterPrograms.isEmpty, flow.herdr.kind == .local, flow.localReport != nil, !testing {
                         // An AI program installed since is found by setting this Mac up again, which changes nothing else.
                         Button(SetupCopy.testAgain, action: setUpThisMac).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                     } else if flow.herdrReady, !testing {
@@ -102,7 +147,10 @@ struct SetupView: View {
                             .disabled(testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
                     }
                 case .mainBot:
-                    Button(flow.isLastWizardStep && flow.herdrOffer != nil ? finishTitle : WizardCopy.next, action: leaveMainBot).buttonStyle(.appleProminent)
+                    if !flow.isLastWizardStep && flow.herdrOffer != nil {
+                        Button("More options") { flow.apply(.advance) }.disabled(!flow.mainBotReady)
+                    }
+                    Button(finishTitle, action: leaveMainBot).buttonStyle(.appleProminent)
                         .disabled(!flow.mainBotReady).keyboardShortcut(.defaultAction)
                 case .moreBots:
                     Button(flow.isLastWizardStep ? finishTitle : WizardCopy.next) { if flow.isLastWizardStep { finishWizard() } else { failure = nil; flow.apply(.advance) } }
@@ -117,7 +165,7 @@ struct SetupView: View {
     /// The wizard's last button says what it creates: the main bot alone, the main bot and the ticked ones, or (with
     /// a main bot that stays) only the ticked ones.
     private var finishTitle: String {
-        let more = flow.step == .moreBots || flow.step == .projects ? flow.moreChosen.count : 0
+        let more = flow.moreChosen.count
         if flow.keptMainBot != nil { return more == 0 ? WizardCopy.finish : WizardCopy.addBots(more) }
         return more == 0 ? (flow.mainBotName.isEmpty ? WizardCopy.createMain : WizardCopy.create(flow.mainBotName)) : WizardCopy.createBots(more + 1)
     }
@@ -180,7 +228,11 @@ struct SetupView: View {
                 return
             }
             guard current else { store.abandonSetupHerdr(server); return }
-            flow.apply(.herdrTest(outcome, bots: store.setupHerdrBots(on: server)))
+            let existing = store.setupHerdrBots(on: server)
+            flow.apply(.herdrTest(outcome, bots: existing))
+            if existing.count == 1, let only = existing.first, only.needsFirstConnection {
+                flow.mainBot.keep = only.id
+            }
             if server.kind == .local, step == .herdr { await lookAtThisMac(server) }
         }
     }
@@ -214,7 +266,7 @@ struct SetupView: View {
     private func checkAIs() {
         guard flow.step == .herdr, let server = flow.herdrServer, server.kind == .local, let offer = flow.herdrOffer, !flow.aiChecking else { return }
         let key = flow.herdrKey, report = flow.localReport
-        for program in offer.programs {
+        for program in offer.programs where program.template != "swarmhub-opencode" && (flow.starter?.programs.contains(program.starterName) ?? true) {
             let note = report?.program(template: program.template)?.firstTime
             flow.apply(.aiCheck(HerdrAICheck(template: program.template, name: program.name, note: note)))
             Task {
@@ -224,27 +276,23 @@ struct SetupView: View {
         }
     }
 
-    /// The main bot's button, and Return in its name: on to the optional bots, or straight to the end when the
-    /// server has no other agent program to offer.
+    /// Return in the name field creates the main bot. More options opens the remaining steps.
     private func leaveMainBot() {
         guard flow.step == .mainBot, flow.mainBotReady else { return }
         failure = nil
-        if flow.isLastWizardStep { finishWizard() } else { flow.apply(.advance) }
+        finishWizard()
     }
 
     /// The wizard's one write: the server, the main bot and the ticked bots. Then the main window shows the main
     /// bot's chat with the keyboard in its composer.
     private func finishWizard() {
-        guard flow.isLastWizardStep, flow.mainBotReady, !finished else { return }
+        guard flow.step == .mainBot || flow.isLastWizardStep, flow.mainBotReady, !finished else { return }
         do {
             let main = try store.commitSetupWizard(server: flow.herdrServer, key: flow.herdrKey, main: flow.mainBot,
-                                                   more: flow.step == .moreBots || flow.step == .projects ? flow.moreChosen : [], offer: flow.herdrOffer,
+                                                   more: flow.moreChosen, offer: flow.herdrOffer,
                                                    projects: flow.step == .projects ? flow.mainProjects : [])
             finished = true
             store.open(main); store.composerFocus = main.id
-            // A main bot the wizard just created opens the conversation itself, once. One that was kept offers it
-            // quietly in its chat instead (`HerdrIntroOffer`). Only the real app sends anything.
-            if flow.keptMainBot == nil, store.launchWorkEnabled { store.startHerdrIntro(for: main) }
             showMainWindow(); closeWindow()
         } catch { failure = SetupCopy.failed }
     }

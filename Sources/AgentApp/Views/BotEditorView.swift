@@ -5,6 +5,9 @@ import SwiftUI
 struct BotEditorView: View {
     @Environment(\.dismiss) private var dismiss; @EnvironmentObject private var store: AppStore; let bot: Bot?
     @State private var fields = BotEditorFields()
+    @State private var programs: [HerdrProgram] = []
+    @State private var template = ""
+    @State private var model = HerdrModelChoice.recommended
     @State private var avatarTouched = false
     @State private var newAvatarSeed = UUID().uuidString.lowercased()
     @State private var showAdvanced: Bool
@@ -29,6 +32,17 @@ struct BotEditorView: View {
                         TextEditor(text: $fields.persona).font(.body).scrollContentBackground(.hidden).padding(8).frame(height: 110)
                             .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous)).accessibilityLabel(SimpleCopy.instructions)
                     }
+                    if bot == nil, !programs.isEmpty {
+                        Picker("Agent", selection: $template) {
+                            ForEach(programs) { Text($0.name).tag($0.template) }
+                        }
+                        .onChange(of: template) { _, _ in model = HerdrModelChoice.recommended }
+                        if let program = programs.first(where: { $0.template == template }), program.takesModel {
+                            SettingBlock(title: "Model") {
+                                HerdrModelPicker(model: $model, program: program.modelAgent ?? program.name, models: program.models)
+                            }
+                        }
+                    }
                     SettingSwitch(title: SimpleCopy.notifyAgent, symbol: "bell.badge.fill", colour: AppColor.clay, isOn: $fields.notifications)
                     QuietFold(title: SimpleCopy.editorAdvanced, isOpen: $showAdvanced) { BotEditorAdvancedSection(bot: bot, fields: $fields) }
                     if !showAdvanced { Text(SimpleCopy.herdrEditorAdvancedCaption).font(.caption).foregroundStyle(.secondary).padding(.top, -18).padding(.leading, 16) }
@@ -43,6 +57,13 @@ struct BotEditorView: View {
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
             fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(avatarSeed: newAvatarSeed)
             if bot == nil { nameFocused = true }
+        }
+        .task {
+            guard bot == nil, store.herdrConfigured, let server = store.herdrServers.first,
+                  let offer = try? await store.herdrClient(for: server).offer() else { return }
+            let preferred = store.herdrMainBot(on: server).flatMap { store.herdrTemplate(for: $0) }
+            template = offer.programs.first { $0.template == preferred }?.template ?? offer.programs.first?.template ?? ""
+            programs = offer.programs
         }
     }
 
@@ -85,7 +106,7 @@ struct BotEditorView: View {
         if let bot {
             fields.apply(to: bot, store: store, avatarTouched: avatarTouched); store.save()
         } else {
-            store.addBot(name: fields.name, persona: fields.persona, backend: fields.backend, avatarName: nil, avatar: fields.avatar)
+            store.addBot(name: fields.name, persona: fields.persona, backend: fields.backend, avatarName: nil, avatar: fields.avatar, template: template.isEmpty ? nil : template, model: model)
         }
         dismiss()
     }

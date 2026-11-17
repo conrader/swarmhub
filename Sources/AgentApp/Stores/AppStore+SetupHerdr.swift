@@ -68,7 +68,7 @@ extension AppStore {
     /// The bots already on `server`, as the wizard needs them: one can stay or become the main bot, their names are
     /// taken, and their agent programs need no second bot.
     func setupHerdrBots(on server: HerdrServer) -> [HerdrSetupBot] {
-        herdrBots(on: server).filter { !$0.isDemo && !$0.isReadOnlyArchive }.map { HerdrSetupBot(id: $0.id, name: $0.name, isMain: createsHerdrBots($0), template: herdrTemplate(for: $0)) }
+        herdrBots(on: server).filter { !$0.isDemo && !$0.isReadOnlyArchive }.map { HerdrSetupBot(id: $0.id, name: $0.name, isMain: createsHerdrBots($0), template: herdrTemplate(for: $0), needsFirstConnection: $0.grokSourceID != nil && !herdrConfigured) }
     }
 
     /// The wizard's last button, with no network call: saves the server (and the access key Test used, when one was
@@ -80,6 +80,8 @@ extension AppStore {
     @discardableResult func commitSetupWizard(server: HerdrServer?, key: String?, main: HerdrMainBotDraft, more: [HerdrProgram], offer: HerdrOffer?, projects: [HerdrBotProject] = []) throws -> Bot {
         guard let server, let offer else { throw SetupCommitError.notTested }
         let kept = main.keep.flatMap { id in bots.first { $0.id == id && $0.backend == .herdr && !$0.isReadOnlyArchive } }
+        let connectingImport = kept?.grokSourceID != nil && !herdrConfigured
+        if connectingImport, offer.program(main.template) == nil { throw SetupCommitError.nothingChosen }
         if main.keep != nil, kept == nil { throw SetupCommitError.notTested }
         if kept == nil, main.trimmedName.isEmpty || offer.program(main.template) == nil { throw SetupCommitError.nothingChosen }
         // A name already on the server is refused here too, so a button pressed twice never makes a second main bot.
@@ -105,6 +107,16 @@ extension AppStore {
                 main.avatar.apply(to: mainBot)
                 add(mainBot, main.template, main.model, 0)
             }
+            if connectingImport {
+                transaction.captureDefaults([HerdrBackend.botTemplateKey(mainBot.id), HerdrBackend.botModelKey(mainBot.id)])
+                setHerdrTemplate(main.template, for: mainBot)
+                setHerdrModel(main.model, for: mainBot)
+            }
+            if kept == nil || connectingImport {
+                transaction.captureDefaults([Self.herdrHelpersKey(mainBot.id), Self.herdrAsksFirstKey(mainBot.id)])
+                setStartsHerdrHelpers(main.allowHelpers, for: mainBot)
+                setHerdrAsksFirst(true, for: mainBot)
+            }
             if !projects.isEmpty {
                 let before = herdrProjects(for: mainBot), changed = herdrProjectsChanged(mainBot), id = mainBot.id
                 transaction.record {
@@ -119,7 +131,7 @@ extension AppStore {
             for other in herdrBots(on: server) where other.id != mainBot.id { other.canManageBots = false }
             mainBot.canManageBots = true
             for program in more where offer.program(program.template) != nil {
-                add(Bot(name: program.name, title: first ? "" : Self.starterTitle("", on: server), persona: Bot.defaultPersona, backend: .herdr), program.template, "", nil)
+                add(Bot(name: program.name, title: first ? "" : Self.starterTitle("", on: server), persona: Bot.defaultPersona, backend: .herdr), program.template, HerdrModelChoice.recommended, nil)
             }
             removeSampleBots()
             selectedBot = mainBot; selectedGroup = nil; rememberSelection(bot: mainBot)

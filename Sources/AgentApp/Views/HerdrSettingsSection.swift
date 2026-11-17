@@ -269,16 +269,13 @@ struct HerdrAgentControls: View {
             }
             .onChange(of: template) { _, value in
                 guard loaded else { return }
-                store.setHerdrTemplate(value, for: bot); model = ""; store.setHerdrModel("", for: bot)
+                store.setHerdrTemplate(value, for: bot); model = HerdrModelChoice.recommended; store.setHerdrModel(model, for: bot)
                 Task { await loadModels(); await applyChoice() }
             }
-            if effective?.takesModel == true, !(listed && models.isEmpty) {
+            if effective?.takesModel == true {
                 // No choice of its own: the first model the server offers, which the bot's next agent is started on.
-                SettingBlock(title: "Model", detail: models.isEmpty ? "Checking…" : nil) {
-                    let first = models.first?.id
-                    let unlisted = !model.isEmpty && !models.contains(where: { $0.id == model }) ? [NamedChoice(id: model, name: model, note: "No longer offered")] : []
-                    let choices = models.map { NamedChoice(id: $0.id, name: HerdrAgentReading.name($0), note: $0.id == first ? "Default" : nil) } + unlisted
-                    TileGallery(items: choices, minimum: 130, isSelected: { model.isEmpty ? $0.id == first : $0.id == model }, name: \.name, select: { model = $0.id == first ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
+                SettingBlock(title: "Model", detail: listed ? nil : "Checking…") {
+                    HerdrModelPicker(model: $model, program: effective?.modelAgent ?? effective?.programName, models: models)
                 }
                 .onChange(of: model) { _, value in
                     guard loaded else { return }
@@ -318,7 +315,7 @@ struct HerdrAgentControls: View {
                                   isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
                     // It is started when its chat opens, so the first message does not wait for it.
                     let ahead = store.herdrStartsAhead(for: bot)
-                    SettingSwitch(title: "Keep \(bot.name) ready", detail: AppStore.keepsReadyCaption(bot: bot.name, program: effective?.programName, available: ahead),
+                    SettingSwitch(title: "Keep \(bot.name) ready", detail: AppStore.keepsReadyCaption(bot: bot.name, program: effective?.modelAgent ?? effective?.programName, available: ahead),
                                   isOn: Binding(get: { ahead && store.herdrKeepsReady(bot) }, set: { store.setHerdrKeepsReady($0, for: bot) }))
                         .disabled(!ahead)
                 }
@@ -446,6 +443,51 @@ struct HerdrTemplatePicker: View {
         if !choices.isEmpty {
             TileGallery(items: choices, minimum: 150, isSelected: { selection.isEmpty ? $0.id == defaultName : $0.id == selection }, name: \.name,
                         select: { selection = $0.id == defaultName ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
+        }
+    }
+}
+
+
+/// The empty legacy choice follows the first server model. Recommended follows the selected agent.
+struct HerdrModelPicker: View {
+    @Binding var model: String
+    let program: String?
+    let models: [HerdrClient.Template.Model]
+    @State private var query = ""
+    @State private var typedID = ""
+    @State private var enteringID = false
+
+    var body: some View {
+        let suggestion = HerdrModelChoice.suggested(program: program, offered: models)
+        let recommended = suggestion.map { "Recommended · " + HerdrAgentReading.name($0) } ?? "Recommended · agent default"
+        let visible = models.filter { query.isEmpty || $0.id.localizedCaseInsensitiveContains(query) || ($0.label ?? "").localizedCaseInsensitiveContains(query) || $0.id == model }
+        VStack(alignment: .leading) {
+            if models.count > 12 {
+                TextField("Find a provider or model", text: $query)
+            }
+            Picker("Model", selection: $model) {
+                Text(recommended).tag(HerdrModelChoice.recommended)
+                if model.isEmpty { Text("Server default").tag("") }
+                if !model.isEmpty, model != HerdrModelChoice.recommended, !models.contains(where: { $0.id == model }) {
+                    Text(model + " · unlisted").tag(model)
+                }
+                ForEach(visible, id: \.id) { item in
+                    Text(program == "OpenCode" ? item.id : HerdrAgentReading.name(item)).tag(item.id)
+                }
+            }.labelsHidden().accessibilityLabel("Model").pickerStyle(.menu)
+            if program?.caseInsensitiveCompare("OpenCode") == .orderedSame {
+                DisclosureGroup("Enter a provider/model ID", isExpanded: $enteringID) {
+                    HStack {
+                        TextField("provider/model", text: $typedID)
+                        Button("Use ID") {
+                            if let id = HerdrModelChoice.apiModelID(typedID) {
+                                model = id
+                                enteringID = false
+                            }
+                        }.disabled(HerdrModelChoice.apiModelID(typedID) == nil)
+                    }
+                }
+            }
         }
     }
 }

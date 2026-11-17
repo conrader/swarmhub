@@ -37,7 +37,7 @@ The packaged build is on the [releases page](https://github.com/conrader/swarmhu
 
 ### 3. Connect
 
-The setup window opens while there is no bot. Later, open it from the quick switcher (⌘K): **Set up…**, or **Add a server…** once every server has its main bot. The empty main window has a **Set up** button too.
+On a fresh install, choose your agent access and press **Set up on this Mac** for local setup or **Connect my own server** for SSH. Later, open it from the quick switcher (⌘K): **Set up…**, or **Add a server…** once every server has its main bot. The empty main window has a **Set up** button too.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="screenshots/dark/setup-where.png">
@@ -48,33 +48,50 @@ The screens in this guide are rendered by the app with sample content.
 
 1. **Where.** Choose **This Mac** or **A server**, which the app reaches with your SSH login. **Advanced** holds a third way, **A server by address**, for a server whose port you already forwarded to this Mac. "Get a ready-made server from us" is marked "Coming soon" and cannot be chosen.
 2. **Connect.** This Mac needs nothing typed and is checked as soon as you press **Continue**; when it is not set up yet, the window says what it will install and the button reads **Set Up This Mac** ([This Mac](#this-mac)). For a server, give the server's name and, if needed, a login name and the path of an SSH key file, then press **Connect**; a key with a passphrase must already be unlocked (`ssh-add`). For a server by address, give the address and the access key. **Connection details** holds what few people type: the access key (the app finds it by itself on this Mac and over SSH), the port, and a name for the server. When the check fails, the window says what is wrong and the button reads **Try again**.
-3. **Main bot.** Create the server's main bot: an avatar, a name, an **AI** and a **Model**. Or choose a bot that is already on that server. Instructions are added later, in the bot's settings.
-4. **More bots.** Optionally choose a bot for each other AI the server has.
+3. **Main bot.** Choose **More options** to continue through the optional steps, or create the bot here to go straight to chat. Create the server's main bot: an avatar, a name, an **AI** and a **Model**. Or choose a bot that is already on that server. Instructions are added later, in the bot's settings.
+4. **More bots.** Local first-run setup starts with one main bot. When adding a server separately, this optional step lets you select additional bots explicitly.
 5. **Projects.** Optional, and only on a server that can add project servers. If your projects are on another server, add it here and name a first project; see [Projects on other servers](#projects-on-other-servers). To skip it, press the last button.
 
 The window ends in the main bot's chat.
 
-To look around without a server, close the setup window and choose **Look around with sample bots** in the main window. The sample bots answer locally.
+On first launch choose **Try a sample** to open Patch’s release notes, or **Bring my Grok bot** to review an import. **Look around with sample bots** is also available in the empty main window. The sample bots answer locally.
 
 More detail on the ways to connect: [Use the Mac app](../HerdrWorkspace/README.md#use-the-mac-app), and the drawing under [Where bots run](architecture.md#where-bots-run).
 
 <a id="the-first-conversation"></a>
 
-### 4. Say hello
+### Choose an agent and model
 
-A main bot that the setup window has just created opens the conversation itself. The chat shows one small line, "SwarmHub asked Jarvis to say hello" (with your bot's name), and the bot greets you, says what it can do, and asks a few short questions, one per reply:
+| Access | Recommended for a new bot |
+| --- | --- |
+| Codex | Sol when offered, then Terra, then the first listed model. |
+| Claude Code | Sonnet when offered, then the first listed model. Sign in to Claude Code with the account whose plan you want to use. |
+| Both | Start with a single main bot. Choose Codex or Claude Code for it and for each additional bot you need. |
+| API provider | OpenCode’s configured default. Pick an explicit provider/model entry to use another model, such as DeepSeek or Qwen. |
 
-1. what to call you,
-2. what you work on,
-3. what you would like help with first,
-4. whether it should set up other bots for that,
-5. whether any of your projects are on another server.
+For subscription billing, check the account in Claude Code. An `ANTHROPIC_API_KEY` in its environment can take precedence over the subscription. [Claude Code subscription sign-in](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-max-or-ultra-plan)
 
-You can skip any question or stop whenever you like. The bot is told to do no other work until you ask for something.
+For API access, install OpenCode V2.3 or later on the machine running your bots. Connect OpenRouter or configure another provider there, including a custom OpenAI-compatible endpoint. Run `opencode models` in the agent’s environment to see its exact model IDs. In SwarmHub, choose **API provider**. Select a listed model, or use **Enter a provider/model ID** for a configured endpoint. The service installs a starter template for OpenCode and discovers its catalog. Credentials stay with OpenCode. [OpenCode provider setup](https://opencode.ai/docs/providers/)
+
+Tell the main bot what role you need, or choose **New bot** yourself. Use **Recommended** to follow the recommendation at each fresh agent launch. Pick a specific model to pin that bot to it. You can change either choice later in **Details → Model**.
+
+### Release notes example
+
+Choose **Draft release notes** in a new bot’s chat. Edit the changes or send the example as written. The sample bot Patch shows this locally written reference answer for the three example changes.
+
+- Choose a model for each bot when you set it up.
+- Bring recent Grok Bot conversations into SwarmHub from this Mac.
+- Set up bots locally even when another server is using the default port.
+
+A finished live reply shows time spent on the successful attempt and the number of tool calls observed for that turn. A steered turn has one summary on its final reply. The model name comes from the server’s launch record when available. Check your provider’s usage view for quota or charges.
+
+### Optional introduction
+
+Choose **Get to know me** in the main bot’s **+** menu whenever you want to introduce yourself. The bot asks a few short questions, one per reply.
 
 When an answer tells the bot something lasting about you, a card above the composer says "Jarvis would like to remember this about you", with **Remember** and **Don’t save**. What you keep goes into **About you**, a short text (up to 800 characters) that every bot is given with its instructions, so no bot has to ask again. Read and edit it under **Settings → General**. Only a main bot suggests additions, and nothing is added without your OK.
 
-A main bot that the setup window did not create (one from before, or one you chose to keep) offers this once, above its composer: "Let Jarvis get to know you", with **Start** and **Not now**. To ask for it later, choose **Get to know me** in the **+** menu of the main bot's composer.
+After its first exchange, a main bot can also offer the introduction above its composer.
 
 ## This Mac
 
@@ -85,7 +102,7 @@ Choose **This Mac** in the setup window and your bots work on the Mac you are si
 1. **Fetches the SwarmHub service** for this Mac's processor (Apple silicon or Intel) from the SwarmHub release, and checks it against the release key the app carries before it is used. A download that is not the signed release is thrown away. The program goes to `~/.local/bin/swarmhub-herdr`.
 2. **Installs Herdr Core** when it is not on the Mac yet: from Herdr's own releases, and only a build that Herdr signed with its Apple developer identity. A Herdr Core that is already there is used as it is.
 3. **Makes an access key** for the app (`~/.config/swarmhub-herdr/token`, readable by you only) and a folder for your bots' work, `swarmhub-agents` in your home folder.
-4. **Writes a starter template** for each AI program it finds on the Mac (Claude Code, Codex), in Herdr Core's templates folder (`~/.config/herdr-core/templates/swarmhub-claude.md`, `swarmhub-codex.md`), and a starter list of models. It installs no AI program and signs in to none.
+4. **Writes a starter template** for each supported AI program it finds on the Mac (Claude Code, Codex or OpenCode), in Herdr Core's templates folder (`~/.config/herdr-core/templates/swarmhub-claude.md`, `swarmhub-codex.md`, `swarmhub-opencode.md`), and a starter list of models. It installs no AI program and signs in to none.
 5. **Starts the service and keeps it running**: a background item of your account (`~/Library/LaunchAgents/com.konrad.agentapp.service.plist`) starts it now, at every login, and again if it stops. macOS shows a "Background Items Added" notice. Your bots keep working while the app is closed.
 
 **Answer my AIs' first questions for me** is a switch in the same window, on unless you turn it off. An AI program asks a person two things the first time, in a window no chat shows, so a bot's first message would wait forever:
@@ -95,7 +112,7 @@ Choose **This Mac** in the setup window and your bots work on the Mac you are si
 
 Nothing else is answered for you: an AI's questions about running a command or changing a file stay yours, and no permission or sandbox setting is changed. If a program's settings are not in a form SwarmHub knows, it changes nothing and the setup window shows the question under **Your AIs** with **Answer in Terminal**.
 
-When the Mac is ready the window shows **Your AIs**: each AI is started once with no task (no model is used) to see that it can take a message.
+When the Mac is ready, **Your AIs** checks the selected Codex and Claude Code programs before sending a task. OpenCode’s API-backed template starts when you send its first task.
 
 ### What you need
 

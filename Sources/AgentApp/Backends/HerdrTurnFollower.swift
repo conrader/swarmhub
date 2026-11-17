@@ -23,6 +23,7 @@ struct HerdrTurnFollower: Sendable {
     private(set) var draft: HerdrEvent.Draft?
     /// seq → whether its end was reported too.
     private var reported: [UInt64: Bool] = [:]
+    var toolCount: Int { reported.count }
     private var steps: [Step] = []
     private var lastStatus: HerdrTurnStatus?, lastDraft = ""
     /// The agent program's name for the status lines, and whether the turn started the agent (or found it starting):

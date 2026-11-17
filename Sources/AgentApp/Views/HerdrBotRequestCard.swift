@@ -55,7 +55,7 @@ struct HerdrBotRequestCard: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
                                     Text(item.request.name).font(.callout.weight(.medium))
-                                    if let runtime = item.request.runtime { Text(runtime).font(.caption).foregroundStyle(.secondary) }
+                                    Text([item.request.runtime, item.request.model ?? "Recommended model"].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                                     if let asker = item.askerID.flatMap({ id in store.bots.first { $0.id == id }?.name }) { Text("asked for by \(asker)").font(.caption).foregroundStyle(.secondary) }
                                 }
                                 if item.taken { Text("You already have a bot with this name. Ask \(manager.name) for another name.").font(.caption).foregroundStyle(AppColor.caution).fixedSize(horizontal: false, vertical: true) }

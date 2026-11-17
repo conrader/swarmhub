@@ -128,6 +128,12 @@ struct SetupHerdrStep: View {
             HeroHeader(title: header, detail: intro) { SymbolTile(symbol: flow.herdr.kind.mark.symbol, colour: flow.herdr.kind.mark.colour, size: 60) }
             VStack(alignment: .leading, spacing: 18) {
                 result.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: resultKind)
+                if !flow.missingStarterPrograms.isEmpty {
+                    Text(WizardCopy.missingPrograms(flow.missingStarterPrograms)).foregroundStyle(.secondary)
+                    if flow.herdrOffer?.programs.isEmpty == false {
+                        Button(WizardCopy.chooseAvailable) { flow.starter = nil }
+                    }
+                }
                 if flow.herdr.kind != .local { fields(.main) }
                 QuietFold(title: WizardCopy.details, isOpen: Binding(get: { showDetails || asksForKey }, set: { showDetails = $0 })) { fields(.details) }
             }.frame(maxWidth: AppleMetrics.column)
@@ -188,8 +194,9 @@ struct SetupMainBotStep: View {
                 identity(server)
                 VStack(alignment: .leading, spacing: 20) {
                     if !flow.herdrBots.isEmpty { who }
-                    if flow.keptMainBot == nil {
+                    if flow.keptMainBot == nil || flow.keptMainBot?.needsFirstConnection == true {
                         runsOn(offer)
+                        Toggle(WizardCopy.allowHelpers, isOn: $flow.mainBot.allowHelpers)
                         Text(WizardCopy.runsOn(server.name)).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }.frame(maxWidth: AppleMetrics.column)
@@ -265,13 +272,11 @@ struct SetupMainBotStep: View {
     @ViewBuilder private func runsOn(_ offer: HerdrOffer) -> some View {
         SettingBlock(title: WizardCopy.program) {
             TileGallery(items: offer.programs, isSelected: { $0.template == flow.mainBot.template }, name: { offer.label($0) },
-                        select: { if flow.mainBot.template != $0.template { flow.mainBot.template = $0.template; flow.mainBot.model = "" } }) { NameTile(name: offer.label($0)) }
+                        select: { if flow.mainBot.template != $0.template { flow.selectMainProgram($0) } }) { NameTile(name: offer.label($0)) }
         }
-        if let program = offer.program(flow.mainBot.template), program.takesModel, let first = program.defaultModel {
-            let models = program.models.map { NamedChoice(id: $0.id, name: HerdrProgram.modelName($0), note: $0.id == first.id ? WizardCopy.defaultNote : nil) }
+        if let program = offer.program(flow.mainBot.template), program.takesModel {
             SettingBlock(title: WizardCopy.model) {
-                TileGallery(items: models, isSelected: { flow.mainBot.model.isEmpty ? $0.id == first.id : $0.id == flow.mainBot.model }, name: \.name,
-                            select: { flow.mainBot.model = $0.id == first.id ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
+                HerdrModelPicker(model: $flow.mainBot.model, program: program.modelAgent ?? program.name, models: program.models)
             }
         } else {
             SettingBlock(title: WizardCopy.model, detail: HerdrAgentReading.programPicks) { EmptyView() }
@@ -292,7 +297,7 @@ struct SetupMoreBotsStep: View {
                 ForEach(flow.moreChoices) { program in
                     let chosen = flow.moreBots.contains(program.template)
                     OptionCard(symbol: "plus.bubble.fill", colour: AppColor.plum, title: flow.herdrOffer?.label(program) ?? program.name,
-                               detail: WizardCopy.moreDetail(program.name, model: program.defaultModel.map(HerdrProgram.modelName)), selected: chosen, multiple: true,
+                               detail: WizardCopy.moreDetail(program.name, model: HerdrModelChoice.suggested(program: program.modelAgent ?? program.name, offered: program.models).map(HerdrProgram.modelName)), selected: chosen, multiple: true,
                                select: { if chosen { flow.moreBots.remove(program.template) } else { flow.moreBots.insert(program.template) } })
                 }
             }.frame(maxWidth: AppleMetrics.column)

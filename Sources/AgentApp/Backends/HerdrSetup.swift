@@ -53,11 +53,45 @@ struct HerdrProgram: Equatable, Identifiable, Sendable {
     /// False: the program picks its own model and the server offers no choice.
     let takesModel: Bool
     let models: [HerdrClient.Template.Model]
+    var modelAgent: String? = nil
     var id: String { template }
 
     /// The model a bot on this program starts on unless its person chooses another: the first the server offers.
     var defaultModel: HerdrClient.Template.Model? { HerdrClient.defaultModel(offered: models).flatMap { id in models.first { $0.id == id } } }
     static func modelName(_ model: HerdrClient.Template.Model) -> String { model.label ?? model.id }
+}
+
+/// Stored in app settings only. Resolve against the selected agent's catalog on every fresh launch.
+enum HerdrModelChoice {
+    static let recommended = "@recommended"
+
+    static func apiModelID(_ text: String) -> String? {
+        let id = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let syntax = #"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.:/@+#\[\]-]*$"#
+        guard id.utf8.count <= 160, id.range(of: syntax, options: .regularExpression) != nil else { return nil }
+        return id
+    }
+
+    static func suggested(program: String?, offered: [HerdrClient.Template.Model]) -> HerdrClient.Template.Model? {
+        let families: [String]
+        switch HerdrProgramName.friendly(display: nil, program: program)?.lowercased() {
+        case "codex": families = ["sol", "terra"]
+        case "claude": families = ["sonnet"]
+        case "opencode": return nil // OpenCode's configured provider and default model.
+        default: families = []
+        }
+        for family in families {
+            if let match = offered.first(where: { model in
+                (model.id + " " + (model.label ?? "")).lowercased()
+                    .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains(Substring(family))
+            }) { return match }
+        }
+        return offered.first
+    }
+}
+
+extension HerdrProgram {
+    var starterName: String { HerdrProgramName.friendly(display: nil, program: modelAgent ?? name)?.lowercased() ?? "" }
 }
 
 /// What a server offers the setup wizard: its agent programs with their models, and the agents running there now.
@@ -192,7 +226,7 @@ extension HerdrClient {
         var programs: [HerdrProgram] = []
         for template in current.templates where template.error == nil {
             let models = template.takesModel ? ((try? await models(for: template)) ?? template.models ?? []) : []
-            programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: models))
+            programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: models, modelAgent: template.modelAgent))
         }
         // Asked once here, so the wizard knows whether to offer the step; a workspace without the route answers 404.
         let projectServers = (try? await machines()) != nil

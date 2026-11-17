@@ -27,7 +27,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 - **Keep _name_ ready** (Details, **Model**, **Advanced**; on by default) turns this off for one bot. A server that cannot start an agent program ahead of time is not asked again until the app restarts, and the switch says so.
 - The server closes an agent that was started this way and never written to (after 30 minutes unless the server is set otherwise).
 - A bot has a name, an avatar and instructions, and under **Advanced** in its settings an optional role. A bot that already has a description (from an import, or an older version) keeps it editable. The instructions are given to each agent the bot starts, once, with its first message.
-- The **Model** tab of the Details panel chooses the **AI** and the **Model**, and nothing else in the app does. The choices are the ones the server offers. A bot with no model of its own starts on the first model the server lists. With more than one server, **Advanced** in the same tab chooses the bot's **Server**.
+- Set the agent and model at creation or in **Details → Model**. Use **Recommended** for Sol or Terra on Codex, Sonnet on Claude Code, or the configured default on OpenCode. A pinned model uses its exact provider ID. With more than one server, **Advanced** in the same tab chooses the bot's **Server**.
 - **Start fresh** ends the running agent and, with **Keep _name_ ready** on, starts the next one at once. The chat stays; the bot's own memory of it does not.
 - An agent that was started ahead of time and has not been written to is replaced when you change the bot's AI, model or projects, so the change applies at once. An agent that holds a conversation keeps running until **Start fresh**.
 - **Add a bot for each AI** (**Settings → Servers → Connection**) adds one bot for each AI the server has that no bot uses yet.
@@ -57,8 +57,8 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 
 ## The first conversation and "About you"
 
-- A main bot that the setup window has just created opens the conversation itself: the app sends it one note, shown in the chat as a single line (**SwarmHub asked Jarvis to say hello**), and the bot greets you, says what it can do, and asks up to five short questions, one per reply. Any question can be skipped. The note tells the bot to do no other work until asked.
-- A main bot the setup window did not create (one from before, or one that was kept) offers this once above its composer (**Let Jarvis get to know you**, with **Start** and **Not now**). **Get to know me** in the **+** menu of the main bot's composer asks for it again.
+- The main bot opens ready for your first task. Choose **Draft release notes** to edit an example, or **Get to know me** in the composer’s **+** menu for an optional introduction.
+- After the first exchange, the main bot offers the introduction above its composer. **Start** sends the request and **Not now** dismisses the offer.
 - **About you** is a text of at most 800 characters that the app keeps (**Settings → General**) and gives to every bot's agent with its instructions. You can read and edit all of it.
 - Only a main bot proposes additions, at most four per reply, each one sentence. Each shows above the composer with **Remember** and **Don’t save**; nothing joins the text until **Remember** is pressed. When the text is full, the app says so and the addition stays offered.
 
