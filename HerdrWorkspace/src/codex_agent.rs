@@ -7,6 +7,7 @@ use serde_json::json;
 use std::{env, os::unix::process::CommandExt, process::Command};
 
 mod models;
+mod prefetch;
 pub(crate) mod stream;
 pub(crate) use models::Catalog as ModelCatalog;
 
@@ -73,6 +74,8 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut cmd = executable();
     cmd.env_remove(crate::runtimes::MODEL_ENV);
+    // Codex reads its state databases as it starts. Have them in memory by then (`prefetch`).
+    prefetch::start();
     if !plain {
         stream::starts_whole(
             &journal,

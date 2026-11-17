@@ -665,14 +665,30 @@ Codex has no hook for unfinished text. Its app server does send the text a messa
 The reply so far shows in the same place as Claude Code's and OpenCode's: `…/draft` and the event stream below, up to 32 KiB. It is the message Codex is writing now, so a short note before a tool call is replaced by the answer that follows, and it goes away when the turn ends or is stopped. The Stop hook still saves the final reply.
 
 - The app server and the follower end with the terminal UI. Each session has its own; Codex's shared background server is not used or changed.
-- A session takes one more Codex process than before. `run-codex` starts the terminal UI as soon as the app server listens. That takes under a second while Codex's own files are in memory, however busy the processor is.
-- Before it listens, the app server reads Codex's saved-session databases. When the machine has dropped them from memory and the disk is busy, listening has taken 2 to 17 seconds, and the first task then started about 40 seconds after the launch. `run-codex` waits up to 20 seconds, so that either way of starting fits in the 60 seconds Herdr Core holds the first task for.
+- A session takes one more Codex process than before. `run-codex` starts the terminal UI as soon as the app server listens.
+- How long that takes depends on the server's disk, not on its processor ([How long a Codex start takes](#how-long-a-codex-start-takes)). `run-codex` waits up to 20 seconds, so that either way of starting fits in the 60 seconds Herdr Core holds a launch's first task for.
 - Put `SWARMHUB_CODEX_STREAM_WAIT=30` (1 to 45 seconds) in front of the template command to change the wait.
 - If the app server does not listen in that time, or ends first, `run-codex` starts Codex the old way and that session's replies appear whole.
 - A template with other Codex arguments (a resumed session, a fixed sandbox) starts the old way too.
 - Put `SWARMHUB_CODEX_STREAM=off` in front of the template command to always start the old way.
 - A session that started the old way says why. While it runs, its agent carries `reply_arrives_whole` with the reason in `/api/workspace` and in the event stream's `snapshot` and `agent` events. The same sentence is in a file under `codex-stream/` next to the journal, kept for 30 days.
 - Set `SWARMHUB_CODEX_STREAM_LOG` to an absolute file path to also record how long each start waited and what the follower and the app server wrote.
+
+### How long a Codex start takes
+
+Measured with Codex 0.169 on a server with a spinning disk that other jobs share:
+
+| The server's disk | App server listens | Codex reports that it is ready | Conversation open |
+| --- | --- | --- | --- |
+| Idle, Codex's files in memory | 0.2 s | 1.0 s | 1.1 s |
+| Busy, files partly in memory | 15 s | 22 s | 32 s |
+| Busy, memory short | 89 s, or not within the 20 s wait | 90 to 240 s | later still |
+
+The processor is not what a slow start waits for. Before its app server listens, Codex reads its whole state database (`state_5.sqlite`, 7 MB on that server) and about a thousand pages of its log database (`logs_2.sqlite`, 65 MB), one page at a time in the order SQLite asks for them. When the server is short of memory, those pages have been dropped since the last start, and on a busy disk each read takes a seek. A traced start spent 66 of its 89 seconds on 2,800 such reads.
+
+`run-codex` therefore reads Codex's databases through once, in file order, while Codex starts: every `*.sqlite` and `*.sqlite-wal` file of up to 128 MB in `CODEX_SQLITE_HOME`, `CODEX_HOME` or `~/.codex`, smallest first, 256 MB in all, for 30 seconds at most. Read that way the same megabytes take a second or two, and nothing when they are still in memory: on copies of the two files on the same busy disk, the log database's thousand pages took 22 to 33 seconds in SQLite's order, and the whole file 1 to 3 seconds in file order. It only reads: the files are opened read-only and without changing their access time, and no lock is taken. Put `SWARMHUB_CODEX_PREFETCH=off` in front of the template command to leave them alone.
+
+What it can't shorten: Codex's own program file (280 MB), which the server reads back from disk piece by piece when memory is short, and the first turn's connection to the model. Start the agent before the first message ([Start an agent before the first message](#start-an-agent-before-the-first-message)) so that nobody waits for either.
 
 ## Run OpenCode V2
 
