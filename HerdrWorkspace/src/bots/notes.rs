@@ -93,6 +93,12 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     note
 }
 
+/// What the workspace types when it is the first to write to an agent that has not read its bot's
+/// instructions: the instructions, as the app leads them in, and then the message.
+pub(crate) fn instructed(instructions: &str, text: &str) -> String {
+    format!("Standing instructions for this whole conversation:\n{instructions}\n\n{text}")
+}
+
 fn unseen() -> &'static str {
     "The person did not write this and can read both chats."
 }

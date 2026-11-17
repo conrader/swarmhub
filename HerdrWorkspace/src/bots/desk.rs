@@ -422,6 +422,23 @@ async fn start(w: &Workspace, bot: &Bot) -> Result<Terminal, String> {
         .map_err(explain)
 }
 
+/// Whether the session of this launch has had no task yet and was started without instructions.
+fn uninstructed(history: &crate::history::History, key: &str) -> bool {
+    history.db().is_ok_and(|db| {
+        matches!(rules::newest_task(&db, key, None), Ok(None))
+            && db
+                .query_row(
+                    "SELECT NOT EXISTS(SELECT 1 FROM journal j
+                                       LEFT JOIN warm_launches w ON w.launch=j.id
+                                       WHERE j.launch_key=?1
+                                         AND (coalesce(w.instructions,'')!='' OR j.launch_instructions IS NOT NULL))",
+                    [key],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false)
+    })
+}
+
 /// Types one waiting message into its bot's agent, starting the agent when none runs.
 async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     let bot = match w.history.db().map(|db| super::one(&db, &item.bot)) {
@@ -456,7 +473,7 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     let key = agent.launch_key().unwrap_or_default().to_owned();
     // An agent that started before its bot was registered has not read the notes: they go in front, once.
     let unread = bot.noted_launch.as_deref() != Some(key.as_str());
-    let text = if unread {
+    let mut text = if unread {
         let others = w
             .history
             .db()
@@ -471,6 +488,11 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     } else {
         item.text.clone()
     };
+    // An agent the app started ahead of its first message has read nothing yet: the app sends a bot's
+    // instructions with the person's first message. When the workspace is first to write, it sends them.
+    if !bot.instructions.is_empty() && uninstructed(&w.history, &key) {
+        text = notes::instructed(&bot.instructions, &text);
+    }
     if crate::core::validate_task(&text).is_err() {
         return Outcome::Failed("it does not fit into one task.".into());
     }
@@ -712,6 +734,39 @@ async fn watch(w: &Workspace, seen: &mut Seen) {
 mod tests {
     use super::*;
     use crate::bots::{Settings, plans::When, testing};
+
+    #[test]
+    fn only_an_agent_that_has_read_nothing_yet_is_sent_its_bots_instructions() {
+        let (_scratch, history) = testing::journal(&["Jarvis"]);
+        // Started with a task of the person: the app sent the instructions with it.
+        let tasked = testing::session(&history, "Jarvis", "t7");
+        assert!(!uninstructed(&history, &tasked));
+        // Started ahead of its first message, with nothing: whoever writes first sends them.
+        let (_, warm) = crate::warm::start(&history, "core", "jarvis-jarvis", None, "{}", "", &[])
+            .unwrap()
+            .unwrap();
+        assert!(uninstructed(&history, &warm));
+        // Started by the workspace itself, which gave the instructions to go with the first task.
+        let (_, own) = crate::warm::start(
+            &history,
+            "core",
+            "jarvis-jarvis",
+            None,
+            "{}",
+            "Be brief.",
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!uninstructed(&history, &own));
+        assert_eq!(
+            notes::instructed(
+                "Be brief.",
+                "[Message from the bot Infra, passed on by SwarmHub] ask #1\nHi"
+            ),
+            "Standing instructions for this whole conversation:\nBe brief.\n\n[Message from the bot Infra, passed on by SwarmHub] ask #1\nHi"
+        );
+    }
 
     #[test]
     fn a_helper_and_an_agent_of_no_bot_are_refused_and_a_bot_runs_every_command() {
