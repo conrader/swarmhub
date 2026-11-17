@@ -27,7 +27,7 @@ The interface uses plainer words than this document. In the app an agent program
 
 "The Herdr server" is whichever computer runs Herdr Core and the bridge. It can be the Mac itself.
 
-The Mac app does not install or start Herdr Core, the bridge, or the agent programs. You start them on that computer ([Run locally](../HerdrWorkspace/README.md#run-locally)). Once they run, the app can update the bridge and start Herdr Core's own updater ([Updates](#updates)).
+On this Mac the app can set all of it up: it fetches the bridge from the signed release, checks it, and runs the bridge's own `service install`, which installs Herdr Core when it is missing and has launchd keep the bridge running ([Run on macOS](../HerdrWorkspace/README.md#run-on-macos)). On a server you install and start Herdr Core and the bridge yourself ([Run locally](../HerdrWorkspace/README.md#run-locally)). The app never installs an agent program. Once a bridge runs, the app can update it and start Herdr Core's own updater ([Updates](#updates)).
 
 ## Where bots run
 
@@ -38,7 +38,7 @@ The Mac app does not install or start Herdr Core, the bridge, or the agent progr
 
 The app reaches a Herdr server in three ways. The setup window shows the first two as large options and folds the third under **Advanced**. A fourth is only announced. (The drawing labels the second and third by how they work.)
 
-1. **This Mac.** The app looks for the bridge on `127.0.0.1:8787` and reads the access key from `~/.config/swarmhub-herdr/token`, the file the bridge's start script writes.
+1. **This Mac.** The app looks for the bridge on `127.0.0.1:8787` and reads the access key from `~/.config/swarmhub-herdr/token`, the file the bridge writes. When nothing answers, the setup window offers to set the Mac up (`Backends/HerdrLocalService.swift`, `Stores/AppStore+LocalSetup.swift`): the program for this Mac's processor is downloaded and checked against the release key exactly as an update handed to a server is (`WorkspaceRelease`), put in `~/.local/bin`, and run as `service install`. Everything else about the setup is the bridge's own code (`HerdrWorkspace/src/service.rs`, `first_time.rs`), so it is the same from a terminal.
 2. **A server**, reached over SSH. The app runs the system `ssh` as a child process (`ssh -N -L 127.0.0.1:<port>:127.0.0.1:<port>`, batch mode), checks before every request that the forward is up and reopens it when it is not, and reads the access key from the server's token file over the same SSH login. It saves the path of a key file, never a key.
 3. **A server by address.** For a port you forwarded yourself. You type the address and paste the access key.
 4. **Get a ready-made server from us.** One line marked "Coming soon", which cannot be chosen. It is planned; nothing is behind it (`Setup/ManagedHosting.swift`, `isAvailable = false`).
@@ -184,6 +184,7 @@ Stated plainly, so nobody assumes more than there is.
 - **The per-bot lists are bookkeeping, not walls.** The projects a bot may use decide what the `project` command does for its agent. The account can still log in to every project server, and an agent whose shell is not sandboxed can run `ssh` or `hc` itself. The same holds for "Can use helpers" and for which skills an agent program loads. To keep an agent away from something for real, use the agent program's own permission and sandbox settings, or do not give that Herdr server access to it.
 - **Project servers** are reached with the Herdr server's own SSH key, key-based only. The bridge does not trust a new host silently: the app shows the fingerprints and nothing is saved until you press **Trust this server**. Adding a server copies Herdr Core's helper program to it.
 - **The journal is plaintext.** Tasks, replies, captured terminal text and published files are in a SQLite file under `~/.local/state/swarmhub-herdr/` on the Herdr server. The Mac keeps its own copy of the chats in `store.json`, also plaintext.
+- **What SwarmHub tells agent programs to trust.** With the person's yes in the setup window, the bridge on this Mac tells Claude Code to trust the bots' folder (one entry in `~/.claude.json`, removed again with the service) and tells Codex at each start to trust the three hooks it passes (nothing written). A trusted folder is one whose own settings files the agent program uses, and an agent can write files there. No tool is allowed and no permission or sandbox setting is changed by this.
 - **Model providers** see what the agent programs send them. SwarmHub holds no provider keys and makes no model calls.
 - **"About you"** is plaintext in the app's settings on the Mac and is sent to every bot's agent, so it ends up in the journal and at the model providers like any other task text.
 - **Updates** are signed. The app's archives and the bridge's releases are signed with one Ed25519 release key; Sparkle checks the first, the bridge checks the second itself, and the access key alone cannot make a server run anything that is not a signed, newer release. [Updates](updates.md#what-is-trusted) says what this does and does not cover.
@@ -226,5 +227,5 @@ Older versions of the app ran bots on two other backends, which were removed. Wh
 - A ready-made server: planned, not built. There is no billing and no provisioning.
 - Most of [How bots communicate](bot-communication.md) and of [Approvals](approvals.md): see the tables above.
 - An iPhone app: none. A phone cannot reach the bridge, which answers only on its own machine.
-- The Mac app does not install Herdr Core, the bridge or agent programs. The first install of a bridge on a server is by hand ([Updates](updates.md#first-install-on-a-server)).
+- The Mac app sets up this Mac only. On a server, Herdr Core and the first bridge are installed by hand ([Updates](updates.md#first-install-on-a-server)). It installs no agent program anywhere.
 - This document was checked against the source. It was not checked by running every path on a live system; the measured numbers it repeats (start times, limits in seconds) come from the code and from [the bridge's manual](../HerdrWorkspace/README.md).

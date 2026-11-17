@@ -76,7 +76,7 @@ You need a Mac with macOS 14 or later, and Herdr Core with at least one agent pr
 To look around without a server, close the setup window and choose **Look around with sample bots** in the main window.
 
 > [!NOTE]
-> The packaged build is on the [releases page](https://github.com/conrader/swarmhub/releases). From 0.8.0 on it is the app this README describes; bots from earlier versions do not carry over. The server side (Herdr Core and the SwarmHub service) is installed by hand the first time: see the [guide](docs/guide.md).
+> The packaged build is on the [releases page](https://github.com/conrader/swarmhub/releases). From 0.8.0 on it is the app this README describes; bots from earlier versions do not carry over. On this Mac the app installs what bots need (Herdr Core and the SwarmHub service) when you choose **This Mac**; on a server they are installed by hand the first time: see the [guide](docs/guide.md).
 
 More: the [guide](docs/guide.md).
 

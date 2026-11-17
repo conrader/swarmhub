@@ -4,9 +4,12 @@ What the macOS app does not do today. Each item was checked against the code in 
 
 ## Setup
 
-- The app does not install or start Herdr Core or the bridge. Start both yourself on the machine where the bots work. The first install of the bridge on a server is by hand; after that the app updates it ([Updates](updates.md)).
+- On **This Mac** the app installs and starts the SwarmHub service and, when it is missing, Herdr Core ([This Mac](guide.md#this-mac)). On a server it does not: start both yourself there. The first install of the bridge on a server is by hand; after that the app updates it ([Updates](updates.md)).
 - Bots from versions up to 0.6.8 do not carry over to 0.8. On first launch the app saves a copy of the old data beside it and removes them.
-- The SwarmHub service is published for x86_64 Linux only. **This Mac** works only where Herdr Core and a service built from source are already running on the Mac.
+- The SwarmHub service is published for Macs (Apple silicon and Intel) and for x86_64 Linux servers. Setting up **This Mac** needs an AI program you have already installed and signed in to (Claude Code or Codex); the app installs none.
+- On This Mac, the app answers two first-time questions of the AI programs for you when you leave that switch on: Claude Code's question about the bots' folder (one entry in `~/.claude.json`) and Codex's review of the three commands the service gives it (told at each start, nothing written). This was checked with Claude Code 2.1.319 and Codex 0.169.0. A later version of either program may ask in another way; the setup window then shows the question with **Answer in Terminal**. Codex did not ask about the folder itself on the Mac this was tested on; where it does, you answer it once.
+- An agent's graphical desktop (`run-desktop`) exists on Linux servers only. The service on a Mac says so.
+- Port 8787 must be free on the Mac, or you choose another port in the setup window.
 - "Get a ready-made server from us" is one line marked "Coming soon". It is planned: today it cannot be chosen, no server is created and nothing is charged.
 - The bridge answers on its own machine's loopback only. A remote server is reached through an SSH port forward that uses the same port number on both ends, so two servers with the same bridge port cannot be connected at the same time. Give one a different `SWARMHUB_PORT`.
 - SSH runs in batch mode. A key with a passphrase must already be in the agent, because the app cannot ask for it.
@@ -45,7 +48,7 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 
 - An app run from source (a bare executable) does not update itself. Software Update still checks the servers.
 - A server whose bridge is from before it could update itself, or is installed where it cannot write, is updated by hand ([First install on a server](updates.md#first-install-on-a-server)).
-- Releases carry a bridge program for 64-bit Intel and AMD Linux servers only. On another kind of machine, build the bridge there.
+- Releases carry a bridge program for 64-bit Intel and AMD Linux servers and for Macs (Apple silicon and Intel). On another kind of machine, such as an ARM Linux server, build the bridge there.
 - Going back after an update is offered only while the journal still has the layout the previous version knows.
 - The app does not install Herdr Core. It starts Herdr's own updater and shows what it said.
 

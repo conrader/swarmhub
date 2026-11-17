@@ -52,7 +52,7 @@ printf 'Workspace access token: %s\n' "$SWARMHUB_ACCESS_TOKEN"
 ./target/debug/swarmhub-herdr
 ```
 
-To skip the manual setup, `dev/start-local.sh` starts an installed bridge (`~/.local/bin/swarmhub-herdr`) against the default Core socket and keeps a generated token in a private file under `~/.config/swarmhub-herdr/`.
+To skip the manual setup, `swarmhub-herdr service run` (an installed bridge, `~/.local/bin/swarmhub-herdr`) does it all: it finds Herdr Core's socket by Core's own rule, starts Core when it is not running, keeps a generated token in a private file under `~/.config/swarmhub-herdr/`, starts agents in `~/swarmhub-agents`, and serves. `dev/start-local.sh` is the older shell script for the same on Linux. On a Mac, [Run on macOS](#run-on-macos) installs it as a background service.
 
 Set `SWARMHUB_AGENT_CWD` to an existing absolute directory to start every new agent there. Without it, agents start in Core's own working directory, which is often the home directory. Open each agent program once in that folder first: Claude Code asks whether to trust a new folder, and its default answer exits.
 
@@ -68,6 +68,41 @@ Use the same build of `swarmhub-herdr` for the bridge and the helper commands in
 
 Choose **Appearance** in the sidebar to use **System**, **Light**, or **Dark**. System follows the device’s theme as it changes. Your choice is remembered in the browser or installed web app where you set it. It does not change another device or your workspace account. The generic offline page follows the device theme.
 
+## Run on macOS
+
+The bridge runs on macOS, on Apple silicon and Intel, with the same routes, journal and commands as on Linux. (It was tested on macOS 26 on Apple silicon; the Intel build passes its tests under Rosetta there.) One thing is Linux only: an agent's graphical desktop (`run-desktop`), which is an X11 display. The bridge on a Mac says so in `bridge.unsupported` of `/api/workspace` (`[{"feature": "agent_desktop", "why": "…"}]`; empty on Linux), and `run-desktop` ends with the same sentence. The Codex read-ahead ([How long a Codex start takes](#how-long-a-codex-start-takes)) is off on macOS unless a template asks for it.
+
+`swarmhub-herdr service` sets a Mac up and keeps the bridge running. The Mac app runs it for **This Mac**; it works the same from a terminal. Every command prints one JSON object with `--json`: `ok`, and on a refusal `error` (a sentence) and `kind` (`not_macos`, `no_session`, `port_busy`, `core_download`, `core_signature`, `core_install`, `not_started`, `failed`).
+
+| Command | What it does |
+| --- | --- |
+| `service status` | Says what is on this computer and changes nothing: the program and its version, Herdr Core (installed, version, running, socket), the launchd job (installed, loaded, answering), each agent program it has a starter template for (found or not, and what to do when not), the access key, the folders. |
+| `service install [--port N] [--answer-first-time]` | macOS. Installs Herdr Core when it is missing (from `releases.herdr.dev`; the archive must have the digest Herdr's release names and the app in it must be signed by Herdr's Apple team, checked with `codesign` before anything of it runs). Makes the access key. Writes `swarmhub-claude.md` and `swarmhub-codex.md` into Core's templates folder for the agent programs it finds, where no template of that name exists, and a starter `runtime-catalog.json` where there is none. Writes `~/Library/LaunchAgents/com.konrad.agentapp.service.plist` (`RunAtLoad`, `KeepAlive`) and loads it. Refuses a port another program holds. Installing again changes nothing a person made. |
+| `service run` | What the job starts, and a way to start the bridge by hand on Linux too. Reads the `PATH` of the account's own shell (a job started by launchd has almost none), so that `hc`, `claude`, `codex` and `node` are found; agents are started with that `PATH`. Starts Herdr Core when it is not listening, and again if it stops while the bridge runs. Waits when Core is not installed. Then serves like a bridge started with its settings in the environment. |
+| `service prepare [--undo]` | Answers ahead what the agent programs ask a person the first time (below); `--undo` takes it back. Linux and macOS. `install --answer-first-time` does the same as part of the install. |
+| `service remove` | macOS. Ends the agents started from its own starter templates, unloads and deletes the job, takes back what `prepare` did, and removes the templates it wrote (only while they are as it wrote them), the access key and the program. Keeps the journal, the agents' folder and Herdr Core. |
+
+`--label NAME` gives the job another name (checks use one). `SWARMHUB_SERVICE_PATH` names the folders to look for programs in, in place of asking the shell. The job keeps the settings the install was run with (`XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `SWARMHUB_DATA_DIR`, `SWARMHUB_AGENT_CWD`, `SWARMHUB_UPDATE_FEED`, `HC_SESSION`, `HC_SOCKET`). The job's output is `service.log` in the data folder.
+
+### First-time questions
+
+Claude Code asks once per folder whether the folder is trusted, and Codex asks a person to review hooks it has not seen. Both ask in the agent's terminal, where no chat shows the question, and a first message waits there until it is given up. `service prepare` answers them for this bridge, with the consent of whoever runs it (the Mac app asks in its setup window):
+
+- **Claude Code.** It sets `projects["<agents folder>"].hasTrustDialogAccepted` to `true` in `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set), the entry Claude Code's documentation names for trusting a folder by hand. Only that member changes: every other value keeps its exact text and order. The file is replaced in one step, only if nobody changed it meanwhile, and the file as it was before the first change is kept as `.claude.json.before-swarmhub`. A file that is missing or not of the expected shape is left alone and the answer says so. What was changed is written to `first-time.json` in the data folder, and `--undo` removes exactly that: the member (or its earlier value), and the folder's entry when `prepare` made it and nothing else is in it.
+- **Codex.** Nothing is written into Codex's settings. `prepare` records the agreement in `first-time.json`; from then on `run-codex` asks Codex once for the digests of the hooks it is about to pass (`hooks/list` on Codex's app server, which only reads), keeps them in `codex-hook-trust.json`, and passes them at every start as one more `-c` value (`hooks.state`). Only those hooks are trusted, and a hook whose command changes has another digest. Without the agreement, or when Codex does not answer as expected, nothing is passed and Codex asks as before. This relies on how Codex 0.169 reads `hooks.state`, which its documentation does not describe.
+
+Neither allows a tool, skips a permission prompt, or changes an approval or sandbox setting. A trusted folder is one whose own settings files the agent program also uses.
+
+### An update under launchd
+
+An update keeps the process, as elsewhere (`exec`), so launchd goes on watching the same process. When the new version hangs or ends while starting, the watcher does not start a second bridge beside the one launchd keeps: it holds the new process still, puts the previous program back, and has launchd restart the job (`launchctl kickstart -k`).
+
+```sh
+python3 tests/service_smoke.py "$(command -v hc)"
+```
+
+does all of this on a Mac for real, with a job name, folders and a release key of its own: install, a busy port, the starter templates, the bridge restarted by launchd after it is killed, an update, a version that cannot start, a version that hangs, and remove. It needs the `cryptography` module and takes about three minutes.
+
 ## Use the Mac app
 
 The SwarmHub Mac app chats with the same agents through this bridge. Keep the bridge running on the machine that runs Herdr Core. The app keeps a list of Herdr servers, and each bot runs on one of them.
@@ -78,7 +113,7 @@ The setup window opens on first launch; later, use **Settings → Set up…** or
 
 | Choice | What you enter | What the app does |
 | --- | --- | --- |
-| **This Mac** (the default) | Nothing | Looks for the bridge on `127.0.0.1:8787` and reads its access token from `~/.config/swarmhub-herdr/token`. If nothing answers, it says so and shows the start command. The app does not install or start Herdr Core or the bridge yet. |
+| **This Mac** (the default) | Nothing | Looks for the bridge on `127.0.0.1:8787` and reads its access token from `~/.config/swarmhub-herdr/token`. If nothing answers, it offers to set the Mac up: it fetches the bridge from the signed release, checks it, and runs `service install` ([Run on macOS](#run-on-macos)). |
 | **A server I reach over SSH** | The server's name, and optionally a login name and the path of an SSH key file | Runs `ssh -N -L` itself to forward the bridge's port, reopens the forward when it drops, and reads the access token from the server's `~/.config/swarmhub-herdr/token`. |
 | **A server by address and access key** | The address of a port you forwarded yourself, and the access token | Connects to that address. |
 | **Get a ready-made server from us** | Not available yet | Nothing. The row is a placeholder. |
