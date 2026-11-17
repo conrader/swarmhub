@@ -51,7 +51,7 @@ pub(crate) fn clock(at_ms: i64, set: &Settings) -> String {
 pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     let mut note = format!(
         "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n\
-         - Offer first: do not start new work on your own decision. Say what you would do and wait for the person's yes. Finishing and reporting work that was already started is not new work.\n\
+         - Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. Finishing and reporting work that was already started is not new work.\n\
          - Before deleting anything, sending something out (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n",
         line(&bot.name)
     );
@@ -206,6 +206,26 @@ pub(crate) fn stopped(who: &str, id: i64, kind: &str, why: &str) -> String {
     )
 }
 
+/// For a bot whose turn ended with another bot's ask or hand-off still open. `kind` is "ask" or "hand-off";
+/// `left` is how many seconds it has left.
+pub(crate) fn reminder(cmd: &str, from: &str, id: i64, kind: &str, left: Option<u64>) -> String {
+    let from = line(from);
+    let left = left.map_or_else(String::new, |left| {
+        format!(" It lapses {} from now.", span(left / 60 * 60))
+    });
+    if kind == "ask" {
+        format!(
+            "{SERVER_LEAD} Your turn ended, and the ask #{id} from {from} is still open: what you write in your own chat does not reach {from}.\n\
+             (If you have the answer, send it now: {cmd} bot reply {id} \"YOUR ANSWER\". If you are still working on it, send it when you have it. If you will not answer, run: {cmd} bot decline {id} \"WHY\".{left})"
+        )
+    } else {
+        format!(
+            "{SERVER_LEAD} Your turn ended, and the hand-off #{id} from {from} is still open: you have neither accepted nor declined it.\n\
+             (Run: {cmd} bot accept {id}, or: {cmd} bot decline {id} \"WHY\".{left})"
+        )
+    }
+}
+
 /// A block of a reply that could not be passed on.
 pub(crate) fn not_sent(to: &str, why: &str) -> String {
     format!(
@@ -284,7 +304,8 @@ mod tests {
         let note = standing(&all[1], &all, "swarmhub-herdr");
         assert!(note.starts_with("[SwarmHub notes for the bot \"Infra\"]"));
         for said in [
-            "Offer first",
+            "Do what the person asks of you",
+            "you only offer",
             "wait for the person's yes",
             "Before deleting anything, sending something out",
             "ask the person and wait for their yes",
@@ -368,6 +389,19 @@ mod tests {
                 .contains("Do not write to Infra about this again")
         );
         assert!(main_note(&["A helper stopped.".into()]).contains("Offer; do not start any work"));
+        let reminded = reminder("sh", "Jarvis", 12, "ask", Some(545));
+        assert!(
+            reminded.contains("the ask #12 from Jarvis is still open")
+                && reminded.contains("sh bot reply 12")
+        );
+        assert!(
+            reminded.contains("It lapses 9 minutes from now.")
+                && crate::core::validate_task(&reminded).is_ok()
+        );
+        assert!(
+            reminder("sh", "Jarvis", 14, "hand-off", None)
+                .contains("Run: sh bot accept 14, or: sh bot decline 14")
+        );
         for text in [asked, told, handed] {
             assert!(crate::core::validate_task(&text).is_ok());
         }

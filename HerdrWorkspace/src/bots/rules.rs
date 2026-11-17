@@ -918,7 +918,7 @@ pub(crate) fn stop(ctx: &Ctx<'_>, bot: &Bot, why: Why) -> rusqlite::Result<usize
         )?;
         ctx.db.execute(
             // A message that was not typed yet is not typed. An answer that was already given still arrives.
-            "UPDATE bot_outbox SET state='dropped',detail=?2 WHERE work=?1 AND cause='message' AND state='pending'",
+            "UPDATE bot_outbox SET state='dropped',detail=?2 WHERE work=?1 AND cause IN ('message','notice') AND state='pending'",
             params![work, ended_why],
         )?;
         let open: Vec<Message> = ctx
@@ -991,7 +991,7 @@ struct Typed {
 /// A reply the agent of `bot` saved (journal row `reply`, for the launch `key`). This is where a turn the
 /// workspace started ends:
 /// - blocks in the reply that address another bot are passed on as messages;
-/// - a reply to one ask from another bot that was not answered with the command is that ask's answer;
+/// - a turn that another bot's ask or hand-off started and that ended with it still open gets one reminder;
 /// - a recurring check-in that reports nothing leaves nothing;
 /// - anything else the bot wrote after something the workspace typed is put into its history as what it said.
 ///   The row carries the reply's journal id, so an app that followed the same turn shows it once.
@@ -1103,27 +1103,54 @@ pub(crate) fn on_reply(
         }
     }
 
-    // One ask from another bot, answered in words and not with the command: the words are the answer.
-    let mut answered = false;
-    let asks: Vec<i64> = typed
+    // A turn that was started by another bot's ask or hand-off and ended with it still open, without a word to
+    // any bot: the bot is reminded, once, that its words in its own chat do not reach the bot that asked. They are
+    // never taken for the answer: "I will look into it" is not one.
+    let asked: Vec<i64> = typed
         .iter()
         .filter(|typed| typed.cause == "message")
         .filter_map(|typed| typed.message)
         .collect();
-    if only_ours && asks.len() == 1 && !visible.is_empty() {
-        // A bot that wrote to a bot since (it asked back, or asked a third bot first) has not answered yet.
+    for id in asked.into_iter().filter(|_| only_ours) {
+        let Some(about) = message(db, id)?.filter(|about| {
+            about.state == "open" && about.receiver == bot.id && about.kind != "tell"
+        }) else {
+            continue;
+        };
         let wrote: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM bot_messages WHERE sender=?1 AND id>?2)",
-            params![bot.id, asks[0]],
+            params![bot.id, id],
             |row| row.get(0),
         )?;
-        let open = message(db, asks[0])?
-            .is_some_and(|ask| ask.kind == "ask" && ask.state == "open" && ask.receiver == bot.id);
-        if open && !wrote {
-            answered = close(ctx, bot, asks[0], Closing::Reply(&visible), "turn")?.is_ok();
+        let reminded: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM bot_outbox WHERE bot=?1 AND cause='notice' AND message=?2)",
+            params![bot.id, id],
+            |row| row.get(0),
+        )?;
+        if wrote || reminded {
+            continue;
         }
+        let left = about
+            .deadline_ms
+            .map(|until| u64::try_from((until - ctx.now).max(0) / 1_000).unwrap_or(0));
+        post(
+            ctx,
+            Post {
+                bot: &bot.id,
+                text: &notes::reminder(
+                    ctx.cmd,
+                    &super::name_of(db, &about.sender),
+                    id,
+                    word(&about.kind),
+                    left,
+                ),
+                cause: "notice",
+                message: Some(id),
+                work: Some(about.work),
+                ..Post::default()
+            },
+        )?;
     }
-
     for typed in &typed {
         db.execute(
             "UPDATE bot_outbox SET outcome=coalesce(outcome,'replied') WHERE id=?1",
@@ -1138,7 +1165,7 @@ pub(crate) fn on_reply(
             params![checkin, if quiet { "quiet" } else { "reported" }],
         )?;
     }
-    if !ours || answered || quiet || visible.is_empty() && blocks::blocks(text).is_empty() {
+    if !ours || quiet || visible.is_empty() && blocks::blocks(text).is_empty() {
         return Ok(());
     }
     let newest = newest.expect("a turn of ours has a typed task");
@@ -1152,7 +1179,7 @@ pub(crate) fn on_reply(
         (cause, _) => cause.to_owned(),
     };
     // What a bot says after a plain ask or tell is in its chat without an alert; the rest is news for the person.
-    let notify = !matches!(code.as_str(), "ask" | "tell");
+    let notify = !matches!(code.as_str(), "ask" | "tell" | "notice");
     entry(
         ctx,
         &bot.id,
@@ -2769,7 +2796,8 @@ mod tests {
             1
         );
 
-        // An ask that the bot answers in words, without the command: the words are the answer.
+        // An ask that the bot answers in its own chat, without the command: the words are not taken for the
+        // answer (they could as well be "I will look into it"). The bot is reminded, once.
         let ask = sent(
             &history,
             T0 + 10_000,
@@ -2782,25 +2810,61 @@ mod tests {
         .unwrap();
         type_into(&history, "Infra", &infra, "t8", T0 + 11_000, &set);
         replied(&history, "Infra", &infra, "It is 5432.", T0 + 12_000, &set);
-        assert_eq!(state(&history, ask), "answered");
-        let answer: (String, String) = history
-            .db()
-            .unwrap()
-            .query_row(
-                "SELECT text,via FROM bot_messages WHERE about=?1",
-                [ask],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(answer, ("It is 5432.".to_owned(), "turn".to_owned()));
+        assert_eq!(state(&history, ask), "open");
         assert_eq!(
             lines(&history, "Infra")
                 .iter()
                 .filter(|line| line.0 == "said")
                 .count(),
-            1,
-            "the answer is shown once, as a message"
+            2
         );
+        let reminder: (String, String) = history
+            .db()
+            .unwrap()
+            .query_row(
+                "SELECT cause,text FROM bot_outbox WHERE bot='infra-id' AND state='pending'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(reminder.0, "notice");
+        assert!(
+            reminder.1.starts_with(
+                "[From SwarmHub] Your turn ended, and the ask #2 from Jarvis is still open"
+            ),
+            "{}",
+            reminder.1
+        );
+        assert!(
+            reminder.1.contains("swarmhub-herdr bot reply 2") && reminder.1.contains("9 minutes")
+        );
+        // In the reminder's turn it only talks again: it is not reminded a second time. Then it sends the answer.
+        type_into(&history, "Infra", &infra, "t8", T0 + 13_000, &set);
+        replied(
+            &history,
+            "Infra",
+            &infra,
+            "Right, one moment.",
+            T0 + 13_500,
+            &set,
+        );
+        assert_eq!(
+            count(
+                &history,
+                "SELECT count(*) FROM bot_outbox WHERE bot='infra-id' AND cause='notice'"
+            ),
+            1
+        );
+        closed(
+            &history,
+            T0 + 14_000,
+            &set,
+            "Infra",
+            ask,
+            Closing::Reply("It is 5432."),
+        )
+        .unwrap();
+        assert_eq!(state(&history, ask), "answered");
         // The answer reaches Jarvis; what Jarvis then says is news for the person.
         type_into(&history, "Jarvis", &jarvis, "t7", T0 + 13_000, &set);
         replied(
@@ -2869,10 +2933,18 @@ mod tests {
                 .iter()
                 .filter(|line| line.0 == "said")
                 .count(),
-            2
+            4
+        );
+        assert_eq!(
+            count(
+                &history,
+                "SELECT count(*) FROM bot_outbox WHERE bot='infra-id' AND cause='notice'"
+            ),
+            1,
+            "answered with the command: no reminder"
         );
 
-        // A bot that asks back first has not answered: its words are not taken for the answer.
+        // A bot that asks back first has not answered, and needs no reminder: it wrote to a bot.
         type_into(&history, "Jarvis", &jarvis, "t7", T0 + 24_000, &set);
         replied(
             &history,
@@ -3011,7 +3083,7 @@ mod tests {
         assert_eq!(state(&history, ask), "open");
 
         // Infra's first message of the person was never answered: the person stopped it. What is typed after
-        // the stop starts a turn of its own, so an ask is answered by that turn's words again.
+        // the stop starts a turn of its own, in which an ask left open is noticed again.
         let infra_bot = testing::bot(&history, "Infra");
         let ask = sent(
             &history,
@@ -3047,7 +3119,16 @@ mod tests {
         // The stop notes for Jarvis come first in its outbox; Infra's is the new ask.
         type_into(&history, "Infra", &infra, "t8", T0 + 21_000, &set);
         replied(&history, "Infra", &infra, "db.internal", T0 + 22_000, &set);
-        assert_eq!(state(&history, ask), "answered");
+        assert_eq!(state(&history, ask), "open");
+        assert_eq!(
+            count(
+                &history,
+                &format!(
+                    "SELECT count(*) FROM bot_outbox WHERE bot='infra-id' AND cause='notice' AND message={ask}"
+                )
+            ),
+            1
+        );
     }
 
     #[test]
@@ -3078,7 +3159,7 @@ mod tests {
             1,
             "the person's turn itself is not copied"
         );
-        // The old note said: your whole reply goes back by itself. It does.
+        // Infra answers in words and writes to Jarvis with a block of its own.
         type_into(&history, "Infra", &infra, "t8", T0 + 1_000, &set);
         replied(
             &history,
@@ -3088,8 +3169,15 @@ mod tests {
             T0 + 2_000,
             &set,
         );
-        // It wrote to another bot in that turn, so its words are not taken for the answer.
+        // The ask stays open, and since Infra wrote to a bot in that turn it needs no reminder.
         assert_eq!(state(&history, ask.0), "open");
+        assert_eq!(
+            count(
+                &history,
+                "SELECT count(*) FROM bot_outbox WHERE cause='notice'"
+            ),
+            0
+        );
         assert_eq!(
             count(
                 &history,

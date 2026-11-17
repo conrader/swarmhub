@@ -374,7 +374,7 @@ At a limit the sender's command is refused with the instruction to bring the mat
 - `{"op":"message_bot","to":…,"message":…}` in a saved reply is sent as an ask (or, with `"kind":"tell"` or `"kind":"handoff"`, as that), under the same rules. A block that cannot be sent leaves a notice and is told to the agent once.
 - `{"op":"request_bot","name":…,"purpose":…}` is sent to the main bot as an ask.
 - `create_bot` and `decline_bot` are not touched. The app reads them from the main bot's replies, as before.
-- When a bot is asked and ends its turn with words instead of `bot reply`, those words (without blocks) are the answer. This holds only when the turn was started by that one ask, the person wrote nothing into it, and the bot wrote to no bot in it. Otherwise the ask stays open until it is answered or runs out of time.
+- What a bot writes at the end of its turn is never taken for its answer to another bot: "I will look into it" is not an answer. A bot whose turn was started by an ask or a hand-off and ended with it still open, without a message to any bot, is reminded once that its own chat does not reach the bot that asked, and how to answer. After that the ask stays open until it is answered, declined or out of time.
 
 ### Planned check-ins
 
@@ -411,7 +411,7 @@ Each thing is told once. At most one note is sent per `initiative_seconds` (300)
 
 The workspace adds one note to the first task of every agent of a registered bot, after everything else in that task. An agent that was already running when its bot was registered gets the note in front of the first thing the workspace types into it. The note says, in about 250 words:
 
-- offer first, and wait for the person's yes before starting new work;
+- do what the person asks, and only offer work nobody asked for: say what it would be and wait for the person's yes;
 - ask the person before deleting, sending something out, spending or deploying;
 - the other bots' names and the `bot` commands (left out when `may_message` is off);
 - the `checkin` commands (left out when `takes_initiative` is off) and the `promise` commands;
@@ -426,7 +426,7 @@ Everything the workspace types for another bot starts with a marker, so an agent
 | `[Message from the bot NAME, passed on by SwarmHub] ask #12` (or `tell`, `hand-off`) | A message from another bot. |
 | `[Answer from the bot NAME, passed on by SwarmHub] to your ask #12` | The answer to an ask. |
 | `[Report from the bot NAME, passed on by SwarmHub] on your hand-off #14` | The result of a hand-off. |
-| `[From SwarmHub]` | An ending (declined, not answered in time, stopped), a block that could not be sent, or a promise that is due. |
+| `[From SwarmHub]` | An ending (declined, not answered in time, stopped), a reminder that an ask is still open, a block that could not be sent, or a promise that is due. |
 | `[Planned check-in #7, from SwarmHub]` | A check-in. |
 | `[SwarmHub note for the main bot]` | A note about problems. |
 | `[SwarmHub notes for the bot "NAME"]` | The standing note. |
@@ -535,7 +535,7 @@ A history line is what a bot's chat shows beside the person's own turns. Lines h
 
 - `unread` says that the line should raise the bot's unread mark: every `said` line, and the notices about a limit, an undelivered message, an unanswered check-in and an overdue promise. Messages between bots and the notices `expired` and `stopped` do not, because the bot that was told speaks up itself.
 - `notify` says that it should also raise a notification. It is set on the same lines, except a `said` line with the code `ask` or `tell`, and never for a bot whose `notifications` is off.
-- In a `message` object, `about` is the ask or hand-off a `reply`, `accept` or `decline` belongs to. `state` is the message's state now, so a line read later shows how an ask ended. `via` is `command`, `block` (a `swarmhub` block) or `turn` (the words of a turn taken as the answer). `deadline_ms` is set while a time limit runs.
+- In a `message` object, `about` is the ask or hand-off a `reply`, `accept` or `decline` belongs to. `state` is the message's state now, so a line read later shows how an ask ended. `via` is `command` or `block` (a `swarmhub` block). `deadline_ms` is set while a time limit runs.
 - A `said` line is added when the newest thing typed into the agent before the reply came from the workspace. If the person had written into the same turn before that, a client that followed the turn already has the reply: compare `journal` with the id of the reply row it took, and show it once.
 - A reply to a turn the person started is not in the bot's history. It is in the session history, as before.
 

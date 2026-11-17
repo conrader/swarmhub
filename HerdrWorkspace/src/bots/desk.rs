@@ -614,7 +614,8 @@ async fn watch(w: &Workspace, seen: &mut Seen) {
             .unwrap_or(i64::MAX);
         let helpers: Vec<(i64, String, String, String, String, String, bool)> = db
             .prepare_cached(
-                "SELECT h.launch,h.name,h.parent_key,j.launch_key,j.text,j.state,
+                "SELECT h.launch,h.name,h.parent_key,j.launch_key,j.text,
+                        CASE WHEN j.address IS NULL AND j.state='not_sent' THEN 'never_ran' ELSE j.state END,
                         EXISTS(SELECT 1 FROM journal r WHERE r.reply_for=j.launch_key AND r.kind='reply'
                                AND r.id>(SELECT coalesce(max(t.id),j.id) FROM journal t
                                          WHERE t.kind='task' AND t.core_id=j.core_id AND t.address=j.address
@@ -652,7 +653,8 @@ async fn watch(w: &Workspace, seen: &mut Seen) {
             if unbroken {
                 passed = launch;
             }
-            if answered || state == "not_sent" {
+            // One that never got a terminal never ran, and the agent that asked for it was told so then.
+            if answered || state == "never_ran" {
                 continue;
             }
             if let Ok(Who::Bot(bot)) = super::of_launch(&db, &parent) {
