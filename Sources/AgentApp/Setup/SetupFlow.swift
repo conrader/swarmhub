@@ -64,6 +64,8 @@ struct SetupFlow: Equatable {
     private(set) var herdrBots: [HerdrSetupBot] = []
     /// This Mac only. Nothing answers here: getting it ready is offered, under way, or stopped with the reason.
     private(set) var localSetup: HerdrLocalSetup?
+    /// This Mac only: the port the window first looked at, when it led somewhere else and another was taken.
+    var localMovedFrom: Int?
     /// This Mac only: setting it up also answers, for the person, what an AI asks the first time. On unless they turn it off.
     var localAnswers = true
     /// This Mac only: what its service says is installed, and which AI programs it did not find.
@@ -154,7 +156,7 @@ struct SetupFlow: Equatable {
         switch action {
         case .pickHerdr(let kind):
             place = kind; herdr = HerdrServerDraft(kind: kind); herdrOutcome = nil; herdrTested = nil
-            localSetup = nil; localReport = nil; aiChecks = []
+            localSetup = nil; localReport = nil; aiChecks = []; localMovedFrom = nil
             go(.herdr)
         case .herdrTest(let outcome, let bots):
             herdrOutcome = outcome; herdrTested = herdr; herdrBots = bots

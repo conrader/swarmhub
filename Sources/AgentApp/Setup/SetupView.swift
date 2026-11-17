@@ -161,9 +161,14 @@ struct SetupView: View {
     /// Connect's Test, and the reading of a server that was set up before (the window then waits on the main bot).
     private func testHerdr() {
         guard flow.herdr.problem == nil, !testing else { return }
-        let draft = flow.herdr, step = flow.step
+        let typed = flow.herdr, step = flow.step
         testing = true; failure = nil
         Task {
+            var draft = typed
+            // This Mac's usual port can lead to another server: its own port is found before anything is asked.
+            if let port = await store.thisMacPort(for: typed), !closed, flow.step == step, flow.herdr == typed {
+                flow.localMovedFrom = Int(typed.port.trimmingCharacters(in: .whitespaces)); flow.herdr.port = String(port); draft = flow.herdr
+            }
             let outcome = await store.testSetupHerdr(draft)
             testing = false
             let current = !closed && flow.step == step && flow.herdr == draft

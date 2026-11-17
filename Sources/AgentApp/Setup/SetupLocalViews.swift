@@ -6,6 +6,8 @@ struct SetupLocalOffer: View {
     let setup: HerdrLocalSetup
     /// Setting up also answers what an AI asks the first time; the person can say no to that part.
     @Binding var answers: Bool
+    /// The usual port led somewhere else and another was taken: said in one line, so the port is no surprise later.
+    var portNote: String? = nil
 
     var body: some View {
         switch setup {
@@ -19,6 +21,7 @@ struct SetupLocalOffer: View {
                 }
                 Divider()
                 SettingSwitch(title: WizardCopy.answersItem, detail: WizardCopy.answersDetail, symbol: "checkmark.shield.fill", colour: AppColor.plum, isOn: $answers)
+                if let portNote { Text(portNote).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 Text(WizardCopy.setUpNote).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }.appleCard(padding: 14)
         case .working(let step):

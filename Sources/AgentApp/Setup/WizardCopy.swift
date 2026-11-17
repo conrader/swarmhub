@@ -63,6 +63,8 @@ enum WizardCopy {
     static let installing = "Setting up this Mac…"
     static let installingDetail = "This takes a moment the first time."
     static let setUpFailed = "This Mac could not be set up"
+    /// The usual port already answers for something else (a forward to a server): another one was taken, unasked.
+    static func portMoved(from: Int, to: Int) -> String { "Port \(from) on this Mac is already in use, so \(AppConstants.name) uses port \(to) here." }
     /// A port another program holds: the fold with the port is where to change it.
     static func portBusy(_ port: Int) -> String { "Another program on this Mac already uses port \(port). Open Connection details below, choose another port (for example \(port + 1)), and try again." }
 
@@ -145,7 +147,7 @@ enum WizardCopy {
         steps + [stepLabel(0), next, welcomeTitle, welcomeIntro, whereTitle, localDetail, sshDetail, addressDetail, otherWays,
                  localHeader, sshHeader, addressHeader, localIntro, localSetupIntro, sshIntro, addressIntro, details, connected("This Mac"), canRun("One", count: 1), canRun("One and Two", count: 2),
                  nothingHere(port: 8787), nothingElse, setUpTitle, serviceItem, serviceDetail, coreItem, coreDetail, coreThere, folderItem, folderDetail, answersItem, answersDetail, whatWasDone, setUpNote,
-                 setUp, settingUp, fetching, fetchingDetail, installing, installingDetail, setUpFailed, portBusy(8787), aiTitle, aiChecking, aiReady, aiAsks, aiAsksDetail("One"),
+                 setUp, settingUp, fetching, fetchingDetail, installing, installingDetail, setUpFailed, portBusy(8787), portMoved(from: 8787, to: 8788), aiTitle, aiChecking, aiReady, aiAsks, aiAsksDetail("One"),
                  aiAnswer, aiAgain, aiFailed, aiMissing("One"), noAIsTitle, noAIsDetail, mainTitle, mainIntro, reading("This Mac"), mainChoice, mainNew, mainExisting("Ada", isMain: true),
                  mainExisting("Ada", isMain: false), name, instructions, instructionsPrompt, avatar, avatarHelp, program, model, defaultModel("One"), runsOn("This Mac"),
                  keeps("Ada", server: "This Mac", isMain: true), keeps("Ada", server: "This Mac", isMain: false), nameMissing, nameTaken("Ada"), programMissing, suggestedName,
