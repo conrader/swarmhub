@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Project servers: add the servers your projects live on to a Herdr server (its public key to paste, the SSH address, the host's fingerprint to check and trust), name folders on them as projects, and choose for each bot which projects it may use. The setup window has an optional last step for it, and **Settings → Advanced → Servers and keys** a Projects part.
+- A new look for the setup window, a bot's Details and settings, the helper view and Servers and keys, after Apple's own onboarding and settings: large options, galleries of tiles, fields that stand on their own, settings with a heading and a sentence. No screen is a table of labels and values.
 - Herdr only: the Hermes and OpenClaw backends are removed, with every feature that only worked with them: profiles and keys on a Hermes box, the bot manager and SwarmHub skills, routines, heartbeats, webhooks, off-app alerts, reports, usage, approvals and device approvals, connected apps, the ChatGPT connection and live voice, threads, workflows and team coordination, goals and loops, the box updater, QA mode and UI acceptance mode, and the Computer tab. The app now runs bots only as agents on Herdr Core, through the SwarmHub bridge.
 - A store written by an older version is first copied as it was to `store.json.before-herdr-only-<time>` beside it, once. Hermes and OpenClaw bots in it are then left out: the store is saved without them, and the app says once how many bots were removed and where the copy is. Bots on Herdr keep their name, avatar, instructions and chat.
 - Scripts, tests, fixtures and documents that only served the removed backends are deleted. Entries below describe earlier versions as they were; some of the documents they link to no longer exist.

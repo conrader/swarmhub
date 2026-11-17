@@ -25,6 +25,9 @@ struct HerdrOffer: Equatable, Sendable {
     var programs: [HerdrProgram] = []
     /// The names of the agents running on the server now (a bot's own agent, never a helper).
     var running: [String] = []
+    /// The server's workspace can add project servers (`HerdrProjects.swift`); an older one cannot, and the wizard
+    /// then has no step for them.
+    var projectServers = false
 
     func program(_ template: String) -> HerdrProgram? { programs.first { $0.template == template } }
 
@@ -150,6 +153,8 @@ extension HerdrClient {
             let models = template.takesModel ? ((try? await models(for: template)) ?? template.models ?? []) : []
             programs.append(HerdrProgram(template: template.name, name: template.runtime?.harness ?? template.name, takesModel: template.takesModel, models: models))
         }
-        return HerdrOffer(programs: programs, running: current.agents.filter { $0.isLive && $0.parent == nil }.map(\.name))
+        // Asked once here, so the wizard knows whether to offer the step; a workspace without the route answers 404.
+        let projectServers = (try? await machines()) != nil
+        return HerdrOffer(programs: programs, running: current.agents.filter { $0.isLive && $0.parent == nil }.map(\.name), projectServers: projectServers)
     }
 }

@@ -31,7 +31,7 @@ enum SettingsLayout {
         ("appearance.theme", .simple), ("appearance.appIcon", .simple), ("appearance.accent", .simple), ("notifications.master", .simple),
         // The automatic-check toggle sits with Version and Check for Updates; the rest of Updates is Advanced.
         ("about.version", .simple), ("about.autoCheck", .simple), ("about.checkUpdates", .simple), ("advanced.open", .simple),
-        ("servers.herdr", .advanced(.servers)), ("servers.helpers", .advanced(.servers)), ("servers.grokBot", .advanced(.servers)),
+        ("servers.herdr", .advanced(.servers)), ("servers.helpers", .advanced(.servers)), ("servers.projects", .advanced(.servers)), ("servers.grokBot", .advanced(.servers)),
         ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)),
         ("voice.dictationKey", .advanced(.voice)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
@@ -43,5 +43,5 @@ enum SettingsLayout {
 
     /// An agent's settings: the simple part, then everything folded under Advanced.
     static let editorSimple = ["editor.avatar", "editor.name", "editor.instructions", "editor.notification", "editor.save"]
-    static let editorAdvanced = ["editor.title", "editor.description", "editor.showInSidebar", "editor.herdrAgent"]
+    static let editorAdvanced = ["editor.title", "editor.description", "editor.showInSidebar", "editor.herdrAgent", "editor.herdrProjects"]
 }

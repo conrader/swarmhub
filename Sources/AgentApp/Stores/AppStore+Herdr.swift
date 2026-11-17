@@ -86,7 +86,9 @@ extension AppStore {
         servers.removeAll { $0.id == server.id }
         herdrTunnels.close(server.id)
         keyStore.setKey("", for: server.keyAccount)
-        for bot in bots where defaults.string(forKey: HerdrServer.botKey(bot.id)) == server.id { defaults.removeObject(forKey: HerdrServer.botKey(bot.id)) }
+        // Its bots move to another server, which has its own projects: the ones chosen on this server do not go with them.
+        for bot in bots where defaults.string(forKey: HerdrServer.botKey(bot.id)) == server.id { defaults.removeObject(forKey: HerdrServer.botKey(bot.id)); setHerdrProjects([], for: bot) }
+        herdrProjectModels[server.id] = nil
         saveHerdrServers(servers)
     }
 
@@ -139,6 +141,15 @@ extension AppStore {
         // A turn on the event stream brings the agent's helpers with it (`herdrLive`).
         let botID = bot.id
         backend.onLive = { [weak self] note in Task { @MainActor in self?.herdrLive(note, botID: botID) } }
+        // The projects on other servers it may use; a running agent that has an older list gets this one with the next message.
+        let projects = herdrProjects(for: bot)
+        backend.projects = projects; backend.projectsChanged = herdrProjectsChanged(bot)
+        backend.onProjectsSynced = { [weak self] in
+            Task { @MainActor in
+                guard let self, let bot = self.bots.first(where: { $0.id == botID }), self.herdrProjects(for: bot) == projects else { return }
+                self.defaults.removeObject(forKey: Self.herdrProjectsChangedKey(botID))
+            }
+        }
         return backend
     }
 
@@ -219,6 +230,7 @@ extension AppStore {
     /// Forgets the settings the app kept for a bot of an older version that was removed (`removeLegacyBots`).
     func forgetBotSettings(_ id: UUID) {
         for key in [HerdrServer.botKey(id), HerdrBackend.botTemplateKey(id), HerdrBackend.botModelKey(id), HerdrBackend.botSteerKey(id),
-                    Self.herdrHelpersKey(id), Self.herdrAsksFirstKey(id), Self.herdrAskTimesKey(id), Self.herdrCreateTimesKey(id)] { defaults.removeObject(forKey: key) }
+                    Self.herdrHelpersKey(id), Self.herdrAsksFirstKey(id), Self.herdrAskTimesKey(id), Self.herdrCreateTimesKey(id),
+                    Self.herdrProjectsKey(id), Self.herdrProjectsChangedKey(id)] { defaults.removeObject(forKey: key) }
     }
 }

@@ -148,10 +148,13 @@ struct HerdrClient: Sendable {
         return (preview.draft?.text, preview.tools ?? [])
     }
 
-    func launch(name: String, template: String, task: String, profileID: Int?, modelID: String? = nil) async throws -> Agent {
+    /// `projects`: the ids of the projects on other servers the new agent may use (`HerdrProjects.swift`). The bridge
+    /// tells the agent about them in its first task itself.
+    func launch(name: String, template: String, task: String, profileID: Int?, modelID: String? = nil, projects: [Int] = []) async throws -> Agent {
         var body: [String: Any] = ["name": name, "template": template, "task": task]
         if let profileID { body["profile_id"] = profileID }
         if let modelID { body["model_id"] = modelID }
+        if !projects.isEmpty { body["projects"] = projects }
         return try await post("/api/agents", body)
     }
 
@@ -228,8 +231,13 @@ struct HerdrClient: Sendable {
     /// the note applied to its bot still learns it, and one that has read it is not told again.
     /// `changing` are notes that change (`lead` is how every version starts): one goes in front of the message while
     /// the newest saved task that has its lead does not carry this version, so the agent is told each change once.
+    /// `projects`: what the bot may use on other servers. A new agent is launched with their ids. A running agent is
+    /// given the list first when it changed since the agent last got it (`resync`, and `synced` hears that it went
+    /// through), and is told the list as it is now in front of the message, once per change (`notes`' `revised`); a
+    /// list that could not be set is not announced.
     func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil,
-                 once: [(marker: String, note: String)] = [], changing: [(lead: String, note: String)] = []) async throws -> Turn {
+                 once: [(marker: String, note: String)] = [], changing: [(lead: String, note: String)] = [],
+                 projects: [HerdrBotProject] = [], resync: Bool = false, synced: @Sendable () -> Void = {}) async throws -> Turn {
         let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
@@ -237,7 +245,12 @@ struct HerdrClient: Sendable {
             let saved = try await history(core: core, address: agent.address, createdMs: agent.createdMs)
             let after = saved.map(\.id).max() ?? 0
             let afterTool = (try? await preview(core: core, address: agent.address, createdMs: agent.createdMs))?.tools.map(\.seq).max() ?? 0
-            let notes = Self.notes(reminder: reminder, once: once, tasks: saved.filter { $0.kind == "task" }.map(\.text), changing: changing)
+            var applied = true
+            if resync {
+                do { try await setAgentProjects(projects.map(\.id), for: agent); synced() } catch { applied = false }
+            }
+            let notes = Self.notes(reminder: reminder, once: once, tasks: saved.filter { $0.kind == "task" }.map(\.text), changing: changing,
+                                   revised: applied ? [(HerdrProjectNote.lead, HerdrProjectNote.note(projects), projects.isEmpty)] : [])
             try await message(notes.isEmpty ? text : Self.plain(notes.joined(separator: "\n\n"), bytes: Self.instructionsBytes) + "\n\n" + text, to: agent)
             return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool)
         }
@@ -249,7 +262,8 @@ struct HerdrClient: Sendable {
         var modelID = chosen.takesModel ? model.flatMap { $0.isEmpty ? nil : $0 } : nil
         if modelID == nil, chosen.takesModel { modelID = Self.defaultModel(offered: (try? await models(for: chosen)) ?? chosen.models ?? []) }
         let agent = try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: Self.firstTask(text, instructions: instructions),
-                                     profileID: known?.id, modelID: modelID)
+                                     profileID: known?.id, modelID: modelID, projects: projects.map(\.id))
+        if resync { synced() }
         if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
     }
@@ -257,10 +271,18 @@ struct HerdrClient: Sendable {
     /// What goes in front of a message to a running agent: `reminder` always, each of `once` only while no saved task
     /// has its marker, and each of `changing` while the newest saved task with its lead is not this version of it
     /// (the names of the other bots, which change). A note is never there twice.
-    static func notes(reminder: String?, once: [(marker: String, note: String)], tasks: [String], changing: [(lead: String, note: String)] = []) -> [String] {
+    /// `revised` is a `changing` note about something the agent may never have had (its projects on other servers):
+    /// with `onlyAfter` it goes out only when an earlier task has its lead, so an agent that never had any is not
+    /// told that it has none.
+    static func notes(reminder: String?, once: [(marker: String, note: String)], tasks: [String], changing: [(lead: String, note: String)] = [],
+                      revised: [(lead: String, note: String, onlyAfter: Bool)] = []) -> [String] {
         var notes = reminder.map { [$0] } ?? []
         for item in once where !item.note.isEmpty && !notes.contains(item.note) && !tasks.contains(where: { $0.contains(item.marker) }) { notes.append(item.note) }
         for item in changing where !item.note.isEmpty && tasks.last(where: { $0.contains(item.lead) })?.contains(item.note) != true { notes.append(item.note) }
+        for item in revised where !item.note.isEmpty {
+            let last = tasks.last { $0.contains(item.lead) }
+            if last?.contains(item.note) != true, !(item.onlyAfter && last == nil) { notes.append(item.note) }
+        }
         return notes
     }
 
@@ -360,6 +382,13 @@ struct HerdrClient: Sendable {
         request.setValue("\(baseURL.scheme ?? "http")://\(host)\(port)", forHTTPHeaderField: "Origin")
         if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         return request
+    }
+
+    /// A request's body and status as they came, for routes whose refusals carry more than a sentence (`HerdrProjects.swift`).
+    func raw(_ request: URLRequest) async throws -> (data: Data, status: Int) {
+        try await prepare?()
+        let (data, response) = try await session.data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
     private struct Problem: Decodable { let error: String }

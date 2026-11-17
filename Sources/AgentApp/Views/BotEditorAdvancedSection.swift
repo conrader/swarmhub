@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The editor's Advanced part: Title and Description, Show in sidebar, and for a Herdr bot its agent (server, agent
-/// program, model, steer), the main-bot role and helper agents.
+/// program, model, steer), the main-bot role, helper agents and the projects on other servers it may use.
 struct BotEditorAdvancedSection: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot?
@@ -31,6 +31,8 @@ struct BotEditorAdvancedSection: View {
                 SettingSwitch(title: "Can start helper agents",
                               detail: "Helpers are sub-agents of this bot: its agent is told how to hand parts of its work to them on \(server.name), and to say how hard each task is: easy, medium or hard. The server's helper settings decide which model each difficulty runs on and how many helpers one agent may have; the agent cannot choose a model. Helpers show under the bot in the sidebar while they run. A running agent learns this with your next message; turning it off applies when the bot next starts a fresh agent.",
                               symbol: "person.2.fill", colour: .green, isOn: Binding(get: { store.startsHerdrHelpers(bot) }, set: { store.setStartsHerdrHelpers($0, for: bot) }))
+                // Saved at once too: which projects on other servers this bot may use.
+                HerdrBotProjectsSection(bot: bot)
             }
         }
     }

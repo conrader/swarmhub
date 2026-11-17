@@ -41,7 +41,7 @@ struct HerdrMainBotDraft: Equatable {
 /// creates everything at once (`AppStore.commitSetupWizard`) and the window closes on the main bot's chat, so closing
 /// it earlier leaves nothing behind. A server that was set up before starts at the main bot.
 struct SetupFlow: Equatable {
-    enum Step: String, CaseIterable, Equatable { case welcome, herdr, mainBot, moreBots }
+    enum Step: String, CaseIterable, Equatable { case welcome, herdr, mainBot, moreBots, projects }
     enum Action: Equatable {
         /// Where it runs was chosen on Welcome; Connect's Test finished (`bots`: the bots already on that server);
         /// Continue was pressed on Connect or on the main bot.
@@ -62,6 +62,8 @@ struct SetupFlow: Equatable {
     var mainBot = HerdrMainBotDraft()
     /// Templates ticked on "More bots"; none to begin with, so nothing is added unasked.
     var moreBots: Set<String> = []
+    /// The projects on other servers chosen for the main bot on "Where are your projects?"; none to begin with.
+    var mainProjects: [HerdrBotProject] = []
 
     /// A Herdr server that is already set up: Connect is skipped and the window opens on the main bot, which waits for
     /// what the server offers (`herdrTest`). Back leads to where bots run.
@@ -112,8 +114,27 @@ struct SetupFlow: Equatable {
     }
     /// The ticked programs, in the server's order.
     var moreChosen: [HerdrProgram] { moreChoices.filter { moreBots.contains($0.template) } }
-    /// The step whose button creates the bots: the main bot when the server has no other program to offer.
-    var isLastWizardStep: Bool { step == .moreBots || (step == .mainBot && moreChoices.isEmpty) }
+    /// "Where are your projects?" is a step on a server whose workspace can add project servers. It is optional: its
+    /// button is the wizard's last, whether or not anything was added.
+    var offersProjects: Bool { herdrOffer?.projectServers == true }
+    /// The step whose button creates the bots: the projects where they are offered; otherwise the optional bots, or
+    /// the main bot when the server has no other program to offer.
+    var isLastWizardStep: Bool {
+        if offersProjects { return step == .projects }
+        return step == .moreBots || (step == .mainBot && moreChoices.isEmpty)
+    }
+    /// How many steps the wizard has on this server, for the dots under its content.
+    var stepCount: Int { 3 + (herdrOffer != nil && moreChoices.isEmpty ? 0 : 1) + (offersProjects ? 1 : 0) }
+    /// Which of them is showing.
+    var stepIndex: Int {
+        switch step {
+        case .welcome: 0
+        case .herdr: 1
+        case .mainBot: 2
+        case .moreBots: 3
+        case .projects: stepCount - 1
+        }
+    }
 
     mutating func apply(_ action: Action) {
         switch action {
@@ -124,13 +145,15 @@ struct SetupFlow: Equatable {
             herdrOutcome = outcome; herdrTested = herdr; herdrBots = bots
             guard let offer = herdrOffer, !offer.programs.isEmpty else {
                 // A saved server that cannot be used shows its own Connect screen, with the reason.
-                if step == .mainBot || step == .moreBots { history = [.welcome]; step = .herdr }
+                if step == .mainBot || step == .moreBots || step == .projects { history = [.welcome]; step = .herdr }
                 return
             }
-            mainBot.begin(offer: offer, bots: bots); moreBots = []
+            mainBot.begin(offer: offer, bots: bots); moreBots = []; mainProjects = []
         case .advance:
             if step == .herdr, herdrReady { go(.mainBot) }
             else if step == .mainBot, mainBotReady, !moreChoices.isEmpty { moreBots.formIntersection(moreChoices.map(\.template)); go(.moreBots) }
+            else if step == .mainBot, mainBotReady, offersProjects { go(.projects) }
+            else if step == .moreBots, offersProjects { go(.projects) }
         case .back:
             guard canGoBack, let previous = history.popLast() else { return }
             step = previous

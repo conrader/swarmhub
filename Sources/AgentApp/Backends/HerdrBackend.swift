@@ -50,6 +50,12 @@ struct HerdrBackend: AgentBackend {
     /// `helperNote`. `roster` is the line of names it can write to: a new agent reads it after the notes, and a
     /// running agent again, alone, whenever it has changed (`HerdrClient.deliver`'s `changing`).
     var messageNote: String? = nil, roster: String? = nil
+    /// The projects on other servers this bot may use (`HerdrProjects.swift`): a new agent is launched with them and
+    /// told by the bridge itself; a running agent is told when the list has changed. `projectsChanged`: the list
+    /// changed since the bot's running agent was last given it, so the next message gives it first, and
+    /// `onProjectsSynced` hears that it did.
+    var projects: [HerdrBotProject] = [], projectsChanged = false
+    var onProjectsSynced: (@Sendable () -> Void)? = nil
     /// Hears, while a turn runs, the agent's helpers as the stream reports them and whether the stream is delivering
     /// (`HerdrClient.LiveNote`): the bot's helper rows then need no polling of their own.
     var onLive: (@Sendable (HerdrClient.LiveNote) -> Void)? = nil
@@ -96,7 +102,8 @@ struct HerdrBackend: AgentBackend {
                     continuation.yield(.status("Sending to Herdr"))
                     let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : nil,
-                                                                once: backend.notes, changing: backend.rosters)
+                                                                once: backend.notes, changing: backend.rosters,
+                                                                projects: backend.projects, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() })
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },

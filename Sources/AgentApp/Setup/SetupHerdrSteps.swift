@@ -6,13 +6,15 @@ import SwiftUI
 struct SetupWizardProgress: View {
     let current: Int
     var count = WizardCopy.steps.count
+    /// The step's name where it is not one of the usual four.
+    var name: String? = nil
     var body: some View {
         HStack(spacing: 7) {
             ForEach(0..<count, id: \.self) { index in
                 Circle().fill(index == current ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary)).frame(width: 6, height: 6)
             }
         }
-        .accessibilityElement(children: .ignore).accessibilityLabel(WizardCopy.stepLabel(current, of: count))
+        .accessibilityElement(children: .ignore).accessibilityLabel(WizardCopy.stepLabel(current, of: count, name: name))
     }
 }
 

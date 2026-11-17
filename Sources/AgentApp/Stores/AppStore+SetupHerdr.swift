@@ -57,7 +57,8 @@ extension AppStore {
     /// ticked agent program, removes sample bots, selects the main bot and marks setup done. A new bot keeps no model
     /// of its own unless one was chosen, so it starts on the first model the server offers. Restores everything if
     /// saving fails. Returns the main bot.
-    @discardableResult func commitSetupWizard(server: HerdrServer?, key: String?, main: HerdrMainBotDraft, more: [HerdrProgram], offer: HerdrOffer?) throws -> Bot {
+    /// `projects`: the projects on other servers chosen for the main bot on the wizard's last step; its first agent starts with them.
+    @discardableResult func commitSetupWizard(server: HerdrServer?, key: String?, main: HerdrMainBotDraft, more: [HerdrProgram], offer: HerdrOffer?, projects: [HerdrBotProject] = []) throws -> Bot {
         guard let server, let offer else { throw SetupCommitError.notTested }
         let kept = main.keep.flatMap { id in bots.first { $0.id == id && $0.backend == .herdr && !$0.isReadOnlyArchive } }
         if main.keep != nil, kept == nil { throw SetupCommitError.notTested }
@@ -84,6 +85,16 @@ extension AppStore {
                 mainBot = Bot(name: main.trimmedName, persona: main.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Bot.defaultPersona : main.instructions, backend: .herdr)
                 main.avatar.apply(to: mainBot)
                 add(mainBot, main.template, main.model, 0)
+            }
+            if !projects.isEmpty {
+                let before = herdrProjects(for: mainBot), changed = herdrProjectsChanged(mainBot), id = mainBot.id
+                transaction.record {
+                    defaults.removeObject(forKey: Self.herdrProjectsKey(id)); defaults.removeObject(forKey: Self.herdrProjectsChangedKey(id))
+                    if !before.isEmpty, let data = try? JSONEncoder().encode(before) { defaults.set(data, forKey: Self.herdrProjectsKey(id)) }
+                    if changed { defaults.set(true, forKey: Self.herdrProjectsChangedKey(id)) }
+                }
+                // A main bot that stays keeps the projects it has and gains the chosen ones.
+                setHerdrProjects(before + projects.filter { chosen in !before.contains { $0.id == chosen.id } }, for: mainBot)
             }
             // One main bot per server.
             for other in herdrBots(on: server) where other.id != mainBot.id { other.canManageBots = false }

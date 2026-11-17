@@ -21,7 +21,41 @@ import SwiftUI
     /// A server's skill library: the list, a search, skillshare missing, a sync that failed after a switch, the
     /// confirmation before sharing with another agent program, and the same library in a bot's Details.
     static let skills = ["herdr-skills-list", "herdr-skills-search", "herdr-skills-problem", "herdr-skills-sync-failed", "herdr-skills-share-confirm", "herdr-skills-details"]
-    static let names = wizard + other + skills
+    /// Project servers: the wizard's optional step (the Herdr server's key and the address; the fingerprint of a host
+    /// it has not seen; the server added; a first project; projects chosen for the main bot), the Projects part of
+    /// Settings with nothing added and with a server and projects, and a bot's choice of projects in its Details.
+    static let projects = ["herdr-w5-projects-key", "herdr-w5-projects-trust", "herdr-w5-projects-added", "herdr-w5-projects-first", "herdr-w5-projects-chosen",
+                           "herdr-projects-settings-empty", "herdr-projects-settings", "herdr-projects-details"]
+    static let names = wizard + other + skills + projects
+
+    /// The states of a server's project servers, in the order of `projects`. Everything is made up: the key, the
+    /// addresses and the fingerprints belong to no machine.
+    @MainActor static func projectModels() -> [HerdrProjectsModel] {
+        let keys = HerdrSSHKeys(keys: [.init(publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyOfTheHerdrServerNotARealOne0000000 herdr@studio", type: "ssh-ed25519", fingerprint: "SHA256:exampleExampleExampleExampleExampleExample0", comment: "herdr@studio", file: "/home/deploy/.ssh/id_ed25519.pub")],
+                                canCreate: false, whereToPaste: "On the project server, add this line to ~/.ssh/authorized_keys of the account the Herdr server logs in as.", problem: nil)
+        let installs = "Adding a server copies Herdr's helper program (herdr-core) to ~/.local/bin of that account there when it is missing or too old, and starts it. Nothing else is installed."
+        let none = HerdrMachines(machines: [], canAdd: true, problem: nil, adding: installs)
+        let box = HerdrMachine(name: "web-1", target: "deploy@10.0.0.7", host: "web-1", version: "hc 0.1.21", projects: ["shop", "docs"])
+        let quiet = HerdrMachine(name: "lab", target: "deploy@10.0.0.9", state: "needs_login", reachable: false,
+                                 warnings: ["lab refuses the Herdr server's SSH key. Add the Herdr server's public key to ~/.ssh/authorized_keys of that account on lab, then connect again. Herdr also tries again by itself, at first after 2 minutes."])
+        let one = HerdrMachines(machines: [HerdrMachine(name: "web-1", target: "deploy@10.0.0.7", host: "web-1", version: "hc 0.1.21")], canAdd: true, problem: nil, adding: installs)
+        let two = HerdrMachines(machines: [box, quiet], canAdd: true, problem: nil, adding: installs)
+        let listed = [HerdrProject(id: 1, name: "shop", machine: "web-1", folder: "/srv/shop", note: "The web shop. Staging only.", machineState: "connected", reachable: true),
+                      HerdrProject(id: 2, name: "docs", machine: "web-1", folder: "/srv/docs", machineState: "connected", reachable: true)]
+        let question = HerdrRefusal(status: 409, kind: "unknown_host_key",
+                                    message: "The Herdr server has not connected to this server before, so it does not know its host key. Compare a fingerprint below with the server's own (on the server: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub). If it matches, add deploy@10.0.0.7 again with accept_host_key set to it.",
+                                    host: "10.0.0.7", hostKeys: [.init(type: "ssh-ed25519", fingerprint: "SHA256:exampleFingerprintOfTheProjectServerNotReal00")])
+        let added = HerdrProjectsModel.Adding.done(message: "Added web-1. Herdr's helper program (hc 0.1.21) was copied to ~/.local/bin on it and started.",
+                                                   warnings: ["Programs started on web-1 stop when the last login there ends. To keep them running, run this on web-1 once: sudo loginctl enable-linger -- deploy"])
+        return [HerdrProjectsModel(showing: none, keys: keys, target: "deploy@10.0.0.7", name: "web-1"),
+                HerdrProjectsModel(showing: none, keys: keys, adding: .trust(question), target: "deploy@10.0.0.7", name: "web-1"),
+                HerdrProjectsModel(showing: one, keys: keys, adding: added),
+                HerdrProjectsModel(showing: one, keys: keys, draft: .init(name: "shop", machine: "web-1", folder: "/srv/shop", note: "The web shop. Staging only.")),
+                HerdrProjectsModel(showing: HerdrMachines(machines: [box], canAdd: true, problem: nil, adding: installs), keys: keys, projects: listed),
+                HerdrProjectsModel(showing: none, keys: keys),
+                HerdrProjectsModel(showing: two, keys: keys, projects: listed),
+                HerdrProjectsModel(showing: two, keys: keys, projects: listed)]
+    }
 
     /// A library as a server would report it: twelve skills, two of them off, shared with two agent programs.
     static let library: HerdrSkillLibrary = {
@@ -199,6 +233,26 @@ import SwiftUI
         }
         let panel = NSSize(width: 360, height: 900)
         write(skills[5], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: jarvis, preset: skillStates[5]).padding(14) }.frame(width: panel.width, height: panel.height).background(AppColor.panel)), store, panel))
+
+        // Project servers: the wizard's last step state by state, the Projects part of Settings, and a bot's Details.
+        do {
+            let states = projectModels()
+            var offering = offer; offering.projectServers = true
+            var flow = SetupFlow(); flow.place = .ssh; flow.apply(.pickHerdr(.ssh)); flow.herdr.sshHost = "studio.example.com"; flow.herdr.sshUser = "deploy"
+            flow.apply(.herdrTest(.connected(server: server, key: nil, offer: offering))); flow.apply(.advance); flow.apply(.advance); flow.apply(.advance)
+            for index in 0..<5 {
+                var shown = flow
+                if index == 4 { shown.mainProjects = [HerdrBotProject(id: 1, name: "shop", machine: "web-1")] }
+                let size = NSSize(width: HeadlessSetup.size.width, height: index == 0 || index == 3 ? 860 : index == 4 ? 780 : HeadlessSetup.size.height)
+                write(projects[index], await png(AnyView(SetupView(preset: shown, presetProjects: states[index], presetHeight: size.height)), store, size))
+            }
+            let partSize = NSSize(width: 570, height: 1_180)
+            write(projects[5], await png(pane(HerdrProjectsSection(server: server, named: true, preset: states[5]), NSSize(width: 570, height: 760)), store, NSSize(width: 570, height: 760)))
+            write(projects[6], await png(pane(HerdrProjectsSection(server: server, named: true, preset: states[6]), partSize), store, partSize))
+            store.setHerdrProjects([HerdrBotProject(id: 1, name: "shop", machine: "web-1")], for: boppy)
+            let details = NSSize(width: 360, height: 620)
+            write(projects[7], await png(AnyView(ScrollView { HerdrBotProjectsSection(bot: boppy, preset: states[7]).padding(14) }.frame(width: details.width, height: details.height).background(AppColor.panel)), store, details))
+        }
 
         // The chat header names the model beside the bot.
         store.selectedBot = jarvis

@@ -2,13 +2,13 @@ import SwiftUI
 
 /// Settings → Advanced → Servers and keys: the Herdr servers as a gallery, and under it the chosen server's parts,
 /// one at a time: its connection (name, access key in the Keychain, Test, starter bots, Remove), its helper settings
-/// (`HerdrHelperPolicySection`) and its skill library (`HerdrSkillsSection`). The last tile adds a server the same
+/// (`HerdrHelperPolicySection`), its skill library (`HerdrSkillsSection`) and its project servers (`HerdrProjectsSection`). The last tile adds a server the same
 /// three ways the setup window offers; a ready-made server is only announced. The agent program new bots start from
 /// applies to every server.
 struct HerdrSettingsSection: View {
     /// What of a server is showing.
     enum Part: String, CaseIterable, Identifiable {
-        case connection = "Connection", helpers = "Helper agents", skills = "Skills"
+        case connection = "Connection", helpers = "Helper agents", skills = "Skills", projects = "Projects"
         var id: String { rawValue }
     }
     private static let addID = "+"
@@ -28,8 +28,8 @@ struct HerdrSettingsSection: View {
         let servers = store.herdrServers, current = servers.first { $0.id == chosen } ?? (chosen == Self.addID ? nil : servers.first)
         VStack(alignment: .leading, spacing: AppleMetrics.groupSpacing) {
             VStack(alignment: .leading, spacing: 10) {
-                GroupHeading(title: "Herdr servers", detail: "Where your bots run. Choose a server to see its connection, its helper agents and its skills.")
-                let tiles = servers.map { NamedChoice(id: $0.id, name: $0.name, note: $0.place == $0.name ? nil : $0.place) } + [NamedChoice(id: Self.addID, name: "Add a server")]
+                GroupHeading(title: "Herdr servers", detail: "Where your bots run. Choose a server to see its connection, its helper agents, its skills and the servers its projects are on.")
+                let tiles = servers.map { NamedChoice(id: $0.id, name: $0.name, note: $0.place == $0.name ? nil : $0.place) } + [NamedChoice(id: Self.addID, name: "Add a Herdr server")]
                 TileGallery(items: tiles, minimum: 170, isSelected: { $0.id == (current?.id ?? Self.addID) }, name: \.name, select: { chosen = $0.id }) { tile in
                     HStack(spacing: 10) {
                         if let server = servers.first(where: { $0.id == tile.id }) { SymbolTile(symbol: server.kind.mark.symbol, colour: server.kind.mark.colour, size: 28) }
@@ -40,11 +40,12 @@ struct HerdrSettingsSection: View {
             }
             if let current {
                 VStack(alignment: .leading, spacing: 18) {
-                    Picker("Part of \(current.name)", selection: $part) { ForEach(Part.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420)
+                    Picker("Part of \(current.name)", selection: $part) { ForEach(Part.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 480)
                     switch part {
                     case .connection: HerdrServerSection(server: current, canRemove: servers.count > 1) { templates = $0 }.id(current.id)
                     case .helpers: HerdrHelperPolicySection(server: current, named: servers.count > 1).id(current.id)
                     case .skills: HerdrSkillsSection(server: current, named: servers.count > 1).id(current.id)
+                    case .projects: HerdrProjectsSection(server: current, named: servers.count > 1).id(current.id)
                     }
                 }
             } else { addForm }
@@ -184,7 +185,7 @@ struct HerdrBotSection: View {
     @ObservedObject var bot: Bot
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            GroupHeading(title: "Agent", detail: "What this bot's agent runs on.")
+            GroupHeading(title: "Herdr agent", detail: "What this bot's agent runs on.")
             HerdrAgentControls(bot: bot)
         }
     }
@@ -230,7 +231,8 @@ struct HerdrAgentControls: View {
                 }
                 .onChange(of: serverID) { _, value in
                     guard loaded, value != store.herdrServer(for: bot).id else { return }
-                    store.setHerdrServer(value, for: bot); template = ""; model = ""; store.setHerdrTemplate("", for: bot); store.setHerdrModel("", for: bot)
+                    // Projects belong to a Herdr server too: the ones chosen on the server it leaves do not go with it.
+                    store.setHerdrServer(value, for: bot); template = ""; model = ""; store.setHerdrTemplate("", for: bot); store.setHerdrModel("", for: bot); store.setHerdrProjects([], for: bot)
                     Task { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
                 }
             }

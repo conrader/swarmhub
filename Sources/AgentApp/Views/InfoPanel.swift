@@ -45,6 +45,7 @@ struct InfoPanel: View {
             }.frame(maxWidth: .infinity).padding(.top, 6)
             if bot.backend == .herdr {
                 HerdrOverviewSection(bot: bot)
+                HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
                 HerdrHelpersSection(bot: bot)
             }
             members

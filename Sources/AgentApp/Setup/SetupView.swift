@@ -21,19 +21,14 @@ struct SetupView: View {
     /// `--render-setup`: start on this state instead of the store's prefill; `presetTesting` shows it with a Test running.
     var preset: SetupFlow?
     var presetTesting = false
+    /// The project servers of the server being set up, read with the access key Test used; a render passes a state in.
+    @State private var projects: HerdrProjectsModel?
+    var presetProjects: HerdrProjectsModel?
+    /// A render of a step that scrolls can ask for a taller window, so all of the step is in the picture.
+    var presetHeight: CGFloat?
 
     /// The size of the window, and of every render of it.
     static let size = CGSize(width: 620, height: 640)
-
-    /// Which of the wizard's four steps is showing.
-    private var wizardStep: Int {
-        switch flow.step {
-        case .welcome: 0
-        case .herdr: 1
-        case .mainBot: 2
-        case .moreBots: 3
-        }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,6 +39,7 @@ struct SetupView: View {
                     case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
+                    case .projects: if let model = presetProjects ?? projects { SetupProjectsStep(flow: $flow, model: model) }
                     }
                 }.frame(maxWidth: .infinity, alignment: .top).padding(.horizontal, 44).padding(.top, 34).padding(.bottom, 20)
             }.scrollBounceBehavior(.basedOnSize)
@@ -51,9 +47,10 @@ struct SetupView: View {
             Divider()
             footer.padding(.horizontal, 20).padding(.vertical, 14)
         }
-        .frame(width: Self.size.width, height: Self.size.height).background(AppColor.panel)
+        .frame(width: Self.size.width, height: presetHeight ?? Self.size.height).background(AppColor.panel)
         .onAppear { if Self.cameBackUnasked(preset: preset, generation: store.setupGeneration) { closeUnasked() } else { restart() } }
         .onChange(of: store.setupGeneration) { _, _ in unasked = false; restart() }
+        .onChange(of: flow.step, initial: true) { _, step in readProjects(step) }
         .onAppear { closed = false }
         .onDisappear { closed = true; if !unasked { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)) }; abandonHerdr() }
     }
@@ -82,7 +79,7 @@ struct SetupView: View {
     private var footer: some View {
         ZStack {
             // The optional bots are no step on a server whose only agent program the main bot already has.
-            SetupWizardProgress(current: wizardStep, count: flow.step == .mainBot && flow.herdrOffer != nil && flow.moreChoices.isEmpty ? 3 : 4)
+            SetupWizardProgress(current: flow.stepIndex, count: flow.stepCount, name: flow.step == .projects ? WizardCopy.projectsStep : nil)
             HStack(spacing: 10) {
                 if flow.canGoBack { Button(SetupCopy.back, action: back) }
                 Spacer()
@@ -101,6 +98,9 @@ struct SetupView: View {
                     Button(flow.isLastWizardStep && flow.herdrOffer != nil ? finishTitle : WizardCopy.next, action: leaveMainBot).buttonStyle(.borderedProminent)
                         .disabled(!flow.mainBotReady).keyboardShortcut(.defaultAction)
                 case .moreBots:
+                    Button(flow.isLastWizardStep ? finishTitle : WizardCopy.next) { if flow.isLastWizardStep { finishWizard() } else { failure = nil; flow.apply(.advance) } }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                case .projects:
                     Button(finishTitle, action: finishWizard).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 }
             }.controlSize(.large)
@@ -110,7 +110,7 @@ struct SetupView: View {
     /// The wizard's last button says what it creates: the main bot alone, the main bot and the ticked ones, or (with
     /// a main bot that stays) only the ticked ones.
     private var finishTitle: String {
-        let more = flow.step == .moreBots ? flow.moreChosen.count : 0
+        let more = flow.step == .moreBots || flow.step == .projects ? flow.moreChosen.count : 0
         if flow.keptMainBot != nil { return more == 0 ? WizardCopy.finish : WizardCopy.addBots(more) }
         return more == 0 ? (flow.mainBotName.isEmpty ? WizardCopy.createMain : WizardCopy.create(flow.mainBotName)) : WizardCopy.createBots(more + 1)
     }
@@ -119,8 +119,17 @@ struct SetupView: View {
     /// reads that server at once.
     private func restart() {
         abandonHerdr()
-        flow = preset ?? store.wizardStart(); testing = presetTesting; failure = nil; finished = false
+        flow = preset ?? store.wizardStart(); testing = presetTesting; failure = nil; finished = false; projects = nil
         if preset == nil, flow.readsSavedServer { testHerdr() }
+    }
+
+    /// On "Where are your projects?" the server's project servers are read with the access key Test used (the server
+    /// may not be saved yet). Back on Connect or before it, another server may follow, so the reading is dropped.
+    private func readProjects(_ step: SetupFlow.Step) {
+        if step == .welcome || step == .herdr { projects = nil; return }
+        guard step == .projects, projects == nil, presetProjects == nil, let server = flow.herdrServer else { return }
+        let key = flow.herdrKey, store = store
+        projects = HerdrProjectsModel { try store.herdrClient(for: server, token: key) }
     }
 
     private func cancel() { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonHerdr(); dismiss() }
@@ -171,7 +180,8 @@ struct SetupView: View {
         guard flow.isLastWizardStep, flow.mainBotReady, !finished else { return }
         do {
             let main = try store.commitSetupWizard(server: flow.herdrServer, key: flow.herdrKey, main: flow.mainBot,
-                                                   more: flow.step == .moreBots ? flow.moreChosen : [], offer: flow.herdrOffer)
+                                                   more: flow.step == .moreBots || flow.step == .projects ? flow.moreChosen : [], offer: flow.herdrOffer,
+                                                   projects: flow.step == .projects ? flow.mainProjects : [])
             finished = true
             store.open(main); store.composerFocus = main.id
             showMainWindow(); closeWindow()

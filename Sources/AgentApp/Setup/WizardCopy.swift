@@ -7,7 +7,10 @@ import Foundation
 enum WizardCopy {
     /// The four steps, as the strip at the top of the window names them.
     static let steps = ["Where", "Connect", "Main bot", "More bots"]
-    static func stepLabel(_ index: Int, of count: Int = steps.count) -> String { "Step \(index + 1) of \(count): \(steps[min(max(index, 0), steps.count - 1)])" }
+    /// The optional step after the bots, on a server that can add project servers.
+    static let projectsStep = "Projects"
+    /// `name`: the step's own name where it is not one of the four (the projects, which come last wherever they are offered).
+    static func stepLabel(_ index: Int, of count: Int = steps.count, name: String? = nil) -> String { "Step \(index + 1) of \(count): \(name ?? steps[min(max(index, 0), steps.count - 1)])" }
     static let next = "Continue"
 
     // 1 Where bots run. The four places keep the titles Settings uses for them (`SetupCopy.herdrLocalTitle` and the rest).
@@ -86,6 +89,19 @@ enum WizardCopy {
     static let finish = "Finish"
     static func titleOnHerdr(_ program: String) -> String { "\(program) on Herdr" }
 
+    // 5 Projects on other servers (optional)
+    static let projectsTitle = "Where are your projects?"
+    static func projectsIntro(server: String, main: String) -> String {
+        "Optional. If your projects are on another server than \(server), add that server here and \(main) can work on them there."
+    }
+    static let projectsSkip = "Nothing to add? Go on: this step changes nothing unless you add a server, and you can add one later in Settings."
+    static let projectsReading = "Reading the project servers…"
+    static let projectsUnavailable = "Project servers cannot be set up here"
+    static let projectsFirst = "Name a first project"
+    static func projectsFor(_ main: String) -> String { "Projects \(main) may use" }
+    static func projectsMayUse(_ main: String, _ project: String) -> String { "\(main) may use \(project)" }
+    static let projectsAnother = "Add another project…"
+
     // After the wizard: under the composer of the chat it ends in.
     static func firstReply(_ name: String) -> String { "Your first message starts \(name)'s agent, so the first reply takes a little longer." }
 
@@ -97,6 +113,8 @@ enum WizardCopy {
                  mainExisting("Ada", isMain: false), name, instructions, instructionsPrompt, avatar, avatarHelp, program, model, defaultModel("One"), runsOn("This Mac"),
                  keeps("Ada", server: "This Mac", isMain: true), keeps("Ada", server: "This Mac", isMain: false), nameMissing, nameTaken("Ada"), programMissing, suggestedName,
                  moreTitle, moreIntro(server: "This Mac", main: "Ada"), moreDetail("One", model: "First"), moreDetail("One", model: nil), moreNone, create("Ada"), createMain, createBots(2),
-                 addBots(1), addBots(2), finish, titleOnHerdr("One"), firstReply("Ada"), avatarHint, notConnected, notReady, copy, copied, mainNow, defaultNote]
+                 addBots(1), addBots(2), finish, titleOnHerdr("One"), firstReply("Ada"), avatarHint, notConnected, notReady, copy, copied, mainNow, defaultNote,
+                 projectsStep, stepLabel(4, of: 5, name: projectsStep), projectsTitle, projectsIntro(server: "This Mac", main: "Ada"), projectsSkip, projectsReading, projectsUnavailable,
+                 projectsFirst, projectsFor("Ada"), projectsMayUse("Ada", "shop"), projectsAnother]
     }
 }

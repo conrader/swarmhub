@@ -4,7 +4,7 @@ What the macOS app does. The app has one backend: agents that Herdr Core runs, r
 
 ## Setup and servers
 
-- The setup window opens by itself while there is no bot, and from **Settings → Set up…**. Its steps are Where, Connect, Main bot and More bots.
+- The setup window opens by itself while there is no bot, and from **Settings → Set up…**. Its steps are Where, Connect, Main bot and More bots, and on a server that can add project servers a last, optional one: Projects.
 - A server is reached in one of three ways:
   - **This Mac.** The app looks for the bridge on `127.0.0.1:8787` and reads its access key from `~/.config/swarmhub-herdr/token`.
   - **A server I reach over SSH.** The app runs the system `ssh` to forward the bridge's port, reopens the forward when it drops, and reads the access key from the server's own file. It saves the path of an SSH key file, never the key.
@@ -47,6 +47,15 @@ What the macOS app does. The app has one backend: agents that Herdr Core runs, r
 - The agent says how hard a task is (easy, medium or hard). The server's helper settings decide which agent program and model each difficulty runs on; the agent cannot choose a model.
 - Running helpers show under the bot in the sidebar. A helper opens as a read-only view of its task, tool calls, replies and terminal.
 - **Settings → Advanced → Servers and keys** reads and edits the server's helper settings.
+
+## Projects on other servers
+
+- A project server is a machine the Herdr server reaches over SSH with its own key. **Settings → Advanced → Servers and keys → Projects** lists them for the chosen Herdr server, with each one's state and the server's own warnings, and has **Connect again** and **Remove…**. The setup window's last step offers the same.
+- Adding one: the app shows the Herdr server's public key with a Copy button and where to paste it, then asks for the SSH address and a name. The first time the Herdr server sees a host, the app shows the host's fingerprints and how to check them; nothing is trusted until you press **Trust this server**. The result says whether Herdr's helper program was copied to the project server.
+- A project is a name, a server, a folder on it and an optional note for the bots. The server checks that the folder exists before it saves one.
+- A bot's settings (**Advanced**) and its **Details** have a switch per project. A bot that may use a project can run commands and change files in that folder on that server. This is not a wall: every agent runs as the same account on the Herdr server, and that account can log in to every project server.
+- A new agent starts with its bot's projects and is told about them by the server. A running agent gets a changed list at once and is told with the next message.
+- The app adds no project server by itself, and a refusal is shown in the server's own sentence.
 
 ## Group chats
 

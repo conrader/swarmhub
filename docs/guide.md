@@ -27,6 +27,8 @@ The setup window opens while there is no bot. Later, use **Settings → Set up�
 3. **Main bot.** Create the server's main bot: a name, instructions, an avatar, an agent program and a model. Or choose a bot that is already on that server.
 4. **More bots.** Optionally tick a bot for each other agent program the server has.
 
+5. **Projects.** Optional, and only on a server that can add project servers. If your projects are on another server, add it here and name a first project; see [Projects on other servers](#projects-on-other-servers). To skip it, press the last button.
+
 The window ends in the main bot's chat. The first message starts the bot's agent, so the first reply takes a little longer.
 
 To look around without a server, choose **Look around with sample agents** in the setup window.
@@ -56,6 +58,17 @@ Open the bot's settings (⌥⌘,) and choose **Advanced → Herdr agent**, or op
 ### Helpers
 
 A bot's agent can hand parts of its work to helper agents. They show under the bot in the sidebar while they run; select one to read its task, steps, replies and terminal. To choose what each difficulty runs on, open **Settings → Advanced → Servers and keys** and read the server's helper settings. To stop one bot from starting helpers, turn off **Can start helper agents** in its settings.
+
+### Projects on other servers
+
+Your projects may live on other servers than the one Herdr runs on. Open **Settings → Advanced → Servers and keys**, choose the Herdr server, then **Projects**.
+
+1. Copy the key the app shows and paste it into `~/.ssh/authorized_keys` of the account on the project server.
+2. Type the SSH address (such as `deploy@10.0.0.7`) and a short name, and press **Add server**.
+3. The first time, the app shows the server's fingerprint. Compare it with the server's own (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on that server) and press **Trust this server**.
+4. Press **Add a project…** and give a name and the folder.
+
+Then open a bot's settings, **Advanced**, and switch on the projects it may use. The bot can run commands and change files in those folders, so choose with care.
 
 ### Groups
 

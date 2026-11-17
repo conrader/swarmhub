@@ -31,6 +31,8 @@ import UserNotifications
     @Published var herdrAgentReadings: [UUID: HerdrAgentReading] = [:]
     /// Each Herdr server's Skills section, by server id (`HerdrSkillsModel`).
     var herdrSkillModels: [String: HerdrSkillsModel] = [:]
+    /// One per Herdr server: its project servers and projects (`HerdrProjectsModel`).
+    var herdrProjectModels: [String: HerdrProjectsModel] = [:]
     /// The setup wizard's ending (`AppStore+SetupHerdr.swift`): the bot whose composer takes the keyboard once, and the
     /// chat it ended in with the number of messages it had then, which says that the first reply takes longer.
     @Published var composerFocus: UUID?

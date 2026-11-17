@@ -15,6 +15,7 @@ SwarmHub is a macOS app for chatting with agents that [Herdr Core](https://githu
 - **Main bot.** Each server has one main bot. It creates other bots, on its own decision or after asking you; any other bot that wants a new bot asks the main bot.
 - **Helper agents.** A bot's agent can hand parts of its work to helpers. They show under the bot in the sidebar and open read-only. The server's helper settings decide what each difficulty runs on.
 - **Bots write to each other.** A bot on a server can name another bot there and write to it. The app puts the message into that bot's chat, marked as passed on, and the answer back into the sender's chat, so you read both sides. Limits keep two bots from answering each other for ever, and a bot's settings can turn this off.
+- **Projects on other servers.** Add the servers your projects live on to a Herdr server, name the folders on them as projects, and choose for each bot which projects it may use. The bot's agent can then run commands and change files in those folders ([how it works](HerdrWorkspace/README.md#work-on-projects-on-other-servers)).
 - **Skills.** A server's skill library ([skillshare](HerdrWorkspace/README.md#manage-the-servers-skillshare-skills)) is listed in Settings and in a bot's Details, where each skill is turned on or off. The app does not install or remove skills.
 - **Group chats.** Several bots in one thread; `@Name` sends a message to the named members, and a message without a mention goes to every member.
 - **Attachments.** Images, text files and documents (PDF, RTF, DOC, DOCX). Text and document contents go to the agent as text; images stay in the chat and are not sent to the agent.
@@ -34,7 +35,7 @@ Details are in the [feature list](docs/FEATURES.md) and the [guide](docs/guide.m
    ./scripts/run.sh
    ```
 
-3. The setup window opens while there is no bot. Choose where the bots run, press **Test**, then create the main bot. [Setup in detail](HerdrWorkspace/README.md#use-the-mac-app).
+3. The setup window opens while there is no bot. Choose where the bots run, press **Test**, then create the main bot. Its last step, which you can skip, adds a server your projects are on. [Setup in detail](HerdrWorkspace/README.md#use-the-mac-app).
 
 The app needs macOS 14 or later.
 
