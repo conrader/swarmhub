@@ -50,7 +50,8 @@ struct ChatView: View {
                 // ⌘/⇧-click picks rows, ⌘C copies them; another conversation starts with none picked.
                 .messageSelection(selection).onChange(of: bot.id) { _, _ in selection.clear(); folds.state.foldAll() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
-                .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, proxy: proxy) }
+                // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
+                .floatingBar(edge: .bottom, backing: AppColor.chat) { bottomBar(proxy) }
                 .task(id: bot.id) { await viewport.open(bot.id, model: store.chatScroll, proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in viewport.grew(proxy: proxy) }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
@@ -58,23 +59,6 @@ struct ChatView: View {
                     guard let target else { return }
                     DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center); store.scrollTarget = nil }
                 }
-            }
-            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
-            if bot.isReadOnlyArchive {
-                Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
-            } else {
-                // What needs the person waits here, above the message box: an agent that asks something in its
-                // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
-                // (Remember or Don't save), and, once, the offer to get to know them.
-                VStack(spacing: 8) {
-                    if bot.backend == .herdr { HerdrPromptCard(bot: bot) }
-                    if store.createsHerdrBots(bot) {
-                        HerdrIntroOffer(bot: bot)
-                        HerdrAboutYouCard(bot: bot)
-                        HerdrBotRequestCard(manager: bot)
-                    }
-                }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil ? 8 : 0).frame(maxWidth: .infinity).background(AppColor.chat)
-                composer.background(AppColor.chat)
             }
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in
@@ -100,6 +84,32 @@ struct ChatView: View {
             previous = message.role
         }
         return found
+    }
+
+    /// Under the transcript: whom a reply answers, what waits for the person, and the message box. One group, so
+    /// that glass surfaces standing close together are drawn together. "Jump to latest" hangs above it.
+    private func bottomBar(_ proxy: ScrollViewProxy) -> some View {
+        VStack(spacing: 0) {
+            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
+            if bot.isReadOnlyArchive {
+                Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
+            } else {
+                // What needs the person waits here, above the message box: an agent that asks something in its
+                // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
+                // (Remember or Don't save), and, once, the offer to get to know them.
+                VStack(spacing: 8) {
+                    if bot.backend == .herdr { HerdrPromptCard(bot: bot) }
+                    if store.createsHerdrBots(bot) {
+                        HerdrIntroOffer(bot: bot)
+                        HerdrAboutYouCard(bot: bot)
+                        HerdrBotRequestCard(manager: bot)
+                    }
+                }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil ? 8 : 0).frame(maxWidth: .infinity)
+                composer
+            }
+        }
+        .frame(maxWidth: .infinity).glassGroup(spacing: 4)
+        .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, proxy: proxy).alignmentGuide(.top) { $0[.bottom] } }
     }
 
     private var composer: some View {

@@ -409,14 +409,156 @@ struct FactChip: View {
     }
 }
 
+// MARK: Liquid Glass
+
+/// Liquid Glass, the material macOS 26 gives the layer of controls that floats above content. This is the one place
+/// that knows about it: a view asks for `glassSurface`, and gets the material where the Mac has it, and the surface
+/// it had before where it has not (the app runs from macOS 14), or where the person asked the system to reduce
+/// transparency or to increase contrast. Apple's rule is kept by where it is used, not here: glass is for controls
+/// and navigation above content (the message box and the cards on it, the bars, the round buttons), never for the
+/// content itself (the words of a chat, message cards, lists), and never on other glass.
+enum AppGlass {
+    /// Whether the app draws the material when nothing in the window says otherwise (`EnvironmentValues.glassAllowed`).
+    /// Not where the app draws itself into a picture: a view with glass in it comes out blank when it is drawn
+    /// offscreen (the material is layers the window server composites), so the renders (`--render-setup`,
+    /// `--render-snapshot`) and the tests that read pixels show the surfaces of before. `SWARMHUB_NO_GLASS=1` does
+    /// the same in the app itself.
+    static let byDefault: Bool = {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["SWARMHUB_NO_GLASS"] == "1" || environment["AGENTAPP_SNAPSHOT"] != nil || TestRunGuard.isTestRun { return false }
+        return !CommandLine.arguments.contains { $0 == "--render-setup" || $0 == "--render-snapshot" }
+    }()
+
+    /// The Mac has the material and nothing asks for the plain surface instead.
+    static func isOn(allowed: Bool, reduceTransparency: Bool, contrast: ColorSchemeContrast) -> Bool {
+        guard allowed, !reduceTransparency, contrast != .increased else { return false }
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+
+    /// How strongly a surface of the app's own colour, or a bot's, tints the glass over it.
+    static let surfaceTint = 0.5, botTint = 0.24
+}
+
+private struct GlassAllowedKey: EnvironmentKey { static let defaultValue = AppGlass.byDefault }
+
+extension EnvironmentValues {
+    /// False draws the surfaces of before in this part of the window, on every Mac.
+    var glassAllowed: Bool {
+        get { self[GlassAllowedKey.self] }
+        set { self[GlassAllowedKey.self] = newValue }
+    }
+}
+
+/// What the three things that decide about glass say right now, read where a view needs it.
+private struct GlassState: DynamicProperty {
+    @Environment(\.glassAllowed) private var allowed
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    var isOn: Bool { AppGlass.isOn(allowed: allowed, reduceTransparency: reduceTransparency, contrast: contrast) }
+    var moreContrast: Bool { contrast == .increased }
+}
+
+private struct GlassSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    /// The colour the glass leans to (the warm surface of the palette, a bot's colour); nil leaves the system's.
+    let tint: Color?
+    /// A control that answers the pointer (a button), as the system's glass buttons do.
+    let interactive: Bool
+    /// What is drawn without the material: the surface, and the line around it.
+    let fallback: AnyShapeStyle
+    let border: AnyShapeStyle
+    private let glass = GlassState()
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), glass.isOn {
+            content.glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
+        } else {
+            content.background(fallback, in: shape).overlay(shape.strokeBorder(border, lineWidth: glass.moreContrast ? 1 : 0.5))
+        }
+    }
+}
+
+private struct GlassGroup: ViewModifier {
+    let spacing: CGFloat?
+    private let glass = GlassState()
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), glass.isOn {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else { content }
+    }
+}
+
+/// A shadow for a surface that floats, drawn only without the material: glass brings its own.
+private struct PlainSurfaceShadow: ViewModifier {
+    private let glass = GlassState()
+    func body(content: Content) -> some View {
+        if glass.isOn { content } else { content.shadow(color: .black.opacity(0.18), radius: 6, y: 2) }
+    }
+}
+
+/// Controls at the top or the bottom edge of something that scrolls. With the material they float: what scrolls
+/// passes beneath them and softens at that edge, as under the system's own bars (`safeAreaBar`, a soft scroll edge
+/// effect). Without it they stand on `backing`, where nothing shows through, exactly as before.
+private struct FloatingBar<Bar: View>: ViewModifier {
+    let edge: VerticalEdge
+    let backing: Color
+    @ViewBuilder let bar: () -> Bar
+    private let glass = GlassState()
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), glass.isOn {
+            content.safeAreaBar(edge: edge, spacing: 0) { bar() }.scrollEdgeEffectStyle(.soft, for: edge == .top ? .top : .bottom)
+        } else {
+            content.safeAreaInset(edge: edge, spacing: 0) { bar().background(backing) }
+        }
+    }
+}
+
 extension View {
-    /// A card above the composer, as wide as the composer: a soft wash of the bot's own colour on the card surface.
+    /// A surface of the layer of controls: Liquid Glass in `shape` on macOS 26, otherwise `fallback` with `border`.
+    func glassSurface<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = false,
+                                          fallback: some ShapeStyle = AppColor.raised, border: some ShapeStyle = AppColor.separator) -> some View {
+        modifier(GlassSurface(shape: shape, tint: tint, interactive: interactive, fallback: AnyShapeStyle(fallback), border: AnyShapeStyle(border)))
+    }
+
+    /// Controls that float at an edge of this scrolling view where the Mac has the material, and stand on `backing`
+    /// where it has not.
+    func floatingBar<Bar: View>(edge: VerticalEdge, backing: Color, @ViewBuilder _ bar: @escaping () -> Bar) -> some View {
+        modifier(FloatingBar(edge: edge, backing: backing, bar: bar))
+    }
+
+    /// The shadow a floating surface had before the material, where it is drawn without it.
+    func plainSurfaceShadow() -> some View { modifier(PlainSurfaceShadow()) }
+
+    /// Glass surfaces that stand close together are drawn as one group (`GlassEffectContainer`), which is how the
+    /// system renders them together. Neighbours nearer than `spacing` blend into each other: the cards above the
+    /// message box stand 8 pt apart and use 4, so they stay separate shapes.
+    func glassGroup(spacing: CGFloat? = nil) -> some View { modifier(GlassGroup(spacing: spacing)) }
+
+    /// A card above the composer, as wide as the composer: glass that leans to the bot's own colour; without the
+    /// material, a soft wash of that colour on the card surface.
     func chatCard(tint: BotTint) -> some View {
-        padding(.horizontal, 12).padding(.vertical, 10)
-            .background(tint.wash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .background(AppColor.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.border, lineWidth: 1))
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return padding(.horizontal, 12).padding(.vertical, 10)
+            .glassSurface(in: shape, tint: tint.fill.opacity(AppGlass.botTint), fallback: ChatCardFill(tint: tint), border: tint.border)
             .padding(.horizontal, 24).frame(maxWidth: 768)
+    }
+}
+
+/// The card surface washed with a bot's colour, as one style.
+private struct ChatCardFill: ShapeStyle {
+    let tint: BotTint
+    func resolve(in environment: EnvironmentValues) -> some ShapeStyle { AppColor.card.blendedWash(tint.wash, in: environment) }
+}
+
+private extension Color {
+    /// This colour with `wash` laid over it, resolved for the scheme at hand.
+    func blendedWash(_ wash: Color, in environment: EnvironmentValues) -> Color {
+        let base = resolve(in: environment), top = wash.resolve(in: environment), alpha = Double(top.opacity)
+        return Color(red: Double(top.red) * alpha + Double(base.red) * (1 - alpha), green: Double(top.green) * alpha + Double(base.green) * (1 - alpha),
+                     blue: Double(top.blue) * alpha + Double(base.blue) * (1 - alpha))
     }
 }
 
@@ -499,9 +641,10 @@ struct AppleProminentButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         let metrics: (font: CGFloat, pad: CGFloat, height: CGFloat, corner: CGFloat) = switch controlSize {
-        case .mini, .small: (11, 8, 19, 5)
-        case .large, .extraLarge: (13, 16, 30, 8)
-        default: (13, 11, 22, 6)
+        // As tall as the system's own buttons of each size, so the two stand level in one row.
+        case .mini, .small: (11, 8, 17, 5)
+        case .large, .extraLarge: (13, 16, 28, 7)
+        default: (13, 11, 20, 6)
         }
         configuration.label.font(.system(size: metrics.font, weight: .semibold)).foregroundStyle(AppColor.onAccent).lineLimit(1)
             .padding(.horizontal, metrics.pad).frame(minHeight: metrics.height)
