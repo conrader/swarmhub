@@ -54,8 +54,7 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 
 ## Voice
 
-- Dictation needs your own deAPI API key and sends the recording to deAPI.
-- A reply is read aloud with the Mac's built-in speech. There is no choice of voice or speed in the app.
+- The app has no voice features in 0.8: dictation and reading a reply aloud were removed for now.
 
 ## Import
 

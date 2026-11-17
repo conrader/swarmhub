@@ -179,6 +179,7 @@ Then open a bot's settings, **Advanced**, or the **Overview** tab of its Details
 **File → New Group…** (⇧⌘N) puts several bots in one thread. Write `@Name` to address one member; a message without a mention goes to every member.
 
 <a id="files-and-voice"></a>
+<a id="files"></a>
 
 ### Files
 

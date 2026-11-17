@@ -188,7 +188,6 @@ Stated plainly, so nobody assumes more than there is.
 - **Model providers** see what the agent programs send them. SwarmHub holds no provider keys and makes no model calls.
 - **"About you"** is plaintext in the app's settings on the Mac and is sent to every bot's agent, so it ends up in the journal and at the model providers like any other task text.
 - **Updates** are signed. The app's archives and the bridge's releases are signed with one Ed25519 release key; Sparkle checks the first, the bridge checks the second itself, and the access key alone cannot make a server run anything that is not a signed, newer release. [Updates](updates.md#what-is-trusted) says what this does and does not cover.
-- **Dictation**, if you use it, sends the recording to deAPI with your own key.
 
 ## Data, and data from older versions
 
@@ -197,7 +196,7 @@ Stated plainly, so nobody assumes more than there is.
 | Mac: `~/Library/Application Support/AgentApp/store.json` | Bots, groups, chats |
 | Mac: `runtime.sqlite`, `attachments/`, `artifacts/` beside it | Saved documents, the queue of messages waiting to be sent, attached images |
 | Mac: `UserDefaults` | The server list; each bot's server, template, model and switches; "About you" |
-| Mac: Keychain | Access keys, the deAPI key |
+| Mac: Keychain | Access keys |
 | Server: `~/.local/state/swarmhub-herdr/workspace.sqlite3` | The bridge's journal |
 | Server: `helper-policy.json`, `runtime-catalog.json` beside it | Helper policy, model catalog |
 | Server: `~/.config/swarmhub-herdr/token` | The access key |
@@ -212,7 +211,7 @@ Older versions of the app ran bots on two other backends, which were removed. Wh
 | `Sources/AgentApp/Backends` | `AgentBackend` (the protocol), `HerdrBackend`, `HerdrClient` and the other `Herdr*` files: everything that talks to the bridge. `MockBackend` answers the sample bots. |
 | `Sources/AgentApp/Stores` | `AppStore` and its extensions: bots, turns, steer, the message queue, relaying between bots, the first conversation, helpers, starting agents ahead of time, saving. `AppUpdater` and `SoftwareUpdateModel` for updates. |
 | `Sources/AgentApp/Setup` | The setup window, its state machine (`SetupFlow`) and its words. |
-| `Sources/AgentApp/Views`, `Models`, `Avatars`, `Voice` | SwiftUI views, data types, avatars, dictation and read aloud. |
+| `Sources/AgentApp/Views`, `Models`, `Avatars` | SwiftUI views, data types, avatars. |
 | `Sources/AgentApp/GrokExport`, `GrokImport`, `TemplateImport` | Import from Grok Bot and from template files; the headless commands, including the screen renders. |
 | `Tests/AgentAppTests` | The Mac tests (`swift test` on a Mac). |
 | `HerdrWorkspace/src` | The bridge. `main.rs` (routes, the access check), `core.rs` (Herdr Core's protocol), `history.rs` (journal), `events.rs`, `live_reply.rs`, `tool_activity.rs`, `warm.rs`, `helpers.rs`, `machines.rs`, `projects.rs`, `skillshare.rs`, `update.rs` (versions and self-update), `agent.rs` and `codex_agent.rs` (the wrappers and hooks). The other modules serve the browser workspace. |
