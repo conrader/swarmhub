@@ -38,7 +38,7 @@ import SwiftUI
     /// for the person, both ready, no AI program on this Mac; and Settings after the service was removed.
     static let thisMac = ["herdr-mac-offer", "herdr-mac-offer-core-there", "herdr-mac-fetching", "herdr-mac-installing", "herdr-mac-port-busy", "herdr-mac-ai-checking",
                           "herdr-mac-ai-asks", "herdr-mac-ai-ready", "herdr-mac-no-ai", "herdr-mac-removed"]
-    static let names = wizard + other + skills + projects + statuses + updates + thisMac
+    static let names = wizard + other + skills + projects + statuses + updates + thisMac + HeadlessSkillLibraryShots.names
 
     /// What the service on a Mac says, for the shots: both AI programs found, or neither.
     static func localReport(found: Bool) -> HerdrLocalReport {
@@ -327,6 +327,7 @@ import SwiftUI
         }
         let panel = NSSize(width: 360, height: 900)
         write(skills[5], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: jarvis, preset: skillStates[5]).padding(14) }.frame(width: panel.width, height: panel.height).background(AppColor.panel)), store, panel))
+        await HeadlessSkillLibraryShots.render(store: store, server: server, bot: jarvis, write: write, png: png)
 
         // Project servers: the wizard's last step state by state, the Projects part of Settings, and a bot's Details.
         do {
