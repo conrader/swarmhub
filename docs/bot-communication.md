@@ -16,7 +16,7 @@ This is the behaviour SwarmHub promises. It is also the test plan: every rule be
 3. **Visible** (as Grok Bot). Every message and every reply appears in both bots' chats, marked with who sent it. Nothing passes between bots that you cannot read.
 4. **One owner.** A piece of work belongs to one bot at a time. A hand-off moves it: the receiver accepts or declines with a reason. Whoever owns the work reports its result to the bot that handed it over and, when the work started with you, to you.
 5. **Nothing is dropped.** Every ask and every hand-off ends in one of three ways, and the sender is told which: answered, declined, or not answered in time (default 10 minutes for an ask, 5 minutes to accept a hand-off).
-6. **Follow-ups are allowed, loops are not.** Bots may go back and forth (Grok Bot sets no one-round rule), within hard limits: at most 8 messages between the same two bots for one piece of work, a chain of at most 4 bots, and a cap per bot per ten minutes. At a limit, both bots are told to bring the matter to you.
+6. **Follow-ups are allowed, loops are not.** Bots may go back and forth (Grok Bot sets no one-round rule), within hard limits: at most 8 messages between the same two bots for one piece of work, counted in both directions (four rounds of question and answer), a chain of at most 4 bots, and a cap per bot per ten minutes. At a limit, both bots are told to bring the matter to you.
 7. **Your instructions win** (as Grok Bot). "Don't message other bots, ask me first" is honoured; each bot also has a switch for it. Stopping a bot ends the exchanges it is part of, and the bots waiting on it are told.
 
 ## Initiative
