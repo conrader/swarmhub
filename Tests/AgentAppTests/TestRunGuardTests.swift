@@ -115,15 +115,13 @@ private func probeRequest(_ probe: String, _ url: String = "https://konrad.agent
 }
 
 /// A test settings suite with a plain name lands in ~/Library/Preferences as `<name>.plist` and stays there (7,000+ had
-/// piled up on the MacBook). Test sources may open a suite only through `isolatedDefaults()` (TestSupport.swift) or, in
-/// SwarmHubCore, `DeviceApprovalFixtures.defaults()`, which both use an absolute path in the temporary folder. Any
+/// piled up on the MacBook). Test sources may open a suite only through `isolatedDefaults()` (TestSupport.swift), which
+/// uses an absolute path in the temporary folder. Any
 /// `suiteName:` outside comments (`UserDefaults(suiteName:`, `.init(suiteName:`, split over lines) elsewhere fails.
 @Test func testSuitesNeverOpenAPlainNamedSettingsSuite() throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    let allowed: Set<String> = ["Tests/AgentAppTests/TestSupport.swift", "Tests/AgentAppTests/TestRunGuardTests.swift",
-                                "Packages/SwarmHubCore/Tests/SwarmHubCoreTests/DeviceApprovalCoreTests.swift"]
-    let packages = try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "Packages").path)
-    let roots = ["Tests"] + packages.filter { !$0.hasPrefix(".") }.map { "Packages/\($0)/Tests" }
+    let allowed: Set<String> = ["Tests/AgentAppTests/TestSupport.swift", "Tests/AgentAppTests/TestRunGuardTests.swift"]
+    let roots = ["Tests"]
     let opening = try NSRegularExpression(pattern: #"\bsuiteName\s*:"#)
     var offenders: [String] = [], scanned = 0
     for folder in roots where FileManager.default.fileExists(atPath: root.appending(path: folder).path) {
@@ -139,7 +137,7 @@ private func probeRequest(_ probe: String, _ url: String = "https://konrad.agent
             if opening.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil { offenders.append(relative) }
         }
     }
-    #expect(scanned > 100, "the scan found the test sources")
+    #expect(scanned > 50, "the scan found the test sources")
     #expect(offenders.isEmpty, "use isolatedDefaults() instead of a named suite: \(offenders.sorted())")
 }
 

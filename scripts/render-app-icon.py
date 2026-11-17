@@ -46,7 +46,7 @@ def main():
     shutil.copyfile(iconset / "icon_512x512@2x.png", ASSETS / "preview-1024.png")
 
     for relative in ["docs/readme/hero.svg", "docs/readme/hero-mobile.svg",
-                     "Apps/iOS/assets/readme-hero.svg", "Apps/iOS/assets/readme-hero-mobile.svg"]:
+                     "Apps/iOS-seed/assets/readme-hero.svg", "Apps/iOS-seed/assets/readme-hero-mobile.svg"]:
         path = ROOT / relative
         banner = path.read_text()
         tree = ET.fromstring(banner)
@@ -74,8 +74,8 @@ def main():
         ET.fromstring(banner)
         path.write_text(banner)
 
-    # iOS applies its own icon mask; use the same artwork on an opaque canvas.
-    ios_icon = ROOT / "Apps/iOS/Resources/Assets.xcassets/AppIcon.appiconset/Icon.png"
+    # The iPhone icon kept in Apps/iOS-seed: iOS applies its own icon mask, so the same artwork on an opaque canvas.
+    ios_icon = ROOT / "Apps/iOS-seed/Resources/Assets.xcassets/AppIcon.appiconset/Icon.png"
     subprocess.run([renderer, "--width", "1024", "--height", "1024",
                     "--background-color", "#f7f7f2", "--output", str(ios_icon),
                     str(ASSETS / "SwarmHub-icon.svg")], check=True)

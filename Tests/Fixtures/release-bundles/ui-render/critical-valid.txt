@@ -1,4 +1,0 @@
-card title="Updates"
-  text style=plain role=body ""
-  button style=secondary "Check now" -> refresh
-  button style=secondary "Open updates" -> navigate screen="updates"

@@ -48,5 +48,5 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 
 ## Other platforms
 
-- `Apps/iOS` and `Packages/` hold an earlier iOS app and its packages. They do not connect to Herdr and are not part of the Mac app.
+- There is no iPhone app. A phone cannot reach the bridge today: it answers only on the machine it runs on. `Apps/iOS-seed` keeps starting material for one ([README](../Apps/iOS-seed/README.md)).
 - There is no Windows, Linux or Android app. The bridge's browser workspace runs wherever a browser can reach it.

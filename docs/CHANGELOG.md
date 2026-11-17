@@ -7,6 +7,7 @@
 - Herdr only: the Hermes and OpenClaw backends are removed, with every feature that only worked with them: profiles and keys on a Hermes box, the bot manager and SwarmHub skills, routines, heartbeats, webhooks, off-app alerts, reports, usage, approvals and device approvals, connected apps, the ChatGPT connection and live voice, threads, workflows and team coordination, goals and loops, the box updater, QA mode and UI acceptance mode, and the Computer tab. The app now runs bots only as agents on Herdr Core, through the SwarmHub bridge.
 - A store written by an older version is first copied as it was to `store.json.before-herdr-only-<time>` beside it, once. Hermes and OpenClaw bots in it are then left out: the store is saved without them, and the app says once how many bots were removed and where the copy is. Bots on Herdr keep their name, avatar, instructions and chat.
 - Scripts, tests, fixtures and documents that only served the removed backends are deleted. Entries below describe earlier versions as they were; some of the documents they link to no longer exist.
+- The earlier iPhone app, the two Swift packages only it used, and the signed update-bundle tooling for servers of the removed backends are deleted. The Mac app's own updates (Sparkle) are unchanged. What an iPhone app for Herdr could reuse (two SwiftUI source files, the app icon, the screen drawings) is kept in `Apps/iOS-seed`, which is not an app and does not build.
 
 ## 0.6.8 (build 33)
 

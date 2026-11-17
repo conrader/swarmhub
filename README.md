@@ -49,12 +49,11 @@ The bridge also serves a browser interface to the same agents, with features the
 | --- | --- |
 | `Sources/AgentApp`, `Tests/AgentAppTests` | The Mac app and its tests (`swift test` on a Mac). |
 | `HerdrWorkspace/` | The bridge and the browser workspace (Rust). |
-| `scripts/` | Build, run, packaging and update scripts for the Mac app, the Grok Bot export tools, and scripts for the iOS project. |
+| `scripts/` | Build, run, packaging and update scripts for the Mac app, and the Grok Bot export tools. |
 | `Resources/` | The app's Info.plist, entitlements, icons and avatars. |
 | `Vendor/BotAvatarsKit` | The vendored avatar library. |
 | `docs/` | Guide, reference, feature list, limits, changelog. |
-| `Apps/iOS`, `Packages/` | An earlier iOS app and the two Swift packages it was built on. The Mac app does not use them, and they do not connect to Herdr. |
-| `scripts/release`, `Resources/Updater`, `Tests/Updater`, `docs/update-service` | Signed update-bundle tooling that those packages and the iOS project still refer to. The Mac app does not use it. |
+| `Apps/iOS-seed` | Starting material for a future iPhone app: a few SwiftUI pieces, the app icon and screen drawings. It is not an app and does not build; see its [README](Apps/iOS-seed/README.md). |
 
 ## Docs
 

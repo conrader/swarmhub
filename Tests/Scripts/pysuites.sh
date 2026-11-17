@@ -1,11 +1,11 @@
 #!/bin/bash
-# The Python suites (updater, sim, release, scripts) of a worktree, each in its own log that ends with the command's OWN exit code (no
-# pipe between the command and $?). Exits with the first failing suite's code, 0 only when every suite passed: a
-# failure is never masked by a later suite, a log line or the final echo (recsfix3).
+# The Python tests of a worktree: every scripts/test_*.py (the Grok Bot export tools and the Sparkle configuration), in
+# one log that ends with the command's OWN exit code (no pipe between the command and $?). Exits with that code, 0 only
+# when the tests passed: a failure is never masked by a log line or the final echo.
 #
 #   bash Tests/Scripts/pysuites.sh <worktree> <log dir>
-#   PYSUITES_RUNNER (optional): a wrapper each suite runs under as `SRC=<worktree> $PYSUITES_RUNNER bash -c <command>`,
-#   in its own copy of the worktree (e.g. as sbtest in a PID namespace); without one, each runs in <worktree>.
+#   PYSUITES_RUNNER (optional): a wrapper the suite runs under as `SRC=<worktree> $PYSUITES_RUNNER bash -c <command>`,
+#   in its own copy of the worktree; without one, it runs in <worktree>.
 set -u
 src=${1:?usage: pysuites.sh <worktree> <log dir>}
 logs=${2:?usage: pysuites.sh <worktree> <log dir>}
@@ -24,11 +24,6 @@ run() {
     echo "$log exit=$code"
     if [ "$code" -ne 0 ] && [ "$status" -eq 0 ]; then status=$code; fi
 }
-run updater.log "python3 -B -m unittest discover -s Tests/Updater -p 'test_*.py'"
-run sim.log "cd sim && python3 -B -m unittest discover -v -p 'test_*.py'"
-run release.log "python3 -B -m unittest discover -s scripts -p 'test_release_*.py'"
-# scripts.log is every other scripts/test_*.py, except test_ios_approval_boundary.py, which needs the git history a
-# runner copy does not have. An empty list fails rather than letting unittest discover everything. The sim suite
-# imports sim_isolation, so it needs a PID namespace (a runner) on Linux.
-run scripts.log "mods=\$(cd scripts && ls test_*.py | grep -v -e '^test_release_' -e '^test_ios_approval_boundary\.py\$' | sed 's/\.py\$//') && [ -n \"\$mods\" ] && PYTHONPATH=scripts python3 -B -m unittest \$mods"
+# An empty list fails rather than letting unittest discover everything.
+run scripts.log "mods=\$(cd scripts && ls test_*.py | sed 's/\.py\$//') && [ -n \"\$mods\" ] && PYTHONPATH=scripts python3 -B -m unittest \$mods"
 exit "$status"

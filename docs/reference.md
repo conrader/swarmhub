@@ -109,8 +109,8 @@ A fenced block with info string `swarmhub` is how a bot's agent asks the app for
 ## Other code in this repository
 
 - `HerdrWorkspace/`: the bridge and browser workspace, in Rust. Build and test instructions are in its README.
-- `Apps/iOS` and `Packages/`: an earlier iOS app and its two Swift packages. The Mac app does not depend on them and they do not connect to Herdr.
-- `scripts/release`, `Resources/Updater`, `Tests/Updater`, `docs/update-service`: signed update-bundle tooling that the packages' tests and the iOS project refer to. The Mac app does not use it. `Tests/Scripts/pysuites.sh <worktree> <log dir>` runs its Python suites.
+- `Apps/iOS-seed`: starting material for a future iPhone app (two SwiftUI source files, the app icon, screen drawings). It is not an app and nothing builds it; its [README](../Apps/iOS-seed/README.md) says what a phone app needs first.
+- `scripts/export-grokbot.py` and the other Grok Bot export tools, with their tests (`scripts/test_*.py`). `bash Tests/Scripts/pysuites.sh <worktree> <log dir>` runs every Python test in `scripts/`.
 
 ## Credits
 

@@ -1,6 +1,5 @@
 .build/
 **/.build/
-Apps/iOS/build/
 **/xcuserdata/
 dist/
 *.xcuserstate
