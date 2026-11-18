@@ -200,7 +200,8 @@ def main(hc, builds):
                 "version": "0.2.0", "api": 2, "api_min": 1, "target": TARGET, "updates": True}, workspace
             assert "agent" in cli("ls")
             shown = subprocess.run([str(program), "version"], capture_output=True, text=True).stdout
-            assert shown.startswith("swarmhub-herdr 0.2.0 (workspace API 1"), shown
+            bridge = workspace["bridge"]
+            assert shown.strip() == f"swarmhub-herdr {bridge['version']} (workspace API {bridge['api']}, {TARGET})", shown
 
             def untouched(version):
                 assert server.version() == version and process.poll() is None
