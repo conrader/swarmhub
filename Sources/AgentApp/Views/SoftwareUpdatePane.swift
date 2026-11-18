@@ -68,9 +68,9 @@ struct SoftwareUpdatePane: View {
                 appCard(app)
                 if app.unavailable == nil {
                     SettingSwitch(title: "Check for updates automatically", detail: "Once a day, in the background. Nothing opens over your work: an update shows as a line in the sidebar and here.",
-                                  symbol: "clock.arrow.circlepath", colour: AppColor.sky, isOn: Binding(get: { app.checksAutomatically }, set: updater.setAutomaticallyChecksForUpdates))
+                                  symbol: "clock.arrow.circlepath", colour: AppColor.sky, isOn: Binding(get: { app.checksAutomatically }, set: { updater.setAutomaticallyChecksForUpdates($0) }))
                     SettingSwitch(title: "Install updates automatically", detail: "A new version downloads in the background and installs when you quit \(AppConstants.name). Every update is checked against \(AppConstants.name)’s signing key before it is opened.",
-                                  symbol: "arrow.down.circle.fill", colour: AppColor.sage, isOn: Binding(get: { app.installsAutomatically }, set: updater.setAutomaticallyDownloadsUpdates))
+                                  symbol: "arrow.down.circle.fill", colour: AppColor.sage, isOn: Binding(get: { app.installsAutomatically }, set: { updater.setAutomaticallyDownloadsUpdates($0) }))
                         .disabled(!app.mayInstallAutomatically)
                 }
             }
