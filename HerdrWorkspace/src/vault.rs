@@ -712,7 +712,10 @@ mod tests {
 
     #[test]
     fn encrypted_entries_survive_reopen_and_rename_binds_ciphertext_to_new_revision() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
         let history = History::open_at(dir.path()).unwrap();
         let vault = Vault::fixture();
         let value = "synthetic-secret-fixture";
@@ -752,7 +755,10 @@ mod tests {
 
     #[test]
     fn keychain_backend_scopes_items_and_retires_revisions_with_a_fake_keychain() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
         let other = tempfile::tempdir().unwrap();
         let history = History::open_at(dir.path()).unwrap();
         let keychain = keychain::Keychain::fixture(history.file());
@@ -764,8 +770,7 @@ mod tests {
         };
         let value = "synthetic-keychain-value";
         vault.put_connector(&history, "Example", value.into()).unwrap();
-        let db = history.db().unwrap();
-        let mut old = saved(&db, "Example").unwrap().unwrap();
+        let mut old = saved(&history.db().unwrap(), "Example").unwrap().unwrap();
         assert_eq!(old.bytes, keychain::MARKER);
         assert_eq!(vault.open(&old).unwrap(), value);
         vault.check_exec_entry(&old).unwrap();
@@ -783,7 +788,7 @@ mod tests {
 
         vault.put_connector(&history, "Example", "synthetic-replacement".into()).unwrap();
         assert!(keychain.read(&old.id, &old.nonce).is_err());
-        let new = saved(&db, "Example").unwrap().unwrap();
+        let new = saved(&history.db().unwrap(), "Example").unwrap().unwrap();
         assert_eq!(vault.open(&new).unwrap(), "synthetic-replacement");
         vault.remove_connector(&history, "Example").unwrap();
         assert!(keychain.read(&new.id, &new.nonce).is_err());

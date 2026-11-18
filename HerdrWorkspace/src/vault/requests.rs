@@ -356,13 +356,17 @@ async fn decide(
 mod tests {
     use super::*;
     use crate::history::History;
+    use std::{fs::Permissions, os::unix::fs::PermissionsExt};
 
     const AT: i64 = 1000;
     const NAME: &str = "FIXTURE_TOKEN";
     const VALUE: &str = "synthetic-credential";
 
     fn setup() -> (tempfile::TempDir, History, Vault, Session) {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::Builder::new()
+            .permissions(Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
         let history = History::open_at(dir.path()).unwrap();
         let vault = Vault::fixture();
         let token = vault.session("owner-launch", "Research").unwrap();
@@ -440,7 +444,9 @@ mod tests {
         assert!(desk.take(&mut db, &vault, &owner, &[NAME.into()], AT + 1).is_err());
         let pending = request(desk, &db, &owner, AT + 1);
         desk.resolve(&mut db, &vault, &pending.id, Action::AllowRepeated, None, AT + 1).unwrap();
+        drop(db);
         vault.put_connector(&history, NAME, "new-synthetic-value".into()).unwrap();
+        let mut db = history.db().unwrap();
         assert_eq!(desk.status(&db, &owner, NAME, AT + 2).unwrap(), "unavailable");
         assert!(desk.take(&mut db, &vault, &owner, &[NAME.into()], AT + 2).is_err());
     }

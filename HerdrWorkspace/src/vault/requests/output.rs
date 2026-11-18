@@ -197,7 +197,7 @@ mod tests {
             .env("SWARMHUB_TEST_VAULT_TTY", "1");
         unsafe {
             fixture.pre_exec(move || {
-                if libc::setsid() == -1 || libc::ioctl(tty, libc::TIOCSCTTY, 0) == -1 {
+                if libc::setsid() == -1 || libc::ioctl(tty, libc::TIOCSCTTY as _, 0) == -1 {
                     return Err(io::Error::last_os_error());
                 }
                 Ok(())
