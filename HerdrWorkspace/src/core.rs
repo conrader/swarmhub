@@ -553,6 +553,12 @@ impl Core {
         {
             params["env"]["SWARMHUB_PUBLISHER"] = path.into();
         }
+        params["env"][crate::vault::KEY_FILE] = std::env::var_os(crate::vault::KEY_FILE)
+            .filter(|path| !path.is_empty())
+            .and_then(|path| std::path::absolute(path).ok())
+            .and_then(|path| path.into_os_string().into_string().ok())
+            .unwrap_or_default()
+            .into();
         // Started by `service run`, the server knows the PATH the person's own shell has. Core may have been
         // started with a shorter one (by launchd, at login), and an agent program is found through it.
         if let Some(path) = agent_path() {

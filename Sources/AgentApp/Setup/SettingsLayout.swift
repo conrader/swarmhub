@@ -8,6 +8,7 @@ enum SettingsLayout {
     enum Pane: String, CaseIterable, Identifiable {
         case general = "General", servers = "Servers"
         // The app's version and each server's, and the one button when something is behind (`SoftwareUpdatePane`).
+        case vault = "Vault"
         case updates = "Software Update"
         case about = "About"
         var id: String { rawValue }
@@ -15,6 +16,7 @@ enum SettingsLayout {
             switch self {
             case .general: "gearshape.fill"
             case .servers: "server.rack"
+            case .vault: "lock.shield.fill"
             case .updates: "arrow.down.circle.fill"
             case .about: "info.circle.fill"
             }
@@ -24,6 +26,7 @@ enum SettingsLayout {
             switch self {
             case .general: AppColor.olive
             case .servers: AppColor.sage
+            case .vault: AppColor.sky
             case .updates: AppColor.plum
             case .about: AppColor.sky
             }
@@ -39,6 +42,7 @@ enum SettingsLayout {
         ("you.name", .general), ("you.about", .general), ("appearance.theme", .general), ("appearance.accent", .general), ("appearance.appIcon", .general),
         ("appearance.avatarMotion", .general), ("notifications.master", .general),
         ("servers.herdr", .servers), ("servers.helpers", .servers), ("servers.skills", .servers), ("servers.projects", .servers), ("servers.grokBot", .servers),
+        ("vault.entries", .vault),
         ("updates.app", .updates), ("updates.autoCheck", .updates), ("updates.autoInstall", .updates), ("updates.servers", .updates),
         // About names the version and opens Software Update; everything else about updates is there.
         ("about.version", .about), ("about.checkUpdates", .about), ("about.build", .about), ("about.acknowledgements", .about)

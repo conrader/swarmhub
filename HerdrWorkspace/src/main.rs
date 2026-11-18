@@ -203,7 +203,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     let history = History::open()?;
-    let vault = vault::Vault::configured()?;
+    let vault = vault::Vault::configured(history.file())?;
     let workspace = Workspace {
         core: Core(socket),
         connected_files: webdav::Folder::configured(&history, vault.as_ref())?,
@@ -511,6 +511,7 @@ impl IntoResponse for StoreError {
     }
 }
 
+#[derive(Debug)]
 enum ApiError {
     Core(Failure),
     Storage(StoreError),
@@ -833,6 +834,7 @@ async fn launch_agent(
         .into_iter()
         .chain(project_hint.as_deref())
         .chain(bot_note.as_ref().map(|(_, note)| note.as_str()))
+        .chain(w.vault.as_ref().map(|_| vault::NOTE))
         .collect();
     // A warm agent reads the same words around its first message. Check now that a message still fits.
     let message = warm::first_message(

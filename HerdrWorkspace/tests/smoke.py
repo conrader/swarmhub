@@ -1026,7 +1026,7 @@ def smoke(hc, bridge, chrome=None):
         github_hold = (threading.Event(),threading.Event()) if selected_focus == "github-access" else None
         github = (test_resources.enter_context(github_project_fixture(github_hold))
                   if selected_focus in ("github-project", "github-access") else None)
-        vault_key = root / "vault-key" if selected_focus in ("vault", "drive-oauth") else None
+        vault_key = root / "vault-key" if selected_focus in ("vault", "vault-request", "drive-oauth") else None
         if vault_key:
             vault_key.touch(mode=0o600)
             vault_key.write_text(secrets.token_hex(32)+"\n")
@@ -2578,6 +2578,97 @@ def smoke(hc, bridge, chrome=None):
                     assert len(remaining) == 2 and remaining[-1]["reaction"] == "celebrate"
                     assert request(group_reaction,{"reaction":"remove"}) == {"reaction":None}
                     assert "reaction" not in request(feed)["items"][-1]
+                    return
+                if focus == "vault-request":
+                    endpoint = "/api/vault"
+                    requests = endpoint + "/requests"
+                    first = "VAULT_FIXTURE_TOKEN"
+                    second = "VAULT_FIXTURE_CANCEL"
+                    synthetic = "fixture-browser-private-value"
+                    agent = request("/api/agents", {"name":"vault-requester","template":"fixture","task":"Start up"}, status=201)
+                    core = request("/api/workspace")["core"]
+                    profile_path = f"/api/agents/{agent['address']}/{agent['created_ms']}"
+                    journal = root / "workspace/workspace.sqlite3"
+                    with sqlite3.connect(journal) as db:
+                        launch_key, = db.execute(
+                            "SELECT launch_key FROM journal WHERE agent='vault-requester' AND kind='task'"
+                        ).fetchone()
+                    session_env = {**core_env,"SWARMHUB_JOURNAL":str(journal),"SWARMHUB_LAUNCH_KEY":launch_key,
+                                   "SWARMHUB_VAULT_KEY_FILE":str(vault_key)}
+
+                    def vault_cmd(verb, name, *args, ok=True):
+                        result = subprocess.run([bridge, "vault", verb, "--name", name, *args],
+                                                env=session_env, capture_output=True, text=True, timeout=15)
+                        assert (result.returncode == 0) == ok, (verb, result.returncode, result.stderr)
+                        assert synthetic not in result.stdout + result.stderr
+                        if not ok:
+                            return None
+                        return result if verb == "exec" else json.loads(result.stdout)
+
+                    assert request(requests, authorized=False, status=401)
+                    for name in (first, second):
+                        assert vault_cmd("request", name, "--label", "Report credential",
+                                         "--description", "Read the synthetic report") == {"status":"pending","name":name}
+                    entries = request(requests)
+                    assert len(entries) == 2
+                    assert entries[0]["bot"] == "vault-requester" and entries[0]["needs_value"]
+                    assert all(set(entry) == {"id","bot","name","label","description","needs_value"} for entry in entries)
+                    decision = requests + "/" + entries[0]["id"]
+                    request(decision, {"action":"save","value":synthetic}, status=401, authorized=False)
+                    request(decision, {"action":"save","value":synthetic}, status=403, origin="https://outside.test")
+                    bad = request(decision, {"action":"save","value": {"data":synthetic}}, status=422)
+                    assert synthetic not in json.dumps(bad)
+                    vault_cmd("exec", first, "--", "/bin/false", ok=False)
+                    if chrome:
+                        subprocess.run(["node",str(Path(__file__).with_name("browser.mjs")),chrome,base,token,temp],
+                                       check=True,timeout=85)
+                    else:
+                        for entry in entries:
+                            if entry["name"] == first:
+                                assert request(requests + "/" + entry["id"], {"action":"save","value":synthetic}) == {
+                                    "status":"resolved","name":first}
+                            else:
+                                request(requests + "/" + entry["id"], {"action":"cancel"})
+                    assert request(requests) == []
+                    assert vault_cmd("status", first) == {"status":"approved","name":first}
+                    assert vault_cmd("status", second) == {"status":"cancelled","name":second}
+                    saved, = request(endpoint)["entries"]
+                    assert set(saved) == {"id","name","revision","updated_ms"} and saved["name"] == first
+                    request(endpoint + "/" + saved["id"], status=404)
+                    command = 'printf "%s\\n" "$VAULT_FIXTURE_TOKEN"; printf "%s\\n" "$VAULT_FIXTURE_TOKEN" >&2'
+                    result = vault_cmd("exec", first, "--", "/bin/sh", "-c", command)
+                    assert result.stdout == result.stderr == "[REDACTED]\n"
+                    subprocess.run([bridge, "capture-reply"], env=session_env, text=True,
+                                   input="Vault tool result: " + result.stdout, check=True, timeout=12)
+                    conversation = f"/api/history/{core}/{agent['address']}/{agent['created_ms']}"
+                    for _ in range(80):
+                        rows = json.dumps(request(conversation))
+                        assert synthetic not in rows
+                        if "Vault tool result: [REDACTED]" in rows:
+                            break
+                        time.sleep(.1)
+                    else:
+                        raise AssertionError("The journal did not capture the filtered reply")
+                    transcript = request(conversation + "/transcript")
+                    assert b"Vault tool result: [REDACTED]" in transcript and synthetic.encode() not in transcript
+                    headers = {"Authorization": f"Bearer {token}", "Accept":"text/event-stream"}
+                    stream = urllib.request.Request(base + profile_path + "/events", headers=headers)
+                    with urllib.request.urlopen(stream, timeout=10) as events:
+                        assert events.headers.get_content_type() == "text/event-stream"
+                        for _ in range(25):
+                            line = events.readline()
+                            assert synthetic.encode() not in line
+                            if b"Vault tool result: [REDACTED]" in line:
+                                break
+                        else:
+                            raise AssertionError("The event stream did not send the filtered reply")
+                    assert vault_cmd("status", first) == {"status":"used","name":first}
+                    vault_cmd("exec", first, "--", "/bin/true", ok=False)
+                    renamed = request(endpoint + "/" + saved["id"] + "/rename", {"name":"VAULT_FIXTURE_ROTATED","revision":1})
+                    assert renamed["revision"] == 2 and renamed["name"] == "VAULT_FIXTURE_ROTATED"
+                    request(endpoint + "/" + saved["id"] + "/remove", {"revision":2})
+                    assert request(endpoint)["entries"] == []
+                    assert all(synthetic.encode() not in file.read_bytes() for file in journal.parent.glob("workspace.sqlite3*"))
                     return
                 if focus == "vault":
                     endpoint = "/api/vault"

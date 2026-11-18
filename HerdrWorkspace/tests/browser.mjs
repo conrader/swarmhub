@@ -1126,8 +1126,29 @@ async function verifyVault() {
   await evaluate(`document.getElementById("vault-value").value = "fixture replacement secret";
     document.getElementById("vault-form").requestSubmit();`);
   await check('Boolean(' + replace + ') && document.getElementById("vault-status").textContent === "Secret saved."');
-  await evaluate('window.confirm = () => true; document.querySelector(\'#vault-list [aria-label="Remove for Browser fixture"]\').click()');
-  await check('!(' + replace + ') && document.getElementById("vault-status").textContent === "Secret removed."');
+  await evaluate(`document.querySelector('#vault-list [aria-label="Rename for Browser fixture"]').click()`);
+  await check('document.getElementById("vault-value").hidden && document.getElementById("vault-value").value === "" && document.activeElement.id === "vault-name"');
+  await evaluate(`document.getElementById("vault-name").value = "Renamed fixture";
+    document.getElementById("vault-form").requestSubmit();`);
+  await check('document.getElementById("vault-list").textContent.includes("Renamed fixture") && document.getElementById("vault-status").textContent === "Secret renamed."');
+  await evaluate(`window.confirm = () => true; document.querySelector('#vault-list [aria-label="Remove for Renamed fixture"]').click()`);
+  await check('!document.getElementById("vault-list").textContent.includes("Renamed fixture") && document.getElementById("vault-status").textContent === "Secret removed."');
+}
+
+async function verifyVaultRequest() {
+  await check('document.getElementById("vault-request-dialog").open');
+  await check('document.getElementById("vault-request-name").textContent === "VAULT_FIXTURE_TOKEN" && document.activeElement.id === "vault-request-value"');
+  await check('document.getElementById("vault-request-bot").textContent.includes("vault-requester") && document.getElementById("vault-request-label").textContent === "Report credential"');
+  await check('document.getElementById("vault-request-description").textContent === "Read the synthetic report" && document.getElementById("vault-request-value").type === "password"');
+  await evaluate(`document.getElementById("vault-request-value").value = "fixture-browser-private-value";
+    document.getElementById("vault-request-form").requestSubmit();`);
+  await check('!document.getElementById("vault-request-dialog").open && document.getElementById("vault-request-value").value === ""');
+  await check('document.getElementById("vault-request-dialog").open && document.getElementById("vault-request-name").textContent === "VAULT_FIXTURE_CANCEL"');
+  await evaluate('document.getElementById("vault-request-cancel").click()');
+  await check('!document.getElementById("vault-request-dialog").open');
+  await evaluate('document.getElementById("vault-open").click()');
+  await check('document.getElementById("vault-list").textContent.includes("VAULT_FIXTURE_TOKEN") && !document.body.innerText.includes("fixture-browser-private-value")');
+  await evaluate('document.getElementById("vault-close").click()');
 }
 
 async function verifySlackEvents() {
@@ -2447,6 +2468,9 @@ try {
     await check('document.getElementById("core-status").textContent === "Herdr Core disconnected" && !document.getElementById("vault-open").disabled');
     await verifyVault();
     console.log("Chrome verified write-only vault entry management with Core offline.");
+  } else if (focus === "vault-request") {
+    await verifyVaultRequest();
+    console.log("Chrome verified masked Vault request approval and cancellation.");
   } else if (focus === "webhook-review") {
     await check('document.getElementById("core-status").textContent === "Herdr Core connected" && !document.getElementById("routines-open").disabled');
     await verifyWebhookReview();

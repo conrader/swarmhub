@@ -806,6 +806,28 @@ An agent can suggest a preference, correction, or instruction through `swarmhub-
 
 When starting another session, review the saved text and uncheck **Include saved standing instructions** if you don't want it sent to that runtime. The instructions and first task together must fit within 16 KiB. The conversation shows the exact version attached to the launch; editing or clearing the profile affects future sessions and leaves past launch records alone. A fresh session receives these instructions without automatically replaying old chats or transferring model memory.
 
+## Vault
+
+Use **Settings → Vault** on Mac or **Vault** in the browser to list names, add, rename or delete a secret. The browser also supports replacing values and shows configured connector bindings. Enter single-line values of up to 4096 bytes in a Vault password field. Saved entries show their names. The bridge has no HTTP endpoint for reading values.
+
+A Claude Code, Codex or OpenCode session launched by SwarmHub can request a credential with its installed bridge binary. Use `"$SWARMHUB_PUBLISHER"` if `swarmhub-herdr` is outside the session’s PATH.
+
+```sh
+swarmhub-herdr vault request --name GH_TOKEN --label "GitHub token" --description "Read repository metadata"
+swarmhub-herdr vault status --name GH_TOKEN
+swarmhub-herdr vault exec --name GH_TOKEN -- gh repo view
+```
+
+The request opens a separate sheet on Mac or a modal in the browser. It shows the requesting bot, name, label and purpose. Pick **Save** for a new value, **Allow once** for a name already saved, or **Cancel**. A request expires after 15 minutes. Approval applies once to the exact session and saved revision, and expires after five minutes. Rename, replacement and deletion invalidate unused approvals. Use repeated `--name` flags when one command needs several separately approved credentials. Use the same capitalization in all three commands. Request and status output contains only a status and the name.
+
+On a Mac-hosted bridge, the default backend is the bridge user’s login Keychain. Generic-password items use a service name derived from the canonical workspace data directory. The journal holds metadata and references. Use the same macOS user and workspace directory when reopening the Vault. When the native app connects to another host, that workspace’s bridge owns storage. Use an SSH port forward for remote access.
+
+On Linux, create a private key file containing 32 random bytes encoded as 64 hexadecimal characters. For a new file, run `(umask 077; set -C; openssl rand -hex 32 > /private/path/vault-key)` and configure the bridge’s `SWARMHUB_VAULT_KEY_FILE` with the absolute path. The bridge encrypts journal values with AES-256-GCM and a fresh nonce per write. Keep the key and journal backups separately protected. Keep using the same key file for an existing file-backed workspace, including on Mac. Start new agent sessions after configuring the file so they inherit its path.
+
+`vault exec` runs locally in the agent’s existing process context and injects only the approved names into the child environment. The child receives no terminal input. Before releasing stdout or stderr, the wrapper masks the literal values and common JSON, URL and Base64 representations. It discards streams over 1 MiB. SwarmHub’s normal tool, terminal, history and event paths receive the filtered output. Use a trusted command that reads credentials directly from its environment. Commands can write files, contact external services or transform a value in ways the filter cannot recognize. The workspace’s shared OS account remains the trust boundary. Execution requires that the agent’s existing sandbox can access the local journal and configured credential backend.
+
+The authenticated HTTP routes list metadata at `GET /api/vault` and `GET /api/vault/requests`. `POST /api/vault/requests/{id}` accepts `{"action":"save","value":"…"}` for new values, `{"action":"save"}` for existing entries and `{"action":"cancel"}` for cancellation. Entry changes use `POST /api/vault/{id}/rename`, `/replace` or `/remove` with the current revision. Responses contain metadata or status only.
+
 ## Send and receive files
 
 Use **Attach files** from a running agent’s composer, drop files onto it, or paste a screenshot into the task field. Review or remove up to four files totaling 8 MiB. When you choose **Send task**, Herdr stages the files and the task tells the agent where to find them. If a file cannot be staged, the task is held and you can edit the draft or try again. A reload remembers which files you chose and asks you to select them again or continue without them. Staging requires a Core with `terminal.put`.

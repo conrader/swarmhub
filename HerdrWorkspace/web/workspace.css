@@ -370,6 +370,7 @@ dialog h2 { margin:0; font-size:1.35rem; }
 dialog label { display:block; font-weight:650; margin:12px 0 5px; }
 dialog p { margin:9px 0; color:var(--muted); }
 dialog p.error { color:var(--error); }
+#vault-request-dialog p { overflow-wrap:anywhere; }
 dialog input,dialog select,dialog textarea { width:100%; min-height:44px; padding:9px; border:1px solid var(--line); border-radius:8px; background:var(--canvas); }
 .dialog-actions { justify-content:flex-end; margin-top:16px; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

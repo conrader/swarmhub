@@ -352,9 +352,24 @@
     </section>
     <form id="vault-form" hidden autocomplete="off">
       <label for="vault-name">Name</label><input id="vault-name" required maxlength="80">
-      <label for="vault-value">Secret value</label><input type="password" id="vault-value" required maxlength="4096" autocomplete="new-password" spellcheck="false">
+      <label for="vault-value" id="vault-value-label">Secret value</label><input type="password" id="vault-value" required maxlength="4096" autocomplete="new-password" spellcheck="false">
       <p class="subtle">The value won’t be shown after saving.</p>
       <div class="dialog-actions"><button id="vault-cancel" type="button">Cancel</button><button id="vault-save" type="submit" class="primary">Save secret</button></div>
+    </form>
+  </dialog>
+  <dialog id="vault-request-dialog" aria-labelledby="vault-request-heading" aria-describedby="vault-request-description">
+    <div class="details-header"><h2 id="vault-request-heading">Vault request</h2></div>
+    <p id="vault-request-bot"></p>
+    <p><strong id="vault-request-label"></strong> <code id="vault-request-name"></code></p>
+    <p id="vault-request-description"></p>
+    <p id="vault-request-status" role="status" hidden></p>
+    <form id="vault-request-form" autocomplete="off">
+      <label id="vault-request-value-label" for="vault-request-value">Secret value</label>
+      <input id="vault-request-value" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false">
+      <div class="dialog-actions">
+        <button id="vault-request-cancel" type="button">Cancel</button>
+        <button id="vault-request-save" type="submit" class="primary">Save</button>
+      </div>
     </form>
   </dialog>
   <dialog id="attention-dialog" aria-labelledby="attention-heading">

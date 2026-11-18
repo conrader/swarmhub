@@ -70,6 +70,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("propose-routine") => crate::routine_proposals::publish(),
         Some("propose-memory") => crate::memory_proposals::publish(),
         Some("propose-email") => crate::email_drafts::publish(),
+        Some("vault") => crate::vault::cli(),
         Some("drive-list") => crate::drive_access::cli(false),
         Some("drive-read") => crate::drive_access::cli(true),
         Some("version" | "--version") => crate::update::cli_version(),
@@ -103,6 +104,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
                 "Skills: propose-skill (name, summary, and instructions JSON on standard input)"
             );
             println!("Pages: publish-page TITLE, read-page PAGE_ID, update-page PAGE_ID REVISION");
+            println!("{}", crate::vault::USAGE);
             println!("{}", crate::helpers::cli::USAGE);
             println!("{}", crate::projects::cli::USAGE);
             println!("{}", crate::bots::cli::USAGE);

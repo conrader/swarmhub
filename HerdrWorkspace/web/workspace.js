@@ -110,6 +110,7 @@ async function api(path, body, raw = false) {
     if (body !== undefined && !multipart) headers["Content-Type"] = raw ? "application/octet-stream" : "application/json";
     response = await fetch(path, body === undefined ? { headers } : {
       method: "POST", headers, body: raw || multipart ? body : JSON.stringify(body),
+      redirect: path.startsWith("/api/vault") ? "error" : "follow",
     });
   } catch {
     throw new Error(body === undefined ? "Cannot reach the workspace server."
