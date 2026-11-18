@@ -241,10 +241,4 @@ extension AppStore {
         return added.map(\.name)
     }
 
-    /// Forgets the settings the app kept for a bot of an older version that was removed (`removeLegacyBots`).
-    func forgetBotSettings(_ id: UUID) {
-        for key in [HerdrServer.botKey(id), HerdrBackend.botTemplateKey(id), HerdrBackend.botModelKey(id), HerdrBackend.botSteerKey(id),
-                    Self.herdrHelpersKey(id), Self.herdrAsksFirstKey(id), Self.herdrAskTimesKey(id), Self.herdrCreateTimesKey(id),
-                    Self.herdrProjectsKey(id), Self.herdrProjectsChangedKey(id), Self.herdrKeepsReadyKey(id)] { defaults.removeObject(forKey: key) }
-    }
 }

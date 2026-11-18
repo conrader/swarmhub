@@ -202,7 +202,7 @@ Stated plainly, so nobody assumes more than there is.
 | Server: `~/.config/swarmhub-herdr/token` | The access key |
 | Server: `backups/`, `update.json` in the bridge's data folder; `swarmhub-herdr.previous` beside the binary | The journal backups an update makes (the newest three), the record of the last update, and the program it replaced |
 
-Older versions of the app ran bots on two other backends, which were removed. When the app opens a store that still holds such bots, it first copies the file unchanged to `store.json.before-herdr-only-<time>`, then saves the store without them and says once how many bots were left out and where the copy is. Nothing is migrated (`Models/LegacyStore.swift`). A `store.json` that cannot be read is moved aside, never deleted.
+If SwarmHub cannot open `store.json`, it moves the complete file aside as `store.json.corrupt-<time>` and offers the newest readable backup, if one is available.
 
 ## Where each part lives
 

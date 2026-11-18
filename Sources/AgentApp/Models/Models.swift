@@ -2,8 +2,6 @@ import Combine
 import Foundation
 
 /// What runs a bot's agent. Every real bot is a Herdr agent; `mock` answers locally for the sample agents and tests.
-/// A store written by an older build may name a backend that no longer exists: `StoreFile` leaves those bots out
-/// (`LegacyStore`), so this type never sees them.
 enum BackendKind: String, Codable, CaseIterable, Identifiable {
     case mock = "Mock", herdr = "Herdr"
     var id: String { rawValue }
@@ -115,8 +113,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     var outboundPersona: String { grokSourceID == nil ? persona : SecretFilter.redacted(persona, replacement: GrokRedactor.marker) }
     static func ==(lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    /// `hermesSessionID` is the name `sessionID` was saved under before; it is read, never written.
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, hermesSessionID, isDemo, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -124,7 +121,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         let legacyAvatar: BotAvatarName = ["Atlas": .robot, "Mira": .blob, "Patch": .headphones, "Scout": .fox, "Nova": .planet][decodedName] ?? .robot
         avatarName = try c.decodeIfPresent(BotAvatarName.self, forKey: .avatarName) ?? legacyAvatar; unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
         isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false; notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
-        sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID) ?? c.decodeIfPresent(String.self, forKey: .hermesSessionID)
+        sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
         isDemo = try c.decodeIfPresent(Bool.self, forKey: .isDemo) ?? Bot.looksLikeLegacyDemo(name: decodedName, backend: decodedBackend)
         accentColor = try c.decodeIfPresent(String.self, forKey: .accentColor)
         grokSourceID = try c.decodeIfPresent(String.self, forKey: .grokSourceID); grokHistoryCount = try c.decodeIfPresent(Int.self, forKey: .grokHistoryCount) ?? 0

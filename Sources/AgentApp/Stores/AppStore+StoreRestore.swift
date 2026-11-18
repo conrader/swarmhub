@@ -11,8 +11,7 @@ extension AppStore {
         let staged = directory.appending(path: "store.json.restoring-\(UUID().uuidString).tmp")
         defer { try? manager.removeItem(at: staged) }
         do {
-            let original = try Data(contentsOf: offer.url)
-            let file = try StoreFile.decode(original)
+            let file = try StoreFile.decode(Data(contentsOf: offer.url))
             // The copy is made first; store.json is only moved aside once it exists, and put back if the swap fails.
             try manager.copyItem(at: offer.url, to: staged)
             var setAside: URL?
@@ -24,7 +23,7 @@ extension AppStore {
             do { try manager.moveItem(at: staged, to: fileURL) }
             catch { if let setAside { try? manager.moveItem(at: setAside, to: fileURL) }; throw error }
             storeRestoreOffer = nil
-            adoptRestoredStore(file, original: original)
+            adoptRestoredStore(file)
             migrateSampleBots()
             selectVisibleChat()
             storeRestoreNote = StoreRestoreCopy.restored(offer.botCount)

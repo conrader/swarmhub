@@ -154,10 +154,6 @@ The new bot runs on the same server, with the same runtime and model as the main
 
 A bot is told how to start helpers ([Let an agent start helpers](#let-an-agent-start-helpers)) unless its **Advanced → Helper agents → Can start helper agents** switch is off. Running helpers show under the bot in the sidebar, and each opens as a read-only view of its task, tool calls, replies, and terminal. **Settings → Advanced → Servers and keys** reads and edits the server's helper settings.
 
-### Stores from older versions
-
-Older versions also ran bots on two other backends, which were removed. When the app opens a store that holds such bots, it first copies the file as it was to `store.json.before-herdr-only-<time>` beside it, then loads and saves the store without those bots and tells you once how many were left out and where the copy is.
-
 ## Install the browser workspace
 
 Open SwarmHub on a device that can reach a secure workspace address. In the roster, choose **Install workspace** for instructions or use the browser’s install option when it’s offered. On [iPhone or iPad](https://support.apple.com/en-az/guide/iphone/iphea86e5236/26/ios/26), use Safari’s **Share → Add to Home Screen**, turn on **Open as Web App** if shown, and choose **Add**. In [Chrome on Android](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid), use the menu’s **Install** or **Add to home screen** option.

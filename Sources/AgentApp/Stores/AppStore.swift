@@ -87,8 +87,6 @@ import UserNotifications
     @Published var storeRestoreOffer: StoreRestore.Offer?; @Published var storeRestoreNote: String?
     /// This launch moved an unreadable store.json aside (so saving is off until Restore or Start fresh).
     private(set) var unreadableStoreSetAside = false
-    /// The line that says bots of an older version were removed and where the backup is (`LegacyStore`); shown until dismissed.
-    @Published var legacyNotice: String?
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     /// Prepended to every session id the app creates (chat, group).
     var sessionNamespace = ""
@@ -99,8 +97,7 @@ import UserNotifications
     var launchWorkEnabled = false
 
     /// `autoStart`: the launch work a real window does. Tests and headless commands pass false.
-    /// `readOnly`: the store is read and never written (`--render-snapshot`): no save, no backup, no one-time
-    /// migration, no setting. Bots of an older version are then only left out of what is shown.
+    /// `readOnly`: opening the store for `--render-snapshot` leaves the store file and settings untouched.
     init(demoMode: Bool = false, storeURL: URL? = nil, autoStart: Bool = true, readOnly: Bool = false, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, keyStore: any KeyStore = KeychainKeyStore(), defaults: UserDefaults = .standard, connectivity: (any ConnectivitySource)? = nil) {
         // A test run never opens the real store.json or the standard defaults; either is reported and replaced.
         var storeURL = storeURL, defaults = defaults
@@ -119,19 +116,18 @@ import UserNotifications
             loadDemoData(includeActivity: true)
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                let original = try Data(contentsOf: fileURL)
-                let file = try StoreFile.decode(original)
-                // The backup comes before anything this launch may write.
-                let backup = backUpOlderStore(file, original: original)
-                adoptStoreFile(file)
-                if let backup { removeLegacyBots(file.removedBots, backup: backup) }
+                adoptStoreFile(try StoreFile.decode(Data(contentsOf: fileURL)))
             } catch {
                 persistenceEnabled = false
-                let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
-                let backup = fileURL.deletingLastPathComponent().appending(path: "store.json.corrupt-\(stamp)")
-                do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true }
-                catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
-                if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
+                if readOnly {
+                    errorMessage = "Could not read store.json: \(error.localizedDescription)"
+                } else {
+                    let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+                    let backup = fileURL.deletingLastPathComponent().appending(path: "store.json.corrupt-\(stamp)")
+                    do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true }
+                    catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
+                    if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
+                }
             }
             if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
             // A store set aside unreadable is offered back, never replaced.
@@ -140,7 +136,7 @@ import UserNotifications
             storeRestoreOffer = offer
         }
         // A fresh install starts empty; the setup window or "Look around with sample agents" fills it.
-        if !demoMode, !readOnly { legacyNotice = defaults.string(forKey: LegacyStore.noticeKey); migrateSampleBots(); restoreLedger() }
+        if !demoMode, !readOnly { migrateSampleBots(); restoreLedger() }
         selectVisibleChat()
         launchWorkEnabled = !demoMode && autoStart
         if connectivity != nil { listenForConnectivity() }
@@ -154,41 +150,10 @@ import UserNotifications
         if !migrateArchivedGroups().isEmpty { save() }
     }
 
-    /// A store an older build wrote (`LegacyStore`): the file is copied, byte for byte as it was read, to a dated backup
-    /// beside it, before this launch writes anything. Returns the backup, or nil for a store this build wrote itself.
-    /// Without a backup nothing is written: saving is off for the launch.
-    func backUpOlderStore(_ file: StoreFile, original: Data) -> URL? {
-        guard file.isOlder, persistenceEnabled else { return nil }
-        do { return try LegacyStore.writeBackup(original, store: fileURL, now: now()) }
-        catch { persistenceEnabled = false; errorMessage = LegacyStore.backupFailed; return nil }
-    }
-
-    /// After the backup: the store is saved as this build keeps it, so the next launch finds nothing to back up. Bots
-    /// of a removed backend are gone from it with what only belonged to them (their place in groups, a group that had
-    /// no other member, their settings); bots that run on Herdr are not touched. When bots were removed the person is
-    /// told once, in one line that stays until it is dismissed.
-    func removeLegacyBots(_ removed: [LegacyStore.RemovedBot], backup: URL) {
-        guard !removed.isEmpty else { save(); return }
-        let gone = Set(removed.map(\.id)), kept = Set(bots.map(\.id))
-        let touched = Set(groups.filter { !gone.isDisjoint(with: $0.memberIDs) }.map(\.id))
-        for group in groups { group.memberIDs.removeAll { gone.contains($0) } }
-        // A group that lost a member and has no bot left to answer in it goes with them.
-        groups.removeAll { touched.contains($0.id) && kept.isDisjoint(with: $0.memberIDs) }
-        if selectedGroup.map({ selected in !groups.contains { $0 === selected } }) == true { selectedGroup = nil }
-        for id in gone { forgetBotSettings(id) }
-        let notice = LegacyStore.notice(removed: removed.count, backup: backup)
-        defaults.set(notice, forKey: LegacyStore.noticeKey); legacyNotice = notice
-        save()
-    }
-
-    func dismissLegacyNotice() { defaults.removeObject(forKey: LegacyStore.noticeKey); legacyNotice = nil }
-
     /// A restored store is this launch's store again, saved as store.json.
-    func adoptRestoredStore(_ file: StoreFile, original: Data) {
+    func adoptRestoredStore(_ file: StoreFile) {
         persistenceEnabled = true; unreadableStoreSetAside = false
-        let backup = backUpOlderStore(file, original: original)
         adoptStoreFile(file)
-        if let backup { removeLegacyBots(file.removedBots, backup: backup) }
         if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
     }
     /// Start fresh after an unreadable store.json was moved aside: this window saves again, as a fresh install would.

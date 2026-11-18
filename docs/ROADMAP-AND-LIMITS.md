@@ -61,10 +61,6 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 - A bot imported from Grok Bot gets its old history as a read-only archive. The history is not sent to the bot's new agent.
 - A template import uses the name, title, description, instructions and avatar. The import report lists what else the template held and was left out.
 
-## Removed backends
-
-- Older versions ran bots on two other backends, which are gone. Bots that ran on them are not loaded; the store is backed up first ([Features](FEATURES.md#stores-from-older-versions)).
-
 ## Other platforms
 
 - There is no iPhone app. A phone cannot reach the bridge today: it answers only on the machine it runs on. `Apps/iOS-seed` keeps starting material for one ([README](../Apps/iOS-seed/README.md)).

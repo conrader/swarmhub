@@ -29,19 +29,8 @@ struct ContentView: View {
             .overlay(alignment: .top) { StoreRestorePrompt() }
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                // Transient network trouble is this line, never the alert below.
-                if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.errorMessage = nil } }
-                // Bots of an older version were removed when the store was opened (`LegacyStore`): said once, until dismissed.
-                if let notice = store.legacyNotice {
-                    HStack(spacing: 12) {
-                        Image(systemName: "info.circle").accessibilityHidden(true)
-                        Text(notice).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                        Button("Dismiss") { store.dismissLegacyNotice() }
-                            .accessibilityLabel("Dismiss the note about removed bots")
-                    }.font(.callout).padding(12).background(.regularMaterial)
-                }
-            }
+            // Transient network trouble is this line, never the alert below.
+            if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.errorMessage = nil } }
         }
         .task { store.startHerdrHelperPolling(); store.startLaunchWork(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
         // "New agent" with no server opens the setup window instead of an editor whose bot could not answer.

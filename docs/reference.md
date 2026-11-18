@@ -55,7 +55,7 @@ The app keeps its data in `~/Library/Application Support/AgentApp/`:
 | `artifacts/` | Saved documents. |
 | `grok-history/` | Read-only history imported from Grok Bot, one file per bot or group. |
 
-A `store.json` that cannot be read is moved aside as `store.json.corrupt-<time>`, and the app offers to restore the newest readable copy. A store from an older version that holds bots of a removed backend is copied to `store.json.before-herdr-only-<time>` before those bots are left out.
+If SwarmHub cannot open `store.json`, it moves the complete file aside as `store.json.corrupt-<time>` and offers the newest readable backup, if one is available.
 
 The server list, each bot's server, template and model, "About you", and other preferences are in the app's `UserDefaults`. Access tokens are in the Keychain. For an SSH server the app saves the path of the key file, never the key.
 

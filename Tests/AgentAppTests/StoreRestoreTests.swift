@@ -134,3 +134,43 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     let next = launch(url, defaults)
     #expect(Set(next.bots.map(\.name)) == ["Boppy", "Jarvis"] && next.storeRestoreOffer == nil)
 }
+
+@Test @MainActor func anUnsupportedStoreIsSetAsideWholeWithoutRewritingIt() throws {
+    let (url, defaults) = try setup()
+    let valid = try JSONEncoder().encode(StoreFile(bots: [Bot(name: "Current", backend: .herdr)], groups: []))
+    var file = try #require(JSONSerialization.jsonObject(with: valid) as? [String: Any])
+    let bots = try #require(file["bots"] as? [[String: Any]])
+    var unsupported = try #require(bots.first)
+    unsupported["id"] = UUID().uuidString
+    unsupported["backend"] = "Unsupported"
+    file["bots"] = bots + [unsupported]
+    let original = try JSONSerialization.data(withJSONObject: file)
+    try original.write(to: url)
+
+    let store = launch(url, defaults)
+    #expect(store.bots.isEmpty && !store.persistenceEnabled)
+    #expect(store.unreadableStoreSetAside && store.storeRestoreOffer == nil)
+    #expect(!FileManager.default.fileExists(atPath: url.path))
+    let directory = url.deletingLastPathComponent()
+    let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+    let preserved = try #require(files.first { $0.lastPathComponent.hasPrefix("store.json.corrupt-") })
+    #expect(try Data(contentsOf: preserved) == original)
+}
+
+@Test @MainActor func aReadOnlyOpenLeavesAnUnreadableStoreInPlace() throws {
+    let (url, defaults) = try setup()
+    let original = Data("{ not json".utf8)
+    try original.write(to: url)
+
+    let store = AppStore(storeURL: url, autoStart: false, readOnly: true, keyStore: InMemoryKeyStore(), defaults: defaults)
+    #expect(!store.persistenceEnabled && !store.unreadableStoreSetAside)
+    #expect(store.errorMessage != nil)
+    #expect(try Data(contentsOf: url) == original)
+}
+
+@Test func aVersionOneStoreWithSupportedBotsStillDecodes() throws {
+    let data = try JSONEncoder().encode([Bot(name: "Current", backend: .herdr, sessionID: "session-1")])
+    let file = try StoreFile.decode(data)
+    #expect(file.version == 1 && file.bots.map(\.name) == ["Current"] && file.groups.isEmpty)
+    #expect(file.bots.first?.sessionID == "session-1")
+}
