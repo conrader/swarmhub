@@ -4,7 +4,7 @@
 
 ## 0.8.0 (build 34)
 
-The first release on Herdr Core.
+The first release on Herdr Core. Bots from earlier versions do not carry over; the app saves a copy of the old data and removes them on first launch.
 
 - Bots run on Herdr Core. A bot is one agent on a Herdr server: an agent program such as Claude Code or Codex in a terminal there, reached through the SwarmHub bridge (`HerdrWorkspace/`, `swarmhub-herdr`). How the parts fit together is in [Architecture](architecture.md).
 - A setup window that ends in the main bot's chat: where bots run (**This Mac**, or **A server** over SSH with the port forward opened by the app; a server by address and access key is under **Advanced**), a connection check that says what is wrong, the main bot, optional bots for the server's other agent programs.
@@ -33,7 +33,10 @@ The first release on Herdr Core.
 - The first conversation: a main bot that the setup window has just created says hello and asks a few short questions, each of which can be skipped. What it learns is offered above the composer and kept, only with your OK, as **About you** (Settings → General), a short text every bot reads. An earlier main bot offers the same once; **Get to know me** asks for it again.
 - Software Update, a new pane in Settings: the app (through Sparkle, checked once a day without a window), and for each server the version of the bridge and of Herdr Core, with one button when something is behind. A server installs a signed release of the bridge itself, keeps its agents running through the restart, and goes back to the previous version when the new one does not start. One script makes a release, and an update can be rehearsed without credentials. See [Updates](updates.md).
 - Documentation brought in line with the interface after these changes: the README, the guide, the feature list (checked item by item against the code), the architecture document, the reference and the limits.
-- The earlier iPhone app, the two Swift packages only it used, and the earlier server update-bundle tooling are deleted. The Mac app's own updates (Sparkle) were not part of that tooling and stay. What an iPhone app for Herdr could reuse (two SwiftUI source files, the app icon, the screen drawings) is kept in `Apps/iOS-seed`, which is not an app and does not build.
+- Herdr only: the Hermes and OpenClaw backends are removed, with every feature that only worked with them: profiles and keys on a Hermes box, the bot manager and SwarmHub skills, routines, heartbeats, webhooks, off-app alerts, reports, usage, approvals and device approvals, connected apps, the ChatGPT connection and live voice, threads, workflows and team coordination, goals and loops, the box updater, QA mode and UI acceptance mode, and the Computer tab. The app now runs bots only as agents on Herdr Core, through the SwarmHub bridge.
+- A store written by an older version is first copied as it was to `store.json.before-herdr-only-<time>` beside it, once. Hermes and OpenClaw bots in it are then left out: the store is saved without them, and the app says once how many bots were removed and where the copy is. Bots on Herdr keep their name, avatar, instructions and chat.
+- Scripts, tests, fixtures and documents that only served the removed backends are deleted. Entries below describe earlier versions as they were; some of the documents they link to no longer exist.
+- The earlier iPhone app, the two Swift packages only it used, and the signed update-bundle tooling for servers of the removed backends are deleted. The Mac app's own updates (Sparkle) were not part of that tooling and stay. What an iPhone app for Herdr could reuse (two SwiftUI source files, the app icon, the screen drawings) is kept in `Apps/iOS-seed`, which is not an app and does not build.
 
 ## 0.6.8 (build 33)
 
