@@ -8,6 +8,12 @@
 - A bot whose project holds a skillshare project of its own can show that project's library.
 - The bridge's API is at level 2 for this (`/api/skillshare/library` and the routes beside it, in the [bridge manual](../HerdrWorkspace/README.md#manage-the-servers-skillshare-library)). An MCP server's secret values never leave the server. A server still at level 1 keeps the list of skill switches until it is updated.
 
+## 0.8.2 (build 36)
+
+- Retired Hermes and OpenClaw integrations are removed. Stores from older releases still load their Herdr bots and groups, with references to retired bots dropped.
+- Workspace 0.2.2 adds the Vault for securely entering secrets from the Mac app or browser and approving credential use by managed agents.
+- Vault approvals stay tied to the requesting session. Reusable approvals enforce their time and use limits, and Vault masks credential values in captured command output.
+
 ## 0.8.0 (build 34)
 
 The first release on Herdr Core. Bots from earlier versions do not carry over; the app saves a copy of the old data and removes them on first launch.
