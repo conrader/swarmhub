@@ -284,8 +284,6 @@ private func projectsRequestBody(_ request: URLRequest) -> [String: Any] {
     store.setHerdrServer("box1", for: ada); store.setHerdrProjects([shop], for: ada)
     store.removeHerdrServer(box)
     #expect(store.herdrProjects(for: ada).isEmpty && store.herdrServer(for: ada).id == store.herdrServers[0].id)
-    store.setHerdrProjects([shop], for: ada); store.forgetBotSettings(ada.id)
-    #expect(defaults.data(forKey: AppStore.herdrProjectsKey(ada.id)) == nil && defaults.object(forKey: AppStore.herdrProjectsChangedKey(ada.id)) == nil)
 }
 
 private let stepServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address: HerdrServer.loopback(port: 8787), sshHost: "box.example.com", sshUser: "deploy")

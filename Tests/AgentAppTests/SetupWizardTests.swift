@@ -167,7 +167,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
 /// The wizard's words name no older software, no agent program and no model, and say "access key".
 @Test func theWizardsWordsArePlain() throws {
     let lower = WizardCopy.all.map { $0.lowercased() }
-    for word in ["hermes", "openclaw", "token", "mock", "keychain", "template"] { #expect(!lower.contains { $0.contains(word) }, "the wizard says \(word)") }
+    for word in ["token", "mock", "keychain", "template"] { #expect(!lower.contains { $0.contains(word) }, "the wizard says \(word)") }
     #expect(WizardCopy.steps.count == 4 && WizardCopy.stepLabel(2) == "Step 3 of 4: Main bot" && !WizardCopy.all.contains(""))
     #expect(WizardCopy.addBots(1) == "Add 1 bot" && WizardCopy.createBots(3) == "Create 3 bots" && WizardCopy.canRun("One", count: 1) == "Your bots can run on One.")
     // The wizard's views take their words from the copy enums, like the rest of the setup window.

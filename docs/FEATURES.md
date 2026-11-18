@@ -135,6 +135,6 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 - A server whose workspace is from before it could update itself is reported as needing an update by hand, once.
 - How it works, what is trusted and the release steps: [Updates](updates.md).
 
-## Stores from older versions
+## Recovering a saved store
 
-- Older versions also ran bots on two other backends, which were removed. A store that holds such bots is first copied as it was to `store.json.before-herdr-only-<time>` beside it. The app then loads and saves the store without those bots and says once how many were left out and where the copy is.
+If SwarmHub cannot open `store.json`, it moves the complete file aside as `store.json.corrupt-<time>` and offers the newest readable backup, if one is available.

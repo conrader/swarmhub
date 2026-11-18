@@ -51,7 +51,7 @@ Details: [Features](docs/FEATURES.md).
 
 ## Quick start
 
-The native app requires macOS 14 or later. Check the version on the [releases page](https://github.com/conrader/swarmhub/releases). The Herdr-based app starts at 0.8.0. The new welcome screen and run summaries described here are in this checkout. For an upgrade from 0.6.x, read the [migration note](docs/releases/v0.8.0.md) first.
+The native app requires macOS 14 or later. Check the version on the [releases page](https://github.com/conrader/swarmhub/releases). The Herdr-based app starts at 0.8.0. The new welcome screen and run summaries described here are in this checkout.
 
 1. Open the packaged app, or run `./scripts/run.sh` from this checkout on a Mac with Xcode.
 2. Choose **Codex**, **Claude Code**, **Both**, or **API provider**, then **Set up on this Mac**. For Codex, Recommended prefers Sol, then Terra. With Claude Code, it prefers Sonnet. For API access, connect OpenRouter or another provider in OpenCode and use its configured default or choose a listed model such as DeepSeek or Qwen. **Set Up This Mac** installs Herdr Core and the SwarmHub service if needed. For a remote machine, use the [server setup guide](docs/guide.md#get-started).

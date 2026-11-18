@@ -93,7 +93,7 @@ import Testing
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSetup-\(UUID().uuidString)")
     var lines: [String] = []
     #expect(await HeadlessSetup.render(to: directory, output: { lines.append($0) }) == 0, "\(lines)")
-    let expected = HeadlessHerdrShots.names + ["empty-state", "legacy-notice"]
+    let expected = HeadlessHerdrShots.names + ["empty-state"]
     var sizes: [String: Int] = [:]
     for name in expected {
         let data = try Data(contentsOf: directory.appending(path: "\(name).png"))

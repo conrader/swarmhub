@@ -4,9 +4,8 @@ import Foundation
 /// it). When the store is missing, unreadable or empty, the newest set-aside file that this build decodes with a bot
 /// in it is offered back in a chat-style prompt; nothing is restored without the user's press.
 enum StoreRestore {
-    /// Files never offered: what a restore set aside itself, the backup made before bots of an older version were
-    /// removed (`LegacyStore`: this build would leave those bots out again), and partial writes.
-    static let excludedMarkers = [".before-restore-", LegacyStore.backupMarker, ".tmp", ".partial"]
+    /// Skip files set aside during a restore and partial writes.
+    static let excludedMarkers = [".before-restore-", ".tmp", ".partial"]
     /// Every candidate is tried, newest first, so newer unusable copies never hide an older good one. The bounds only keep
     /// a directory full of junk from stalling launch: at most this many files, none bigger than this.
     static let candidateLimit = 500, maxCandidateBytes = 512 << 20

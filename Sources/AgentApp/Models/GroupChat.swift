@@ -61,12 +61,6 @@ struct StoreFile: Codable {
     var version = StoreFile.currentVersion; var bots: [Bot]; var groups: [GroupChat]
     /// Each chat's top visible message (conversation id → message id); absent while empty.
     var scrollPositions: [String: String]?
-    /// Not saved: the bots this file held for a backend this build no longer has (`LegacyStore`). They are left out of
-    /// `bots`; `AppStore` backs the file up before it writes the store without them.
-    var removedBots: [LegacyStore.RemovedBot] = []
-    /// Not saved: an older build wrote this file (it holds bots or keys this build does not keep), so it is backed up
-    /// once before this build writes it.
-    var isOlder = false
 
     init(bots: [Bot], groups: [GroupChat], scrollPositions: [String: String]? = nil) {
         self.bots = bots; self.groups = groups; self.scrollPositions = scrollPositions
@@ -76,10 +70,7 @@ struct StoreFile: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        let stored = try c.decodeIfPresent([LegacyStore.StoredBot].self, forKey: .bots) ?? []
-        bots = stored.compactMap(\.bot); removedBots = stored.compactMap(\.removed)
-        isOlder = try stored.contains { $0.isOlder || $0.removed != nil }
-            || !LegacyStore.olderStoreKeys.isDisjoint(with: decoder.container(keyedBy: LegacyStore.AnyKey.self).allKeys.map(\.stringValue))
+        bots = try c.decodeIfPresent([Bot].self, forKey: .bots) ?? []
         groups = try c.decodeIfPresent([GroupChat].self, forKey: .groups) ?? []
         scrollPositions = (try? c.decodeIfPresent([String: String].self, forKey: .scrollPositions)) ?? nil
     }
@@ -87,9 +78,8 @@ struct StoreFile: Codable {
     static func decode(_ data: Data) throws -> StoreFile {
         let first = data.first { ![0x20, 0x09, 0x0A, 0x0D].contains($0) }
         guard first == UInt8(ascii: "[") else { return try JSONDecoder().decode(StoreFile.self, from: data) }
-        let stored = try JSONDecoder().decode([LegacyStore.StoredBot].self, from: data)
-        var file = StoreFile(bots: stored.compactMap(\.bot), groups: [])
-        file.version = 1; file.removedBots = stored.compactMap(\.removed); file.isOlder = stored.contains { $0.isOlder || $0.removed != nil }
+        var file = StoreFile(bots: try JSONDecoder().decode([Bot].self, from: data), groups: [])
+        file.version = 1
         return file
     }
 }

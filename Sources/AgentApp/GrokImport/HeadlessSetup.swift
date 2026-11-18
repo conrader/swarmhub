@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// `AgentApp --render-setup <dir>`: renders the setup wizard's steps, the Settings pages, an agent's settings, the
-/// chat the wizard ends in, the empty state and the line about removed bots to PNG (`HeadlessHerdrShots`). Everything comes from a synthetic
+/// chat the wizard ends in, and the empty state to PNG (`HeadlessHerdrShots`). Everything comes from a synthetic
 /// in-memory store, key store and settings suite, and Test results are built in memory: no network, no Keychain,
 /// nothing of the real app is read or written. Refuses a directory inside the repository, like `--render-snapshot`.
 @MainActor enum HeadlessSetup {
@@ -46,10 +46,6 @@ import SwiftUI
         if only != nil { output("Rendered setup to \(directory.path); \(failures) failed"); return failures == 0 ? 0 : 1 }
         let empty = SetupPreview.makeStore(); empty.isSetupPreview = false
         write("empty-state", await png(SetupEmptyState().frame(width: settingsSize.width, height: settingsSize.height).background(AppColor.chat), store: empty, updater: updater, size: settingsSize))
-        // The line a person sees once, after a store of an older version was opened and its old bots were removed.
-        let noticed = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); noticed.isSetupPreview = false
-        noticed.legacyNotice = LegacyStore.notice(removed: 18, backup: URL(fileURLWithPath: "/Users/you/Library/Application Support/AgentApp/store.json.before-herdr-only-2026-11-17T09-00-00Z"))
-        write("legacy-notice", await SnapshotRenderer.contentPNG(store: noticed, size: NSSize(width: 1100, height: 520), scheme: scheme))
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }
