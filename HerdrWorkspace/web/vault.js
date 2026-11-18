@@ -137,6 +137,7 @@
   const input = $("vault-request-value");
   const save = $("vault-request-save");
   const cancel = $("vault-request-cancel");
+  const repeat = $("vault-request-repeat");
   let active = null, saving = false, polling = false;
   let unsupportedToken = null;
 
@@ -161,14 +162,15 @@
       }
       if (!pending.length || document.querySelector("dialog[open]")) return;
       active = pending[0];
-      $("vault-request-bot").textContent = active.bot + " requests access for one command.";
+      $("vault-request-bot").textContent = active.bot + " requests access.";
       $("vault-request-name").textContent = active.name;
       $("vault-request-label").textContent = active.label;
       $("vault-request-description").textContent = active.description;
       input.value = "";
       input.hidden = $("vault-request-value-label").hidden = !active.needs_value;
       input.required = active.needs_value;
-      save.textContent = active.needs_value ? "Save" : "Allow once";
+      repeat.checked = false;
+      updateSaveLabel();
       show("vault-request-status", "");
       dialog.showModal();
       (active.needs_value ? input : cancel).focus();
@@ -179,15 +181,19 @@
     }
   }
 
+  function updateSaveLabel() {
+    save.textContent = active?.needs_value ? "Save and allow" : repeat.checked ? "Allow repeated use" : "Allow once";
+  }
+
   async function decide(action) {
     if (saving || !active || !app.authorized) return;
     const request = active;
     const token = app.token;
     const body = {action};
-    if (action === "save" && request.needs_value) body.value = input.value;
+    if (action !== "cancel" && request.needs_value) body.value = input.value;
     input.value = "";
-    saving = save.disabled = cancel.disabled = true;
-    show("vault-request-status", action === "save" ? "Saving…" : "Cancelling…");
+    saving = save.disabled = cancel.disabled = repeat.disabled = true;
+    show("vault-request-status", action === "cancel" ? "Cancelling…" : "Saving…");
     try {
       await api("/api/vault/requests/" + encodeURIComponent(request.id), body);
       dialog.close();
@@ -197,14 +203,15 @@
         if (request.needs_value) input.focus();
       }
     } finally {
-      saving = save.disabled = cancel.disabled = false;
+      saving = save.disabled = cancel.disabled = repeat.disabled = false;
     }
   }
 
   $("vault-request-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    void decide("save");
+    void decide(repeat.checked ? "allow_repeated" : "save");
   });
+  repeat.addEventListener("change", updateSaveLabel);
   cancel.addEventListener("click", () => void decide("cancel"));
   dialog.addEventListener("cancel", (event) => {
     event.preventDefault();

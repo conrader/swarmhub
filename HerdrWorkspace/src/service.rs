@@ -448,7 +448,7 @@ fn start_core(hc: &Path, socket: &Path, path: &str) -> Result<(), Stop> {
     let ran = run_program(
         hc,
         &words(&["server", "start", "--json"]),
-        &[("PATH", path)],
+        &[("PATH", path), (crate::vault::KEY_FILE, "")],
         Duration::from_secs(60),
     );
     let until = Instant::now() + Duration::from_secs(15);

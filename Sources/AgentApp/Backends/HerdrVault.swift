@@ -26,12 +26,15 @@ enum HerdrVault {
 
     enum Decision: Sendable {
         case save(String?)
+        case allowRepeated(String?)
         case cancel
 
         var body: [String: Any] {
             switch self {
             case .save(let value?): ["action": "save", "value": value]
             case .save(nil): ["action": "save"]
+            case .allowRepeated(let value?): ["action": "allow_repeated", "value": value]
+            case .allowRepeated(nil): ["action": "allow_repeated"]
             case .cancel: ["action": "cancel"]
             }
         }

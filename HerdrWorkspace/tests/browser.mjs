@@ -1140,7 +1140,9 @@ async function verifyVaultRequest() {
   await check('document.getElementById("vault-request-name").textContent === "VAULT_FIXTURE_TOKEN" && document.activeElement.id === "vault-request-value"');
   await check('document.getElementById("vault-request-bot").textContent.includes("vault-requester") && document.getElementById("vault-request-label").textContent === "Report credential"');
   await check('document.getElementById("vault-request-description").textContent === "Read the synthetic report" && document.getElementById("vault-request-value").type === "password"');
-  await evaluate(`document.getElementById("vault-request-value").value = "fixture-browser-private-value";
+  await check('!document.getElementById("vault-request-repeat").checked');
+  await evaluate(`document.getElementById("vault-request-repeat").click();
+    document.getElementById("vault-request-value").value = "fixture-browser-private-value";
     document.getElementById("vault-request-form").requestSubmit();`);
   await check('!document.getElementById("vault-request-dialog").open && document.getElementById("vault-request-value").value === ""');
   await check('document.getElementById("vault-request-dialog").open && document.getElementById("vault-request-name").textContent === "VAULT_FIXTURE_CANCEL"');

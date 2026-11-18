@@ -7,6 +7,11 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var pendingCommand: AppCommand?
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
+    private var hasCompetingVaultSheet: Bool {
+        (store.showingNewBot && store.herdrConfigured) || store.showingTemplateImport || store.showingGrokImport
+            || store.showingNewGroup || store.editingBot != nil || store.showingCommandPalette || store.modalErrorMessage != nil
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
@@ -40,7 +45,6 @@ struct ContentView: View {
         .sheet(isPresented: $store.showingGrokImport) { GrokImportSheet(store: store) }
         .sheet(isPresented: $store.showingNewGroup) { NewGroupSheet(preselected: store.selectedGroup == nil ? Set(store.selectedBot.map { [$0.id] } ?? []) : []) }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
-        .modifier(HerdrVaultPrompts())
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in store.sidebarHidden.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .newBot)) { _ in store.showingNewBot = true }
@@ -51,6 +55,7 @@ struct ContentView: View {
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
+        .modifier(HerdrVaultPrompts(anotherSheet: hasCompetingVaultSheet))
         .alert("Something went wrong", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.modalErrorMessage ?? "") }
     }
 }

@@ -223,6 +223,9 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             "SwarmHub browser approvals unavailable; the provider can still prompt in its terminal: {error}"
         );
     }
+    if vault::listen(workspace.clone()).is_err() {
+        eprintln!("SwarmHub agent access to the Vault is unavailable.");
+    }
     routine_routes::start(workspace.clone());
     results::start(workspace.history.clone());
     page_share::start_cleanup(workspace.history.clone());
@@ -921,6 +924,7 @@ async fn launch_agent(
         } else {
             None
         };
+        let vault_session = w.vault.as_ref().and_then(|vault| vault.session(&key, &body.name));
         match w
             .core
             .launch(
@@ -936,6 +940,7 @@ async fn launch_agent(
                     key: &key,
                     journal,
                     approval_socket: approval_socket.to_str().unwrap_or_default(),
+                    vault_session: vault_session.as_deref(),
                     model: model.as_ref(),
                     results: results.as_deref().and_then(std::path::Path::to_str),
                     opencode_first_task: prepared.as_ref().and_then(|task| task.path().to_str()),

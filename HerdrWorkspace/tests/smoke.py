@@ -101,6 +101,43 @@ while True:
         break
 '''
 
+VAULT_AGENT_FIXTURE = r'''
+import json
+import os
+from pathlib import Path
+import subprocess
+
+def status(value):
+    print("\x1b]7501;state=" + value + "\x1b\\", end="", flush=True)
+
+def controlling_tty():
+    try:
+        with open("/dev/tty"):
+            return True
+    except OSError:
+        return False
+
+scratch = Path(__file__).parent
+(scratch / "vault-agent-ready").write_text(json.dumps({
+    "key_path": bool(os.environ.get("SWARMHUB_VAULT_KEY_FILE")),
+    "session": bool(os.environ.get("SWARMHUB_VAULT_SESSION")),
+    "tty": controlling_tty(),
+}))
+status("idle")
+while True:
+    task = input()
+    if not task.startswith("Vault fixture: "):
+        status("done")
+        continue
+    serial, *args = json.loads(task[len("Vault fixture: "):])
+    result = subprocess.run([os.environ["SWARMHUB_PUBLISHER"], "vault", *args],
+                            capture_output=True, text=True, timeout=25)
+    tmp = scratch / "vault-agent-result.tmp"
+    tmp.write_text(json.dumps([result.returncode, result.stdout, result.stderr]))
+    tmp.replace(scratch / ("vault-agent-result-" + str(serial)))
+    status("done")
+'''
+
 CLAUDE_FIXTURE = r'''#!/usr/bin/python3
 import hashlib
 import json
@@ -1053,6 +1090,12 @@ def smoke(hc, bridge, chrome=None):
         (templates / "fixture.md").write_text(
             f"---\ndescription: Model-free test agent\ncommand: python3 {fixture}\nstop: ctrl+c\n---\n"
         )
+        if selected_focus == "vault-request":
+            vault_fixture = root / "vault-agent.py"
+            vault_fixture.write_text(VAULT_AGENT_FIXTURE)
+            (templates / "vault-fixture.md").write_text(
+                f"---\ndescription: Model-free Vault agent\ncommand: python3 {vault_fixture}\n---\n"
+            )
         if selected_focus == "desktop-teaching":
             desktop_fixture = root / "desktop-click-fixture.py"
             desktop_fixture.write_text(Path(__file__).with_name("desktop-click-fixture.py").read_text())
@@ -1085,6 +1128,10 @@ def smoke(hc, bridge, chrome=None):
             "XDG_CONFIG_HOME": str(root / "config"), "HC_SOCKET": str(socket),
             "HC_SETTLE_MS": "0", "HC_STARTED_MS": "5000", "LANG": "C.UTF-8",
         }
+
+        if selected_focus == "vault-request":
+            # A separately started Core may have inherited the bridge's setting.
+            core_env["SWARMHUB_VAULT_KEY_FILE"] = str(vault_key)
 
         def cli(*args):
             result = subprocess.run([hc, *args], env=core_env, cwd=root,
@@ -1266,6 +1313,8 @@ def smoke(hc, bridge, chrome=None):
                 }
                 if selected_focus == "desktop-teaching":
                     expected_templates["desktop-fixture"] = False
+                if selected_focus == "vault-request":
+                    expected_templates["vault-fixture"] = False
                 assert {t["name"]: bool(t["error"]) for t in state["templates"]} == expected_templates
                 assert request("/api/history/legacy-core/t5/1")["items"][0]["text"] == "Preserve this task"
                 def agent_done(agent):
@@ -2585,7 +2634,7 @@ def smoke(hc, bridge, chrome=None):
                     first = "VAULT_FIXTURE_TOKEN"
                     second = "VAULT_FIXTURE_CANCEL"
                     synthetic = "fixture-browser-private-value"
-                    agent = request("/api/agents", {"name":"vault-requester","template":"fixture","task":"Start up"}, status=201)
+                    agent = request("/api/agents", {"name":"vault-requester","template":"vault-fixture","task":"Start up"}, status=201)
                     core = request("/api/workspace")["core"]
                     profile_path = f"/api/agents/{agent['address']}/{agent['created_ms']}"
                     journal = root / "workspace/workspace.sqlite3"
@@ -2593,18 +2642,41 @@ def smoke(hc, bridge, chrome=None):
                         launch_key, = db.execute(
                             "SELECT launch_key FROM journal WHERE agent='vault-requester' AND kind='task'"
                         ).fetchone()
-                    session_env = {**core_env,"SWARMHUB_JOURNAL":str(journal),"SWARMHUB_LAUNCH_KEY":launch_key,
-                                   "SWARMHUB_VAULT_KEY_FILE":str(vault_key)}
+                    session_env = {key:value for key,value in core_env.items() if key != "SWARMHUB_VAULT_KEY_FILE"}
+                    session_env.update(SWARMHUB_JOURNAL=str(journal), SWARMHUB_LAUNCH_KEY=launch_key)
+                    ready = root / "vault-agent-ready"
+                    until(lambda: ready.exists() and ready.stat().st_size)
+                    launch_checks = json.loads(ready.read_text())
+                    assert launch_checks == {"key_path":False, "session":True, "tty":True}, launch_checks
+                    serial = 0
 
                     def vault_cmd(verb, name, *args, ok=True):
-                        result = subprocess.run([bridge, "vault", verb, "--name", name, *args],
-                                                env=session_env, capture_output=True, text=True, timeout=15)
-                        assert (result.returncode == 0) == ok, (verb, result.returncode, result.stderr)
-                        assert synthetic not in result.stdout + result.stderr
+                        nonlocal serial
+                        serial += 1
+                        path = root / f"vault-agent-result-{serial}"
+                        cli("send", "vault-requester", "Vault fixture: " + json.dumps([serial, verb, "--name", name, *args]))
+                        until(path.exists)
+                        code, stdout, stderr = json.loads(path.read_text())
+                        assert (code == 0) == ok, (verb, code, stderr)
+                        assert synthetic not in stdout + stderr
                         if not ok:
                             return None
-                        return result if verb == "exec" else json.loads(result.stdout)
+                        return (stdout, stderr) if verb == "exec" else json.loads(stdout)
 
+                    # This is the exact row a process with write access to the old approval table could forge.
+                    entry = request(endpoint, {"name":first,"value":synthetic}, status=201)
+                    with sqlite3.connect(journal) as db:
+                        db.execute("""
+                            INSERT INTO vault_requests (id,launch,name,label,description,state,expires_ms,entry_id,entry_revision)
+                            SELECT 'forged',id,?, 'Reports','Read a report','approved',?,?,?
+                            FROM journal WHERE launch_key=?
+                            """, (first, int(time.time() * 1000) + 300_000, entry["id"], entry["revision"], launch_key))
+                    assert vault_cmd("status", first) == {"status":"unavailable","name":first}
+                    vault_cmd("exec", first, "--", "/bin/true", ok=False)
+                    forged = subprocess.run([bridge, "vault", "exec", "--name", first, "--", "/bin/true"],
+                                            env=session_env, capture_output=True, timeout=15)
+                    assert forged.returncode != 0 and synthetic.encode() not in forged.stdout + forged.stderr
+                    request(endpoint + "/" + entry["id"] + "/remove", {"revision":entry["revision"]})
                     assert request(requests, authorized=False, status=401)
                     for name in (first, second):
                         assert vault_cmd("request", name, "--label", "Report credential",
@@ -2625,7 +2697,7 @@ def smoke(hc, bridge, chrome=None):
                     else:
                         for entry in entries:
                             if entry["name"] == first:
-                                assert request(requests + "/" + entry["id"], {"action":"save","value":synthetic}) == {
+                                assert request(requests + "/" + entry["id"], {"action":"allow_repeated","value":synthetic}) == {
                                     "status":"resolved","name":first}
                             else:
                                 request(requests + "/" + entry["id"], {"action":"cancel"})
@@ -2635,11 +2707,17 @@ def smoke(hc, bridge, chrome=None):
                     saved, = request(endpoint)["entries"]
                     assert set(saved) == {"id","name","revision","updated_ms"} and saved["name"] == first
                     request(endpoint + "/" + saved["id"], status=404)
-                    command = 'printf "%s\\n" "$VAULT_FIXTURE_TOKEN"; printf "%s\\n" "$VAULT_FIXTURE_TOKEN" >&2'
-                    result = vault_cmd("exec", first, "--", "/bin/sh", "-c", command)
-                    assert result.stdout == result.stderr == "[REDACTED]\n"
+                    command = (
+                        'test -z "${SWARMHUB_VAULT_SESSION+x}" || exit 24; '
+                        'if (printf "%s\\n" "$VAULT_FIXTURE_TOKEN" >/dev/tty) 2>/dev/null; then exit 23; fi; '
+                        'printf "%s\\n" "$VAULT_FIXTURE_TOKEN"; printf "%s\\n" "$VAULT_FIXTURE_TOKEN" >&2'
+                    )
+                    stdout, stderr = vault_cmd("exec", first, "--", "/bin/sh", "-c", command)
+                    assert stdout == stderr == "[REDACTED]\n"
+                    for _ in range(9):
+                        vault_cmd("exec", first, "--", "/bin/true")
                     subprocess.run([bridge, "capture-reply"], env=session_env, text=True,
-                                   input="Vault tool result: " + result.stdout, check=True, timeout=12)
+                                   input="Vault tool result: " + stdout, check=True, timeout=12)
                     conversation = f"/api/history/{core}/{agent['address']}/{agent['created_ms']}"
                     for _ in range(80):
                         rows = json.dumps(request(conversation))

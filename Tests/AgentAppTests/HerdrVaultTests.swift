@@ -27,6 +27,12 @@ import Testing
     let existing = HerdrVault.Decision.save(nil).body
     #expect(existing["action"] as? String == "save")
     #expect(existing["value"] == nil)
+    let repeated = HerdrVault.Decision.allowRepeated(nil).body
+    #expect(repeated["action"] as? String == "allow_repeated")
+    #expect(repeated["value"] == nil)
+    let repeatedNew = HerdrVault.Decision.allowRepeated("synthetic-fixture").body
+    #expect(repeatedNew["action"] as? String == "allow_repeated")
+    #expect(repeatedNew["value"] as? String == "synthetic-fixture")
     let cancel = HerdrVault.Decision.cancel.body
     #expect(cancel["action"] as? String == "cancel")
     #expect(cancel["value"] == nil)

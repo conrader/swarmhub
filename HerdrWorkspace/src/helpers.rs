@@ -607,6 +607,7 @@ async fn start(
             .to_str()
             .ok_or("The workspace data directory must have a UTF-8 path.")?;
         let approval_socket = crate::approvals::socket_path(&w.history);
+        let vault_session = w.vault.as_ref().and_then(|vault| vault.session(&helper_key, &terminal_name));
         let launched = w
             .core
             .launch(
@@ -616,6 +617,7 @@ async fn start(
                     key: &helper_key,
                     journal,
                     approval_socket: approval_socket.to_str().unwrap_or_default(),
+                    vault_session: vault_session.as_deref(),
                     model: Some(&model),
                     results: None,
                     opencode_first_task: None,

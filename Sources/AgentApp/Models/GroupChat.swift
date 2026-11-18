@@ -70,15 +70,42 @@ struct StoreFile: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        bots = try c.decodeIfPresent([Bot].self, forKey: .bots) ?? []
+        let stored = try c.decodeIfPresent([StoredBot].self, forKey: .bots) ?? []
+        bots = stored.compactMap(\.bot)
         groups = try c.decodeIfPresent([GroupChat].self, forKey: .groups) ?? []
         scrollPositions = (try? c.decodeIfPresent([String: String].self, forKey: .scrollPositions)) ?? nil
+        let retired = Set(stored.compactMap(\.retiredID))
+        if !retired.isEmpty {
+            for group in groups {
+                group.memberIDs.removeAll(where: retired.contains)
+                for id in retired { group.sessions.removeValue(forKey: id.uuidString.lowercased()) }
+            }
+        }
+    }
+
+    private struct StoredBot: Decodable {
+        let bot: Bot?
+        let retiredID: UUID?
+        private enum Key: CodingKey { case backend, id }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: Key.self)
+            switch try container.decodeIfPresent(String.self, forKey: .backend) {
+            case .some("Hermes Agent"), .some("OpenClaw"):
+                bot = nil
+                retiredID = try? container.decode(UUID.self, forKey: .id)
+            default:
+                bot = try Bot(from: decoder)
+                retiredID = nil
+            }
+        }
     }
 
     static func decode(_ data: Data) throws -> StoreFile {
         let first = data.first { ![0x20, 0x09, 0x0A, 0x0D].contains($0) }
         guard first == UInt8(ascii: "[") else { return try JSONDecoder().decode(StoreFile.self, from: data) }
-        var file = StoreFile(bots: try JSONDecoder().decode([Bot].self, from: data), groups: [])
+        let bots = try JSONDecoder().decode([StoredBot].self, from: data).compactMap(\.bot)
+        var file = StoreFile(bots: bots, groups: [])
         file.version = 1
         return file
     }

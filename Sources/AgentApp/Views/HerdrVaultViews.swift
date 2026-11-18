@@ -1,9 +1,17 @@
+import AppKit
 import SwiftUI
 
 @MainActor
 struct HerdrVaultPrompts: ViewModifier {
     @EnvironmentObject private var store: AppStore
+    @State private var window = WindowReference()
+    @State private var pending: [String: [Prompt]] = [:]
+    @State private var resolved: [String: Set<String>] = [:]
     @State private var active: Prompt?
+    @State private var presentedID: String?
+    let anotherSheet: Bool
+
+    init(anotherSheet: Bool) { self.anotherSheet = anotherSheet }
 
     private struct Prompt: Identifiable, Sendable {
         let server: HerdrServer
@@ -11,48 +19,100 @@ struct HerdrVaultPrompts: ViewModifier {
         var id: String { server.id + "/" + request.id }
     }
 
+    private final class WindowReference {
+        weak var value: NSWindow?
+    }
+
     func body(content: Content) -> some View {
         content
+            .background(VaultWindowReader { window.value = $0 })
             .task {
                 while !Task.isCancelled {
                     await refresh()
-                    try? await Task.sleep(for: .seconds(2))
+                    try? await Task.sleep(for: .seconds(5))
                 }
             }
-            .sheet(item: $active) { prompt in
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { notification in
+                guard notification.object as? NSWindow === window.value else { return }
+                // A second SwiftUI sheet can claim the window before our sheet appears.
+                // Keep the request queued so the next refresh can present it.
+                if let active, presentedID != active.id {
+                    self.active = nil
+                } else {
+                    presentPending()
+                }
+            }
+            .onChange(of: anotherSheet) { _, _ in presentPending() }
+            .sheet(item: $active, onDismiss: {
+                presentedID = nil
+                presentPending()
+            }) { prompt in
                 HerdrVaultRequestSheet(server: prompt.server, request: prompt.request) {
+                    resolved[prompt.server.id, default: []].insert(prompt.id)
+                    pending[prompt.server.id]?.removeAll { $0.id == prompt.id }
                     if active?.id == prompt.id { active = nil }
                 }
+                .onAppear { presentedID = prompt.id }
             }
+    }
+
+    private func presentPending() {
+        guard !anotherSheet, active == nil, let window = window.value, window.isMainWindow,
+              window.attachedSheet == nil else { return }
+        active = store.herdrServers.compactMap { server in
+            pending[server.id]?.first { $0.server == server }
+        }.first
     }
 
     private func refresh() async {
         guard !store.isSetupPreview, store.herdrConfigured else { return }
-        if let active {
-            guard let server = store.herdrServer(id: active.server.id), server == active.server else {
-                self.active = nil
-                return
-            }
-            if let client = try? store.herdrClient(for: server), let requests = try? await client.vaultRequests(),
-               !requests.contains(where: { $0.id == active.request.id }), self.active?.id == active.id {
-                self.active = nil
-            }
+        guard window.value?.isMainWindow == true || active != nil else {
+            pending = [:]
             return
         }
-        await withTaskGroup(of: Prompt?.self) { group in
-            for server in store.herdrServers {
+        let servers = store.herdrServers
+        await withTaskGroup(of: (HerdrServer, [HerdrVault.Request])?.self) { group in
+            for server in servers {
                 guard let client = try? store.herdrClient(for: server) else { continue }
                 group.addTask {
-                    guard let pending = try? await client.vaultRequests().first else { return nil }
-                    return Prompt(server: server, request: pending)
+                    guard let requests = try? await client.vaultRequests() else { return nil }
+                    return (server, requests)
                 }
             }
-            for await prompt in group {
-                guard let prompt, store.herdrServer(id: prompt.server.id) == prompt.server, !Task.isCancelled else { continue }
-                active = prompt
-                group.cancelAll()
-                break
+            for await result in group {
+                guard let (server, requests) = result, !Task.isCancelled,
+                      store.herdrServer(id: server.id) == server else { continue }
+                let prompts = requests.map { Prompt(server: server, request: $0) }
+                let seen = Set(prompts.map(\.id))
+                resolved[server.id]?.formIntersection(seen)
+                pending[server.id] = prompts.filter { resolved[server.id]?.contains($0.id) != true }
+                if let active, active.server.id == server.id, !prompts.contains(where: { $0.id == active.id }) {
+                    self.active = nil
+                }
             }
+        }
+        if let active, store.herdrServer(id: active.server.id) != active.server { self.active = nil }
+        presentPending()
+    }
+}
+
+@MainActor
+private struct VaultWindowReader: NSViewRepresentable {
+    let changed: @MainActor (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> Reader {
+        let view = Reader()
+        view.changed = changed
+        return view
+    }
+
+    func updateNSView(_ view: Reader, context: Context) { view.changed = changed }
+
+    final class Reader: NSView {
+        var changed: (@MainActor (NSWindow?) -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            changed?(window)
         }
     }
 }
@@ -63,6 +123,7 @@ private struct HerdrVaultRequestSheet: View {
     @FocusState private var focused: Bool
     @State private var value = ""
     @State private var saving = false
+    @State private var allowRepeated = false
     @State private var error: String?
     let server: HerdrServer
     let request: HerdrVault.Request
@@ -71,7 +132,7 @@ private struct HerdrVaultRequestSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Vault request").font(.title2)
-            Text(verbatim: "\(request.bot) requests access for one command on \(server.name).")
+            Text(verbatim: "\(request.bot) requests access on \(server.name).")
             Text(verbatim: request.label).font(.headline)
             Text(verbatim: request.name).font(.system(.body, design: .monospaced))
             Text(verbatim: request.description).foregroundStyle(.secondary)
@@ -80,12 +141,15 @@ private struct HerdrVaultRequestSheet: View {
                     .focused($focused)
                     .disabled(saving)
             }
+            Toggle("Allow up to 10 commands in 30 minutes", isOn: $allowRepeated)
+                .disabled(saving)
             if let error { Text(error).foregroundStyle(.secondary) }
             HStack {
                 Spacer()
                 Button("Cancel") { decide(.cancel) }.keyboardShortcut(.cancelAction)
-                Button(request.needsValue ? "Save" : "Allow once") {
-                    decide(.save(request.needsValue ? value : nil))
+                Button(request.needsValue ? "Save and allow" : allowRepeated ? "Allow repeated use" : "Allow once") {
+                    let secret = request.needsValue ? value : nil
+                    decide(allowRepeated ? .allowRepeated(secret) : .save(secret))
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(request.needsValue && value.isEmpty)

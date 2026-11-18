@@ -23,17 +23,17 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 mod keychain;
 mod requests;
-pub(crate) use requests::{NOTE, USAGE, cli};
+pub(crate) use requests::{NOTE, SESSION_ENV, USAGE, cli, listen};
 
 pub(crate) const KEY_FILE: &str = "SWARMHUB_VAULT_KEY_FILE";
 
 #[derive(Clone)]
 enum Backend {
     File(Arc<aead::LessSafeKey>),
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", test))]
     Keychain(keychain::Keychain),
 }
 
@@ -41,6 +41,7 @@ enum Backend {
 pub struct Vault {
     backend: Backend,
     fingerprint: digest::Digest,
+    requests: requests::Desk,
 }
 
 const LOCKED: ApiError = ApiError::Conflict("The vault key does not match the saved vault.");
@@ -57,6 +58,7 @@ impl Vault {
         Self {
             backend: Backend::File(Arc::new(aead::LessSafeKey::new(key))),
             fingerprint: digest::digest(&digest::SHA256, &raw),
+            requests: requests::Desk::new().expect("fixture Vault requests"),
         }
     }
     pub fn configured(_journal: &FilePath) -> Result<Option<Self>, Box<dyn std::error::Error>> {
@@ -67,6 +69,7 @@ impl Vault {
                 return Ok(Some(Self {
                     fingerprint: digest::digest(&digest::SHA256, keychain.service().as_bytes()),
                     backend: Backend::Keychain(keychain),
+                    requests: requests::Desk::new()?,
                 }));
             }
             #[cfg(not(target_os = "macos"))]
@@ -107,7 +110,12 @@ impl Vault {
         Ok(Self {
             backend: Backend::File(Arc::new(aead::LessSafeKey::new(key))),
             fingerprint,
+            requests: requests::Desk::new()?,
         })
+    }
+
+    pub(crate) fn session(&self, launch: &str, bot: &str) -> Option<String> {
+        self.requests.issue(launch, bot)
     }
 
     fn check(&self, db: &Connection) -> Result<(), ApiError> {
@@ -139,9 +147,9 @@ impl Vault {
         SystemRandom::new()
             .fill(&mut nonce)
             .map_err(|_| StoreError)?;
-        let mut bytes = value.into_bytes();
         match &self.backend {
             Backend::File(key) => {
+                let mut bytes = value.into_bytes();
                 key.seal_in_place_append_tag(
                     aead::Nonce::assume_unique_for_key(nonce),
                     aead::Aad::from(scope(id, revision, name)),
@@ -150,9 +158,10 @@ impl Vault {
                 .map_err(|_| StoreError)?;
                 Ok(Sealed::encrypted(nonce, bytes))
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", test))]
             Backend::Keychain(keychain) => {
-                let account = keychain.add(id, &nonce, &bytes)?;
+                let payload = format!("{}\0{value}", scope(id, revision, name));
+                let account = keychain.add(id, &nonce, &payload)?;
                 Ok(Sealed {
                     nonce,
                     bytes: keychain::MARKER.to_vec(),
@@ -179,17 +188,34 @@ impl Vault {
                     .map_err(|_| StoreError)?
                     .to_owned())
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", test))]
             Backend::Keychain(keychain) if stored.bytes == keychain::MARKER => {
+                let payload = keychain.read(&stored.id, &stored.nonce)?;
+                let (bound, value) = payload.split_once('\0').ok_or(StoreError)?;
+                if bound != scope(&stored.id, stored.revision, &stored.name) {
+                    return Err(StoreError);
+                }
+                Ok(value.to_owned())
+            }
+            #[cfg(any(target_os = "macos", test))]
+            Backend::Keychain(keychain) if stored.bytes == keychain::LEGACY_MARKER => {
                 keychain.read(&stored.id, &stored.nonce)
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", test))]
             Backend::Keychain(_) => Err(StoreError),
         }
     }
 
+    fn check_exec_entry(&self, stored: &Stored) -> Result<(), ApiError> {
+        #[cfg(any(target_os = "macos", test))]
+        if matches!(&self.backend, Backend::Keychain(_)) && stored.bytes == keychain::LEGACY_MARKER {
+            return Err(ApiError::Conflict("Replace the value in Vault settings before allowing agent access to this entry."));
+        }
+        self.open(stored).map(drop).map_err(ApiError::from)
+    }
+
     fn schedule_retirement(&self, _db: &Connection, _stored: &Stored) -> Result<(), StoreError> {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", test))]
         if matches!(&self.backend, Backend::Keychain(_)) {
             _db.execute(
                 "INSERT OR IGNORE INTO vault_keychain_retirements (account) VALUES (?1)",
@@ -200,7 +226,7 @@ impl Vault {
     }
 
     pub(crate) fn finish_retirements(&self, _db: &Connection) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", test))]
         if let Backend::Keychain(keychain) = &self.backend {
             let remove = || -> Result<(), ApiError> {
                 self.check(_db)?;
@@ -271,11 +297,14 @@ impl Vault {
             Some(old) => self.update(&tx, old, &old.name, value)?,
             None => self.create(&tx, name, value)?,
         };
-        if let Some(old) = old {
-            self.schedule_retirement(&tx, &old)?;
+        if let Some(old) = &old {
+            self.schedule_retirement(&tx, old)?;
         }
         tx.commit().map_err(StoreError::from)?;
         sealed.commit();
+        if let Some(old) = &old {
+            self.requests.invalidate(old);
+        }
         self.finish_retirements(&db);
         Ok(())
     }
@@ -293,6 +322,9 @@ impl Vault {
             self.schedule_retirement(&tx, old)?;
         }
         tx.commit().map_err(StoreError::from)?;
+        if let Some(old) = &old {
+            self.requests.invalidate(old);
+        }
         self.finish_retirements(&db);
         Ok(())
     }
@@ -344,7 +376,7 @@ impl Vault {
 struct Sealed {
     nonce: [u8; 12],
     bytes: Vec<u8>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", test))]
     pending: Option<(keychain::Keychain, String)>,
 }
 
@@ -353,21 +385,21 @@ impl Sealed {
         Self {
             nonce,
             bytes,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", test))]
             pending: None,
         }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", test)))]
     fn commit(self) {}
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", test))]
     fn commit(mut self) {
         self.pending = None;
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 impl Drop for Sealed {
     fn drop(&mut self) {
         if let Some((keychain, account)) = self.pending.take() {
@@ -376,6 +408,7 @@ impl Drop for Sealed {
     }
 }
 
+#[derive(PartialEq, Eq)]
 struct Stored {
     id: String,
     name: String,
@@ -646,6 +679,7 @@ fn change(
     vault.schedule_retirement(&tx, &old)?;
     tx.commit().map_err(StoreError::from)?;
     sealed.commit();
+    vault.requests.invalidate(&old);
     vault.finish_retirements(&db);
     Ok(row)
 }
@@ -667,6 +701,7 @@ async fn remove(
         .map_err(StoreError::from)?;
     vault.schedule_retirement(&tx, &old)?;
     tx.commit().map_err(StoreError::from)?;
+    vault.requests.invalidate(&old);
     vault.finish_retirements(&db);
     Ok(Json(serde_json::json!({"removed":true})))
 }
@@ -713,6 +748,45 @@ mod tests {
         );
         vault.remove_connector(&history, "Renamed").unwrap();
         assert!(vault.lookup(&history, "Renamed").unwrap().is_none());
+    }
+
+    #[test]
+    fn keychain_backend_scopes_items_and_retires_revisions_with_a_fake_keychain() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let history = History::open_at(dir.path()).unwrap();
+        let keychain = keychain::Keychain::fixture(history.file());
+        assert_ne!(keychain.service(), keychain::Keychain::for_workspace(&other.path().join("workspace.sqlite3")).service());
+        let vault = Vault {
+            fingerprint: digest::digest(&digest::SHA256, keychain.service().as_bytes()),
+            backend: Backend::Keychain(keychain.clone()),
+            requests: requests::Desk::new().unwrap(),
+        };
+        let value = "synthetic-keychain-value";
+        vault.put_connector(&history, "Example", value.into()).unwrap();
+        let db = history.db().unwrap();
+        let mut old = saved(&db, "Example").unwrap().unwrap();
+        assert_eq!(old.bytes, keychain::MARKER);
+        assert_eq!(vault.open(&old).unwrap(), value);
+        vault.check_exec_entry(&old).unwrap();
+        old.name = "Forged".into();
+        assert!(vault.check_exec_entry(&old).is_err());
+        old.name = "Example".into();
+        old.bytes = keychain::LEGACY_MARKER.to_vec();
+        assert!(vault.check_exec_entry(&old).is_err());
+
+        let staged = vault.seal("staged", 1, "Example", value.into()).unwrap();
+        assert!(keychain.read("staged", &staged.nonce).is_ok());
+        let nonce = staged.nonce;
+        drop(staged);
+        assert!(keychain.read("staged", &nonce).is_err());
+
+        vault.put_connector(&history, "Example", "synthetic-replacement".into()).unwrap();
+        assert!(keychain.read(&old.id, &old.nonce).is_err());
+        let new = saved(&db, "Example").unwrap().unwrap();
+        assert_eq!(vault.open(&new).unwrap(), "synthetic-replacement");
+        vault.remove_connector(&history, "Example").unwrap();
+        assert!(keychain.read(&new.id, &new.nonce).is_err());
     }
 
     #[test]

@@ -174,3 +174,37 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(file.version == 1 && file.bots.map(\.name) == ["Current"] && file.groups.isEmpty)
     #expect(file.bots.first?.sessionID == "session-1")
 }
+
+@Test @MainActor func aMixedStoreLoadsHerdrBotsAndOffersThemFromASetAsideCopy() throws {
+    let (url, defaults) = try setup()
+    let current = Bot(name: "Current", backend: .herdr, sessionID: "session-1")
+    let hermesID = UUID()
+    let group = GroupChat(name: "Team", memberIDs: [current.id, hermesID])
+    let data = try JSONEncoder().encode(StoreFile(bots: [current], groups: [group]))
+    var mixed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let bots = try #require(mixed["bots"] as? [[String: Any]]) + [
+        ["backend": "Hermes Agent", "id": hermesID.uuidString],
+        ["backend": "OpenClaw", "id": UUID().uuidString],
+    ]
+    mixed["bots"] = bots
+    let original = try JSONSerialization.data(withJSONObject: mixed)
+    let versionOne = try StoreFile.decode(JSONSerialization.data(withJSONObject: bots))
+    #expect(versionOne.version == 1 && versionOne.bots.map(\.id) == [current.id])
+
+    try original.write(to: url)
+    let loaded = launch(url, defaults)
+    #expect(loaded.persistenceEnabled && loaded.storeRestoreOffer == nil)
+    #expect(loaded.bots.map(\.id) == [current.id] && loaded.bots.first?.sessionID == "session-1")
+    #expect(loaded.groups.first?.memberIDs == [current.id])
+
+    let backup = url.appendingPathExtension("corrupt-fixture")
+    try FileManager.default.moveItem(at: url, to: backup)
+    mixed["bots"] = Array(bots.dropFirst())
+    try JSONSerialization.data(withJSONObject: mixed).write(to: url)
+    let store = launch(url, defaults)
+    #expect(store.persistenceEnabled && store.bots.isEmpty)
+    #expect(store.storeRestoreOffer?.botNames == ["Current"])
+    #expect(store.restoreSetAsideStore())
+    #expect(store.bots.map(\.id) == [current.id] && store.groups.first?.memberIDs == [current.id])
+    #expect(try Data(contentsOf: backup) == original)
+}

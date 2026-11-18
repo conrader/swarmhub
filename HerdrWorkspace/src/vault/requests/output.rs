@@ -3,7 +3,7 @@ use base64::{Engine, engine::general_purpose};
 use std::{
     ffi::OsString,
     io::{self, Read, Write},
-    os::unix::process::ExitStatusExt,
+    os::unix::process::{CommandExt, ExitStatusExt},
     process::{Command, ExitStatus, Stdio},
     thread,
 };
@@ -83,15 +83,27 @@ fn execute(
     args: impl Iterator<Item = OsString>,
     values: &[(String, String)],
 ) -> io::Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .env_remove("SWARMHUB_LAUNCH_KEY")
-        .env_remove("SWARMHUB_VAULT_KEY_FILE")
+        .env_remove(crate::vault::KEY_FILE)
+        .env_remove(crate::vault::SESSION_ENV)
         .envs(values.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    // The CLI can have a controlling terminal even with all three child streams redirected.
+    // setsid is async-signal-safe and gives the child a session with no controlling terminal.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn()?;
     let stdout = child.stdout.take().expect("piped stdout");
     let stderr = child.stderr.take().expect("piped stderr");
     let output = thread::scope(|threads| {
@@ -162,6 +174,51 @@ mod tests {
         assert_eq!(status.code(), Some(7));
         assert_eq!(stdout, b"[REDACTED]\n");
         assert_eq!(stderr, stdout);
+    }
+
+    #[test]
+    fn command_cannot_write_to_callers_controlling_tty() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+
+        let mut master = -1;
+        let mut slave = -1;
+        // The subprocess runs the fixture under a real controlling PTY.
+        assert_eq!(unsafe {
+            libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut())
+        }, 0);
+        let master = unsafe { std::fs::File::from_raw_fd(master) };
+        let slave = unsafe { std::fs::File::from_raw_fd(slave) };
+        for file in [&master, &slave] {
+            assert_eq!(unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) }, 0);
+        }
+        let tty = slave.as_raw_fd();
+        let mut fixture = Command::new(std::env::current_exe().unwrap());
+        fixture.args(["--exact", "vault::requests::output::tests::controlling_tty_fixture"])
+            .env("SWARMHUB_TEST_VAULT_TTY", "1");
+        unsafe {
+            fixture.pre_exec(move || {
+                if libc::setsid() == -1 || libc::ioctl(tty, libc::TIOCSCTTY, 0) == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        assert!(fixture.status().unwrap().success());
+    }
+
+    #[test]
+    fn controlling_tty_fixture() {
+        if std::env::var_os("SWARMHUB_TEST_VAULT_TTY").is_none() {
+            return;
+        }
+        assert!(std::fs::File::open("/dev/tty").is_ok());
+        let values = [("VAULT_FIXTURE".into(), "synthetic-tty-credential".into())];
+        let script = r#"if (printf '%s\n' "$VAULT_FIXTURE" >/dev/tty) 2>/dev/null; then exit 23; fi
+printf '%s\n' "$VAULT_FIXTURE""#;
+        let (status, stdout, stderr) = execute("/bin/sh".into(), ["-c", script].into_iter().map(Into::into), &values).unwrap();
+        assert!(status.success());
+        assert_eq!(stdout, b"[REDACTED]\n");
+        assert!(stderr.is_empty());
     }
 
     #[test]

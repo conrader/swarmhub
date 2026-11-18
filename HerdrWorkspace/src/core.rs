@@ -96,6 +96,7 @@ pub struct LaunchEnv<'a> {
     pub key: &'a str,
     pub journal: &'a str,
     pub approval_socket: &'a str,
+    pub vault_session: Option<&'a str>,
     pub model: Option<&'a crate::runtimes::LaunchModel>,
     pub results: Option<&'a str>,
     pub opencode_first_task: Option<&'a str>,
@@ -553,12 +554,11 @@ impl Core {
         {
             params["env"]["SWARMHUB_PUBLISHER"] = path.into();
         }
-        params["env"][crate::vault::KEY_FILE] = std::env::var_os(crate::vault::KEY_FILE)
-            .filter(|path| !path.is_empty())
-            .and_then(|path| std::path::absolute(path).ok())
-            .and_then(|path| path.into_os_string().into_string().ok())
-            .unwrap_or_default()
-            .into();
+        // Mask a key path even if a manually started Core inherited it.
+        params["env"][crate::vault::KEY_FILE] = "".into();
+        if let Some(session) = env.vault_session {
+            params["env"][crate::vault::SESSION_ENV] = session.into();
+        }
         // Started by `service run`, the server knows the PATH the person's own shell has. Core may have been
         // started with a shorter one (by launchd, at login), and an agent program is found through it.
         if let Some(path) = agent_path() {
