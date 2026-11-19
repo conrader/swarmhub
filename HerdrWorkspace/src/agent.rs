@@ -70,6 +70,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("propose-routine") => crate::routine_proposals::publish(),
         Some("propose-memory") => crate::memory_proposals::publish(),
         Some("propose-email") => crate::email_drafts::publish(),
+        Some("worker-probe") => crate::machines::probe::cli(),
         Some("fleet-policy") => crate::fleet_policy::cli(),
         Some("vault") => crate::vault::cli(),
         Some("drive-list") => crate::drive_access::cli(false),
@@ -106,6 +107,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
             );
             println!("Pages: publish-page TITLE, read-page PAGE_ID, update-page PAGE_ID REVISION");
             println!("{}", crate::fleet_policy::USAGE);
+            println!("{}", crate::machines::probe::USAGE);
             println!("{}", crate::vault::USAGE);
             println!("{}", crate::helpers::cli::USAGE);
             println!("{}", crate::projects::cli::USAGE);

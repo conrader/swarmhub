@@ -121,7 +121,27 @@ struct HerdrMachineCard: View {
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(model.busy.contains(machine.name))
                     .help("More for \(machine.name)").accessibilityLabel("More for \(machine.name)")
             }
-            ForEach(machine.warnings, id: \.self) { warning in
+            if let worker = machine.worker {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let message = worker.admission.message {
+                        Label(message, systemImage: worker.admission.status == "stop" ? "stop.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(AppColor.caution)
+                    } else if worker.admission.status == "eligible" {
+                        Label("Eligible for heavy fixture work", systemImage: "checkmark.circle")
+                            .foregroundStyle(AppColor.good)
+                    }
+                    if let disk = worker.admission.disk { Text(disk.line).foregroundStyle(.secondary) }
+                    if let id = worker.workerId, let fingerprint = worker.hostFingerprint {
+                        Text("\(id) · \(fingerprint)").font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                    if let probe = worker.probe {
+                        Text("Probe taken \(probe.observedAt.formatted(date: .abbreviated, time: .shortened))")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(machine.warnings.filter { $0 != machine.worker?.admission.message }, id: \.self) { warning in
                 Label(warning, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
             if let said = model.said[machine.name] { Text(said).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }

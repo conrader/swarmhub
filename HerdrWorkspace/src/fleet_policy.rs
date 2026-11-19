@@ -5,9 +5,9 @@ mod store;
 #[cfg(test)]
 pub(crate) mod tests;
 
-use crate::{history, parks};
+use crate::{history, machines::probe, parks};
 use principals::{Actor, Envelope, ParkPin, Principal, Purpose, Signed, Target};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{cmp::Reverse, collections::BTreeSet, fmt, io::Write as _};
@@ -74,7 +74,7 @@ pub(crate) struct PolicyRef {
 }
 
 impl PolicyRef {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         self.generation > 0 && principals::hex(&self.digest, 64)
     }
 }
@@ -85,6 +85,8 @@ pub(crate) struct Policy {
     pub generation: i64,
     pub rules: Vec<Rule>,
     pub revoked: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workers: Vec<probe::Enrollment>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -185,6 +187,7 @@ impl Policy {
         if self.generation <= 0
             || !self.rules.iter().all(|rule| rule.valid() && ids.insert(&rule.id))
             || !self.revoked.iter().all(|id| principals::identifier(id))
+            || !probe::valid_enrollments(&self.workers)
         {
             return Err(Error::Invalid);
         }
@@ -376,7 +379,10 @@ impl Authority {
         self.with_snapshot(|snapshot| {
             let (reference, published) = snapshot.current()?;
             let connection = &*db;
-            let manifest = parks::manifest_for(connection, park).map_err(|_| Error::Binding)?;
+            let manifest = parks::manifest_for(connection, park).map_err(|error| match error {
+                parks::Error::Store(_) => Error::Audit,
+                _ => Error::Binding,
+            })?;
             let request = Request {
                 park: park.pin(&manifest),
                 action: manifest.operation.action(),
@@ -428,6 +434,30 @@ impl Authority {
             };
             Ok(use_decision(db, verified))
         })
+    }
+
+    /// Copy the protected current generation and the dependent evidence in one transaction.
+    pub(crate) fn with_audited_policy<T>(
+        &self,
+        db: &mut Connection,
+        write: impl FnOnce(
+            &Transaction<'_>, &str, &Policy, &PolicyRef,
+        ) -> Result<T, Box<dyn std::error::Error>>,
+    ) -> Result<T, Box<dyn std::error::Error>> {
+        self.with_snapshot(|snapshot| {
+            let (reference, stored) = snapshot.current()?;
+            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let workspace = &snapshot.trust.workspace;
+            let signed = serde_json::to_string(&stored.publication).map_err(|_| Error::Invalid)?;
+            audit_version(&tx, workspace, &reference, stored.published_ms, &signed)?;
+            match write(&tx, workspace, &stored.publication.policy, &reference) {
+                Ok(value) => {
+                    tx.commit()?;
+                    Ok(Ok(value))
+                }
+                Err(error) => Ok(Err(error)),
+            }
+        })?
     }
 
     pub(crate) fn inspect(&self) -> Inspection {

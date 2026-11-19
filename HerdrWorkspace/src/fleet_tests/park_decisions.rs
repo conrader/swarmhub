@@ -353,3 +353,106 @@ async fn gapplan_05_int_default_bridge_holds_even_an_operator_signed_staging_upd
     assert_eq!(result["reason"], "fixture_only");
     assert_eq!(h.git.head(), h.git.manifest.precondition);
 }
+
+#[tokio::test]
+async fn gapplan_06_int_post_claim_write_errors_preserve_attempt_for_reconciliation() {
+    for (field, expected_effect) in [("observed_before", false), ("receipt", true)] {
+        let h = Harness::new();
+        let reference = h.publish(vec![staging_grant(false)]);
+        let manifest = &h.git.manifest;
+        let park = h.file(manifest).await;
+        h.w.history.db().unwrap().execute_batch(&format!(
+            "CREATE TRIGGER fixture_abort BEFORE UPDATE OF {field} ON park_executions
+             BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END;"
+        )).unwrap();
+        let execute = h.sign(&park, manifest, &reference, Purpose::Execute, "delegate-post-claim");
+        let decide = || bot(&h.w, &h.judge, parks::Command::Judge {
+            park: park.clone(),
+            signed: execute.clone(),
+        });
+        let result = decide().await.unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&result).unwrap()["view"]["status"], "reconciliation");
+        let (attempt, apply): (String, Option<String>) = h.w.history.db().unwrap().query_row(
+            "SELECT attempt,apply_step FROM park_executions WHERE park_id=?1 AND receipt IS NULL",
+            [&park.id], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(apply.as_deref(), expected_effect.then_some(r#"{"Exit":0}"#));
+        if expected_effect {
+            assert_eq!(h.git.head(), manifest.expected_postcondition);
+            h.git.set_head(&manifest.precondition);
+        }
+        assert_eq!(decide().await.unwrap(), result);
+        assert_eq!(h.git.head(), manifest.precondition);
+        let db = h.w.history.db().unwrap();
+        assert_eq!(db.query_row("SELECT attempt FROM park_executions", [], |r| r.get::<_, String>(0)).unwrap(), attempt);
+    }
+}
+
+#[tokio::test]
+async fn gapplan_06_int_policy_store_busy_after_claim_reports_policy_busy() {
+    let mut h = Harness::new();
+    let reference = h.publish(vec![staging_grant(false)]);
+    let lock_path = h.root.path().join(WORKSPACE).join("policy.lock");
+    let guard = Arc::new(Mutex::new(None));
+    let held = guard.clone();
+    h.w.parks.after_claim = Some(Arc::new(move || {
+        let file = std::fs::File::open(&lock_path).unwrap();
+        file.try_lock().unwrap();
+        *held.lock().unwrap() = Some(file);
+    }));
+    let park = h.file(&h.git.manifest).await;
+    let signed = h.sign(&park, &h.git.manifest, &reference, Purpose::Execute, "delegate-policy-busy");
+    let result = bot(&h.w, &h.judge, parks::Command::Judge { park: park.clone(), signed }).await.unwrap();
+    drop(guard.lock().unwrap().take());
+    assert_eq!(serde_json::from_str::<Value>(&result).unwrap()["reason"], "policy_busy");
+    assert_eq!(h.git.head(), h.git.manifest.precondition);
+    let db = h.w.history.db().unwrap();
+    assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Held));
+    let reason: String = db.query_row(
+        "SELECT json_extract(basis,'$.blocker') FROM park_decisions WHERE action='hold'",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(reason, "policy_busy");
+}
+
+#[tokio::test]
+async fn gapplan_06_int_invalid_policy_evidence_after_claim_holds_with_its_own_reason() {
+    let mut h = Harness::new();
+    let reference = h.publish(vec![staging_grant(false)]);
+    let policy_path = h.root.path().join(WORKSPACE).join("policy-1.json");
+    h.w.parks.after_claim = Some(Arc::new(move || {
+        std::fs::write(&policy_path, b"bad fixture policy").unwrap();
+    }));
+    let park = h.file(&h.git.manifest).await;
+    let signed = h.sign(&park, &h.git.manifest, &reference, Purpose::Execute, "delegate-policy-invalid");
+    let result = bot(&h.w, &h.judge, parks::Command::Judge { park, signed }).await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&result).unwrap()["reason"], "policy_evidence_invalid");
+    assert_eq!(h.git.head(), h.git.manifest.precondition);
+}
+
+#[test]
+fn gapplan_06_int_startup_quarantines_unfinished_park_attempts() {
+    let temp = tempfile::tempdir().unwrap();
+    let history = reopen_journal(&temp.path().join("journal"));
+    let mut db = history.db().unwrap();
+    let park = parks::file(&db, "abandoned", &parks::tests::manifest()).unwrap();
+    let tx = db.transaction().unwrap();
+    let attempt = "fixture-abandoned-attempt";
+    tx.execute("UPDATE parks SET state='executing' WHERE id=?1", [&park.id]).unwrap();
+    tx.execute(
+        "INSERT INTO park_executions(park_id,attempt,claimed_ms) VALUES (?1,?2,1)",
+        (&park.id, attempt),
+    ).unwrap();
+    tx.commit().unwrap();
+    drop(db);
+    drop(history);
+    let history = reopen_journal(&temp.path().join("journal"));
+    let db = history.db().unwrap();
+    parks::recover_interrupted(&db).unwrap();
+    assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Reconciliation));
+    let saved: (String, Option<String>) = db.query_row(
+        "SELECT attempt,observed_before FROM park_executions WHERE park_id=?1", [&park.id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(saved, (attempt.into(), None));
+}

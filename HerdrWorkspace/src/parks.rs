@@ -39,6 +39,10 @@ pub(crate) enum Blocker {
     FixtureOnly,
     Pins,
     AuthorizationChanged,
+    PolicyBusy,
+    PolicyUnavailable,
+    PolicyAuditUnavailable,
+    PolicyEvidenceInvalid,
 }
 
 impl From<rusqlite::Error> for Error {
@@ -491,6 +495,14 @@ fn run(
     }
     let expected = effect_marker(manifest, &receipt.attempt);
     let apply = adapter.apply(before, &expected);
+    // Record the adapter return before readback or rollback can fail.
+    let recorded = db.execute(
+        "UPDATE park_executions SET apply_step=?1 WHERE park_id=?2 AND attempt=?3 AND receipt IS NULL",
+        params![encode(&apply)?, park.id, receipt.attempt],
+    )?;
+    if recorded != 1 {
+        return Err(Error::Conflict);
+    }
     receipt.apply = Some(apply);
     receipt.after_apply = adapter.observe().ok();
     if apply == Step::Exit(0) && receipt.after_apply.as_ref() == Some(&expected) {
@@ -518,9 +530,9 @@ fn run(
             after_apply: receipt.after_apply.clone(),
         };
         let prepared = db.execute(
-            "UPDATE park_executions SET rollback_intent=?1,apply_step=?2
-             WHERE park_id=?3 AND attempt=?4 AND receipt IS NULL",
-            params![encode(&intent)?, encode(&apply)?, park.id, receipt.attempt],
+            "UPDATE park_executions SET rollback_intent=?1
+             WHERE park_id=?2 AND attempt=?3 AND receipt IS NULL",
+            params![encode(&intent)?, park.id, receipt.attempt],
         )?;
         if prepared != 1 {
             return Err(Error::Conflict);
@@ -535,6 +547,27 @@ fn run(
         receipt.outcome = Outcome::Reconciliation;
     }
     finish(db, park, receipt)
+}
+
+/// Called at bridge startup after acquiring workspace.lock. Preserve the claimed
+/// attempt and any partial evidence for reconciliation, without touching the effect.
+pub(crate) fn recover_interrupted(db: &Connection) -> Result<(), rusqlite::Error> {
+    db.execute(
+        "UPDATE parks SET state='reconciliation' WHERE state='executing'",
+        [],
+    )?;
+    Ok(())
+}
+
+fn reconcile_claim(db: &Connection, park: &ParkRef, attempt: &str) -> Result<View, Error> {
+    db.execute(
+        "UPDATE parks SET state='reconciliation'
+         WHERE id=?1 AND manifest_digest=?2 AND state='executing'
+           AND EXISTS (SELECT 1 FROM park_executions
+                       WHERE park_id=?1 AND attempt=?3 AND receipt IS NULL)",
+        params![park.id, park.manifest_digest, attempt],
+    )?;
+    status(db, park)
 }
 
 /// Startup recovery requires the former executor to be gone. It only reads the

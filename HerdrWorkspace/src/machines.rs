@@ -41,6 +41,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
+pub(crate) mod probe;
 mod ssh;
 
 const ASK_TIMEOUT: Duration = Duration::from_secs(15);
@@ -392,6 +393,8 @@ struct View {
     warnings: Vec<String>,
     /// The names of the projects on it.
     projects: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worker: Option<probe::Card>,
 }
 
 impl View {
@@ -439,37 +442,109 @@ impl View {
             keeps_running_after_logout: machine.keeps_running_after_logout,
             warnings,
             projects,
+            worker: None,
         }
+    }
+
+    fn with_worker(mut self, card: probe::Card) -> Self {
+        if let Some(message) = card.admission.message {
+            self.warnings.push(message.into());
+        }
+        self.worker = Some(card);
+        self
     }
 }
 
-async fn views(w: &Workspace) -> Result<Vec<View>, Refusal> {
+fn worker_policy(w: &Workspace) -> crate::fleet_policy::Inspection {
+    use crate::fleet_policy::Inspection;
+    match &w.fleet_policy {
+        Ok(Some(store)) => store.inspect(),
+        Ok(None) => Inspection::Unconfigured,
+        Err(reason) => Inspection::Held { reason: reason.clone() },
+    }
+}
+
+fn view(
+    db: &rusqlite::Connection,
+    policy: &crate::fleet_policy::Inspection,
+    machine: core::Machine,
+    projects: Vec<crate::projects::Project>,
+    now: i64,
+) -> View {
+    use crate::fleet_policy::Inspection;
+    let card = match policy {
+        Inspection::Current {
+            workspace, reference, policy, ..
+        } => policy
+            .workers
+            .iter()
+            .find(|worker| worker.machine == machine.name)
+            .map_or_else(
+                || probe::Card::held(probe::Reason::Uncommissioned),
+                |worker| {
+                    probe::Card::enrolled(
+                        &machine,
+                        worker,
+                        reference,
+                        &projects,
+                        probe::latest(db, workspace, reference, worker),
+                        now,
+                    )
+                },
+            ),
+        Inspection::Unconfigured => probe::Card::held(probe::Reason::Uncommissioned),
+        Inspection::Held { .. } => probe::Card::held(probe::Reason::PolicyUnavailable),
+    };
+    let names = projects.into_iter().map(|project| project.name().to_owned()).collect();
+    View::new(machine, names).with_worker(card)
+}
+
+async fn views(w: &Workspace) -> Result<Value, Refusal> {
     let machines = w
         .core
         .machines()
         .await
         .map_err(|failure| Box::new(failure.into_response()))?;
-    let mut projects = crate::projects::names_by_machine(&w.history)
-        .map_err(|error| Box::new(error.into_response()))?;
-    Ok(machines
-        .into_iter()
-        .map(|machine| {
-            let projects = projects.remove(&machine.name).unwrap_or_default();
-            View::new(machine, projects)
-        })
-        .collect())
-}
-
-/// Everything the machine list carries besides the machines.
-fn listing(machines: Vec<View>) -> Value {
+    let policy = worker_policy(w);
+    let quota = match &policy {
+        crate::fleet_policy::Inspection::Current { policy, .. } => probe::quota_accounts(&policy.workers),
+        _ => Vec::new(),
+    };
+    let views = {
+        let db = w.history.db().map_err(|error| Box::new(error.into_response()))?;
+        let mut projects = crate::projects::by_machine(&db)
+            .map_err(|error| Box::new(error.into_response()))?;
+        let now = crate::history::now();
+        machines.into_iter().map(|machine| {
+            let local_projects = projects.remove(&machine.name).unwrap_or_default();
+            view(&db, &policy, machine, local_projects, now)
+        }).collect::<Vec<_>>()
+    };
     // Why a server cannot be added from here as things are; `null` when it can.
     let problem = hc().and(tool("ssh")).err();
-    json!({ "machines": machines, "can_add": problem.is_none(), "problem": problem, "adding": INSTALLS })
+    Ok(json!({
+        "machines": views, "can_add": problem.is_none(), "problem": problem,
+        "adding": INSTALLS, "worker_quota_accounts": quota,
+    }))
+}
+
+fn current_view(w: &Workspace, machine: core::Machine) -> View {
+    let policy = worker_policy(w);
+    let read = || {
+        let db = w.history.db()?;
+        let projects = crate::projects::by_machine(&db)?.remove(&machine.name).unwrap_or_default();
+        Ok::<_, crate::history::StoreError>((db, projects))
+    };
+    match read() {
+        Ok((db, projects)) => view(&db, &policy, machine, projects, crate::history::now()),
+        Err(_) => View::new(machine, Vec::new())
+            .with_worker(probe::Card::held(probe::Reason::EvidenceUnavailable)),
+    }
 }
 
 async fn list(State(w): State<Workspace>) -> Response {
     match views(&w).await {
-        Ok(machines) => Json(listing(machines)).into_response(),
+        Ok(listing) => Json(listing).into_response(),
         Err(response) => *response,
     }
 }
@@ -651,7 +726,7 @@ async fn add(State(w): State<Workspace>, body: Bytes) -> Response {
                 state: "connecting".into(),
                 ..added
             });
-        let machine = View::new(machine, Vec::new());
+        let machine = current_view(&w, machine);
         let message = if helper_installed {
             format!(
                 "Added {name}. Herdr's helper program ({}) was copied to ~/.local/bin on it and started.",
@@ -725,8 +800,7 @@ async fn remove(State(w): State<Workspace>, body: Bytes) -> Response {
             return no_such_machine(failure, &name);
         }
         match views(&w).await {
-            Ok(machines) => {
-                let mut listing = listing(machines);
+            Ok(mut listing) => {
                 listing["removed"] = name.into();
                 Json(listing).into_response()
             }
@@ -746,11 +820,7 @@ async fn connect(State(w): State<Workspace>, body: Bytes) -> Response {
         Ok(machine) => machine,
         Err(failure) => return no_such_machine(failure, &name),
     };
-    let projects = match crate::projects::names_by_machine(&w.history) {
-        Ok(mut projects) => projects.remove(&name).unwrap_or_default(),
-        Err(error) => return error.into_response(),
-    };
-    Json(json!({ "machine": View::new(machine, projects) })).into_response()
+    Json(json!({ "machine": current_view(&w, machine) })).into_response()
 }
 
 /// Whether this server has no key pair that ssh would try by itself, so that one may be made.

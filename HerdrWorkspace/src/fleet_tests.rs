@@ -94,7 +94,7 @@ fn setup(root: &Path) -> (History, ParkRef) {
     let project = root.join("project");
     fs::create_dir(&project).unwrap();
     write_marker(&project, &marker("old")).unwrap();
-    let history = History::open_at(&root.join("journal")).unwrap();
+    let history = reopen_journal(&root.join("journal"));
     let park = parks::file(&history.db().unwrap(), "park", &manifest()).unwrap();
     (history, park)
 }
@@ -165,7 +165,7 @@ fn gapplan_01_int_judge_and_human_race_one_durable_claim() {
 fn gapplan_01_int_killed_executor_recovers_without_replay() {
     if let Some(root) = std::env::var_os(CRASH_ROOT) {
         let root = Path::new(&root);
-        let history = History::open_at(&root.join("journal")).unwrap();
+        let history = reopen_journal(&root.join("journal"));
         let mut db = history::connection(history.file()).unwrap();
         let park = ParkRef {
             id: "park".into(),
@@ -723,6 +723,7 @@ mod job_delivery {
     #[derive(Default)]
     struct CoreState {
         agents: Vec<Value>,
+        machines: Vec<Value>,
         writes: Vec<Value>,
         launches: usize,
         hold_reply: Option<Arc<Notify>>,
@@ -730,7 +731,7 @@ mod job_delivery {
         unsupported: bool,
     }
 
-    struct FakeCore {
+    pub(super) struct FakeCore {
         state: Arc<Mutex<CoreState>>,
         wrote: Arc<Notify>,
         task: JoinHandle<()>,
@@ -743,7 +744,7 @@ mod job_delivery {
     }
 
     impl FakeCore {
-        fn start(path: &Path) -> Self {
+        pub(super) fn start(path: &Path) -> Self {
             let listener = UnixListener::bind(path).unwrap();
             let state = Arc::new(Mutex::new(CoreState::default()));
             let wrote = Arc::new(Notify::new());
@@ -779,6 +780,10 @@ mod job_delivery {
             self.state.lock().unwrap().agents = agents;
         }
 
+        pub(super) fn machines(&self, machines: Vec<Value>) {
+            self.state.lock().unwrap().machines = machines;
+        }
+
         fn writes(&self) -> Vec<Value> {
             self.state.lock().unwrap().writes.clone()
         }
@@ -797,6 +802,7 @@ mod job_delivery {
                     }
                     json!({"generation":1,"version":"fixture","core":{"id":"core"},"methods":methods})
                 }
+                "machine.list" => json!({"machines":self.machines}),
                 "terminal.list" => json!({"terminals":self.agents}),
                 "terminal.get" => {
                     let Some(agent) = self.agents.iter().find(|agent| agent["address"] == p["terminal"]) else {
@@ -1621,7 +1627,7 @@ mod fleet_authority {
     #[test]
     fn gapplan_04_int_journal_v55_fresh_upgrade_and_reopen() {
         fn assert_v55(db: &Connection) {
-            assert_eq!(schema(db), 55);
+            assert_eq!(schema(db), history::migrations().len());
             let versions: i64 = db.query_row("SELECT count(*) FROM fleet_policy_versions", [], |r| r.get(0)).unwrap();
             assert_eq!(versions, 0);
         }
@@ -1689,3 +1695,5 @@ mod fleet_authority {
 }
 
 mod park_decisions;
+
+mod worker_hosts;

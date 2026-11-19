@@ -351,3 +351,44 @@ private let stepTwo = HerdrProgram(template: "two", name: "Program Two", takesMo
     #expect(Set(sizes).count == sizes.count)
     #expect(store.bots.isEmpty && store.defaults.string(forKey: HerdrServer.listKey) == nil, "showing them writes nothing")
 }
+
+private func gapplanWorkerMachineResponse(_ name: String, fallback: String) throws -> Data {
+    if let directory = ProcessInfo.processInfo.environment["SWARMHUB_GAPPLAN_06_SWIFT_FIXTURES"] {
+        return try Data(contentsOf: URL(fileURLWithPath: directory).appendingPathComponent(name + ".json"))
+    }
+    return Data(fallback.utf8)
+}
+
+@Test func gapplanWorkerMachineDecodesDiskStopEvidence() async throws {
+    let body = try gapplanWorkerMachineResponse("worker", fallback: """
+        {"machines":[{"name":"ovh","target":"fixture@ovh.invalid","state":"connected",
+          "warnings":["Disk STOP. Free space is below the hard floor."],
+          "worker":{"worker_id":"fixture-ovh","host_fingerprint":"SHA256:fixture",
+            "power_class":"shared_production","probe":{"observed_ms":1795089600000},
+            "admission":{"status":"stop","reason":"disk_stop","message":"Disk STOP. Free space is below the hard floor.",
+              "disk":{"path":"/","free_bytes":7000000000,"limit_bytes":8000000000}}}}]}
+        """)
+    let (host, session) = MockHTTPProtocol.serve { _ in (200, body) }
+    let client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
+    let machine = try #require(await client.machines().machines.first)
+    let worker = try #require(machine.worker)
+    #expect(worker.workerId == "fixture-ovh")
+    #expect(worker.hostFingerprint?.hasPrefix("SHA256:") == true)
+    #expect(worker.powerClass == "shared_production")
+    #expect(try #require(worker.probe?.observedMs) > 0)
+    #expect(worker.admission.status == "stop" && worker.admission.reason == "disk_stop")
+    #expect(machine.warnings.contains(try #require(worker.admission.message)))
+    let disk = try #require(worker.admission.disk)
+    #expect(disk.path == "/" && disk.freeBytes == 7_000_000_000 && disk.limitBytes == 8_000_000_000)
+    #expect(disk.line.contains("STOP floor"))
+}
+
+@Test func gapplanWorkerMachineDecodesLegacyPayload() async throws {
+    let body = try gapplanWorkerMachineResponse("legacy", fallback: """
+        {"machines":[{"name":"old","target":"fixture@old.invalid","state":"connected","projects":[],"warnings":[]}]}
+        """)
+    let (host, session) = MockHTTPProtocol.serve { _ in (200, body) }
+    let client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
+    let machine = try #require(await client.machines().machines.first)
+    #expect(machine.name == "old" && machine.reachable && machine.worker == nil)
+}

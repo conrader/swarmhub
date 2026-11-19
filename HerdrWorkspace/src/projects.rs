@@ -75,6 +75,28 @@ pub(crate) struct Project {
     created_ms: i64,
 }
 
+impl Project {
+    pub(crate) fn id(&self) -> i64 {
+        self.id
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn worker_pin<'a>(
+        &self,
+        worker: &'a crate::machines::probe::Enrollment,
+    ) -> Option<&'a crate::machines::probe::ProjectPin> {
+        worker.projects.iter().find(|pin| {
+            self.machine == worker.machine
+                && pin.id == self.id
+                && pin.created_ms == self.created_ms
+                && pin.folder == self.folder
+        })
+    }
+}
+
 /// A project with its machine's connection as it is now.
 #[derive(Serialize)]
 struct View {
@@ -131,7 +153,7 @@ fn all(db: &Connection) -> rusqlite::Result<Vec<Project>> {
         .collect()
 }
 
-fn one(db: &Connection, id: i64) -> rusqlite::Result<Option<Project>> {
+pub(crate) fn one(db: &Connection, id: i64) -> rusqlite::Result<Option<Project>> {
     db.query_row(
         &format!("SELECT {COLUMNS} FROM projects p WHERE p.id=?1"),
         [id],
@@ -183,9 +205,15 @@ fn grant(db: &mut Connection, key: &str, ids: &[i64]) -> rusqlite::Result<bool> 
 pub(crate) fn names_by_machine(
     history: &History,
 ) -> Result<HashMap<String, Vec<String>>, StoreError> {
-    let mut found: HashMap<String, Vec<String>> = HashMap::new();
-    for project in all(&*history.db()?)? {
-        found.entry(project.machine).or_default().push(project.name);
+    Ok(by_machine(&*history.db()?)?.into_iter().map(|(machine, projects)| {
+        (machine, projects.into_iter().map(|project| project.name).collect())
+    }).collect())
+}
+
+pub(crate) fn by_machine(db: &Connection) -> Result<HashMap<String, Vec<Project>>, StoreError> {
+    let mut found = HashMap::<_, Vec<_>>::new();
+    for project in all(db)? {
+        found.entry(project.machine.clone()).or_default().push(project);
     }
     Ok(found)
 }

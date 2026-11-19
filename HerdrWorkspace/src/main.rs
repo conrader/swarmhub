@@ -202,6 +202,10 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     let history = History::open()?;
+    {
+        let db = history.db().map_err(|_| "The park journal could not be opened for recovery.")?;
+        parks::recover_interrupted(&db)?;
+    }
     let fleet_policy = fleet_policy::Authority::configured(fleet_policy::Role::Bridge);
     if let Err(error) = &fleet_policy {
         eprintln!("SwarmHub fleet authority held: {error}");

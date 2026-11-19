@@ -152,7 +152,7 @@ pub(super) fn registered_bot(
     }
 }
 
-pub(super) fn identifier(value: &str) -> bool {
+pub(crate) fn identifier(value: &str) -> bool {
     (1..=128).contains(&value.len())
         && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }

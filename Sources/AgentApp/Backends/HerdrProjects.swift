@@ -9,6 +9,40 @@ import FoundationNetworking
 // in those folders. The workspace does the connecting and keeps the lists: the app shows them and sends what the
 // person decides. Foundation only, like the rest of the Herdr client.
 
+/// The fixture worker's heavy-work admission evidence from the workspace.
+struct HerdrWorkerMachine: Decodable, Sendable, Equatable {
+    struct Admission: Decodable, Sendable, Equatable {
+        struct Disk: Decodable, Sendable, Equatable {
+            let path: String
+            let freeBytes: Int64
+            let limitBytes: Int64
+
+            var line: String {
+                let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .decimal)
+                let floor = ByteCountFormatter.string(fromByteCount: limitBytes, countStyle: .decimal)
+                return "\(path) · \(free) free · \(floor) STOP floor"
+            }
+        }
+
+        let status: String
+        let reason: String?
+        let message: String?
+        let disk: Disk?
+    }
+
+    struct Probe: Decodable, Sendable, Equatable {
+        let observedMs: Int64
+
+        var observedAt: Date { Date(timeIntervalSince1970: Double(observedMs) / 1_000) }
+    }
+
+    let workerId: String?
+    let hostFingerprint: String?
+    let powerClass: String?
+    let probe: Probe?
+    let admission: Admission
+}
+
 /// One project server as the workspace lists it. `warnings` are the workspace's own sentences.
 struct HerdrMachine: Decodable, Sendable, Equatable, Identifiable {
     let name: String
@@ -25,9 +59,10 @@ struct HerdrMachine: Decodable, Sendable, Equatable, Identifiable {
     var warnings: [String] = []
     /// The names of the projects on it.
     var projects: [String] = []
+    var worker: HerdrWorkerMachine? = nil
     var id: String { name }
 
-    enum CodingKeys: CodingKey { case name, target, host, version, state, reachable, why, warnings, projects }
+    enum CodingKeys: CodingKey { case name, target, host, version, state, reachable, why, warnings, projects, worker }
     init(name: String, target: String = "", host: String? = nil, version: String? = nil, state: String = "connected", reachable: Bool = true, warnings: [String] = [], projects: [String] = []) {
         self.name = name; self.target = target; self.host = host; self.version = version; self.state = state; self.reachable = reachable; self.warnings = warnings; self.projects = projects
     }
@@ -38,6 +73,7 @@ struct HerdrMachine: Decodable, Sendable, Equatable, Identifiable {
         version = try c.decodeIfPresent(String.self, forKey: .version); state = try c.decodeIfPresent(String.self, forKey: .state) ?? ""
         reachable = try c.decodeIfPresent(Bool.self, forKey: .reachable) ?? (state == "connected"); why = try c.decodeIfPresent(String.self, forKey: .why)
         warnings = try c.decodeIfPresent([String].self, forKey: .warnings) ?? []; projects = try c.decodeIfPresent([String].self, forKey: .projects) ?? []
+        worker = try c.decodeIfPresent(HerdrWorkerMachine.self, forKey: .worker)
     }
 
     /// The state in a word or two.

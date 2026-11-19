@@ -354,25 +354,45 @@ impl Service {
         // Return to held only when this reservation never reached the adapter.
         let reason = match effect {
             Ok(Err(Error::Blocked(reason))) => reason,
+            Err(fleet_policy::Error::Busy) => Blocker::PolicyBusy,
+            Err(fleet_policy::Error::Unavailable) => Blocker::PolicyUnavailable,
+            Err(fleet_policy::Error::Audit) => Blocker::PolicyAuditUnavailable,
+            Err(fleet_policy::Error::Invalid | fleet_policy::Error::Signature | fleet_policy::Error::Binding) => {
+                Blocker::PolicyEvidenceInvalid
+            }
             Err(_) => Blocker::AuthorizationChanged,
-            Ok(result) => return result.map(Into::into),
+            Ok(Ok(view)) => return Ok(view.into()),
+            Ok(Err(error)) => {
+                eprintln!("SwarmHub park execution needs reconciliation: {error:?}");
+                return reconcile_claim(db, park, &attempt).map(Into::into);
+            }
         };
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if tx.execute(
-            "DELETE FROM park_executions WHERE park_id=?1 AND attempt=?2
-             AND observed_before IS NULL AND receipt IS NULL",
-            params![park.id, attempt],
-        )? != 1 || tx.execute(
-            "UPDATE parks SET state='held' WHERE id=?1 AND manifest_digest=?2 AND state='executing'",
-            params![park.id, park.manifest_digest],
-        )? != 1
-        {
-            return Err(Error::Conflict);
+        let held = (|| {
+            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let discarded = tx.execute(
+                "DELETE FROM park_executions WHERE park_id=?1 AND attempt=?2
+                 AND observed_before IS NULL AND receipt IS NULL",
+                params![park.id, attempt],
+            )?;
+            if discarded != 1 || tx.execute(
+                "UPDATE parks SET state='held' WHERE id=?1 AND manifest_digest=?2 AND state='executing'",
+                params![park.id, park.manifest_digest],
+            )? != 1
+            {
+                return Err(Error::Conflict);
+            }
+            recorded.blocked(reason)?;
+            record_decision(&tx, park, "hold", recorded.decision(), Some(&recorded.audit))?;
+            tx.commit()?;
+            Ok(DecisionResult::Held { reason })
+        })();
+        match held {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                eprintln!("SwarmHub park hold needs reconciliation: {error:?}");
+                reconcile_claim(db, park, &attempt).map(Into::into)
+            }
         }
-        recorded.blocked(reason)?;
-        record_decision(&tx, park, "hold", recorded.decision(), Some(&recorded.audit))?;
-        tx.commit()?;
-        Ok(DecisionResult::Held { reason })
     }
 
     fn check(&self, manifest: &Manifest) -> Result<&staging_ref::Project, Blocker> {

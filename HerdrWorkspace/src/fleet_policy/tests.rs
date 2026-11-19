@@ -89,7 +89,7 @@ impl Fixture {
 }
 
 pub(crate) fn policy(generation: i64, rules: Vec<Rule>) -> Policy {
-    Policy { generation, rules, revoked: BTreeSet::new() }
+    Policy { generation, rules, revoked: BTreeSet::new(), workers: vec![] }
 }
 
 pub(crate) fn grant() -> Rule {
