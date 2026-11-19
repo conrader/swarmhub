@@ -743,8 +743,8 @@ pub(crate) fn background_write(db: &mut Connection) -> Result<Option<Transaction
     defer_if_busy(db.transaction_with_behavior(TransactionBehavior::Immediate))
 }
 
-fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
-    let migrations = [
+pub(crate) fn migrations() -> &'static [&'static str] {
+    &[
         include_str!("migrate-replies.sql"),
         include_str!("migrate-files.sql"),
         include_str!("migrate-groups.sql"),
@@ -796,9 +796,13 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         include_str!("migrate-warm-launches.sql"),
         include_str!("migrate-bots.sql"),
         include_str!("migrate-vault-requests.sql"),
-    ];
+        include_str!("migrate-parks.sql"),
+    ]
+}
+
+fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     let version: usize = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    for script in migrations
+    for script in migrations()
         .get(version..)
         .ok_or("This workspace database was created by a newer version.")?
     {

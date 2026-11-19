@@ -13,6 +13,8 @@ mod drive_files;
 mod drive_oauth;
 mod email_drafts;
 mod events;
+#[cfg(test)]
+mod fleet_tests;
 mod file_preview;
 mod first_time;
 mod github_project;
@@ -31,6 +33,7 @@ mod memory_proposals;
 mod opencode_agent;
 mod page_share;
 mod pages;
+mod parks;
 mod pdf_assets;
 mod platform;
 mod portable_profiles;

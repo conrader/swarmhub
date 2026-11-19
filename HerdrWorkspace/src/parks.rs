@@ -1,0 +1,545 @@
+//! The internal park engine. Filing and trusted decision sources are wired up in later slices.
+#![allow(dead_code)]
+
+use crate::history::{self, StoreError};
+use rusqlite::{
+    Connection, OptionalExtension, Transaction, TransactionBehavior, params,
+    types::{FromSql, FromSqlError, FromSqlResult, ValueRef},
+};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
+use std::io;
+
+#[derive(Debug)]
+pub(crate) enum Error {
+    Store(StoreError),
+    Conflict,
+    InvalidManifest,
+    InvalidDecision,
+    Missing,
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Store(error.into())
+    }
+}
+
+impl From<StoreError> for Error {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ParkRef {
+    pub id: String,
+    pub manifest_digest: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct Manifest {
+    pub revision: String,
+    pub owner: String,
+    pub project: String,
+    pub host: String,
+    pub operation: Operation,
+    pub artifact_pin: String,
+    pub apply_pin: String,
+    pub reverse_pin: String,
+    pub precondition: String,
+    pub expected_postcondition: String,
+    pub review_ref: String,
+    pub dry_run_ref: String,
+    pub rollback_plan: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) enum Operation {
+    SetRevisionMarker { revision: String },
+}
+
+impl Manifest {
+    fn encode(&self) -> Result<String, Error> {
+        let Operation::SetRevisionMarker { revision } = &self.operation;
+        if self.precondition == self.expected_postcondition
+            || revision != &self.expected_postcondition
+            || [
+                &self.revision,
+                &self.owner,
+                &self.project,
+                &self.host,
+                &self.artifact_pin,
+                &self.apply_pin,
+                &self.reverse_pin,
+                &self.precondition,
+                &self.expected_postcondition,
+                &self.review_ref,
+                &self.dry_run_ref,
+                &self.rollback_plan,
+            ]
+            .iter()
+            .any(|field| field.trim().is_empty())
+        {
+            return Err(Error::InvalidManifest);
+        }
+        encode(self)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Source {
+    Human,
+    Judge,
+    Backstop,
+}
+
+pub(crate) struct Decision<'a> {
+    pub actor: &'a str,
+    pub source: Source,
+    pub basis: &'a str,
+}
+
+pub(crate) enum Change<'a> {
+    Hold,
+    Release,
+    Deny,
+    Supersede { id: &'a str, manifest: &'a Manifest },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum State {
+    Pending,
+    Held,
+    Denied,
+    Superseded,
+    Executing,
+    Verified,
+    Failed,
+    Reconciliation,
+}
+
+impl FromSql for State {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        match value.as_str()? {
+            "pending" => Ok(Self::Pending),
+            "held" => Ok(Self::Held),
+            "denied" => Ok(Self::Denied),
+            "superseded" => Ok(Self::Superseded),
+            "executing" => Ok(Self::Executing),
+            "verified" => Ok(Self::Verified),
+            "failed" => Ok(Self::Failed),
+            "reconciliation" => Ok(Self::Reconciliation),
+            _ => Err(FromSqlError::InvalidType),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum View {
+    Busy,
+    Status(State),
+    Receipt(State, Receipt),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Marker {
+    pub revision: String,
+    pub attempt: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Step {
+    Exit(i32),
+    Drift,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Outcome {
+    Verified,
+    Failed,
+    Reconciliation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Reason {
+    InitialReadUnavailable,
+    PreconditionDrift,
+    ApplyFailed,
+    VerificationFailed,
+    Interrupted,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Receipt {
+    pub attempt: String,
+    pub outcome: Outcome,
+    pub reason: Option<Reason>,
+    pub before: Option<Marker>,
+    pub apply: Option<Step>,
+    pub after_apply: Option<Marker>,
+    // Absent means there was no rollback intent. A present rollback can have an unknown exit.
+    pub rollback: Option<Rollback>,
+    pub restart_observation: Option<Marker>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Rollback {
+    pub step: Option<Step>,
+    pub after: Option<Marker>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RollbackIntent {
+    after_apply: Option<Marker>,
+}
+
+/// Compare and replace must guard the write against the complete expected marker.
+/// Observation reads the project independently of the apply or rollback result.
+/// A drift result certifies that the adapter performed no write.
+pub(crate) trait Adapter {
+    fn observe(&self) -> io::Result<Marker>;
+    fn apply(&self, expected: &Marker, replacement: &Marker) -> Step;
+    fn rollback(&self, expected: &Marker, replacement: &Marker) -> Step;
+}
+
+pub(crate) fn file(db: &Connection, id: &str, manifest: &Manifest) -> Result<ParkRef, Error> {
+    insert_park(db, id, manifest, None)
+}
+
+fn insert_park(
+    db: &Connection,
+    id: &str,
+    manifest: &Manifest,
+    supersedes: Option<&str>,
+) -> Result<ParkRef, Error> {
+    if id.trim().is_empty() {
+        return Err(Error::InvalidManifest);
+    }
+    let stored = manifest.encode()?;
+    let manifest_digest = digest(&stored);
+    db.execute(
+        "INSERT INTO parks(id,manifest_digest,manifest,state,supersedes,created_ms)
+         VALUES (?1,?2,?3,'pending',?4,?5)",
+        params![id, manifest_digest, stored, supersedes, history::now()],
+    )?;
+    Ok(ParkRef {
+        id: id.into(),
+        manifest_digest,
+    })
+}
+
+/// The caller supplies an authorized decision. Until principals are wired up, the
+/// fixture permits only the human decision source to release a hold.
+pub(crate) fn decide(
+    db: &mut Connection,
+    park: &ParkRef,
+    decision: Decision<'_>,
+    change: Change<'_>,
+) -> Result<Option<ParkRef>, Error> {
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let (action, allowed, next) = match change {
+        Change::Hold => ("hold", "pending", "held"),
+        Change::Release if matches!(decision.source, Source::Human) => ("release", "held", "pending"),
+        Change::Release => return Err(Error::InvalidDecision),
+        Change::Deny => ("deny", "pending", "denied"),
+        Change::Supersede { .. } => ("supersede", "pending", "superseded"),
+    };
+    let changed = tx.execute(
+        "UPDATE parks SET state=?1 WHERE id=?2 AND manifest_digest=?3
+         AND (state=?4 OR (state='held' AND ?1 IN ('denied','superseded'))
+                       OR (state='failed' AND ?1='superseded'))",
+        params![next, park.id, park.manifest_digest, allowed],
+    )?;
+    if changed != 1 {
+        return Err(Error::Conflict);
+    }
+    let replacement = if let Change::Supersede { id, manifest } = change {
+        let original = manifest_for(&tx, park)?;
+        if manifest.revision == original.revision
+            || manifest.owner != original.owner
+            || manifest.project != original.project
+            || manifest.host != original.host
+        {
+            return Err(Error::InvalidManifest);
+        }
+        Some(insert_park(&tx, id, manifest, Some(&park.id))?)
+    } else {
+        None
+    };
+    record_decision(&tx, park, action, decision)?;
+    tx.commit()?;
+    Ok(replacement)
+}
+
+fn record_decision(
+    tx: &Transaction<'_>,
+    park: &ParkRef,
+    action: &str,
+    decision: Decision<'_>,
+) -> Result<(), Error> {
+    if decision.actor.trim().is_empty() || decision.basis.trim().is_empty() {
+        return Err(Error::InvalidDecision);
+    }
+    let source = match decision.source {
+        Source::Human => "human",
+        Source::Judge => "judge",
+        Source::Backstop => "backstop",
+    };
+    tx.execute(
+        "INSERT INTO park_decisions(park_id,action,actor,source,basis,at_ms)
+         VALUES (?1,?2,?3,?4,?5,?6)",
+        params![park.id, action, decision.actor, source, decision.basis, history::now()],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn status(db: &Connection, park: &ParkRef) -> Result<View, Error> {
+    let row: Option<(String, State, Option<String>)> = db
+        .query_row(
+            "SELECT p.manifest_digest,p.state,e.receipt FROM parks p
+             LEFT JOIN park_executions e ON e.park_id=p.id WHERE p.id=?1",
+            [&park.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let (digest, state, receipt) = row.ok_or(Error::Missing)?;
+    if digest != park.manifest_digest {
+        return Err(Error::Conflict);
+    }
+    match receipt {
+        Some(receipt) => Ok(View::Receipt(state, decode(&receipt)?)),
+        None => Ok(View::Status(state)),
+    }
+}
+
+/// All decision sources use this entry point. An existing attempt can only be read.
+pub(crate) fn execute(
+    db: &mut Connection,
+    park: &ParkRef,
+    decision: Decision<'_>,
+    adapter: &impl Adapter,
+) -> Result<View, Error> {
+    let Some(tx) = history::background_write(db)? else {
+        return Ok(View::Busy);
+    };
+    let changed = tx.execute(
+        "UPDATE parks SET state='executing'
+         WHERE id=?1 AND manifest_digest=?2 AND state='pending'",
+        params![park.id, park.manifest_digest],
+    )?;
+    if changed != 1 {
+        return status(&tx, park);
+    }
+    let manifest = manifest_for(&tx, park)?;
+    record_decision(&tx, park, "claim", decision)?;
+    let attempt = tx.query_row(
+        "INSERT INTO park_executions(park_id,attempt,claimed_ms)
+         VALUES (?1,lower(hex(randomblob(16))),?2) RETURNING attempt",
+        params![park.id, history::now()],
+        |row| row.get(0),
+    )?;
+    tx.commit()?;
+    run(db, park, &manifest, attempt, adapter)
+}
+
+fn run(
+    db: &mut Connection,
+    park: &ParkRef,
+    manifest: &Manifest,
+    attempt: String,
+    adapter: &impl Adapter,
+) -> Result<View, Error> {
+    let before = adapter.observe().ok();
+    let mut receipt = Receipt {
+        attempt,
+        outcome: Outcome::Failed,
+        reason: None,
+        before,
+        apply: None,
+        after_apply: None,
+        rollback: None,
+        restart_observation: None,
+    };
+    let Some(before) = &receipt.before else {
+        receipt.reason = Some(Reason::InitialReadUnavailable);
+        return finish(db, park, receipt);
+    };
+    if before.revision != manifest.precondition {
+        receipt.reason = Some(Reason::PreconditionDrift);
+        return finish(db, park, receipt);
+    }
+    // The pre-effect observation is durable before touching the marker.
+    let prepared = db.execute(
+        "UPDATE park_executions SET observed_before=?1
+         WHERE park_id=?2 AND attempt=?3 AND receipt IS NULL",
+        params![encode(before)?, park.id, receipt.attempt],
+    )?;
+    if prepared != 1 {
+        return Err(Error::Conflict);
+    }
+    let expected = effect_marker(manifest, &receipt.attempt);
+    let apply = adapter.apply(before, &expected);
+    let recorded = db.execute(
+        "UPDATE park_executions SET apply_step=?1
+         WHERE park_id=?2 AND attempt=?3 AND receipt IS NULL",
+        params![encode(&apply)?, park.id, receipt.attempt],
+    )?;
+    if recorded != 1 {
+        return Err(Error::Conflict);
+    }
+    receipt.apply = Some(apply);
+    receipt.after_apply = adapter.observe().ok();
+    if apply == Step::Exit(0) && receipt.after_apply.as_ref() == Some(&expected) {
+        receipt.outcome = Outcome::Verified;
+        return finish(db, park, receipt);
+    }
+    receipt.reason = Some(match apply {
+        Step::Exit(0) => Reason::VerificationFailed,
+        Step::Drift => Reason::PreconditionDrift,
+        _ => Reason::ApplyFailed,
+    });
+    if apply == Step::Drift || receipt.after_apply.as_ref() == Some(before) {
+        return finish(db, park, receipt);
+    }
+    if receipt.after_apply.is_none() || receipt.after_apply.as_ref() == Some(&expected) {
+        let intent = RollbackIntent {
+            after_apply: receipt.after_apply.clone(),
+        };
+        let prepared = db.execute(
+            "UPDATE park_executions SET rollback_intent=?1
+             WHERE park_id=?2 AND attempt=?3 AND receipt IS NULL",
+            params![encode(&intent)?, park.id, receipt.attempt],
+        )?;
+        if prepared != 1 {
+            return Err(Error::Conflict);
+        }
+        let step = adapter.rollback(&expected, before);
+        let after = adapter.observe().ok();
+        if after.as_ref() != Some(before) {
+            receipt.outcome = Outcome::Reconciliation;
+        }
+        receipt.rollback = Some(Rollback { step: Some(step), after });
+    } else {
+        receipt.outcome = Outcome::Reconciliation;
+    }
+    finish(db, park, receipt)
+}
+
+/// Startup recovery requires the former executor to be gone. It only reads the
+/// effect and will never issue a new apply or rollback.
+pub(crate) fn reconcile_after_restart(
+    db: &mut Connection,
+    park: &ParkRef,
+    adapter: &impl Adapter,
+) -> Result<View, Error> {
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let view = status(&tx, park)?;
+    if view != View::Status(State::Executing) {
+        return Ok(view);
+    }
+    let manifest = manifest_for(&tx, park)?;
+    let (attempt, before, apply, rollback_intent): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = tx.query_row(
+        "SELECT attempt,observed_before,apply_step,rollback_intent
+         FROM park_executions WHERE park_id=?1",
+        [&park.id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )?;
+    let before: Option<Marker> = before.as_deref().map(decode).transpose()?;
+    let apply: Option<Step> = apply.as_deref().map(decode).transpose()?;
+    let intent: Option<RollbackIntent> = rollback_intent.as_deref().map(decode).transpose()?;
+    let observed = adapter.observe().ok();
+    let outcome = match (&before, &observed) {
+        (Some(before), Some(observed)) if before == observed => Outcome::Failed,
+        (Some(_), Some(observed))
+            if intent.is_none()
+                && matches!(apply, None | Some(Step::Exit(0)))
+                && *observed == effect_marker(&manifest, &attempt) =>
+        {
+            Outcome::Verified
+        }
+        _ => Outcome::Reconciliation,
+    };
+    let receipt = Receipt {
+        attempt,
+        outcome,
+        reason: Some(Reason::Interrupted),
+        before,
+        apply,
+        after_apply: intent.as_ref().and_then(|intent| intent.after_apply.clone()),
+        rollback: intent.map(|_| Rollback {
+            step: None,
+            after: observed.clone(),
+        }),
+        restart_observation: observed,
+    };
+    let state = store_receipt(&tx, park, &receipt)?;
+    tx.commit()?;
+    Ok(View::Receipt(state, receipt))
+}
+
+fn effect_marker(manifest: &Manifest, attempt: &str) -> Marker {
+    let Operation::SetRevisionMarker { revision } = &manifest.operation;
+    Marker {
+        revision: revision.clone(),
+        attempt: Some(attempt.to_owned()),
+    }
+}
+
+fn finish(db: &mut Connection, park: &ParkRef, receipt: Receipt) -> Result<View, Error> {
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let state = store_receipt(&tx, park, &receipt)?;
+    tx.commit()?;
+    Ok(View::Receipt(state, receipt))
+}
+
+fn store_receipt(tx: &Transaction<'_>, park: &ParkRef, receipt: &Receipt) -> Result<State, Error> {
+    let (state, stored_state) = match receipt.outcome {
+        Outcome::Verified => (State::Verified, "verified"),
+        Outcome::Failed => (State::Failed, "failed"),
+        Outcome::Reconciliation => (State::Reconciliation, "reconciliation"),
+    };
+    let changed = tx.execute(
+        "UPDATE parks SET state=?1 WHERE id=?2 AND manifest_digest=?3 AND state='executing'",
+        params![stored_state, park.id, park.manifest_digest],
+    )?;
+    let stored = tx.execute(
+        "UPDATE park_executions SET receipt=?1 WHERE park_id=?2 AND attempt=?3 AND receipt IS NULL",
+        params![encode(receipt)?, park.id, receipt.attempt],
+    )?;
+    if changed != 1 || stored != 1 {
+        return Err(Error::Conflict);
+    }
+    Ok(state)
+}
+
+fn manifest_for(db: &Connection, park: &ParkRef) -> Result<Manifest, Error> {
+    let stored: String = db.query_row("SELECT manifest FROM parks WHERE id=?1", [&park.id], |r| {
+        r.get(0)
+    })?;
+    if digest(&stored) != park.manifest_digest {
+        return Err(Error::Conflict);
+    }
+    decode(&stored)
+}
+
+fn digest(stored: &str) -> String {
+    format!("{:x}", Sha256::digest(stored.as_bytes()))
+}
+
+fn encode(value: &impl Serialize) -> Result<String, Error> {
+    serde_json::to_string(value).map_err(|_| Error::Store(StoreError))
+}
+
+fn decode<T: DeserializeOwned>(value: &str) -> Result<T, Error> {
+    serde_json::from_str(value).map_err(|_| Error::Store(StoreError))
+}
+
+#[cfg(test)]
+pub(crate) mod tests;
