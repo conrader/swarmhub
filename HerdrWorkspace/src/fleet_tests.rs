@@ -1728,7 +1728,7 @@ fn gapplan_11_int_v57_fresh_and_seeded_v56_reopen_preserve_rows() {
         for _ in 0..3 {
             let history = reopen_journal(&path);
             let db = history.db().unwrap();
-            assert_eq!(schema(&db), 57);
+            assert_eq!(schema(&db), history::migrations().len());
             for table in ["job_review_lineages", "job_review_rounds", "job_review_evidence"] {
                 assert_eq!(db.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get::<_, i64>(0)).unwrap(), 0);
             }

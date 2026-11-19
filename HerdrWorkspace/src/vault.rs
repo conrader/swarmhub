@@ -26,6 +26,7 @@ use std::{
 #[cfg(any(target_os = "macos", test))]
 mod keychain;
 mod requests;
+pub(crate) mod workload;
 pub(crate) use requests::{NOTE, SESSION_ENV, USAGE, cli, listen};
 
 pub(crate) const KEY_FILE: &str = "SWARMHUB_VAULT_KEY_FILE";
@@ -53,7 +54,11 @@ const SECRET_LIMIT: usize = 4096;
 impl Vault {
     #[cfg(test)]
     pub(crate) fn fixture() -> Self {
-        let raw = [1u8; 32];
+        Self::fixture_with_key([1u8; 32])
+    }
+
+    #[cfg(test)]
+    fn fixture_with_key(raw: [u8; 32]) -> Self {
         let key = aead::UnboundKey::new(&aead::AES_256_GCM, &raw).expect("fixture key");
         Self {
             backend: Backend::File(Arc::new(aead::LessSafeKey::new(key))),

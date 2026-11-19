@@ -19,6 +19,7 @@ pub(super) const BRIEF_LIMIT: usize = 3000;
 pub(super) const EVENTS_LIMIT: usize = 64 * 1024;
 const EXECUTABLE_LIMIT: usize = 64 * 1024;
 const RESULT: &str = "result.md";
+const CODEX_REVIEW_FIXTURE: &str = "0eb84e190a87e832fc32a2870a50feb4e86b695a5d51fc488208a9f1008b9d6a";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -121,7 +122,8 @@ impl Profile {
             provider: self.config.provider,
             version: self.config.cli_version.clone(),
             timeout: Duration::from_millis(self.config.timeout_ms),
-            fixture_codex_observation: self.config.fixture_codex_observation,
+            fixture_codex_observation: cfg!(test) && self.config.fixture_codex_observation
+                && self.config.executable_sha256 == CODEX_REVIEW_FIXTURE,
         })
     }
 }

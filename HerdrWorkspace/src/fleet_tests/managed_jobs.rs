@@ -29,6 +29,7 @@ struct Transport {
     timeout_start: bool,
     drop_before_start: bool,
     calls: Vec<String>,
+    collected: Vec<Value>,
 }
 
 struct WorkerCore {
@@ -81,9 +82,13 @@ impl WorkerCore {
                             if drop_start {
                                 return;
                             }
+                            let worker_verb = verb.clone();
                             let mut view = tokio::task::spawn_blocking(move || {
-                                run_worker(&root, &verb, &payload)
+                                run_worker(&root, &worker_verb, &payload)
                             }).await.unwrap();
+                            if verb == "collect" {
+                                shared.lock().unwrap().collected.push(view.clone());
+                            }
                             if lose_reply {
                                 return;
                             }
@@ -699,6 +704,10 @@ async fn gapplan_11_int_competing_fixes_stale_final_reverse_and_revoked_p2_excep
     assert_eq!(counts, (2, 2));
     drop(db);
 
+    let restart = completed_review_job(&f, "restart-author", Provider::Codex,
+        review_artifact("author", &final_manifest)).await;
+    assert!(record_completed(&f, &restart).await.unwrap_err().contains("unresolved author lineage"));
+
     f.bridge.parks = Service::fixture(&git.directory, final_manifest.clone());
     let delegated = review_grant(&final_manifest);
     let mut exception = delegated.clone();
@@ -733,3 +742,5 @@ async fn gapplan_11_int_competing_fixes_stale_final_reverse_and_revoked_p2_excep
     assert_eq!(claim["review"]["exceptions"][0]["id"], "residual-p2");
     assert_eq!(count, 0);
 }
+
+mod workload_grants;

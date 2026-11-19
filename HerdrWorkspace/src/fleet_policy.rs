@@ -411,6 +411,8 @@ pub(crate) struct Verified {
     published_ms: i64,
     signed_policy: String,
     pub review_policy: Policy,
+    #[cfg(test)]
+    pub signer_fingerprint: String,
 }
 
 impl Verified {
@@ -544,6 +546,8 @@ impl Authority {
                 published_ms: published.published_ms,
                 signed_policy: serde_json::to_string(&published.publication).map_err(|_| Error::Invalid)?,
                 review_policy: published.publication.policy,
+                #[cfg(test)]
+                signer_fingerprint: format!("{:x}", Sha256::digest(key)),
             };
             Ok(use_decision(db, verified))
         })

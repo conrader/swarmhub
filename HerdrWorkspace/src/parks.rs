@@ -102,6 +102,7 @@ pub(crate) enum Operation {
     AdvanceStagingRef { reference: String, rollback: bool },
     SpendMoney,
     UseSecret,
+    UseWorkloadSecret { grant_digest: String },
     Delete,
     OutsideMessage,
     Unknown { action: String },
@@ -113,7 +114,7 @@ impl Operation {
             Self::SetRevisionMarker { .. } => "set_revision_marker",
             Self::AdvanceStagingRef { .. } => STAGING_ACTION,
             Self::SpendMoney => "spend_money",
-            Self::UseSecret => "use_secret",
+            Self::UseSecret | Self::UseWorkloadSecret { .. } => "use_secret",
             Self::Delete => "delete",
             Self::OutsideMessage => "outside_message",
             Self::Unknown { .. } => "unknown",
@@ -132,6 +133,9 @@ impl Manifest {
                     && self.precondition.len() == self.expected_postcondition.len()
             }
             Operation::Unknown { action } => valid_text(action),
+            Operation::UseWorkloadSecret { grant_digest } => {
+                crate::fleet_policy::principals::hex(grant_digest, 64)
+            }
             _ => true,
         };
         if self.precondition == self.expected_postcondition

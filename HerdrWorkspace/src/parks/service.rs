@@ -103,7 +103,7 @@ fn classify(manifest: &Manifest, reviewed: bool) -> Classification<'_> {
         Operation::AdvanceStagingRef { .. } if reviewed => (ReviewedReversible, Some(false), Some(false)),
         Operation::AdvanceStagingRef { .. } => (StagingNeedsReview, Some(false), Some(false)),
         Operation::SpendMoney => (Money, Some(false), Some(true)),
-        Operation::UseSecret => (Secrets, Some(false), Some(true)),
+        Operation::UseSecret | Operation::UseWorkloadSecret { .. } => (Secrets, Some(false), Some(true)),
         Operation::Delete => (Delete, Some(true), Some(true)),
         Operation::OutsideMessage => (OutsideMessage, Some(false), Some(true)),
         Operation::Unknown { .. } | Operation::SetRevisionMarker { .. } => (Unknown, None, None),
@@ -199,7 +199,7 @@ impl Recorded {
                 Purpose::Release => "release",
                 Purpose::Deny => "deny",
                 Purpose::Supersede => "supersede",
-                Purpose::PublishPolicy => return Err(Error::InvalidDecision),
+                Purpose::PublishPolicy | Purpose::AuthorizeWorkload => return Err(Error::InvalidDecision),
             },
             nonce_digest: &nonce_digest,
             rule: verified.rule_id.as_deref(),
@@ -304,7 +304,8 @@ impl Service {
             {
                 Some(pin_for(&next.id, &next.manifest)?)
             }
-            (Purpose::Supersede | Purpose::PublishPolicy, _) | (_, Some(_)) => return Err(Error::InvalidDecision),
+            (Purpose::Supersede | Purpose::PublishPolicy | Purpose::AuthorizeWorkload, _) | (_, Some(_)) =>
+                return Err(Error::InvalidDecision),
             _ => None,
         };
         let execute = matches!(purpose, Purpose::Execute | Purpose::AutoExecute);

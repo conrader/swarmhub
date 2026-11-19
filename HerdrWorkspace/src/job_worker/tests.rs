@@ -194,3 +194,24 @@ fn gapplan_09_unit_capture_drains_a_socket_without_waiting_for_the_inherited_wri
     capture.drain();
     assert_eq!(capture.bytes, b"abcde");
 }
+
+pub(crate) fn workload_child(
+    root: &Path, verb: &str, input: std::os::unix::net::UnixStream,
+    auxiliary: std::os::unix::net::UnixStream,
+) -> io::Result<std::process::Child> {
+    use std::{os::fd::{AsRawFd, OwnedFd}, process::Stdio};
+    let fd = auxiliary.as_raw_fd().to_string();
+    let mut command = subprocess([
+        std::ffi::OsStr::new(verb), root.as_os_str(), std::ffi::OsStr::new(&fd),
+    ])?;
+    command.stdin(Stdio::from(OwnedFd::from(input)));
+    let log = OpenOptions::new().create(true).append(true).mode(0o600)
+        .open(root.join("workload-fixture.log"))?;
+    command.stdout(log.try_clone()?).stderr(log);
+    // SAFETY: fcntl changes the descriptor only in the fresh child. Holding
+    // the socket in the closure keeps it open through spawn.
+    unsafe {
+        command.pre_exec(move || super::set_descriptor_flags(auxiliary.as_raw_fd(), 0));
+    }
+    command.spawn()
+}

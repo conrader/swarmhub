@@ -23,6 +23,8 @@ use std::{
 
 mod local;
 mod output;
+#[cfg(test)]
+pub(super) use output::run_workload;
 pub(crate) use local::{SESSION_ENV, USAGE, cli, listen};
 
 const PENDING_MS: i64 = 15 * 60 * 1000;
@@ -158,6 +160,9 @@ impl Desk {
         description: &str,
         at: i64,
     ) -> Result<&'static str, StoreError> {
+        if super::workload::reserved_name(name) {
+            return Ok("unavailable");
+        }
         let mut records = self.records.lock().map_err(|_| StoreError)?;
         records.retain(|_, record| record.expires > at);
         let key = (session.launch.clone(), name.to_ascii_lowercase());
@@ -203,6 +208,9 @@ impl Desk {
         name: &str,
         at: i64,
     ) -> Result<&'static str, StoreError> {
+        if super::workload::reserved_name(name) {
+            return Ok("unavailable");
+        }
         let records = self.records.lock().map_err(|_| StoreError)?;
         records
             .get(&(session.launch.clone(), name.to_ascii_lowercase()))
@@ -227,6 +235,9 @@ impl Desk {
             return Err(STALE);
         };
         let name = record.request.name.clone();
+        if super::workload::reserved_name(&name) {
+            return Err(STALE);
+        }
         let (duration, remaining) = match action {
             Action::Cancel if value.is_none() => {
                 record.grant = Grant::Cancelled;
@@ -282,6 +293,9 @@ impl Desk {
         let mut values = Vec::with_capacity(names.len());
         let mut keys = Vec::with_capacity(names.len());
         for name in names {
+            if super::workload::reserved_name(name) {
+                return Err(StoreError);
+            }
             let key = (session.launch.clone(), name.to_ascii_lowercase());
             let record = records.get(&key).ok_or(StoreError)?;
             if record.status(&tx, name, at)? != "approved" {
@@ -449,6 +463,22 @@ mod tests {
         let mut db = history.db().unwrap();
         assert_eq!(desk.status(&db, &owner, NAME, AT + 2).unwrap(), "unavailable");
         assert!(desk.take(&mut db, &vault, &owner, &[NAME.into()], AT + 2).is_err());
+    }
+
+    #[test]
+    fn gapplan_12_unit_repeated_session_grant_confers_no_workload_authority() {
+        let (_dir, history, vault, owner) = setup();
+        let desk = &vault.requests;
+        let mut db = history.db().unwrap();
+        let pending = request(desk, &db, &owner, AT);
+        let value = super::super::workload::sentinel(&super::super::workload::random::<32>().unwrap());
+        desk.resolve(&mut db, &vault, &pending.id, Action::AllowRepeated, Some(value), AT).unwrap();
+        let reserved = "swarmhub_workload_fixture";
+        assert_eq!(desk.request(&db, &owner, reserved, "Fixture", "Fixture", AT).unwrap(), "unavailable");
+        assert!(desk.take(&mut db, &vault, &owner, &[NAME.into(), reserved.into()], AT).is_err());
+        assert_eq!(desk.status(&db, &owner, NAME, AT).unwrap(), "approved");
+        let grants: i64 = db.query_row("SELECT count(*) FROM vault_workload_grants", [], |row| row.get(0)).unwrap();
+        assert_eq!(grants, 0);
     }
 
     #[test]

@@ -26,6 +26,7 @@ pub(crate) enum Principal {
 pub(crate) enum Purpose {
     PublishPolicy,
     Execute,
+    AuthorizeWorkload,
     AutoExecute,
     Supersede,
     Release,
@@ -82,7 +83,7 @@ impl Envelope {
         match (&self.principal, self.purpose, &self.target) {
             (Principal::Operator, Purpose::PublishPolicy, Target::Policy { policy })
                 if policy.valid() => {}
-            (Principal::Operator, Purpose::Execute | Purpose::Hold | Purpose::Release | Purpose::Deny, Target::Park { park, policy })
+            (Principal::Operator, Purpose::Execute | Purpose::AuthorizeWorkload | Purpose::Hold | Purpose::Release | Purpose::Deny, Target::Park { park, policy })
                 if park.valid() && policy.valid() => {}
             (Principal::Operator, Purpose::Supersede, Target::Supersession { park, policy, replacement })
                 if park.valid() && policy.valid() && replacement.valid() && park.id != replacement.id => {}

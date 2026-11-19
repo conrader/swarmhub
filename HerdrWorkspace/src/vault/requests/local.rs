@@ -153,6 +153,7 @@ fn env_name(name: &str) -> bool {
         && name.len() <= 80
         && name.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
         && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        && !super::super::workload::reserved_name(name)
         && !["SWARMHUB_", "LD_", "DYLD_"].iter().any(|prefix| name.starts_with(prefix))
         && !matches!(name, "PATH" | "BASH_ENV" | "ENV")
 }

@@ -138,6 +138,39 @@ pub(super) fn run(
 }
 
 #[cfg(test)]
+pub(crate) fn run_workload(
+    program: &std::path::Path,
+    args: &[String],
+    cwd: &std::path::Path,
+    value: &[u8],
+) -> io::Result<bool> {
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .current_dir(cwd)
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // The fixture command has no channel to the provider or caller's terminal.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn()?;
+    let mut input = child.stdin.take().expect("piped stdin");
+    let written = input.write_all(value).and_then(|()| input.write_all(b"\n"));
+    drop(input);
+    let status = child.wait()?;
+    written?;
+    Ok(status.success())
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

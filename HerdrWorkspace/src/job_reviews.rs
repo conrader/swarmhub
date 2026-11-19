@@ -222,6 +222,23 @@ fn add_round(
     Ok(())
 }
 
+// The staging adapter enrolls one target per managed project. An unresolved
+// lineage owns that target even if its author, commit or park changes.
+const VERIFIED_LINEAGE: &str = "EXISTS (
+    SELECT 1 FROM parks p WHERE p.state='verified'
+      AND json_type(p.manifest,'$.operation.AdvanceStagingRef')='object'
+      AND json_extract(p.manifest,'$.review_ref')=l.id
+      AND json_extract(p.manifest,'$.owner')=l.owner_bot_id
+      AND json_extract(p.manifest,'$.project')=CAST(l.project AS TEXT))";
+
+fn lineage_exists(db: &Connection, project: i64, closed: Option<&str>) -> rusqlite::Result<bool> {
+    let query = format!(
+        "SELECT EXISTS(SELECT 1 FROM job_review_lineages l WHERE l.project=?1 AND l.action=?2 AND
+          ((?3 IS NULL AND NOT {VERIFIED_LINEAGE}) OR (l.id=?3 AND {VERIFIED_LINEAGE})))"
+    );
+    db.query_row(&query, params![project, STAGING_ACTION, closed], |row| row.get(0))
+}
+
 fn record(
     tx: &Transaction<'_>, owner: &str, job: &str, attempt: i64, raw: &str, grant: Option<&str>,
     ctx: &PolicyContext<'_>,
@@ -261,6 +278,9 @@ fn record(
     let exception = if let Artifact::Author { .. } = &artifact {
         if grant.is_some() {
             return Err("A review exception belongs to a reviewer result.".into());
+        }
+        if lineage_exists(tx, status.project, None)? {
+            return Err("An unresolved author lineage already owns the project staging target.".into());
         }
         tx.execute("INSERT INTO job_review_lineages VALUES (?1,?2,?3,?4)",
             params![lineage, owner, status.project, STAGING_ACTION])?;
@@ -313,6 +333,9 @@ fn fix(
     if current.round == next && current.exception.as_ref().map(|exception| exception.id.as_str()) == grant {
         let job = queue(tx, &key, Some(&current.producer_job))?;
         return Ok(serde_json::json!({ "status": "queued", "round": next, "job": job }));
+    }
+    if lineage_exists(tx, scope.project, Some(scope.lineage))? {
+        return Err("The staging target already verified this review lineage.".into());
     }
     if current.round != after_round {
         return Err("The requested fix does not follow the current round.".into());

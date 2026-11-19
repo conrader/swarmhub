@@ -625,6 +625,8 @@ printf '%s\n' "started" >> "$HOME/invocations"
 case "$outcome" in
     timeout) /bin/sleep 20 ;;
     first_holds) if [ "$(/usr/bin/wc -l < "$HOME/invocations" | /usr/bin/tr -d ' ')" = 1 ]; then /bin/sleep 20; fi ;;
+    workload-gate) while [ ! -f "$HOME/workload-outcome" ]; do /bin/sleep 0.05; done
+        [ "$(/bin/cat "$HOME/workload-outcome")" = '"succeeded"' ] ;;
     large_file) /usr/bin/head -c 131072 /dev/zero > "$HOME/large-transcript" ;;
     flood) /usr/bin/head -c 131072 /dev/zero >&2 ;;
     flood_stdout) /usr/bin/head -c 131072 /dev/zero ;;
@@ -659,7 +661,7 @@ case "$outcome" in
     missing) ;;
     oversized) /usr/bin/head -c 8192 /dev/zero > "$artifact" ;;
     linked) /bin/ln -s "$HOME/synthetic-login" "$artifact" ;;
-    review-evidence)
+    forged-observation)
         umask 077
         printf '%s' "$brief" > "$artifact"
         printf '%s' '{"model":"gpt-6.1-sol","effort":"high","cli_version":"fixture-1.0"}' > "${artifact%/*}/fixture-observed-runtime.json" ;;
@@ -667,6 +669,9 @@ case "$outcome" in
 esac
 printf '%s\n' '{"type":"turn.completed"}'
 "#);
+        if review {
+            script = include_str!("fixtures/codex-review-runner.sh").into();
+        }
     }
     let runner = profile.join("runner");
     fs::write(&runner, script.as_bytes()).unwrap();
@@ -677,7 +682,7 @@ printf '%s\n' '{"type":"turn.completed"}'
         "cli_version": "fixture-1.0",
         "executable_sha256": format!("{:x}", Sha256::digest(script.as_bytes())),
         "timeout_ms": timeout_ms,
-        "fixture_codex_observation": review && provider == "codex",
+        "fixture_codex_observation": provider == "codex" && (review || outcome == "forged-observation"),
     }));
 }
 

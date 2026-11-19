@@ -123,6 +123,18 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
         Some("rpc") if let [_, root, verb] = args => {
             bridge::run(Path::new(root), verb.to_str().ok_or(USAGE)?)
         }
+        #[cfg(test)]
+        Some("_workload") if let [_, root, executor] = args => {
+            relay_workload(Path::new(root), UnixStream::from(io::stdin().as_fd().try_clone_to_owned()?),
+                workload_socket(executor)?)?;
+            Ok(())
+        }
+        #[cfg(test)]
+        Some("_workload-executor") if let [_, root, controller] = args => {
+            crate::vault::workload::serve(Path::new(root), UnixStream::from(io::stdin().as_fd().try_clone_to_owned()?),
+                workload_socket(controller)?)?;
+            Ok(())
+        }
         Some("_supervise") if let [_, root, token] = args => {
             supervise(Path::new(root), token.to_str().ok_or(USAGE)?)
         }
@@ -171,6 +183,33 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
         }
         _ => Err(USAGE.into()),
     }
+}
+
+#[cfg(test)]
+fn workload_socket(arg: &OsStr) -> Result<UnixStream> {
+    let fd = descriptor(arg)?;
+    // SAFETY: the fixture controller passes a distinct, owned socket at each
+    // fixed descriptor. Neither descriptor survives the privileged child exec.
+    Ok(UnixStream::from(unsafe { OwnedFd::from_raw_fd(fd) }))
+}
+
+#[cfg(test)]
+fn relay_workload(root: &Path, mut bridge: UnixStream, mut executor: UnixStream) -> io::Result<()> {
+    use crate::vault::workload::{Invocation, Outcome, read_frame, write_frame};
+    let call: Invocation = read_frame(&mut bridge)?;
+    let attempt = Attempt { job_id: call.terms.job_id.clone(), number: call.terms.attempt };
+    let live = Store::open(root, None).and_then(|mut store| {
+        Ok(store.worker.id == call.terms.host_id
+            && store.worker.host_fingerprint == call.terms.host_fingerprint
+            && store.workload_admitted(&attempt, &call.terms.manifest_digest)?)
+    }).unwrap_or(false);
+    let outcome = if live {
+        write_frame(&mut executor, &call).and_then(|()| read_frame::<Outcome>(&mut executor))
+            .unwrap_or(Outcome::Uncertain)
+    } else {
+        Outcome::Denied
+    };
+    write_frame(&mut bridge, &outcome)
 }
 
 fn start(store: &mut Store, request: &Request, manifest: &Manifest) -> Result<()> {
