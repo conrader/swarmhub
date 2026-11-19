@@ -820,6 +820,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-workload-grants.sql"),
         include_str!("migrate-outbound-drafts.sql"),
         include_str!("migrate-outbound-receipts.sql"),
+        include_str!("migrate-completion-backoff.sql"),
     ]
 }
 

@@ -104,6 +104,10 @@ struct Workspace {
 }
 
 impl Workspace {
+    fn fleet_authority(&self) -> fleet_policy::Inspection {
+        fleet_policy::inspect_configuration(&self.fleet_policy)
+    }
+
     async fn send_to_agent_with_group(
         &self,
         agent: &core::Terminal,
@@ -772,7 +776,7 @@ async fn launch_agent(
         profiles::validate_instructions(body.standing_instructions.as_deref().unwrap_or(""))?;
     let hello = w.core.identify().await?;
     if fixture.as_ref().is_some_and(|fixture| {
-        fixture.core != hello.core.id || !hello.supports(crate::core::COMPLETION_START)
+        fixture.core != hello.core.id || !hello.supports_completion_start()
     }) {
         return Err(ApiError::Conflict("Herdr Core changed before the fixture launch."));
     }
@@ -870,7 +874,7 @@ async fn launch_agent(
         first_instructions.to_owned()
     };
     // The agent of a registered bot reads the workspace's notes for bots with its first task (`bots`).
-    let bot_note = bots::launch_note(&w.history, &body.name)?;
+    let bot_note = bots::launch_note(&w, &body.name)?;
     let hints: Vec<&str> = body
         .collect_results
         .then_some(warm::RESULTS_HINT)
@@ -1240,7 +1244,6 @@ async fn send_message(
         ))
         .filter(|instruction| base.as_ref().is_some_and(|base| base.len() + instruction.len() + 32 <= 16_384));
     core::validate_task(base.as_deref().unwrap_or(&text))?;
-    let turn = task_turn(&w, &id, created).await;
     let (record, token) = w.history.start_task(
         &hello.core.id,
         &agent,
@@ -1255,7 +1258,7 @@ async fn send_message(
     }
     let queued = warm::starting(&w.history, &agent);
     let action = tokio::spawn(async move {
-        let _turn = turn;
+        let _turn = task_turn(&w, &agent.address, agent.created_ms).await;
         let wait = if queued {
             warm::Wait::Queued
         } else {
@@ -1353,7 +1356,7 @@ async fn deliver_completion(
     if hello.core.id != core {
         return defer(Blocker::Changed);
     }
-    if !hello.supports(crate::core::COMPLETION_SEND) {
+    if !hello.supports_completion_send() {
         return defer(Blocker::Unsupported);
     }
     let Ok(agents) = w.core.agents().await else {

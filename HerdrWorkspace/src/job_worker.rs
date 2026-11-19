@@ -16,7 +16,7 @@ use std::{
     io::{self, BufRead, BufReader, Read, Write},
     net::Shutdown,
     os::{
-        fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd},
+        fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
         unix::{
             net::UnixStream,
             process::{CommandExt, ExitStatusExt},
@@ -27,6 +27,8 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+#[cfg(any(test, feature = "fleet-test-fixture"))]
+use std::os::fd::AsFd;
 use store::{LEASE_MS, Run, Store};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -107,7 +109,8 @@ struct Request {
 
 impl Request {
     fn valid(&self, verb: &str) -> bool {
-        self.worker.valid()
+        (cfg!(any(test, feature = "fleet-test-fixture")) || self.fixture.is_none())
+            && self.worker.valid()
             && identifier(&self.attempt.job_id)
             && self.attempt.number > 0
             && (verb == "start") == self.manifest.is_some()
@@ -155,9 +158,11 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
             let (stdout, stderr) = unsafe { (OwnedFd::from_raw_fd(stdout), OwnedFd::from_raw_fd(stderr)) };
             providers::exec(Path::new(dir), stdout, stderr)
         }
+        #[cfg(any(test, feature = "fleet-test-fixture"))]
         Some("_fixture") if let [_, root, fixture] = args => {
             run_fixture(Path::new(root), serde_json::from_str(fixture.to_str().ok_or(USAGE)?)?)
         }
+        #[cfg(any(test, feature = "fleet-test-fixture"))]
         Some("_fixture-member") if args.len() == 1 => {
             thread::sleep(GROUP_WAIT);
             Ok(())
@@ -340,13 +345,17 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
     };
     let (mut channel, child_channel) = UnixStream::pair()?;
     let prepared;
-    let mut provider_io = None;
+    let mut provider_io;
     let mut command = match &run.launch {
+        #[cfg(any(test, feature = "fleet-test-fixture"))]
         Launch::Fixture(fixture) => {
             prepared = None;
+            provider_io = None;
             let arg = serde_json::to_string(fixture)?;
             subprocess([OsStr::new("_fixture"), root.as_os_str(), OsStr::new(&arg)])?
         }
+        #[cfg(not(any(test, feature = "fleet-test-fixture")))]
+        Launch::Fixture(_) => return Err("The fixture launch is disabled.".into()),
         Launch::Provider { profile_pin } => {
             let request = run.manifest.provider_run.as_ref().ok_or("Missing provider request.")?;
             let stage = (|| {
@@ -696,6 +705,7 @@ fn subprocess(args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> io::Result<C
     Ok(command)
 }
 
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 fn run_fixture(root: &Path, fixture: Fixture) -> Result<()> {
     #[cfg(not(test))]
     let _ = root;

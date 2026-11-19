@@ -12,7 +12,7 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{env, fs, os::unix::fs::{FileTypeExt, MetadataExt}, path::{Path, PathBuf}, time::Duration};
+use std::{fs, os::unix::fs::{FileTypeExt, MetadataExt}, path::Path, time::Duration};
 use tokio::{sync::Notify, task::JoinSet};
 
 const STORAGE: &str = "The workspace could not use its managed job journal.";
@@ -69,8 +69,9 @@ pub(crate) enum Command {
     Result { id: String, reference: String },
 }
 
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 pub(crate) fn configured_core(ordinary: &Path) -> Option<Core> {
-    let path = PathBuf::from(env::var_os("SWARMHUB_FIXTURE_WORKER_CORE")?);
+    let path = std::path::PathBuf::from(std::env::var_os("SWARMHUB_FIXTURE_WORKER_CORE")?);
     if !path.is_absolute() {
         return None;
     }
@@ -79,6 +80,11 @@ pub(crate) fn configured_core(ordinary: &Path) -> Option<Core> {
         Ok(()) | Err("host_unreachable") => Some(Core(path)),
         Err(_) => None,
     }
+}
+
+#[cfg(not(any(test, feature = "fleet-test-fixture")))]
+pub(crate) fn configured_core(_ordinary: &Path) -> Option<Core> {
+    None
 }
 
 fn protected_core(path: &Path, ordinary: &Path) -> Result<(), &'static str> {
@@ -323,13 +329,18 @@ impl Pending {
 pub(crate) fn start_serving(w: Workspace) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            poll(&w).await;
-            let _ = tokio::time::timeout(INTERVAL, WAKE.notified()).await;
+            if poll(&w).await {
+                let _ = tokio::time::timeout(INTERVAL, WAKE.notified()).await;
+            } else {
+                // Submitting a job or reserving a review fix wakes this loop after commit.
+                WAKE.notified().await;
+            }
         }
     })
 }
 
-pub(crate) async fn poll(w: &Workspace) {
+/// Returns whether work or a journal error needs another timed poll.
+pub(crate) async fn poll(w: &Workspace) -> bool {
     let pending = (|| {
         let db = w.history.db()?;
         let mut rows = db.prepare(
@@ -341,7 +352,10 @@ pub(crate) async fn poll(w: &Workspace) {
         Ok::<_, StoreError>(rows.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?)
     })();
-    let Ok(pending) = pending else { return };
+    let Ok(pending) = pending else { return true };
+    if pending.is_empty() {
+        return false;
+    }
     let mut tasks = JoinSet::new();
     for (id, number) in pending {
         if tasks.len() >= CONCURRENT {
@@ -355,6 +369,7 @@ pub(crate) async fn poll(w: &Workspace) {
         });
     }
     while tasks.join_next().await.is_some() {}
+    true
 }
 
 async fn reconcile(w: &Workspace, id: &str, number: i64) -> Result<(), Error> {

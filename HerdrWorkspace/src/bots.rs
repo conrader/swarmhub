@@ -544,17 +544,17 @@ pub(crate) fn noted(history: &History, bot: &str, key: &str) -> Result<(), Store
 /// The note a new agent of a registered bot reads with its first task, and the bot it is for. `None` for an
 /// agent of no registered bot, which is told nothing.
 pub(crate) fn launch_note(
-    history: &History,
+    w: &crate::Workspace,
     agent: &str,
 ) -> Result<Option<(String, String)>, StoreError> {
-    let db = history.db()?;
+    let db = w.history.db()?;
     let Some(bot) = of_agent(&db, agent)? else {
         return Ok(None);
     };
     let others = all(&db)?;
     Ok(Some((
         bot.id.clone(),
-        notes::standing(&bot, &others, &command()),
+        notes::standing(&bot, &others, &command(), w.fleet_authority().configured().is_ok()),
     )))
 }
 

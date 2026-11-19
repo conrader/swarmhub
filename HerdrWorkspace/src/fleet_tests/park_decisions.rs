@@ -94,6 +94,35 @@ async fn json_response(response: Response, want: StatusCode) -> Value {
 }
 
 #[tokio::test]
+async fn prerelease_park_filing_and_bot_notes_require_a_signed_policy() {
+    let h = Harness::new();
+    let owner_name = bots::one(&h.w.history.db().unwrap(), &h.git.manifest.owner)
+        .unwrap().unwrap().agent_name;
+    let note = |w| bots::launch_note(w, &owner_name).unwrap().unwrap().1;
+    let file = || parks::Command::File { id: PARK.into(), manifest: Box::new(h.git.manifest.clone()) };
+    let mut ordinary = h.w.clone();
+    ordinary.fleet_policy = Ok(None);
+    let commands = ["bot job submit", "bot completion inbox", "bot park file"];
+
+    for w in [&ordinary, &h.w] {
+        assert!(commands.iter().all(|command| !note(w).contains(command)));
+        assert_eq!(
+            bot(w, &h.owner, file()).await.unwrap_err(),
+            fleet_policy::Error::Unavailable.to_string(),
+        );
+        assert_eq!(
+            w.history.db().unwrap().query_row("SELECT count(*) FROM parks", [], |r| r.get::<_, i64>(0)).unwrap(),
+            0,
+        );
+    }
+
+    h.publish(vec![]);
+    assert!(commands.iter().all(|command| note(&h.w).contains(command)));
+    let park = h.file(&h.git.manifest).await;
+    assert_eq!(parks::status(&h.w.history.db().unwrap(), &park).unwrap(), View::Status(State::Pending));
+}
+
+#[tokio::test]
 async fn gapplan_05_int_filing_hold_release_judge_human_race_and_verified_effect() {
     let mut h = Harness::new();
     let reached = Arc::new(Notify::new());

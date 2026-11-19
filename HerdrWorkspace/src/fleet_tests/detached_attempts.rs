@@ -467,14 +467,15 @@ fn gapplan_08_int_reprobes_the_resolved_workdir_between_reservation_and_spawn() 
     let scratch = tempfile::tempdir().unwrap();
     let mut worker = Worker::on(scratch.path(), "ovh", "job-resolved", 1, vec![]);
     let workdir = &worker.inputs.enrollment.projects[0].folder;
-    let alias = scratch.path().join("workdir-alias");
+    let project_parent = Path::new(workdir).parent().unwrap();
+    let alias = project_parent.join("workdir-alias");
     symlink(workdir, &alias).unwrap();
     worker.request["manifest"]["workdir"] = alias.to_str().unwrap().into();
     let pause = worker.pause("after-supervisor-pin");
     worker.call("start", Some("success"));
     worker.checkpoint("after-supervisor-pin");
     fs::remove_file(&alias).unwrap();
-    symlink(scratch.path(), &alias).unwrap();
+    symlink(project_parent, &alias).unwrap();
     fs::remove_file(pause).unwrap();
     let stopped = worker.state("stopped");
     assert_eq!(stopped["reason"], "project_not_enrolled");

@@ -387,6 +387,26 @@ pub(crate) enum Inspection {
     },
 }
 
+impl Inspection {
+    pub(crate) fn configured(&self) -> Result<(), Error> {
+        match self {
+            Self::Current { .. } => Ok(()),
+            Self::Unconfigured => Err(Error::Unavailable),
+            Self::Held { reason } => Err(reason.clone()),
+        }
+    }
+}
+
+/// Enrolling a policy directory alone does not establish authority. Inspection also
+/// verifies the current publication against the enrolled operator key.
+pub(crate) fn inspect_configuration(authority: &Result<Option<Authority>, Error>) -> Inspection {
+    match authority {
+        Ok(Some(store)) => store.inspect(),
+        Ok(None) => Inspection::Unconfigured,
+        Err(reason) => Inspection::Held { reason: reason.clone() },
+    }
+}
+
 /// The callers in slice 5 supply the checked request's launch, or the nonce of a locally imported
 /// operator decision. A shared bearer or a chat response can only supply unverified evidence.
 #[derive(Clone, Copy)]

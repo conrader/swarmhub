@@ -59,6 +59,8 @@ struct Suggestion {
     state: String,
     revision: i64,
     draft: Option<Draft>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    can_stage: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     staged: Option<Version>,
 }
@@ -116,6 +118,7 @@ fn suggestion(db: &Connection, at: &Location) -> Result<Suggestion, ApiError> {
                 state: row.get(0)?,
                 revision: row.get(1)?,
                 draft,
+                can_stage: false,
                 staged: None,
             })
         },
@@ -132,6 +135,7 @@ async fn read(
     let mut db = w.history.db()?;
     let tx = db.transaction()?;
     let mut result = suggestion(&tx, &at).map_err(park_error)?;
+    result.can_stage = w.fleet_authority().configured().is_ok();
     result.staged = outbound::latest_legacy(&tx, at.message)?;
     Ok(Json(result))
 }
@@ -154,6 +158,7 @@ struct Stage {
 async fn stage(
     State(w): State<Workspace>, Path(at): Path<Location>, Json(input): Json<Stage>,
 ) -> Result<Json<Version>, parks::Error> {
+    w.fleet_authority().configured()?;
     let mut db = w.history.db()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let current = suggestion(&tx, &at).map_err(park_error)?;

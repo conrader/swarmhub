@@ -1011,6 +1011,38 @@ mod job_delivery {
     }
 
     #[tokio::test]
+    async fn prerelease_second_send_is_saved_during_a_busy_terminal_turn() {
+        let (_temp, w, core) = new_fixture();
+        core.agents(vec![session(&w.history, OWNER, "t1", 1, "idle")]);
+        let hold = Arc::new(Notify::new());
+        core.state.lock().unwrap().hold_reply = Some(hold.clone());
+        let send = |text| tokio::spawn(crate::send_message(
+            w.clone(), "t1".into(), 1,
+            serde_json::from_value(json!({"text":text})).unwrap(), vec![],
+        ));
+        let first = send("First task, still sending.");
+        timeout(WAIT, core.wrote.notified()).await.unwrap();
+        let second = send("Second task, waiting for the turn.");
+        timeout(WAIT, async {
+            loop {
+                let saved = w.history.db().unwrap().query_row(
+                    "SELECT EXISTS (SELECT 1 FROM journal WHERE kind='task' AND state='pending' AND text=?1)",
+                    ["Second task, waiting for the turn."], |row| row.get::<_, bool>(0),
+                ).unwrap();
+                if saved {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }).await.expect("the second task must be saved before the first send finishes");
+        assert_eq!(core.writes().len(), 1);
+        hold.notify_one();
+        assert!(timeout(WAIT, first).await.unwrap().unwrap().is_ok());
+        assert!(timeout(WAIT, second).await.unwrap().unwrap().is_ok());
+        assert_eq!(core.writes().len(), 2);
+    }
+
+    #[tokio::test]
     async fn gapplan_03_int_two_drainers_serialize_with_a_foreground_task() {
         let (_temp, w, core) = new_fixture();
         let agent = session(&w.history, OWNER, "t1", 1, "idle");

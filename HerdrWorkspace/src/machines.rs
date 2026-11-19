@@ -455,15 +455,6 @@ impl View {
     }
 }
 
-fn worker_policy(w: &Workspace) -> crate::fleet_policy::Inspection {
-    use crate::fleet_policy::Inspection;
-    match &w.fleet_policy {
-        Ok(Some(store)) => store.inspect(),
-        Ok(None) => Inspection::Unconfigured,
-        Err(reason) => Inspection::Held { reason: reason.clone() },
-    }
-}
-
 fn view(
     db: &rusqlite::Connection,
     policy: &crate::fleet_policy::Inspection,
@@ -475,7 +466,7 @@ fn view(
     let card = match policy {
         Inspection::Current {
             workspace, reference, policy, ..
-        } => policy
+        } => Some(policy
             .workers
             .iter()
             .find(|worker| worker.machine.eq_ignore_ascii_case(&machine.name))
@@ -491,12 +482,15 @@ fn view(
                         now,
                     )
                 },
-            ),
-        Inspection::Unconfigured => probe::Card::held(probe::Reason::Uncommissioned),
-        Inspection::Held { .. } => probe::Card::held(probe::Reason::PolicyUnavailable),
+            )),
+        _ => None,
     };
     let names = projects.into_iter().map(|project| project.name().to_owned()).collect();
-    View::new(machine, names).with_worker(card)
+    let view = View::new(machine, names);
+    match card {
+        Some(card) => view.with_worker(card),
+        None => view,
+    }
 }
 
 async fn views(w: &Workspace) -> Result<Value, Refusal> {
@@ -505,11 +499,7 @@ async fn views(w: &Workspace) -> Result<Value, Refusal> {
         .machines()
         .await
         .map_err(|failure| Box::new(failure.into_response()))?;
-    let policy = worker_policy(w);
-    let quota = match &policy {
-        crate::fleet_policy::Inspection::Current { policy, .. } => probe::quota_accounts(&policy.workers),
-        _ => Vec::new(),
-    };
+    let policy = w.fleet_authority();
     let views = {
         let db = w.history.db().map_err(|error| Box::new(error.into_response()))?;
         let mut projects = crate::projects::by_machine(&db, true)
@@ -522,14 +512,17 @@ async fn views(w: &Workspace) -> Result<Value, Refusal> {
     };
     // Why a server cannot be added from here as things are; `null` when it can.
     let problem = hc().and(tool("ssh")).err();
-    Ok(json!({
-        "machines": views, "can_add": problem.is_none(), "problem": problem,
-        "adding": INSTALLS, "worker_quota_accounts": quota,
-    }))
+    let mut response = json!({
+        "machines": views, "can_add": problem.is_none(), "problem": problem, "adding": INSTALLS,
+    });
+    if let crate::fleet_policy::Inspection::Current { policy, .. } = &policy {
+        response["worker_quota_accounts"] = json!(probe::quota_accounts(&policy.workers));
+    }
+    Ok(response)
 }
 
 fn current_view(w: &Workspace, machine: core::Machine) -> View {
-    let policy = worker_policy(w);
+    let policy = w.fleet_authority();
     let read = || {
         let db = w.history.db()?;
         let projects = crate::projects::by_machine(&db, true)?.remove(&machine.name.to_ascii_lowercase()).unwrap_or_default();

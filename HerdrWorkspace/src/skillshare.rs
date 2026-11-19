@@ -940,7 +940,8 @@ mod tests {
     fn a_program_cannot_write_a_file_past_its_limit() {
         let folder = tempfile::tempdir().unwrap();
         let write = |bytes: u64| {
-            let script = format!("head -c {bytes} /dev/zero > out && echo done");
+            // Observe the write returning EFBIG without waiting on the host's core dump handler.
+            let script = format!("trap '' XFSZ; head -c {bytes} /dev/zero > out && echo done");
             let arguments = ["-c".to_owned(), script];
             run_in(
                 Path::new("/bin/sh"),

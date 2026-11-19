@@ -54,7 +54,7 @@ pub(super) fn completion(cmd: &str, event: &super::completions::Completion) -> S
 }
 
 /// What a bot's agent reads once, with its first task: how to behave towards the person, and the commands.
-pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
+pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool) -> String {
     let mut note = format!(
         "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n\
          - Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. Finishing and reporting work that was already started is not new work.\n\
@@ -93,7 +93,9 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     note.push_str(&format!(
         "- When you tell the person you will do or report something later, record it: {cmd} promise add --by 30m \"WHAT\"; then `{cmd} promise done ID`."
     ));
-    note.push_str(&format!("\n- Queue fixture jobs with `{cmd} bot job submit KEY -`. Record reviews and reserve fixes with `bot job review -`. Escalate at the limit.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `bot completion ack JOB:ATTEMPT` and reuse its key.\n- File a park with `{cmd} bot park file ID -`."));
+    if fleet_configured {
+        note.push_str(&format!("\n- Queue fixture jobs with `{cmd} bot job submit KEY -`. Record reviews and reserve fixes with `bot job review -`. Escalate at the limit.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `bot completion ack JOB:ATTEMPT` and reuse its key.\n- File a park with `{cmd} bot park file ID -`."));
+    }
     if bot.main && bot.takes_initiative {
         note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Tell the person briefly and offer what you could do; do not act on a note without their yes.");
     }
@@ -308,7 +310,7 @@ mod tests {
             .iter()
             .map(|name| testing::bot(&history, name))
             .collect();
-        let note = standing(&all[1], &all, "swarmhub-herdr");
+        let note = standing(&all[1], &all, "swarmhub-herdr", true);
         assert!(note.starts_with("[SwarmHub notes for the bot \"Infra\"]"));
         for said in [
             "Do what the person asks of you",
@@ -324,6 +326,8 @@ mod tests {
             "swarmhub-herdr checkin in 30m",
             "swarmhub-herdr promise add --by 30m",
             "swarmhub-herdr bot job submit KEY -",
+            "bot completion inbox",
+            "swarmhub-herdr bot park file ID -",
         ] {
             assert!(note.contains(said), "{said}");
         }
@@ -334,7 +338,7 @@ mod tests {
         assert!(!note.contains("You are the main bot"));
         assert!(note.len() < 2_300, "{} bytes", note.len());
         assert!(crate::core::validate_task(&note).is_ok());
-        let main = standing(&all[0], &all, "swarmhub-herdr");
+        let main = standing(&all[0], &all, "swarmhub-herdr", false);
         assert!(main.contains("You are the main bot") && main.contains("do not act on a note"));
         // The switches take the commands away, not only the permission.
         let silent = Bot {
@@ -342,7 +346,7 @@ mod tests {
             takes_initiative: false,
             ..all[0].clone()
         };
-        let note = standing(&silent, &all, "swarmhub-herdr");
+        let note = standing(&silent, &all, "swarmhub-herdr", false);
         assert!(note.contains("do not write to other bots, ask the person instead"));
         assert!(!note.contains("bot ask") && !note.contains("checkin in"));
         assert!(!note.contains("You are the main bot"));
@@ -351,7 +355,7 @@ mod tests {
             takes_messages: false,
             ..all[2].clone()
         };
-        let note = standing(&all[1], &[all[0].clone(), all[1].clone(), closed], "x");
+        let note = standing(&all[1], &[all[0].clone(), all[1].clone(), closed], "x", false);
         assert!(note.contains("\"Jarvis\"") && !note.contains("\"Shop\""));
     }
 

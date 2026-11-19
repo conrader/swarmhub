@@ -8,29 +8,30 @@
     <div class="details-header"><h2 id="email-draft-heading">Review email draft</h2><button type="button" id="email-draft-close" class="icon" aria-label="Close email draft">×</button></div>
     <p id="email-draft-status" role="status" hidden></p>
     <form id="email-draft-form" hidden>
-      <label for="email-draft-sender">Sending email address</label>
-      <input id="email-draft-sender" inputmode="email" maxlength="254" autocomplete="off">
+      <label id="email-draft-sender-label" for="email-draft-sender" hidden>Sending email address</label>
+      <input id="email-draft-sender" hidden inputmode="email" maxlength="254" autocomplete="off">
       <label for="email-draft-to">To</label>
-      <input id="email-draft-to" inputmode="email" maxlength="2540" autocomplete="off" aria-describedby="email-draft-addresses">
-      <p id="email-draft-addresses" class="subtle">Separate email addresses with commas.</p>
-      <label for="email-draft-cc">Cc</label>
-      <input id="email-draft-cc" inputmode="email" maxlength="2540" autocomplete="off">
-      <label for="email-draft-bcc">Bcc</label>
-      <input id="email-draft-bcc" inputmode="email" maxlength="2540" autocomplete="off">
+      <input id="email-draft-to" inputmode="email" maxlength="1024" autocomplete="off" aria-describedby="email-draft-addresses">
+      <p id="email-draft-addresses" class="subtle">Separate email addresses with commas, or leave this blank.</p>
+      <label id="email-draft-cc-label" for="email-draft-cc" hidden>Cc</label>
+      <input id="email-draft-cc" hidden inputmode="email" maxlength="2540" autocomplete="off">
+      <label id="email-draft-bcc-label" for="email-draft-bcc" hidden>Bcc</label>
+      <input id="email-draft-bcc" hidden inputmode="email" maxlength="2540" autocomplete="off">
       <label for="email-draft-subject">Subject</label>
       <input id="email-draft-subject" maxlength="240" autocomplete="off">
-      <label for="email-draft-reply">In-Reply-To message ID</label>
-      <input id="email-draft-reply" maxlength="256" autocomplete="off">
-      <label for="email-draft-thread">Thread ID</label>
-      <input id="email-draft-thread" maxlength="128" autocomplete="off">
+      <label id="email-draft-reply-label" for="email-draft-reply" hidden>In-Reply-To message ID</label>
+      <input id="email-draft-reply" hidden maxlength="256" autocomplete="off">
+      <label id="email-draft-thread-label" for="email-draft-thread" hidden>Thread ID</label>
+      <input id="email-draft-thread" hidden maxlength="128" autocomplete="off">
       <label for="email-draft-body">Message</label>
       <textarea id="email-draft-body" rows="8" maxlength="24576" required spellcheck="true"></textarea>
-      <p class="subtle">Stage a revision for signed approval or download a draft for manual delivery. Sending is disabled.</p>
+      <p id="email-draft-download-help" class="subtle">Download saves your edits and creates a plain-text draft file. SwarmHub doesn’t send email.</p>
+      <p id="email-draft-stage-help" class="subtle" hidden>Stage a revision for signed approval or download a draft for manual delivery. Sending is disabled.</p>
       <p id="email-draft-receipt" role="status" hidden></p>
       <ul id="email-draft-inflight" hidden></ul>
       <p id="email-draft-error" class="error" role="alert" hidden></p>
       <button type="button" id="email-draft-dismiss">Dismiss draft</button>
-      <div class="dialog-actions"><button type="button" id="email-draft-cancel">Close</button><button type="button" id="email-draft-preview" hidden>Open approval preview</button><button type="button" id="email-draft-stage">Stage for approval</button><button type="submit" id="email-draft-download" class="primary">Download .eml draft</button></div>
+      <div class="dialog-actions"><button type="button" id="email-draft-cancel">Close</button><button type="button" id="email-draft-preview" hidden>Open approval preview</button><button type="button" id="email-draft-stage" hidden>Stage for approval</button><button type="submit" id="email-draft-download" class="primary">Download .eml draft</button></div>
     </form>`;
   document.body.append(dialog);
 
@@ -47,8 +48,20 @@
   const bcc = $("email-draft-bcc");
   const reply = $("email-draft-reply");
   const thread = $("email-draft-thread");
-  const fields = [sender, to, cc, bcc, subject, reply, thread, body];
+  const stageFields = [sender, cc, bcc, reply, thread];
+  const fields = [to, subject, body, ...stageFields];
   const stageButton = $("email-draft-stage");
+
+  function showStageControls(enabled) {
+    for (const name of ["sender", "cc", "bcc", "reply", "thread"]) {
+      $("email-draft-" + name).hidden = $("email-draft-" + name + "-label").hidden = !enabled;
+    }
+    stageButton.hidden = $("email-draft-stage-help").hidden = !enabled;
+    $("email-draft-download-help").hidden = enabled;
+    $("email-draft-addresses").textContent = enabled ? "Separate email addresses with commas."
+      : "Separate email addresses with commas, or leave this blank.";
+    to.maxLength = enabled ? 2540 : 1024;
+  }
 
   function emailFields() {
     const addresses = (input) => input.value.trim() ? input.value.split(",").map((value) => value.trim()) : [];
@@ -105,6 +118,7 @@
 
   function clear() {
     current = null;
+    showStageControls(false);
     show("email-draft-receipt", "");
     for (const field of fields) field.value = "";
     $("email-draft-inflight").replaceChildren();
@@ -152,7 +166,8 @@
         mark(path, "dismissed");
         return;
       }
-      current = {path, revision: result.revision, staged: result.staged, visible};
+      current = {path, revision: result.revision, staged: result.staged, canStage: result.can_stage === true, visible};
+      showStageControls(current.canStage);
       $("email-draft-heading").textContent = result.state === "reviewed" ? "Email draft" : "Review email draft";
       to.value = result.draft.to;
       subject.value = result.draft.subject;
@@ -196,7 +211,7 @@
 
   stageButton.addEventListener("click", async () => {
     const target = current;
-    if (!target?.visible() || saving) return;
+    if (!target?.canStage || !target.visible() || saving) return;
     busy(true);
     show("email-draft-error", "");
     try {
@@ -226,7 +241,7 @@
       return;
     }
     const staged = target.staged;
-    if (!staged && [sender, cc, bcc, reply, thread].some((field) => field.value.trim())) {
+    if (!staged && target.canStage && stageFields.some((field) => field.value.trim())) {
       show("email-draft-error", "Stage the complete email before downloading these fields.");
       return;
     }

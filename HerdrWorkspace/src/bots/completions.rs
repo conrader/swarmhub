@@ -6,6 +6,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::Serialize;
 
 const RETRY_MS: i64 = 2_000;
+// Delay grows from 2 seconds to 64 seconds, including across bridge restarts.
+const MAX_RETRY_EXPONENT: i64 = 5;
 const UNCERTAIN: &str = "Delivery is unconfirmed. The owner can recover by ID.";
 
 #[derive(Serialize)]
@@ -69,6 +71,15 @@ fn stage(ctx: &Ctx<'_>, completion: &Completion) -> rusqlite::Result<i64> {
         params![completion.job_id, completion.attempt, outbox],
     )?;
     Ok(outbox)
+}
+
+pub(super) fn has_unstaged(db: &Connection) -> rusqlite::Result<bool> {
+    db.query_row(
+        "SELECT EXISTS (SELECT 1 FROM job_completions c
+          WHERE NOT EXISTS (SELECT 1 FROM job_deliveries d WHERE d.job_id=c.job_id AND d.attempt=c.attempt))",
+        [],
+        |row| row.get(0),
+    )
 }
 
 pub(super) fn stage_waiting(ctx: &Ctx<'_>) -> rusqlite::Result<()> {
@@ -171,7 +182,7 @@ pub(super) fn ack(
         None => stage(ctx, &item.event)?,
     };
     ctx.db.execute(
-        "UPDATE job_deliveries SET state='acknowledged',blocker=NULL,retry_ms=0,
+        "UPDATE job_deliveries SET state='acknowledged',blocker=NULL,retry_ms=0,retry_exponent=0,
            next_step_token=lower(hex(randomblob(16))),acknowledged_ms=?2,acknowledged_launch=?3
          WHERE outbox=?1 AND state!='acknowledged'",
         params![outbox, ctx.now, launch],
@@ -227,9 +238,10 @@ pub(crate) fn availability(agent: &Terminal) -> Result<(), Blocker> {
 
 pub(crate) fn defer(ctx: &Ctx<'_>, outbox: i64, blocker: Blocker) -> rusqlite::Result<()> {
     ctx.db.execute(
-        "UPDATE job_deliveries SET blocker=?2,retry_ms=?3
+        "UPDATE job_deliveries SET blocker=?2,
+           retry_ms=?3+(?4 << retry_exponent),retry_exponent=min(retry_exponent+1,?5)
          WHERE outbox=?1 AND state!='acknowledged'",
-        params![outbox, blocker.text(), ctx.now + RETRY_MS],
+        params![outbox, blocker.text(), ctx.now, RETRY_MS, MAX_RETRY_EXPONENT],
     )?;
     if !ctx.set.completion_fallback_to_main || !blocker.notifies_main() {
         return Ok(());
@@ -278,10 +290,12 @@ pub(crate) fn reconcile(ctx: &Ctx<'_>, outbox: i64) -> rusqlite::Result<()> {
         _ => return Ok(()),
     };
     let changed = ctx.db.execute(
-        "UPDATE job_deliveries SET state=?2,blocker=?3,retry_ms=?4
+        "UPDATE job_deliveries SET state=?2,blocker=?3,
+           retry_ms=?4+CASE WHEN ?2='offered' THEN ?5 ELSE (?5 << retry_exponent) END,
+           retry_exponent=CASE WHEN ?2='offered' THEN 0 ELSE min(retry_exponent+1,?6) END
          WHERE outbox=?1 AND state='offered'
            AND EXISTS (SELECT 1 FROM bot_outbox WHERE id=?1 AND state='typing')",
-        params![outbox, state, blocker, ctx.now + RETRY_MS],
+        params![outbox, state, blocker, ctx.now, RETRY_MS, MAX_RETRY_EXPONENT],
     )?;
     // Later probes may add blockers without overwriting the recorded outcome or an ACK.
     if changed != 0 && outbox_state != "typing" {
@@ -335,14 +349,15 @@ pub(crate) fn reserve(
         // The same launch already has an offer. Keep polling for a replacement,
         // and clear transient availability blockers that have since resolved.
         ctx.db.execute(
-            "UPDATE job_deliveries SET retry_ms=?2,
+            "UPDATE job_deliveries SET retry_ms=?4+(?2 << retry_exponent),
+                retry_exponent=min(retry_exponent+1,?6),
                 blocker=CASE WHEN state='uncertain' THEN ?3 END
              WHERE outbox=?1 AND retry_ms<=?4 AND state IN ('offered','uncertain')
                AND EXISTS (
                  SELECT 1 FROM job_delivery_offers f JOIN journal j ON j.id=f.task
                  WHERE f.outbox=?1 AND f.launch=?5 AND j.state NOT IN ('pending','not_sent')
                )",
-            params![outbox, ctx.now + RETRY_MS, UNCERTAIN, ctx.now, launch],
+            params![outbox, RETRY_MS, UNCERTAIN, ctx.now, launch, MAX_RETRY_EXPONENT],
         )?;
         return Ok(None);
     }
@@ -441,6 +456,37 @@ mod tests {
         let outbox = history.db().unwrap()
             .query_row("SELECT outbox FROM job_deliveries", [], |r| r.get(0)).unwrap();
         (format!("{}:{}", job.id, fixture::ATTEMPT), outbox)
+    }
+
+    #[test]
+    fn prerelease_completion_retry_backs_off_and_caps_the_delay() {
+        let (_scratch, history) = testing::journal(&["Job Owner"]);
+        super::super::register(&history.db().unwrap(), &super::super::Registration {
+            id: fixture::OWNER.into(), name: Some("Fixture Owner".into()), ..Default::default()
+        }, 2).unwrap().unwrap();
+        assert!(!has_unstaged(&history.db().unwrap()).unwrap());
+        let (_, outbox) = new_event(&history);
+        assert!(!has_unstaged(&history.db().unwrap()).unwrap());
+
+        let set = Settings::default();
+        let mut now = 1_000;
+        for delay in [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 64_000] {
+            testing::at(&history, now, &set, |ctx| {
+                assert!(due(ctx, outbox)?);
+                defer(ctx, outbox, Blocker::Busy)?;
+                Ok(())
+            });
+            assert_eq!(
+                Connection::open(history.file()).unwrap()
+                    .query_row("SELECT retry_ms FROM job_deliveries WHERE outbox=?1", [outbox], |row| row.get::<_, i64>(0)).unwrap(),
+                now + delay,
+            );
+            testing::at(&history, now + delay - 1, &set, |ctx| {
+                assert!(!due(ctx, outbox)?);
+                Ok(())
+            });
+            now += delay;
+        }
     }
 
     #[test]

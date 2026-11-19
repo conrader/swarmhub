@@ -4,7 +4,6 @@ use super::*;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Reason {
     Uncommissioned,
-    PolicyUnavailable,
     EvidenceUnavailable,
     IdentityMismatch,
     InvalidProbe,
@@ -34,7 +33,6 @@ impl Reason {
     pub(crate) fn message(self) -> &'static str {
         match self {
             Self::Uncommissioned => "This server has no enrolled fixture worker.",
-            Self::PolicyUnavailable => "The signed worker policy is unavailable.",
             Self::EvidenceUnavailable => "The workspace could not read worker evidence.",
             Self::IdentityMismatch => "The worker identity does not match the signed enrollment.",
             Self::InvalidProbe => "The worker probe has invalid evidence.",

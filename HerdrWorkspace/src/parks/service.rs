@@ -555,6 +555,7 @@ impl Service {
     ) -> Result<String, Error> {
         match command {
             Command::File { id, manifest } => {
+                fleet_policy::inspect_configuration(authority).configured()?;
                 let park = self.file(db, launch, &id, &manifest)?;
                 encode(&park.pin(&manifest))
             }

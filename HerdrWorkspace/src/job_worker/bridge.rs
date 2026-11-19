@@ -1,14 +1,20 @@
 //! Fixed-argv fixture protocol for the coordinator's separate worker Core.
 use super::{Attempt, INPUT_LIMIT, Manifest, PROTOCOL, Request, Result, Store, Worker, digest, providers, start, store::View};
-use crate::{Core, core::Failure, machines::probe::Provider};
+use crate::{Core, machines::probe::Provider};
+#[cfg(any(test, feature = "fleet-test-fixture"))]
+use crate::core::Failure;
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::{io::{self, Read, Write}, path::Path};
 
 pub(crate) use super::store::View as WorkerView;
 
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 pub(crate) const PROGRAM: &str = "/usr/local/libexec/swarmhub-fixture-worker";
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 pub(crate) const STATE_DIR: &str = "/var/lib/swarmhub-fixture-worker";
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 const SECONDS: u64 = 3;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -115,6 +121,7 @@ impl Ticket {
         (bytes.len() <= INPUT_LIMIT).then_some(bytes)
     }
 
+    #[cfg(any(test, feature = "fleet-test-fixture"))]
     pub(crate) async fn request(
         &self, core: &Core, machine: &str, verb: Verb, result_digest: Option<&str>,
     ) -> std::result::Result<WorkerView, &'static str> {
@@ -145,6 +152,14 @@ impl Ticket {
         self.decode_reply(&bytes)
     }
 
+    #[cfg(not(any(test, feature = "fleet-test-fixture")))]
+    pub(crate) async fn request(
+        &self, _core: &Core, _machine: &str, _verb: Verb, _result_digest: Option<&str>,
+    ) -> std::result::Result<WorkerView, &'static str> {
+        Err("worker_incompatible")
+    }
+
+    #[cfg(any(test, feature = "fleet-test-fixture"))]
     fn decode_reply(&self, bytes: &[u8]) -> std::result::Result<WorkerView, &'static str> {
         let reply: Reply = serde_json::from_slice(bytes).map_err(|_| "worker_incompatible")?;
         if reply.protocol != PROTOCOL {

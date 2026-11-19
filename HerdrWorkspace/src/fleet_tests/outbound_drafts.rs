@@ -80,6 +80,40 @@ fn submission(pin: &ParkPin, signed: &Signed) -> Value {
 }
 
 #[tokio::test]
+async fn prerelease_email_staging_requires_a_signed_policy() {
+    let h = Harness::new();
+    let id = seed_legacy(&h.journal.db().unwrap(), &h.owner_launch);
+    let base = format!("{LEGACY}{id}");
+    let mut ordinary = h.workspace.clone();
+    ordinary.fleet_policy = Ok(None);
+    let scratch = tempfile::tempdir().unwrap();
+    let ordinary_api = TestApi::start(scratch.path(), &ordinary);
+    let legacy = json!({"revision":1,"version":0,"email":email("Original copy")});
+    let generic = json!({"project":"fixture","version":0,"payload":Payload::Email(
+        serde_json::from_value(email("Original copy")).unwrap()
+    )});
+    for api in [&ordinary_api, &h.api] {
+        assert!(api.status(&base).await.get("can_stage").is_none());
+        for (path, body) in [(format!("{base}/stage"), &legacy), ("/api/outbound/stage".into(), &generic)] {
+            assert_eq!(request(api, &path, body.clone()).send().await.unwrap().status(), StatusCode::FORBIDDEN);
+        }
+        assert_eq!(api.status("/api/parks").await["parks"], json!([]));
+    }
+    let download = request(&ordinary_api, &format!("{base}/download"), json!({
+        "revision": 1, "draft": {"to":"to@example.test", "subject":"Reviewed draft", "body":"Original copy"}
+    })).send().await.unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+    assert_eq!(download.headers()["x-swarmhub-email-revision"], "2");
+
+    h.signer.publish(h.signer.publication(policy(1, vec![]), WORKSPACE)).unwrap();
+    assert_eq!(h.api.status(&base).await["can_stage"], true);
+    assert_eq!(request(&h.api, "/api/outbound/stage", generic).send().await.unwrap().status(), StatusCode::OK);
+    let mut legacy = legacy;
+    legacy["revision"] = 2.into();
+    assert_eq!(request(&h.api, &format!("{base}/stage"), legacy).send().await.unwrap().status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn gapplan_13_int_reviewed_download_staging_group_review_and_signed_approval_race() {
     let h = Harness::new();
     let policy = h.signer.publish(h.signer.publication(policy(1, vec![]), WORKSPACE)).unwrap();
@@ -233,6 +267,7 @@ async fn gapplan_13_int_deployment_with_customer_copy_needs_same_operator_eviden
 #[tokio::test]
 async fn gapplan_13_int_edit_keeps_an_in_flight_snapshot_and_opens_a_new_park() {
     let h = Harness::new();
+    h.signer.publish(h.signer.publication(policy(1, vec![]), WORKSPACE)).unwrap();
     let base = format!("{LEGACY}{}", seed_legacy(&h.journal.db().unwrap(), &h.owner_launch));
     let stage = format!("{base}/stage");
     let first = response(request(&h.api, &stage, json!({"revision":1,"version":0,"email":email("In flight")}))

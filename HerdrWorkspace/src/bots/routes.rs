@@ -121,12 +121,8 @@ async fn list(State(w): State<Workspace>) -> Response {
 }
 
 async fn fleet_policy(State(w): State<Workspace>) -> Response {
-    use crate::fleet_policy::Inspection;
-
-    answered(tokio::task::spawn_blocking(move || match w.fleet_policy {
-        Ok(Some(store)) => store.inspect(),
-        Ok(None) => Inspection::Unconfigured,
-        Err(reason) => Inspection::Held { reason },
+    answered(tokio::task::spawn_blocking(move || {
+        w.fleet_authority()
     })
     .await
     .map(|view| Json(view).into_response())

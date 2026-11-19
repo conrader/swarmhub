@@ -27,6 +27,33 @@ fn probe_process(signed: &probe::SignedProbe) -> probe::SignedProbe {
 }
 
 #[tokio::test]
+async fn prerelease_machine_cards_require_a_signed_policy() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = Fixture::new(temp.path(), WORKSPACE, false);
+    let history = reopen_journal(&temp.path().join("journal"));
+    let mut workspace = workspace(temp.path(), history);
+    let core = FakeCore::start(&workspace.core.0);
+    core.machines(vec![json!({"name":"existing","target":"fixture@existing.invalid","state":"connected"})]);
+    let ordinary = TestApi::start(temp.path(), &workspace);
+    let check_ordinary = |machines: &serde_json::Value| {
+        assert!(machines["machines"][0].get("worker").is_none());
+        assert_eq!(machines["machines"][0]["warnings"], json!([]));
+        assert!(machines.get("worker_quota_accounts").is_none());
+    };
+    check_ordinary(&ordinary.status("/api/machines").await);
+
+    workspace.fleet_policy = Ok(Some(fixture.authority.clone()));
+    let enrolled = tempfile::tempdir().unwrap();
+    let api = TestApi::start(enrolled.path(), &workspace);
+    check_ordinary(&api.status("/api/machines").await);
+
+    fixture.publish(fixture.publication(policy(1, vec![]), WORKSPACE)).unwrap();
+    let configured = api.status("/api/machines").await;
+    assert_eq!(configured["machines"][0]["worker"]["admission"]["reason"], "uncommissioned");
+    assert_eq!(configured["machines"][0]["warnings"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn gapplan_06_int_worker_probe_to_machine_api() {
     if std::env::var_os(CHILD).is_some() {
         probe::emit(std::io::stdout().lock()).unwrap();

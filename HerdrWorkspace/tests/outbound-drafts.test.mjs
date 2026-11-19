@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 const parked = "/api/parks/outbound-fixture";
 const draft = "/api/history/core/t1/17/email-drafts/42";
 
-test("the email editor stages every field, then opens the immutable signed approval preview", async () => {
+test("the email editor keeps manual download and exposes staging only with fleet authority", async () => {
   const elements = new Map();
   const created = [];
   const get = (id) => {
@@ -29,6 +29,7 @@ test("the email editor stages every field, then opens the immutable signed appro
     replaceChildren(...children) { this.children = children; }
     setAttribute() {}
     focus() {}
+    click() {}
     after() {}
     showModal() { this.open = true; }
     close() { this.open = false; void this.fire("close"); }
@@ -45,6 +46,7 @@ test("the email editor stages every field, then opens the immutable signed appro
     signature: "fixture-signature",
   };
   const park = {id: decision.envelope.target.park.id, manifest_digest: decision.envelope.target.park.manifest_digest};
+  let canStage = false;
   let approved = false;
   let reopened;
   const calls = [];
@@ -63,11 +65,20 @@ test("the email editor stages every field, then opens the immutable signed appro
     $: get,
     app: {authorized: true, token: "fixture"},
     setInterval() {},
+    setTimeout() {},
+    URL: {createObjectURL: () => "blob:fixture", revokeObjectURL() {}},
+    async fetch(path, options) {
+      calls.push(path);
+      assert.equal(path, draft + "/download");
+      assert.deepEqual(JSON.parse(options.body), {revision: 2,
+        draft: {to: "reviewer@example.test", subject: "Draft", body: payload.body}});
+      return {ok: true, headers: {get: () => null}, blob: async () => ({})};
+    },
     show(id, text) { get(id).textContent = text; },
     async api(path, body) {
       calls.push(path);
       if (path === draft) return {
-        state: "reviewed", revision: 2, staged: reopened,
+        state: "reviewed", revision: 2, staged: reopened, can_stage: canStage || undefined,
         draft: {to: "reviewer@example.test", subject: "Draft", body: payload.body},
       };
       const version = {version: 1, park, in_flight: [], payload, state: "pending", approval: approved ? decision : null};
@@ -94,10 +105,31 @@ test("the email editor stages every field, then opens the immutable signed appro
     runInNewContext(readFileSync(new URL("../web/" + file, import.meta.url), "utf8"), browser);
   }
   await browser.window.workspaceEmailDrafts.open(draft);
+  for (const name of ["sender", "cc", "bcc", "reply", "thread"]) {
+    assert.equal(get("email-draft-" + name).hidden, true);
+    assert.equal(get("email-draft-" + name + "-label").hidden, true);
+  }
+  assert.equal(get("email-draft-stage").hidden, true);
+  assert.equal(get("email-draft-to").maxLength, 1024);
+  await get("email-draft-stage").fire("click");
+  await get("email-draft-form").fire("submit");
+  assert.deepEqual(calls.splice(0), [draft, draft + "/download"]);
+  assert.equal(get("email-draft-status").textContent, "Draft downloaded. No email was sent.");
+  get("email-draft-close").fire("click");
+
+  canStage = true;
+  await browser.window.workspaceEmailDrafts.open(draft);
+  assert.equal(get("email-draft-stage").hidden, false);
+  assert.equal(get("email-draft-to").maxLength, 2540);
   for (const [field, value] of Object.entries({
     sender: payload.sender, cc: payload.cc[0], bcc: payload.bcc[0],
     reply: payload.in_reply_to, thread: payload.thread_id,
-  })) get("email-draft-" + field).value = value;
+  })) {
+    const input = get("email-draft-" + field);
+    assert.equal(input.hidden, false);
+    assert.equal(get("email-draft-" + field + "-label").hidden, false);
+    input.value = value;
+  }
   await get("email-draft-stage").fire("click");
   assert.match(get("email-draft-status").textContent, /Revision 1 · Awaiting signed decision/);
   assert.equal(get("email-draft-preview").hidden, false);

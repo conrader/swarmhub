@@ -288,10 +288,17 @@ struct Waiting {
 
 /// Starts typing the oldest waiting message of every bot that has none on its way.
 pub(crate) fn drain(w: &Workspace) -> Vec<tokio::task::JoinHandle<()>> {
-    let _ = super::write(&w.history, completions::stage_waiting);
-    let Ok(db) = w.history.db() else {
+    let Ok(mut db) = w.history.db() else {
         return Vec::new();
     };
+    if completions::has_unstaged(&db).unwrap_or(false) {
+        drop(db);
+        let _ = super::write(&w.history, completions::stage_waiting);
+        let Ok(reopened) = w.history.db() else {
+            return Vec::new();
+        };
+        db = reopened;
+    }
     let waiting: Vec<Waiting> = db
         .prepare_cached(
             "SELECT o.id,o.bot,o.text,d.outbox IS NOT NULL
@@ -485,7 +492,7 @@ async fn deliver_completion(w: &Workspace, item: &Waiting) {
     let Ok(hello) = w.core.identify().await else {
         return defer(Blocker::Core);
     };
-    if !hello.supports(crate::core::COMPLETION_SEND) {
+    if !hello.supports_completion_send() {
         return defer(Blocker::Unsupported);
     }
     let Ok(mut agents) = w.core.agents().await else {
@@ -495,7 +502,7 @@ async fn deliver_completion(w: &Workspace, item: &Waiting) {
         Ok(CompletionLaunch::Current(index)) => agents.swap_remove(index),
         Ok(CompletionLaunch::Unmapped) => return defer(Blocker::Unmapped),
         Ok(CompletionLaunch::Absent) => {
-            if !hello.supports(crate::core::COMPLETION_START) {
+            if !hello.supports_completion_start() {
                 return defer(Blocker::Unsupported);
             }
             let mut fixture = w.clone();
@@ -671,7 +678,7 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
             .unwrap_or_default();
         format!(
             "{}\n\n{}",
-            notes::standing(&bot, &others, &super::command()),
+            notes::standing(&bot, &others, &super::command(), w.fleet_authority().configured().is_ok()),
             item.text
         )
     } else {

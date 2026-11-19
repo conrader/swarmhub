@@ -7,7 +7,7 @@ use crate::{
 use ring::signature::Ed25519KeyPair;
 use serde_json::{Value, json};
 use std::{
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io,
     os::unix::{fs::OpenOptionsExt, process::CommandExt},
     path::{Path, PathBuf},
@@ -22,13 +22,23 @@ pub(crate) struct Inputs {
     root: PathBuf,
     pub policy_root: PathBuf,
     authority: Fixture,
+    _disk_project: Option<tempfile::TempDir>,
+}
+
+// The worker journal may use a RAM-backed TMPDIR on CI. Its actual
+// workdir still needs a disk so the admission checks run as shipped.
+pub(super) fn disk_scratch(base: &Path) -> Option<tempfile::TempDir> {
+    super::admission::ram_backed(&File::open(base).unwrap())
+        .unwrap_or(false)
+        .then(|| tempfile::Builder::new().prefix("swarmhub-worker-").tempdir_in("/var/tmp").unwrap())
 }
 
 impl Inputs {
     pub(crate) fn new(root: &Path, machine: &str, rules: Vec<Rule>) -> Self {
         let key = key();
         let mut enrollment = enrolled(machine, 1, &key);
-        let project = root.join("project");
+        let disk_project = disk_scratch(root);
+        let project = disk_project.as_ref().map_or(root, |dir| dir.path()).join("project");
         fs::create_dir(&project).unwrap();
         let project = project.canonicalize().unwrap().into_os_string().into_string().unwrap();
         enrollment.accounts.insert(Provider::Claude, "fixture-claude-account".into());
@@ -48,7 +58,10 @@ impl Inputs {
             "workspace": WORKSPACE,
             "operator_uid": unsafe { libc::getuid() },
         }));
-        let inputs = Self { enrollment, reference, identity, key, root: root.into(), policy_root, authority: fixture };
+        let inputs = Self {
+            enrollment, reference, identity, key, root: root.into(), policy_root, authority: fixture,
+            _disk_project: disk_project,
+        };
         inputs.heartbeat(history::now() + 55_000);
         inputs.update(inputs.report());
         inputs

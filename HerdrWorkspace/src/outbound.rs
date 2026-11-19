@@ -375,6 +375,7 @@ pub(crate) fn routes() -> Router<Workspace> {
 async fn stage_generic(
     AxumState(w): AxumState<Workspace>, Json(input): Json<Stage>,
 ) -> Result<Json<Version>, parks::Error> {
+    w.fleet_authority().configured()?;
     if !identifier(&input.project) {
         return Err(parks::Error::InvalidManifest);
     }

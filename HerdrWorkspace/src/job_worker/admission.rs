@@ -311,7 +311,7 @@ pub(super) fn work_directory(request: &str, project: &str, roots: &[String]) -> 
     }
 }
 
-fn ram_backed(dir: &File) -> Option<bool> {
+pub(super) fn ram_backed(dir: &File) -> Option<bool> {
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
     // SAFETY: fstatfs writes a statfs value to the supplied pointer on success.
     if unsafe { libc::fstatfs(dir.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
@@ -438,7 +438,8 @@ mod tests {
 fn gapplan_09_unit_canonical_workdir_is_an_exact_enrolled_directory_within_a_root() {
     use std::{fs, os::unix::fs::symlink};
     let scratch = tempfile::tempdir().unwrap();
-    let root = scratch.path().canonicalize().unwrap();
+    let disk = super::tests::disk_scratch(scratch.path());
+    let root = disk.as_ref().unwrap_or(&scratch).path().canonicalize().unwrap();
     let allowed = root.join("allowed");
     let sibling = root.join("allowed-sibling");
     fs::create_dir(&allowed).unwrap();

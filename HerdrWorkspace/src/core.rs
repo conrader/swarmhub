@@ -12,7 +12,9 @@ const LABEL: &str = "swarmhub.workspace";
 const LABEL_VALUE: &str = "agent";
 const LAUNCH_LABEL: &str = "swarmhub.launch";
 const TEMPLATE_LABEL: &str = "swarmhub.direct-template";
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 pub(crate) const COMPLETION_START: &str = "fixture.terminal.run";
+#[cfg(any(test, feature = "fleet-test-fixture"))]
 pub(crate) const COMPLETION_SEND: &str = "fixture.terminal.send_idle";
 const MAX_REPLY: u64 = 16 * 1024 * 1024;
 pub const MAX_FILE: usize = 8 * 1024 * 1024;
@@ -46,6 +48,20 @@ pub struct Hello {
 impl Hello {
     pub fn supports(&self, method: &str) -> bool {
         self.methods.iter().any(|name| name == method)
+    }
+
+    pub(crate) fn supports_completion_start(&self) -> bool {
+        #[cfg(any(test, feature = "fleet-test-fixture"))]
+        return self.supports(COMPLETION_START);
+        #[cfg(not(any(test, feature = "fleet-test-fixture")))]
+        false
+    }
+
+    pub(crate) fn supports_completion_send(&self) -> bool {
+        #[cfg(any(test, feature = "fleet-test-fixture"))]
+        return self.supports(COMPLETION_SEND);
+        #[cfg(not(any(test, feature = "fleet-test-fixture")))]
+        false
     }
 }
 
@@ -424,6 +440,7 @@ impl Core {
     }
 
     /// The fixture Core accepts encoded stdin as data on its private socket.
+    #[cfg(any(test, feature = "fleet-test-fixture"))]
     pub(crate) async fn run_fixture_worker(
         &self, on: &str, argv: &[String], input: &[u8], seconds: u64,
     ) -> Result<Ran, Failure> {
@@ -590,11 +607,15 @@ impl Core {
         } else if let Some(cwd) = agent_cwd().map_err(|_| Failure::Input(AGENT_CWD_ERROR))? {
             params["cwd"] = cwd.into();
         }
-        let method = if let Some(core) = fixture_core {
-            params["core"] = core.into();
-            COMPLETION_START
-        } else {
-            "terminal.run"
+        let method = match fixture_core {
+            #[cfg(any(test, feature = "fleet-test-fixture"))]
+            Some(core) => {
+                params["core"] = core.into();
+                COMPLETION_START
+            }
+            #[cfg(not(any(test, feature = "fleet-test-fixture")))]
+            Some(_) => return Err(Failure::Input("Fixture launches are disabled.")),
+            None => "terminal.run",
         };
         let mut terminal: Terminal = self.rpc(method, params, 85, true).await?;
         terminal.hydrate_template();
@@ -644,6 +665,7 @@ impl Core {
     }
 
     /// Fixture protocol: Core compares identity, launch and idle turn at the write boundary.
+    #[cfg(any(test, feature = "fleet-test-fixture"))]
     pub(crate) async fn send_completion(
         &self, core: &str, agent: &Terminal, task: String,
     ) -> Result<Delivery, Failure> {
@@ -655,6 +677,13 @@ impl Core {
             135,
             true,
         ).await
+    }
+
+    #[cfg(not(any(test, feature = "fleet-test-fixture")))]
+    pub(crate) async fn send_completion(
+        &self, _core: &str, _agent: &Terminal, _task: String,
+    ) -> Result<Delivery, Failure> {
+        Err(Failure::Input("Fixture completion delivery is disabled."))
     }
 
     pub async fn stage_file(
