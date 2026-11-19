@@ -1,6 +1,7 @@
 //! Worker-local lifecycle for fixed, synthetic jobs. Each launch has its own
 //! session and supervisor, independent of the command that recorded the intent.
 mod admission;
+pub(crate) mod bridge;
 mod providers;
 mod store;
 
@@ -15,7 +16,7 @@ use std::{
     io::{self, BufRead, BufReader, Read, Write},
     net::Shutdown,
     os::{
-        fd::{AsFd, AsRawFd, OwnedFd},
+        fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd},
         unix::{
             net::UnixStream,
             process::{CommandExt, ExitStatusExt},
@@ -60,7 +61,7 @@ impl Worker {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Attempt {
     job_id: String,
@@ -90,7 +91,7 @@ impl From<Fixture> for Launch {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
     protocol: u32,
@@ -100,14 +101,41 @@ struct Request {
     fixture: Option<Fixture>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     manifest: Option<Manifest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    payload_digest: Option<String>,
+}
+
+impl Request {
+    fn valid(&self, verb: &str) -> bool {
+        self.worker.valid()
+            && identifier(&self.attempt.job_id)
+            && self.attempt.number > 0
+            && (verb == "start") == self.manifest.is_some()
+            && match &self.manifest {
+                Some(manifest) => self.fixture.is_some() != manifest.provider_run.is_some() && manifest.valid(),
+                None => self.fixture.is_none(),
+            }
+    }
 }
 
 pub(crate) fn cli(args: &[OsString]) -> Result<()> {
     match args.first().and_then(|arg| arg.to_str()) {
+        Some("rpc") if let [_, root, verb, payload] = args => {
+            bridge::run(Path::new(root), verb.to_str().ok_or(USAGE)?, payload.to_str().ok_or(USAGE)?)
+        }
         Some("_supervise") if let [_, root, token] = args => {
             supervise(Path::new(root), token.to_str().ok_or(USAGE)?)
         }
-        Some("_provider") if let [_, dir] = args => providers::exec(Path::new(dir)),
+        Some("_provider") if let [_, dir, stdout, stderr] = args => {
+            let stdout = descriptor(stdout)?;
+            let stderr = descriptor(stderr)?;
+            if stdout == stderr {
+                return Err(USAGE.into());
+            }
+            // SAFETY: these distinct descriptors were inherited from the supervisor.
+            let (stdout, stderr) = unsafe { (OwnedFd::from_raw_fd(stdout), OwnedFd::from_raw_fd(stderr)) };
+            providers::exec(Path::new(dir), stdout, stderr)
+        }
         Some("_fixture") if let [_, root, fixture] = args => {
             run_fixture(Path::new(root), serde_json::from_str(fixture.to_str().ok_or(USAGE)?)?)
         }
@@ -127,17 +155,7 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
             {
                 return Err("Unsupported job worker protocol.".into());
             }
-            if !request.worker.valid()
-                || !identifier(&request.attempt.job_id)
-                || request.attempt.number <= 0
-                || (verb == "start") != request.manifest.is_some()
-                || if let Some(manifest) = &request.manifest {
-                    request.fixture.is_some() == manifest.provider_run.is_some()
-                } else {
-                    request.fixture.is_some()
-                }
-                || request.manifest.as_ref().is_some_and(|manifest| !manifest.valid())
-            {
+            if !request.valid(verb) || request.payload_digest.is_some() {
                 return Err("Invalid job worker request.".into());
             }
 
@@ -285,8 +303,23 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
                 Ok(invocation) => invocation,
                 Err(_) => return stopped_before_launch(&mut store, token, &run, Blocker::stop("runtime_profile_changed")),
             };
-            let mut command = subprocess([OsStr::new("_provider"), invocation.path().as_os_str()])?;
-            provider_io = Some(ProviderIo::new(&mut command)?);
+            let (capture, stdout, stderr) = ProviderIo::new()?;
+            let stdout_fd = stdout.as_raw_fd();
+            let stderr_fd = stderr.as_raw_fd();
+            let mut command = subprocess([
+                OsString::from("_provider"), invocation.path().into(),
+                stdout_fd.to_string().into(), stderr_fd.to_string().into(),
+            ])?;
+            // The launcher keeps its own stdout/stderr. Only the exec'd provider
+            // writes to the capture sockets in both the production and test path.
+            // SAFETY: fcntl is async-signal-safe and only changes descriptors in the fresh child.
+            unsafe {
+                command.pre_exec(move || {
+                    set_descriptor_flags(stdout.as_raw_fd(), 0)?;
+                    set_descriptor_flags(stderr.as_raw_fd(), 0)
+                });
+            }
+            provider_io = Some(capture);
             prepared = Some(invocation);
             command
         }
@@ -489,6 +522,21 @@ fn reap(child: &mut Child, _provider: bool) -> io::Result<Option<ExitStatus>> {
     child.try_wait()
 }
 
+fn set_descriptor_flags(fd: RawFd, flags: i32) -> io::Result<()> {
+    // SAFETY: fcntl checks the descriptor and F_SETFD takes an integer argument.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn descriptor(value: &OsStr) -> Result<RawFd> {
+    let fd = value.to_str().and_then(|value| value.parse().ok()).filter(|fd| *fd > 2)
+        .ok_or(USAGE)?;
+    set_descriptor_flags(fd, libc::FD_CLOEXEC)?;
+    Ok(fd)
+}
+
 struct Capture {
     socket: UnixStream,
     bytes: Vec<u8>,
@@ -496,10 +544,10 @@ struct Capture {
 }
 
 impl Capture {
-    fn new(limit: usize) -> io::Result<(Self, Stdio)> {
+    fn new(limit: usize) -> io::Result<(Self, OwnedFd)> {
         let (socket, writer) = UnixStream::pair()?;
         socket.set_nonblocking(true)?;
-        Ok((Self { socket, bytes: Vec::new(), limit }, Stdio::from(OwnedFd::from(writer))))
+        Ok((Self { socket, bytes: Vec::new(), limit }, OwnedFd::from(writer)))
     }
 
     fn drain(&mut self) {
@@ -525,11 +573,10 @@ struct ProviderIo {
 }
 
 impl ProviderIo {
-    fn new(command: &mut Command) -> io::Result<Self> {
+    fn new() -> io::Result<(Self, OwnedFd, OwnedFd)> {
         let (events, stdout) = Capture::new(providers::EVENTS_LIMIT + 1)?;
         let (diagnostics, stderr) = Capture::new(LOG_LIMIT)?;
-        command.stdout(stdout).stderr(stderr);
-        Ok(Self { events, diagnostics })
+        Ok((Self { events, diagnostics }, stdout, stderr))
     }
 
     fn drain(&mut self) {
@@ -679,6 +726,14 @@ struct Receipt {
 }
 
 impl Receipt {
+    fn without_child(cancelled: bool) -> Self {
+        Self {
+            code: None, signal: None, cancelled, log: None, result: None,
+            result_truncated: false, runtime: None,
+            runtime_failure: (!cancelled).then(|| "supervisor_lost_before_child_pin".into()),
+        }
+    }
+
     fn new(exit: ExitStatus, sent_cancel: bool, output: Output) -> Self {
         Self {
             code: exit.code(),

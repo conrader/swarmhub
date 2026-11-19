@@ -575,6 +575,7 @@ mod tests {
         let w = Workspace {
             core: Core(core_path),
             history,
+                worker_core: None,
             fleet_policy: Ok(None),
             parks: crate::parks::Service::default(),
             approvals: Default::default(),

@@ -73,7 +73,7 @@ pub(crate) fn finish_after_update(
     job_id: &str,
     after_update: impl FnOnce(),
 ) -> Result<Completion, Error> {
-    finish_inner(db, job_id, ATTEMPT, &success(), after_update)
+    finish_inner(db, job_id, ATTEMPT, &success(), None, after_update)
 }
 
 fn fixture() -> (tempfile::TempDir, History) {
@@ -241,4 +241,43 @@ fn gapplan_02_unit_cancelled_jobs_cannot_dispatch_or_accept_a_late_exit() {
             other => panic!("unexpected dispatch result: {other:?}"),
         }
     }
+}
+
+
+#[test]
+fn gapplan_10_unit_confirmed_exit_and_cancellation_cannot_overwrite_each_other() {
+    let (_temp, journal) = fixture();
+    let mut db = journal.db().unwrap();
+    for (key, first, later) in [
+        ("exit-first", success(), report(Exit::Cancelled)),
+        ("cancel-first", report(Exit::Cancelled), success()),
+    ] {
+        let job = submit_fixture(&mut db, key);
+        assert_eq!(dispatch(&mut db, &job), Dispatch::Recorded);
+        let done = finish_inner(&mut db, &job.id, ATTEMPT, &first,
+            Some(FinishEvidence { worker_reason: None, review_eligible: false }), || {}).unwrap();
+        assert!(matches!(finish(&mut db, &job.id, ATTEMPT, &later), Err(Error::Conflict)));
+        assert_eq!(finish(&mut db, &job.id, ATTEMPT, &first).unwrap(), done);
+        assert_eq!(status(&db, &job.id).unwrap().unwrap().completion, Some(done));
+    }
+}
+
+#[test]
+fn gapplan_10_unit_managed_replay_binds_profile_and_payload() {
+    use crate::machines::probe::Provider;
+    let (_temp, journal) = fixture();
+    let mut db = journal.db().unwrap();
+    let mut placement = Placement {
+        host_id: "fixture-worker".into(), fingerprint: "fixture-pin".into(),
+        machine: "mini-m4".into(), target: "worker@mini-m4.invalid".into(), project_created_ms: 1,
+        provider: Provider::Codex, account_ref: "fixture-account".into(), profile: "local".into(),
+    };
+    let mut submission = submission();
+    let first = submit_with_placement(&mut db, OWNER, "stable", &submission, Some(&placement)).unwrap();
+    assert_eq!(submit_with_placement(&mut db, OWNER, "stable", &submission, Some(&placement)).unwrap(), first);
+    placement.profile = "other".into();
+    assert!(matches!(submit_with_placement(&mut db, OWNER, "stable", &submission, Some(&placement)), Err(Error::Conflict)));
+    placement.profile = "local".into();
+    submission.brief.push('!');
+    assert!(matches!(submit_with_placement(&mut db, OWNER, "stable", &submission, Some(&placement)), Err(Error::Conflict)));
 }

@@ -1,6 +1,9 @@
-//! Coordinator journal for managed jobs. This slice wires only the read side to HTTP.
-// Fixtures exercise the internal write entry points until dispatch is wired.
-#![allow(dead_code)]
+//! Coordinator journal and owner commands for managed jobs.
+mod managed;
+pub(crate) use managed::{Command, Submit, answer, configured_core, start_serving};
+#[cfg(test)]
+pub(crate) use managed::poll;
+use crate::job_worker::bridge::Placement;
 
 use crate::{
     ApiError, Workspace, bots,
@@ -29,6 +32,12 @@ pub(crate) enum Error {
     UnknownOwner,
     MissingAttempt,
     Conflict,
+}
+
+impl From<StoreError> for Error {
+    fn from(error: StoreError) -> Self {
+        Self::Storage(error)
+    }
 }
 
 impl From<rusqlite::Error> for Error {
@@ -73,17 +82,25 @@ pub(crate) struct Submission {
     pub runtime: Runtime,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Job {
     pub id: String,
     pub payload_digest: String,
 }
 
+#[cfg(test)]
 pub(crate) fn submit(
     db: &mut Connection,
     owner_bot_id: &str,
     key: &str,
     job: &Submission,
+) -> Result<Job, Error> {
+    submit_with_placement(db, owner_bot_id, key, job, None)
+}
+
+fn submit_with_placement(
+    db: &mut Connection, owner_bot_id: &str, key: &str, job: &Submission,
+    placement: Option<&Placement>,
 ) -> Result<Job, Error> {
     if job.project <= 0
         || !bounded(&job.brief, BRIEF_MAX)
@@ -95,8 +112,7 @@ pub(crate) fn submit(
         return Err(Error::InvalidInput);
     }
 
-    let payload = serde_json::to_vec(job).map_err(|_| Error::InvalidInput)?;
-    let digest = format!("{:x}", Sha256::digest(payload));
+    let digest = submission_digest(job, placement.map(|placement| placement.profile.as_str()))?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let prior = tx
         .query_row(
@@ -118,7 +134,13 @@ pub(crate) fn submit(
         return Ok(prior);
     }
     let owner = bots::one(&tx, owner_bot_id)?.ok_or(Error::UnknownOwner)?;
-    let runtime = serde_json::to_string(&job.runtime).map_err(|_| Error::InvalidInput)?;
+    let mut runtime = serde_json::to_value(&job.runtime).map_err(|_| Error::InvalidInput)?;
+    if let Some(placement) = placement {
+        runtime["placement"] = serde_json::to_value(placement).map_err(|_| Error::InvalidInput)?;
+    }
+    // v53 already keeps an immutable JSON submission and a copy on the
+    // attempt. Placement is submission evidence; dispatch metadata is mutable.
+    let runtime = runtime.to_string();
     let id = tx.query_row(
         "INSERT INTO jobs (id,owner_bot_id,project,brief,workdir,requested_runtime,
                            submit_key,payload_digest,created_ms)
@@ -137,6 +159,14 @@ pub(crate) fn submit(
         id,
         payload_digest: digest,
     })
+}
+
+fn submission_digest(job: &Submission, profile: Option<&str>) -> Result<String, Error> {
+    let payload = match profile {
+        Some(profile) => serde_json::to_vec(&(job, profile)),
+        None => serde_json::to_vec(job),
+    }.map_err(|_| Error::InvalidInput)?;
+    Ok(format!("{:x}", Sha256::digest(payload)))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -159,7 +189,8 @@ pub(crate) fn record_dispatch(
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let changed = tx.execute(
         "UPDATE job_attempts SET status='dispatching',host_id=?3,lease_id=?4
-         WHERE job_id=?1 AND attempt=?2 AND status='queued'",
+         WHERE job_id=?1 AND attempt=?2 AND status='queued'
+           AND json_extract(requested_runtime,'$.cancel_requested') IS NOT 1",
         params![job_id, attempt, host_id, lease_id],
     )?;
     if changed == 1 {
@@ -182,6 +213,7 @@ pub(crate) fn record_dispatch(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn record_running(db: &Connection, job_id: &str, attempt: i64) -> Result<bool, Error> {
     Ok(db.execute(
         "UPDATE job_attempts SET status='running'
@@ -191,6 +223,7 @@ pub(crate) fn record_running(db: &Connection, job_id: &str, attempt: i64) -> Res
 }
 
 /// A start or exit that could not be confirmed has no completion event yet.
+#[cfg(test)]
 pub(crate) fn record_unknown(db: &Connection, job_id: &str, attempt: i64) -> Result<bool, Error> {
     Ok(db.execute(
         "UPDATE job_attempts SET status='unknown',
@@ -303,19 +336,33 @@ pub(crate) struct JobStatus {
     pub attempt: i64,
     pub status: String,
     pub exit_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_eligible: Option<bool>,
+    pub cancel_requested: bool,
     pub requested_runtime: Runtime,
     pub observed_runtime: Option<Runtime>,
     pub observed_cli_version: Option<String>,
     pub completion: Option<Completion>,
 }
 
+#[cfg(test)]
 pub(crate) fn finish(
     db: &mut Connection,
     job_id: &str,
     attempt: i64,
     report: &Report,
 ) -> Result<Completion, Error> {
-    finish_inner(db, job_id, attempt, report, || {})
+    finish_inner(db, job_id, attempt, report, None, || {})
+}
+
+#[derive(Serialize)]
+struct FinishEvidence<'a> {
+    worker_reason: Option<&'a str>,
+    review_eligible: bool,
 }
 
 fn finish_inner(
@@ -323,6 +370,7 @@ fn finish_inner(
     job_id: &str,
     attempt: i64,
     report: &Report,
+    evidence: Option<FinishEvidence<'_>>,
     after_update: impl FnOnce(),
 ) -> Result<Completion, Error> {
     let (exit, action) = report.outcome()?;
@@ -332,16 +380,19 @@ fn finish_inner(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|_| Error::InvalidInput)?;
+    let evidence = evidence.as_ref().map(serde_json::to_string).transpose().map_err(|_| Error::InvalidInput)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let changed = tx.execute(
         "UPDATE job_attempts SET status=?3,exit_code=?4,exit_reason=?5,verdict=?6,log_ref=?7,
-           result_ref=?8,result_digest=?9,observed_runtime=?10,observed_cli_version=?11
+           result_ref=?8,result_digest=?9,observed_runtime=?10,observed_cli_version=?11,
+           requested_runtime=json_patch(requested_runtime,COALESCE(?12,'{}'))
          WHERE job_id=?1 AND attempt=?2
-           AND (status IN ('dispatching','running','unknown') OR (status='queued' AND ?3='cancelled'))",
+           AND (status IN ('dispatching','running','unknown')
+             OR (status='queued' AND (?3='cancelled' OR (host_id IS NOT NULL AND ?12 IS NOT NULL))))",
         params![
             job_id, attempt, exit.status, exit.code, exit.reason, exit.verdict, exit.log_ref,
             exit.result.as_ref().map(|r| &r.reference), exit.result.as_ref().map(|r| &r.digest),
-            runtime, report.observed_cli_version,
+            runtime, report.observed_cli_version, evidence,
         ],
     )?;
     if changed == 0 {
@@ -385,7 +436,10 @@ fn read_status(db: &Connection, id: &str, attempt: Option<i64>) -> rusqlite::Res
     db.query_row(
         "SELECT j.id,j.owner_bot_id,j.project,a.attempt,a.status,a.exit_reason,a.requested_runtime,
                 a.observed_runtime,a.observed_cli_version,c.created_ms,c.owner_bot_id AS event_owner,
-                c.expected_next_action,a.exit_code,a.verdict,a.log_ref,a.result_ref,a.result_digest
+                c.expected_next_action,a.exit_code,a.verdict,a.log_ref,a.result_ref,a.result_digest,a.host_id,
+                json_extract(a.requested_runtime,'$.worker_reason') AS worker_reason,
+                json_extract(a.requested_runtime,'$.review_eligible') AS review_eligible,
+                COALESCE(json_extract(a.requested_runtime,'$.cancel_requested'),0) AS cancel_requested
          FROM jobs j JOIN job_attempts a ON a.job_id=j.id
          LEFT JOIN job_completions c ON c.job_id=a.job_id AND c.attempt=a.attempt
          WHERE j.id=?1 AND (?2 IS NULL OR a.attempt=?2)
@@ -426,6 +480,10 @@ fn read_status(db: &Connection, id: &str, attempt: Option<i64>) -> rusqlite::Res
                 attempt: r.get("attempt")?,
                 status: r.get("status")?,
                 exit_reason: r.get("exit_reason")?,
+                host_id: r.get("host_id")?,
+                worker_reason: r.get("worker_reason")?,
+                review_eligible: r.get("review_eligible")?,
+                cancel_requested: r.get("cancel_requested")?,
                 requested_runtime: r.get("requested_runtime")?,
                 observed_runtime: r.get("observed_runtime")?,
                 observed_cli_version: r.get("observed_cli_version")?,

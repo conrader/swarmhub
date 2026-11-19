@@ -10,6 +10,7 @@ use std::{
 
 pub(crate) const USAGE: &str = "Projects (folders on other machines that this agent was given; everything below happens there, not here):
   swarmhub-herdr project list
+  swarmhub-herdr project job KEY -           queue an enrolled fixture job from JSON on stdin
   swarmhub-herdr project run NAME [--timeout SECONDS] -- COMMAND [ARG...]
       Runs in the project's folder and exits with the command's exit code. One word after `--` is a line for
       that machine's shell, as in -- \"cd src && make test\"; several words are a program and its arguments as
@@ -39,6 +40,7 @@ const PATIENCE: Duration = Duration::from_secs(60);
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Ask(Ask, Duration),
+    Job(crate::bots::Ask),
     Help,
 }
 
@@ -82,6 +84,13 @@ fn parse(
     };
     match verb.as_str() {
         "--help" | "-h" | "help" => Ok(Command::Help),
+        "job" => {
+            let [key, dash] = rest else { return Err("Use project job KEY -.".into()) };
+            if dash != "-" {
+                return Err("Use project job KEY -.".into());
+            }
+            Ok(Command::Job(crate::bots::cli::job_submit(key, &stdin()?)?))
+        }
         "list" if rest.is_empty() => Ok(Command::Ask(Ask::List, PATIENCE)),
         "list" => Err(format!("`project list` takes nothing more.\n{USAGE}")),
         "run" => {
@@ -254,13 +263,14 @@ pub(crate) fn run() -> ! {
             println!("{USAGE}");
             std::process::exit(0)
         }
-        Ok(Command::Ask(ask, patience)) => (ask, patience),
+        Ok(Command::Job(ask)) => (Action::Bot(ask), PATIENCE),
+        Ok(Command::Ask(ask, patience)) => (Action::Project(ask), patience),
         Err(error) => {
             eprintln!("{error}");
             std::process::exit(FAILED)
         }
     };
-    match road::ask(Action::Project(ask), patience) {
+    match road::ask(ask, patience) {
         Ok(said) => {
             let mut out = std::io::stdout().lock();
             let _ = out.write_all(said.text.as_bytes());

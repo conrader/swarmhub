@@ -229,6 +229,19 @@ pub(crate) fn fresh_report<'a>(worker: &Enrollment, report: Option<&'a Report>, 
     Ok(report)
 }
 
+pub(crate) fn heavy_capability(worker: &Enrollment) -> Result<(), Reason> {
+    if worker.power_class == PowerClass::Portable
+        || worker.id.eq_ignore_ascii_case("macbook-m4")
+        || worker.machine.eq_ignore_ascii_case("macbook-m4")
+    {
+        return Err(Reason::Portable);
+    }
+    if worker.workload_class == WorkloadClass::LightOnly {
+        return Err(Reason::LightWorkOnly);
+    }
+    Ok(())
+}
+
 pub(crate) fn assess(
     worker: &Enrollment,
     current: Result<&Report, Reason>,
@@ -239,15 +252,7 @@ pub(crate) fn assess(
 ) -> Result<(), Reason> {
     use Reason::*;
     let t = &worker.thresholds;
-    if worker.power_class == PowerClass::Portable
-        || worker.id.eq_ignore_ascii_case("macbook-m4")
-        || worker.machine.eq_ignore_ascii_case("macbook-m4")
-    {
-        return Err(Portable);
-    }
-    if worker.workload_class == WorkloadClass::LightOnly {
-        return Err(LightWorkOnly);
-    }
+    heavy_capability(worker)?;
     let project = project.ok_or(ProjectNotEnrolled)?;
     let requirements = &project.requirements;
     if !connected {

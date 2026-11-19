@@ -62,6 +62,7 @@ pub(crate) async fn answer(
     let said = match ask {
         Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } =>
             completion_command(w, &core_id, key, ask).await,
+        Ask::Job { command } => crate::jobs::answer(w, &core_id, key, *command).await,
         Ask::Park { command } => {
             let w = w.clone();
             let key = key.to_owned();
@@ -88,7 +89,7 @@ fn perform(ctx: &super::Ctx<'_>, key: &str, ask: Ask) -> rusqlite::Result<Result
     let cmd = ctx.cmd;
     Ok(match ask {
         Ask::List => Ok(rules::list_text(ctx, &bot)?),
-        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } | Ask::Park { .. } => Err(UNKNOWN_BOT.into()),
+        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } | Ask::Park { .. } | Ask::Job { .. } => Err(UNKNOWN_BOT.into()),
         Ask::Send { kind, to, text } => match rules::Kind::parse(&kind) {
             Some(kind) => {
                 let task = rules::newest_task(ctx.db, key, None)?;
@@ -169,6 +170,7 @@ pub(crate) fn stopped_agent(w: &Workspace, agent: &Terminal) {
 /// Starts the clock and the watch.
 pub(crate) fn start_serving(w: Workspace) {
     recover_outbox(&w.history);
+    crate::jobs::start_serving(w.clone());
     tokio::spawn(super::ci::serve(w.history.clone()));
     let clock = w.clone();
     tokio::spawn(async move {

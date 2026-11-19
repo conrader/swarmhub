@@ -26,6 +26,8 @@ pub(super) struct Manifest {
     pub workdir: String,
     pub owner_bot_id: String,
     pub provider: Provider,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_account: Option<String>,
     pub requested_model: Option<String>,
     pub requested_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,6 +41,7 @@ impl Manifest {
             && Path::new(&self.workdir).is_absolute()
             && !self.workdir.chars().any(char::is_control)
             && crate::bots::valid_id(&self.owner_bot_id)
+            && self.expected_account.as_deref().is_none_or(crate::fleet_policy::principals::identifier)
             && self.provider_run.as_ref().is_none_or(|request| request.valid(
                 self.provider, self.requested_model.as_deref(), self.requested_effort.as_deref(),
             ))
@@ -48,7 +51,7 @@ impl Manifest {
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub(super) struct RuntimeReceipt {
+pub(crate) struct RuntimeReceipt {
     pub provider: Option<Provider>,
     pub account_ref: Option<String>,
     pub observed_model: Option<String>,
@@ -214,6 +217,15 @@ impl Admission {
 
             let account_ref = worker.accounts.get(&manifest.provider)
                 .ok_or_else(|| Blocker::hold("runtime"))?.clone();
+            if let Some(expected) = &manifest.expected_account {
+                if expected != &account_ref {
+                    return Err(Blocker::hold("runtime_account_changed"));
+                }
+                let profile = manifest.provider_run.as_ref().map(|request| &request.profile);
+                if worker.fixture_runtime_profiles.get(&manifest.provider) != profile {
+                    return Err(Blocker::hold("runtime_profile_changed"));
+                }
+            }
             let provider_slots = *worker.thresholds.provider_slots.get(&manifest.provider)
                 .ok_or_else(|| Blocker::hold("runtime"))?;
             let mut exception = None;

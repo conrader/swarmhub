@@ -3,6 +3,7 @@ use super::{Blocker, LOG_LIMIT, RESULT_LIMIT, RELEASE, Result, digest, store::pr
 use crate::{fleet_policy::principals::identifier, machines::probe::Provider, results::bounded_regular_artifact, runtimes};
 use serde::{Deserialize, Serialize};
 use std::{
+    os::fd::OwnedFd,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     os::unix::{
@@ -18,14 +19,12 @@ pub(super) const BRIEF_LIMIT: usize = 3000;
 pub(super) const EVENTS_LIMIT: usize = 64 * 1024;
 const EXECUTABLE_LIMIT: usize = 64 * 1024;
 const RESULT: &str = "result.md";
-#[cfg(test)]
-const TEST_OUTPUT_START: &[u8] = b"swarmhub fixture runner output follows\n";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Request {
     pub profile: String,
-    brief: String,
+    pub(super) brief: String,
 }
 
 impl Request {
@@ -153,9 +152,6 @@ impl Prepared {
             log: (!diagnostics.is_empty()).then(|| bounded_log(String::from_utf8_lossy(diagnostics).into_owned())),
             ..Collected::default()
         };
-        #[cfg(test)]
-        let events = events.windows(TEST_OUTPUT_START.len()).position(|bytes| bytes == TEST_OUTPUT_START)
-            .map_or(events, |start| &events[start + TEST_OUTPUT_START.len()..]);
         let Some((mut observed, final_result)) = parse(self.provider, events) else {
             output.failure = Some("malformed_runtime_output");
             return output;
@@ -253,25 +249,18 @@ impl Invocation {
     }
 }
 
-pub(super) fn exec(dir: &Path) -> Result<()> {
+pub(super) fn exec(dir: &Path, stdout: OwnedFd, stderr: OwnedFd) -> Result<()> {
     let mut release = [0];
     if io::stdin().read_exact(&mut release).is_err() || release != [RELEASE] {
         return Ok(());
     }
-    // SAFETY: this gated child owns its process-wide mask and write limit.
+    // SAFETY: this gated child owns its process-wide mask.
     let owner = unsafe {
         libc::umask(0o077);
-        let cap = libc::rlimit { rlim_cur: EVENTS_LIMIT as _, rlim_max: EVENTS_LIMIT as _ };
-        if libc::setrlimit(libc::RLIMIT_FSIZE, &cap) == -1 {
-            return Err(io::Error::last_os_error().into());
-        }
         libc::geteuid()
     };
     let invocation: Invocation = serde_json::from_slice(&bounded(private_file(&dir.join("invocation.json"), owner, false)?, 4096)?)?;
     let brief = private_file(&dir.join("brief"), owner, false)?;
-    // The test executable's libtest header precedes the provider's actual stdout.
-    #[cfg(test)]
-    io::stdout().lock().write_all(TEST_OUTPUT_START)?;
     Err(Command::new(dir.join("runner"))
         .args(invocation.args(dir))
         .env_clear()
@@ -279,6 +268,8 @@ pub(super) fn exec(dir: &Path) -> Result<()> {
         .env("PATH", "/usr/bin:/bin")
         .env("LC_ALL", "C")
         .stdin(Stdio::from(brief))
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
         .exec().into())
 }
 
@@ -289,7 +280,6 @@ struct Event {
     subtype: Option<String>,
     model: Option<String>,
     effort: Option<String>,
-    cli_version: Option<String>,
     claude_code_version: Option<String>,
     result: Option<String>,
     is_error: Option<bool>,
@@ -308,18 +298,14 @@ fn parse(provider: Provider, bytes: &[u8]) -> Option<(Observed, Option<String>)>
             return None;
         }
         match (provider, event.kind.as_str(), event.subtype.as_deref()) {
-            (Provider::Claude, "system", Some("init")) | (Provider::Codex, "runtime.observed", _) => {
+            (Provider::Claude, "system", Some("init")) => {
                 if observed.is_some() {
                     return None;
                 }
-                let version = match provider {
-                    Provider::Claude => event.claude_code_version,
-                    Provider::Codex => event.cli_version,
-                };
                 observed = Some(Observed {
                     model: event.model.filter(|value| runtimes::model_discovery::launchable_model(agent(provider), value)),
                     effort: event.effort.filter(|value| effort_supported(provider, value)),
-                    version: version.filter(|value| value.len() <= 80 && identifier_version(value)),
+                    version: event.claude_code_version.filter(|value| value.len() <= 80 && identifier_version(value)),
                     family: None,
                 });
             }
@@ -330,6 +316,8 @@ fn parse(provider: Provider, bytes: &[u8]) -> Option<(Observed, Option<String>)>
                 result = event.result;
                 terminal = true;
             }
+            // Codex exec JSON has completion and usage events, but no
+            // resolved model, reasoning effort or CLI version observation.
             (Provider::Codex, "turn.completed", _) => terminal = true,
             (Provider::Codex, "error" | "turn.failed", _) => return None,
             _ => {}

@@ -15,6 +15,11 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
   swarmhub-herdr bot reply ID TEXT            answer an ask, or report the result of a hand-off you accepted
   swarmhub-herdr bot accept ID                take over the work of a hand-off
   swarmhub-herdr bot decline ID REASON        refuse an ask or a hand-off
+  swarmhub-herdr bot job submit KEY -         queue a managed fixture job from JSON on stdin
+  swarmhub-herdr bot job list                 list your recent jobs
+  swarmhub-herdr bot job status ID            show status and available result references
+  swarmhub-herdr bot job cancel ID            record a cancellation request
+  swarmhub-herdr bot job result ID REF        read a verified job result
   swarmhub-herdr bot completion inbox [ID]   recover your job completions by JOB:ATTEMPT
   swarmhub-herdr bot completion ack ID       acknowledge and return the durable next-step key
   swarmhub-herdr bot park file ID -         file an immutable manifest JSON as the current owner
@@ -49,6 +54,7 @@ pub(crate) enum Ask {
     CompletionInbox { id: Option<String> },
     CompletionAck { id: String },
     Park { command: Box<crate::parks::Command> },
+    Job { command: Box<crate::jobs::Command> },
     /// `kind` is `ask`, `tell` or `handoff`.
     Send {
         kind: String,
@@ -184,6 +190,11 @@ fn id(word: Option<&&str>) -> Result<i64, String> {
 }
 
 /// The arguments after `bot`, `checkin` or `promise`. `stdin` supplies a text given as `-`.
+pub(crate) fn job_submit(key: &str, input: &str) -> Result<Ask, String> {
+    let input = serde_json::from_str(input).map_err(|_| "Use a managed fixture job JSON document.")?;
+    Ok(Ask::Job { command: Box::new(crate::jobs::Command::Submit { key: key.into(), input }) })
+}
+
 fn parse(
     family: &str,
     args: &[String],
@@ -214,6 +225,19 @@ fn parse(
         ("bot", "list") => {
             alone(0)?;
             Ask::List
+        }
+        ("bot", "job") => {
+            use crate::jobs::Command;
+            let command = match rest {
+                ["submit", key, "-"] => return Ok(self::Command::Ask(job_submit(key, &text(&["-"], "")?)?)),
+                ["--help" | "-h" | "help"] => return Ok(self::Command::Help),
+                ["list"] => Command::List,
+                ["status", id] => Command::Status { id: (*id).into() },
+                ["cancel", id] => Command::Cancel { id: (*id).into() },
+                ["result", id, reference] => Command::Result { id: (*id).into(), reference: (*reference).into() },
+                _ => return Err("Use bot job submit KEY -, list, status ID, cancel ID or result ID REF.".into()),
+            };
+            Ask::Job { command: Box::new(command) }
         }
         ("bot", "completion") => {
             let event_id = |id: &str| {

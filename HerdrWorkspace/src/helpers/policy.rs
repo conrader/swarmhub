@@ -5,6 +5,7 @@
 //! answered helper stays come from here and are read again for every request.
 
 use crate::core::valid_name;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -354,5 +355,73 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o077, 0);
+    }
+}
+
+
+/// A delegated job uses its current parent bot's stable owner and project grant.
+/// It cannot browse or act on jobs already filed by that owner.
+pub(crate) fn job_owner(
+    db: &Connection, core: &str, launch: &str, delegated_submit: bool,
+) -> rusqlite::Result<Option<crate::bots::Bot>> {
+    let bound: Option<(bool, Option<String>)> = db.query_row(
+        "SELECT h.launch IS NOT NULL,h.parent_key FROM journal j
+         LEFT JOIN helpers h ON h.launch=j.id WHERE j.launch_key=?1 AND j.core_id=?2",
+        params![launch, core],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
+    let owner_launch = match &bound {
+        Some((false, _)) => launch,
+        Some((true, Some(parent))) if delegated_submit => parent,
+        _ => return Ok(None),
+    };
+    let registered_here: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM journal WHERE launch_key=?1 AND core_id=?2)",
+        params![owner_launch, core], |row| row.get(0),
+    )?;
+    Ok(match crate::bots::of_launch(db, owner_launch)? {
+        crate::bots::Who::Bot(bot) if registered_here && bot.noted_launch.as_deref() == Some(owner_launch) => Some(*bot),
+        _ => None,
+    })
+}
+
+
+#[cfg(test)]
+mod job_scope_tests {
+    use super::*;
+    use crate::{bots, history, jobs::tests::OWNER};
+
+    #[test]
+    fn gapplan_10_unit_delegation_requires_a_current_parent_and_parent_project_grant() {
+        let temp = tempfile::tempdir().unwrap();
+        let h = crate::jobs::tests::journal(&temp.path().join("journal"));
+        let bot = bots::one(&h.db().unwrap(), OWNER).unwrap().unwrap();
+        let launch = |name| h.start_launch("core", name, "fixture", None, "{}", "").unwrap().unwrap();
+        let (_, parent) = launch(&bot.agent_name);
+        bots::noted(&h, OWNER, &parent).unwrap();
+        let (helper_launch, helper) = launch("fixture-helper");
+        let db = h.db().unwrap();
+        db.execute(
+            "INSERT INTO helpers(launch,parent_key,name,difficulty,template,model)
+             VALUES (?1,?2,'fixture','easy','fixture','fixture')", params![helper_launch, parent],
+        ).unwrap();
+        db.execute(
+            "INSERT INTO projects (id,name,machine,folder,note,created_ms)
+             VALUES (1,'fixture','mini-m4','/fixture','',?1)", [history::now()],
+        ).unwrap();
+        assert_eq!(job_owner(&db, "core", &helper, true).unwrap().unwrap().id, OWNER);
+        assert!(job_owner(&db, "core", &helper, false).unwrap().is_none());
+        assert!(job_owner(&db, "other-core", &helper, true).unwrap().is_none());
+        assert!(!crate::projects::can_use(&db, &helper, 1).unwrap());
+        drop(db);
+        assert!(crate::projects::grant_launch(&h, &parent, &[1]).unwrap());
+        assert!(crate::projects::can_use(&h.db().unwrap(), &helper, 1).unwrap());
+
+        let (_, replacement) = launch(&bot.agent_name);
+        bots::noted(&h, OWNER, &replacement).unwrap();
+        let db = h.db().unwrap();
+        assert!(job_owner(&db, "core", &helper, true).unwrap().is_none());
+        assert!(job_owner(&db, "core", &parent, false).unwrap().is_none());
+        assert_eq!(job_owner(&db, "core", &replacement, false).unwrap().unwrap().id, OWNER);
     }
 }

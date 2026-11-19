@@ -444,9 +444,14 @@ pub(crate) fn listen(w: Workspace) -> io::Result<()> {
     let Some(path) = directory() else {
         return Ok(());
     };
+    listen_at(w, path)?;
+    Ok(())
+}
+
+pub(super) fn listen_at(w: Workspace, path: PathBuf) -> io::Result<tokio::task::JoinHandle<()>> {
     let owner = w.history.file().metadata()?.uid();
     open_folder(&path, owner)?;
-    tokio::spawn(async move {
+    Ok(tokio::spawn(async move {
         let seen = Arc::new(Mutex::new(Seen::default()));
         let slots = Arc::new(Semaphore::new(8));
         let mut tick = tokio::time::interval(WATCH);
@@ -472,8 +477,7 @@ pub(crate) fn listen(w: Workspace) -> io::Result<()> {
             }
             round = round.wrapping_add(1);
         }
-    });
-    Ok(())
+    }))
 }
 
 #[cfg(test)]

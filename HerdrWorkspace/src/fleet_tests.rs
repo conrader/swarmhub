@@ -457,6 +457,7 @@ async fn gapplan_02_int_http_job_status_returns_completion_or_not_found() {
     let app = crate::workspace_router(crate::Workspace {
         core: crate::Core(scratch.path().join("core.sock")),
         history,
+        worker_core: None,
         fleet_policy: Ok(None),
         parks: crate::parks::Service::default(),
         approvals: Default::default(),
@@ -776,7 +777,7 @@ mod job_delivery {
             Self { state, wrote, task }
         }
 
-        fn agents(&self, agents: Vec<Value>) {
+        pub(super) fn agents(&self, agents: Vec<Value>) {
             self.state.lock().unwrap().agents = agents;
         }
 
@@ -784,7 +785,7 @@ mod job_delivery {
             self.state.lock().unwrap().machines = machines;
         }
 
-        fn writes(&self) -> Vec<Value> {
+        pub(super) fn writes(&self) -> Vec<Value> {
             self.state.lock().unwrap().writes.clone()
         }
     }
@@ -854,6 +855,7 @@ mod job_delivery {
         Workspace {
             core: Core(root.join("core.sock")),
             history,
+            worker_core: None,
             fleet_policy: Ok(None),
             parks: crate::parks::Service::default(),
             approvals: Default::default(),
@@ -907,7 +909,7 @@ mod job_delivery {
         }
     }
 
-    fn terminal(name: &str, key: &str, address: &str, created: u64, status: &str) -> Value {
+    pub(super) fn terminal(name: &str, key: &str, address: &str, created: u64, status: &str) -> Value {
         json!({
             "address":address,"created_ms":created,"name":name,"state":"live","template":"fixture",
             "status":{"state":status},"turn":0,
@@ -915,7 +917,7 @@ mod job_delivery {
         })
     }
 
-    fn session(history: &History, bot: &str, address: &str, created: u64, status: &str) -> Value {
+    pub(super) fn session(history: &History, bot: &str, address: &str, created: u64, status: &str) -> Value {
         let name = bots::one(&history.db().unwrap(), bot).unwrap().unwrap().agent_name;
         let (launch, key) = history.start_launch("core", &name, "Fixture first task", None, "{}", "")
             .unwrap().unwrap();
@@ -963,7 +965,7 @@ mod job_delivery {
         }
     }
 
-    async fn drain(w: &Workspace) {
+    pub(super) async fn drain(w: &Workspace) {
         finish_drain(desk::drain(w)).await;
     }
 
@@ -1699,3 +1701,5 @@ mod park_decisions;
 mod worker_hosts;
 
 mod detached_attempts;
+
+mod managed_jobs;

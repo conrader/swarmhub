@@ -130,6 +130,17 @@ pub(crate) fn command(root: &Path, verb: &str) -> Command {
     subprocess([std::ffi::OsStr::new(verb), root.as_os_str()]).unwrap()
 }
 
+pub(crate) fn rpc_command(root: &Path, verb: &str, payload: &str) -> Command {
+    subprocess([
+        std::ffi::OsStr::new("rpc"), root.as_os_str(),
+        std::ffi::OsStr::new(verb), std::ffi::OsStr::new(payload),
+    ]).unwrap()
+}
+
+pub(crate) fn authority(inputs: &Inputs) -> crate::fleet_policy::Authority {
+    inputs.authority.restart(WORKSPACE)
+}
+
 pub(crate) fn live(identity: &Value) -> bool {
     serde_json::from_value::<ProcessIdentity>(identity.clone()).unwrap().live()
 }

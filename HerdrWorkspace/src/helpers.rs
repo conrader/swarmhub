@@ -34,7 +34,7 @@ use tokio::{
 };
 
 pub(crate) mod cli;
-mod policy;
+pub(crate) mod policy;
 mod record;
 mod settings;
 mod spool;
@@ -42,6 +42,24 @@ mod spool;
 use record::{Admitted, View, Wanted, admit, list_text, one_line, read_text, views};
 pub(crate) use record::{ParentRef, parents};
 pub(crate) use spool::{ENV as SPOOL_ENV, directory as spool_directory};
+
+#[cfg(test)]
+pub(crate) mod fixture {
+    use super::*;
+
+    pub(crate) fn listen(w: Workspace, folder: PathBuf) -> tokio::task::JoinHandle<()> {
+        spool::listen_at(w, folder).unwrap()
+    }
+
+    pub(crate) async fn ask(dir: &std::path::Path, launch: &str, action: Action) -> Result<String, String> {
+        let dir = dir.to_owned();
+        let launch = launch.to_owned();
+        let reply = tokio::task::spawn_blocking(move || {
+            spool::ask(&dir, &launch, action, Duration::from_secs(3), Duration::from_secs(5))
+        }).await.unwrap().map_err(|reason| format!("Fixture spool failed: {reason:?}"))?;
+        reply.error.map_or(Ok(reply.text), Err)
+    }
+}
 
 /// Room for a file an agent writes on a project's machine (`projects`); a helper's task is held to `TASK_LIMIT`.
 pub(crate) const REQUEST_LIMIT: usize = 256 * 1024;

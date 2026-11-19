@@ -12,6 +12,7 @@ use std::{
 pub(crate) const USAGE: &str = "Helpers (another agent for one task; the workspace picks its model from the difficulty):
   swarmhub-herdr helper start --difficulty easy|medium|hard [--name NAME] [--here] TASK
       TASK `-` reads standard input. --here starts it in this folder instead of the workspace's agent folder.
+  swarmhub-herdr helper managed KEY -           queue an enrolled fixture job from JSON on stdin
   swarmhub-herdr helper list
   swarmhub-herdr helper wait NAME [--seconds N]   wait for its answer, then print it (default 100 seconds)
   swarmhub-herdr helper read NAME [--lines N]     its latest answer, or the last N lines of its screen
@@ -45,6 +46,13 @@ fn parse(
     let Some((verb, rest)) = args.split_first() else {
         return Ok(Command::Help);
     };
+    if verb == "managed" {
+        let [key, dash] = rest else { return Err("Use helper managed KEY -.".into()) };
+        if dash != "-" {
+            return Err("Use helper managed KEY -.".into());
+        }
+        return Ok(Command::Call(Action::Bot(crate::bots::cli::job_submit(key, &stdin()?)?)));
+    }
     let mut words = Vec::new();
     let mut options: Vec<(&str, String)> = Vec::new();
     let mut here = false;

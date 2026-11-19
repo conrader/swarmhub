@@ -85,6 +85,7 @@ use std::{net::Ipv4Addr, path::PathBuf};
 #[derive(Clone)]
 struct Workspace {
     core: Core,
+    worker_core: Option<Core>,
     history: History,
     fleet_policy: Result<Option<fleet_policy::Authority>, fleet_policy::Error>,
     parks: parks::Service,
@@ -223,6 +224,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     }
     let vault = vault::Vault::configured(history.file())?;
     let workspace = Workspace {
+        worker_core: jobs::configured_core(&socket),
         core: Core(socket),
         connected_files: webdav::Folder::configured(&history, vault.as_ref())?,
         drive_access: drive_access::Desk::default(),

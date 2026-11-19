@@ -1,5 +1,5 @@
 use super::{
-    Attempt, Launch, ProcessIdentity, Receipt, Result, Worker, digest,
+    Attempt, Fixture, Launch, ProcessIdentity, Receipt, Result, Worker, digest,
     admission::{Blocker, Exception, Grant, Manifest, RuntimeReceipt},
 };
 use crate::{fleet_policy::PolicyRef, history};
@@ -7,7 +7,7 @@ use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior, params,
     types::Type,
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     fs::{self, File, OpenOptions},
     io::Read,
@@ -93,13 +93,13 @@ pub(super) struct Store {
     pub(super) worker: Worker,
 }
 
-#[derive(Serialize)]
-pub(super) struct View {
-    status: String,
+#[derive(Deserialize, Serialize)]
+pub(crate) struct View {
+    pub(crate) status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    manifest_digest: Option<String>,
+    pub(crate) manifest_digest: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
+    pub(crate) reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     admission: Option<Blocker>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,18 +107,18 @@ pub(super) struct View {
     #[serde(skip_serializing_if = "Option::is_none")]
     exception: Option<Exception>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    runtime: Option<RuntimeReceipt>,
-    cancel_requested: bool,
-    exit_code: Option<i32>,
-    exit_signal: Option<i32>,
-    log_ref: Option<&'static str>,
-    result_ref: Option<&'static str>,
-    result_digest: Option<String>,
+    pub(crate) runtime: Option<RuntimeReceipt>,
+    pub(crate) cancel_requested: bool,
+    pub(crate) exit_code: Option<i32>,
+    pub(crate) exit_signal: Option<i32>,
+    pub(crate) log_ref: Option<String>,
+    pub(crate) result_ref: Option<String>,
+    pub(crate) result_digest: Option<String>,
     result_truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     log: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<String>,
+    pub(crate) result: Option<String>,
 }
 
 struct Stored {
@@ -126,6 +126,7 @@ struct Stored {
     status: String,
     launcher: ProcessIdentity,
     supervisor: Option<ProcessIdentity>,
+    child: Option<ProcessIdentity>,
     cancel_requested: bool,
     unknown_reason: Option<String>,
     receipt: Option<Receipt>,
@@ -294,10 +295,17 @@ impl Store {
     }
 
     pub(super) fn observe(&mut self, attempt: &Attempt, cancel: bool, collect: bool) -> Result<View> {
+        Ok(self.observe_bound(attempt, cancel, collect, None, None)?.expect("unbound view"))
+    }
+
+    pub(super) fn observe_bound(
+        &mut self, attempt: &Attempt, cancel: bool, collect: bool,
+        expected: Option<&str>, result_digest: Option<&str>,
+    ) -> Result<Option<View>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let stored = tx.query_row(
             "SELECT a.manifest_digest,a.status,a.launcher,a.supervisor,a.cancel_requested,
-                    a.unknown_reason,a.receipt,b.blocker,b.policy,b.exception
+                    a.unknown_reason,a.receipt,b.blocker,b.policy,b.exception,a.child
              FROM attempts a LEFT JOIN attempt_admission b USING(job_id,attempt)
              WHERE a.job_id=?1 AND a.attempt=?2",
             params![attempt.job_id, attempt.number],
@@ -313,6 +321,7 @@ impl Store {
                     admission: optional_json(row, 7)?,
                     policy: optional_json(row, 8)?,
                     exception: optional_json(row, 9)?,
+                    child: optional_json(row, 10)?,
                 })
             },
         ).optional()?;
@@ -324,14 +333,56 @@ impl Store {
             ).optional()?;
             let mut view = View::new(None, collect);
             if let Some((digest, blocker, policy)) = pending {
+                if expected.is_some_and(|pin| pin != digest) {
+                    return Ok(None);
+                }
+                if cancel && expected.is_some() {
+                    // Pending admission has no start intent. Fence a later start
+                    // for this exact manifest before acknowledging cancellation.
+                    let token = insert_attempt(&tx, attempt, &digest, Fixture::Success, &ProcessIdentity::current()?)?;
+                    let receipt = Receipt::without_child(true);
+                    tx.execute(
+                        "UPDATE attempts SET status='cancelled',cancel_requested=1,receipt=?2 WHERE start_token=?1",
+                        params![token, serde_json::to_string(&receipt)?],
+                    )?;
+                    tx.execute(
+                        "UPDATE attempt_admission SET blocker=NULL WHERE job_id=?1 AND attempt=?2",
+                        params![attempt.job_id, attempt.number],
+                    )?;
+                    tx.commit()?;
+                    view.status = "cancelled".into();
+                    view.manifest_digest = Some(digest);
+                    view.cancel_requested = true;
+                    view.policy = policy;
+                    return Ok(Some(view));
+                }
                 view.status = blocker.disposition.as_str().into();
                 view.manifest_digest = Some(digest);
                 view.reason = Some(blocker.reason.clone());
                 view.admission = Some(blocker);
                 view.policy = policy;
             }
-            return Ok(view);
+            return Ok(Some(view));
         };
+        if expected.is_some_and(|pin| pin != stored.manifest_digest) {
+            return Ok(None);
+        }
+        if expected.is_some() && stored.child.is_none() && stored.receipt.is_none()
+            && stored.supervisor.as_ref().is_some_and(ProcessIdentity::group_ended)
+        {
+            // The child cannot cross its gate without a durable child pin.
+            // The departed supervisor is the only process that could release it.
+            let receipt = Receipt::without_child(false);
+            tx.execute(
+                "UPDATE attempts SET status='interrupted',unknown_reason=NULL,receipt=?3
+                 WHERE job_id=?1 AND attempt=?2",
+                params![attempt.job_id, attempt.number, serde_json::to_string(&receipt)?],
+            )?;
+            tx.execute("DELETE FROM leases WHERE job_id=?1 AND attempt=?2", params![attempt.job_id, attempt.number])?;
+            stored.status = "interrupted".into();
+            stored.unknown_reason = None;
+            stored.receipt = Some(receipt);
+        }
         if matches!(stored.status.as_str(), "dispatching" | "running") {
             let owner = stored.supervisor.as_ref().unwrap_or(&stored.launcher);
             if !owner.live() {
@@ -350,8 +401,17 @@ impl Store {
                 stored.cancel_requested = true;
             }
         }
+        let result = result_digest.and_then(|expected| {
+            let receipt = stored.receipt.as_ref()?;
+            let text = receipt.result.as_ref()?;
+            (expected == digest(text.as_bytes())).then(|| text.clone())
+        });
         tx.commit()?;
-        Ok(View::new(Some(stored), collect))
+        let mut view = View::new(Some(stored), collect);
+        if result_digest.is_some() {
+            view.result = result;
+        }
+        Ok(Some(view))
     }
 
     pub(super) fn start_unconfirmed(&self, token: &str, reason: &str) -> Result<()> {
@@ -525,10 +585,12 @@ fn prune_expired(tx: &Connection, now: i64) -> Result<()> {
     let expired = query.query_map([now], |row| Ok((group_owners(row)?, row.get::<_, String>(3)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (owners, token) in expired {
-        // A vanished supervisor may have spawned a gated child before recording
-        // its identity. Keep that slot until the ambiguous attempt is reconciled.
+        // A child without a pin cannot have crossed its launch gate. For a
+        // pinned supervisor, require proof that its group ended as well.
         let (_, supervisor, child) = &owners;
-        if !group_unconfirmed(&owners) && (supervisor.is_none() || child.is_some()) {
+        if !group_unconfirmed(&owners)
+            && (child.is_some() || supervisor.as_ref().is_none_or(ProcessIdentity::group_ended))
+        {
             tx.execute("DELETE FROM leases WHERE token=?1", [token])?;
         }
     }
@@ -568,8 +630,8 @@ impl View {
             cancel_requested: stored.as_ref().is_some_and(|stored| stored.cancel_requested),
             exit_code: receipt.and_then(|receipt| receipt.code),
             exit_signal: receipt.and_then(|receipt| receipt.signal),
-            log_ref: log.map(|_| "log"),
-            result_ref: result.map(|_| "result"),
+            log_ref: log.map(|_| "log".into()),
+            result_ref: result.map(|_| "result".into()),
             result_digest: result.map(|text| digest(text.as_bytes())),
             result_truncated: receipt.is_some_and(|receipt| receipt.result_truncated),
             log: log.filter(|_| include_text).cloned(),

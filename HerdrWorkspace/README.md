@@ -817,9 +817,36 @@ For a local Claude or Codex double, omit `fixture` and add `"provider_run": {"pr
 
 The worker account stages its local double at `fixture-runtimes/<profile>/runner` under the state directory. The directory tree and its `home` are private to the worker account. Set mode `0700` on the runner and mode `0600` on `profile.json`. The profile contains `provider`, `account_ref`, `cli_version`, `executable_sha256` and `timeout_ms` from 1 to 60,000. The signed admission evidence must show the same provider and version, the enrolled account reference and current login readiness. Admission pins the profile, and the supervisor checks it again before executing a private copy of the pinned runner.
 
-Claude doubles emit stream JSON with a `system/init` observation and a successful final `result` event. Codex doubles emit JSON lines with a `runtime.observed` event for model, effort and CLI version, finish with `turn.completed`, and write the last message to the fixed attempt artifact path. The worker only reports observed fields supplied by the runtime. A result with unknown model family or missing CLI version is ineligible as review evidence. A missing, oversized or malformed result cannot yield a successful verdict.
+Claude doubles emit stream JSON with a `system/init` observation and a successful final `result` event. Codex doubles use the `codex exec --json` event shape, finish with `turn.completed`, and write the last message to the fixed attempt artifact path. Codex records the enrolled account and requested model and effort. Its JSON stream leaves the observed model, family, effort and CLI version unknown, so a Codex receipt explicitly has `review_eligible: false`. Claude receipts require observed family and CLI version for review eligibility. Missing, oversized or malformed results fail. The supervisor bounds its stdout and stderr capture independently of provider files.
 
-Provider diagnostics and validated result text remain in the worker's private ledger. The protocol returns opaque `log_ref` and `result_ref` labels scoped to the attempt, plus its result digest and runtime receipt. The adapters are exercised with local doubles and synthetic login state. Managed coordinator dispatch and recovery attach in slice 10.
+### Submit and recover a managed fixture job
+
+Run `swarmhub-herdr bot job submit KEY -` from the owner's current session. The command returns the saved job ID and payload digest as soon as it queues the job. Use a stable key to retry the same submission. Changing its payload requires a new key. `swarmhub-herdr project job KEY -` and `swarmhub-herdr helper managed KEY -` use the same submission path. A delegated helper inherits the current parent bot's owner and project grant and competes for the same worker lease.
+
+```json
+{
+  "project": 1,
+  "workdir": "/fixture/work/project",
+  "brief": "Inspect the fixture",
+  "provider": "claude",
+  "profile": "local",
+  "model": "claude-sonnet-5",
+  "effort": "medium"
+}
+```
+
+- `swarmhub-herdr bot job list` shows the owner's 100 most recent jobs. `bot job status JOB` shows the attempt, worker reason and recorded outcome.
+- `swarmhub-herdr bot job cancel JOB` durably requests cancellation. The recorded outcome follows the worker's confirmed exit or cancellation.
+- `swarmhub-herdr bot job result JOB REF` returns the verified result for that job. Status and completion messages carry opaque references and the result digest. Diagnostics remain in the private worker ledger.
+- Use `swarmhub-herdr bot completion inbox JOB:ATTEMPT` to recover a completion from a replacement session. `bot completion ack JOB:ATTEMPT` returns the same next-step key on retry.
+
+The bridge uses `SWARMHUB_FIXTURE_WORKER_CORE` as the absolute path of a separate Core socket in a directory private to the bridge service account. A fixture's signed worker enrollment adds `fixture_worker_target`, a distinct worker login on the enrolled project host. The worker Core uses the enrolled machine name and that target. Set `fixture_runtime_profiles` to the allowed profile for each provider, for example `{"claude":"local"}`. Give agent and ordinary Core shells their own OS account and credentials, and keep the worker Core socket, protected launcher, runtime account and state outside their access. The ordinary project gateway refuses the signed worker login. Only synthetic provider profiles belong on this fixture route.
+
+Install the matching workspace binary at `/usr/local/libexec/swarmhub-fixture-worker` on the fixture host. Prepare the worker-owned, private state at `/var/lib/swarmhub-fixture-worker`. The bridge calls the installed binary with fixed `job-worker rpc` arguments, the fixed state directory, a supported verb and a bounded, versioned request carrying the manifest digest. Its brief reaches the provider via stdin. The bridge commits the dispatch intent and manifest digest before sending start. Worker admission owns the actual lease and capacity.
+
+The bridge polls persisted attempts on startup and after a disconnect. `host_unreachable` means the worker Core or machine is offline. `unknown_attempt` means the contacted worker has no matching attempt and a previous start remains uncertain. An incompatible worker yields `worker_incompatible`. Ambiguous starts stay pinned to their original worker and attempt. Only a worker's confirmed pending admission permits the same attempt to try admission again. A dead pinned supervisor with no registered child can be reconciled as interrupted because the child gate required that pin. When restoring prior journals, reconcile outstanding attempt IDs with their original workers before resuming dispatch.
+
+The ovh enrollment requires a hard STOP floor of at least 8,000,000,000 free bytes. Managed workdirs must be disk-backed, and heavy work excludes macbook-m4.
 
 ## Keep an agent profile
 

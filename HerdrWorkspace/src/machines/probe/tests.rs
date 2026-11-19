@@ -30,6 +30,8 @@ pub(crate) fn enrolled(machine: &str, id: i64, key: &Ed25519KeyPair) -> Enrollme
         id: format!("fixture-{machine}"),
         machine: machine.into(),
         target: format!("fixture@{machine}.invalid"),
+        fixture_worker_target: None,
+        fixture_runtime_profiles: BTreeMap::new(),
         host_public_key: STANDARD.encode(key.public_key()),
         roots: vec!["/fixture/work".into()],
         projects: vec![ProjectPin { id, created_ms: OBSERVED, folder: FOLDER.into(), requirements: Requirements::default() }],
@@ -240,4 +242,22 @@ fn gapplan_09_unit_disk_stop_threshold_comes_from_enrollment() {
     let held = other.evaluate(OBSERVED);
     assert_eq!(held["status"], "stop");
     assert_eq!(held["disk"]["limit_bytes"], 12 * GB);
+}
+
+
+#[test]
+fn gapplan_10_unit_enrollment_enforces_ovh_floor_and_a_separate_worker_login() {
+    let mut ovh = enrolled("ovh", 1, &key());
+    ovh.thresholds.disk_stop_free_bytes = 8 * GB - 1;
+    assert!(!valid_enrollments(&[ovh.clone()]));
+    ovh.thresholds.disk_stop_free_bytes += 1;
+    assert!(valid_enrollments(&[ovh.clone()]));
+    ovh.fixture_worker_target = Some(ovh.target.clone());
+    assert!(!valid_enrollments(&[ovh.clone()]));
+    ovh.fixture_worker_target = Some("worker@elsewhere.invalid".into());
+    assert!(!valid_enrollments(&[ovh.clone()]));
+    ovh.fixture_worker_target = Some("worker@ovh.invalid".into());
+    assert!(!valid_enrollments(&[ovh.clone()]));
+    ovh.fixture_runtime_profiles.insert(Provider::Codex, "local".into());
+    assert!(valid_enrollments(&[ovh]));
 }

@@ -24,6 +24,7 @@ use std::{
 const PROTOCOL: u32 = 1;
 const LIMIT: usize = 128 * 1024;
 const MAX_PERCENT: u32 = 10_000;
+const OVH_STOP_BYTES: u64 = 8_000_000_000;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -84,6 +85,10 @@ pub(crate) struct Enrollment {
     pub id: String,
     pub machine: String,
     pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixture_worker_target: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fixture_runtime_profiles: BTreeMap<Provider, String>,
     pub host_public_key: String,
     pub roots: Vec<String>,
     pub projects: Vec<ProjectPin>,
@@ -161,6 +166,12 @@ impl Enrollment {
             && self.target.len() <= 254
             && !self.target.chars().any(char::is_whitespace)
             && !self.target.chars().any(char::is_control)
+            && self.fixture_worker_target.as_deref().is_none_or(|worker| separate_worker_target(&self.target, worker))
+            && (self.fixture_worker_target.is_some() != self.fixture_runtime_profiles.is_empty())
+            && self.fixture_runtime_profiles.iter().all(|(provider, profile)| {
+                principals::identifier(profile) && profile.len() <= 64
+                    && self.thresholds.provider_slots.contains_key(provider)
+            })
             && self.key().is_some()
             && !self.roots.is_empty()
             && self.roots.iter().all(|path| absolute_path(path))
@@ -171,8 +182,25 @@ impl Enrollment {
             })
             && self.accounts.values().all(|account| label(account))
             && self.thresholds.provider_slots.keys().all(|provider| self.accounts.contains_key(provider))
+            && (!(self.machine.eq_ignore_ascii_case("ovh") || self.id.eq_ignore_ascii_case("ovh"))
+                || self.thresholds.disk_stop_free_bytes >= OVH_STOP_BYTES)
             && self.thresholds.valid()
     }
+}
+
+fn separate_worker_target(project: &str, worker: &str) -> bool {
+    let Some(((project_user, project_host), (worker_user, worker_host))) =
+        project.split_once('@').zip(worker.split_once('@'))
+    else {
+        return false;
+    };
+    worker.len() <= 254
+        && label(project_user)
+        && label(worker_user)
+        && project_user != worker_user
+        && !worker_host.is_empty()
+        && !worker_host.contains('@')
+        && project_host.eq_ignore_ascii_case(worker_host)
 }
 
 pub(crate) fn valid_enrollments(workers: &[Enrollment]) -> bool {
@@ -185,7 +213,8 @@ pub(crate) fn valid_enrollments(workers: &[Enrollment]) -> bool {
         worker.valid()
             && ids.insert(&worker.id)
             && machines.insert(worker.machine.to_ascii_lowercase())
-            && targets.insert(&worker.target)
+            && targets.insert(worker.target.to_ascii_lowercase())
+            && worker.fixture_worker_target.as_ref().is_none_or(|target| targets.insert(target.to_ascii_lowercase()))
             && keys.insert(worker.key())
             && worker.projects.iter().all(|project| projects.insert(project.id))
     })

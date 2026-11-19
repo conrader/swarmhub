@@ -15,14 +15,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-struct Worker {
-    root: PathBuf,
+pub(super) struct Worker {
+    pub(super) root: PathBuf,
     request: Value,
-    inputs: Inputs,
+    pub(super) inputs: Inputs,
 }
 
 impl Worker {
-    fn new(scratch: &Path, id: &str, attempt: i64) -> Self {
+    pub(super) fn new(scratch: &Path, id: &str, attempt: i64) -> Self {
         Self::on(scratch, "mini-m4", id, attempt, vec![])
     }
 
@@ -74,13 +74,13 @@ impl Worker {
         response(self.run(verb, &self.input(fixture)))
     }
 
-    fn pause(&self, checkpoint: &str) -> PathBuf {
+    pub(super) fn pause(&self, checkpoint: &str) -> PathBuf {
         let pause = self.root.join(format!("pause-{checkpoint}"));
         fs::write(&pause, []).unwrap();
         pause
     }
 
-    fn checkpoint(&self, checkpoint: &str) -> Value {
+    pub(super) fn checkpoint(&self, checkpoint: &str) -> Value {
         let marker = self.root.join(format!("{checkpoint}.json"));
         until(|| fs::read(&marker).ok().map(|data| serde_json::from_slice(&data).unwrap()))
     }
@@ -96,7 +96,7 @@ impl Worker {
         })
     }
 
-    fn db(&self) -> Connection {
+    pub(super) fn db(&self) -> Connection {
         history::connection(&self.root.join("attempts.sqlite3")).unwrap()
     }
 }
@@ -596,10 +596,10 @@ fn gapplan_08_int_supervisor_waits_for_the_durable_pin_during_store_contention()
     assert_eq!(worker.state("exited")["exit_code"], 0);
 }
 
-const FIXTURE_BRIEF: &str = "--literal\n$(exit 91)\nreview this fixture";
+pub(super) const FIXTURE_BRIEF: &str = "--literal\n$(exit 91)\nreview this fixture";
 const PRIVATE_DIAGNOSTIC: &str = "fixture-private-diagnostic";
 
-fn fake_profile(worker: &Worker, provider: &str, outcome: &str, timeout_ms: u64) {
+pub(super) fn fake_profile(worker: &Worker, provider: &str, outcome: &str, timeout_ms: u64) {
     use sha2::{Digest, Sha256};
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 
@@ -619,9 +619,13 @@ outcome='{outcome}'
 [ "$(/bin/pwd -P)" = '{workdir}' ]
 [ "$(/bin/cat)" = '{FIXTURE_BRIEF}' ]
 printf '%s\n' '{PRIVATE_DIAGNOSTIC}' >&2
+printf '%s\n' "started" >> "$HOME/invocations"
 case "$outcome" in
     timeout) /bin/sleep 20 ;;
+    first_holds) if [ "$(/usr/bin/wc -l < "$HOME/invocations" | /usr/bin/tr -d ' ')" = 1 ]; then /bin/sleep 20; fi ;;
+    large_file) /usr/bin/head -c 131072 /dev/zero > "$HOME/large-transcript" ;;
     flood) /usr/bin/head -c 131072 /dev/zero >&2 ;;
+    flood_stdout) /usr/bin/head -c 131072 /dev/zero ;;
     malformed) printf '%s\n' 'broken fixture json'; exit 0 ;;
     inherited) /bin/sleep 20 & ;;
 esac
@@ -642,10 +646,9 @@ fi
 artifact="$9"
 shift 9
 [ "$*" = '--model gpt-6.1-sol -c model_reasoning_effort="medium" -' ]
+printf '%s\n' '{"type":"thread.started","thread_id":"fixture-thread"}' '{"type":"turn.started"}'
 if [ "$outcome" = unknown ]; then
     printf '%s\n' '{"type":"runtime.observed","model":"fixture-unknown","cli_version":"fixture-1.0"}'
-else
-    printf '%s\n' '{"type":"runtime.observed","model":"gpt-6.2-sol","effort":"high","cli_version":"fixture-1.0"}'
 fi
 case "$outcome" in
     missing) ;;
@@ -686,8 +689,8 @@ fn gapplan_09_int_claude_and_codex_collect_observed_identity_and_safe_references
     use sha2::{Digest, Sha256};
 
     for (provider, requested, observed, result, account) in [
-        ("claude", "claude-opus-5", "claude-sonnet-5", "Claude fixture result", "fixture-claude-account"),
-        ("codex", "gpt-6.1-sol", "gpt-6.2-sol", "Codex fixture result\n", "fixture-shared-account"),
+        ("claude", "claude-opus-5", Some("claude-sonnet-5"), "Claude fixture result", "fixture-claude-account"),
+        ("codex", "gpt-6.1-sol", None, "Codex fixture result\n", "fixture-shared-account"),
     ] {
         let scratch = tempfile::tempdir().unwrap();
         let journal_dir = scratch.path().join("journal");
@@ -734,12 +737,12 @@ fn gapplan_09_int_claude_and_codex_collect_observed_identity_and_safe_references
         assert_eq!(runtime["provider"], provider);
         assert_eq!(runtime["account_ref"], account);
         assert_eq!(runtime["requested_model"], requested);
-        assert_eq!(runtime["observed_model"], observed);
-        assert_eq!(runtime["observed_family"], provider);
+        assert_eq!(runtime["observed_model"].as_str(), observed);
+        assert_eq!(runtime["observed_family"].as_str(), observed.map(|_| provider));
         assert_eq!(runtime["requested_effort"], "medium");
-        assert_eq!(runtime["observed_effort"], "high");
-        assert_eq!(runtime["cli_version"], "fixture-1.0");
-        assert_eq!(runtime["review_eligible"], true);
+        assert_eq!(runtime["observed_effort"].as_str(), observed.map(|_| "high"));
+        assert_eq!(runtime["cli_version"].as_str(), observed.map(|_| "fixture-1.0"));
+        assert_eq!(runtime["review_eligible"], observed.is_some());
         assert_eq!(runtime["verdict"], "succeeded");
         assert_eq!(runtime["result_digest"], collect["result_digest"]);
         let private = durable_receipt(&worker);
@@ -853,7 +856,7 @@ fn gapplan_09_int_unknown_model_has_a_result_but_cannot_supply_review_evidence()
     fake_profile(&worker, "codex", "unknown", 5000);
     response(worker.run("start", &provider_request(&worker, "codex")));
     let settled = worker.state("exited");
-    assert_eq!(settled["runtime"]["observed_model"], "fixture-unknown");
+    assert!(settled["runtime"]["observed_model"].is_null());
     assert!(settled["runtime"]["observed_family"].is_null());
     assert_eq!(settled["runtime"]["review_eligible"], false);
     assert_eq!(settled["runtime"]["verdict"], "succeeded", "{settled}");
@@ -954,4 +957,53 @@ fn gapplan_09_int_running_stop_ends_when_policy_contention_outlasts_the_lease() 
     assert_eq!(stopped["reason"], "policy_busy");
     assert_eq!(stopped["exit_signal"], libc::SIGKILL);
     assert!(!live(&child));
+}
+
+
+#[test]
+fn gapplan_10_int_capture_limits_leave_provider_files_writable() {
+    for outcome in ["large_file", "flood_stdout"] {
+        let scratch = tempfile::tempdir().unwrap();
+        let worker = Worker::new(scratch.path(), "bounded-streams", 1);
+        fake_profile(&worker, "codex", outcome, 5000);
+        response(worker.run("start", &provider_request(&worker, "codex")));
+        let settled = worker.state("exited");
+        if outcome == "large_file" {
+            assert_eq!(settled["runtime"]["verdict"], "succeeded", "{settled}");
+            assert_eq!(fs::metadata(worker.root.join("fixture-runtimes/local/home/large-transcript")).unwrap().len(), 131_072);
+        } else {
+            assert_eq!(settled["reason"], "malformed_runtime_output");
+            assert!(settled["result_ref"].is_null());
+        }
+    }
+}
+
+#[test]
+fn gapplan_10_int_abandoned_pinned_supervisor_without_child_releases_its_expired_slot() {
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "abandoned-before-pin", 1);
+    let hold = worker.pause("before-child-registration");
+    let mut start = worker.send_with_launch_pipe("success");
+    assert!(start.wait().unwrap().success());
+    let child = worker.checkpoint("before-child-registration");
+    let (supervisor, recorded_child, _) = identities(&worker.db());
+    assert!(recorded_child.is_none());
+    assert_eq!(unsafe { libc::kill(supervisor["pid"].as_i64().unwrap() as i32, libc::SIGKILL) }, 0);
+    until(|| (!live(&child)).then_some(()));
+    fs::remove_file(hold).unwrap();
+    worker.db().execute("UPDATE leases SET expires_ms=heartbeat_ms", []).unwrap();
+
+    let mut next = worker.input(Some("success"));
+    next["attempt"]["job_id"] = "after-abandoned-pin".into();
+    let reply = response(worker.run("start", &next));
+    assert!(matches!(reply["status"].as_str(), Some("dispatching" | "running" | "exited")), "{reply}");
+    let mut query = next;
+    query.as_object_mut().unwrap().remove("manifest");
+    query.as_object_mut().unwrap().remove("fixture");
+    until(|| {
+        let view = response(worker.run("status", &query));
+        (view["status"] == "exited").then_some(())
+    });
+    // The legacy protocol keeps the lost observation visible.
+    assert_eq!(worker.call("status", None)["status"], "unknown");
 }

@@ -93,7 +93,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     note.push_str(&format!(
         "- When you tell the person you will do or report something later, record it: {cmd} promise add --by 30m \"WHAT\"; then `{cmd} promise done ID`."
     ));
-    note.push_str(&format!("\n- Recover completions with `{cmd} bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `{cmd} bot completion ack JOB:ATTEMPT` and reuse its next-step key."));
+    note.push_str(&format!("\n- Queue fixture jobs from JSON with `{cmd} bot job submit KEY -`. See `bot job --help` for status, cancellation and results.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Run `bot completion ack JOB:ATTEMPT` and reuse its next-step key."));
     note.push_str(&format!("\n- File a pinned park with `{cmd} bot park file ID -`."));
     if bot.main && bot.takes_initiative {
         note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Tell the person briefly and offer what you could do; do not act on a note without their yes.");
@@ -324,6 +324,7 @@ mod tests {
             "swarmhub-herdr bot handoff NAME",
             "swarmhub-herdr checkin in 30m",
             "swarmhub-herdr promise add --by 30m",
+            "swarmhub-herdr bot job submit KEY -",
         ] {
             assert!(note.contains(said), "{said}");
         }
@@ -332,7 +333,7 @@ mod tests {
             "a bot is not told to write to itself"
         );
         assert!(!note.contains("You are the main bot"));
-        assert!(note.len() < 2_200, "{} bytes", note.len());
+        assert!(note.len() < 2_300, "{} bytes", note.len());
         assert!(crate::core::validate_task(&note).is_ok());
         let main = standing(&all[0], &all, "swarmhub-herdr");
         assert!(main.contains("You are the main bot") && main.contains("do not act on a note"));

@@ -174,6 +174,36 @@ fn granted(db: &Connection, key: &str) -> rusqlite::Result<Vec<Project>> {
     .collect()
 }
 
+pub(crate) fn can_use(db: &Connection, key: &str, project: i64) -> rusqlite::Result<bool> {
+    Ok(granted(db, key)?.iter().any(|candidate| candidate.id == project))
+}
+
+pub(crate) fn fixture_placement(
+    project: &Project, policy: &crate::fleet_policy::Policy, input: &crate::jobs::Submit,
+) -> Option<crate::job_worker::bridge::Placement> {
+    let (worker, pin) = policy.workers.iter()
+        .find_map(|worker| project.worker_pin(worker).map(|pin| (worker, pin)))?;
+    let provider = input.provider;
+    if crate::machines::probe::admission::heavy_capability(worker).is_err()
+        || pin.folder != input.workdir
+        || std::path::Path::new(&pin.folder).starts_with("/dev/shm")
+        || pin.requirements.provider.is_some_and(|required| required != provider)
+        || worker.fixture_runtime_profiles.get(&provider) != Some(&input.profile)
+    {
+        return None;
+    }
+    Some(crate::job_worker::bridge::Placement {
+        host_id: worker.id.clone(),
+        fingerprint: worker.fingerprint(),
+        machine: worker.machine.clone(),
+        target: worker.fixture_worker_target.clone()?,
+        project_created_ms: pin.created_ms,
+        provider,
+        account_ref: worker.accounts.get(&provider)?.clone(),
+        profile: input.profile.clone(),
+    })
+}
+
 fn is_helper(db: &Connection, key: &str) -> rusqlite::Result<bool> {
     db.query_row(
         "SELECT EXISTS(SELECT 1 FROM helpers h JOIN journal j ON j.id=h.launch WHERE j.launch_key=?1)",
@@ -782,6 +812,22 @@ pub(crate) async fn answer(
     answer_whole(w, core_id, key, ask).await.map(fitted)
 }
 
+async fn ordinary_project_account(w: &Workspace, machine: &str) -> Result<(), String> {
+    let target = w.core.machines().await.map_err(|failure| explain(failure, machine))?
+        .into_iter().find(|item| item.name.eq_ignore_ascii_case(machine))
+        .ok_or("The project's Core machine is unavailable.")?.target;
+    let authority = w.fleet_policy.as_ref().ok().and_then(Option::as_ref)
+        .ok_or("The worker account separation could not be verified.")?;
+    let protected = authority.with_worker_policy(|_, _, policy, _| {
+        policy.workers.iter().any(|worker| worker.fixture_worker_target.as_deref()
+            .is_some_and(|worker| worker.eq_ignore_ascii_case(&target)))
+    }).map_err(|_| "The worker account separation could not be verified.")?;
+    if protected {
+        return Err("This Core machine uses a protected worker account.".into());
+    }
+    Ok(())
+}
+
 async fn answer_whole(
     w: &Workspace,
     core_id: Result<String, String>,
@@ -819,6 +865,16 @@ async fn answer_whole(
                 }
             })
     };
+    if w.worker_core.is_some() {
+        let project = match &ask {
+            Ask::List => None,
+            Ask::Run { project, .. } | Ask::Read { project, .. } | Ask::Write { project, .. }
+            | Ask::Edit { project, .. } => Some(find(project)?),
+        };
+        if let Some(project) = project {
+            ordinary_project_account(w, &project.machine).await?;
+        }
+    }
     match ask {
         Ask::List => {
             let states = if projects.is_empty() {
