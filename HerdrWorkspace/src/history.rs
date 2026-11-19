@@ -201,6 +201,20 @@ impl State {
     }
 }
 
+/// Called at bridge startup after acquiring workspace.lock. Preserve the claimed
+/// attempt and any partial evidence for reconciliation, without touching the effect.
+fn recover_interrupted_parks(db: &Connection) -> Result<(), rusqlite::Error> {
+    let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
+    tx.execute(
+        "INSERT INTO park_decisions(park_id,action,actor,source,basis,at_ms)
+         SELECT id,'hold','workspace','backstop','reconciliation: executor interrupted at startup',?1
+         FROM parks WHERE state='executing'",
+        [now()],
+    )?;
+    tx.execute("UPDATE parks SET state='reconciliation' WHERE state='executing'", [])?;
+    tx.commit()
+}
+
 impl History {
     pub fn open() -> Result<Self, Box<dyn std::error::Error>> {
         Self::open_at(&private_directory()?)
@@ -234,6 +248,7 @@ impl History {
             );
         }
         migrate(&db)?;
+        recover_interrupted_parks(&db)?;
         db.execute(
             "UPDATE journal SET state = 'unconfirmed' WHERE state = 'pending'",
             [],
@@ -801,6 +816,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-job-delivery.sql"),
         include_str!("migrate-fleet-policy.sql"),
         include_str!("migrate-worker-hosts.sql"),
+        include_str!("migrate-job-reviews.sql"),
     ]
 }
 

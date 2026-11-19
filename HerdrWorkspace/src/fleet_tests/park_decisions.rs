@@ -32,7 +32,7 @@ impl Harness {
         let (_, judge) = registered_launch(&history, JARVIS, "Jarvis");
         let mut w = workspace(root.path(), history);
         w.fleet_policy = Ok(Some(signing.authority.clone()));
-        w.parks = parks::Service::fixture(&git.directory, git.manifest.clone());
+        w.parks = parks::Service::fixture_with_prevalidated_review(&git.directory, git.manifest.clone());
         Self { root, w, signing, git, owner, judge }
     }
 
@@ -461,17 +461,20 @@ fn gapplan_06_int_startup_quarantines_unfinished_park_attempts() {
     ).unwrap();
     tx.commit().unwrap();
     drop(db);
+    assert!(crate::History::open_at(&temp.path().join("journal")).is_err());
     drop(history);
     let history = reopen_journal(&temp.path().join("journal"));
     let db = history.db().unwrap();
-    parks::recover_interrupted(&db).unwrap();
     assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Reconciliation));
     let saved: (String, Option<String>) = db.query_row(
         "SELECT attempt,observed_before FROM park_executions WHERE park_id=?1", [&park.id],
         |row| Ok((row.get(0)?, row.get(1)?)),
     ).unwrap();
     assert_eq!(saved, (attempt.into(), None));
-    parks::recover_interrupted(&db).unwrap();
+    drop(db);
+    drop(history);
+    let history = reopen_journal(&temp.path().join("journal"));
+    let db = history.db().unwrap();
     let decisions: Vec<(String, String, String)> = db.prepare(
         "SELECT action,source,basis FROM park_decisions WHERE park_id=?1",
     ).unwrap().query_map([&park.id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
@@ -479,4 +482,36 @@ fn gapplan_06_int_startup_quarantines_unfinished_park_attempts() {
     assert_eq!(decisions, vec![(
         "hold".into(), "backstop".into(), "reconciliation: executor interrupted at startup".into(),
     )]);
+}
+
+#[tokio::test]
+async fn gapplan_11_int_in_process_reconciliation_retries_without_replaying_the_effect() {
+    let h = Harness::new();
+    let reference = h.publish(vec![staging_grant(false)]);
+    let manifest = &h.git.manifest;
+    let park = h.file(manifest).await;
+    h.w.history.db().unwrap().execute_batch(
+        "CREATE TRIGGER fail_receipt BEFORE UPDATE OF receipt ON park_executions
+         BEGIN SELECT RAISE(ABORT, 'fixture receipt failure'); END;
+         CREATE TRIGGER fail_quarantine BEFORE UPDATE ON parks WHEN NEW.state='reconciliation'
+         BEGIN SELECT RAISE(ABORT, 'fixture reconciliation failure'); END;"
+    ).unwrap();
+    let signed = h.sign(&park, manifest, &reference, Purpose::Execute, "delegate-in-process-recovery");
+    assert!(bot(&h.w, &h.judge, parks::Command::Judge { park: park.clone(), signed }).await.is_err());
+    assert_eq!(h.git.head(), manifest.expected_postcondition);
+    {
+        let db = h.w.history.db().unwrap();
+        assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Executing));
+        db.execute_batch("DROP TRIGGER fail_quarantine;").unwrap();
+    }
+    h.w.parks.retry_reconciliation(&h.w.history).await;
+    h.w.parks.retry_reconciliation(&h.w.history).await;
+    let db = h.w.history.db().unwrap();
+    assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Reconciliation));
+    let (claims, holds): (i64, i64) = db.query_row(
+        "SELECT sum(action='claim'),sum(action='hold') FROM park_decisions WHERE park_id=?1",
+        [&park.id], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!((claims, holds), (1, 1));
+    assert_eq!(h.git.head(), manifest.expected_postcondition);
 }

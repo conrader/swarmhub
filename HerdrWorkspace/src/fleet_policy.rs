@@ -108,6 +108,15 @@ pub(crate) enum RuleKind {
     OwnerSignoff { signer: String, park: ParkPin },
     Exception { park: ParkPin },
     WorkerException { job_id: String },
+    ReviewException { lineage: String, permission: ReviewPermission },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ReviewPermission {
+    SameProvider,
+    ExtraRound(i64),
+    ResidualP2,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -177,6 +186,15 @@ impl Rule {
                         && self.expires_ms < i64::MAX
                         && principals::identifier(job_id)
                 }
+                RuleKind::ReviewException { lineage, permission } => {
+                    self.scope.action.as_deref() == Some(parks::STAGING_ACTION)
+                        && self.scope.project.is_some()
+                        && self.scope.owner.is_some()
+                        && self.scope.principal.is_none()
+                        && self.expires_ms < i64::MAX
+                        && principals::identifier(lineage)
+                        && !matches!(permission, ReviewPermission::ExtraRound(round) if *round <= 2)
+                }
                 RuleKind::Stop => true,
             }
     }
@@ -243,6 +261,19 @@ struct Request<'a> {
 }
 
 impl Policy {
+    pub(crate) fn review_exception(
+        &self, id: &str, lineage: &str, project: &str, owner: &str, permission: ReviewPermission, now: i64,
+    ) -> Option<&Rule> {
+        let actor = Actor::Bot { id: owner.into() };
+        self.rules.iter().find(|rule| {
+            rule.id == id && !self.revoked.contains(id)
+                && (rule.effective_ms..rule.expires_ms).contains(&now)
+                && rule.scope.matches(parks::STAGING_ACTION, project, owner, &actor)
+                && matches!(&rule.rule, RuleKind::ReviewException { lineage: bound, permission: allowed }
+                    if bound == lineage && *allowed == permission)
+        })
+    }
+
     pub(crate) fn reference(&self) -> Result<PolicyRef, Error> {
         let mut ids = BTreeSet::new();
         if self.generation <= 0
@@ -379,6 +410,7 @@ pub(crate) struct Verified {
     pub decision_ref: Option<String>,
     published_ms: i64,
     signed_policy: String,
+    pub review_policy: Policy,
 }
 
 impl Verified {
@@ -410,6 +442,13 @@ fn audit_version(
 }
 
 impl Authority {
+    pub(crate) fn with_review_policy<T>(&self, read: impl FnOnce(&Policy) -> T) -> Result<T, Error> {
+        self.with_snapshot(|snapshot| {
+            let (_, published) = snapshot.current()?;
+            Ok(read(&published.publication.policy))
+        })
+    }
+
     pub(crate) fn with_worker_policy<T>(
         &self,
         read: impl FnOnce(&str, &PolicyRef, &Policy, Option<i64>) -> T,
@@ -504,6 +543,7 @@ impl Authority {
                 decision_ref: rule.map(|rule| rule.decision_ref.clone()),
                 published_ms: published.published_ms,
                 signed_policy: serde_json::to_string(&published.publication).map_err(|_| Error::Invalid)?,
+                review_policy: published.publication.policy,
             };
             Ok(use_decision(db, verified))
         })

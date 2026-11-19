@@ -150,7 +150,7 @@ fn gapplan_06_int_v56_fresh_upgrade_and_reopen_preserve_v55_rows() {
     let temp = tempfile::tempdir().unwrap();
     let fresh = reopen_journal(&temp.path().join("fresh"));
     let before = |db: &rusqlite::Connection| {
-        assert_eq!(schema(db), 56);
+        assert_eq!(schema(db), crate::history::migrations().len());
         for table in ["worker_hosts", "worker_probes"] {
             let count: i64 = db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0)).unwrap();
             assert_eq!(count, 0);

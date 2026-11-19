@@ -1,6 +1,6 @@
 //! Coordinator journal and owner commands for managed jobs.
 mod managed;
-pub(crate) use managed::{Command, Submit, answer, configured_core, start_serving};
+pub(crate) use managed::{Command, Submit, answer, configured_core, current_owner, queue_review_fix, start_serving, wake};
 #[cfg(test)]
 pub(crate) use managed::poll;
 use crate::job_worker::bridge::Placement;
@@ -102,6 +102,16 @@ fn submit_with_placement(
     db: &mut Connection, owner_bot_id: &str, key: &str, job: &Submission,
     placement: Option<&Placement>,
 ) -> Result<Job, Error> {
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let job = queue(&tx, owner_bot_id, key, job, placement)?;
+    tx.commit()?;
+    Ok(job)
+}
+
+fn queue(
+    tx: &rusqlite::Transaction<'_>, owner_bot_id: &str, key: &str, job: &Submission,
+    placement: Option<&Placement>,
+) -> Result<Job, Error> {
     if job.project <= 0
         || !bounded(&job.brief, BRIEF_MAX)
         || job.brief.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
@@ -113,7 +123,6 @@ fn submit_with_placement(
     }
 
     let digest = submission_digest(job, placement.map(|placement| placement.profile.as_str()))?;
-    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let prior = tx
         .query_row(
             "SELECT id,payload_digest FROM jobs WHERE owner_bot_id=?1 AND submit_key=?2",
@@ -130,10 +139,9 @@ fn submit_with_placement(
         if prior.payload_digest != digest {
             return Err(Error::Conflict);
         }
-        tx.commit()?;
         return Ok(prior);
     }
-    let owner = bots::one(&tx, owner_bot_id)?.ok_or(Error::UnknownOwner)?;
+    let owner = bots::one(tx, owner_bot_id)?.ok_or(Error::UnknownOwner)?;
     let mut runtime = serde_json::to_value(&job.runtime).map_err(|_| Error::InvalidInput)?;
     if let Some(placement) = placement {
         runtime["placement"] = serde_json::to_value(placement).map_err(|_| Error::InvalidInput)?;
@@ -154,7 +162,6 @@ fn submit_with_placement(
          VALUES (?1,1,'queued',?2)",
         params![id, runtime],
     )?;
-    tx.commit()?;
     Ok(Job {
         id,
         payload_digest: digest,
@@ -432,7 +439,7 @@ pub(crate) fn status(db: &Connection, id: &str) -> rusqlite::Result<Option<JobSt
     read_status(db, id, None)
 }
 
-fn read_status(db: &Connection, id: &str, attempt: Option<i64>) -> rusqlite::Result<Option<JobStatus>> {
+pub(crate) fn read_status(db: &Connection, id: &str, attempt: Option<i64>) -> rusqlite::Result<Option<JobStatus>> {
     db.query_row(
         "SELECT j.id,j.owner_bot_id,j.project,a.attempt,a.status,a.exit_reason,a.requested_runtime,
                 a.observed_runtime,a.observed_cli_version,c.created_ms,c.owner_bot_id AS event_owner,

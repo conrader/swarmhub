@@ -423,6 +423,15 @@ impl Core {
         self.rpc("machine.exec", params, seconds + 20, true).await
     }
 
+    /// The fixture Core accepts encoded stdin as data on its private socket.
+    pub(crate) async fn run_fixture_worker(
+        &self, on: &str, argv: &[String], input: &[u8], seconds: u64,
+    ) -> Result<Ran, Failure> {
+        self.rpc("fixture.machine.exec_stdin", json!({
+            "on": on, "cwd": "/", "argv": argv, "stdin": STANDARD.encode(input), "timeout": seconds,
+        }), seconds + 20, true).await
+    }
+
     pub(crate) async fn read_on(
         &self,
         on: &str,

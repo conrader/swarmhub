@@ -294,6 +294,26 @@ impl Store {
         Ok(Some(token))
     }
 
+    pub(super) fn fence_missing(&mut self, attempt: &Attempt, pin: &str, cancel: bool) -> Result<()> {
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM attempts WHERE job_id=?1 AND attempt=?2
+                 UNION ALL SELECT 1 FROM attempt_admission WHERE job_id=?1 AND attempt=?2)",
+            params![attempt.job_id, attempt.number], |row| row.get(0),
+        )?;
+        if !exists {
+            let token = insert_attempt(&tx, attempt, pin, Fixture::Success, &ProcessIdentity::current()?)?;
+            let mut receipt = Receipt::without_child(cancel);
+            receipt.runtime_failure = Some(if cancel { "missing_attempt_cancelled" } else { "start_lost" }.into());
+            tx.execute(
+                "UPDATE attempts SET status=?2,cancel_requested=?3,receipt=?4 WHERE start_token=?1",
+                params![token, if cancel { "cancelled" } else { "interrupted" }, cancel, serde_json::to_string(&receipt)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub(super) fn observe(&mut self, attempt: &Attempt, cancel: bool, collect: bool) -> Result<View> {
         Ok(self.observe_bound(attempt, cancel, collect, None, None)?.expect("unbound view"))
     }

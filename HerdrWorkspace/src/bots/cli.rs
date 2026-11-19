@@ -16,6 +16,8 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
   swarmhub-herdr bot accept ID                take over the work of a hand-off
   swarmhub-herdr bot decline ID REASON        refuse an ask or a hand-off
   swarmhub-herdr bot job submit KEY -         queue a managed fixture job from JSON on stdin
+  swarmhub-herdr bot job review -             record evidence or reserve a fix from JSON on stdin
+  swarmhub-herdr bot job review status ID     inspect a review lineage
   swarmhub-herdr bot job list                 list your recent jobs
   swarmhub-herdr bot job status ID            show status and available result references
   swarmhub-herdr bot job cancel ID            record a cancellation request
@@ -55,6 +57,7 @@ pub(crate) enum Ask {
     CompletionAck { id: String },
     Park { command: Box<crate::parks::Command> },
     Job { command: Box<crate::jobs::Command> },
+    JobReview { command: Box<crate::job_reviews::Command> },
     /// `kind` is `ask`, `tell` or `handoff`.
     Send {
         kind: String,
@@ -231,11 +234,17 @@ fn parse(
             let command = match rest {
                 ["submit", key, "-"] => return Ok(self::Command::Ask(job_submit(key, &text(&["-"], "")?)?)),
                 ["--help" | "-h" | "help"] => return Ok(self::Command::Help),
+                ["review", "-"] => return Ok(self::Command::Ask(Ask::JobReview {
+                    command: serde_json::from_str(&text(&["-"], "")?).map_err(|_| "Use a review command JSON document.")?,
+                })),
+                ["review", "status", lineage] => return Ok(self::Command::Ask(Ask::JobReview {
+                    command: Box::new(crate::job_reviews::Command::Status { lineage: (*lineage).into() }),
+                })),
                 ["list"] => Command::List,
                 ["status", id] => Command::Status { id: (*id).into() },
                 ["cancel", id] => Command::Cancel { id: (*id).into() },
                 ["result", id, reference] => Command::Result { id: (*id).into(), reference: (*reference).into() },
-                _ => return Err("Use bot job submit KEY -, list, status ID, cancel ID or result ID REF.".into()),
+                _ => return Err("Use bot job submit KEY -, list, status ID, cancel ID, result ID REF, review -, or review status ID.".into()),
             };
             Ask::Job { command: Box::new(command) }
         }

@@ -93,8 +93,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     note.push_str(&format!(
         "- When you tell the person you will do or report something later, record it: {cmd} promise add --by 30m \"WHAT\"; then `{cmd} promise done ID`."
     ));
-    note.push_str(&format!("\n- Queue fixture jobs from JSON with `{cmd} bot job submit KEY -`. See `bot job --help` for status, cancellation and results.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Run `bot completion ack JOB:ATTEMPT` and reuse its next-step key."));
-    note.push_str(&format!("\n- File a pinned park with `{cmd} bot park file ID -`."));
+    note.push_str(&format!("\n- Queue fixture jobs with `{cmd} bot job submit KEY -`. Record reviews and reserve fixes with `bot job review -`. Escalate at the limit.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `bot completion ack JOB:ATTEMPT` and reuse its key.\n- File a park with `{cmd} bot park file ID -`."));
     if bot.main && bot.takes_initiative {
         note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Tell the person briefly and offer what you could do; do not act on a note without their yes.");
     }

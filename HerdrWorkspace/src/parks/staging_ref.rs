@@ -44,17 +44,27 @@ impl Project {
         Self { git_dir: git_dir.canonicalize().unwrap(), reviewed }
     }
 
+    pub(super) fn enrolled(&self, manifest: &Manifest) -> bool {
+        let original = &self.reviewed;
+        manifest.owner == original.owner && manifest.project == original.project
+            && manifest.host == original.host && manifest.operation == original.operation
+            && manifest.precondition == original.precondition
+            && manifest.rollback_plan == original.rollback_plan
+    }
+
+    #[cfg(test)]
     pub(super) fn reviewed(&self, manifest: &Manifest) -> bool {
         manifest == &self.reviewed
     }
 
     /// Revalidate that the configured ref is direct and both pins name real commits.
-    pub(super) fn check(&self) -> io::Result<()> {
-        let old = &self.reviewed.precondition;
-        let new = &self.reviewed.expected_postcondition;
-        if &self.reviewed.artifact_pin != new
-            || self.reviewed.apply_pin != APPLY_PIN
-            || self.reviewed.reverse_pin != REVERSE_PIN
+    pub(super) fn check(&self, manifest: &Manifest) -> io::Result<()> {
+        let old = &manifest.precondition;
+        let new = &manifest.expected_postcondition;
+        if !self.enrolled(manifest)
+            || &manifest.artifact_pin != new
+            || manifest.apply_pin != APPLY_PIN
+            || manifest.reverse_pin != REVERSE_PIN
         {
             return Err(io::Error::other("staging adapter or artifact pin does not match"));
         }

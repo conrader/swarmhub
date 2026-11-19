@@ -81,7 +81,7 @@ fn gapplan_05_unit_staging_git_cas_and_independent_readback() {
     let old = tests::marker(&git.manifest.precondition);
     let new = tests::marker(&git.manifest.expected_postcondition);
     let other = tests::marker(&git.other);
-    assert!(adapter.check().is_ok());
+    assert!(adapter.check(&git.manifest).is_ok());
     assert_ne!(adapter.apply(&other, &new), Step::Exit(0));
     assert_eq!(git.head(), old.revision);
     assert_eq!(adapter.apply(&old, &new), Step::Exit(0));

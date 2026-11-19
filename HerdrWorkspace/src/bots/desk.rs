@@ -63,6 +63,7 @@ pub(crate) async fn answer(
         Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } =>
             completion_command(w, &core_id, key, ask).await,
         Ask::Job { command } => crate::jobs::answer(w, &core_id, key, *command).await,
+        Ask::JobReview { command } => crate::job_reviews::answer(w, &core_id, key, *command).await,
         Ask::Park { command } => {
             let w = w.clone();
             let key = key.to_owned();
@@ -89,7 +90,7 @@ fn perform(ctx: &super::Ctx<'_>, key: &str, ask: Ask) -> rusqlite::Result<Result
     let cmd = ctx.cmd;
     Ok(match ask {
         Ask::List => Ok(rules::list_text(ctx, &bot)?),
-        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } | Ask::Park { .. } | Ask::Job { .. } => Err(UNKNOWN_BOT.into()),
+        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } | Ask::Park { .. } | Ask::Job { .. } | Ask::JobReview { .. } => Err(UNKNOWN_BOT.into()),
         Ask::Send { kind, to, text } => match rules::Kind::parse(&kind) {
             Some(kind) => {
                 let task = rules::newest_task(ctx.db, key, None)?;
@@ -208,6 +209,7 @@ pub(crate) fn recover_outbox(history: &crate::History) {
 
 /// One look: replies, clocks, then the outbox.
 async fn tick(w: &Workspace) {
+    w.parks.retry_reconciliation(&w.history).await;
     if super::any(&w.history) {
         let _ = read_replies(w);
         let _ = super::write(&w.history, |ctx| {

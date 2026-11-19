@@ -38,7 +38,7 @@ impl Inputs {
         let worker = Worker { id: enrollment.id.clone(), host_fingerprint: enrollment.fingerprint() };
         let identity = serde_json::to_value(worker).unwrap();
         let policy_root = root.join(WORKSPACE);
-        let fixture = Fixture::new(root, WORKSPACE, false);
+        let fixture = Fixture::new(root, WORKSPACE, true);
         let mut policy = policy(1, rules);
         policy.workers.push(enrollment.clone());
         let reference = fixture.publish(fixture.publication(policy, WORKSPACE)).unwrap();
@@ -54,9 +54,18 @@ impl Inputs {
         inputs
     }
 
+    pub(crate) fn signing(&self) -> &Fixture {
+        &self.authority
+    }
+
     pub(crate) fn republish(&mut self, rules: Vec<Rule>) {
+        self.publish_revocations(rules, Default::default());
+    }
+
+    pub(crate) fn publish_revocations(&mut self, rules: Vec<Rule>, revoked: std::collections::BTreeSet<String>) {
         let mut policy = policy(self.reference.generation + 1, rules);
         policy.workers.push(self.enrollment.clone());
+        policy.revoked = revoked;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         self.reference = loop {
             match self.authority.publish(self.authority.publication(policy.clone(), WORKSPACE)) {
@@ -130,10 +139,10 @@ pub(crate) fn command(root: &Path, verb: &str) -> Command {
     subprocess([std::ffi::OsStr::new(verb), root.as_os_str()]).unwrap()
 }
 
-pub(crate) fn rpc_command(root: &Path, verb: &str, payload: &str) -> Command {
+pub(crate) fn rpc_command(root: &Path, verb: &str) -> Command {
     subprocess([
         std::ffi::OsStr::new("rpc"), root.as_os_str(),
-        std::ffi::OsStr::new(verb), std::ffi::OsStr::new(payload),
+        std::ffi::OsStr::new(verb),
     ]).unwrap()
 }
 

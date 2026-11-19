@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    Workspace, bots,
+    Workspace, bots, job_reviews,
     fleet_policy::{
         self, Authority, Evidence, Verified,
         principals::{Actor, Purpose, Signed},
@@ -16,10 +16,14 @@ use axum::{
     routing::{get, post},
 };
 use serde_json::json;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default)]
 pub(crate) struct Service {
     project: Option<staging_ref::Project>,
+    unsettled: Arc<Mutex<Vec<Unsettled>>>,
+    #[cfg(test)]
+    legacy_fixture_review: bool,
     #[cfg(test)]
     pub(crate) after_claim: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
@@ -138,6 +142,8 @@ struct Basis<'a> {
     rule: Option<&'a str>,
     decision_ref: Option<&'a str>,
     blocker: Option<Blocker>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review: Option<&'a job_reviews::Accepted>,
 }
 
 #[derive(Serialize)]
@@ -167,6 +173,7 @@ impl Recorded {
         verified: &Verified,
         purpose: Purpose,
         classification: &Classification<'_>,
+        review: Option<&job_reviews::Accepted>,
     ) -> Result<Self, Error> {
         let (actor, source) = match &verified.actor {
             Actor::Operator => ("operator".to_owned(), Source::Human),
@@ -198,6 +205,7 @@ impl Recorded {
             rule: verified.rule_id.as_deref(),
             decision_ref: verified.decision_ref.as_deref(),
             blocker: None,
+            review,
         })?;
         Ok(Self {
             actor,
@@ -225,19 +233,34 @@ impl Recorded {
     }
 }
 
+struct Unsettled {
+    park: ParkRef,
+    attempt: String,
+    basis: &'static str,
+}
+
 enum Reservation {
     Finished(DecisionResult),
-    Claimed { attempt: String, recorded: Recorded },
+    Claimed { attempt: String, recorded: Recorded, review: Option<job_reviews::Accepted> },
 }
 
 impl Service {
     #[cfg(test)]
     pub(crate) fn fixture(git_dir: &std::path::Path, reviewed: Manifest) -> Self {
-        Self { project: Some(staging_ref::Project::fixture(git_dir, reviewed)), after_claim: None }
+        Self { project: Some(staging_ref::Project::fixture(git_dir, reviewed)), ..Self::default() }
     }
 
-    fn reviewed(&self, manifest: &Manifest) -> bool {
-        self.project.as_ref().is_some_and(|project| project.reviewed(manifest))
+    #[cfg(test)]
+    pub(crate) fn fixture_with_prevalidated_review(git_dir: &std::path::Path, reviewed: Manifest) -> Self {
+        Self { legacy_fixture_review: true, ..Self::fixture(git_dir, reviewed) }
+    }
+
+    fn reviewed(&self, _manifest: &Manifest, review: Option<&job_reviews::Accepted>) -> bool {
+        #[cfg(test)]
+        if self.legacy_fixture_review {
+            return self.project.as_ref().is_some_and(|project| project.reviewed(_manifest));
+        }
+        review.is_some()
     }
 
     fn file(
@@ -291,7 +314,6 @@ impl Service {
             return Ok(View::Busy.into());
         };
         let manifest = manifest_for(&tx, park)?;
-        let classification = classify(&manifest, self.reviewed(&manifest));
         let reserved = authority.with_park_decision(&*tx, park, purpose, evidence,
             replacement_pin.as_ref(), |_, verified| {
                 let tx = &tx;
@@ -299,7 +321,10 @@ impl Service {
                 if execute && view != View::Status(State::Pending) {
                     return Ok(Reservation::Finished(view.into()));
                 }
-                let mut recorded = Recorded::new(tx, &verified, purpose, &classification)?;
+                let review = job_reviews::accepted(tx, &manifest, &verified.review_policy, history::now())?;
+                let reviewed = self.reviewed(&manifest, review.as_ref());
+                let classification = classify(&manifest, reviewed);
+                let mut recorded = Recorded::new(tx, &verified, purpose, &classification, review.as_ref())?;
                 if !execute {
                     let change = match (purpose, replacement) {
                         (Purpose::Hold, _) => Change::Hold,
@@ -316,20 +341,22 @@ impl Service {
                     };
                     return Ok(Reservation::Finished(result));
                 }
-                if matches!(verified.actor, Actor::Bot { .. }) && classification.class != Class::ReviewedReversible {
+                if matches!(verified.actor, Actor::Bot { .. })
+                    && !matches!(classification.class, Class::ReviewedReversible | Class::StagingNeedsReview)
+                {
                     return Err(fleet_policy::Error::HumanScope.into());
                 }
-                if let Err(reason) = self.check(&manifest) {
+                if let Err(reason) = self.check(&manifest, reviewed) {
                     recorded.blocked(reason)?;
                     transition(tx, park, recorded.decision(), Change::Hold, Some(&recorded.audit))?;
                     return Ok(Reservation::Finished(DecisionResult::Held { reason }));
                 }
                 let attempt = claim(tx, park, recorded.decision(), Some(&recorded.audit))?;
-                Ok(Reservation::Claimed { attempt, recorded })
+                Ok(Reservation::Claimed { attempt, recorded, review })
             })??;
         tx.commit()?;
-        let (attempt, mut recorded) = match reserved {
-            Reservation::Claimed { attempt, recorded } => (attempt, recorded),
+        let (attempt, mut recorded, review) = match reserved {
+            Reservation::Claimed { attempt, recorded, review } => (attempt, recorded, review),
             Reservation::Finished(result) => return Ok(result),
         };
 
@@ -337,8 +364,12 @@ impl Service {
         if let Some(after_claim) = &self.after_claim {
             after_claim();
         }
-        let effect = authority.with_park_decision(&mut *db, park, purpose, evidence, None, |db, _| {
-            let adapter = self.check(&manifest).map_err(Error::Blocked)?;
+        let effect = authority.with_park_decision(&mut *db, park, purpose, evidence, None, |db, verified| {
+            let current = job_reviews::accepted(db, &manifest, &verified.review_policy, history::now())?;
+            if current != review {
+                return Err(Error::Blocked(Blocker::ReviewEvidence));
+            }
+            let adapter = self.check(&manifest, self.reviewed(&manifest, current.as_ref())).map_err(Error::Blocked)?;
             let reserved: bool = db.query_row(
                 "SELECT EXISTS(SELECT 1 FROM parks p JOIN park_executions e ON e.park_id=p.id
                  WHERE p.id=?1 AND p.manifest_digest=?2 AND p.state='executing' AND e.attempt=?3
@@ -364,7 +395,7 @@ impl Service {
             Ok(Ok(view)) => return Ok(view.into()),
             Ok(Err(error)) => {
                 eprintln!("SwarmHub park execution needs reconciliation: {error:?}");
-                return reconcile_claim(db, park, &attempt, "reconciliation: execution evidence could not be settled").map(Into::into);
+                return self.quarantine(db, park, &attempt, "reconciliation: execution evidence could not be settled");
             }
         };
         let held = (|| {
@@ -390,29 +421,65 @@ impl Service {
             Ok(result) => Ok(result),
             Err(error) => {
                 eprintln!("SwarmHub park hold needs reconciliation: {error:?}");
-                reconcile_claim(db, park, &attempt, "reconciliation: pre-effect hold could not be recorded").map(Into::into)
+                self.quarantine(db, park, &attempt, "reconciliation: pre-effect hold could not be recorded")
             }
         }
     }
 
-    fn check(&self, manifest: &Manifest) -> Result<&staging_ref::Project, Blocker> {
+    fn quarantine(
+        &self, db: &mut Connection, park: &ParkRef, attempt: &str, basis: &'static str,
+    ) -> Result<DecisionResult, Error> {
+        let result = reconcile_claim(db, park, attempt, basis);
+        if result.is_err() {
+            self.unsettled.lock().unwrap_or_else(|error| error.into_inner()).push(Unsettled {
+                park: park.clone(), attempt: attempt.into(), basis,
+            });
+        }
+        result.map(Into::into)
+    }
+
+    pub(crate) async fn retry_reconciliation(&self, history: &crate::History) {
+        if self.unsettled.lock().unwrap_or_else(|error| error.into_inner()).is_empty() {
+            return;
+        }
+        let service = self.clone();
+        let history = history.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let Ok(db) = history::connection(history.file()) else { return };
+            let mut pending = {
+                let mut queue = service.unsettled.lock().unwrap_or_else(|error| error.into_inner());
+                std::mem::take(&mut *queue)
+            };
+            pending.retain(|item| reconcile_claim(&db, &item.park, &item.attempt, item.basis).is_err());
+            service.unsettled.lock().unwrap_or_else(|error| error.into_inner()).extend(pending);
+        }).await;
+    }
+
+    fn check(&self, manifest: &Manifest, reviewed: bool) -> Result<&staging_ref::Project, Blocker> {
         if !matches!(manifest.operation, Operation::AdvanceStagingRef { .. }) {
             return Err(Blocker::HumanReview);
         }
         let project = self.project.as_ref().ok_or(Blocker::FixtureOnly)?;
-        if !project.reviewed(manifest)
-            || project.check().is_err()
+        if project.check(manifest).is_err()
             || !project.observe().is_ok_and(|marker| marker.revision == manifest.precondition)
         {
             return Err(Blocker::Pins);
         }
+        if !reviewed {
+            return Err(Blocker::ReviewEvidence);
+        }
         Ok(project)
     }
 
-    fn describe(&self, detail: Detail) -> serde_json::Value {
-        let classification = classify(&detail.manifest, self.reviewed(&detail.manifest));
+    fn describe(
+        &self, db: &Connection, authority: &Result<Option<Authority>, fleet_policy::Error>, detail: Detail,
+    ) -> Result<serde_json::Value, Error> {
+        let review = configured(authority).ok()
+            .and_then(|store| store.with_review_policy(|policy| job_reviews::accepted(db, &detail.manifest, policy, history::now())).ok())
+            .transpose()?.flatten();
+        let classification = classify(&detail.manifest, self.reviewed(&detail.manifest, review.as_ref()));
         let pin = detail.park.pin(&detail.manifest);
-        json!({ "detail": detail, "pin": pin, "classification": classification })
+        Ok(json!({ "detail": detail, "pin": pin, "classification": classification, "review": review }))
     }
 
     pub(crate) fn command(
@@ -433,7 +500,7 @@ impl Service {
                 if detail.manifest.owner != who {
                     return Err(fleet_policy::Error::Principal.into());
                 }
-                encode(&self.describe(detail))
+                encode(&self.describe(db, authority, detail)?)
             }
             Command::Judge { park, signed } => encode(&self.decide(
                 db, configured(authority)?, &park, Purpose::Execute,
@@ -540,7 +607,7 @@ async fn get_park(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, Error> {
     let db = w.history.db()?;
-    Ok(Json(w.parks.describe(detail(&db, &id)?)))
+    Ok(Json(w.parks.describe(&db, &w.fleet_policy, detail(&db, &id)?)?))
 }
 
 async fn decide(

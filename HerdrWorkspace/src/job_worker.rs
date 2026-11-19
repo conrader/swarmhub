@@ -120,8 +120,8 @@ impl Request {
 
 pub(crate) fn cli(args: &[OsString]) -> Result<()> {
     match args.first().and_then(|arg| arg.to_str()) {
-        Some("rpc") if let [_, root, verb, payload] = args => {
-            bridge::run(Path::new(root), verb.to_str().ok_or(USAGE)?, payload.to_str().ok_or(USAGE)?)
+        Some("rpc") if let [_, root, verb] = args => {
+            bridge::run(Path::new(root), verb.to_str().ok_or(USAGE)?)
         }
         Some("_supervise") if let [_, root, token] = args => {
             supervise(Path::new(root), token.to_str().ok_or(USAGE)?)

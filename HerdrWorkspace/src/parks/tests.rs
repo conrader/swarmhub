@@ -360,3 +360,19 @@ fn gapplan_01_unit_reservation_failure_rolls_back_claim_and_decision() {
     assert_eq!(observed.apply, Some(Step::Exit(0)));
     assert_eq!(adapter.applies.get(), 1);
 }
+
+#[test]
+fn gapplan_11_unit_failed_park_can_be_superseded_with_a_new_claim() {
+    let (_scratch, _history, mut db) = journal();
+    let original = manifest();
+    let park = file(&db, "old-park", &original).unwrap();
+    let adapter = Fixture { write: false, ..Fixture::default() };
+    assert!(matches!(execute(&mut db, &park, decision(Source::Human), &adapter).unwrap(),
+        View::Receipt(State::Failed, _)));
+    let replacement = Manifest { revision: "fixture-next".into(), ..original };
+    let next = decide(&mut db, &park, decision(Source::Human),
+        Change::Supersede { id: "next-park", manifest: &replacement }).unwrap().unwrap();
+    assert!(matches!(status(&db, &park).unwrap(), View::Receipt(State::Superseded, _)));
+    assert_eq!(status(&db, &next).unwrap(), View::Status(State::Pending));
+    assert_eq!(adapter.applies.get(), 1);
+}

@@ -38,6 +38,7 @@ pub(crate) enum Blocker {
     HumanReview,
     FixtureOnly,
     Pins,
+    ReviewEvidence,
     AuthorizationChanged,
     PolicyBusy,
     PolicyUnavailable,
@@ -357,6 +358,7 @@ fn transition(
             || manifest.owner != original.owner
             || manifest.project != original.project
             || manifest.host != original.host
+            || !crate::job_reviews::keeps_lineage(tx, &original, manifest)?
         {
             return Err(Error::InvalidManifest);
         }
@@ -547,20 +549,6 @@ fn run(
         receipt.outcome = Outcome::Reconciliation;
     }
     finish(db, park, receipt)
-}
-
-/// Called at bridge startup after acquiring workspace.lock. Preserve the claimed
-/// attempt and any partial evidence for reconciliation, without touching the effect.
-pub(crate) fn recover_interrupted(db: &Connection) -> Result<(), rusqlite::Error> {
-    let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
-    tx.execute(
-        "INSERT INTO park_decisions(park_id,action,actor,source,basis,at_ms)
-         SELECT id,'hold','workspace','backstop','reconciliation: executor interrupted at startup',?1
-         FROM parks WHERE state='executing'",
-        [history::now()],
-    )?;
-    tx.execute("UPDATE parks SET state='reconciliation' WHERE state='executing'", [])?;
-    tx.commit()
 }
 
 fn reconcile_claim(db: &Connection, park: &ParkRef, attempt: &str, basis: &str) -> Result<View, Error> {

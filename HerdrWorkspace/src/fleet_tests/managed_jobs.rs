@@ -61,7 +61,7 @@ impl WorkerCore {
                             json!({"machines":[{"name":"mini-m4","target":target,
                                 "state": if online { "connected" } else { "unreachable" }}]})
                         }
-                        "machine.exec" => {
+                        "fixture.machine.exec_stdin" => {
                             let p = &request["params"];
                             assert_eq!(p["on"], "mini-m4");
                             assert_eq!(p["cwd"], "/");
@@ -69,9 +69,9 @@ impl WorkerCore {
                             assert!(p["line"].is_null());
                             let argv = p["argv"].as_array().unwrap();
                             assert_eq!(argv[..4], [json!(PROGRAM), json!("job-worker"), json!("rpc"), json!(STATE_DIR)]);
-                            assert_eq!(argv.len(), 6);
+                            assert_eq!(argv.len(), 5);
                             let verb = argv[4].as_str().unwrap().to_owned();
-                            let payload = argv[5].as_str().unwrap().to_owned();
+                            let payload = STANDARD.decode(p["stdin"].as_str().unwrap()).unwrap();
                             let (incompatible, lose_reply, timeout, drop_start) = {
                                 let mut transport = shared.lock().unwrap();
                                 transport.calls.push(verb.clone());
@@ -115,11 +115,15 @@ impl Drop for WorkerCore {
     }
 }
 
-fn run_worker(root: &Path, verb: &str, payload: &str) -> Value {
+fn run_worker(root: &Path, verb: &str, payload: &[u8]) -> Value {
     // Regular files prevent an inherited writer from holding the test's EOF.
     let mut stdout = tempfile::tempfile().unwrap();
     let mut stderr = tempfile::tempfile().unwrap();
-    let status = rpc_command(root, verb, payload)
+    let mut stdin = tempfile::tempfile().unwrap();
+    use std::io::Write;
+    stdin.write_all(payload).unwrap();
+    stdin.rewind().unwrap();
+    let status = rpc_command(root, verb).stdin(stdin)
         .stdout(stdout.try_clone().unwrap()).stderr(stderr.try_clone().unwrap()).status().unwrap();
     use std::io::{Read, Seek};
     let mut bytes = String::new();
@@ -150,9 +154,16 @@ impl Fixture {
         let temp = tempfile::tempdir().unwrap();
         let mut worker = Worker::new(temp.path(), "placeholder", 1);
         worker.inputs.enrollment.fixture_worker_target = Some("worker@mini-m4.invalid".into());
-        worker.inputs.enrollment.fixture_runtime_profiles.insert(provider, "local".into());
+        if outcome == "review-evidence" {
+            for (provider, name) in [(Provider::Codex, "codex"), (Provider::Claude, "claude")] {
+                worker.inputs.enrollment.fixture_runtime_profiles.insert(provider, name.into());
+                fake_profile(&worker, name, outcome, 30_000);
+            }
+        } else {
+            worker.inputs.enrollment.fixture_runtime_profiles.insert(provider, "local".into());
+            fake_profile(&worker, if provider == Provider::Claude { "claude" } else { "codex" }, outcome, 30_000);
+        }
         worker.inputs.republish(vec![]);
-        fake_profile(&worker, if provider == Provider::Claude { "claude" } else { "codex" }, outcome, 30_000);
         let mut bridge = workspace(temp.path(), jobs_fixture::journal(&temp.path().join("journal")));
         let ordinary = FakeCore::start(&bridge.core.0);
         let remote = WorkerCore::spawn(temp.path(), &worker);
@@ -385,9 +396,10 @@ async fn gapplan_10_int_protocol_is_checked_and_missing_attempt_differs_from_unr
     assert_eq!(status(&f.bridge, &id).worker_reason.as_deref(), Some("host_unreachable"));
     f.remote.state.lock().unwrap().offline = false;
     jobs::poll(&f.bridge).await;
-    assert_eq!(status(&f.bridge, &id).worker_reason.as_deref(), Some("unknown_attempt"));
+    assert_eq!(status(&f.bridge, &id).status, "interrupted");
+    assert_eq!(status(&f.bridge, &id).worker_reason.as_deref(), Some("start_lost"));
     assert_eq!(f.remote.calls("start"), 1);
-    assert_eq!(event_count(&f.bridge, &id), 0);
+    assert_eq!(event_count(&f.bridge, &id), 1);
     assert_eq!(f.invocations(), 0);
 }
 
@@ -462,4 +474,262 @@ async fn gapplan_10_int_reconciles_a_lost_supervisor_that_could_never_release_it
         }
     }).await.unwrap();
     assert_eq!(f.remote.calls("start"), 1);
+}
+
+#[tokio::test]
+async fn gapplan_11_int_cancel_missing_attempt_fences_even_a_delayed_start() {
+    let f = Fixture::new(Provider::Codex, "success");
+    let id = f.submit("cancel-missing", Provider::Codex).await;
+    f.remote.state.lock().unwrap().drop_before_start = true;
+    jobs::poll(&f.bridge).await;
+    assert_eq!(status(&f.bridge, &id).status, "unknown");
+    let pending = status(&f.bridge, &id);
+    job(&f.spool, &f.owner, Command::Cancel { id: id.clone() }).await.unwrap();
+    f.remote.state.lock().unwrap().drop_before_start = false;
+    let cancelled = f.poll_until(&id, "cancelled").await;
+    assert_eq!(cancelled.worker_reason.as_deref(), Some("missing_attempt_cancelled"));
+    assert_eq!(event_count(&f.bridge, &id), 1);
+    let input = f.input(Provider::Codex);
+    let core = f.bridge.worker_core.as_ref().unwrap();
+    let ticket = {
+        let db = f.bridge.history.db().unwrap();
+        let payload: String = db.query_row("SELECT payload_digest FROM jobs WHERE id=?1", [&id], |row| row.get(0)).unwrap();
+        let policy = fleet_policy_for_fixture(&f);
+        let project = crate::projects::one(&db, input.project).unwrap().unwrap();
+        let placement = crate::projects::fixture_placement(&project, &policy, &input).unwrap();
+        crate::job_worker::bridge::Ticket::new(&placement, &id, pending.attempt, OWNER, &input.submission(), &payload).unwrap()
+    };
+    let late = ticket.request(core, "mini-m4", crate::job_worker::bridge::Verb::Start, None).await.unwrap();
+    assert_eq!(late.status, "cancelled");
+    assert_eq!(f.invocations(), 0);
+}
+
+fn fleet_policy_for_fixture(f: &Fixture) -> crate::fleet_policy::Policy {
+    authority(&f.worker.inputs).with_review_policy(Clone::clone).unwrap()
+}
+
+fn review_artifact(role: &str, manifest: &crate::parks::Manifest) -> Value {
+    json!({
+        "role": role,
+        "revisions": {"code": manifest.artifact_pin, "apply": manifest.apply_pin, "reverse": manifest.reverse_pin},
+        "tests": {"reference": "fixture-test-log", "digest": manifest.dry_run_ref, "passed": 3}
+    })
+}
+
+fn reviewer(
+    manifest: &crate::parks::Manifest, lineage: &str, round: i64, producer_digest: &str,
+    verdict: &str, severity: Option<&str>,
+) -> Value {
+    let mut artifact = review_artifact("reviewer", manifest);
+    artifact["lineage"] = json!(lineage);
+    artifact["round"] = json!(round);
+    artifact["producer_digest"] = json!(producer_digest);
+    artifact["verdict"] = json!(verdict);
+    artifact["findings"] = severity.map_or(json!([]), |severity| json!([{"severity":severity,"summary":"fixture finding"}]));
+    artifact
+}
+
+async fn review_command(f: &Fixture, command: crate::job_reviews::Command) -> Result<Value, String> {
+    let reply = helpers::fixture::ask(&f.spool, key(&f.owner), Action::Bot(Ask::JobReview { command: Box::new(command) })).await?;
+    Ok(serde_json::from_str(&reply).unwrap())
+}
+
+fn review_input(f: &Fixture, provider: Provider, artifact: Value) -> Submit {
+    let mut input = f.input(provider);
+    input.profile = match provider { Provider::Claude => "claude", Provider::Codex => "codex" }.into();
+    input.brief = artifact.to_string();
+    input
+}
+
+async fn completed_review_job(f: &Fixture, key: &str, provider: Provider, artifact: Value) -> String {
+    let job = f.submit_as(&f.owner, key, review_input(f, provider, artifact)).await.unwrap();
+    job["id"].as_str().unwrap().into()
+}
+
+async fn record_completed(f: &Fixture, id: &str) -> Result<String, String> {
+    let completed = f.poll_until(id, "exited").await;
+    assert_eq!(completed.review_eligible, Some(true));
+    let result = completed.completion.unwrap().exit.result.unwrap();
+    let artifact = job(&f.spool, &f.owner, Command::Result { id: id.into(), reference: result.reference }).await.unwrap();
+    review_command(f, crate::job_reviews::Command::Record {
+        job: id.into(), attempt: completed.attempt, artifact, same_provider_exception: None,
+    }).await?;
+    Ok(result.digest)
+}
+
+fn staging_manifest(f: &Fixture, git: &crate::parks::GitFixture) -> crate::parks::Manifest {
+    let mut manifest = git.manifest.clone();
+    manifest.owner = OWNER.into();
+    manifest.project = f.input(Provider::Codex).project.to_string();
+    manifest.dry_run_ref = "a".repeat(64);
+    manifest
+}
+
+fn review_grant(manifest: &crate::parks::Manifest) -> crate::fleet_policy::Rule {
+    let mut rule = crate::fleet_policy::tests::grant();
+    rule.scope.action = Some(crate::parks::STAGING_ACTION.into());
+    rule.scope.owner = Some(manifest.owner.clone());
+    rule.scope.project = Some(manifest.project.clone());
+    rule
+}
+
+async fn file_and_judge(f: &Fixture, manifest: &crate::parks::Manifest, name: &str) -> Value {
+    use crate::{fleet_policy::{
+        principals::{Principal, Purpose, Target},
+        tests::{JARVIS, WORKSPACE, envelope},
+    }, parks::{self, ParkRef}};
+    let (_, jarvis) = super::fleet_authority::registered_launch(&f.bridge.history, JARVIS, "Jarvis");
+    let ask = |launch, command| bots::answer(&f.bridge, Ok("core".into()), launch, Ask::Park { command: Box::new(command) });
+    let filed: Value = serde_json::from_str(&ask(key(&f.owner), parks::Command::File {
+        id: name.into(), manifest: Box::new(manifest.clone()),
+    }).await.unwrap()).unwrap();
+    let park = ParkRef { id: name.into(), manifest_digest: filed["manifest_digest"].as_str().unwrap().into() };
+    let signed = f.worker.inputs.signing().sign_decision(envelope(
+        WORKSPACE, Principal::Bot { id: JARVIS.into(), launch: jarvis.clone() }, Purpose::Execute,
+        Target::Park { park: park.pin(manifest), policy: f.worker.inputs.reference.clone() }, "fixture-delegate-review",
+    ));
+    serde_json::from_str(&ask(&jarvis, parks::Command::Judge { park, signed }).await.unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn gapplan_11_int_managed_sol_author_sonnet_review_jarvis_and_git_readback() {
+    use crate::parks::{GitFixture, Service};
+    let mut f = Fixture::new(Provider::Codex, "review-evidence");
+    let git = GitFixture::new(f.temp.path());
+    let mut manifest = staging_manifest(&f, &git);
+    f.worker.inputs.republish(vec![review_grant(&manifest)]);
+    let lineage = completed_review_job(&f, "author", Provider::Codex, review_artifact("author", &manifest)).await;
+    let producer_digest = record_completed(&f, &lineage).await.unwrap();
+    manifest.review_ref = lineage.clone();
+    f.bridge.parks = Service::fixture(&git.directory, manifest.clone());
+
+    // A same-family job and changed artifact bytes cannot establish a review.
+    let review = reviewer(&manifest, &lineage, 0, &producer_digest, "pass", None);
+    let same_family = completed_review_job(&f, "same-family", Provider::Codex, review.clone()).await;
+    assert!(record_completed(&f, &same_family).await.unwrap_err().contains("different observed model family"));
+    let reviewer = completed_review_job(&f, "independent-review", Provider::Claude, review).await;
+    let review_digest = record_completed(&f, &reviewer).await.unwrap();
+    assert!(review_command(&f, crate::job_reviews::Command::Record {
+        job: reviewer, attempt: 1, artifact: "PASS".into(), same_provider_exception: None,
+    }).await.is_err());
+    let inspected = review_command(&f, crate::job_reviews::Command::Status { lineage: lineage.clone() }).await.unwrap();
+    assert_eq!(inspected["producer"]["runtime"]["family"], "codex");
+    assert_eq!(inspected["producer"]["runtime"]["model"], "gpt-6.1-sol");
+    assert_eq!(inspected["review"]["runtime"]["family"], "claude");
+    assert_eq!(inspected["review"]["runtime"]["model"], "claude-sonnet-5");
+    assert_eq!(inspected["review"]["runtime"]["effort"], "high");
+
+    let result = file_and_judge(&f, &manifest, "reviewed-effect").await;
+    assert_eq!(result["view"]["receipt"][0], "verified");
+    assert_eq!(result["view"]["receipt"][1]["after_apply"]["revision"], manifest.expected_postcondition);
+    assert_eq!(git.head(), manifest.expected_postcondition);
+    let db = f.bridge.history.db().unwrap();
+    let audit: String = db.query_row("SELECT basis FROM park_decisions WHERE action='claim'", [], |row| row.get(0)).unwrap();
+    let evidence: Value = serde_json::from_str(&audit).unwrap();
+    assert_eq!(evidence["review"]["lineage"], lineage);
+    assert_eq!(evidence["review"]["producer"], producer_digest);
+    assert_eq!(evidence["review"]["review"], review_digest);
+}
+
+#[tokio::test]
+async fn gapplan_11_int_competing_fixes_stale_final_reverse_and_revoked_p2_exception() {
+    use crate::{fleet_policy::{self, ReviewPermission, RuleKind, tests::WORKSPACE},
+        job_reviews::Command as Review, parks::{GitFixture, Service}};
+    let mut f = Fixture::new(Provider::Codex, "review-evidence");
+    let git = GitFixture::new(f.temp.path());
+    let mut final_manifest = staging_manifest(&f, &git);
+    let mut initial = final_manifest.clone();
+    initial.artifact_pin = git.other.clone();
+    initial.expected_postcondition = git.other.clone();
+    let lineage = completed_review_job(&f, "author", Provider::Codex, review_artifact("author", &initial)).await;
+    let digest = record_completed(&f, &lineage).await.unwrap();
+    let reviewed = completed_review_job(&f, "r0", Provider::Claude,
+        reviewer(&initial, &lineage, 0, &digest, "changes", Some("p1"))).await;
+    record_completed(&f, &reviewed).await.unwrap();
+
+    let request = |manifest: &crate::parks::Manifest, previous, alternative: bool| {
+        let mut artifact = review_artifact("fixer", manifest);
+        artifact["lineage"] = json!(lineage);
+        artifact["round"] = json!(previous + 1);
+        if alternative {
+            artifact["tests"]["passed"] = 4.into();
+        }
+        Review::Fix { lineage: lineage.clone(), after_round: previous,
+            input: review_input(&f, Provider::Codex, artifact), exception: None }
+    };
+    let (first, second) = tokio::join!(
+        review_command(&f, request(&final_manifest, 0, false)),
+        review_command(&f, request(&final_manifest, 0, true)),
+    );
+    assert_ne!(first.is_ok(), second.is_ok(), "{first:?}, {second:?}");
+    let winner = first.is_ok();
+    let fixed = first.or(second).unwrap();
+    assert_eq!(review_command(&f, request(&final_manifest, 0, !winner)).await.unwrap(), fixed);
+    let first_fix = fixed["job"]["id"].as_str().unwrap();
+    let digest = record_completed(&f, first_fix).await.unwrap();
+    let reviewed = completed_review_job(&f, "r1", Provider::Claude,
+        reviewer(&final_manifest, &lineage, 1, &digest, "concerns", Some("p2"))).await;
+    record_completed(&f, &reviewed).await.unwrap();
+
+    let fixed = review_command(&f, request(&initial, 1, false)).await.unwrap();
+    assert_eq!(fixed["round"], 2);
+    let digest = record_completed(&f, fixed["job"]["id"].as_str().unwrap()).await.unwrap();
+    final_manifest = initial;
+    final_manifest.review_ref = lineage.clone();
+    let mut stale = reviewer(&final_manifest, &lineage, 2, &digest, "pass", None);
+    stale["revisions"]["reverse"] = json!("stale-reverse-wrapper");
+    let stale = completed_review_job(&f, "stale-r2", Provider::Claude, stale).await;
+    assert!(record_completed(&f, &stale).await.unwrap_err().contains("all three revision pins"));
+
+    let final_review = reviewer(&final_manifest, &lineage, 2, &digest, "concerns", Some("p2"));
+    let reviewed = completed_review_job(&f, "r2", Provider::Claude, final_review).await;
+    record_completed(&f, &reviewed).await.unwrap();
+    let mut third = review_artifact("fixer", &final_manifest);
+    third["lineage"] = json!(lineage);
+    third["round"] = json!(3);
+    let extra = Review::Fix { lineage: lineage.clone(), after_round: 2,
+        input: review_input(&f, Provider::Codex, third), exception: None };
+    assert_eq!(review_command(&f, extra).await.unwrap(), json!({"status":"escalate","round":2}));
+    let db = f.bridge.history.db().unwrap();
+    let counts: (i64, i64) = db.query_row(
+        "SELECT (SELECT count(*) FROM job_review_rounds WHERE lineage=?1 AND round>0),
+                (SELECT count(*) FROM jobs WHERE submit_key LIKE 'review-fix:%')",
+        [&lineage], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(counts, (2, 2));
+    drop(db);
+
+    f.bridge.parks = Service::fixture(&git.directory, final_manifest.clone());
+    let delegated = review_grant(&final_manifest);
+    let mut exception = delegated.clone();
+    exception.id = "residual-p2".into();
+    exception.scope.principal = None;
+    exception.effective_ms = crate::history::now() - 1000;
+    exception.expires_ms = crate::history::now() + 60_000;
+    exception.rule = RuleKind::ReviewException { lineage: lineage.clone(), permission: ReviewPermission::ResidualP2 };
+    f.worker.inputs.republish(vec![delegated.clone(), exception.clone()]);
+
+    // Revocation happens after the claim has recorded its evidence but before
+    // the checked staging ref update executes.
+    let mut revoked = fleet_policy::tests::policy(f.worker.inputs.reference.generation + 1, vec![delegated, exception]);
+    revoked.workers.push(f.worker.inputs.enrollment.clone());
+    revoked.revoked.insert("residual-p2".into());
+    let publication = f.worker.inputs.signing().publication(revoked, WORKSPACE);
+    let authority = authority(&f.worker.inputs);
+    let publication = std::sync::Mutex::new(Some(publication));
+    f.bridge.parks.after_claim = Some(Arc::new(move || {
+        authority.publish_fixture(publication.lock().unwrap().take().unwrap()).unwrap();
+    }));
+    let result = file_and_judge(&f, &final_manifest, "review-revoked").await;
+    assert_eq!(result, json!({"result":"held","reason":"authorization_changed"}));
+    assert_eq!(git.head(), final_manifest.precondition);
+    let db = f.bridge.history.db().unwrap();
+    let (claim, count): (String, i64) = db.query_row(
+        "SELECT basis,(SELECT count(*) FROM park_executions) FROM park_decisions WHERE action='claim'",
+        [], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    let claim: Value = serde_json::from_str(&claim).unwrap();
+    assert_eq!(claim["review"]["round"], 2);
+    assert_eq!(claim["review"]["exceptions"][0]["id"], "residual-p2");
+    assert_eq!(count, 0);
 }

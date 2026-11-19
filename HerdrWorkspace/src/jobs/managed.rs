@@ -1,6 +1,6 @@
 use super::{
     Artifact, Dispatch, Error, Exit, FinishEvidence, Job, JobStatus, Report, Runtime, Submission,
-    finish_inner, identifier, read_status, record_dispatch, status, submission_digest, submit_with_placement,
+    finish_inner, identifier, queue, read_status, record_dispatch, status, submission_digest, submit_with_placement,
 };
 use crate::{
     Core, Workspace, bots, helpers,
@@ -36,7 +36,7 @@ pub(crate) struct Submit {
 }
 
 impl Submit {
-    fn submission(&self) -> Submission {
+    pub(crate) fn submission(&self) -> Submission {
         Submission {
             project: self.project,
             workdir: self.workdir.clone(),
@@ -104,21 +104,27 @@ fn protected_core(path: &Path, ordinary: &Path) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub(crate) async fn answer(w: &Workspace, core: &str, launch: &str, command: Command) -> Result<String, String> {
+pub(crate) async fn current_owner(w: &Workspace, core: &str, launch: &str, helper: bool) -> Result<String, String> {
     if !w.core.agents().await.map_err(helpers::explain)?.iter().any(|agent| {
         agent.launch_key() == Some(launch) && agent.require_live().is_ok()
     }) {
         return Err("Use a live registered session to manage jobs.".into());
     }
-    let owner = {
-        let db = w.history.db().map_err(|_| STORAGE)?;
-        helpers::policy::job_owner(&db, core, launch, matches!(command, Command::Submit { .. }))
-            .map_err(|_| STORAGE)?
-            .ok_or("Use the current owner session, or one of its helpers to submit a job.")?
-    };
+    let db = w.history.db().map_err(|_| STORAGE)?;
+    helpers::policy::job_owner(&db, core, launch, helper).map_err(|_| STORAGE)?
+        .map(|owner| owner.id)
+        .ok_or_else(|| "Use the current owner session, or one of its helpers to submit a job.".into())
+}
+
+pub(crate) fn wake() {
+    WAKE.notify_one();
+}
+
+pub(crate) async fn answer(w: &Workspace, core: &str, launch: &str, command: Command) -> Result<String, String> {
+    let owner = current_owner(w, core, launch, matches!(command, Command::Submit { .. })).await?;
     match command {
         Command::Submit { key, input } => {
-            let job = submit(w, &owner.id, launch, &key, &input)?;
+            let job = submit(w, &owner, launch, &key, &input)?;
             WAKE.notify_one();
             json(&job)
         }
@@ -126,27 +132,27 @@ pub(crate) async fn answer(w: &Workspace, core: &str, launch: &str, command: Com
             let db = w.history.db().map_err(|_| STORAGE)?;
             let ids = db.prepare(
                 "SELECT id FROM jobs WHERE owner_bot_id=?1 ORDER BY created_ms DESC,id LIMIT 100",
-            ).and_then(|mut rows| rows.query_map([&owner.id], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>())
+            ).and_then(|mut rows| rows.query_map([&owner], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>())
                 .map_err(|_| STORAGE)?;
-            let jobs = ids.iter().map(|id| owned(&db, &owner.id, id)).collect::<Result<Vec<_>, _>>()?;
+            let jobs = ids.iter().map(|id| owned(&db, &owner, id)).collect::<Result<Vec<_>, _>>()?;
             json(&jobs)
         }
         Command::Status { id } => {
             let db = w.history.db().map_err(|_| STORAGE)?;
-            json(&owned(&db, &owner.id, &id)?)
+            json(&owned(&db, &owner, &id)?)
         }
         Command::Cancel { id } => {
             let db = w.history.db().map_err(|_| STORAGE)?;
-            let job = owned(&db, &owner.id, &id)?;
+            let job = owned(&db, &owner, &id)?;
             db.execute(
                 "UPDATE job_attempts SET requested_runtime=json_set(requested_runtime,'$.cancel_requested',1)
                  WHERE job_id=?1 AND attempt=?2 AND status IN ('queued','dispatching','running','unknown')",
                 params![job.id, job.attempt],
             ).map_err(|_| STORAGE)?;
             WAKE.notify_one();
-            json(&owned(&db, &owner.id, &id)?)
+            json(&owned(&db, &owner, &id)?)
         }
-        Command::Result { id, reference } => result(w, &owner.id, &id, &reference).await,
+        Command::Result { id, reference } => result(w, &owner, &id, &reference).await,
     }
 }
 
@@ -170,19 +176,56 @@ fn submit(w: &Workspace, owner: &str, launch: &str, key: &str, input: &Submit) -
     }
     let submission = input.submission();
     let payload = submission_digest(&submission, Some(&input.profile)).map_err(|_| STORAGE)?;
-    let prior = db.query_row(
-        "SELECT id,payload_digest FROM jobs WHERE owner_bot_id=?1 AND submit_key=?2",
-        params![owner, key],
-        |row| Ok(Job { id: row.get(0)?, payload_digest: row.get(1)? }),
-    ).optional().map_err(|_| STORAGE)?;
-    if let Some(job) = prior {
-        return (job.payload_digest == payload).then_some(job).ok_or_else(|| explain(Error::Conflict));
+    if let Some(job) = existing_submission(&db, owner, key, &payload)? {
+        if crate::job_reviews::reserved_key(key) && db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM job_review_rounds WHERE producer_job=?1 AND round>0)",
+            [&job.id], |row| row.get(0),
+        ).map_err(|_| STORAGE)? {
+            return Err("Use bot job review to retry a fix reservation.".into());
+        }
+        return Ok(job);
+    }
+    if crate::job_reviews::reserved_key(key) {
+        return Err("Use bot job review to reserve a fix round.".into());
     }
     let placement = enrolled(w, &db, input).map_err(str::to_owned)?;
-    let example = "00000000000000000000000000000000";
-    Ticket::new(&placement, example, 1, owner, &submission, &payload)
-        .ok_or_else(|| explain(Error::InvalidInput))?;
+    validate_ticket(&placement, owner, &submission, &payload)?;
     submit_with_placement(&mut db, owner, key, &submission, Some(&placement)).map_err(explain)
+}
+
+fn existing_submission(db: &Connection, owner: &str, key: &str, digest: &str) -> Result<Option<Job>, String> {
+    let prior = db.query_row(
+        "SELECT id,payload_digest FROM jobs WHERE owner_bot_id=?1 AND submit_key=?2",
+        params![owner, key], |row| Ok(Job { id: row.get(0)?, payload_digest: row.get(1)? }),
+    ).optional().map_err(|_| STORAGE)?;
+    match prior {
+        Some(job) if job.payload_digest != digest => Err(explain(Error::Conflict)),
+        prior => Ok(prior),
+    }
+}
+
+fn validate_ticket(placement: &Placement, owner: &str, submission: &Submission, digest: &str) -> Result<(), String> {
+    Ticket::new(placement, "00000000000000000000000000000000", 1, owner, submission, digest)
+        .map(|_| ()).ok_or_else(|| explain(Error::InvalidInput))
+}
+
+pub(crate) fn queue_review_fix(
+    tx: &rusqlite::Transaction<'_>, owner: &str, key: &str, input: &Submit,
+    policy: &crate::fleet_policy::Policy, reserved_job: Option<&str>,
+) -> Result<Job, String> {
+    let submission = input.submission();
+    let digest = submission_digest(&submission, Some(&input.profile)).map_err(explain)?;
+    let prior = existing_submission(tx, owner, key, &digest)?;
+    if let Some(job) = prior {
+        return (reserved_job == Some(job.id.as_str())).then_some(job).ok_or_else(|| explain(Error::Conflict));
+    }
+    if reserved_job.is_some() {
+        return Err(STORAGE.into());
+    }
+    let project = projects::one(tx, input.project).map_err(|_| STORAGE)?.ok_or(NO_PLACEMENT)?;
+    let placement = projects::fixture_placement(&project, policy, input).ok_or(NO_PLACEMENT)?;
+    validate_ticket(&placement, owner, &submission, &digest)?;
+    queue(tx, owner, key, &submission, Some(&placement)).map_err(explain)
 }
 
 fn explain(error: Error) -> String {
@@ -342,9 +385,27 @@ async fn reconcile(w: &Workspace, id: &str, number: i64) -> Result<(), Error> {
     if should_start {
         let recorded = {
             let mut db = w.history.db()?;
-            if enrolled(w, &db, &pending.input).as_ref() != Ok(&pending.placement) {
+            let Some(authority) = w.fleet_policy.as_ref().ok().and_then(Option::as_ref) else {
                 drop(db);
                 return update(w, &pending, "queued", Some("placement_changed"));
+            };
+            let reason = authority.with_worker_policy(|_, _, policy, _| {
+                let project = projects::one(&db, pending.input.project).ok().flatten();
+                if project.and_then(|project| projects::fixture_placement(&project, policy, &pending.input))
+                    .as_ref() != Some(&pending.placement)
+                {
+                    return Some("placement_changed");
+                }
+                match crate::job_reviews::fix_dispatch_allowed(
+                    &db, id, pending.input.project, &pending.status.owner_bot_id, policy,
+                ) {
+                    Ok(true) => None,
+                    _ => Some("review_exception_inactive"),
+                }
+            }).unwrap_or(Some("placement_changed"));
+            if let Some(reason) = reason {
+                drop(db);
+                return update(w, &pending, "queued", Some(reason));
             }
             record_dispatch(&mut db, id, number, &pending.placement.host_id, &pending.ticket.manifest_digest)?
         };
@@ -366,6 +427,13 @@ async fn reconcile(w: &Workspace, id: &str, number: i64) -> Result<(), Error> {
         record_dispatch(&mut db, id, number, &pending.placement.host_id, &pending.ticket.manifest_digest)?;
         pending.dispatched = true;
         pending.status.status = "dispatching".into();
+    }
+    if view.status == "missing" && pending.dispatched && !pending.status.cancel_requested {
+        let fenced = match pending.call(core, Verb::FenceMissing, None).await {
+            Ok(view) => view,
+            Err(reason) => return unavailable(w, &pending, reason),
+        };
+        return apply(w, &pending, core, fenced).await;
     }
     apply(w, &pending, core, view).await
 }

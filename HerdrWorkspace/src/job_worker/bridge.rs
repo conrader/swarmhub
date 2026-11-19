@@ -1,9 +1,9 @@
 //! Fixed-argv fixture protocol for the coordinator's separate worker Core.
 use super::{Attempt, INPUT_LIMIT, Manifest, PROTOCOL, Request, Result, Store, Worker, digest, providers, start, store::View};
-use crate::{Core, core::{Failure, Program}, machines::probe::Provider};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use crate::{Core, core::Failure, machines::probe::Provider};
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use std::{io::{self, Write}, path::Path};
+use std::{io::{self, Read, Write}, path::Path};
 
 pub(crate) use super::store::View as WorkerView;
 
@@ -29,6 +29,7 @@ pub(crate) enum Verb {
     Start,
     Status,
     Cancel,
+    FenceMissing,
     Collect,
     Result,
 }
@@ -39,6 +40,7 @@ impl Verb {
             Self::Start => "start",
             Self::Status => "status",
             Self::Cancel => "cancel",
+            Self::FenceMissing => "fence-missing",
             Self::Collect => "collect",
             Self::Result => "result",
         }
@@ -99,7 +101,7 @@ impl Ticket {
             .then_some(ticket)
     }
 
-    fn payload(&self, verb: Verb, result_digest: Option<&str>) -> Option<String> {
+    fn payload(&self, verb: Verb, result_digest: Option<&str>) -> Option<Vec<u8>> {
         let mut request = self.start.clone();
         if !matches!(verb, Verb::Start) {
             request.manifest = None;
@@ -110,7 +112,7 @@ impl Ticket {
             result_digest: result_digest.map(str::to_owned),
         };
         let bytes = serde_json::to_vec(&call).ok()?;
-        (bytes.len() <= INPUT_LIMIT).then(|| URL_SAFE_NO_PAD.encode(bytes))
+        (bytes.len() <= INPUT_LIMIT).then_some(bytes)
     }
 
     pub(crate) async fn request(
@@ -119,9 +121,9 @@ impl Ticket {
         let payload = self.payload(verb, result_digest).ok_or("worker_request_invalid")?;
         let argv = [
             PROGRAM.into(), "job-worker".into(), "rpc".into(),
-            STATE_DIR.into(), verb.name().into(), payload,
+            STATE_DIR.into(), verb.name().into(),
         ];
-        let ran = core.run_on(machine, "/", Program::Argv(&argv), SECONDS).await.map_err(|error| {
+        let ran = core.run_fixture_worker(machine, &argv, &payload, SECONDS).await.map_err(|error| {
             match error {
                 Failure::Uncertain => "worker_reply_lost",
                 Failure::Rejected(kind, _) if matches!(kind.as_str(), "spawn_failed" | "method_not_found") =>
@@ -163,19 +165,18 @@ impl Ticket {
     }
 }
 
-pub(super) fn run(root: &Path, verb: &str, payload: &str) -> Result<()> {
+pub(super) fn run(root: &Path, verb: &str) -> Result<()> {
     let verb = match verb {
         "start" => Verb::Start,
         "status" => Verb::Status,
         "cancel" => Verb::Cancel,
+        "fence-missing" => Verb::FenceMissing,
         "collect" => Verb::Collect,
         "result" => Verb::Result,
         _ => return Err("Unsupported fixture worker verb.".into()),
     };
-    if payload.len() > (INPUT_LIMIT * 4).div_ceil(3) {
-        return Err("Fixture worker request is too large.".into());
-    }
-    let bytes = URL_SAFE_NO_PAD.decode(payload)?;
+    let mut bytes = Vec::new();
+    io::stdin().take((INPUT_LIMIT + 1) as u64).read_to_end(&mut bytes)?;
     if bytes.len() > INPUT_LIMIT {
         return Err("Fixture worker request is too large.".into());
     }
@@ -224,8 +225,18 @@ fn worker_view(
         }
         start(&mut store, request, manifest)?;
     }
-    store.observe_bound(&request.attempt, matches!(verb, Verb::Cancel), false,
-        Some(manifest_digest), result_digest)
+    let view = store.observe_bound(&request.attempt, matches!(verb, Verb::Cancel), false,
+        Some(manifest_digest), result_digest)?;
+    if matches!(verb, Verb::Cancel | Verb::FenceMissing)
+        && view.as_ref().is_some_and(|view| view.status == "missing")
+    {
+        // Recheck absence under the write lock. A delayed start either
+        // already has durable state or encounters the terminal tombstone.
+        store.fence_missing(&request.attempt, manifest_digest, matches!(verb, Verb::Cancel))?;
+        return store.observe_bound(&request.attempt, matches!(verb, Verb::Cancel), false,
+            Some(manifest_digest), None);
+    }
+    Ok(view)
 }
 
 #[cfg(test)]

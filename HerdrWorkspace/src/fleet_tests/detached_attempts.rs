@@ -207,7 +207,7 @@ fn gapplan_07_int_closed_launch_pipe_keeps_one_detached_attempt() {
 
     let journal = reopen_journal(&journal_dir);
     let db = journal.db().unwrap();
-    assert_eq!(schema(&db), 56);
+    assert_eq!(schema(&db), crate::history::migrations().len());
     assert_eq!(jobs::status(&db, &job.id).unwrap().unwrap().status, "dispatching");
 }
 
@@ -604,7 +604,8 @@ pub(super) fn fake_profile(worker: &Worker, provider: &str, outcome: &str, timeo
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 
     let profiles = worker.root.join("fixture-runtimes");
-    let profile = profiles.join("local");
+    let review = outcome == "review-evidence";
+    let profile = profiles.join(if review { provider } else { "local" });
     for path in [&profiles, &profile, &profile.join("home")] {
         if !path.exists() {
             fs::DirBuilder::new().mode(0o700).create(path).unwrap();
@@ -617,7 +618,8 @@ outcome='{outcome}'
 [ "$(/bin/cat "$HOME/synthetic-login")" = fixture-login ]
 [ -z "${{COORDINATOR_FIXTURE_SENTINEL+x}}" ]
 [ "$(/bin/pwd -P)" = '{workdir}' ]
-[ "$(/bin/cat)" = '{FIXTURE_BRIEF}' ]
+brief=$(/bin/cat)
+if [ "$outcome" != review-evidence ]; then [ "$brief" = '{FIXTURE_BRIEF}' ]; fi
 printf '%s\n' '{PRIVATE_DIAGNOSTIC}' >&2
 printf '%s\n' "started" >> "$HOME/invocations"
 case "$outcome" in
@@ -636,6 +638,9 @@ esac
 printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5","effort":"high","claude_code_version":"fixture-1.0"}'
 if [ "$outcome" = missing ]; then
     printf '%s\n' '{"type":"result","subtype":"success","is_error":false}'
+elif [ "$outcome" = review-evidence ]; then
+    escaped=$(printf '%s' "$brief" | /usr/bin/sed 's/"/\\"/g')
+    printf '{"type":"result","subtype":"success","is_error":false,"result":"%s"}\n' "$escaped"
 else
     printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"Claude fixture result"}'
 fi
@@ -654,6 +659,10 @@ case "$outcome" in
     missing) ;;
     oversized) /usr/bin/head -c 8192 /dev/zero > "$artifact" ;;
     linked) /bin/ln -s "$HOME/synthetic-login" "$artifact" ;;
+    review-evidence)
+        umask 077
+        printf '%s' "$brief" > "$artifact"
+        printf '%s' '{"model":"gpt-6.1-sol","effort":"high","cli_version":"fixture-1.0"}' > "${artifact%/*}/fixture-observed-runtime.json" ;;
     *) printf '%s\n' 'Codex fixture result' > "$artifact" ;;
 esac
 printf '%s\n' '{"type":"turn.completed"}'
@@ -668,6 +677,7 @@ printf '%s\n' '{"type":"turn.completed"}'
         "cli_version": "fixture-1.0",
         "executable_sha256": format!("{:x}", Sha256::digest(script.as_bytes())),
         "timeout_ms": timeout_ms,
+        "fixture_codex_observation": review && provider == "codex",
     }));
 }
 
@@ -773,7 +783,7 @@ fn gapplan_09_int_claude_and_codex_collect_observed_identity_and_safe_references
         drop(journal);
         let journal = reopen_journal(&journal_dir);
         let db = journal.db().unwrap();
-        assert_eq!(schema(&db), 56);
+        assert_eq!(schema(&db), crate::history::migrations().len());
         let saved = jobs::status(&db, &job.id).unwrap().unwrap();
         assert_eq!(saved.requested_runtime.model.as_deref(), Some(requested));
         assert_eq!(saved.observed_runtime, report.observed_runtime);

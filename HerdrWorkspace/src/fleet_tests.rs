@@ -233,8 +233,9 @@ fn gapplan_01_int_killed_executor_recovers_without_replay() {
         if !owned {
             write_marker(&project, &marker("new")).unwrap();
         }
-        let reopened = reopen_journal(&journal_dir);
-        let mut db = history::connection(reopened.file()).unwrap();
+        // This test-only reconciler reads the fixture's marker after SIGKILL.
+        // Normal bridge startup instead quarantines partial execution evidence.
+        let mut db = history::connection(&journal_dir.join("workspace.sqlite3")).unwrap();
         assert_eq!(
             parks::execute(&mut db, &park, decision(Source::Backstop), &adapter).unwrap(),
             View::Status(State::Executing)
@@ -1703,3 +1704,123 @@ mod worker_hosts;
 mod detached_attempts;
 
 mod managed_jobs;
+
+#[test]
+fn gapplan_11_int_v57_fresh_and_seeded_v56_reopen_preserve_rows() {
+    let scratch = tempfile::tempdir().unwrap();
+    let directory = scratch.path().join("upgrade");
+    fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
+    let db_file = directory.join("workspace.sqlite3");
+    OpenOptions::new().create_new(true).write(true).mode(0o600).open(&db_file).unwrap();
+    let mut old = history::connection(&db_file).unwrap();
+    for migration in &history::migrations()[..56] {
+        old.execute_batch(migration).unwrap();
+    }
+    assert_eq!(schema(&old), 56);
+    crate::bots::register(&old, &crate::bots::Registration {
+        id: jobs_fixture::OWNER.into(), name: Some("Fixture owner".into()), ..Default::default()
+    }, 1).unwrap().unwrap();
+    let job = jobs_fixture::submit_fixture(&mut old, "existing-v56-job");
+    let park = parks::file(&old, "existing-v56-park", &manifest()).unwrap();
+    parks::decide(&mut old, &park, decision(Source::Human), parks::Change::Hold).unwrap();
+    drop(old);
+    for (path, seeded) in [(scratch.path().join("fresh"), false), (directory, true)] {
+        for _ in 0..3 {
+            let history = reopen_journal(&path);
+            let db = history.db().unwrap();
+            assert_eq!(schema(&db), 57);
+            for table in ["job_review_lineages", "job_review_rounds", "job_review_evidence"] {
+                assert_eq!(db.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+            }
+            if seeded {
+                assert_eq!(jobs::status(&db, &job.id).unwrap().unwrap().status, "queued");
+                assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Held));
+                assert!(db.execute("DELETE FROM parks WHERE id=?1", [&park.id]).is_err());
+                assert!(db.execute("DELETE FROM park_decisions WHERE park_id=?1", [&park.id]).is_err());
+                assert!(db.execute(
+                    "INSERT OR REPLACE INTO park_decisions SELECT * FROM park_decisions WHERE park_id=?1",
+                    [&park.id],
+                ).is_err());
+            }
+        }
+    }
+}
+
+#[test]
+fn gapplan_11_int_killed_during_rollback_preserves_intent_without_replay() {
+    const ROLLBACK_FIXTURE: &str = "SWARMHUB_GAPPLAN_11_ROLLBACK_FIXTURE_ROOT";
+    if let Some(root) = std::env::var_os(ROLLBACK_FIXTURE) {
+        let root = Path::new(&root);
+        let history = reopen_journal(&root.join("journal"));
+        let mut db = history::connection(history.file()).unwrap();
+        let park = ParkRef {
+            id: "park".into(),
+            manifest_digest: db.query_row("SELECT manifest_digest FROM parks WHERE id='park'", [], |row| row.get(0)).unwrap(),
+        };
+        struct CrashRollback<'a> {
+            marker: MarkerFile<'a, fn()>,
+            applied: std::cell::Cell<bool>,
+        }
+        impl Adapter for CrashRollback<'_> {
+            fn observe(&self) -> io::Result<Marker> {
+                if self.applied.get() {
+                    return Err(io::Error::other("fixture lost readback"));
+                }
+                self.marker.observe()
+            }
+
+            fn apply(&self, expected: &Marker, replacement: &Marker) -> Step {
+                let step = self.marker.apply(expected, replacement);
+                self.applied.set(true);
+                step
+            }
+
+            fn rollback(&self, expected: &Marker, replacement: &Marker) -> Step {
+                assert_eq!(self.marker.rollback(expected, replacement), Step::Exit(0));
+                fs::write(self.marker.project.join("rolling-back"), []).unwrap();
+                let _ = io::stdin().read_exact(&mut [0]);
+                panic!("the executor should have been killed");
+            }
+        }
+        let adapter = CrashRollback {
+            marker: MarkerFile { project: &root.join("project"), after_apply: || {} },
+            applied: std::cell::Cell::new(false),
+        };
+        parks::execute(&mut db, &park, decision(Source::Human), &adapter).unwrap();
+        panic!("the executor returned before it was killed");
+    }
+
+    let scratch = tempfile::tempdir().unwrap();
+    let (history, park) = setup(scratch.path());
+    drop(history);
+    let project = scratch.path().join("project");
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "fleet_tests::gapplan_11_int_killed_during_rollback_preserves_intent_without_replay"])
+        .env(ROLLBACK_FIXTURE, scratch.path())
+        .stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();
+    let deadline = Instant::now() + WAIT;
+    while !project.join("rolling-back").exists()
+        && Instant::now() < deadline && child.try_wait().unwrap().is_none()
+    {
+        thread::sleep(Duration::from_millis(10));
+    }
+    let killed = child.kill();
+    let exit = child.wait().unwrap();
+    killed.unwrap();
+    assert_eq!(exit.signal(), Some(libc::SIGKILL));
+    assert!(project.join("rolling-back").exists());
+    let history = reopen_journal(&scratch.path().join("journal"));
+    let mut db = history.db().unwrap();
+    let (apply, intent, receipt): (String, String, Option<String>) = db.query_row(
+        "SELECT apply_step,rollback_intent,receipt FROM park_executions WHERE park_id=?1",
+        [&park.id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(apply, r#"{"Exit":0}"#);
+    assert_eq!(intent, r#"{"after_apply":null}"#);
+    assert_eq!(receipt, None);
+    let adapter = MarkerFile { project: &project, after_apply: || {} };
+    assert_eq!(adapter.observe().unwrap(), marker("old"));
+    assert_eq!(parks::execute(&mut db, &park, decision(Source::Backstop), &adapter).unwrap(),
+        View::Status(State::Reconciliation));
+    assert_eq!(adapter.apply_count(), 1);
+}

@@ -47,6 +47,8 @@ struct Config {
     cli_version: String,
     executable_sha256: String,
     timeout_ms: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    fixture_codex_observation: bool,
 }
 
 pub(super) struct Profile {
@@ -77,6 +79,7 @@ impl Profile {
         }
         let config: Config = serde_json::from_slice(&bounded(private_file(&profile.join("profile.json"), owner, false)?, 4096)?)?;
         if config.provider != provider || config.account_ref != account
+            || (config.fixture_codex_observation && provider != Provider::Codex)
             || Some(config.cli_version.as_str()) != version || !(1..=60_000).contains(&config.timeout_ms)
         {
             return Err("Fixture runtime profile does not match admission.".into());
@@ -118,6 +121,7 @@ impl Profile {
             provider: self.config.provider,
             version: self.config.cli_version.clone(),
             timeout: Duration::from_millis(self.config.timeout_ms),
+            fixture_codex_observation: self.config.fixture_codex_observation,
         })
     }
 }
@@ -140,11 +144,29 @@ pub(super) struct Prepared {
     provider: Provider,
     pub version: String,
     pub timeout: Duration,
+    fixture_codex_observation: bool,
 }
 
 impl Prepared {
     pub(super) fn path(&self) -> &Path {
         self.dir.path()
+    }
+
+    fn codex_observation(&self) -> Option<Observed> {
+        // SAFETY: geteuid identifies the owner of this private attempt directory.
+        let file = private_file(&self.path().join("fixture-observed-runtime.json"), unsafe { libc::geteuid() }, false).ok()?;
+        if file.metadata().ok()?.nlink() != 1 {
+            return None;
+        }
+        let identity: FixtureCodexObservation = serde_json::from_slice(&bounded(file, 1024).ok()?).ok()?;
+        if !runtimes::model_discovery::launchable_model(agent(Provider::Codex), &identity.model)
+            || !effort_supported(Provider::Codex, &identity.effort)
+            || identity.cli_version.len() > 80 || !identifier_version(&identity.cli_version)
+        {
+            return None;
+        }
+        Some(Observed { model: Some(identity.model), effort: Some(identity.effort),
+            version: Some(identity.cli_version), family: None })
     }
 
     pub(super) fn collect(&self, events: &[u8], diagnostics: &[u8], success: bool) -> Collected {
@@ -156,6 +178,13 @@ impl Prepared {
             output.failure = Some("malformed_runtime_output");
             return output;
         };
+        if self.fixture_codex_observation {
+            // The pinned Codex double may attest its identity out of band.
+            // Codex CLI output itself supplies no resolved identity.
+            if let Some(identity) = self.codex_observation() {
+                observed = identity;
+            }
+        }
         if observed.version.as_deref().is_some_and(|version| version != self.version) {
             output.failure = Some("runtime_version_changed");
         }
@@ -271,6 +300,14 @@ pub(super) fn exec(dir: &Path, stdout: OwnedFd, stderr: OwnedFd) -> Result<()> {
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
         .exec().into())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FixtureCodexObservation {
+    model: String,
+    effort: String,
+    cli_version: String,
 }
 
 #[derive(Deserialize)]
