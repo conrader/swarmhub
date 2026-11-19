@@ -8,6 +8,16 @@
 - A bot whose project holds a skillshare project of its own can show that project's library.
 - The bridge's API is at level 2 for this (`/api/skillshare/library` and the routes beside it, in the [bridge manual](../HerdrWorkspace/README.md#manage-the-servers-skillshare-library)). An MCP server's secret values never leave the server. A server still at level 1 keeps the list of skill switches until it is updated.
 
+## 0.8.4 (build 38)
+
+Workspace 0.2.3 ships the Herdr fleet, jobs and approval changes.
+
+- Staging parks record the exact action under review. Signed fleet policy scopes who can decide, a single claim prevents duplicate execution, and eligible parks require independent review with bounded repair attempts.
+- Managed jobs check worker capabilities and resource limits, track start, stop and recovery, and return durable completion notices to the owning bot even when its session is busy or disconnected.
+- Vault grants bind credential use to the approved job, command and worker. The Vault executor is fixture-only, and separate worker and executor OS accounts remain open (P0-07).
+- Outbound email drafts pin the approved content, recipient and sender. Fixture delivery records and reconciles attempts. Outbound sending stays off pending live provider commissioning (P0-08).
+- Fleet controls require signed fleet authority. Background completion retries persist across restarts, and idle managed-job polling stops.
+
 ## 0.8.2 (build 36)
 
 - Retired Hermes and OpenClaw integrations are removed. Stores from older releases still load their Herdr bots and groups, with references to retired bots dropped.
