@@ -397,7 +397,18 @@ async fn gapplan_06_int_policy_store_busy_after_claim_reports_policy_busy() {
     let held = guard.clone();
     h.w.parks.after_claim = Some(Arc::new(move || {
         let file = std::fs::File::open(&lock_path).unwrap();
-        file.try_lock().unwrap();
+        // A concurrent subprocess can briefly inherit the previous read guard
+        // across fork and exec, just as it can with workspace.lock.
+        let deadline = std::time::Instant::now() + WAIT;
+        loop {
+            match file.try_lock() {
+                Ok(()) => break,
+                Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(error) => panic!("fixture could not acquire policy.lock: {error}"),
+            }
+        }
         *held.lock().unwrap() = Some(file);
     }));
     let park = h.file(&h.git.manifest).await;

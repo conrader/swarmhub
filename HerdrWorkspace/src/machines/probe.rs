@@ -148,7 +148,7 @@ impl Enrollment {
         STANDARD.decode(&self.host_public_key).ok()?.try_into().ok()
     }
 
-    fn fingerprint(&self) -> String {
+    pub(crate) fn fingerprint(&self) -> String {
         // Enrollment validation has already checked the key.
         let key = self.key().expect("validated worker key");
         format!("SHA256:{}", base64::engine::general_purpose::STANDARD_NO_PAD.encode(Sha256::digest(key)))

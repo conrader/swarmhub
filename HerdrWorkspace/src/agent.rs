@@ -71,6 +71,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("propose-memory") => crate::memory_proposals::publish(),
         Some("propose-email") => crate::email_drafts::publish(),
         Some("worker-probe") => crate::machines::probe::cli(),
+        Some("job-worker") => crate::job_worker::cli(&env::args_os().skip(2).collect::<Vec<_>>()),
         Some("fleet-policy") => crate::fleet_policy::cli(),
         Some("vault") => crate::vault::cli(),
         Some("drive-list") => crate::drive_access::cli(false),
@@ -108,6 +109,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
             println!("Pages: publish-page TITLE, read-page PAGE_ID, update-page PAGE_ID REVISION");
             println!("{}", crate::fleet_policy::USAGE);
             println!("{}", crate::machines::probe::USAGE);
+            println!("{}", crate::job_worker::USAGE);
             println!("{}", crate::vault::USAGE);
             println!("{}", crate::helpers::cli::USAGE);
             println!("{}", crate::projects::cli::USAGE);

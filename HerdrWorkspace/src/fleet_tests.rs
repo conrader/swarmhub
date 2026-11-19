@@ -1697,3 +1697,5 @@ mod fleet_authority {
 mod park_decisions;
 
 mod worker_hosts;
+
+mod detached_attempts;

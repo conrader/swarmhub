@@ -782,6 +782,32 @@ Projects:
 - A Windows server can be a machine in Herdr Core, and the folder check here does not work for it.
 - Changing a running agent’s projects does not tell the agent. Send it a message.
 
+## Run a detached worker fixture
+
+On macOS or Linux, the worker account supplies a private local directory (mode `0700`) with an account-owned `identity.json` (mode `0600`). Its `id` and `host_fingerprint` come from the worker enrollment. The fingerprint uses the same `SHA256:` encoding as the machine API. The worker creates its version 1 `attempts.sqlite3` in that directory and binds it to that identity.
+
+Run `swarmhub-herdr job-worker <verb> <state-dir>` with a single JSON object on stdin. The request limit is 4 KiB. Each verb takes `protocol`, `worker`, and `attempt`. The `start` verb also takes a fixed `fixture` value.
+
+```json
+{
+  "protocol": 1,
+  "worker": {"id": "fixture-mini-m4", "host_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+  "attempt": {"job_id": "fixture-job", "number": 1},
+  "fixture": "success"
+}
+```
+
+| Verb | Behavior |
+| --- | --- |
+| `start` | Records one durable start intent for the job ID and attempt number, then starts a detached supervisor. Repeating the same manifest returns the current state. A different manifest for the same attempt is an error. |
+| `status` | Returns one JSON object with state, manifest digest if known, and any recorded exit and artifact references. |
+| `cancel` | Records a request for the current supervisor to stop its verified fixture process group. An already settled attempt returns its existing status. |
+| `collect` | Returns status and the bounded log and result text when available. `log_ref` and `result_ref` are opaque labels scoped to the requested attempt. |
+
+The available fixtures are `success`, `nonzero`, `oversized`, and `group`. The supervisor records the child PID, process group, and birth identity before releasing the child. A lost launch connection can be followed by `status` or `collect` from another process. `missing` means this store has no such attempt. `unknown` means the worker has an intent but cannot confirm its start or exit. Repeating `start` preserves that intent for reconciliation. A confirmed outcome stores the exit and artifact references together. Results over 4 KiB set `result_truncated` and have no result reference or digest. Log text is bounded to 1 KiB.
+
+This protocol is for local fixture verification. It accepts no executable, shell command, workdir, provider credentials, or network target. Worker admission, provider execution, and coordinator dispatch have separate implementation slices.
+
 ## Keep an agent profile
 
 Choose **New agent**, enter a name, and save to open an empty conversation. You can create the profile and draft its first task while Herdr Core is offline. The draft stays in the current browser tab, including after a reload. When a template is available, choose **Choose runtime** to review the template and model before sending the task. Use **Start from template** if you prefer to choose the runtime before creating the profile.

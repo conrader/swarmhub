@@ -27,6 +27,7 @@ mod group_routes;
 mod groups;
 mod helpers;
 mod history;
+mod job_worker;
 mod jobs;
 mod live_reply;
 mod machines;
