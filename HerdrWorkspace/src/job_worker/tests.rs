@@ -2,7 +2,7 @@ use super::{ProcessIdentity, Worker, cancel_group, subprocess};
 use crate::{
     fleet_policy::{PolicyRef, Rule, WorkerHeartbeat, tests::{Fixture, WORKSPACE, policy}},
     history,
-    machines::probe::{Enrollment, Report, tests::{enrolled, key, report, signed}},
+    machines::probe::{Enrollment, Provider, Report, tests::{enrolled, key, report, signed}},
 };
 use ring::signature::Ed25519KeyPair;
 use serde_json::{Value, json};
@@ -20,7 +20,8 @@ pub(crate) struct Inputs {
     pub identity: Value,
     key: Ed25519KeyPair,
     root: PathBuf,
-    policy_root: PathBuf,
+    pub policy_root: PathBuf,
+    authority: Fixture,
 }
 
 impl Inputs {
@@ -30,6 +31,8 @@ impl Inputs {
         let project = root.join("project");
         fs::create_dir(&project).unwrap();
         let project = project.canonicalize().unwrap().into_os_string().into_string().unwrap();
+        enrollment.accounts.insert(Provider::Claude, "fixture-claude-account".into());
+        enrollment.thresholds.provider_slots.insert(Provider::Claude, 1);
         enrollment.roots = vec![project.clone()];
         enrollment.projects[0].folder = project;
         let worker = Worker { id: enrollment.id.clone(), host_fingerprint: enrollment.fingerprint() };
@@ -45,15 +48,34 @@ impl Inputs {
             "workspace": WORKSPACE,
             "operator_uid": unsafe { libc::getuid() },
         }));
-        let inputs = Self { enrollment, reference, identity, key, root: root.into(), policy_root };
+        let inputs = Self { enrollment, reference, identity, key, root: root.into(), policy_root, authority: fixture };
         inputs.heartbeat(history::now() + 55_000);
         inputs.update(inputs.report());
         inputs
     }
 
+    pub(crate) fn republish(&mut self, rules: Vec<Rule>) {
+        let mut policy = policy(self.reference.generation + 1, rules);
+        policy.workers.push(self.enrollment.clone());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        self.reference = loop {
+            match self.authority.publish(self.authority.publication(policy.clone(), WORKSPACE)) {
+                Ok(reference) => break reference,
+                Err(crate::fleet_policy::Error::Busy) if std::time::Instant::now() < deadline => {
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("{error:?}"),
+            }
+        };
+        self.heartbeat(history::now() + 55_000);
+        self.update(self.report());
+    }
+
     pub(crate) fn report(&self) -> Report {
         let mut report = report(&self.enrollment, &self.reference, history::now());
         let project = &self.enrollment.projects[0].folder;
+        report.runtimes.insert(Provider::Claude, report.runtimes[&Provider::Codex].clone());
+        report.provider_running.insert(Provider::Claude, 0);
         report.work_disks = [(project.clone(), report.root_disk.clone().unwrap())].into();
         report
     }
@@ -137,4 +159,18 @@ fn gapplan_07_unit_process_group_signal_requires_birth_identity() -> io::Result<
     assert!(!signalled?);
     assert!(survived);
     Ok(())
+}
+
+#[test]
+fn gapplan_09_unit_capture_drains_a_socket_without_waiting_for_the_inherited_writer() {
+    use std::{io::Write, os::unix::net::UnixStream};
+    let (socket, mut writer) = UnixStream::pair().unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let mut capture = super::Capture { socket, bytes: vec![], limit: 5 };
+    writer.write_all(b"abcdef").unwrap();
+    capture.drain();
+    assert_eq!(capture.bytes, b"abcde");
+    writer.write_all(b"still open").unwrap();
+    capture.drain();
+    assert_eq!(capture.bytes, b"abcde");
 }

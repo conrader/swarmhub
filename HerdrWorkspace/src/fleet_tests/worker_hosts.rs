@@ -44,7 +44,7 @@ async fn gapplan_06_int_worker_probe_to_machine_api() {
     let mut w = workspace(temp.path(), history);
     w.fleet_policy = Ok(Some(fixture.authority.clone()));
     let core = FakeCore::start(&temp.path().join("core.sock"));
-    let machine = |target: &str| json!({"name":"ovh","target":target,"host":"display-name","state":"connected"});
+    let machine = |target: &str| json!({"name":"OVH","target":target,"host":"display-name","state":"connected"});
     core.machines(vec![machine(&ovh.target), legacy["machines"][0].clone()]);
     {
         let db = w.history.db().unwrap();

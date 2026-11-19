@@ -207,10 +207,7 @@ pub(crate) fn disk_stop(
     report: &Report,
     workdir: Option<&str>,
 ) -> Option<DiskEvidence> {
-    let mut floor = worker.thresholds.disk_stop_free_bytes;
-    if worker.machine == "ovh" || worker.id.eq_ignore_ascii_case("ovh") {
-        floor = floor.max(8_000_000_000);
-    }
+    let floor = worker.thresholds.disk_stop_free_bytes;
     let work = workdir.and_then(|path| Some((path, report.work_disks.get(path)?)));
     [report.root_disk.as_ref().map(|disk| ("/", disk)), work]
         .into_iter()

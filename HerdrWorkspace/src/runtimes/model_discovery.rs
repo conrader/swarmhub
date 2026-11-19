@@ -181,6 +181,10 @@ fn cached(core: &str, command: &[u8; 32]) -> Option<Models> {
         .map(|entry| entry.models.clone())
 }
 
+pub(crate) fn launchable_model(agent: ModelAgent, id: &str) -> bool {
+    agent.accepts(id)
+}
+
 fn parse(agent: ModelAgent, output: &str, truncated: bool) -> Option<Models> {
     if output.len() > MAX_OUTPUT.div_ceil(3) * 4 {
         return None;
@@ -197,7 +201,7 @@ fn parse(agent: ModelAgent, output: &str, truncated: bool) -> Option<Models> {
         let mut seen = BTreeSet::new();
         let mut models = Vec::new();
         for id in catalog.ids {
-            if !agent.accepts(&id) || !seen.insert(id.clone()) {
+            if !launchable_model(agent, &id) || !seen.insert(id.clone()) {
                 return None;
             }
             models.push(Model { id, provider: None });
@@ -210,7 +214,7 @@ fn parse(agent: ModelAgent, output: &str, truncated: bool) -> Option<Models> {
     let stdout = std::str::from_utf8(&bytes).ok()?;
     let mut ids = BTreeSet::new();
     for id in stdout.lines().filter(|line| !line.is_empty()) {
-        if !ModelAgent::OpenCode.accepts(id) {
+        if !launchable_model(ModelAgent::OpenCode, id) {
             return None;
         }
         ids.insert(id);

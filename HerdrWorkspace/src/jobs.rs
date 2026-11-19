@@ -42,6 +42,8 @@ pub(crate) struct Runtime {
     pub provider: String,
     pub account_ref: Option<String>,
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
     pub effort: Option<String>,
 }
 
@@ -49,6 +51,7 @@ impl Runtime {
     fn valid(&self) -> bool {
         identifier(&self.provider, 64)
             && self.account_ref.as_deref().is_none_or(|s| identifier(s, 128))
+            && self.family.as_deref().is_none_or(|s| identifier(s, 64))
             && [&self.model, &self.effort]
                 .into_iter()
                 .flatten()

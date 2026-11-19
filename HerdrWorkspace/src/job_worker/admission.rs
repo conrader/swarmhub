@@ -1,6 +1,6 @@
 //! Worker-side admission from protected policy and local fixture captures.
 
-use super::{Result, Worker, store::private_file};
+use super::{Result, Worker, providers, store::private_file};
 use crate::{
     fleet_policy::{Authority, Error as PolicyError, PolicyRef, Role, WorkerDecision},
     history,
@@ -28,6 +28,8 @@ pub(super) struct Manifest {
     pub provider: Provider,
     pub requested_model: Option<String>,
     pub requested_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_run: Option<providers::Request>,
 }
 
 impl Manifest {
@@ -37,6 +39,9 @@ impl Manifest {
             && Path::new(&self.workdir).is_absolute()
             && !self.workdir.chars().any(char::is_control)
             && crate::bots::valid_id(&self.owner_bot_id)
+            && self.provider_run.as_ref().is_none_or(|request| request.valid(
+                self.provider, self.requested_model.as_deref(), self.requested_effort.as_deref(),
+            ))
             && [&self.requested_model, &self.requested_effort].into_iter().flatten()
                 .all(|value| !value.trim().is_empty() && value.len() <= 128 && !value.chars().any(char::is_control))
     }
@@ -52,6 +57,14 @@ pub(super) struct RuntimeReceipt {
     pub cli_version: Option<String>,
     pub verdict: Option<String>,
     pub result_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_eligible: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -69,6 +82,8 @@ pub(super) struct Grant {
     pub heavy_slots: u16,
     pub provider_slots: u16,
     pub account_ref: String,
+    pub runtime_version: Option<String>,
+    pub login_ready: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -229,6 +244,9 @@ impl Admission {
                 heavy_slots: worker.thresholds.heavy_slots,
                 provider_slots,
                 account_ref,
+                runtime_version: report.runtimes.get(&manifest.provider).map(|runtime| runtime.version.clone()),
+                login_ready: report.runtimes.get(&manifest.provider).and_then(|runtime| runtime.ready_ms)
+                    .is_some_and(|ready| now - ready <= worker.thresholds.max_readiness_age_ms),
             }, directory))
         });
         let outcome = match outcome {
@@ -252,7 +270,7 @@ pub(super) fn same_directory(left: &File, right: &File) -> bool {
         .is_some_and(|(left, right)| (left.dev(), left.ino()) == (right.dev(), right.ino()))
 }
 
-fn work_directory(request: &str, project: &str, roots: &[String]) -> std::result::Result<File, Blocker> {
+pub(super) fn work_directory(request: &str, project: &str, roots: &[String]) -> std::result::Result<File, Blocker> {
     let unsafe_path = |path: &Path| path.starts_with("/dev/shm");
     let requested = Path::new(request);
     if unsafe_path(requested) {
@@ -401,4 +419,25 @@ mod tests {
         inputs.heartbeat(history::now() - 1);
         assert_eq!(check(&inputs, root.path(), "one-job").unwrap_err().reason, "policy_heartbeat_lost");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn gapplan_09_unit_canonical_workdir_is_an_exact_enrolled_directory_within_a_root() {
+    use std::{fs, os::unix::fs::symlink};
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path().canonicalize().unwrap();
+    let allowed = root.join("allowed");
+    let sibling = root.join("allowed-sibling");
+    fs::create_dir(&allowed).unwrap();
+    fs::create_dir(&sibling).unwrap();
+    let alias = root.join("alias");
+    symlink(&allowed, &alias).unwrap();
+    let exact = allowed.to_str().unwrap();
+    let roots = [exact.to_owned()];
+    assert!(work_directory(alias.to_str().unwrap(), exact, &roots).is_ok());
+    let outside = sibling.to_str().unwrap();
+    assert_eq!(work_directory(outside, outside, &roots).unwrap_err().reason, "project_not_enrolled");
+    assert_eq!(work_directory(alias.to_str().unwrap(), outside, &roots).unwrap_err().reason, "project_not_enrolled");
+    assert_eq!(work_directory("/dev/shm/fixture", exact, &roots).unwrap_err().reason, "work_disk_not_backed");
 }

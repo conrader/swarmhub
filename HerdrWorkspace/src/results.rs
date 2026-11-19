@@ -50,12 +50,16 @@ pub fn enable(history: &History, record: i64) -> Result<PathBuf, Box<dyn std::er
     Ok(path(history, record))
 }
 
+pub(crate) fn bounded_regular_artifact(meta: &Metadata, limit: usize) -> bool {
+    meta.is_file() && meta.nlink() == 1 && meta.len() <= limit as u64
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 struct Stamp(u64, u64, u64, i64, i64, i64, i64);
 
 impl Stamp {
     fn new(meta: &Metadata) -> Option<Self> {
-        (meta.is_file() && meta.nlink() == 1 && meta.len() <= MAX_FILE as u64).then(|| {
+        bounded_regular_artifact(meta, MAX_FILE as usize).then(|| {
             Self(
                 meta.dev(),
                 meta.ino(),

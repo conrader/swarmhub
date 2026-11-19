@@ -89,7 +89,7 @@ impl Project {
         worker: &'a crate::machines::probe::Enrollment,
     ) -> Option<&'a crate::machines::probe::ProjectPin> {
         worker.projects.iter().find(|pin| {
-            self.machine == worker.machine
+            self.machine.eq_ignore_ascii_case(&worker.machine)
                 && pin.id == self.id
                 && pin.created_ms == self.created_ms
                 && pin.folder == self.folder
@@ -205,15 +205,16 @@ fn grant(db: &mut Connection, key: &str, ids: &[i64]) -> rusqlite::Result<bool> 
 pub(crate) fn names_by_machine(
     history: &History,
 ) -> Result<HashMap<String, Vec<String>>, StoreError> {
-    Ok(by_machine(&*history.db()?)?.into_iter().map(|(machine, projects)| {
+    Ok(by_machine(&*history.db()?, false)?.into_iter().map(|(machine, projects)| {
         (machine, projects.into_iter().map(|project| project.name).collect())
     }).collect())
 }
 
-pub(crate) fn by_machine(db: &Connection) -> Result<HashMap<String, Vec<Project>>, StoreError> {
+pub(crate) fn by_machine(db: &Connection, ignore_case: bool) -> Result<HashMap<String, Vec<Project>>, StoreError> {
     let mut found = HashMap::<_, Vec<_>>::new();
     for project in all(db)? {
-        found.entry(project.machine.clone()).or_default().push(project);
+        let name = if ignore_case { project.machine.to_ascii_lowercase() } else { project.machine.clone() };
+        found.entry(name).or_default().push(project);
     }
     Ok(found)
 }

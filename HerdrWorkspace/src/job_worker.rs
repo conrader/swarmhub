@@ -1,6 +1,7 @@
 //! Worker-local lifecycle for fixed, synthetic jobs. Each launch has its own
 //! session and supervisor, independent of the command that recorded the intent.
 mod admission;
+mod providers;
 mod store;
 
 use crate::{fleet_policy::principals::identifier, history};
@@ -25,7 +26,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use store::{Run, Store};
+use store::{LEASE_MS, Run, Store};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -75,6 +76,20 @@ enum Fixture {
     Group,
 }
 
+// The v2 launch column continues to accept the original fixture strings.
+#[derive(Deserialize, Serialize)]
+#[serde(untagged)]
+enum Launch {
+    Fixture(Fixture),
+    Provider { profile_pin: String },
+}
+
+impl From<Fixture> for Launch {
+    fn from(value: Fixture) -> Self {
+        Self::Fixture(value)
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -92,6 +107,7 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
         Some("_supervise") if let [_, root, token] = args => {
             supervise(Path::new(root), token.to_str().ok_or(USAGE)?)
         }
+        Some("_provider") if let [_, dir] = args => providers::exec(Path::new(dir)),
         Some("_fixture") if let [_, root, fixture] = args => {
             run_fixture(Path::new(root), serde_json::from_str(fixture.to_str().ok_or(USAGE)?)?)
         }
@@ -114,16 +130,20 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
             if !request.worker.valid()
                 || !identifier(&request.attempt.job_id)
                 || request.attempt.number <= 0
-                || (verb == "start") != request.fixture.is_some()
                 || (verb == "start") != request.manifest.is_some()
+                || if let Some(manifest) = &request.manifest {
+                    request.fixture.is_some() == manifest.provider_run.is_some()
+                } else {
+                    request.fixture.is_some()
+                }
                 || request.manifest.as_ref().is_some_and(|manifest| !manifest.valid())
             {
                 return Err("Invalid job worker request.".into());
             }
 
             let mut store = Store::open(Path::new(root), Some(&request.worker))?;
-            if let (Some(fixture), Some(manifest)) = (request.fixture, &request.manifest) {
-                start(&mut store, &request, fixture, manifest)?;
+            if let Some(manifest) = &request.manifest {
+                start(&mut store, &request, manifest)?;
             }
             let view = store.observe(&request.attempt, verb == "cancel", verb == "collect")?;
             let mut out = io::stdout().lock();
@@ -135,12 +155,24 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
     }
 }
 
-fn start(store: &mut Store, request: &Request, fixture: Fixture, manifest: &Manifest) -> Result<()> {
+fn start(store: &mut Store, request: &Request, manifest: &Manifest) -> Result<()> {
     let manifest_digest = digest(&serde_json::to_vec(request)?);
     let launcher = ProcessIdentity::current()?;
-    let Some(token) = store.reserve(&request.attempt, &manifest_digest, fixture, manifest, &launcher, |root, worker| {
-        Admission::open(root).map_err(|_| Blocker::hold("policy_unavailable"))?
-            .check(worker, &request.attempt.job_id, manifest, None).map(|(grant, _)| grant)
+    let Some(token) = store.reserve(&request.attempt, &manifest_digest, manifest, &launcher, |root, worker| {
+        let (grant, _) = Admission::open(root).map_err(|_| Blocker::hold("policy_unavailable"))?
+            .check(worker, &request.attempt.job_id, manifest, None)?;
+        let launch = match (&manifest.provider_run, request.fixture) {
+            (Some(provider_run), None) => {
+                let profile = providers::Profile::load(root, provider_run, manifest.provider,
+                    &grant.account_ref, grant.runtime_version.as_deref())?;
+                Launch::Provider {
+                    profile_pin: profile.pin().map_err(|_| Blocker::hold("runtime_profile_unavailable"))?,
+                }
+            }
+            (None, Some(fixture)) => Launch::Fixture(fixture),
+            _ => return Err(Blocker::hold("invalid_launch")),
+        };
+        Ok((grant, launch))
     })? else {
         return Ok(());
     };
@@ -224,13 +256,41 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
         Ok(admission) => admission,
         Err(_) => return stopped_before_launch(&mut store, token, &run, Blocker::stop("policy_heartbeat_lost")),
     };
-    let directory = match health(&mut store, token, &run, &admission, None) {
-        Ok(directory) => directory,
+    let mut lease_deadline = run.lease_deadline;
+    let (directory, grant) = match launch_health(&mut store, token, &run, &admission, None, &mut lease_deadline) {
+        Ok(ready) => ready,
         Err(stop) => return stopped_before_launch(&mut store, token, &run, stop),
     };
     let (mut channel, child_channel) = UnixStream::pair()?;
-    let arg = serde_json::to_string(&run.fixture)?;
-    let mut command = subprocess([OsStr::new("_fixture"), root.as_os_str(), OsStr::new(&arg)])?;
+    let prepared;
+    let mut provider_io = None;
+    let mut command = match &run.launch {
+        Launch::Fixture(fixture) => {
+            prepared = None;
+            let arg = serde_json::to_string(fixture)?;
+            subprocess([OsStr::new("_fixture"), root.as_os_str(), OsStr::new(&arg)])?
+        }
+        Launch::Provider { profile_pin } => {
+            let request = run.manifest.provider_run.as_ref().ok_or("Missing provider request.")?;
+            let stage = (|| {
+                let profile = providers::Profile::load(root, request, run.manifest.provider,
+                    &run.account_ref, grant.runtime_version.as_deref()).map_err(|_| "Profile is unavailable.")?;
+                if &profile.pin()? != profile_pin {
+                    return Err("Profile pin changed.".into());
+                }
+                profile.stage(root, request, run.manifest.requested_model.as_deref(),
+                    run.manifest.requested_effort.as_deref())
+            })();
+            let invocation = match stage {
+                Ok(invocation) => invocation,
+                Err(_) => return stopped_before_launch(&mut store, token, &run, Blocker::stop("runtime_profile_changed")),
+            };
+            let mut command = subprocess([OsStr::new("_provider"), invocation.path().as_os_str()])?;
+            provider_io = Some(ProviderIo::new(&mut command)?);
+            prepared = Some(invocation);
+            command
+        }
+    };
     command.process_group(0).stdin(Stdio::from(OwnedFd::from(child_channel)));
     let workdir_fd = directory.as_raw_fd();
     // SAFETY: fchdir is async-signal-safe. The parent keeps the verified
@@ -245,18 +305,15 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
     }
     let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(_) => return stopped_before_launch(&mut store, token, &run, Blocker::stop("fixture_spawn_failed")),
+        Err(_) => return stopped_before_launch(&mut store, token, &run, Blocker::stop("child_spawn_failed")),
     };
-
-    // Command owns a duplicate of the child's socket endpoint until it is dropped.
     drop(command);
 
-    // EOF before the release byte makes the child exit without running the
-    // fixture, including when this supervisor dies before the DB write.
+    // EOF before the release byte leaves the child unable to execute a provider.
     let registered = (|| {
         let identity = ProcessIdentity::read(child.id() as i32)
             .filter(|process| process.pid == process.group)
-            .ok_or("Could not establish the fixture process group identity.")?;
+            .ok_or("Could not establish the child process group identity.")?;
         #[cfg(test)]
         checkpoint(root, "before-child-registration", &identity)?;
         let cancelled = store.register_child(token, &identity)?;
@@ -265,13 +322,20 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
     let (identity, cancelled) = match registered {
         Ok((identity, Some(cancelled))) => (identity, cancelled),
         other => {
-            drop(channel);
+            // Explicit shutdown also reaches the child if another process inherited a descriptor.
+            let _ = channel.shutdown(Shutdown::Both);
             child.wait()?;
             return other.map(|_| ());
         }
     };
 
-    let mut stop = health(&mut store, token, &run, &admission, Some(&directory)).err();
+    let mut stop = match launch_health(&mut store, token, &run, &admission, Some(&directory), &mut lease_deadline) {
+        Ok((_, grant)) if prepared.as_ref().is_some_and(|attempt| {
+            grant.runtime_version.as_deref() != Some(attempt.version.as_str())
+        }) => Some(Blocker::stop("runtime_version_changed")),
+        Ok(_) => None,
+        Err(stop) => Some(stop),
+    };
     let mut sent_cancel = false;
     if let Some(reason) = &stop {
         store.record_stop(token, reason);
@@ -279,60 +343,107 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
     if cancelled {
         sent_cancel = cancel_group(&child, &identity).unwrap_or(false);
     } else if stop.is_none() {
-        // If the child died before release, still reap it and record its exit.
         let _ = channel.write_all(&[RELEASE]);
     }
     let _ = channel.shutdown(Shutdown::Write);
-    // Drain while the child can still write. The fixture group member has no
-    // copy of the socket, so this reader reaches EOF when the leader dies.
-    let capture = thread::Builder::new()
-        .spawn(move || read_output(channel).unwrap_or_default())
-        .ok();
-
+    let capture = if prepared.is_none() {
+        thread::Builder::new().spawn(move || read_output(channel).unwrap_or_default()).ok()
+    } else {
+        None
+    };
+    let deadline = prepared.as_ref().map(|attempt| Instant::now() + attempt.timeout);
     let mut next_probe = Instant::now() + PROBE_INTERVAL;
+    let mut cancel_verified = history::now();
     let exit = loop {
-        if let Some(exit) = child.try_wait()? {
+        if let Some(capture) = &mut provider_io {
+            capture.drain();
+        }
+        if let Some(exit) = reap(&mut child, prepared.is_some())? {
             break exit;
         }
         if !sent_cancel {
-            if stop.is_none() && Instant::now() >= next_probe {
-                stop = health(&mut store, token, &run, &admission, Some(&directory)).err();
-                if let Some(reason) = &stop {
-                    store.record_stop(token, reason);
-                }
+            if stop.is_none() && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                stop = Some(Blocker::stop("runtime_timeout"));
+            }
+            if stop.is_none() && (Instant::now() >= next_probe || history::now() >= lease_deadline) {
                 next_probe = Instant::now() + PROBE_INTERVAL;
+                match health(&mut store, token, &run, &admission, Some(&directory)) {
+                    Ok((_, _, until)) => lease_deadline = until,
+                    Err(reason) if retry_health(&reason, lease_deadline) => next_probe = Instant::now() + POLL,
+                    Err(reason) => stop = Some(reason),
+                }
             }
             let cancelled = stop.is_none() && match store.cancel_pending(token) {
-                Ok(cancelled) => cancelled,
+                Ok(cancelled) => {
+                    cancel_verified = history::now();
+                    cancelled
+                }
+                Err(error) if sqlite_busy(&error) && history::now() < (cancel_verified + LEASE_MS).min(lease_deadline) => false,
                 Err(_) => {
-                    let reason = Blocker::stop("lease_unavailable");
-                    store.record_stop(token, &reason);
-                    stop = Some(reason);
+                    stop = Some(Blocker::stop("lease_unavailable"));
                     false
                 }
             };
             if stop.is_some() || cancelled {
                 let signalled = cancel_group(&child, &identity).unwrap_or(false);
                 sent_cancel = cancelled && signalled;
+                if signalled && let Some(reason) = &stop {
+                    store.record_stop(token, reason);
+                }
             }
         }
         thread::sleep(POLL);
     };
 
-    // A broken output channel cannot erase an exit that was already observed.
-    let output = capture.and_then(|reader| reader.join().ok()).unwrap_or_default();
     let deadline = Instant::now() + GROUP_WAIT;
     while !identity.group_ended() && Instant::now() < deadline {
         thread::sleep(POLL);
     }
+    let output = capture.and_then(|reader| reader.join().ok()).unwrap_or_default();
     let mut receipt = Receipt::new(exit, sent_cancel, output);
-    receipt.set_runtime(&run);
+    if let (Some(prepared), Some(mut capture)) = (prepared, provider_io) {
+        // The leader has exited. Collect buffered data without waiting for EOF
+        // from a descendant that inherited a socket.
+        capture.drain();
+        let output = prepared.collect(&capture.events.bytes, &capture.diagnostics.bytes,
+            exit.success() && stop.is_none());
+        receipt.set_provider(&run, output, stop.as_ref());
+    } else {
+        receipt.set_runtime(&run);
+    }
     store.finish(token, &receipt, stop.as_ref(), identity.group_ended())
+}
+
+fn sqlite_busy(error: &rusqlite::Error) -> bool {
+    matches!(error.sqlite_error_code(), Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+}
+
+fn retry_health(reason: &Blocker, lease_deadline: i64) -> bool {
+    matches!(reason.reason.as_str(), "policy_busy" | "lease_busy") && history::now() < lease_deadline
+}
+
+fn launch_health(
+    store: &mut Store, token: &str, run: &Run, admission: &Admission, launched_in: Option<&File>,
+    lease_deadline: &mut i64,
+) -> std::result::Result<(File, admission::Grant), Blocker> {
+    loop {
+        match health(store, token, run, admission, launched_in) {
+            Ok((directory, grant, until)) => {
+                *lease_deadline = until;
+                if run.manifest.provider_run.is_some() && !grant.login_ready {
+                    return Err(Blocker::stop("login_stale"));
+                }
+                return Ok((directory, grant));
+            }
+            Err(reason) if retry_health(&reason, *lease_deadline) => thread::sleep(POLL),
+            Err(reason) => return Err(reason),
+        }
+    }
 }
 
 fn health(
     store: &mut Store, token: &str, run: &Run, admission: &Admission, launched_in: Option<&File>,
-) -> std::result::Result<File, Blocker> {
+) -> std::result::Result<(File, admission::Grant, i64), Blocker> {
     let (grant, directory) = admission.check(&store.worker, &run.job_id, &run.manifest, Some(&run.policy))?;
     if launched_in.is_some_and(|original| !same_directory(original, &directory)) {
         return Err(Blocker::stop("workdir_changed"));
@@ -341,16 +452,100 @@ fn health(
         return Err(Blocker::stop("exception_expired"));
     }
     match store.renew(token, run, &grant) {
-        Ok(true) => Ok(directory),
-        Ok(false) => Err(Blocker::stop("lease_expired")),
+        Ok(Some(until)) => Ok((directory, grant, until)),
+        Ok(None) => Err(Blocker::stop("lease_expired")),
+        Err(error) if sqlite_busy(&error) => Err(Blocker::stop("lease_busy")),
         Err(_) => Err(Blocker::stop("lease_unavailable")),
+    }
+}
+
+// The provider leader stays waitable until its group is signalled. Holding
+// its PID prevents reuse between observing its exit and cleaning up the group.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn reap(child: &mut Child, provider: bool) -> io::Result<Option<ExitStatus>> {
+    if !provider {
+        return child.try_wait();
+    }
+    let pid = child.id() as i32;
+    // SAFETY: waitid writes a siginfo record. With WNOHANG, an empty record has si_pid=0.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT)
+    };
+    if result == -1 {
+        let error = io::Error::last_os_error();
+        return if error.kind() == io::ErrorKind::Interrupted { Ok(None) } else { Err(error) };
+    }
+    if unsafe { info.si_pid() } == 0 {
+        return Ok(None);
+    }
+    // SAFETY: this is our unreaped child, spawned as the leader of this group.
+    unsafe { libc::kill(-pid, libc::SIGKILL) };
+    child.wait().map(Some)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn reap(child: &mut Child, _provider: bool) -> io::Result<Option<ExitStatus>> {
+    child.try_wait()
+}
+
+struct Capture {
+    socket: UnixStream,
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl Capture {
+    fn new(limit: usize) -> io::Result<(Self, Stdio)> {
+        let (socket, writer) = UnixStream::pair()?;
+        socket.set_nonblocking(true)?;
+        Ok((Self { socket, bytes: Vec::new(), limit }, Stdio::from(OwnedFd::from(writer))))
+    }
+
+    fn drain(&mut self) {
+        let mut buffer = [0; 8192];
+        // A flooding child cannot starve the timeout or policy checks.
+        for _ in 0..16 {
+            match self.socket.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    let keep = count.min(self.limit.saturating_sub(self.bytes.len()));
+                    self.bytes.extend_from_slice(&buffer[..keep]);
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+    }
+}
+
+struct ProviderIo {
+    events: Capture,
+    diagnostics: Capture,
+}
+
+impl ProviderIo {
+    fn new(command: &mut Command) -> io::Result<Self> {
+        let (events, stdout) = Capture::new(providers::EVENTS_LIMIT + 1)?;
+        let (diagnostics, stderr) = Capture::new(LOG_LIMIT)?;
+        command.stdout(stdout).stderr(stderr);
+        Ok(Self { events, diagnostics })
+    }
+
+    fn drain(&mut self) {
+        self.events.drain();
+        self.diagnostics.drain();
     }
 }
 
 fn stopped_before_launch(store: &mut Store, token: &str, run: &Run, stop: Blocker) -> Result<()> {
     let mut receipt = Receipt::new(ExitStatus::from_raw(0), false, Output::default());
     receipt.code = None;
-    receipt.set_runtime(run);
+    if run.manifest.provider_run.is_some() {
+        receipt.set_provider(run, providers::Collected::default(), Some(&stop));
+    } else {
+        receipt.set_runtime(run);
+    }
     store.finish(token, &receipt, Some(&stop), true)
 }
 
@@ -479,6 +674,8 @@ struct Receipt {
     result_truncated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     runtime: Option<RuntimeReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime_failure: Option<String>,
 }
 
 impl Receipt {
@@ -491,6 +688,7 @@ impl Receipt {
             result: exit.success().then_some(output.result).flatten(),
             result_truncated: output.result_truncated,
             runtime: None,
+            runtime_failure: None,
         }
     }
 
@@ -500,6 +698,46 @@ impl Receipt {
             account_ref: Some(run.account_ref.clone()),
             result_digest: self.result.as_ref().map(|result| digest(result.as_bytes())),
             ..RuntimeReceipt::default()
+        });
+    }
+
+    fn provider_run(&self) -> bool {
+        self.runtime.as_ref().is_some_and(|runtime| runtime.profile.is_some())
+    }
+
+    fn set_provider(&mut self, run: &Run, output: providers::Collected, stop: Option<&Blocker>) {
+        self.log = output.log;
+        self.result = output.result;
+        self.result_truncated = output.truncated;
+        let (verdict, failure) = if stop.is_some() {
+            ("interrupted", None)
+        } else if self.cancelled {
+            ("cancelled", None)
+        } else if self.signal.is_some() {
+            ("interrupted", None)
+        } else if self.code != Some(0) {
+            ("failed", Some("nonzero_exit"))
+        } else if let Some(failure) = output.failure {
+            ("failed", Some(failure))
+        } else {
+            ("succeeded", None)
+        };
+        self.runtime_failure = failure.map(str::to_owned);
+        let review_eligible = verdict == "succeeded"
+            && output.observed.family.is_some() && output.observed.version.is_some();
+        self.runtime = Some(RuntimeReceipt {
+            provider: Some(run.manifest.provider),
+            account_ref: Some(run.account_ref.clone()),
+            observed_model: output.observed.model,
+            observed_family: output.observed.family.map(str::to_owned),
+            observed_effort: output.observed.effort,
+            cli_version: output.observed.version,
+            verdict: Some(verdict.into()),
+            result_digest: self.result.as_ref().map(|result| digest(result.as_bytes())),
+            requested_model: run.manifest.requested_model.clone(),
+            requested_effort: run.manifest.requested_effort.clone(),
+            profile: run.manifest.provider_run.as_ref().map(|request| request.profile.clone()),
+            review_eligible: Some(review_eligible),
         });
     }
 

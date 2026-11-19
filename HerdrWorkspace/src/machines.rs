@@ -478,7 +478,7 @@ fn view(
         } => policy
             .workers
             .iter()
-            .find(|worker| worker.machine == machine.name)
+            .find(|worker| worker.machine.eq_ignore_ascii_case(&machine.name))
             .map_or_else(
                 || probe::Card::held(probe::Reason::Uncommissioned),
                 |worker| {
@@ -512,11 +512,11 @@ async fn views(w: &Workspace) -> Result<Value, Refusal> {
     };
     let views = {
         let db = w.history.db().map_err(|error| Box::new(error.into_response()))?;
-        let mut projects = crate::projects::by_machine(&db)
+        let mut projects = crate::projects::by_machine(&db, true)
             .map_err(|error| Box::new(error.into_response()))?;
         let now = crate::history::now();
         machines.into_iter().map(|machine| {
-            let local_projects = projects.remove(&machine.name).unwrap_or_default();
+            let local_projects = projects.remove(&machine.name.to_ascii_lowercase()).unwrap_or_default();
             view(&db, &policy, machine, local_projects, now)
         }).collect::<Vec<_>>()
     };
@@ -532,7 +532,7 @@ fn current_view(w: &Workspace, machine: core::Machine) -> View {
     let policy = worker_policy(w);
     let read = || {
         let db = w.history.db()?;
-        let projects = crate::projects::by_machine(&db)?.remove(&machine.name).unwrap_or_default();
+        let projects = crate::projects::by_machine(&db, true)?.remove(&machine.name.to_ascii_lowercase()).unwrap_or_default();
         Ok::<_, crate::history::StoreError>((db, projects))
     };
     match read() {

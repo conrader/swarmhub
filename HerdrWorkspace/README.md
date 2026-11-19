@@ -786,7 +786,7 @@ Projects:
 
 On macOS or Linux, the worker account supplies a private local directory (mode `0700`) with an account-owned `identity.json` (mode `0600`). Its `id` and `host_fingerprint` come from the worker enrollment. The fingerprint uses the same `SHA256:` encoding as the machine API. The worker creates or upgrades its local `attempts.sqlite3` to schema 2 and binds it to that identity.
 
-Run `swarmhub-herdr job-worker <verb> <state-dir>` with a single JSON object on stdin. The request limit is 4 KiB. Each verb takes `protocol`, `worker`, and `attempt`. The `start` verb requires a fixed `fixture` and the enrolled project manifest. The [fixture setup](../docs/architecture.md) describes the private admission configuration, signed probe and policy heartbeat.
+Run `swarmhub-herdr job-worker <verb> <state-dir>` with a single JSON object on stdin. The request limit is 4 KiB. Each verb takes `protocol`, `worker`, and `attempt`. The `start` verb requires the enrolled project manifest and either a fixed `fixture` or a `manifest.provider_run`. The [fixture setup](../docs/architecture.md) describes the private admission configuration, signed probe and policy heartbeat.
 
 ```json
 {
@@ -809,11 +809,17 @@ Run `swarmhub-herdr job-worker <verb> <state-dir>` with a single JSON object on 
 | `start` | Reserves capacity and records a durable start intent together when admission succeeds, then starts a detached supervisor. Retrying a queued or held manifest rechecks admission. Repeating an admitted manifest returns the current state. A different manifest for the same attempt is an error. |
 | `status` | Returns one JSON object with state, manifest digest if known, and any recorded exit and artifact references. |
 | `cancel` | Records a request for the current supervisor to stop its verified fixture process group. An already settled attempt returns its existing status. |
-| `collect` | Returns status and the bounded log and result text when available. `log_ref` and `result_ref` are opaque labels scoped to the requested attempt. |
+| `collect` | Returns status and the available artifact references. The original deterministic fixtures also return their bounded log and result text. |
 
 The available fixtures are `success`, `nonzero`, `oversized`, and `group`. The supervisor records the child PID, process group, and birth identity before releasing the child. A lost launch connection can be followed by `status` or `collect` from another process. `missing` means this store has no such attempt. `unknown` means the worker has an intent but cannot confirm its start or exit. Repeating `start` preserves that intent for reconciliation. A confirmed outcome stores the exit and artifact references together. Results over 4 KiB set `result_truncated` and have no result reference or digest. Log text is bounded to 1 KiB.
 
-This protocol runs fixed local fixtures. An enrolled workdir is required. Runtime metadata uses opaque account references, and later slices connect the provider adapters and coordinator.
+For a local Claude or Codex double, omit `fixture` and add `"provider_run": {"profile": "local", "brief": "Inspect the fixture"}` to the manifest. Set `provider` to `claude` or `codex` and supply optional `requested_model` and `requested_effort`. A brief takes up to 3,000 UTF-8 bytes within the 4 KiB request. The worker passes it on stdin in the canonical enrolled workdir. The runner inherits the worker's OS identity, a private fixture home and a fixed environment.
+
+The worker account stages its local double at `fixture-runtimes/<profile>/runner` under the state directory. The directory tree and its `home` are private to the worker account. Set mode `0700` on the runner and mode `0600` on `profile.json`. The profile contains `provider`, `account_ref`, `cli_version`, `executable_sha256` and `timeout_ms` from 1 to 60,000. The signed admission evidence must show the same provider and version, the enrolled account reference and current login readiness. Admission pins the profile, and the supervisor checks it again before executing a private copy of the pinned runner.
+
+Claude doubles emit stream JSON with a `system/init` observation and a successful final `result` event. Codex doubles emit JSON lines with a `runtime.observed` event for model, effort and CLI version, finish with `turn.completed`, and write the last message to the fixed attempt artifact path. The worker only reports observed fields supplied by the runtime. A result with unknown model family or missing CLI version is ineligible as review evidence. A missing, oversized or malformed result cannot yield a successful verdict.
+
+Provider diagnostics and validated result text remain in the worker's private ledger. The protocol returns opaque `log_ref` and `result_ref` labels scoped to the attempt, plus its result digest and runtime receipt. The adapters are exercised with local doubles and synthetic login state. Managed coordinator dispatch and recovery attach in slice 10.
 
 ## Keep an agent profile
 

@@ -184,7 +184,7 @@ pub(crate) fn valid_enrollments(workers: &[Enrollment]) -> bool {
     workers.iter().all(|worker| {
         worker.valid()
             && ids.insert(&worker.id)
-            && machines.insert(&worker.machine)
+            && machines.insert(worker.machine.to_ascii_lowercase())
             && targets.insert(&worker.target)
             && keys.insert(worker.key())
             && worker.projects.iter().all(|project| projects.insert(project.id))

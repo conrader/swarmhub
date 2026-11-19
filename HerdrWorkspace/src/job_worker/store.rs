@@ -1,5 +1,5 @@
 use super::{
-    Attempt, Fixture, ProcessIdentity, Receipt, Result, Worker, digest,
+    Attempt, Launch, ProcessIdentity, Receipt, Result, Worker, digest,
     admission::{Blocker, Exception, Grant, Manifest, RuntimeReceipt},
 };
 use crate::{fleet_policy::PolicyRef, history};
@@ -78,12 +78,13 @@ const SCHEMA_V2: &str = "
 pub(super) const LEASE_MS: i64 = 2_000;
 
 pub(super) struct Run {
-    pub fixture: Fixture,
+    pub launch: Launch,
     pub job_id: String,
     pub manifest: Manifest,
     pub policy: PolicyRef,
     pub account_ref: String,
     pub exception: Option<Exception>,
+    pub lease_deadline: i64,
 }
 
 pub(super) struct Store {
@@ -206,10 +207,9 @@ impl Store {
         &mut self,
         attempt: &Attempt,
         manifest_digest: &str,
-        fixture: Fixture,
         manifest: &Manifest,
         launcher: &ProcessIdentity,
-        check: impl FnOnce(&Path, &Worker) -> std::result::Result<Grant, Blocker>,
+        check: impl FnOnce(&Path, &Worker) -> std::result::Result<(Grant, Launch), Blocker>,
     ) -> Result<Option<String>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let existing = tx.query_row(
@@ -235,7 +235,7 @@ impl Store {
             params![attempt.job_id, attempt.number, manifest_digest, serde_json::to_string(manifest)?],
         )?;
         let grant = check(&self.root, &self.worker);
-        let reservation = grant.and_then(|grant| {
+        let reservation = grant.and_then(|(grant, launch)| {
             let now = history::now();
             if grant.heartbeat_deadline <= now {
                 return Err(Blocker::stop("policy_heartbeat_lost"));
@@ -243,9 +243,9 @@ impl Store {
             if grant.exception.as_ref().is_some_and(|exception| exception.expires_ms <= now) {
                 return Err(Blocker::hold("exception_expired"));
             }
-            Ok((grant, now))
+            Ok((grant, launch, now))
         });
-        let (grant, now) = match reservation {
+        let (grant, launch, now) = match reservation {
             Ok(reservation) => reservation,
             Err(blocker) => {
                 save_blocker(&tx, attempt, &blocker)?;
@@ -282,7 +282,7 @@ impl Store {
                 return Ok(None);
             }
         };
-        let token = insert_attempt(&tx, attempt, manifest_digest, fixture, launcher)?;
+        let token = insert_attempt(&tx, attempt, manifest_digest, launch, launcher)?;
         tx.execute(
             "INSERT INTO leases(worker_id,class,slot,job_id,attempt,token,provider,heartbeat_ms,expires_ms,policy_generation)
              VALUES (?1,'heavy',?2,?3,?4,?5,?6,?7,?8,?9)",
@@ -365,28 +365,29 @@ impl Store {
 
     pub(super) fn run(&self, token: &str, supervisor: &ProcessIdentity) -> Result<Option<Run>> {
         Ok(self.db.query_row(
-            "SELECT a.fixture,a.job_id,b.manifest,b.policy,b.account_ref,b.exception
+            "SELECT a.fixture,a.job_id,b.manifest,b.policy,b.account_ref,b.exception,l.expires_ms
              FROM attempts a JOIN attempt_admission b USING(job_id,attempt)
              JOIN leases l ON a.start_token=l.token
              WHERE l.token=?1 AND a.status='dispatching' AND a.supervisor=?2",
             params![token, serde_json::to_string(supervisor)?],
             |row| Ok(Run {
-                fixture: json(row, 0)?,
+                launch: json(row, 0)?,
                 job_id: row.get(1)?,
                 manifest: json(row, 2)?,
                 policy: json(row, 3)?,
                 account_ref: row.get(4)?,
                 exception: optional_json(row, 5)?,
+                lease_deadline: row.get(6)?,
             }),
         ).optional()?)
     }
 
-    pub(super) fn renew(&mut self, token: &str, run: &Run, grant: &Grant) -> Result<bool> {
+    pub(super) fn renew(&mut self, token: &str, run: &Run, grant: &Grant) -> rusqlite::Result<Option<i64>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = history::now();
         let until = lease_until(now, grant.heartbeat_deadline, run.exception.as_ref());
         if until <= now {
-            return Ok(false);
+            return Ok(None);
         }
         let updated = tx.execute(
             "UPDATE leases SET heartbeat_ms=?2,expires_ms=?3
@@ -394,13 +395,13 @@ impl Store {
             params![token, now, until, run.policy.generation],
         )? == 1;
         tx.commit()?;
-        Ok(updated)
+        Ok(updated.then_some(until))
     }
 
-    pub(super) fn register_supervisor(&mut self, token: &str, identity: &ProcessIdentity) -> Result<Option<Fixture>> {
+    pub(super) fn register_supervisor(&mut self, token: &str, identity: &ProcessIdentity) -> Result<Option<Launch>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        // Once pinned, only that supervisor can use the token to obtain the fixture.
-        let fixture = tx.query_row(
+        // Once pinned, only that supervisor can use the token to load the launch.
+        let launch = tx.query_row(
             "UPDATE attempts SET supervisor=?2
              WHERE start_token=?1 AND status='dispatching' AND (supervisor IS NULL OR supervisor=?2)
              RETURNING fixture",
@@ -408,7 +409,7 @@ impl Store {
             |row| json(row, 0),
         ).optional()?;
         tx.commit()?;
-        Ok(fixture)
+        Ok(launch)
     }
 
     pub(super) fn register_child(&mut self, token: &str, identity: &ProcessIdentity) -> Result<Option<bool>> {
@@ -424,12 +425,12 @@ impl Store {
         Ok(cancelled)
     }
 
-    pub(super) fn cancel_pending(&self, token: &str) -> Result<bool> {
-        Ok(self.db.query_row(
+    pub(super) fn cancel_pending(&self, token: &str) -> rusqlite::Result<bool> {
+        self.db.query_row(
             "SELECT cancel_requested FROM attempts WHERE start_token=?1",
             [token],
             |row| row.get(0),
-        )?)
+        )
     }
 
     pub(super) fn record_stop(&self, token: &str, reason: &Blocker) {
@@ -482,13 +483,13 @@ fn write_stop(db: &Connection, token: &str, stop: &Blocker) -> Result<()> {
 }
 
 fn insert_attempt(
-    tx: &Connection, attempt: &Attempt, manifest_digest: &str, fixture: Fixture, launcher: &ProcessIdentity,
+    tx: &Connection, attempt: &Attempt, manifest_digest: &str, launch: impl Into<Launch>, launcher: &ProcessIdentity,
 ) -> Result<String> {
     Ok(tx.query_row(
         "INSERT INTO attempts(job_id,attempt,manifest_digest,fixture,start_token,launcher,status)
          VALUES (?1,?2,?3,?4,lower(hex(randomblob(16))),?5,'dispatching')
          RETURNING start_token",
-        params![attempt.job_id, attempt.number, manifest_digest, serde_json::to_string(&fixture)?,
+        params![attempt.job_id, attempt.number, manifest_digest, serde_json::to_string(&launch.into())?,
             serde_json::to_string(launcher)?],
         |row| row.get(0),
     )?)
@@ -553,11 +554,13 @@ impl View {
         let status = stored.as_ref().map_or("missing", |stored| stored.status.as_str());
         let admission = stored.as_ref().and_then(|stored| stored.admission.clone());
         let stop = admission.as_ref().filter(|_| status == "interrupted");
+        let include_text = collect && !receipt.is_some_and(Receipt::provider_run);
         let mut view = Self {
             status: if stop.is_some() { "stopped".into() } else { status.into() },
             manifest_digest: stored.as_ref().map(|stored| stored.manifest_digest.clone()),
             reason: stored.as_ref().and_then(|stored| stored.unknown_reason.clone())
-                .or_else(|| stop.map(|blocker| blocker.reason.clone())),
+                .or_else(|| stop.map(|blocker| blocker.reason.clone()))
+                .or_else(|| receipt.and_then(|receipt| receipt.runtime_failure.clone())),
             admission,
             policy: None,
             exception: None,
@@ -569,8 +572,8 @@ impl View {
             result_ref: result.map(|_| "result"),
             result_digest: result.map(|text| digest(text.as_bytes())),
             result_truncated: receipt.is_some_and(|receipt| receipt.result_truncated),
-            log: log.filter(|_| collect).cloned(),
-            result: result.filter(|_| collect).cloned(),
+            log: log.filter(|_| include_text).cloned(),
+            result: result.filter(|_| include_text).cloned(),
         };
         if let Some(stored) = stored.take() {
             view.policy = stored.policy;
@@ -618,6 +621,7 @@ fn decode<T: DeserializeOwned>(text: &str, index: usize) -> rusqlite::Result<T> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::job_worker::Fixture;
     use crate::job_worker::tests::{Inputs, init};
     use std::os::unix::{fs::PermissionsExt, process::ExitStatusExt};
 
@@ -640,14 +644,14 @@ mod tests {
         let start = input.started_request("fixture-job", 1);
         let manifest: Manifest = serde_json::from_value(start["manifest"].clone()).unwrap();
         let check = |root: &Path, worker: &Worker| super::super::admission::Admission::open(root).unwrap()
-            .check(worker, "fixture-job", &manifest, None).map(|(grant, _)| grant);
+            .check(worker, "fixture-job", &manifest, None).map(|(grant, _)| (grant, Launch::Fixture(Fixture::Success)));
         let mut first = Store::open(root.path(), Some(&worker)).unwrap();
         let mut second = Store::open(root.path(), None).unwrap();
         let launcher = ProcessIdentity::current().unwrap();
         let attempt = attempt();
-        let token = first.reserve(&attempt, "manifest-a", Fixture::Success, &manifest, &launcher, check).unwrap().unwrap();
-        assert!(second.reserve(&attempt, "manifest-a", Fixture::Success, &manifest, &launcher, check).unwrap().is_none());
-        assert!(second.reserve(&attempt, "manifest-b", Fixture::Nonzero, &manifest, &launcher, check).is_err());
+        let token = first.reserve(&attempt, "manifest-a", &manifest, &launcher, check).unwrap().unwrap();
+        assert!(second.reserve(&attempt, "manifest-a", &manifest, &launcher, check).unwrap().is_none());
+        assert!(second.reserve(&attempt, "manifest-b", &manifest, &launcher, check).is_err());
         assert!(first.register_supervisor(&token, &launcher).unwrap().is_some());
         let other = ProcessIdentity { birth: "previous process".into(), ..launcher };
         assert!(second.register_supervisor(&token, &other).unwrap().is_none());

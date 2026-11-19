@@ -28,6 +28,7 @@ pub(crate) fn submission() -> Submission {
             provider: "codex".into(),
             account_ref: Some("fixture-requested".into()),
             model: Some("fixture-model".into()),
+            family: None,
             effort: Some("medium".into()),
         },
     }
@@ -44,6 +45,7 @@ pub(crate) fn report(exit: Exit) -> Report {
             provider: "codex".into(),
             account_ref: Some("fixture-observed".into()),
             model: Some("fixture-resolved-model".into()),
+            family: Some("codex".into()),
             effort: Some("high".into()),
         }),
         observed_cli_version: Some("fixture-cli 1.2.3".into()),

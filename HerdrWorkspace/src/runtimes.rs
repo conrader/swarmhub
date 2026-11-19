@@ -393,6 +393,23 @@ impl Entry {
     }
 }
 
+/// Provider family for a resolved model ID. Bare aliases carry no evidence.
+pub(crate) fn observed_provider_family(agent: ModelAgent, id: &str) -> Option<&'static str> {
+    if !agent.accepts(id) {
+        return None;
+    }
+    match agent {
+        ModelAgent::Claude if ["claude-opus-", "claude-sonnet-", "claude-haiku-", "claude-fable-"]
+            .iter().any(|prefix| id.strip_prefix(prefix).is_some_and(|version| {
+                version.as_bytes().first().is_some_and(u8::is_ascii_digit)
+            })) => Some("claude"),
+        ModelAgent::Codex if id.strip_prefix("gpt-").is_some_and(|version| {
+            version.as_bytes().first().is_some_and(u8::is_ascii_digit)
+        }) => Some("codex"),
+        _ => None,
+    }
+}
+
 fn valid_model_id(id: &str) -> bool {
     id.len() <= 160
         && starts_alphanumeric(id)

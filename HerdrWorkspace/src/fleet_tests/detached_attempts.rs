@@ -595,3 +595,363 @@ fn gapplan_08_int_supervisor_waits_for_the_durable_pin_during_store_contention()
     fs::remove_file(registration).unwrap();
     assert_eq!(worker.state("exited")["exit_code"], 0);
 }
+
+const FIXTURE_BRIEF: &str = "--literal\n$(exit 91)\nreview this fixture";
+const PRIVATE_DIAGNOSTIC: &str = "fixture-private-diagnostic";
+
+fn fake_profile(worker: &Worker, provider: &str, outcome: &str, timeout_ms: u64) {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+    let profiles = worker.root.join("fixture-runtimes");
+    let profile = profiles.join("local");
+    for path in [&profiles, &profile, &profile.join("home")] {
+        if !path.exists() {
+            fs::DirBuilder::new().mode(0o700).create(path).unwrap();
+        }
+    }
+    fs::write(profile.join("home/synthetic-login"), "fixture-login").unwrap();
+    let mut script = format!(r#"#!/bin/sh
+set -eu
+outcome='{outcome}'
+[ "$(/bin/cat "$HOME/synthetic-login")" = fixture-login ]
+[ -z "${{COORDINATOR_FIXTURE_SENTINEL+x}}" ]
+[ "$(/bin/pwd -P)" = '{workdir}' ]
+[ "$(/bin/cat)" = '{FIXTURE_BRIEF}' ]
+printf '%s\n' '{PRIVATE_DIAGNOSTIC}' >&2
+case "$outcome" in
+    timeout) /bin/sleep 20 ;;
+    flood) /usr/bin/head -c 131072 /dev/zero >&2 ;;
+    malformed) printf '%s\n' 'broken fixture json'; exit 0 ;;
+    inherited) /bin/sleep 20 & ;;
+esac
+"#, workdir = worker.inputs.enrollment.projects[0].folder);
+    if provider == "claude" {
+        script.push_str(r#"
+[ "$*" = '--print --output-format stream-json --verbose --permission-mode plan --model claude-opus-5 --effort medium' ]
+printf '%s\n' '{"type":"system","subtype":"init","model":"claude-sonnet-5","effort":"high","claude_code_version":"fixture-1.0"}'
+if [ "$outcome" = missing ]; then
+    printf '%s\n' '{"type":"result","subtype":"success","is_error":false}'
+else
+    printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"Claude fixture result"}'
+fi
+"#);
+    } else {
+        script.push_str(r#"
+[ "$1 $2 $3 $4 $5 $6 $7 $8" = 'exec --json --sandbox read-only --color never --skip-git-repo-check --output-last-message' ]
+artifact="$9"
+shift 9
+[ "$*" = '--model gpt-6.1-sol -c model_reasoning_effort="medium" -' ]
+if [ "$outcome" = unknown ]; then
+    printf '%s\n' '{"type":"runtime.observed","model":"fixture-unknown","cli_version":"fixture-1.0"}'
+else
+    printf '%s\n' '{"type":"runtime.observed","model":"gpt-6.2-sol","effort":"high","cli_version":"fixture-1.0"}'
+fi
+case "$outcome" in
+    missing) ;;
+    oversized) /usr/bin/head -c 8192 /dev/zero > "$artifact" ;;
+    linked) /bin/ln -s "$HOME/synthetic-login" "$artifact" ;;
+    *) printf '%s\n' 'Codex fixture result' > "$artifact" ;;
+esac
+printf '%s\n' '{"type":"turn.completed"}'
+"#);
+    }
+    let runner = profile.join("runner");
+    fs::write(&runner, script.as_bytes()).unwrap();
+    fs::set_permissions(runner, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::job_worker::tests::write_local(&profile, "profile.json", &serde_json::json!({
+        "provider": provider,
+        "account_ref": if provider == "claude" { "fixture-claude-account" } else { "fixture-shared-account" },
+        "cli_version": "fixture-1.0",
+        "executable_sha256": format!("{:x}", Sha256::digest(script.as_bytes())),
+        "timeout_ms": timeout_ms,
+    }));
+}
+
+fn provider_request(worker: &Worker, provider: &str) -> Value {
+    let mut input = worker.request.clone();
+    input["manifest"]["provider"] = provider.into();
+    input["manifest"]["requested_model"] = if provider == "claude" { "claude-opus-5" } else { "gpt-6.1-sol" }.into();
+    input["manifest"]["provider_run"] = serde_json::json!({"profile":"local","brief":FIXTURE_BRIEF});
+    input
+}
+
+fn durable_receipt(worker: &Worker) -> Value {
+    let receipt: String = worker.db().query_row("SELECT receipt FROM attempts", [], |row| row.get(0)).unwrap();
+    serde_json::from_str(&receipt).unwrap()
+}
+
+#[test]
+fn gapplan_09_int_claude_and_codex_collect_observed_identity_and_safe_references() {
+    use sha2::{Digest, Sha256};
+
+    for (provider, requested, observed, result, account) in [
+        ("claude", "claude-opus-5", "claude-sonnet-5", "Claude fixture result", "fixture-claude-account"),
+        ("codex", "gpt-6.1-sol", "gpt-6.2-sol", "Codex fixture result\n", "fixture-shared-account"),
+    ] {
+        let scratch = tempfile::tempdir().unwrap();
+        let journal_dir = scratch.path().join("journal");
+        let journal = reopen_journal(&journal_dir);
+        let mut db = journal.db().unwrap();
+        crate::bots::register(&db, &crate::bots::Registration {
+            id: jobs_fixture::OWNER.into(), name: Some("Fixture owner".into()), ..Default::default()
+        }, 1).unwrap().unwrap();
+        let mut submission = jobs_fixture::submission();
+        submission.runtime.provider = provider.into();
+        submission.runtime.model = Some(requested.into());
+        submission.brief = FIXTURE_BRIEF.into();
+        let job = jobs::submit(&mut db, jobs_fixture::OWNER, "provider-job", &submission).unwrap();
+        let worker = Worker::new(scratch.path(), &job.id, 1);
+        let input = provider_request(&worker, provider);
+        fake_profile(&worker, provider, "success", 5000);
+        let host = worker.request["worker"]["id"].as_str().unwrap();
+        jobs::record_dispatch(&mut db, &job.id, 1, host, "fixture-lease").unwrap();
+
+        let pause = worker.pause("before-child-registration");
+        let mut stdout = tempfile::tempfile().unwrap();
+        let mut launcher = command(&worker.root, "start")
+            .env("COORDINATOR_FIXTURE_SENTINEL", "synthetic-coordinator-value")
+            .stdin(request_file(&input)).stdout(stdout.try_clone().unwrap()).spawn().unwrap();
+        assert!(launcher.wait().unwrap().success());
+        stdout.rewind().unwrap();
+        let mut reply = String::new();
+        stdout.read_to_string(&mut reply).unwrap();
+        assert!(reply.contains("dispatching"), "{reply}");
+        let child = worker.checkpoint("before-child-registration");
+        fs::remove_file(pause).unwrap();
+
+        let status = worker.state("exited");
+        assert!(!live(&child));
+        let collect = worker.call("collect", None);
+        assert_eq!(collect, status);
+        assert_eq!(collect["exit_code"], 0);
+        assert_eq!(collect["log_ref"], "log");
+        assert_eq!(collect["result_ref"], "result", "{collect}");
+        assert_eq!(collect["result_digest"], format!("{:x}", Sha256::digest(result.as_bytes())));
+        assert!(collect.get("log").is_none() && collect.get("result").is_none());
+        assert!(!collect.to_string().contains(PRIVATE_DIAGNOSTIC));
+        let runtime = &collect["runtime"];
+        assert_eq!(runtime["provider"], provider);
+        assert_eq!(runtime["account_ref"], account);
+        assert_eq!(runtime["requested_model"], requested);
+        assert_eq!(runtime["observed_model"], observed);
+        assert_eq!(runtime["observed_family"], provider);
+        assert_eq!(runtime["requested_effort"], "medium");
+        assert_eq!(runtime["observed_effort"], "high");
+        assert_eq!(runtime["cli_version"], "fixture-1.0");
+        assert_eq!(runtime["review_eligible"], true);
+        assert_eq!(runtime["verdict"], "succeeded");
+        assert_eq!(runtime["result_digest"], collect["result_digest"]);
+        let private = durable_receipt(&worker);
+        assert!(private["log"].as_str().unwrap().contains(PRIVATE_DIAGNOSTIC));
+        assert_eq!(private["result"], result);
+        assert_eq!(response(worker.run("start", &input)), collect);
+        let mut different = input.clone();
+        different["manifest"]["provider_run"]["brief"] = "different brief".into();
+        assert!(!worker.run("start", &different).status.success());
+
+        // Feed the opaque receipt into the existing v53 journal contract.
+        let str_field = |key: &str| runtime[key].as_str().map(str::to_owned);
+        let report = jobs::Report {
+            exit: jobs::Exit::Exited(0),
+            observed_runtime: Some(jobs::Runtime {
+                provider: str_field("provider").unwrap(), account_ref: str_field("account_ref"),
+                model: str_field("observed_model"), family: str_field("observed_family"), effort: str_field("observed_effort"),
+            }),
+            observed_cli_version: str_field("cli_version"),
+            log_ref: Some(collect["log_ref"].as_str().unwrap().into()),
+            result: Some(jobs::Artifact {
+                reference: collect["result_ref"].as_str().unwrap().into(),
+                digest: collect["result_digest"].as_str().unwrap().into(),
+            }),
+        };
+        jobs::finish(&mut db, &job.id, 1, &report).unwrap();
+        drop(db);
+        drop(journal);
+        let journal = reopen_journal(&journal_dir);
+        let db = journal.db().unwrap();
+        assert_eq!(schema(&db), 56);
+        let saved = jobs::status(&db, &job.id).unwrap().unwrap();
+        assert_eq!(saved.requested_runtime.model.as_deref(), Some(requested));
+        assert_eq!(saved.observed_runtime, report.observed_runtime);
+        assert_eq!(saved.observed_cli_version, report.observed_cli_version);
+        assert_eq!(saved.completion.unwrap().exit.result, report.result);
+    }
+}
+
+#[test]
+fn gapplan_09_int_expired_login_and_changed_pin_block_the_provider_before_exec() {
+    use crate::machines::probe::Provider;
+
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "provider-readiness", 1);
+    fake_profile(&worker, "codex", "success", 5000);
+    let input = provider_request(&worker, "codex");
+    let mut probe = worker.inputs.report();
+    probe.runtimes.get_mut(&Provider::Codex).unwrap().ready_ms =
+        Some(probe.observed_ms - worker.inputs.enrollment.thresholds.max_readiness_age_ms - 1);
+    worker.inputs.update(probe);
+    let held = response(worker.run("start", &input));
+    assert_eq!(held["status"], "held");
+    assert_eq!(held["reason"], "login_stale");
+    assert_eq!(worker.db().query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+
+    worker.inputs.update(worker.inputs.report());
+    let gate = worker.pause("after-supervisor-pin");
+    assert_eq!(response(worker.run("start", &input))["status"], "dispatching");
+    worker.checkpoint("after-supervisor-pin");
+    fake_profile(&worker, "codex", "missing", 5000);
+    fs::remove_file(gate).unwrap();
+    let stopped = worker.state("stopped");
+    assert_eq!(stopped["reason"], "runtime_profile_changed");
+    assert_eq!(stopped["runtime"]["verdict"], "interrupted");
+    assert!(identities(&worker.db()).1.is_none());
+
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "provider-stale-at-release", 1);
+    fake_profile(&worker, "codex", "success", 5000);
+    let gate = worker.pause("before-child-registration");
+    response(worker.run("start", &provider_request(&worker, "codex")));
+    let child = worker.checkpoint("before-child-registration");
+    let mut probe = worker.inputs.report();
+    probe.runtimes.get_mut(&Provider::Codex).unwrap().ready_ms = None;
+    worker.inputs.update(probe);
+    fs::remove_file(gate).unwrap();
+    let stopped = worker.state("stopped");
+    assert_eq!(stopped["reason"], "login_stale");
+    assert!(stopped["log_ref"].is_null());
+    assert!(!live(&child));
+}
+
+#[test]
+fn gapplan_09_int_malformed_missing_oversized_or_unsafe_artifacts_cannot_succeed() {
+    for (provider, outcome, reason) in [
+        ("claude", "malformed", "malformed_runtime_output"),
+        ("claude", "missing", "missing_result"),
+        ("codex", "missing", "missing_result"),
+        ("codex", "oversized", "result_truncated"),
+        ("codex", "linked", "missing_result"),
+    ] {
+        let scratch = tempfile::tempdir().unwrap();
+        let worker = Worker::new(scratch.path(), "provider-artifact", 1);
+        fake_profile(&worker, provider, outcome, 5000);
+        response(worker.run("start", &provider_request(&worker, provider)));
+        let settled = worker.state("exited");
+        assert_eq!(settled["exit_code"], 0, "{provider} {outcome}: {settled}");
+        assert_eq!(settled["runtime"]["verdict"], "failed", "{provider} {outcome}: {settled}");
+        assert_eq!(settled["runtime"]["review_eligible"], false);
+        assert_eq!(settled["reason"], reason, "{provider} {outcome}: {settled}");
+        assert_eq!(settled["result_truncated"], outcome == "oversized");
+        assert!(settled["result_ref"].is_null() && settled["result_digest"].is_null());
+    }
+}
+
+#[test]
+fn gapplan_09_int_unknown_model_has_a_result_but_cannot_supply_review_evidence() {
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "provider-unknown", 1);
+    fake_profile(&worker, "codex", "unknown", 5000);
+    response(worker.run("start", &provider_request(&worker, "codex")));
+    let settled = worker.state("exited");
+    assert_eq!(settled["runtime"]["observed_model"], "fixture-unknown");
+    assert!(settled["runtime"]["observed_family"].is_null());
+    assert_eq!(settled["runtime"]["review_eligible"], false);
+    assert_eq!(settled["runtime"]["verdict"], "succeeded", "{settled}");
+    assert_eq!(settled["result_ref"], "result");
+}
+
+#[test]
+fn gapplan_09_int_runtime_timeout_kills_the_group_and_releases_capacity() {
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "provider-timeout", 1);
+    fake_profile(&worker, "codex", "timeout", 500);
+    response(worker.run("start", &provider_request(&worker, "codex")));
+    let settled = worker.state("stopped");
+    assert_eq!(settled["reason"], "runtime_timeout");
+    assert_eq!(settled["runtime"]["verdict"], "interrupted");
+    assert_eq!(settled["exit_signal"], libc::SIGKILL);
+    assert!(settled["result_ref"].is_null());
+    assert_eq!(worker.db().query_row("SELECT count(*) FROM leases", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+}
+
+#[test]
+fn gapplan_09_int_inherited_provider_sockets_and_large_stderr_do_not_hold_collection() {
+    for outcome in ["inherited", "flood"] {
+        let scratch = tempfile::tempdir().unwrap();
+        let worker = Worker::new(scratch.path(), "provider-output", 1);
+        fake_profile(&worker, "codex", outcome, 5000);
+        response(worker.run("start", &provider_request(&worker, "codex")));
+        let settled = worker.state("exited");
+        assert_eq!(settled["runtime"]["verdict"], "succeeded", "{settled}");
+        assert_eq!(settled["result_ref"], "result");
+        assert_eq!(worker.db().query_row("SELECT count(*) FROM leases", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        let receipt = durable_receipt(&worker);
+        let log = receipt["log"].as_str().unwrap();
+        assert!(log.len() <= 1024);
+        if outcome == "flood" {
+            assert_eq!(log.len(), 1024);
+        }
+    }
+}
+
+#[test]
+fn gapplan_09_int_running_stop_retries_policy_and_database_contention() {
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "provider-contention", 1);
+    let pause = worker.pause("fixture-released");
+    worker.call("start", Some("success"));
+    let child = worker.checkpoint("fixture-released");
+    let mut db = worker.db();
+    let heartbeat = |db: &Connection| db.query_row("SELECT heartbeat_ms FROM leases", [], |row| row.get::<_, i64>(0)).unwrap();
+    let policy_lock = File::open(worker.inputs.policy_root.join("policy.lock")).unwrap();
+
+    policy_lock.lock().unwrap();
+    // A probe that completed policy validation just before the lock can still write its renewal.
+    thread::sleep(Duration::from_millis(150));
+    let previous = heartbeat(&db);
+    thread::sleep(Duration::from_millis(375));
+    assert!(live(&child));
+    assert_eq!(heartbeat(&db), previous);
+    policy_lock.unlock().unwrap();
+    until(|| (heartbeat(&db) > previous).then_some(()));
+
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+    let previous = heartbeat(&tx);
+    thread::sleep(Duration::from_millis(650));
+    assert!(live(&child));
+    assert_eq!(heartbeat(&tx), previous);
+    tx.commit().unwrap();
+    until(|| (heartbeat(&db) > previous).then_some(()));
+    assert!(live(&child));
+    fs::remove_file(pause).unwrap();
+    assert_eq!(worker.state("exited")["exit_code"], 0);
+}
+
+#[test]
+fn gapplan_09_int_running_stop_fences_a_new_policy_even_for_unrelated_rules() {
+    let scratch = tempfile::tempdir().unwrap();
+    let mut worker = Worker::new(scratch.path(), "provider-fenced", 1);
+    let _pause = worker.pause("fixture-released");
+    worker.call("start", Some("success"));
+    let child = worker.checkpoint("fixture-released");
+    worker.inputs.republish(vec![crate::fleet_policy::tests::grant()]);
+    let stopped = worker.state("stopped");
+    assert_eq!(stopped["reason"], "policy_changed");
+    assert_eq!(stopped["exit_signal"], libc::SIGKILL);
+    assert!(!live(&child));
+}
+
+#[test]
+fn gapplan_09_int_running_stop_ends_when_policy_contention_outlasts_the_lease() {
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "provider-lease-expiry", 1);
+    let _pause = worker.pause("fixture-released");
+    worker.call("start", Some("success"));
+    let child = worker.checkpoint("fixture-released");
+    let policy_lock = File::open(worker.inputs.policy_root.join("policy.lock")).unwrap();
+    policy_lock.lock().unwrap();
+    let stopped = worker.state("stopped");
+    assert_eq!(stopped["reason"], "policy_busy");
+    assert_eq!(stopped["exit_signal"], libc::SIGKILL);
+    assert!(!live(&child));
+}

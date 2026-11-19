@@ -230,3 +230,14 @@ fn gapplan_06_unit_runtime_login_toolchain_signing_and_project_pin() {
     mini.worker.projects[0].folder = "/fixture/work-sibling/project".into();
     assert!(!valid_enrollments(&[mini.worker]));
 }
+
+#[test]
+fn gapplan_09_unit_disk_stop_threshold_comes_from_enrollment() {
+    let mut other = Case::new("mini-m4");
+    other.worker.thresholds.disk_stop_free_bytes = 12 * GB;
+    other.worker.thresholds.disk_admit_free_bytes = 13 * GB;
+    other.report.root_disk.as_mut().unwrap().free_bytes = 11 * GB;
+    let held = other.evaluate(OBSERVED);
+    assert_eq!(held["status"], "stop");
+    assert_eq!(held["disk"]["limit_bytes"], 12 * GB);
+}
