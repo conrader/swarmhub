@@ -89,6 +89,7 @@ impl Workload {
             entry_id: self.entry.clone(),
             entry_revision: 1,
             crash: None,
+            authorization_time_ms: None,
         }
     }
 
@@ -197,11 +198,19 @@ async fn gapplan_12_int_managed_worker_resolves_in_executor_and_only_outcome_rea
     assert_eq!(f.effects(), 1);
     assert_eq!(f.used(), 1);
 
-    // The fixture provider receives the same public enum through a worker-owned file.
     let outcome_bytes = serde_json::to_vec(&outcome).unwrap();
-    fs::write(f.fleet.worker.root.join("fixture-runtimes/local/home/workload-outcome"), &outcome_bytes).unwrap();
+    let home = f.fleet.worker.root.join("fixture-runtimes/local/home");
+    fs::write(home.join("workload-finish"), []).unwrap();
     let (completed, artifact) = f.finish().await;
     assert_eq!(completed.completion.as_ref().unwrap().exit.code, Some(0));
+    assert_eq!(fs::read(home.join("workload-received")).unwrap(), outcome_bytes);
+    assert_eq!(fs::read(home.join("workload-stdin")).unwrap(), FIXTURE_BRIEF.as_bytes());
+    let sentinel = workload::sentinel(&f.seed);
+    for channel in ["env", "argv", "stdin", "stdout", "stderr"] {
+        let observed = fs::read(home.join(format!("workload-{channel}"))).unwrap();
+        assert!(!observed.is_empty(), "missing provider {channel}");
+        assert_redacted(sentinel.as_bytes(), &observed);
+    }
     // Check the real provider result, the persisted callback-equivalent exit, and
     // the delivered chat/notification with the same redaction assertion.
     assert_eq!(f.fleet.ordinary.writes().len(), 1);
@@ -210,7 +219,6 @@ async fn gapplan_12_int_managed_worker_resolves_in_executor_and_only_outcome_rea
     assert_eq!(receipts.len(), 1);
     let notification = helpers::fixture::ask(&f.fleet.spool, key(&f.fleet.owner),
         Action::Bot(Ask::CompletionAck { id: format!("{}:1", f.job) })).await.unwrap();
-    let sentinel = workload::sentinel(&f.seed);
     for bytes in [outcome_bytes, artifact.into_bytes(), serde_json::to_vec(&completed).unwrap(),
         serde_json::to_vec(&receipts).unwrap(), serde_json::to_vec(&f.fleet.ordinary.writes()).unwrap(),
         notification.into_bytes()] {
@@ -273,6 +281,60 @@ async fn gapplan_12_int_other_host_changed_command_and_revoked_or_rotated_consen
     assert_eq!(f.used(), 0);
     assert_eq!(f.effects(), 0);
     f.cancel().await;
+}
+
+#[tokio::test]
+async fn gapplan_13_int_workload_expiry_at_executor_never_reserves_a_use() {
+    let f = Workload::new("first_holds").await;
+    let call = f.signed(f.terms(2)).await;
+    f.issue(&call).unwrap();
+    let mut setup = f.setup();
+    setup.authorization_time_ms = Some(call.terms.expires_ms);
+    assert_eq!(f.directly(&f.executor, &setup, &call), Outcome::Denied);
+    assert_eq!(f.used(), 0);
+    assert_eq!(f.effects(), 0);
+    assert_eq!(f.directly(&f.executor, &f.setup(), &call), Outcome::Succeeded);
+    assert_eq!(f.used(), 1);
+    f.cancel().await;
+}
+
+#[tokio::test]
+async fn gapplan_13_int_workload_policy_revocation_denies_even_fresh_signature() {
+    let f = Workload::new("first_holds").await;
+    let mut call = f.signed(f.terms(2)).await;
+    f.issue(&call).unwrap();
+    let mut next = f.fleet.worker.inputs.signing().authority.with_review_policy(Clone::clone).unwrap();
+    next.generation += 1;
+    next.revoked.insert(call.terms.id.clone());
+    let signer = f.fleet.worker.inputs.signing();
+    let deadline = std::time::Instant::now() + WAIT;
+    let reference = loop {
+        match signer.publish(signer.publication(next.clone(), WORKSPACE)) {
+            Ok(reference) => break reference,
+            Err(crate::fleet_policy::Error::Busy) if std::time::Instant::now() < deadline => {
+                tokio::task::yield_now().await;
+            }
+            Err(error) => panic!("could not revoke workload policy: {error}"),
+        }
+    };
+    assert_eq!(f.directly(&f.executor, &f.setup(), &call), Outcome::Denied);
+    let mut envelope = call.signed.envelope.clone();
+    let Target::Park { policy, .. } = &mut envelope.target else { unreachable!() };
+    *policy = reference;
+    call.signed = signer.sign_decision(envelope);
+    let db = f.fleet.bridge.history.db().unwrap();
+    let authority = &signer.authority;
+    authority.with_park_decision(&*db, &call.park, Purpose::AuthorizeWorkload,
+        crate::fleet_policy::Evidence::OperatorSignature(&call.signed), None, |_, proof| {
+            assert!(proof.review_policy.revoked.contains(&call.terms.id));
+        }).unwrap();
+    drop(db);
+    assert_eq!(f.directly(&f.executor, &f.setup(), &call), Outcome::Denied);
+    assert_eq!(status(&f.fleet.bridge, &f.job).status, "running");
+    assert_eq!(f.used(), 0);
+    assert_eq!(f.effects(), 0);
+    // Updating the current policy stops a running attempt pinned to the earlier generation.
+    f.fleet.poll_until(&f.job, "interrupted").await;
 }
 
 #[tokio::test]
@@ -359,7 +421,7 @@ fn gapplan_12_int_v58_fresh_and_seeded_v57_reopen_preserve_rows() {
         for _ in 0..3 {
             let journal = reopen_journal(&path);
             let db = journal.db().unwrap();
-            assert_eq!(super::super::schema(&db), 58);
+            assert_eq!(super::super::schema(&db), history::migrations().len());
             let grants: i64 = db.query_row("SELECT count(*) FROM vault_workload_grants", [], |row| row.get(0)).unwrap();
             assert_eq!(grants, 0);
             if seeded {

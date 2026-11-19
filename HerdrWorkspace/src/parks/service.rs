@@ -105,7 +105,7 @@ fn classify(manifest: &Manifest, reviewed: bool) -> Classification<'_> {
         Operation::SpendMoney => (Money, Some(false), Some(true)),
         Operation::UseSecret | Operation::UseWorkloadSecret { .. } => (Secrets, Some(false), Some(true)),
         Operation::Delete => (Delete, Some(true), Some(true)),
-        Operation::OutsideMessage => (OutsideMessage, Some(false), Some(true)),
+        Operation::OutsideMessage | Operation::DeliverOutbound { .. } => (OutsideMessage, Some(false), Some(true)),
         Operation::Unknown { .. } | Operation::SetRevisionMarker { .. } => (Unknown, None, None),
     };
     let (required_signers, escalation_target) = if class == ReviewedReversible {
@@ -152,6 +152,7 @@ enum DecisionResult {
     View { view: View },
     Held { reason: Blocker },
     Superseded { replacement: ParkRef },
+    OutboundApproved,
 }
 
 impl From<View> for DecisionResult {
@@ -199,7 +200,7 @@ impl Recorded {
                 Purpose::Release => "release",
                 Purpose::Deny => "deny",
                 Purpose::Supersede => "supersede",
-                Purpose::PublishPolicy | Purpose::AuthorizeWorkload => return Err(Error::InvalidDecision),
+                Purpose::PublishPolicy | Purpose::AuthorizeWorkload | Purpose::AuthorizeOutbound => return Err(Error::InvalidDecision),
             },
             nonce_digest: &nonce_digest,
             rule: verified.rule_id.as_deref(),
@@ -270,7 +271,7 @@ impl Service {
         id: &str,
         manifest: &Manifest,
     ) -> Result<ParkRef, Error> {
-        if matches!(manifest.operation, Operation::SetRevisionMarker { .. }) {
+        if matches!(manifest.operation, Operation::SetRevisionMarker { .. } | Operation::DeliverOutbound { .. }) {
             return Err(Error::InvalidManifest);
         }
         let pin = pin_for(id, manifest)?;
@@ -300,7 +301,7 @@ impl Service {
     ) -> Result<DecisionResult, Error> {
         let replacement_pin = match (purpose, replacement) {
             (Purpose::Supersede, Some(next))
-                if valid_id(&next.id) && !matches!(next.manifest.operation, Operation::SetRevisionMarker { .. }) =>
+                if valid_id(&next.id) && !matches!(next.manifest.operation, Operation::SetRevisionMarker { .. } | Operation::DeliverOutbound { .. }) =>
             {
                 Some(pin_for(&next.id, &next.manifest)?)
             }
@@ -318,6 +319,25 @@ impl Service {
         let reserved = authority.with_park_decision(&*tx, park, purpose, evidence,
             replacement_pin.as_ref(), |_, verified| {
                 let tx = &tx;
+                let outbound = matches!(manifest.operation, Operation::DeliverOutbound { .. });
+                if purpose == Purpose::AuthorizeOutbound {
+                    if !outbound {
+                        return Err(Error::InvalidDecision);
+                    }
+                    crate::outbound::authorize(tx, park, &verified)?;
+                    return Ok(Reservation::Finished(DecisionResult::OutboundApproved));
+                }
+                if outbound {
+                    if purpose == Purpose::Supersede {
+                        return Err(Error::InvalidDecision);
+                    }
+                    if execute {
+                        if verified.actor != Actor::Operator {
+                            return Err(fleet_policy::Error::HumanScope.into());
+                        }
+                        return Ok(Reservation::Finished(DecisionResult::Held { reason: Blocker::OutboundDisabled }));
+                    }
+                }
                 let view = status(tx, park)?;
                 if execute && view != View::Status(State::Pending) {
                     return Ok(Reservation::Finished(view.into()));
@@ -480,7 +500,8 @@ impl Service {
             .transpose()?.flatten();
         let classification = classify(&detail.manifest, self.reviewed(&detail.manifest, review.as_ref()));
         let pin = detail.park.pin(&detail.manifest);
-        Ok(json!({ "detail": detail, "pin": pin, "classification": classification, "review": review }))
+        let outbound = crate::outbound::preview(db, &pin.id)?;
+        Ok(json!({ "detail": detail, "pin": pin, "classification": classification, "review": review, "outbound": outbound }))
     }
 
     pub(crate) fn command(
@@ -607,8 +628,9 @@ async fn get_park(
     AxumState(w): AxumState<Workspace>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, Error> {
-    let db = w.history.db()?;
-    Ok(Json(w.parks.describe(&db, &w.fleet_policy, detail(&db, &id)?)?))
+    let mut db = w.history.db()?;
+    let tx = db.transaction()?;
+    Ok(Json(w.parks.describe(&tx, &w.fleet_policy, detail(&tx, &id)?)?))
 }
 
 async fn decide(

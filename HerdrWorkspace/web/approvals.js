@@ -15,6 +15,7 @@
   parkDetail.hidden = true;
   const parkTitle = document.createElement("h3");
   const parkPreview = document.createElement("pre");
+  parkPreview.className = "park-preview";
   const parkBack = document.createElement("button");
   parkBack.type = "button";
   parkBack.textContent = "Back to approvals";
@@ -31,7 +32,24 @@
   parkSubmit.type = "submit";
   parkSubmit.textContent = "Submit signed decision";
   parkForm.append(parkLabel, parkSubmit);
-  parkDetail.append(parkTitle, parkPreview, parkForm, parkBack);
+  const textReview = document.createElement("form");
+  textReview.hidden = true;
+  const reviewGroup = document.createElement("input");
+  const reviewAnswer = document.createElement("input");
+  for (const [labelText, input] of [["Group ID", reviewGroup], ["Form answer ID", reviewAnswer]]) {
+    const label = document.createElement("label");
+    label.textContent = labelText;
+    input.inputMode = "numeric";
+    input.pattern = "[1-9][0-9]*";
+    input.required = true;
+    label.append(input);
+    textReview.append(label);
+  }
+  const reviewSubmit = document.createElement("button");
+  reviewSubmit.type = "submit";
+  reviewSubmit.textContent = "Attach group text review";
+  textReview.append(reviewSubmit);
+  parkDetail.append(parkTitle, parkPreview, parkForm, textReview, parkBack);
   $("approval-detail").after(parkDetail);
   let parkId = null;
   let parkRequest = 0;
@@ -228,23 +246,28 @@
     state.active = null;
     $("approval-list-view").hidden = $("approval-detail").hidden = true;
     parkDetail.hidden = false;
-    parkForm.hidden = true;
+    parkForm.hidden = textReview.hidden = true;
+    reviewGroup.value = reviewAnswer.value = "";
     parkTitle.textContent = id;
     parkPreview.textContent = "";
     const result = await api("/api/parks/" + encodeURIComponent(id));
     if (!dialog.open || !app.authorized || app.token !== token || request !== parkRequest) return;
-    const { detail, pin, classification } = result;
-    const state = detail.view.status ?? detail.view.receipt?.[0];
-    parkTitle.textContent = [id, state].filter(Boolean).join(" · ");
+    const { detail, pin, classification, outbound } = result;
+    const parkState = detail.view.status ?? detail.view.receipt?.[0];
+    parkTitle.textContent = [id, parkState].filter(Boolean).join(" · ");
     parkPreview.textContent = visible(JSON.stringify({
-      pin, manifest: detail.manifest, classification,
+      pin, outbound: outbound ?? undefined, manifest: detail.manifest, classification,
       decision: detail.decision, receipt: detail.view.receipt?.[1],
       supersedes: detail.supersedes, superseded_by: detail.superseded_by,
     }, null, 2));
-    parkForm.hidden = !["pending", "held", "failed"].includes(state);
+    parkForm.hidden = !["pending", "held", "failed"].includes(parkState);
+    parkLabel.firstChild.textContent = outbound
+      ? "Signed outbound decision JSON (authorize_outbound)" : "Signed park decision JSON";
+    textReview.hidden = !outbound || parkState !== "pending" || Boolean(outbound.text_review);
   }
 
   async function openPark(id) {
+    if (!app.authorized) return;
     if (!dialog.open) dialog.showModal();
     show("approval-notice", "");
     parkInput.value = "";
@@ -254,6 +277,24 @@
   }
 
   parkBack.addEventListener("click", () => { show("approval-notice", ""); listView(); void poll(); });
+
+  textReview.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!app.authorized || reviewSubmit.disabled || parkId === null) return;
+    const id = parkId;
+    reviewSubmit.disabled = true;
+    try {
+      const group = Number(reviewGroup.value);
+      const answer = Number(reviewAnswer.value);
+      if (!Number.isSafeInteger(group) || !Number.isSafeInteger(answer)) throw new Error("Enter valid group and answer IDs.");
+      await api(`/api/groups/${group}/outbound-text-review`, {park: id, answer});
+      if (!dialog.open || parkId !== id) return;
+      await showPark(id);
+      show("approval-notice", "Text review attached.");
+    } catch (error) {
+      if (dialog.open && parkId === id) show("approval-notice", error.message);
+    } finally { reviewSubmit.disabled = false; }
+  });
 
   parkForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -280,7 +321,13 @@
       }
       parkInput.value = "";
       await showPark(id);
-      show("approval-notice", result.result === "held" ? "The park was held: " + result.reason : "Decision recorded.");
+      if (result.result === "outbound_approved") {
+        show("approval-notice", "Signed decision recorded. Sending is disabled.");
+      } else if (result.reason === "outbound_disabled") {
+        show("approval-notice", "Sending is disabled.");
+      } else {
+        show("approval-notice", result.result === "held" ? "The park was held: " + result.reason : "Decision recorded.");
+      }
     } catch (error) {
       if (dialog.open && parkId === id) show("approval-notice", error.message);
     } finally { parkSubmit.disabled = false; }

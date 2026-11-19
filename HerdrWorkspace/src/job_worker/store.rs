@@ -319,22 +319,23 @@ impl Store {
     }
 
     #[cfg(test)]
-    pub(super) fn workload_admitted(&mut self, attempt: &Attempt, digest: &str) -> Result<bool> {
+    pub(super) fn workload_admitted(&mut self, attempt: &Attempt, digest: &str) -> Result<Option<String>> {
         let Some(view) = self.observe_bound(attempt, false, false, Some(digest), None)?
             .filter(|view| view.status == "running" && !view.cancel_requested) else {
-            return Ok(false);
+            return Ok(None);
         };
         let admitted = self.db.query_row(
-            "SELECT b.manifest FROM attempt_admission b JOIN leases l USING(job_id,attempt)
+            "SELECT b.manifest,a.start_token FROM attempt_admission b
+             JOIN leases l USING(job_id,attempt) JOIN attempts a USING(job_id,attempt)
              WHERE l.job_id=?1 AND l.attempt=?2 AND l.expires_ms>?3",
             params![attempt.job_id, attempt.number, history::now()],
-            |row| json::<Manifest>(row, 0),
+            |row| Ok((json::<Manifest>(row, 0)?, row.get::<_, String>(1)?)),
         ).optional()?;
-        Ok(admitted.zip(view.policy).is_some_and(|(manifest, policy)| {
-            super::Admission::open(&self.root).is_ok_and(|admission| {
-                admission.check(&self.worker, &attempt.job_id, &manifest, Some(&policy)).is_ok()
-            })
-        }))
+        let Some(((manifest, token), policy)) = admitted.zip(view.policy) else { return Ok(None) };
+        let eligible = super::Admission::open(&self.root).is_ok_and(|admission| {
+            admission.check(&self.worker, &attempt.job_id, &manifest, Some(&policy)).is_ok()
+        });
+        Ok(eligible.then_some(token))
     }
 
     pub(super) fn observe_bound(

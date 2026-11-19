@@ -21,6 +21,7 @@ pub(crate) enum Command {
     Record { job: String, attempt: i64, artifact: String, same_provider_exception: Option<String> },
     Fix { lineage: String, after_round: i64, input: jobs::Submit, exception: Option<String> },
     Status { lineage: String },
+    Abandon { lineage: String, reason: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -222,8 +223,8 @@ fn add_round(
     Ok(())
 }
 
-// The staging adapter enrolls one target per managed project. An unresolved
-// lineage owns that target even if its author, commit or park changes.
+// The staging adapter enrolls one target per managed project. Each owner
+// keeps one active lineage on that target across edits to the reviewed pins.
 const VERIFIED_LINEAGE: &str = "EXISTS (
     SELECT 1 FROM parks p WHERE p.state='verified'
       AND json_type(p.manifest,'$.operation.AdvanceStagingRef')='object'
@@ -231,12 +232,53 @@ const VERIFIED_LINEAGE: &str = "EXISTS (
       AND json_extract(p.manifest,'$.owner')=l.owner_bot_id
       AND json_extract(p.manifest,'$.project')=CAST(l.project AS TEXT))";
 
-fn lineage_exists(db: &Connection, project: i64, closed: Option<&str>) -> rusqlite::Result<bool> {
-    let query = format!(
-        "SELECT EXISTS(SELECT 1 FROM job_review_lineages l WHERE l.project=?1 AND l.action=?2 AND
-          ((?3 IS NULL AND NOT {VERIFIED_LINEAGE}) OR (l.id=?3 AND {VERIFIED_LINEAGE})))"
-    );
-    db.query_row(&query, params![project, STAGING_ACTION, closed], |row| row.get(0))
+const ABANDONED_LINEAGE: &str = "EXISTS (
+    SELECT 1 FROM job_review_closures c WHERE c.lineage=l.id)";
+
+fn active_lineage(db: &Connection, owner: &str, project: i64) -> rusqlite::Result<bool> {
+    let query = format!("SELECT EXISTS(SELECT 1 FROM job_review_lineages l
+        WHERE l.owner_bot_id=?1 AND l.project=?2 AND l.action=?3
+          AND NOT {VERIFIED_LINEAGE} AND NOT {ABANDONED_LINEAGE})");
+    db.query_row(&query, params![owner, project, STAGING_ACTION], |row| row.get(0))
+}
+
+fn closed(db: &Connection, scope: &Scope<'_>, include_verified: bool) -> rusqlite::Result<bool> {
+    let query = format!("SELECT EXISTS(SELECT 1 FROM job_review_lineages l
+        WHERE l.id=?1 AND l.owner_bot_id=?2 AND l.project=?3 AND l.action=?4
+          AND ({ABANDONED_LINEAGE} OR (?5 AND {VERIFIED_LINEAGE})))");
+    db.query_row(&query, params![scope.lineage, scope.owner, scope.project, STAGING_ACTION, include_verified], |row| row.get(0))
+}
+
+fn abandon(tx: &Transaction<'_>, owner: &str, launch: &str, lineage: &str, reason: &str) -> Result<()> {
+    let reason = reason.trim();
+    if reason.is_empty() || reason.len() > 512 || reason.chars().any(char::is_control) {
+        return Err("Give a one-line reason for abandoning the review lineage.".into());
+    }
+    let project = lineage_project(tx, owner, lineage)?;
+    let scope = Scope { lineage, owner, project };
+    let prior = closure(tx, lineage)?;
+    if let Some((prior_reason, _)) = prior {
+        return if prior_reason == reason { Ok(()) } else { Err("This review lineage is already closed.".into()) };
+    }
+    let blocked: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM parks p WHERE p.state IN ('executing','reconciliation')
+          AND json_type(p.manifest,'$.operation.AdvanceStagingRef')='object'
+          AND json_extract(p.manifest,'$.review_ref')=?1
+          AND json_extract(p.manifest,'$.owner')=?2
+          AND json_extract(p.manifest,'$.project')=?3)",
+        params![lineage, owner, project.to_string()], |row| row.get(0),
+    )?;
+    if blocked || closed(tx, &scope, true)? {
+        return Err("A verified or unsettled execution prevents abandoning this lineage.".into());
+    }
+    tx.execute("INSERT INTO job_review_closures VALUES(?1,?2,?3,?4,?5)",
+        params![lineage, owner, launch, reason, history::now()])?;
+    Ok(())
+}
+
+fn closure(db: &Connection, lineage: &str) -> rusqlite::Result<Option<(String, i64)>> {
+    db.query_row("SELECT reason,closed_ms FROM job_review_closures WHERE lineage=?1", [lineage],
+        |row| Ok((row.get(0)?, row.get(1)?))).optional()
 }
 
 fn record(
@@ -279,7 +321,7 @@ fn record(
         if grant.is_some() {
             return Err("A review exception belongs to a reviewer result.".into());
         }
-        if lineage_exists(tx, status.project, None)? {
+        if active_lineage(tx, owner, status.project)? {
             return Err("An unresolved author lineage already owns the project staging target.".into());
         }
         tx.execute("INSERT INTO job_review_lineages VALUES (?1,?2,?3,?4)",
@@ -287,6 +329,9 @@ fn record(
         add_round(tx, lineage, 0, job, ctx, None)?;
         None
     } else {
+        if closed(tx, &scope, true)? {
+            return Err("This review lineage is closed.".into());
+        }
         let active = latest(tx, &scope)?.filter(|current| current.round == round)
             .ok_or("This result does not belong to the active round.")?;
         match &artifact {
@@ -328,14 +373,14 @@ fn fix(
     ctx: &PolicyContext<'_>, queue: impl FnOnce(&Transaction<'_>, &str, Option<&str>) -> Result<jobs::Job>,
 ) -> Result<serde_json::Value> {
     let current = latest(tx, scope)?.ok_or("No review lineage belongs to this owner and project.")?;
+    if closed(tx, scope, true)? {
+        return Err("This review lineage is closed.".into());
+    }
     let next = after_round.checked_add(1).filter(|next| *next > 0).ok_or("Invalid fix round.")?;
     let key = format!("{FIX_KEY_PREFIX}{}:{next}", scope.lineage);
     if current.round == next && current.exception.as_ref().map(|exception| exception.id.as_str()) == grant {
         let job = queue(tx, &key, Some(&current.producer_job))?;
         return Ok(serde_json::json!({ "status": "queued", "round": next, "job": job }));
-    }
-    if lineage_exists(tx, scope.project, Some(scope.lineage))? {
-        return Err("The staging target already verified this review lineage.".into());
     }
     if current.round != after_round {
         return Err("The requested fix does not follow the current round.".into());
@@ -408,6 +453,7 @@ pub(crate) fn accepted(
         return Ok(None);
     }
     let scope = Scope { lineage: &manifest.review_ref, owner: &manifest.owner, project };
+    if closed(db, &scope, false)? { return Ok(None) }
     let Some(current) = latest(db, &scope)? else { return Ok(None) };
     let Some(author) = producer(db, scope.lineage, 0)? else { return Ok(None) };
     let Some(producer) = producer(db, scope.lineage, current.round)? else { return Ok(None) };
@@ -469,19 +515,22 @@ pub(crate) fn fix_dispatch_allowed(
 ) -> rusqlite::Result<bool> {
     let bound = db.query_row(
         "SELECT r.lineage,r.round FROM jobs j JOIN job_review_rounds r ON r.producer_job=j.id
-         WHERE j.id=?1 AND j.owner_bot_id=?2 AND j.project=?3 AND r.round>?4",
-        params![job, owner, project, AUTOMATIC_ROUNDS],
+         WHERE j.id=?1 AND j.owner_bot_id=?2 AND j.project=?3 AND r.round>0",
+        params![job, owner, project],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
     ).optional()?;
     let Some((lineage, round)) = bound else { return Ok(true) };
     let scope = Scope { lineage: &lineage, owner, project };
-    Ok(extra_rounds(db, &scope, round, policy, history::now())?.is_some())
+    Ok(!closed(db, &scope, true)?
+        && (round <= AUTOMATIC_ROUNDS || extra_rounds(db, &scope, round, policy, history::now())?.is_some()))
 }
 
 /// Superseding a reviewed staging park keeps the same repair budget.
 pub(crate) fn keeps_lineage(db: &Connection, old: &Manifest, new: &Manifest) -> rusqlite::Result<bool> {
+    if old.operation.action() != STAGING_ACTION { return Ok(true) }
     let bound: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM job_review_lineages WHERE id=?1 AND owner_bot_id=?2 AND CAST(project AS TEXT)=?3)",
+        "SELECT EXISTS(SELECT 1 FROM job_review_lineages WHERE id=?1 AND owner_bot_id=?2 AND CAST(project AS TEXT)=?3
+           AND NOT EXISTS(SELECT 1 FROM job_review_closures WHERE lineage=?1))",
         params![old.review_ref, old.owner, old.project], |row| row.get(0),
     )?;
     Ok(!bound || old.review_ref == new.review_ref)
@@ -502,8 +551,21 @@ fn answer_verified(
     w: &Workspace, core: &str, launch: &str, owner: &str, command: Command,
 ) -> std::result::Result<String, String> {
     let mut db = history::connection(w.history.file()).map_err(|_| STORAGE)?;
-    if let Command::Status { lineage } = command {
-        return inspect(&db, owner, &lineage).map_err(|error| error.to_string());
+    match &command {
+        Command::Status { lineage } => return inspect(&db, owner, lineage).map_err(|error| error.to_string()),
+        Command::Abandon { lineage, reason } => {
+            let mut close = || -> Result<String> {
+                let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                if !crate::helpers::policy::job_owner(&tx, core, launch, false)?.is_some_and(|bot| bot.id == owner) {
+                    return Err("Use the current registered owner session.".into());
+                }
+                abandon(&tx, owner, launch, lineage, reason)?;
+                tx.commit()?;
+                Ok(serde_json::json!({ "status": "abandoned", "lineage": lineage }).to_string())
+            };
+            return close().map_err(|error| error.to_string());
+        }
+        _ => {}
     }
     let authority: &Authority = w.fleet_policy.as_ref().ok().and_then(Option::as_ref)
         .ok_or("The protected review policy is unavailable.")?;
@@ -526,23 +588,28 @@ fn answer_verified(
                     jobs::queue_review_fix(tx, owner, key, &input, policy, reserved_job).map_err(Into::into)
                 })
             }
-            Command::Status { .. } => unreachable!(),
+            Command::Status { .. } | Command::Abandon { .. } => unreachable!(),
         }
     }).map_err(|error| error.to_string())?;
     jobs::wake();
     Ok(result.to_string())
 }
 
-fn inspect(db: &Connection, owner: &str, lineage: &str) -> Result<String> {
-    let project = db.query_row(
+fn lineage_project(db: &Connection, owner: &str, lineage: &str) -> Result<i64> {
+    Ok(db.query_row(
         "SELECT project FROM job_review_lineages WHERE id=?1 AND owner_bot_id=?2",
         params![lineage, owner], |row| row.get(0),
-    ).optional()?.ok_or("No review lineage belongs to this owner.")?;
+    ).optional()?.ok_or("No review lineage belongs to this owner.")?)
+}
+
+fn inspect(db: &Connection, owner: &str, lineage: &str) -> Result<String> {
+    let project = lineage_project(db, owner, lineage)?;
     let scope = Scope { lineage, owner, project };
     let round = latest(db, &scope)?.ok_or(STORAGE)?;
     let producer = producer(db, lineage, round.round)?;
     let review = evidence(db, lineage, round.round, "reviewer")?;
-    Ok(serde_json::json!({ "lineage": lineage, "project": project, "round": round,
+    let closure = closure(db, lineage)?.map(|(reason, at_ms)| serde_json::json!({ "reason": reason, "at_ms": at_ms }));
+    Ok(serde_json::json!({ "lineage": lineage, "project": project, "round": round, "closure": closure,
         "producer": producer, "review": review, "automatic_fix_limit": AUTOMATIC_ROUNDS }).to_string())
 }
 

@@ -1824,3 +1824,5 @@ fn gapplan_11_int_killed_during_rollback_preserves_intent_without_replay() {
         View::Status(State::Reconciliation));
     assert_eq!(adapter.apply_count(), 1);
 }
+
+mod outbound_drafts;

@@ -133,7 +133,7 @@ fn sha(bytes: &[u8]) -> String {
 }
 
 fn authorize(
-    db: &Connection, call: &Invocation, manifest: &Manifest, proof: &Verified,
+    db: &Connection, call: &Invocation, manifest: &Manifest, proof: &Verified, now: i64,
 ) -> Result<()> {
     let terms = &call.terms;
     let match_attempt: bool = db.query_row(
@@ -150,10 +150,10 @@ fn authorize(
             && worker.projects.iter().any(|project| project.id.to_string() == manifest.project)
     });
     let worker_allowed = manifest.project.parse().is_ok_and(|project| {
-        matches!(proof.review_policy.worker_decision(&terms.job_id, project, &manifest.owner, history::now()),
+        matches!(proof.review_policy.worker_decision(&terms.job_id, project, &manifest.owner, now),
             WorkerDecision::Admit(_))
     });
-    if proof.actor != Actor::Operator || !terms.consent_current(&call.signed, &proof.review_policy, history::now())
+    if proof.actor != Actor::Operator || !terms.consent_current(&call.signed, &proof.review_policy, now)
         || manifest.operation != (Operation::UseWorkloadSecret { grant_digest: terms.digest() })
         || manifest.host != terms.host_id || !match_attempt || !worker_enrolled || !worker_allowed
         || parks::status(db, &call.park).map_err(|_| DENIED)? != parks::View::Status(parks::State::Pending)
@@ -169,7 +169,7 @@ pub(crate) fn issue(db: &mut Connection, authority: &Authority, call: &Invocatio
     authority.with_park_decision(tx, &call.park, Purpose::AuthorizeWorkload,
         crate::fleet_policy::Evidence::OperatorSignature(&call.signed), None, |db, proof| {
             let manifest = parks::manifest_for(&db, &call.park).map_err(|_| DENIED)?;
-            authorize(&db, call, &manifest, &proof)?;
+            authorize(&db, call, &manifest, &proof, history::now())?;
             if recorded(&db, call, &proof)? {
                 return Ok(());
             }
@@ -307,6 +307,7 @@ pub(crate) struct Setup {
     pub entry_id: String,
     pub entry_revision: i64,
     pub crash: Option<Crash>,
+    pub authorization_time_ms: Option<i64>,
 }
 
 struct Executor {
@@ -351,11 +352,12 @@ impl Executor {
             return Outcome::Denied;
         }
         let authority = self.authority.clone();
+        let now = || self.setup.authorization_time_ms.unwrap_or_else(history::now);
         authority.with_park_decision(&self.bridge, &call.park, Purpose::AuthorizeWorkload,
             crate::fleet_policy::Evidence::OperatorSignature(&call.signed), None, |bridge, proof| {
                 let authorized = (|| {
                     let manifest = parks::manifest_for(bridge, &call.park).map_err(|_| DENIED)?;
-                    authorize(bridge, call, &manifest, &proof)?;
+                    authorize(bridge, call, &manifest, &proof, now())?;
                     if !recorded(bridge, call, &proof)? {
                         return Err(DENIED.into());
                     }
@@ -373,7 +375,7 @@ impl Executor {
                 if matches!(self.setup.crash, Some(Crash::BeforeCommand)) {
                     std::process::exit(81);
                 }
-                if authorize(bridge, call, &manifest, &proof).is_err()
+                if authorize(bridge, call, &manifest, &proof, now()).is_err()
                     || !recorded(bridge, call, &proof).unwrap_or(false)
                 {
                     return Outcome::Uncertain;

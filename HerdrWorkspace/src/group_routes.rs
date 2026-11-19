@@ -25,6 +25,7 @@ pub fn routes() -> Router<Workspace> {
         .route("/api/groups", get(list).post(create))
         .route("/api/groups/{id}", get(get_group).post(edit))
         .route("/api/groups/{id}/messages", get(messages).post(send))
+        .route("/api/groups/{id}/outbound-text-review", post(outbound_text_review))
         .route(
             "/api/groups/{id}/messages/with-files",
             post(send_with_files).layer(DefaultBodyLimit::max(task_files::UPLOAD_LIMIT)),
@@ -530,4 +531,24 @@ fn prompt(
         message.insert_str(index, &handoff);
     }
     message
+}
+
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutboundTextReview {
+    park: String,
+    answer: i64,
+}
+
+async fn outbound_text_review(
+    State(w): State<Workspace>,
+    Path(group): Path<i64>,
+    Json(review): Json<OutboundTextReview>,
+) -> Result<Json<Value>, crate::parks::Error> {
+    let mut db = w.history.db()?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    crate::outbound::attach_review(&tx, group, review.answer, &review.park)?;
+    tx.commit()?;
+    Ok(Json(json!({"recorded": true})))
 }

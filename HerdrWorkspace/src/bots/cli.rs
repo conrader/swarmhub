@@ -18,6 +18,7 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
   swarmhub-herdr bot job submit KEY -         queue a managed fixture job from JSON on stdin
   swarmhub-herdr bot job review -             record evidence or reserve a fix from JSON on stdin
   swarmhub-herdr bot job review status ID     inspect a review lineage
+  swarmhub-herdr bot job review abandon ID REASON   close your review lineage with an audit reason
   swarmhub-herdr bot job list                 list your recent jobs
   swarmhub-herdr bot job status ID            show status and available result references
   swarmhub-herdr bot job cancel ID            record a cancellation request
@@ -237,6 +238,9 @@ fn parse(
                 ["review", "-"] => return Ok(self::Command::Ask(Ask::JobReview {
                     command: serde_json::from_str(&text(&["-"], "")?).map_err(|_| "Use a review command JSON document.")?,
                 })),
+                ["review", "abandon", lineage, reason] => return Ok(self::Command::Ask(Ask::JobReview {
+                    command: Box::new(crate::job_reviews::Command::Abandon { lineage: (*lineage).into(), reason: (*reason).into() }),
+                })),
                 ["review", "status", lineage] => return Ok(self::Command::Ask(Ask::JobReview {
                     command: Box::new(crate::job_reviews::Command::Status { lineage: (*lineage).into() }),
                 })),
@@ -244,7 +248,7 @@ fn parse(
                 ["status", id] => Command::Status { id: (*id).into() },
                 ["cancel", id] => Command::Cancel { id: (*id).into() },
                 ["result", id, reference] => Command::Result { id: (*id).into(), reference: (*reference).into() },
-                _ => return Err("Use bot job submit KEY -, list, status ID, cancel ID, result ID REF, review -, or review status ID.".into()),
+                _ => return Err("Use bot job submit KEY -, list, status ID, cancel ID, result ID REF, review -, review status ID, or review abandon ID REASON.".into()),
             };
             Ask::Job { command: Box::new(command) }
         }

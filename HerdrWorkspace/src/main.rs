@@ -37,6 +37,7 @@ mod memory_proposals;
 mod opencode_agent;
 mod page_share;
 mod pages;
+mod outbound;
 mod parks;
 mod pdf_assets;
 mod platform;
@@ -352,6 +353,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(desktop::routes())
         .merge(approvals::routes())
         .merge(parks::routes())
+        .merge(outbound::routes())
         .merge(attention::routes())
         .merge(activity::routes())
         .merge(skills::routes())

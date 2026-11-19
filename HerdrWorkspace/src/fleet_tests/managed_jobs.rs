@@ -535,7 +535,11 @@ fn reviewer(
 }
 
 async fn review_command(f: &Fixture, command: crate::job_reviews::Command) -> Result<Value, String> {
-    let reply = helpers::fixture::ask(&f.spool, key(&f.owner), Action::Bot(Ask::JobReview { command: Box::new(command) })).await?;
+    review_command_as(f, &f.owner, command).await
+}
+
+async fn review_command_as(f: &Fixture, owner: &Value, command: crate::job_reviews::Command) -> Result<Value, String> {
+    let reply = helpers::fixture::ask(&f.spool, key(owner), Action::Bot(Ask::JobReview { command: Box::new(command) })).await?;
     Ok(serde_json::from_str(&reply).unwrap())
 }
 
@@ -552,11 +556,15 @@ async fn completed_review_job(f: &Fixture, key: &str, provider: Provider, artifa
 }
 
 async fn record_completed(f: &Fixture, id: &str) -> Result<String, String> {
+    record_completed_as(f, &f.owner, id).await
+}
+
+async fn record_completed_as(f: &Fixture, owner: &Value, id: &str) -> Result<String, String> {
     let completed = f.poll_until(id, "exited").await;
     assert_eq!(completed.review_eligible, Some(true));
     let result = completed.completion.unwrap().exit.result.unwrap();
-    let artifact = job(&f.spool, &f.owner, Command::Result { id: id.into(), reference: result.reference }).await.unwrap();
-    review_command(f, crate::job_reviews::Command::Record {
+    let artifact = job(&f.spool, owner, Command::Result { id: id.into(), reference: result.reference }).await.unwrap();
+    review_command_as(f, owner, crate::job_reviews::Command::Record {
         job: id.into(), attempt: completed.attempt, artifact, same_provider_exception: None,
     }).await?;
     Ok(result.digest)
@@ -741,6 +749,53 @@ async fn gapplan_11_int_competing_fixes_stale_final_reverse_and_revoked_p2_excep
     assert_eq!(claim["review"]["round"], 2);
     assert_eq!(claim["review"]["exceptions"][0]["id"], "residual-p2");
     assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn gapplan_13_int_denied_lineage_can_be_abandoned_and_owner_change_can_proceed() {
+    use crate::{job_reviews::Command as Review, parks::{self, GitFixture}};
+    let f = Fixture::new(Provider::Codex, "review-evidence");
+    let git = GitFixture::new(f.temp.path());
+    let mut manifest = staging_manifest(&f, &git);
+    let author = review_artifact("author", &manifest);
+    let lineage = completed_review_job(&f, "original-lineage", Provider::Codex, author.clone()).await;
+    record_completed(&f, &lineage).await.unwrap();
+    manifest.review_ref = lineage.clone();
+    let parked = parks::file(&f.bridge.history.db().unwrap(), "denied-lineage", &manifest).unwrap();
+    parks::decide(&mut f.bridge.history.db().unwrap(), &parked, parks::Decision {
+        actor: "operator", source: parks::Source::Human, basis: "fixture denial",
+    }, parks::Change::Deny).unwrap();
+
+    let next = completed_review_job(&f, "same-owner", Provider::Codex, author.clone()).await;
+    assert!(record_completed(&f, &next).await.unwrap_err().contains("unresolved author lineage"));
+    let other_id = "replacement-owner";
+    bots::register(&f.bridge.history.db().unwrap(), &bots::Registration {
+        id: other_id.into(), name: Some("Replacement owner".into()), ..Default::default()
+    }, 1).unwrap().unwrap();
+    let other = session(&f.bridge.history, other_id, "t2", 2, "idle");
+    bots::noted(&f.bridge.history, other_id, key(&other)).unwrap();
+    assert!(crate::projects::grant_launch(&f.bridge.history, key(&other), &[f.input(Provider::Codex).project]).unwrap());
+    f.ordinary.agents(vec![f.owner.clone(), other.clone()]);
+    let other_job = f.submit_as(&other, "new-owner", review_input(&f, Provider::Codex, author)).await.unwrap();
+    record_completed_as(&f, &other, other_job["id"].as_str().unwrap()).await.unwrap();
+    let abandon = || Review::Abandon { lineage: lineage.clone(), reason: "Project direction changed".into() };
+    assert!(review_command_as(&f, &other, abandon()).await.unwrap_err().contains("belongs to this owner"));
+    for _ in 0..2 {
+        let result = review_command(&f, abandon()).await.unwrap();
+        assert_eq!(result["status"], "abandoned");
+    }
+    let inspected = review_command(&f, Review::Status { lineage: lineage.clone() }).await.unwrap();
+    assert_eq!(inspected["closure"]["reason"], "Project direction changed");
+    assert!(inspected["closure"]["at_ms"].as_i64().unwrap() > 0);
+    record_completed(&f, &next).await.unwrap();
+    let db = f.bridge.history.db().unwrap();
+    let rows: (String, String) = db.query_row(
+        "SELECT owner_bot_id,launch FROM job_review_closures WHERE lineage=?1",
+        [&lineage], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(rows, (OWNER.into(), key(&f.owner).into()));
+    assert_eq!(parks::status(&db, &parked).unwrap(), parks::View::Status(parks::State::Denied));
+    assert_eq!(git.head(), manifest.precondition);
 }
 
 mod workload_grants;

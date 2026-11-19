@@ -27,6 +27,7 @@ pub(crate) enum Purpose {
     PublishPolicy,
     Execute,
     AuthorizeWorkload,
+    AuthorizeOutbound,
     AutoExecute,
     Supersede,
     Release,
@@ -73,7 +74,7 @@ pub(crate) struct Envelope {
 
 impl Envelope {
     /// Fixed field order, UTF-8, domain prefix, and no trailing newline.
-    pub(super) fn canonical(&self) -> Result<Vec<u8>, Error> {
+    pub(crate) fn canonical(&self) -> Result<Vec<u8>, Error> {
         if !identifier(&self.workspace)
             || !identifier(&self.nonce)
             || !interval(self.issued_ms, self.expires_ms)
@@ -83,7 +84,7 @@ impl Envelope {
         match (&self.principal, self.purpose, &self.target) {
             (Principal::Operator, Purpose::PublishPolicy, Target::Policy { policy })
                 if policy.valid() => {}
-            (Principal::Operator, Purpose::Execute | Purpose::AuthorizeWorkload | Purpose::Hold | Purpose::Release | Purpose::Deny, Target::Park { park, policy })
+            (Principal::Operator, Purpose::Execute | Purpose::AuthorizeWorkload | Purpose::AuthorizeOutbound | Purpose::Hold | Purpose::Release | Purpose::Deny, Target::Park { park, policy })
                 if park.valid() && policy.valid() => {}
             (Principal::Operator, Purpose::Supersede, Target::Supersession { park, policy, replacement })
                 if park.valid() && policy.valid() && replacement.valid() && park.id != replacement.id => {}

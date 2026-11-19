@@ -59,6 +59,13 @@ impl Form {
         Ok(form)
     }
 
+    pub(crate) fn matches_response(&self, text: &str) -> bool {
+        text.strip_prefix(PREFIX)
+            .and_then(|raw| serde_json::from_str::<Values>(raw).ok())
+            .and_then(|values| self.response(values).ok())
+            .is_some_and(|response| response == text)
+    }
+
     pub fn response(&self, inputs: Values) -> Result<String, Failure> {
         const INVALID: Failure = Failure::Input(
             "Complete required fields and use the listed choices. Text fields can contain up to 300 bytes.",

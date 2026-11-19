@@ -618,15 +618,28 @@ outcome='{outcome}'
 [ "$(/bin/cat "$HOME/synthetic-login")" = fixture-login ]
 [ -z "${{COORDINATOR_FIXTURE_SENTINEL+x}}" ]
 [ "$(/bin/pwd -P)" = '{workdir}' ]
-brief=$(/bin/cat)
+if [ "$outcome" = workload-gate ]; then
+    umask 077
+    /usr/bin/env > "$HOME/workload-env"
+    printf '%s\0' "$0" "$@" > "$HOME/workload-argv"
+    /bin/cat > "$HOME/workload-stdin"
+    brief=$(/bin/cat "$HOME/workload-stdin")
+    exec 3>&1 4>&2
+    exec > "$HOME/workload-stdout" 2> "$HOME/workload-stderr"
+    trap '/bin/cat "$HOME/workload-stdout" >&3; /bin/cat "$HOME/workload-stderr" >&4' EXIT
+else
+    brief=$(/bin/cat)
+fi
 if [ "$outcome" != review-evidence ]; then [ "$brief" = '{FIXTURE_BRIEF}' ]; fi
 printf '%s\n' '{PRIVATE_DIAGNOSTIC}' >&2
 printf '%s\n' "started" >> "$HOME/invocations"
 case "$outcome" in
     timeout) /bin/sleep 20 ;;
     first_holds) if [ "$(/usr/bin/wc -l < "$HOME/invocations" | /usr/bin/tr -d ' ')" = 1 ]; then /bin/sleep 20; fi ;;
-    workload-gate) while [ ! -f "$HOME/workload-outcome" ]; do /bin/sleep 0.05; done
-        [ "$(/bin/cat "$HOME/workload-outcome")" = '"succeeded"' ] ;;
+    workload-gate) while [ ! -f "$FIXTURE_WORKLOAD_OUTCOME" ]; do /bin/sleep 0.05; done
+        /bin/cp "$FIXTURE_WORKLOAD_OUTCOME" "$HOME/workload-received"
+        [ "$(/bin/cat "$HOME/workload-received")" = '"succeeded"' ]
+        while [ ! -f "$HOME/workload-finish" ]; do /bin/sleep 0.05; done ;;
     large_file) /usr/bin/head -c 131072 /dev/zero > "$HOME/large-transcript" ;;
     flood) /usr/bin/head -c 131072 /dev/zero >&2 ;;
     flood_stdout) /usr/bin/head -c 131072 /dev/zero ;;

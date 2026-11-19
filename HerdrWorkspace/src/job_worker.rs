@@ -198,18 +198,31 @@ fn relay_workload(root: &Path, mut bridge: UnixStream, mut executor: UnixStream)
     use crate::vault::workload::{Invocation, Outcome, read_frame, write_frame};
     let call: Invocation = read_frame(&mut bridge)?;
     let attempt = Attempt { job_id: call.terms.job_id.clone(), number: call.terms.attempt };
-    let live = Store::open(root, None).and_then(|mut store| {
-        Ok(store.worker.id == call.terms.host_id
-            && store.worker.host_fingerprint == call.terms.host_fingerprint
-            && store.workload_admitted(&attempt, &call.terms.manifest_digest)?)
-    }).unwrap_or(false);
-    let outcome = if live {
-        write_frame(&mut executor, &call).and_then(|()| read_frame::<Outcome>(&mut executor))
-            .unwrap_or(Outcome::Uncertain)
+    let token = Store::open(root, None).and_then(|mut store| {
+        if store.worker.id != call.terms.host_id || store.worker.host_fingerprint != call.terms.host_fingerprint {
+            return Ok(None);
+        }
+        store.workload_admitted(&attempt, &call.terms.manifest_digest)
+    }).ok().flatten();
+    let outcome = if let Some(token) = token {
+        match write_frame(&mut executor, &call).and_then(|()| read_frame::<Outcome>(&mut executor)) {
+            Ok(outcome) => {
+                let mut staged = tempfile::NamedTempFile::new_in(root)?;
+                serde_json::to_writer(staged.as_file_mut(), &outcome)?;
+                staged.persist(workload_outcome_path(root, &token))?;
+                outcome
+            }
+            Err(_) => Outcome::Uncertain,
+        }
     } else {
         Outcome::Denied
     };
     write_frame(&mut bridge, &outcome)
+}
+
+#[cfg(test)]
+fn workload_outcome_path(root: &Path, token: &str) -> std::path::PathBuf {
+    root.join(format!("workload-outcome-{token}"))
 }
 
 fn start(store: &mut Store, request: &Request, manifest: &Manifest) -> Result<()> {
@@ -336,7 +349,10 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
                     return Err("Profile pin changed.".into());
                 }
                 profile.stage(root, request, run.manifest.requested_model.as_deref(),
-                    run.manifest.requested_effort.as_deref())
+                    run.manifest.requested_effort.as_deref(),
+                    #[cfg(test)]
+                    workload_outcome_path(root, token),
+                )
             })();
             let invocation = match stage {
                 Ok(invocation) => invocation,

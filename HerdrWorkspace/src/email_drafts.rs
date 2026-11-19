@@ -1,5 +1,6 @@
 use crate::{
-    ApiError, Workspace, agent,
+    ApiError, Workspace, agent, bots,
+    outbound::{self, Email, Payload, Version}, parks,
     core::Failure,
     file_download_response,
     history::{self, StoreError, now},
@@ -58,6 +59,8 @@ struct Suggestion {
     state: String,
     revision: i64,
     draft: Option<Draft>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    staged: Option<Version>,
 }
 
 pub fn routes() -> Router<Workspace> {
@@ -78,6 +81,14 @@ pub fn routes() -> Router<Workspace> {
         .route(
             "/api/history/{core}/{id}/{created}/email-drafts/{message}/download",
             post(download).layer(DefaultBodyLimit::max(REQUEST_LIMIT)),
+        )
+        .route(
+            "/api/history/{core}/{id}/{created}/email-drafts/{message}/stage",
+            post(stage).layer(DefaultBodyLimit::max(REQUEST_LIMIT)),
+        )
+        .route(
+            "/api/history/{core}/{id}/{created}/email-drafts/{message}/staged-download",
+            post(staged_download),
         )
         .route(
             "/api/history/{core}/{id}/{created}/email-drafts/{message}/dismiss",
@@ -105,6 +116,7 @@ fn suggestion(db: &Connection, at: &Location) -> Result<Suggestion, ApiError> {
                 state: row.get(0)?,
                 revision: row.get(1)?,
                 draft,
+                staged: None,
             })
         },
     )
@@ -116,16 +128,58 @@ fn suggestion(db: &Connection, at: &Location) -> Result<Suggestion, ApiError> {
 async fn read(
     State(w): State<Workspace>,
     Path(at): Path<Location>,
-) -> Result<Json<Suggestion>, ApiError> {
-    let db = w.history.db()?;
-    Ok(Json(suggestion(&db, &at)?))
+) -> Result<Json<Suggestion>, parks::Error> {
+    let mut db = w.history.db()?;
+    let tx = db.transaction()?;
+    let mut result = suggestion(&tx, &at).map_err(park_error)?;
+    result.staged = outbound::latest_legacy(&tx, at.message)?;
+    Ok(Json(result))
 }
 
-fn control(c: char) -> bool {
+fn park_error(error: ApiError) -> parks::Error {
+    match error {
+        ApiError::NotFound => parks::Error::Missing,
+        _ => parks::Error::Store(StoreError),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage {
+    revision: i64,
+    version: i64,
+    email: Email,
+}
+
+async fn stage(
+    State(w): State<Workspace>, Path(at): Path<Location>, Json(input): Json<Stage>,
+) -> Result<Json<Version>, parks::Error> {
+    let mut db = w.history.db()?;
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let current = suggestion(&tx, &at).map_err(park_error)?;
+    if current.state == "dismissed" || current.revision != input.revision {
+        return Err(parks::Error::Conflict);
+    }
+    let (launch, owner_entry): (String, i64) = tx.query_row(
+        "SELECT d.launch,j.id FROM email_drafts d JOIN journal j ON j.launch_key=d.launch
+         WHERE d.message=?1",
+        [at.message], |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let owner = match bots::of_launch(&tx, &launch)? {
+        bots::Who::Bot(bot) if bot.noted_launch.as_deref() == Some(&launch) => bot.id,
+        _ => format!("session:{owner_entry}"),
+    };
+    let staged = outbound::stage_legacy(&tx, at.message, &owner, input.version, Payload::Email(input.email))?;
+    tx.commit()?;
+    Ok(Json(staged))
+}
+
+
+pub(crate) fn control(c: char) -> bool {
     c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
 }
 
-fn mailbox(address: &str) -> bool {
+pub(crate) fn mailbox(address: &str) -> bool {
     let Some((local, domain)) = address.split_once('@') else {
         return false;
     };
@@ -190,17 +244,36 @@ impl Draft {
     }
 }
 
-fn eml(draft: &Draft) -> Vec<u8> {
-    // No sender or transport fields are invented. X-Unsent marks a local
-    // draft for clients that recognize it; MIME carries the text verbatim.
-    let mut message = String::from("X-Unsent: 1\r\n");
-    if !draft.to.is_empty() {
-        message.push_str("To: ");
-        message.push_str(&draft.to.replace(", ", ",\r\n "));
+fn address_header(message: &mut String, label: &str, addresses: &str) {
+    if !addresses.is_empty() {
+        message.push_str(label);
+        message.push_str(": ");
+        message.push_str(&addresses.replace(", ", ",\r\n "));
         message.push_str("\r\n");
     }
+}
+
+fn eml(draft: &Draft) -> Vec<u8> {
+    let mut headers = String::from("X-Unsent: 1\r\n");
+    address_header(&mut headers, "To", &draft.to);
+    plain_eml(headers, &draft.subject, &draft.body)
+}
+
+fn staged_eml(email: &Email) -> Vec<u8> {
+    let mut headers = String::from("X-Unsent: 1\r\n");
+    address_header(&mut headers, "From", &email.sender);
+    address_header(&mut headers, "To", &email.to.join(", "));
+    address_header(&mut headers, "Cc", &email.cc.join(", "));
+    address_header(&mut headers, "Bcc", &email.bcc.join(", "));
+    if let Some(reply) = &email.in_reply_to {
+        address_header(&mut headers, "In-Reply-To", reply);
+    }
+    plain_eml(headers, &email.subject, &email.body)
+}
+
+fn plain_eml(mut message: String, subject: &str, body: &str) -> Vec<u8> {
     message.push_str("Subject:");
-    let mut remaining = draft.subject.as_str();
+    let mut remaining = subject;
     let mut first = true;
     while !remaining.is_empty() {
         let mut end = remaining.len().min(42);
@@ -217,7 +290,7 @@ fn eml(draft: &Draft) -> Vec<u8> {
         remaining = &remaining[end..];
     }
     message.push_str("\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n");
-    let body = STANDARD.encode(draft.body.replace('\n', "\r\n"));
+    let body = STANDARD.encode(body.replace('\n', "\r\n"));
     for line in body.as_bytes().chunks(76) {
         message.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
         message.push_str("\r\n");
@@ -240,6 +313,9 @@ async fn download(
         if current.state == "dismissed" {
             return Err(ApiError::Conflict("This email draft was dismissed."));
         }
+        if outbound::latest_legacy(&tx, at.message).map_err(|_| StoreError)?.is_some() {
+            return Err(ApiError::Conflict("Open the staged draft to download its saved revision."));
+        }
         // A retry of the exact accepted contents always produces the same
         // file without changing the saved record, even with an older revision.
         if current.state == "reviewed" && current.draft.as_ref() == Some(&draft) {
@@ -258,15 +334,32 @@ async fn download(
             revision
         }
     };
-    let mut response = file_download_response(FILENAME, eml(&draft));
+    let mut response = eml_download(eml(&draft));
+    response.headers_mut().insert("x-swarmhub-email-revision", revision.into());
+    Ok(response)
+}
+
+fn eml_download(bytes: Vec<u8>) -> Response {
+    let mut response = file_download_response(FILENAME, bytes);
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("message/rfc822"),
     );
     response
-        .headers_mut()
-        .insert("x-swarmhub-email-revision", revision.into());
-    Ok(response)
+}
+
+async fn staged_download(
+    State(w): State<Workspace>, Path(at): Path<Location>, Json(input): Json<Dismiss>,
+) -> Result<Response, parks::Error> {
+    let mut db = w.history.db()?;
+    let tx = db.transaction()?;
+    suggestion(&tx, &at).map_err(park_error)?;
+    let version = outbound::latest_legacy(&tx, at.message)?.ok_or(parks::Error::Missing)?;
+    if input.revision != version.version {
+        return Err(parks::Error::Conflict);
+    }
+    let Payload::Email(email) = version.payload else { return Err(parks::Error::Conflict) };
+    Ok(eml_download(staged_eml(&email)))
 }
 
 async fn dismiss(
@@ -279,6 +372,9 @@ async fn dismiss(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(StoreError::from)?;
     let current = suggestion(&tx, &at)?;
+    if outbound::latest_legacy(&tx, at.message).map_err(|_| StoreError)?.is_some() {
+        return Err(ApiError::Conflict("Manage the staged draft from Approvals."));
+    }
     if current.state != "dismissed" {
         if current.revision != review.revision {
             return Err(CHANGED);

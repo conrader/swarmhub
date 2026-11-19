@@ -36,6 +36,7 @@ impl From<crate::fleet_policy::Error> for Error {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Blocker {
     HumanReview,
+    OutboundDisabled,
     FixtureOnly,
     Pins,
     ReviewEvidence,
@@ -105,6 +106,7 @@ pub(crate) enum Operation {
     UseWorkloadSecret { grant_digest: String },
     Delete,
     OutsideMessage,
+    DeliverOutbound { draft: String, version: i64, payload_digest: String },
     Unknown { action: String },
 }
 
@@ -116,7 +118,7 @@ impl Operation {
             Self::SpendMoney => "spend_money",
             Self::UseSecret | Self::UseWorkloadSecret { .. } => "use_secret",
             Self::Delete => "delete",
-            Self::OutsideMessage => "outside_message",
+            Self::OutsideMessage | Self::DeliverOutbound { .. } => "outside_message",
             Self::Unknown { .. } => "unknown",
         }
     }
@@ -133,6 +135,12 @@ impl Manifest {
                     && self.precondition.len() == self.expected_postcondition.len()
             }
             Operation::Unknown { action } => valid_text(action),
+            Operation::DeliverOutbound { draft, version, payload_digest } => {
+                crate::fleet_policy::principals::hex(draft, 32) && *version > 0
+                    && crate::fleet_policy::principals::hex(payload_digest, 64)
+                    && self.artifact_pin == *payload_digest
+                    && self.revision == format!("{draft}-{version}")
+            }
             Operation::UseWorkloadSecret { grant_digest } => {
                 crate::fleet_policy::principals::hex(grant_digest, 64)
             }
@@ -331,6 +339,31 @@ pub(crate) fn decide(
     let replacement = transition(&tx, park, decision, change, None)?;
     tx.commit()?;
     Ok(replacement)
+}
+
+pub(crate) fn stage_outbound(
+    tx: &Transaction<'_>,
+    previous: Option<&ParkRef>,
+    manifest: &Manifest,
+) -> Result<ParkRef, Error> {
+    if !matches!(manifest.operation, Operation::DeliverOutbound { .. }) {
+        return Err(Error::InvalidManifest);
+    }
+    let id = format!("outbound-{}", manifest.revision);
+    if let Some(previous) = previous
+        && matches!(status(tx, previous)?, View::Status(State::Pending | State::Held))
+    {
+        let claimed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM park_executions WHERE park_id=?1)",
+            [&previous.id], |row| row.get(0),
+        )?;
+        if !claimed {
+            return transition(tx, previous, Decision {
+                actor: "workspace", source: Source::Backstop, basis: "outbound draft edited in the workspace",
+            }, Change::Supersede { id: &id, manifest }, None)?.ok_or(Error::Conflict);
+        }
+    }
+    insert_park(tx, &id, manifest, None)
 }
 
 fn transition(

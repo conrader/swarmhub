@@ -103,6 +103,7 @@ impl Profile {
 
     pub(super) fn stage(
         &self, root: &Path, request: &Request, model: Option<&str>, effort: Option<&str>,
+        #[cfg(test)] workload_outcome: PathBuf,
     ) -> Result<Prepared> {
         let dir = tempfile::Builder::new()
             .prefix("provider-")
@@ -115,6 +116,8 @@ impl Profile {
             home: self.home.clone(),
             model: model.map(str::to_owned),
             effort: effort.map(str::to_owned),
+            #[cfg(test)]
+            workload_outcome,
         };
         write_private(&dir.path().join("invocation.json"), 0o600, &serde_json::to_vec(&invocation)?)?;
         Ok(Prepared {
@@ -254,6 +257,8 @@ struct Invocation {
     home: PathBuf,
     model: Option<String>,
     effort: Option<String>,
+    #[cfg(test)]
+    workload_outcome: PathBuf,
 }
 
 impl Invocation {
@@ -292,16 +297,18 @@ pub(super) fn exec(dir: &Path, stdout: OwnedFd, stderr: OwnedFd) -> Result<()> {
     };
     let invocation: Invocation = serde_json::from_slice(&bounded(private_file(&dir.join("invocation.json"), owner, false)?, 4096)?)?;
     let brief = private_file(&dir.join("brief"), owner, false)?;
-    Err(Command::new(dir.join("runner"))
-        .args(invocation.args(dir))
+    let mut command = Command::new(dir.join("runner"));
+    command.args(invocation.args(dir))
         .env_clear()
         .env("HOME", &invocation.home)
         .env("PATH", "/usr/bin:/bin")
         .env("LC_ALL", "C")
         .stdin(Stdio::from(brief))
         .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
-        .exec().into())
+        .stderr(Stdio::from(stderr));
+    #[cfg(test)]
+    command.env("FIXTURE_WORKLOAD_OUTCOME", &invocation.workload_outcome);
+    Err(command.exec().into())
 }
 
 #[derive(Deserialize)]
@@ -404,6 +411,7 @@ mod tests {
             home: "/private/fixture-home".into(),
             model: Some(model.into()),
             effort: Some(effort.into()),
+            workload_outcome: "/private/workload-outcome".into(),
         }.args(Path::new("/private/attempt")).into_iter()
             .map(|word| word.into_string().unwrap()).collect()
     }

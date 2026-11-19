@@ -299,6 +299,9 @@ button.activity-unread { border-inline-start:3px solid var(--accent); }
 #attention-list .library-items { max-height:none; margin-top:8px; }
 #approval-dialog { width:min(720px,calc(100% - 24px)); }
 #approval-input { border:1px solid var(--line); border-radius:9px; }
+.park-preview { max-height:50dvh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+#email-draft-dialog { width:min(590px,calc(100% - 24px)); }
+#email-draft-dialog .dialog-actions { flex-wrap:wrap; }
 #approval-path { overflow-wrap:anywhere; }
 #approval-history li { padding:8px 10px; border:1px solid var(--line); border-radius:8px; }
 #approval-list,#approval-history { max-height:28dvh; }
