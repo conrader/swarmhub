@@ -26,6 +26,7 @@ mod group_routes;
 mod groups;
 mod helpers;
 mod history;
+mod jobs;
 mod live_reply;
 mod machines;
 mod markdown;
@@ -311,6 +312,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .merge(group_handoffs::routes())
         .merge(helpers::routes())
         .merge(bots::routes())
+        .merge(jobs::routes())
         .merge(machines::routes())
         .merge(projects::routes())
         .merge(events::routes())

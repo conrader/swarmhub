@@ -797,6 +797,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-bots.sql"),
         include_str!("migrate-vault-requests.sql"),
         include_str!("migrate-parks.sql"),
+        include_str!("migrate-jobs.sql"),
     ]
 }
 
