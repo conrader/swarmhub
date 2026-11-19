@@ -15,6 +15,8 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
   swarmhub-herdr bot reply ID TEXT            answer an ask, or report the result of a hand-off you accepted
   swarmhub-herdr bot accept ID                take over the work of a hand-off
   swarmhub-herdr bot decline ID REASON        refuse an ask or a hand-off
+  swarmhub-herdr bot completion inbox [ID]   recover your job completions by JOB:ATTEMPT
+  swarmhub-herdr bot completion ack ID       acknowledge and return the durable next-step key
       TEXT `-` reads standard input. Quote a NAME of several words.
 Check-ins (the server brings you back to something, also with the app closed):
   swarmhub-herdr checkin in 30m WHAT          once; also: at 17:30
@@ -40,6 +42,8 @@ const TEXT_BYTES: usize = 32 * 1024;
 #[serde(deny_unknown_fields, tag = "op", rename_all = "snake_case")]
 pub(crate) enum Ask {
     List,
+    CompletionInbox { id: Option<String> },
+    CompletionAck { id: String },
     /// `kind` is `ask`, `tell` or `handoff`.
     Send {
         kind: String,
@@ -206,6 +210,19 @@ fn parse(
             alone(0)?;
             Ask::List
         }
+        ("bot", "completion") => {
+            let event_id = |id: &str| {
+                super::completions::valid_id(id)
+                    .then(|| id.to_owned())
+                    .ok_or_else(|| "Use a completion ID in JOB:ATTEMPT form.".to_owned())
+            };
+            match rest {
+                ["inbox"] => Ask::CompletionInbox { id: None },
+                ["inbox", id] => Ask::CompletionInbox { id: Some(event_id(id)?) },
+                ["ack", id] => Ask::CompletionAck { id: event_id(id)? },
+                _ => return Err("Use bot completion inbox [ID] or bot completion ack ID.".into()),
+            }
+        }
         ("bot", kind @ ("ask" | "tell" | "handoff" | "hand-off")) => {
             let to = rest
                 .first()
@@ -360,6 +377,19 @@ mod tests {
         match parsed(family, line) {
             Ok(Command::Ask(ask)) => ask,
             other => panic!("{line}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gapplan_03_unit_reads_owner_completion_commands() {
+        assert_eq!(ask("bot", "completion inbox"), Ask::CompletionInbox { id: None });
+        assert_eq!(ask("bot", "completion inbox job-abcd:2"),
+            Ask::CompletionInbox { id: Some("job-abcd:2".into()) });
+        assert_eq!(ask("bot", "completion ack job-abcd:2"),
+            Ask::CompletionAck { id: "job-abcd:2".into() });
+        for line in ["completion ack", "completion ack job:0", "completion ack ../job:1",
+                     "completion inbox job:1 extra"] {
+            assert!(parsed("bot", line).is_err(), "{line}");
         }
     }
 

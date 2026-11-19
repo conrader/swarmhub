@@ -653,6 +653,7 @@ async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>) -
             return undelivered("not_sent", "Cannot reach a compatible Herdr Core.");
         }
     };
+    let _turn = crate::task_turn(w, &item.target.address, item.target.created_ms).await;
     let agent = match w
         .core
         .agent(&item.target.address, item.target.created_ms)
@@ -697,7 +698,7 @@ async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>) -
         _ => String::new(),
     };
     let prompt = format!("{source}\n{report}\n{}{suffix}", item.task);
-    let outcome = w.send_to_agent(&agent, prompt).await;
+    let outcome = w.send_to_agent_waiting(&agent, prompt, None, crate::warm::Wait::Held).await;
     let (state, journal, detail) = match &outcome {
         Ok(sent) if sent.started == Some(false) => (
             "start_not_observed",

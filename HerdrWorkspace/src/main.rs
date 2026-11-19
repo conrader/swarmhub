@@ -97,22 +97,14 @@ struct Workspace {
 }
 
 impl Workspace {
-    async fn send_to_agent(
-        &self,
-        agent: &core::Terminal,
-        prompt: String,
-    ) -> Result<core::Delivery, Failure> {
-        self.send_to_agent_with_group(agent, prompt, None).await
-    }
-
     async fn send_to_agent_with_group(
         &self,
         agent: &core::Terminal,
         prompt: String,
         group: Option<group_preview::Binding>,
     ) -> Result<core::Delivery, Failure> {
-        self.send_to_agent_waiting(agent, prompt, group, warm::Wait::Held)
-            .await
+        let _turn = task_turn(self, &agent.address, agent.created_ms).await;
+        self.send_to_agent_waiting(agent, prompt, group, warm::Wait::Held).await
     }
 
     /// `wait`: who waits if the agent was started ahead of its first task and is not ready yet (`warm`).
@@ -717,17 +709,24 @@ async fn launch(
 ) -> Result<impl IntoResponse, ApiError> {
     Ok((
         StatusCode::CREATED,
-        Json(launch_agent(w, body, None).await?),
+        Json(launch_agent(w, body, None, None).await?),
     ))
 }
 
 /// Starts an agent as `POST /api/agents` asks. `own_instructions` is for a start the workspace decides on
 /// itself (`bots`, for a bot whose agent is not running): those instructions go with the first task, whatever
 /// the profile has saved.
+struct CompletionStart {
+    core: String,
+    owner: String,
+    agent_name: String,
+}
+
 async fn launch_agent(
     w: Workspace,
     body: Launch,
     own_instructions: Option<String>,
+    fixture: Option<CompletionStart>,
 ) -> Result<CreatedLaunch, ApiError> {
     if !body.warm {
         core::validate_task(&body.task)?;
@@ -745,6 +744,11 @@ async fn launch_agent(
     let first_instructions =
         profiles::validate_instructions(body.standing_instructions.as_deref().unwrap_or(""))?;
     let hello = w.core.identify().await?;
+    if fixture.as_ref().is_some_and(|fixture| {
+        fixture.core != hello.core.id || !hello.supports(crate::core::COMPLETION_START)
+    }) {
+        return Err(ApiError::Conflict("Herdr Core changed before the fixture launch."));
+    }
     if let Some(id) = body.profile_id {
         let name = w
             .history
@@ -858,6 +862,14 @@ async fn launch_agent(
         &instructions,
         &hints,
     )?;
+    if let Some(fixture) = &fixture {
+        let db = w.history.db()?;
+        if !bots::one(&db, &fixture.owner).map_err(StoreError::from)?.is_some_and(|bot| {
+            bot.takes_messages && bot.agent_name == fixture.agent_name
+        }) {
+            return Err(ApiError::Conflict("The owner changed before the fixture launch."));
+        }
+    }
     let started = if body.warm {
         warm::start(
             &w.history,
@@ -940,6 +952,11 @@ async fn launch_agent(
                 body.name,
                 if api_first_task {
                     core::LaunchSource::DirectOpenCode(body.template, template.command)
+                } else if let Some(fixture) = fixture {
+                    core::LaunchSource::FixtureWarm {
+                        template: body.template,
+                        core: fixture.core,
+                    }
                 } else if body.warm {
                     core::LaunchSource::Warm(body.template)
                 } else {
@@ -1073,6 +1090,30 @@ async fn send_with_files(
     send_message(w, id, created, body, files).await
 }
 
+/// Serialize the availability check and reservation with sends to this terminal.
+async fn task_turn(w: &Workspace, address: &str, created: u64) -> tokio::sync::OwnedMutexGuard<()> {
+    use std::{
+        collections::BTreeMap,
+        sync::{Arc, Mutex, Weak},
+    };
+    type Key = (PathBuf, String, u64);
+    type Gate = tokio::sync::Mutex<()>;
+    static TURNS: Mutex<BTreeMap<Key, Weak<Gate>>> = Mutex::new(BTreeMap::new());
+    let gate = {
+        let mut turns = TURNS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        turns.retain(|_, gate| gate.strong_count() != 0);
+        let slot = turns
+            .entry((w.history.file().to_owned(), address.to_owned(), created))
+            .or_default();
+        slot.upgrade().unwrap_or_else(|| {
+            let gate = Arc::new(Gate::new(()));
+            *slot = Arc::downgrade(&gate);
+            gate
+        })
+    };
+    gate.lock_owned().await
+}
+
 async fn send_message(
     w: Workspace,
     id: String,
@@ -1172,6 +1213,7 @@ async fn send_message(
         ))
         .filter(|instruction| base.as_ref().is_some_and(|base| base.len() + instruction.len() + 32 <= 16_384));
     core::validate_task(base.as_deref().unwrap_or(&text))?;
+    let turn = task_turn(&w, &id, created).await;
     let (record, token) = w.history.start_task(
         &hello.core.id,
         &agent,
@@ -1184,23 +1226,23 @@ async fn send_message(
     if let (Some(instruction), Some(token)) = (instruction, token) {
         prompt.insert_str(INTRO.len(), &format!("{instruction}{token}"));
     }
-    if warm::starting(&w.history, &agent) {
-        // The agent was started ahead of this message and is not ready for it. The message is saved, and typed
-        // when the agent is: its row says how that went.
-        tokio::spawn(deliver_task_waiting(
-            w,
-            agent,
-            record,
-            prompt,
-            warm::Wait::Queued,
-        ));
+    let queued = warm::starting(&w.history, &agent);
+    let action = tokio::spawn(async move {
+        let _turn = turn;
+        let wait = if queued {
+            warm::Wait::Queued
+        } else {
+            warm::Wait::Held
+        };
+        type_recorded_task(&w, &agent, record, prompt, wait).await
+    });
+    if queued {
         return Ok((
             StatusCode::ACCEPTED,
             Json(json!({"status":null,"started":null,"queued":true})),
-        )
-            .into_response());
+        ).into_response());
     }
-    Ok(Json(deliver_task(w, agent, record, prompt).await?).into_response())
+    Ok(Json(action.await.map_err(|_| Failure::Uncertain)??).into_response())
 }
 
 async fn deliver_task(
@@ -1221,25 +1263,109 @@ async fn deliver_task_waiting(
     wait: warm::Wait,
 ) -> Result<core::Delivery, Failure> {
     let action = tokio::spawn(async move {
-        match w.send_to_agent_waiting(&agent, prompt, None, wait).await {
-            Ok(delivery) => {
-                let state = if delivery.started == Some(false) {
-                    DeliveryState::StartNotObserved
-                } else {
-                    DeliveryState::Sent
-                };
-                w.history
-                    .finish(record, state, None, None)
-                    .map_err(|_| Failure::Uncertain)?;
-                Ok(delivery)
-            }
-            Err(error) => {
-                record_failure(&w.history, record, &error).map_err(|_| Failure::Uncertain)?;
-                Err(error)
-            }
-        }
+        let _turn = task_turn(&w, &agent.address, agent.created_ms).await;
+        type_recorded_task(&w, &agent, record, prompt, wait).await
     });
     action.await.map_err(|_| Failure::Uncertain)?
+}
+
+async fn type_recorded_task(
+    w: &Workspace,
+    agent: &core::Terminal,
+    record: i64,
+    prompt: String,
+    wait: warm::Wait,
+) -> Result<core::Delivery, Failure> {
+    let outcome = w.send_to_agent_waiting(agent, prompt, None, wait).await;
+    finish_task(&w.history, record, outcome)
+}
+
+fn finish_task(
+    history: &History,
+    record: i64,
+    outcome: Result<core::Delivery, Failure>,
+) -> Result<core::Delivery, Failure> {
+    match outcome {
+        Ok(delivery) => {
+            let state = if delivery.started == Some(false) {
+                DeliveryState::StartNotObserved
+            } else {
+                DeliveryState::Sent
+            };
+            history.finish(record, state, None, None).map_err(|_| Failure::Uncertain)?;
+            Ok(delivery)
+        }
+        Err(error) => {
+            record_failure(history, record, &error).map_err(|_| Failure::Uncertain)?;
+            Err(error)
+        }
+    }
+}
+
+/// Offers a completion only against a current, idle launch. The fixture Core also compares the
+/// same launch and turn when accepting the write, since a provider can change state independently.
+async fn deliver_completion(
+    w: &Workspace,
+    core: &str,
+    agent: &core::Terminal,
+    outbox: i64,
+    owner: &str,
+    text: &str,
+) {
+    use bots::{
+        completions::{self, Blocker},
+        desk::{self, CompletionLaunch},
+    };
+    let defer = |blocker| {
+        let _ = bots::write(&w.history, |ctx| completions::defer(ctx, outbox, blocker));
+    };
+    let _turn = task_turn(w, &agent.address, agent.created_ms).await;
+    let Ok(hello) = w.core.identify().await else {
+        return defer(Blocker::Core);
+    };
+    if hello.core.id != core {
+        return defer(Blocker::Changed);
+    }
+    if !hello.supports(crate::core::COMPLETION_SEND) {
+        return defer(Blocker::Unsupported);
+    }
+    let Ok(agents) = w.core.agents().await else {
+        return defer(Blocker::Core);
+    };
+    let Some(key) = agent.launch_key() else {
+        return defer(Blocker::Unmapped);
+    };
+    let current = match desk::completion_launch(w, core, &agents, owner) {
+        Ok(CompletionLaunch::Current(index)) => &agents[index],
+        Ok(CompletionLaunch::Unmapped) => return defer(Blocker::Unmapped),
+        Ok(CompletionLaunch::Absent) => return defer(Blocker::Changed),
+        Err(_) => return,
+    };
+    if current.address != agent.address
+        || current.created_ms != agent.created_ms
+        || current.launch_key() != Some(key)
+    {
+        return defer(Blocker::Changed);
+    }
+    if current.uses_opencode_api() {
+        return defer(Blocker::Unsupported);
+    }
+    if let Err(blocker) = completions::availability(current) {
+        return defer(blocker);
+    }
+    let Ok(Some(record)) = bots::write(&w.history, |ctx| {
+        completions::reserve(ctx, outbox, owner, core, current, text)
+    }) else {
+        return;
+    };
+    let outcome = warm::send_completion(w, core, current, key, text.to_owned()).await;
+    let state = match outcome {
+        Ok(delivery) if delivery.started == Some(false) => DeliveryState::StartNotObserved,
+        Ok(_) => DeliveryState::Sent,
+        Err(error) => delivery_failure(&error).0,
+    };
+    let _ = w.history.finish(record, state, None, None);
+    let _ = completions::reconcile_one(&w.history, outbox);
 }
 
 #[derive(Deserialize)]

@@ -47,6 +47,12 @@ pub(crate) fn clock(at_ms: i64, set: &Settings) -> String {
         .unwrap_or_else(|| "an unknown time".into())
 }
 
+/// Builds a completion wake entirely from the terminal event.
+pub(super) fn completion(cmd: &str, event: &super::completions::Completion) -> String {
+    let data = serde_json::to_string(event).expect("completion event serializes");
+    format!("{SERVER_LEAD} Job completion {data}\nRun {cmd} bot completion ack {} to acknowledge it. Reuse the returned token as the idempotency key for its managed next step.", event.id)
+}
+
 /// What a bot's agent reads once, with its first task: how to behave towards the person, and the commands.
 pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     let mut note = format!(
@@ -87,6 +93,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str) -> String {
     note.push_str(&format!(
         "- When you tell the person you will do or report something later, record it: {cmd} promise add --by 30m \"WHAT\"; then `{cmd} promise done ID`."
     ));
+    note.push_str(&format!("\n- To recover job completions after reconnecting, use `{cmd} bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `{cmd} bot completion ack JOB:ATTEMPT` and reuse its token if the managed next step needs a retry."));
     if bot.main && bot.takes_initiative {
         note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Tell the person briefly and offer what you could do; do not act on a note without their yes.");
     }

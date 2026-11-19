@@ -233,7 +233,7 @@ fn gapplan_01_int_killed_executor_recovers_without_replay() {
         if !owned {
             write_marker(&project, &marker("new")).unwrap();
         }
-        let reopened = History::open_at(&journal_dir).unwrap();
+        let reopened = reopen_journal(&journal_dir);
         let mut db = history::connection(reopened.file()).unwrap();
         assert_eq!(
             parks::execute(&mut db, &park, decision(Source::Backstop), &adapter).unwrap(),
@@ -296,7 +296,7 @@ fn gapplan_01_int_journal_v52_fresh_upgrade_and_reopen() {
     drop(old);
     fs::copy(seed, data.join("workspace.sqlite3")).unwrap();
     for _ in 0..3 {
-        let reopened = History::open_at(&data).unwrap();
+        let reopened = reopen_journal(&data);
         let db = reopened.db().unwrap();
         assert_eq!(schema(&db), current_version);
         let existing: String = db
@@ -328,7 +328,7 @@ fn job_writes(db: &Connection, id: &str) -> (i64, i64) {
     .unwrap()
 }
 
-fn reopen_job_journal(directory: &Path) -> History {
+fn reopen_journal(directory: &Path) -> History {
     const LOCK_BUSY: &str = "Another workspace server may already be using this data directory.";
     // A concurrently spawned child can briefly inherit the lock before exec.
     let deadline = Instant::now() + WAIT;
@@ -338,7 +338,7 @@ fn reopen_job_journal(directory: &Path) -> History {
             Err(error) => {
                 if error.to_string() != LOCK_BUSY || Instant::now() >= deadline {
                     panic!(
-                        "could not reopen job journal at {}: {error}",
+                        "could not reopen journal at {}: {error}",
                         directory.display()
                     );
                 }
@@ -534,7 +534,7 @@ fn gapplan_02_int_killed_between_writes_leaves_no_exit_event_or_result() {
 
     if let Some(root) = std::env::var_os(JOB_CRASH_ROOT) {
         let root = Path::new(&root);
-        let h = reopen_job_journal(&root.join("journal"));
+        let h = reopen_journal(&root.join("journal"));
         let mut db = history::connection(h.file()).unwrap();
         let id: String = db.query_row("SELECT id FROM jobs", [], |r| r.get(0)).unwrap();
         jobs_fixture::finish_after_update(&mut db, &id, || {
@@ -585,7 +585,7 @@ fn gapplan_02_int_killed_between_writes_leaves_no_exit_event_or_result() {
     assert_eq!(during_writes, (0, 0));
     drop(reader);
 
-    let reopened = reopen_job_journal(&directory);
+    let reopened = reopen_journal(&directory);
     let mut db = reopened.db().unwrap();
     assert_eq!(jobs::status(&db, &job.id).unwrap().unwrap(), during);
     assert_eq!(job_writes(&db, &job.id), (0, 0));
@@ -622,7 +622,7 @@ fn gapplan_02_int_unresolved_status_survives_restarts_until_reconciled() {
     };
     drop(h);
 
-    let reopened = reopen_job_journal(&directory);
+    let reopened = reopen_journal(&directory);
     let event = {
         let mut db = reopened.db().unwrap();
         for (job, reason) in [(&start, "start_unconfirmed"), (&exit, "exit_unconfirmed")] {
@@ -638,7 +638,7 @@ fn gapplan_02_int_unresolved_status_survives_restarts_until_reconciled() {
     };
     drop(reopened);
 
-    let reopened = reopen_job_journal(&directory);
+    let reopened = reopen_journal(&directory);
     let db = reopened.db().unwrap();
     assert_eq!(jobs::status(&db, &exit.id).unwrap().unwrap().completion, Some(event));
     assert_eq!(job_writes(&db, &exit.id), (1, 1));
@@ -648,8 +648,7 @@ fn gapplan_02_int_unresolved_status_survives_restarts_until_reconciled() {
 
 #[test]
 fn gapplan_02_int_journal_v53_fresh_upgrade_and_reopen() {
-    fn assert_v53(db: &Connection) {
-        assert_eq!(schema(db), 53);
+    fn assert_v53_tables(db: &Connection) {
         for table in ["jobs", "job_attempts", "job_completions"] {
             let count: i64 = db
                 .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
@@ -660,7 +659,8 @@ fn gapplan_02_int_journal_v53_fresh_upgrade_and_reopen() {
 
     let scratch = tempfile::tempdir().unwrap();
     let fresh = History::open_at(&scratch.path().join("fresh")).unwrap();
-    assert_v53(&fresh.db().unwrap());
+    assert_eq!(schema(&fresh.db().unwrap()), history::migrations().len());
+    assert_v53_tables(&fresh.db().unwrap());
 
     let seed = scratch.path().join("v52.sqlite3");
     let old = Connection::open(&seed).unwrap();
@@ -684,13 +684,676 @@ fn gapplan_02_int_journal_v53_fresh_upgrade_and_reopen() {
         std::os::unix::fs::PermissionsExt::from_mode(0o600),
     ).unwrap();
     for _ in 0..3 {
-        let reopened = reopen_job_journal(&directory);
+        let reopened = reopen_journal(&directory);
         let db = reopened.db().unwrap();
-        assert_v53(&db);
+        assert_eq!(schema(&db), history::migrations().len());
+        assert_v53_tables(&db);
         assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Pending));
         let name: String = db.query_row(
             "SELECT name FROM bots WHERE id='preexisting-bot'", [], |r| r.get(0),
         ).unwrap();
         assert_eq!(name, "Fixture Bot");
+    }
+}
+
+mod job_delivery {
+    use super::*;
+    use crate::{Core, Workspace, bots::{self, Ask, desk}, core::{COMPLETION_SEND, COMPLETION_START}};
+    use axum::http::StatusCode;
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+        net::UnixListener,
+        sync::Notify,
+        task::JoinHandle,
+        time::timeout,
+    };
+
+    const OWNER: &str = jobs_fixture::OWNER;
+    const CRASH_JOURNAL: &str = "SWARMHUB_GAPPLAN_03_CRASH_JOURNAL";
+    const CRASH_ACK: &str = "SWARMHUB_GAPPLAN_03_CRASH_ACK";
+    const CRASH_TEST: &str =
+        "fleet_tests::job_delivery::gapplan_03_int_killed_during_transport_reconciles_and_ack_retry_resumes";
+    const AUTH: &str = "fixture-workspace-token";
+    const ORIGIN: &str = "http://localhost:41053";
+
+    #[derive(Default)]
+    struct CoreState {
+        agents: Vec<Value>,
+        writes: Vec<Value>,
+        launches: usize,
+        hold_reply: Option<Arc<Notify>>,
+        before_guarded_write: Option<Value>,
+        unsupported: bool,
+    }
+
+    struct FakeCore {
+        state: Arc<Mutex<CoreState>>,
+        wrote: Arc<Notify>,
+        task: JoinHandle<()>,
+    }
+
+    impl Drop for FakeCore {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    impl FakeCore {
+        fn start(path: &Path) -> Self {
+            let listener = UnixListener::bind(path).unwrap();
+            let state = Arc::new(Mutex::new(CoreState::default()));
+            let wrote = Arc::new(Notify::new());
+            let fake = state.clone();
+            let signal = wrote.clone();
+            let task = tokio::spawn(async move {
+                while let Ok((socket, _)) = listener.accept().await {
+                    let fake = fake.clone();
+                    let signal = signal.clone();
+                    tokio::spawn(async move {
+                        let mut socket = BufReader::new(socket);
+                        let mut line = String::new();
+                        socket.read_line(&mut line).await.unwrap();
+                        let q: Value = serde_json::from_str(&line).unwrap();
+                        let (outcome, hold) = fake.lock().unwrap().reply(&q, &signal);
+                        if let Some(hold) = hold {
+                            hold.notified().await;
+                        }
+                        let reply = match outcome {
+                            Ok(data) => json!({"jsonrpc":"2.0","id":q["id"],"result":data}),
+                            Err(kind) => json!({"jsonrpc":"2.0","id":q["id"],"error":{
+                                "message":"Fixture rejected the write.","data":{"kind":kind}
+                            }}),
+                        };
+                        let _ = socket.get_mut().write_all(format!("{reply}\n").as_bytes()).await;
+                    });
+                }
+            });
+            Self { state, wrote, task }
+        }
+
+        fn agents(&self, agents: Vec<Value>) {
+            self.state.lock().unwrap().agents = agents;
+        }
+
+        fn writes(&self) -> Vec<Value> {
+            self.state.lock().unwrap().writes.clone()
+        }
+    }
+
+    impl CoreState {
+        fn reply(&mut self, q: &Value, wrote: &Notify) -> (Result<Value, &'static str>, Option<Arc<Notify>>) {
+            let p = &q["params"];
+            let method = q["method"].as_str().unwrap();
+            let data = match method {
+                "hello" => {
+                    let mut methods = vec!["templates.list", "terminal.get", "terminal.list", "terminal.run",
+                        "terminal.read", "terminal.send", "terminal.interrupt", "terminal.kill"];
+                    if !self.unsupported {
+                        methods.extend([COMPLETION_SEND, COMPLETION_START]);
+                    }
+                    json!({"generation":1,"version":"fixture","core":{"id":"core"},"methods":methods})
+                }
+                "terminal.list" => json!({"terminals":self.agents}),
+                "terminal.get" => {
+                    let Some(agent) = self.agents.iter().find(|agent| agent["address"] == p["terminal"]) else {
+                        return (Err("not_found"), None);
+                    };
+                    agent.clone()
+                }
+                "templates.list" => json!({"templates":[{"name":"fixture","description":"Offline fixture"}]}),
+                COMPLETION_START => {
+                    assert_eq!(p["core"], "core");
+                    assert_eq!(p["argv"], json!(["fixture"]));
+                    assert!(p["env"]["SWARMHUB_VAULT_SESSION"].is_null());
+                    self.launches += 1;
+                    let agent = terminal(
+                        p["name"].as_str().unwrap(),
+                        p["labels"]["swarmhub.launch"].as_str().unwrap(),
+                        "t9", 100 + self.launches as u64, "idle",
+                    );
+                    self.agents.push(agent.clone());
+                    agent
+                }
+                COMPLETION_SEND | "terminal.send" => {
+                    if method == COMPLETION_SEND && let Some(status) = self.before_guarded_write.take() {
+                        self.agents[0]["status"] = status;
+                    }
+                    let Some(agent) = self.agents.iter_mut().find(|agent| agent["address"] == p["terminal"]) else {
+                        return (Err("status_mismatch"), None);
+                    };
+                    if method == COMPLETION_SEND && (p["core"] != "core"
+                        || p["created_ms"] != agent["created_ms"]
+                        || p["launch"] != agent["labels"]["swarmhub.launch"]
+                        || p["turn"] != agent["turn"]
+                        || !matches!(agent["status"]["state"].as_str(), Some("idle" | "done")))
+                    {
+                        return (Err("status_mismatch"), None);
+                    }
+                    agent["status"] = json!({"state":"working"});
+                    self.writes.push(p.clone());
+                    wrote.notify_one();
+                    return (Ok(json!({"status":"working","started":true})), self.hold_reply.take());
+                }
+                _ => panic!("unexpected fixture Core method {method}"),
+            };
+            (Ok(data), None)
+        }
+    }
+
+    fn workspace(root: &Path, history: History) -> Workspace {
+        Workspace {
+            core: Core(root.join("core.sock")),
+            history,
+            approvals: Default::default(),
+            drafts: Default::default(),
+            connected_files: None,
+            drive_access: Default::default(),
+            drive_files: None,
+            github_project: None,
+            vault: None,
+            slack: None,
+            port: 41053,
+            token: AUTH.into(),
+        }
+    }
+
+    struct TestApi {
+        client: reqwest::Client,
+        task: JoinHandle<()>,
+    }
+
+    impl Drop for TestApi {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    impl TestApi {
+        fn start(root: &Path, w: &Workspace) -> Self {
+            let path = root.join("api.sock");
+            let listener = UnixListener::bind(&path).unwrap();
+            let app = crate::workspace_router(w.clone());
+            let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = reqwest::Client::builder().unix_socket(path).timeout(WAIT).build().unwrap();
+            Self { client, task }
+        }
+
+        async fn status(&self, path: &str) -> Value {
+            let response = self.client.get(format!("{ORIGIN}{path}")).bearer_auth(AUTH)
+                .send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            serde_json::from_slice(&response.bytes().await.unwrap()).unwrap()
+        }
+
+        async fn webhook(&self, routine: i64, sentinel: &str, key: &str, body: &Value) -> u64 {
+            let response = self.client.post(format!("{ORIGIN}/hooks/routines/{routine}"))
+                .bearer_auth(sentinel).header("Idempotency-Key", key)
+                .header("content-type", "application/json").body(body.to_string()).send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::ACCEPTED);
+            let value: Value = serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+            value["id"].as_u64().unwrap()
+        }
+    }
+
+    fn terminal(name: &str, key: &str, address: &str, created: u64, status: &str) -> Value {
+        json!({
+            "address":address,"created_ms":created,"name":name,"state":"live","template":"fixture",
+            "status":{"state":status},"turn":0,
+            "labels":{"swarmhub.workspace":"agent","swarmhub.launch":key}
+        })
+    }
+
+    fn session(history: &History, bot: &str, address: &str, created: u64, status: &str) -> Value {
+        let name = bots::one(&history.db().unwrap(), bot).unwrap().unwrap().agent_name;
+        let (launch, key) = history.start_launch("core", &name, "Fixture first task", None, "{}", "")
+            .unwrap().unwrap();
+        let agent = terminal(&name, &key, address, created, status);
+        history.finish(launch, history::State::Sent, None,
+            Some(&serde_json::from_value(agent.clone()).unwrap())).unwrap();
+        agent
+    }
+
+    fn new_job(db: &mut Connection, key: &str, report: &jobs::Report) -> String {
+        let job = jobs_fixture::submit_fixture(db, key);
+        assert_eq!(jobs_fixture::dispatch(db, &job), jobs::Dispatch::Recorded);
+        jobs::finish(db, &job.id, jobs_fixture::ATTEMPT, report).unwrap();
+        job.id
+    }
+
+    fn event_id(job: &str) -> String {
+        format!("{job}:{}", jobs_fixture::ATTEMPT)
+    }
+
+    fn new_fixture() -> (tempfile::TempDir, Workspace, FakeCore) {
+        let temp = tempfile::tempdir().unwrap();
+        let history = jobs_fixture::journal(&temp.path().join("journal"));
+        let w = workspace(temp.path(), history);
+        let core = FakeCore::start(&w.core.0);
+        (temp, w, core)
+    }
+
+    fn state(history: &History, job: &str) -> (String, Option<String>) {
+        history.db().unwrap().query_row(
+            "SELECT state,blocker FROM job_deliveries WHERE job_id=?1", [job],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap()
+    }
+
+    fn ready(history: &History) {
+        history.db().unwrap().execute(
+            "UPDATE job_deliveries SET retry_ms=0 WHERE state!='acknowledged'", [],
+        ).unwrap();
+    }
+
+    async fn finish_drain(tasks: Vec<JoinHandle<()>>) {
+        for task in tasks {
+            timeout(WAIT, task).await.unwrap().unwrap();
+        }
+    }
+
+    async fn drain(w: &Workspace) {
+        finish_drain(desk::drain(w)).await;
+    }
+
+    async fn command(w: &Workspace, agent: &Value, ask: Ask) -> Result<String, String> {
+        let key = agent["labels"]["swarmhub.launch"].as_str().unwrap();
+        bots::answer(w, Ok("core".into()), key, ask).await
+    }
+
+    #[tokio::test]
+    async fn gapplan_03_int_busy_owner_and_provider_prompt_defer_until_idle() {
+        let (_temp, w, core) = new_fixture();
+        let mut db = w.history.db().unwrap();
+        let job = new_job(&mut db, "busy-owner", &jobs_fixture::success());
+        drop(db);
+        let mut agent = session(&w.history, OWNER, "t1", 1, "working");
+        core.agents(vec![agent.clone()]);
+        drain(&w).await;
+        assert_eq!(state(&w.history, &job), ("pending".into(), Some("Owner has an active turn.".into())));
+        assert!(core.writes().is_empty());
+
+        agent["status"] = json!({"state":"blocked","kind":"permission"});
+        core.agents(vec![agent.clone()]);
+        ready(&w.history);
+        drain(&w).await;
+        assert_eq!(state(&w.history, &job).1.as_deref(), Some("Owner is waiting at a provider prompt."));
+        assert!(core.writes().is_empty());
+
+        agent["status"] = json!({"state":"idle"});
+        core.agents(vec![agent.clone()]);
+        core.state.lock().unwrap().before_guarded_write = Some(json!({"state":"blocked","kind":"auth"}));
+        ready(&w.history);
+        drain(&w).await;
+        assert!(core.writes().is_empty(), "a prompt appeared just before Core accepted the write");
+        assert_eq!(state(&w.history, &job).0, "pending");
+
+        core.agents(vec![agent]);
+        ready(&w.history);
+        drain(&w).await;
+        assert_eq!(state(&w.history, &job), ("offered".into(), None));
+        assert_eq!(core.writes().len(), 1);
+        assert!(core.writes()[0]["text"].as_str().unwrap().contains(&event_id(&job)));
+    }
+
+    #[tokio::test]
+    async fn gapplan_03_int_two_drainers_serialize_with_a_foreground_task() {
+        let (_temp, w, core) = new_fixture();
+        let agent = session(&w.history, OWNER, "t1", 1, "idle");
+        core.agents(vec![agent.clone()]);
+        let job = new_job(&mut *w.history.db().unwrap(), "two-drainers", &jobs_fixture::success());
+        let hold = Arc::new(Notify::new());
+        core.state.lock().unwrap().hold_reply = Some(hold.clone());
+        let foreground = tokio::spawn(crate::send_message(
+            w.clone(), "t1".into(), 1,
+            serde_json::from_value(json!({"text":"A foreground task."})).unwrap(), vec![],
+        ));
+        timeout(WAIT, core.wrote.notified()).await.unwrap();
+        let first = desk::drain(&w);
+        assert_eq!(first.len(), 1);
+        assert!(desk::drain(&w).is_empty());
+        assert_eq!(core.writes().len(), 1);
+        hold.notify_one();
+        assert!(timeout(WAIT, foreground).await.unwrap().unwrap().is_ok());
+        finish_drain(first).await;
+        assert_eq!(state(&w.history, &job).1.as_deref(), Some("Owner has an active turn."));
+
+        core.agents(vec![agent]);
+        ready(&w.history);
+        let hold = Arc::new(Notify::new());
+        core.state.lock().unwrap().hold_reply = Some(hold.clone());
+        let first = desk::drain(&w);
+        timeout(WAIT, core.wrote.notified()).await.unwrap();
+        let evidence = Connection::open(w.history.file()).unwrap().query_row(
+            "SELECT o.state,j.state,launch.launch_key
+             FROM job_deliveries d JOIN bot_outbox o ON o.id=d.outbox
+             JOIN job_delivery_offers f ON f.task=o.task AND f.outbox=o.id
+             JOIN journal j ON j.id=f.task JOIN journal launch ON launch.id=f.launch
+             WHERE d.job_id=?1", [&job],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+        ).unwrap();
+        assert_eq!(evidence.0, "typing");
+        assert_eq!(evidence.1, "pending");
+        assert_eq!(evidence.2, core.writes()[1]["launch"]);
+        assert!(desk::drain(&w).is_empty());
+        hold.notify_one();
+        finish_drain(first).await;
+        assert_eq!(state(&w.history, &job).0, "offered");
+        assert_eq!(core.writes().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn gapplan_03_int_closed_client_starts_owner_and_replacement_recovers_safe_result() {
+        use sha2::{Digest, Sha256};
+
+        let (temp, w, core) = new_fixture();
+        let result = b"deterministic fixture result\n";
+        let path = temp.path().join("fixture-result");
+        fs::write(&path, result).unwrap();
+        let report = jobs::Report {
+            result: Some(jobs::Artifact {
+                reference: "fixture-result".into(), digest: format!("{:x}", Sha256::digest(result)),
+            }),
+            ..jobs_fixture::success()
+        };
+        let job = new_job(&mut *w.history.db().unwrap(), "closed-client", &report);
+        // No API or GUI client is running. The desk starts the registered bot.
+        drain(&w).await;
+        assert_eq!(core.state.lock().unwrap().launches, 1);
+        let previous = core.state.lock().unwrap().agents[0].clone();
+        let owner_name = previous["name"].as_str().unwrap().to_owned();
+        let routine = w.history.db().unwrap().query_row(
+            "INSERT INTO routines(core,address,created_ms,agent,name,task,schedule,state)
+             VALUES ('core',?1,?2,?3,'Fixture webhook','Process fixture event','{\"kind\":\"webhook\"}','active')
+             RETURNING id",
+            rusqlite::params![previous["address"].as_str(), previous["created_ms"].as_u64(), owner_name],
+            |r| r.get::<_, i64>(0),
+        ).unwrap();
+        let (sentinel, _) = w.history.rotate_webhook(routine, "fixture-master").unwrap().unwrap();
+        let api = TestApi::start(temp.path(), &w);
+        let mut idle = previous.clone();
+        idle["status"] = json!({"state":"idle"});
+        core.agents(vec![idle]);
+        let run = api.webhook(routine, &sentinel, "old-webhook", &json!({"fixture_credential":sentinel})).await;
+        timeout(WAIT, async {
+            // The completion also signals, so wait until the ordinary webhook has actually typed.
+            while core.writes().len() < 2 {
+                core.wrote.notified().await;
+            }
+        }).await.unwrap();
+        assert!(core.writes()[1]["text"].as_str().unwrap().contains(&sentinel));
+        assert!(run > 0);
+        let replacement = session(&w.history, OWNER, "t2", 200, "idle");
+        core.agents(vec![replacement.clone()]);
+        let id = event_id(&job);
+        assert!(command(&w, &previous, Ask::CompletionAck { id: id.clone() }).await.is_err());
+        let inbox = command(&w, &replacement, Ask::CompletionInbox { id: None }).await.unwrap();
+        let inbox_items: Value = serde_json::from_str(&inbox).unwrap();
+        assert_eq!(inbox_items[0]["id"], id);
+        assert_eq!(inbox_items[0]["result_ref"], "fixture-result");
+
+        ready(&w.history);
+        drain(&w).await;
+        let writes = core.writes();
+        assert_eq!(writes.len(), 3);
+        let replacement_payload = writes[2]["text"].as_str().unwrap();
+        assert_eq!(writes[2]["launch"], replacement["labels"]["swarmhub.launch"]);
+        assert!(replacement_payload.contains(&id));
+        assert!(replacement_payload.contains("fixture-result"));
+        let status = api.status(&format!("/api/jobs/{job}")).await;
+        assert_eq!(status["completion_delivery"]["id"], id);
+        let reference = status["completion"]["exit"]["result"]["reference"].as_str().unwrap();
+        assert_eq!(reference, "fixture-result");
+        let delivered_result = fs::read_to_string(temp.path().join(reference)).unwrap();
+        assert_eq!(delivered_result.as_bytes(), result);
+        assert_eq!(status["completion"]["exit"]["result"]["digest"], format!("{:x}", Sha256::digest(&delivered_result)));
+        for surface in [&inbox, replacement_payload, &status.to_string(), &delivered_result] {
+            assert!(!surface.contains(&sentinel));
+        }
+        let token = command(&w, &replacement, Ask::CompletionAck { id: id.clone() }).await.unwrap();
+        assert_eq!(command(&w, &replacement, Ask::CompletionAck { id }).await.unwrap(), token);
+        assert_eq!(api.status("/api/attention").await["completions"], json!([]));
+    }
+
+    fn crash_child(journal: &Path) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", CRASH_TEST]).env(CRASH_JOURNAL, journal)
+            .stdout(Stdio::null()).stderr(Stdio::null());
+        command
+    }
+
+    fn kill_fixture(child: &mut std::process::Child) {
+        let killed = child.kill();
+        let exit = child.wait().unwrap();
+        killed.unwrap();
+        assert_eq!(exit.signal(), Some(libc::SIGKILL));
+    }
+
+    #[tokio::test]
+    async fn gapplan_03_int_offer_link_failure_rolls_back_the_task_before_any_send() {
+        let (_temp, w, core) = new_fixture();
+        core.agents(vec![session(&w.history, OWNER, "t1", 1, "idle")]);
+        let mut db = w.history.db().unwrap();
+        let job = new_job(&mut db, "offer-rollback", &jobs_fixture::success());
+        db.execute_batch(
+            "CREATE TRIGGER fault BEFORE INSERT ON job_delivery_offers
+             BEGIN SELECT RAISE(ABORT, 'fixture failed to link the offer'); END;",
+        ).unwrap();
+        drop(db);
+
+        drain(&w).await;
+        assert!(core.writes().is_empty());
+        assert_eq!(state(&w.history, &job), ("pending".into(), None));
+        let db = w.history.db().unwrap();
+        let evidence: (i64, Option<i64>) = db.query_row(
+            "SELECT (SELECT COUNT(*) FROM journal WHERE kind='task' AND state='pending'), task
+             FROM bot_outbox", [], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+        assert_eq!(evidence, (0, None));
+        db.execute_batch("DROP TRIGGER fault;").unwrap();
+        drop(db);
+        drain(&w).await;
+        assert_eq!(core.writes().len(), 1);
+        assert_eq!(state(&w.history, &job).0, "offered");
+    }
+
+    #[tokio::test]
+    async fn gapplan_03_int_killed_during_transport_reconciles_and_ack_retry_resumes() {
+        if let Some(directory) = std::env::var_os(CRASH_JOURNAL) {
+            let directory = std::path::PathBuf::from(directory);
+            let root = directory.parent().unwrap();
+            let w = workspace(root, reopen_journal(&directory));
+            if let Ok(id) = std::env::var(CRASH_ACK) {
+                let agents = w.core.agents().await.unwrap();
+                let key = agents[0].launch_key().unwrap();
+                bots::answer(&w, Ok("core".into()), key, Ask::CompletionAck { id }).await.unwrap();
+                // Simulate a process that lost its response after the ACK committed.
+                std::future::pending::<()>().await;
+            } else {
+                drain(&w).await;
+            }
+            panic!("fixture should be killed before replying");
+        }
+
+        let (temp, w, core) = new_fixture();
+        let agent = session(&w.history, OWNER, "t1", 10, "idle");
+        core.agents(vec![agent.clone()]);
+        let job = new_job(&mut *w.history.db().unwrap(), "crash-delivery", &jobs_fixture::success());
+        let journal = temp.path().join("journal");
+        drop(w);
+        let hold = Arc::new(Notify::new());
+        core.state.lock().unwrap().hold_reply = Some(hold.clone());
+        let mut child = crash_child(&journal).spawn().unwrap();
+        let received = timeout(WAIT, core.wrote.notified()).await;
+        kill_fixture(&mut child);
+        received.expect("fixture reached Core before the crash");
+        hold.notify_one();
+
+        let w = workspace(temp.path(), reopen_journal(&journal));
+        desk::recover_outbox(&w.history);
+        let evidence: (String, String) = w.history.db().unwrap().query_row(
+            "SELECT o.state,j.state FROM bot_outbox o JOIN journal j ON j.id=o.task", [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+        assert_eq!(evidence, ("typing".into(), "unconfirmed".into()));
+        core.agents(vec![agent.clone()]);
+        drain(&w).await;
+        let (status, blocker) = state(&w.history, &job);
+        assert_eq!(status, "uncertain");
+        assert!(blocker.unwrap().contains("recover by ID"));
+        ready(&w.history);
+        drain(&w).await;
+        assert_eq!(core.writes().len(), 1);
+
+        let id = event_id(&job);
+        let recovered = command(&w, &agent, Ask::CompletionInbox { id: Some(id.clone()) }).await.unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&recovered).unwrap()["id"], id);
+        drop(w);
+
+        let mut child = crash_child(&journal).env(CRASH_ACK, &id).spawn().unwrap();
+        let db = history::connection(&journal.join("workspace.sqlite3")).unwrap();
+        let committed = timeout(WAIT, async {
+            loop {
+                let token: Option<String> = db.query_row(
+                    "SELECT next_step_token FROM job_deliveries WHERE job_id=?1", [&job],
+                    |r| r.get(0),
+                ).unwrap();
+                if let Some(token) = token {
+                    break token;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await;
+        kill_fixture(&mut child);
+        let token = committed.expect("fixture committed ACK before the crash");
+        drop(db);
+
+        // The durable ACK was committed before the owner could submit the managed next step.
+        let w = workspace(temp.path(), reopen_journal(&journal));
+        let replacement = session(&w.history, OWNER, "t2", 11, "idle");
+        core.agents(vec![replacement.clone()]);
+        let resumed = command(&w, &replacement, Ask::CompletionAck { id }).await.unwrap();
+        assert_eq!(resumed, token);
+        let mut db = w.history.db().unwrap();
+        let next = jobs_fixture::submit_fixture(&mut db, &resumed);
+        let retry = jobs_fixture::submit_fixture(&mut db, &token);
+        assert_eq!(retry.id, next.id);
+        let counts: (i64, i64) = db.query_row(
+            "SELECT (SELECT count(*) FROM job_deliveries WHERE job_id=?1 AND next_step_token=?2),
+                    (SELECT count(*) FROM jobs WHERE owner_bot_id=?3 AND submit_key=?2)",
+            rusqlite::params![job, token, OWNER], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+        assert_eq!(counts, (1, 1));
+        drop(db);
+        drain(&w).await;
+        assert_eq!(core.writes().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn gapplan_03_int_removed_owner_keeps_completion_and_existing_webhook_skips_busy() {
+        let (temp, w, core) = new_fixture();
+        let agent = session(&w.history, OWNER, "t1", 1, "working");
+        core.agents(vec![agent]);
+        let job = new_job(&mut *w.history.db().unwrap(), "removed-owner", &jobs_fixture::success());
+        drain(&w).await;
+        let routine = w.history.db().unwrap().query_row(
+            "INSERT INTO routines(core,address,created_ms,agent,name,task,schedule,state)
+             VALUES ('core','t1',1,'Owner','Fixture webhook','Process event','{\"kind\":\"webhook\"}','active')
+             RETURNING id", [], |r| r.get::<_, i64>(0),
+        ).unwrap();
+        let (sentinel, _) = w.history.rotate_webhook(routine, "fixture-master").unwrap().unwrap();
+        let api = TestApi::start(temp.path(), &w);
+        let run = api.webhook(routine, &sentinel, "busy-webhook", &json!({"event":"fixture"})).await;
+        timeout(WAIT, async {
+            loop {
+                let (state, task): (String, Option<i64>) = w.history.db().unwrap().query_row(
+                    "SELECT state,task_id FROM routine_runs WHERE id=?1", [run], |r| Ok((r.get(0)?, r.get(1)?)),
+                ).unwrap();
+                if state != "pending" {
+                    assert_eq!(state, "skipped");
+                    assert!(task.is_none());
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
+
+        let removed = api.client.post(format!("{ORIGIN}/api/bots/{OWNER}/remove"))
+            .bearer_auth(AUTH).header("origin", ORIGIN).send().await.unwrap();
+        assert_eq!(removed.status(), StatusCode::OK);
+        ready(&w.history);
+        drain(&w).await;
+        let attention = api.status("/api/attention").await;
+        assert_eq!(attention["completions"][0]["id"], event_id(&job));
+        assert_eq!(attention["completions"][0]["owner_bot_id"], OWNER);
+        assert_eq!(attention["completions"][0]["blocker"], "Owner was removed.");
+        let outbox: (String, String) = w.history.db().unwrap().query_row(
+            "SELECT o.cause,o.state FROM bot_outbox o JOIN job_deliveries d ON d.outbox=o.id WHERE d.job_id=?1",
+            [&job], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+        assert_eq!(outbox, ("outcome".into(), "pending".into()));
+        assert!(core.writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn gapplan_03_int_core_unavailable_and_unmapped_owner_stay_recoverable() {
+        let (temp, w, core) = new_fixture();
+        let job = new_job(&mut *w.history.db().unwrap(), "core-unavailable", &jobs_fixture::success());
+        let mut offline = w.clone();
+        offline.core = Core(temp.path().join("offline.sock"));
+        drain(&offline).await;
+        assert_eq!(state(&w.history, &job).1.as_deref(), Some("Herdr Core is unavailable."));
+        ready(&w.history);
+        core.state.lock().unwrap().unsupported = true;
+        drain(&w).await;
+        assert_eq!(state(&w.history, &job).1.as_deref(), Some("Herdr Core has no guarded completion delivery."));
+        ready(&w.history);
+        core.state.lock().unwrap().unsupported = false;
+        let name = bots::one(&w.history.db().unwrap(), OWNER).unwrap().unwrap().agent_name;
+        core.agents(vec![terminal(&name, "unregistered", "t1", 1, "idle")]);
+        drain(&w).await;
+        assert_eq!(state(&w.history, &job).1.as_deref(), Some("Owner has no eligible session mapping."));
+        assert!(core.writes().is_empty());
+        assert_eq!(core.state.lock().unwrap().launches, 0);
+    }
+
+    #[test]
+    fn gapplan_03_int_journal_v54_fresh_upgrade_and_reopen() {
+        fn assert_v54(db: &Connection) {
+            assert_eq!(schema(db), 54);
+            for table in ["job_deliveries", "job_delivery_offers"] {
+                let count: i64 = db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0)).unwrap();
+                assert_eq!(count, 0);
+            }
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let fresh = History::open_at(&temp.path().join("fresh")).unwrap();
+        assert_v54(&fresh.db().unwrap());
+
+        let dir = temp.path().join("upgrade");
+        fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        let seed = dir.join("workspace.sqlite3");
+        OpenOptions::new().create_new(true).write(true).mode(0o600).open(&seed).unwrap();
+        let mut old = Connection::open(&seed).unwrap();
+        for migration in &history::migrations()[..53] {
+            old.execute_batch(migration).unwrap();
+        }
+        old.execute(
+            "INSERT INTO bots(id,name,agent_name,created_ms,updated_ms) VALUES (?1,'Owner','fixture-owner',1,1)",
+            [OWNER],
+        ).unwrap();
+        let job = new_job(&mut old, "v53-existing", &jobs_fixture::success());
+        assert_eq!(schema(&old), 53);
+        drop(old);
+        for _ in 0..3 {
+            let reopened = reopen_journal(&dir);
+            let db = reopened.db().unwrap();
+            assert_v54(&db);
+            let event = jobs::status(&db, &job).unwrap().unwrap().completion.unwrap();
+            assert_eq!(event.owner_bot_id, OWNER);
+            assert_eq!(event.exit.result.unwrap().reference, "fixture-result");
+        }
     }
 }

@@ -92,10 +92,12 @@ async fn inbox(State(w): State<Workspace>) -> Result<Json<serde_json::Value>, St
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let more = requests.len() > 100 || webhook_reviews.len() > 100;
+    let mut completions = crate::bots::completions::attention(&db)?;
+    let more = requests.len() > 100 || webhook_reviews.len() > 100 || completions.len() > 100;
+    completions.truncate(100);
     requests.truncate(100);
     webhook_reviews.truncate(100);
     Ok(Json(
-        json!({"approvals":approvals, "requests":requests, "webhook_reviews":webhook_reviews, "more":more}),
+        json!({"approvals":approvals, "requests":requests, "webhook_reviews":webhook_reviews, "completions":completions, "more":more}),
     ))
 }

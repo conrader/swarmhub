@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 mod blocks;
 mod ci;
+pub(crate) mod completions;
 pub(crate) mod cli;
 pub(crate) mod desk;
 mod notes;
@@ -95,6 +96,8 @@ pub(crate) struct Settings {
     pub promise_grace_seconds: u64,
     /// The main bot gets at most one note about problems per this long.
     pub initiative_seconds: u64,
+    /// Notify the main bot of an undeliverable job completion.
+    pub completion_fallback_to_main: bool,
     /// The IANA time zone of clock times in check-ins and promises ("every weekday at 9").
     pub timezone: String,
 }
@@ -115,6 +118,7 @@ impl Default for Settings {
             promises_per_bot: 20,
             promise_grace_seconds: 600,
             initiative_seconds: 300,
+            completion_fallback_to_main: false,
             timezone: server_timezone(),
         }
     }

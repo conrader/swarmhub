@@ -61,3 +61,13 @@ The workspace server (`HerdrWorkspace`) holds the rules above for the bots an ap
 ### Watch CI without spending model turns
 
 Ask the main bot, “Watch https://github.com/OWNER/REPO/pull/123. If CI fails, ask Reviewer what broke and tell me whether it blocks release.” The bot can register `swarmhub-herdr checkin ci PR_URL "Ask Reviewer to diagnose the failure and report whether it blocks release."` A bridge checks the latest GitHub Checks on the public PR’s head commit every five minutes, sharing each lookup between watchers. Pending and successful checks consume no model turns. The first observed failed check wakes the requesting bot once. Closing the PR or reaching seven days ends the watch. Private repositories and legacy commit statuses are outside this watcher’s scope.
+
+## Job completions
+
+A terminal job outcome belongs to the bot that submitted it. The desk keeps the completion in that bot's inbox under a stable `JOB:ATTEMPT` ID. It can start an eligible owner with no client connected. An active turn, a provider prompt, or an unavailable Core delays the offer. Turning off incoming messages pauses automatic delivery. Paused, removed, and unmapped owners' items stay visible under **Attention → Job completions**. The workspace setting `completion_fallback_to_main` defaults to false. An explicit opt-in can send the registered main bot (Jarvis) one blocker notice per completion without transferring ownership or access to the result.
+
+The owner can list outstanding items with `swarmhub-herdr bot completion inbox` or recover one with `swarmhub-herdr bot completion inbox JOB:ATTEMPT`. A replacement launch sees the same ID and opaque result reference. The completion contains terminal facts and the expected next action. An unconfirmed write is visible in Attention and can be recovered by ID. The desk checks its journal before offering the item again and waits for a replacement launch before re-offering an ambiguous write.
+
+Run `swarmhub-herdr bot completion ack JOB:ATTEMPT` from the owner's current session. The acknowledgment commits one next-step token. If the reply is lost or the session restarts, repeat the command with the same ID to recover that token. Use it as the idempotency key for the managed next step. The delivery status is also available as `completion_delivery` on the authenticated `GET /api/jobs/{job-id}` response.
+
+Automatic wakes in this slice use the fixture Core's `fixture.terminal.send_idle` capability and its guarded `fixture.terminal.run` when starting an absent owner. The fixture checks Core identity, terminal generation, registered launch and idle turn before typing. A Core without that capability leaves the event available for owner recovery by ID.

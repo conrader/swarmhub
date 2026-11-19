@@ -143,7 +143,8 @@ fn forget(ctx: &super::Ctx<'_>, bot: &Bot) -> rusqlite::Result<()> {
         rusqlite::params![bot.id, ctx.now],
     )?;
     ctx.db.execute(
-        "UPDATE bot_outbox SET state='dropped',detail='The bot was removed.' WHERE bot=?1 AND state='pending'",
+        "UPDATE bot_outbox SET state='dropped',detail='The bot was removed.' WHERE bot=?1 AND state='pending'
+           AND NOT EXISTS (SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id)",
         [&bot.id],
     )?;
     ctx.db.execute(

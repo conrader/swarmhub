@@ -12,6 +12,8 @@ const LABEL: &str = "swarmhub.workspace";
 const LABEL_VALUE: &str = "agent";
 const LAUNCH_LABEL: &str = "swarmhub.launch";
 const TEMPLATE_LABEL: &str = "swarmhub.direct-template";
+pub(crate) const COMPLETION_START: &str = "fixture.terminal.run";
+pub(crate) const COMPLETION_SEND: &str = "fixture.terminal.send_idle";
 const MAX_REPLY: u64 = 16 * 1024 * 1024;
 pub const MAX_FILE: usize = 8 * 1024 * 1024;
 
@@ -113,6 +115,7 @@ pub enum LaunchSource {
     Template(String, String),
     /// The template's program alone: nothing is typed (`warm`).
     Warm(String),
+    FixtureWarm { template: String, core: String },
     DirectOpenCode(String, String),
 }
 
@@ -513,10 +516,11 @@ impl Core {
         source: LaunchSource,
         env: LaunchEnv<'_>,
     ) -> Result<Terminal, Failure> {
-        let (template, task, line) = match source {
-            LaunchSource::Template(template, task) => (template, Some(task), None),
-            LaunchSource::Warm(template) => (template, None, None),
-            LaunchSource::DirectOpenCode(template, command) => (template, None, Some(command)),
+        let (template, task, line, fixture_core) = match source {
+            LaunchSource::Template(template, task) => (template, Some(task), None, None),
+            LaunchSource::Warm(template) => (template, None, None, None),
+            LaunchSource::FixtureWarm { template, core } => (template, None, None, Some(core)),
+            LaunchSource::DirectOpenCode(template, command) => (template, None, Some(command), None),
         };
         if !valid_name(&name) || !valid_name(&template) {
             return Err(Failure::Input(
@@ -577,7 +581,13 @@ impl Core {
         } else if let Some(cwd) = agent_cwd().map_err(|_| Failure::Input(AGENT_CWD_ERROR))? {
             params["cwd"] = cwd.into();
         }
-        let mut terminal: Terminal = self.rpc("terminal.run", params, 85, true).await?;
+        let method = if let Some(core) = fixture_core {
+            params["core"] = core.into();
+            COMPLETION_START
+        } else {
+            "terminal.run"
+        };
+        let mut terminal: Terminal = self.rpc(method, params, 85, true).await?;
         terminal.hydrate_template();
         if terminal.managed() {
             Ok(terminal)
@@ -622,6 +632,20 @@ impl Core {
             true,
         )
         .await
+    }
+
+    /// Fixture protocol: Core compares identity, launch and idle turn at the write boundary.
+    pub(crate) async fn send_completion(
+        &self, core: &str, agent: &Terminal, task: String,
+    ) -> Result<Delivery, Failure> {
+        validate_task(&task)?;
+        self.rpc(
+            COMPLETION_SEND,
+            json!({"core":core,"terminal":agent.address,"created_ms":agent.created_ms,
+                   "launch":agent.launch_key(),"turn":agent.turn(),"text":task}),
+            135,
+            true,
+        ).await
     }
 
     pub async fn stage_file(

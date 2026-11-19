@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const dialog = $("attention-dialog");
-  const empty = () => ({ approvals: [], requests: [], webhook_reviews: [], more: false });
+  const empty = () => ({ approvals: [], requests: [], webhook_reviews: [], completions: [], more: false });
   let queue = empty();
   let polling, ready = false, signature;
   const terminalKey = (core, address, created) => JSON.stringify([core, address, created]);
@@ -38,7 +38,14 @@
       summary: ["Event #" + item.id + " awaiting review", item.agent, displayDate(item.at_ms)].join(" · "),
       open: () => window.workspaceRoutines.openReview(item.routine, item.id),
     }));
-    return [["Approvals", approvals], ["Terminals", blocked], ["Group questions and forms", requests], ["Webhook reviews", reviews]];
+    const completions = (queue.completions || []).map((item) => ({
+      key: item.id, title: "Completion " + item.id,
+      summary: [item.owner_bot_id, ({
+        pending: "Pending delivery", offered: "Awaiting acknowledgment", uncertain: "Delivery unconfirmed",
+      })[item.state], item.blocker].filter(Boolean).join(" · "),
+    }));
+    return [["Approvals", approvals], ["Terminals", blocked], ["Group questions and forms", requests],
+      ["Webhook reviews", reviews], ["Job completions", completions]];
   }
 
   function render() {
@@ -61,19 +68,21 @@
       list.className = "library-items";
       for (const item of items) {
         const row = document.createElement("li");
-        const button = document.createElement("button");
-        button.type = "button";
+        const content = document.createElement(item.open ? "button" : "div");
         const title = document.createElement("strong");
         const summary = document.createElement("small");
         title.textContent = item.title;
         summary.textContent = item.summary;
-        button.append(title, summary);
-        button.addEventListener("click", async () => {
-          dialog.close();
-          try { await item.open(); }
-          catch (error) { show("notice", error.message); }
-        });
-        row.append(button);
+        content.append(title, summary);
+        if (item.open) {
+          content.type = "button";
+          content.addEventListener("click", async () => {
+            dialog.close();
+            try { await item.open(); }
+            catch (error) { show("notice", error.message); }
+          });
+        }
+        row.append(content);
         list.append(row);
       }
       section.append(heading, list);

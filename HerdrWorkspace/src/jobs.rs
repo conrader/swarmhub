@@ -451,15 +451,23 @@ pub(crate) fn routes() -> Router<Workspace> {
     Router::new().route("/api/jobs/{id}", get(job_status))
 }
 
+#[derive(Serialize)]
+struct JobView {
+    #[serde(flatten)]
+    status: JobStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completion_delivery: Option<bots::completions::Status>,
+}
+
 async fn job_status(
     State(w): State<Workspace>,
     Path(id): Path<String>,
-) -> Result<Json<JobStatus>, ApiError> {
+) -> Result<Json<JobView>, ApiError> {
     let db = w.history.db()?;
-    status(&db, &id)
-        .map_err(StoreError::from)?
-        .map(Json)
-        .ok_or(ApiError::NotFound)
+    let status = status(&db, &id).map_err(StoreError::from)?.ok_or(ApiError::NotFound)?;
+    let completion_delivery = bots::completions::status_for(&db, &id, status.attempt)
+        .map_err(StoreError::from)?;
+    Ok(Json(JobView { status, completion_delivery }))
 }
 
 #[cfg(test)]

@@ -11,11 +11,17 @@
 //!
 //! None of it runs while no bot is registered.
 
-use super::{Ask, Bot, Who, cli::NOT_A_BOT, notes, plans, rules};
+use super::{
+    Ask, Bot, Who,
+    cli::NOT_A_BOT,
+    completions::{self, Blocker},
+    notes, plans, rules,
+};
 use crate::{ApiError, Workspace, core::Terminal, history::now, warm};
 use rusqlite::{OptionalExtension, params};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
     sync::Mutex,
     time::Duration,
 };
@@ -31,7 +37,7 @@ const STORAGE: &str = "The workspace could not use its saved history. Nothing wa
 
 static WAKE: Notify = Notify::const_new();
 /// Bots with a delivery on its way: one message at a time is typed into an agent.
-static BUSY: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static BUSY: Mutex<BTreeSet<(PathBuf, String)>> = Mutex::new(BTreeSet::new());
 
 /// Has the clock look now instead of at its next tick.
 pub(crate) fn kick() {
@@ -46,15 +52,18 @@ pub(crate) async fn answer(
     key: &str,
     ask: Ask,
 ) -> Result<String, String> {
-    core_id.map_err(|why| {
+    let core_id = core_id.map_err(|why| {
         if why == crate::helpers::UNREGISTERED {
             NOT_A_BOT.to_owned()
         } else {
             why
         }
     })?;
-    let said =
-        super::write(&w.history, |ctx| perform(ctx, key, ask)).map_err(|_| STORAGE.to_owned())?;
+    let said = if matches!(ask, Ask::CompletionInbox { .. } | Ask::CompletionAck { .. }) {
+        completion_command(w, &core_id, key, ask).await
+    } else {
+        super::write(&w.history, |ctx| perform(ctx, key, ask)).map_err(|_| STORAGE.to_owned())?
+    };
     kick();
     said
 }
@@ -70,6 +79,7 @@ fn perform(ctx: &super::Ctx<'_>, key: &str, ask: Ask) -> rusqlite::Result<Result
     let cmd = ctx.cmd;
     Ok(match ask {
         Ask::List => Ok(rules::list_text(ctx, &bot)?),
+        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } => Err(UNKNOWN_BOT.into()),
         Ask::Send { kind, to, text } => match rules::Kind::parse(&kind) {
             Some(kind) => {
                 let task = rules::newest_task(ctx.db, key, None)?;
@@ -149,21 +159,13 @@ pub(crate) fn stopped_agent(w: &Workspace, agent: &Terminal) {
 
 /// Starts the clock and the watch.
 pub(crate) fn start_serving(w: Workspace) {
-    // What a workspace that stopped left half-typed is never typed again, like a task of the journal.
-    if let Ok(db) = w.history.db() {
-        let _ = db.execute(
-            "UPDATE bot_outbox SET state='typed',typed_ms=coalesce(typed_ms,?1),detail='The workspace restarted while this was being typed.' WHERE state='typing'",
-            [now()],
-        );
-    }
+    recover_outbox(&w.history);
     tokio::spawn(super::ci::serve(w.history.clone()));
     let clock = w.clone();
     tokio::spawn(async move {
         loop {
             let _ = tokio::time::timeout(TICK, WAKE.notified()).await;
-            if super::any(&clock.history) {
-                tick(&clock).await;
-            }
+            tick(&clock).await;
         }
     });
     tokio::spawn(async move {
@@ -179,18 +181,34 @@ pub(crate) fn start_serving(w: Workspace) {
     });
 }
 
+pub(crate) fn recover_outbox(history: &crate::History) {
+    // An abandoned ordinary message keeps its previous restart behavior.
+    if let Ok(db) = history.db() {
+        let _ = db.execute(
+            "UPDATE bot_outbox SET state='typed',typed_ms=coalesce(typed_ms,?1),
+                    detail='The workspace restarted while this was being typed.'
+             WHERE state='typing' AND NOT EXISTS (
+                SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id
+             )",
+            [now()],
+        );
+    }
+}
+
 /// One look: replies, clocks, then the outbox.
 async fn tick(w: &Workspace) {
-    let _ = read_replies(w);
-    let _ = super::write(&w.history, |ctx| {
-        rules::expire(ctx)?;
-        rules::give_up(ctx)?;
-        plans::fire_due(ctx)?;
-        plans::unanswered(ctx)?;
-        plans::raise_due(ctx)?;
-        plans::note_main(ctx)?;
-        Ok(())
-    });
+    if super::any(&w.history) {
+        let _ = read_replies(w);
+        let _ = super::write(&w.history, |ctx| {
+            rules::expire(ctx)?;
+            rules::give_up(ctx)?;
+            plans::fire_due(ctx)?;
+            plans::unanswered(ctx)?;
+            plans::raise_due(ctx)?;
+            plans::note_main(ctx)?;
+            Ok(())
+        });
+    }
     drain(w);
 }
 
@@ -249,56 +267,71 @@ fn read_replies(w: &Workspace) -> Result<(), crate::history::StoreError> {
 }
 
 struct Waiting {
+    completion: bool,
     id: i64,
     bot: String,
     text: String,
 }
 
 /// Starts typing the oldest waiting message of every bot that has none on its way.
-fn drain(w: &Workspace) {
+pub(crate) fn drain(w: &Workspace) -> Vec<tokio::task::JoinHandle<()>> {
+    let _ = super::write(&w.history, completions::stage_waiting);
     let Ok(db) = w.history.db() else {
-        return;
+        return Vec::new();
     };
     let waiting: Vec<Waiting> = db
         .prepare_cached(
-            "SELECT id,bot,text FROM bot_outbox WHERE state='pending' ORDER BY id LIMIT 200",
+            "SELECT o.id,o.bot,o.text,d.outbox IS NOT NULL
+             FROM bot_outbox o LEFT JOIN job_deliveries d ON d.outbox=o.id
+             WHERE (d.outbox IS NULL AND o.state='pending')
+                OR (d.state!='acknowledged' AND d.retry_ms<=?1)
+             ORDER BY CASE WHEN d.outbox IS NULL THEN o.created_ms ELSE d.retry_ms END, o.id LIMIT 200",
         )
         .and_then(|mut rows| {
-            rows.query_map([], |row| {
+            rows.query_map([now()], |row| {
                 Ok(Waiting {
                     id: row.get(0)?,
                     bot: row.get(1)?,
                     text: row.get(2)?,
+                    completion: row.get(3)?,
                 })
             })?
             .collect()
         })
         .unwrap_or_default();
     drop(db);
-    for item in waiting {
-        let free = BUSY
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(item.bot.clone());
-        if !free {
-            continue;
-        }
-        let w = w.clone();
-        tokio::spawn(async move {
-            let bot = item.bot.clone();
-            let outcome = deliver(&w, &item).await;
-            if let Outcome::Failed(why) = &outcome {
-                let _ = super::write(&w.history, |ctx| rules::untyped(ctx, item.id, why));
-            }
-            BUSY.lock()
+    waiting
+        .into_iter()
+        .filter_map(|item| {
+            let busy_key = (w.history.file().to_owned(), item.bot.clone());
+            let free = BUSY
+                .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&bot);
-            // What the typing changed, and the next message for this bot, are looked at right away.
-            if !matches!(outcome, Outcome::Later) {
-                kick();
+                .insert(busy_key.clone());
+            if !free {
+                return None;
             }
-        });
-    }
+            let w = w.clone();
+            Some(tokio::spawn(async move {
+                let wake = if item.completion {
+                    deliver_completion(&w, &item).await;
+                    false
+                } else {
+                    let outcome = deliver(&w, &item).await;
+                    if let Outcome::Failed(why) = &outcome {
+                        let _ = super::write(&w.history, |ctx| rules::untyped(ctx, item.id, why));
+                    }
+                    !matches!(outcome, Outcome::Later)
+                };
+                BUSY.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&busy_key);
+                if wake {
+                    kick();
+                }
+            }))
+        })
+        .collect()
 }
 
 enum Outcome {
@@ -335,9 +368,145 @@ fn agent_of(w: &Workspace, core_id: &str, agents: &[Terminal], bot: &Bot) -> Opt
     })
 }
 
+pub(crate) enum CompletionLaunch {
+    Current(usize),
+    Absent,
+    Unmapped,
+}
+
+/// A completion uses the unique live, registered launch of its stable owner on this Core.
+pub(crate) fn completion_launch(
+    w: &Workspace,
+    core: &str,
+    agents: &[Terminal],
+    owner: &str,
+) -> Result<CompletionLaunch, crate::StoreError> {
+    let db = w.history.db()?;
+    let Some(bot) = super::one(&db, owner)? else {
+        return Ok(CompletionLaunch::Unmapped);
+    };
+    if completions::mapped_owner(&db, &bot.agent_name)?.as_deref() != Some(owner) {
+        return Ok(CompletionLaunch::Unmapped);
+    }
+    let mut current = None;
+    let mut unmapped = false;
+    for (index, agent) in agents
+        .iter()
+        .enumerate()
+        .filter(|(_, agent)| agent.require_live().is_ok())
+    {
+        let bound = if let Some(key) = agent.launch_key() {
+            completions::owner_launch(&db, core, key, owner)?.is_some()
+        } else {
+            false
+        };
+        if bound {
+            if current.replace(index).is_some() {
+                return Ok(CompletionLaunch::Unmapped);
+            }
+        } else if agent.name.as_deref().is_some_and(|name| {
+            name == bot.agent_name
+                || (name.contains('-') && super::suffix(name) == super::suffix(&bot.agent_name))
+        }) {
+            unmapped = true;
+        }
+    }
+    Ok(match current {
+        Some(index) if !unmapped => CompletionLaunch::Current(index),
+        _ if unmapped => CompletionLaunch::Unmapped,
+        _ => CompletionLaunch::Absent,
+    })
+}
+
+async fn completion_command(
+    w: &Workspace,
+    core: &str,
+    key: &str,
+    ask: Ask,
+) -> Result<String, String> {
+    let identity = {
+        let db = w.history.db().map_err(|_| STORAGE)?;
+        super::of_launch(&db, key).map_err(|_| STORAGE)?
+    };
+    let owner = match identity {
+        Who::Bot(bot) => bot.id,
+        Who::Helper => return Err(HELPER.into()),
+        Who::Nobody => return Err(UNKNOWN_BOT.into()),
+    };
+    let agents = w.core.agents().await.map_err(crate::helpers::explain)?;
+    let current = completion_launch(w, core, &agents, &owner).map_err(|_| STORAGE)?;
+    if !matches!(current, CompletionLaunch::Current(i) if agents[i].launch_key() == Some(key)) {
+        return Err("Use the owner's current session for this completion.".into());
+    }
+    // Resolve the same registered owner again in the write transaction.
+    super::write(&w.history, |ctx| {
+        let Some(launch) = completions::owner_launch(ctx.db, core, key, &owner)? else {
+            return Ok(Err(UNKNOWN_BOT.into()));
+        };
+        match ask {
+            Ask::CompletionInbox { id } => completions::inbox(ctx, &owner, id.as_deref()),
+            Ask::CompletionAck { id } => completions::ack(ctx, &owner, launch, &id),
+            _ => unreachable!("completion command"),
+        }
+    })
+    .map_err(|_| STORAGE.to_owned())?
+}
+
+async fn deliver_completion(w: &Workspace, item: &Waiting) {
+    let defer = |blocker| {
+        let _ = super::write(&w.history, |ctx| completions::defer(ctx, item.id, blocker));
+    };
+    let due = super::write(&w.history, |ctx| {
+        completions::reconcile(ctx, item.id)?;
+        completions::due(ctx, item.id)
+    });
+    if !matches!(due, Ok(true)) {
+        return;
+    }
+    let bot = match w.history.db().map(|db| super::one(&db, &item.bot)) {
+        Ok(Ok(Some(bot))) if bot.takes_messages => bot,
+        Ok(Ok(Some(_))) => return defer(Blocker::Paused),
+        Ok(Ok(None)) => return defer(Blocker::Removed),
+        _ => return,
+    };
+    let Ok(hello) = w.core.identify().await else {
+        return defer(Blocker::Core);
+    };
+    if !hello.supports(crate::core::COMPLETION_SEND) {
+        return defer(Blocker::Unsupported);
+    }
+    let Ok(mut agents) = w.core.agents().await else {
+        return defer(Blocker::Core);
+    };
+    let agent = match completion_launch(w, &hello.core.id, &agents, &bot.id) {
+        Ok(CompletionLaunch::Current(index)) => agents.swap_remove(index),
+        Ok(CompletionLaunch::Unmapped) => return defer(Blocker::Unmapped),
+        Ok(CompletionLaunch::Absent) => {
+            if !hello.supports(crate::core::COMPLETION_START) {
+                return defer(Blocker::Unsupported);
+            }
+            let mut fixture = w.clone();
+            fixture.vault = None;
+            match start(&fixture, &bot, Some(hello.core.id.clone())).await {
+                Ok(agent) => agent,
+                Err(why)
+                    if why.contains("already starting")
+                        || why.contains("End the running session")
+                        || why.contains("before the fixture launch") =>
+                {
+                    return defer(Blocker::Changed);
+                }
+                Err(_) => return defer(Blocker::Unmapped),
+            }
+        }
+        Err(_) => return,
+    };
+    crate::deliver_completion(w, &hello.core.id, &agent, item.id, &item.bot, &item.text).await;
+}
+
 /// Starts the agent of `bot` ahead of its first task, as the app does when a chat opens: the same name, its
 /// saved profile, the registered template, model, instructions and projects.
-async fn start(w: &Workspace, bot: &Bot) -> Result<Terminal, String> {
+async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result<Terminal, String> {
     let templates = w.core.templates().await.map_err(crate::helpers::explain)?;
     let usable = |template: &&crate::core::Template| {
         template.error.is_none() && crate::core::valid_name(&template.name)
@@ -418,7 +587,12 @@ async fn start(w: &Workspace, bot: &Bot) -> Result<Terminal, String> {
     let instructions = crate::profiles::validate_instructions(&bot.instructions)
         .map(str::to_owned)
         .unwrap_or_default();
-    crate::launch_agent(w.clone(), launch, Some(instructions))
+    let fixture = fixture_core.map(|core| crate::CompletionStart {
+        core,
+        owner: bot.id.clone(),
+        agent_name: bot.agent_name.clone(),
+    });
+    crate::launch_agent(w.clone(), launch, Some(instructions), fixture)
         .await
         .map(|created| created.terminal)
         .map_err(explain)
@@ -453,7 +627,7 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     };
     let agent = match agent_of(w, &hello.core.id, &agents, &bot) {
         Some(index) => agents.swap_remove(index),
-        None => match start(w, &bot).await {
+        None => match start(w, &bot, None).await {
             Ok(agent) => agent,
             // Another start of the same bot is on its way (the app opened its chat): look again shortly.
             Err(why)

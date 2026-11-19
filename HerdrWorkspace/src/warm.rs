@@ -373,6 +373,36 @@ pub(crate) async fn send(
     }
 }
 
+/// Sends a guarded completion, with the same first-message envelope used for a warm launch.
+pub(crate) async fn send_completion(
+    w: &Workspace, core: &str, agent: &Terminal, key: &str, prompt: String,
+) -> Result<Delivery, Failure> {
+    let gate = gate(key);
+    let _one = gate.lock().await;
+    let lookup = |_| Failure::Input("The workspace could not read this session. The task was not sent.");
+    let waiting = waiting(&w.history, key).map_err(lookup)?;
+    let prompt = if let Some(waiting) = &waiting {
+        let hints: Vec<&str> = waiting.hints.iter().map(String::as_str).collect();
+        let text = first_message(&prompt, &waiting.instructions, &hints)?;
+        let ended: bool = w.history.db().and_then(|db| Ok(db.query_row(
+            "SELECT ended_ms IS NOT NULL FROM warm_launches WHERE launch=?1",
+            [waiting.launch], |row| row.get(0),
+        )?)).map_err(lookup)?;
+        if ended {
+            return Err(Failure::Missing);
+        }
+        mark(&w.history, waiting.launch, "tried_ms").map_err(lookup)?;
+        text
+    } else {
+        prompt
+    };
+    let delivery = w.core.send_completion(core, agent, prompt).await?;
+    if let Some(waiting) = waiting {
+        let _ = mark(&w.history, waiting.launch, "delivered_ms");
+    }
+    Ok(delivery)
+}
+
 /// Ends warm agents nobody wrote to within the idle limit.
 pub(crate) fn start_sweeping(w: Workspace) {
     tokio::spawn(async move {

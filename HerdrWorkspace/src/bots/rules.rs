@@ -821,6 +821,7 @@ pub(crate) fn untyped(ctx: &Ctx<'_>, outbox: i64, why: &str) -> rusqlite::Result
         .db
         .query_row(
             "UPDATE bot_outbox SET state='failed',detail=?2 WHERE id=?1 AND state IN ('pending','typing')
+               AND NOT EXISTS (SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id)
              RETURNING bot,cause,message,text",
             params![outbox, why],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -875,7 +876,8 @@ pub(crate) fn give_up(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
     let late: Vec<i64> = ctx
         .db
         .prepare_cached(
-            "SELECT id FROM bot_outbox WHERE state='pending' AND give_up_ms<=?1 ORDER BY id",
+            "SELECT id FROM bot_outbox WHERE state='pending' AND give_up_ms<=?1
+               AND NOT EXISTS (SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id) ORDER BY id",
         )?
         .query_map([ctx.now], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
