@@ -21,20 +21,16 @@ struct HerdrServerFields: View {
                 }
             case .ssh:
                 if part != .details {
-                    // The login name and the server side by side, as ssh writes them.
-                    HStack(alignment: .top, spacing: 10) {
-                        StandaloneField(title: SetupCopy.herdrLoginLabel, text: $draft.sshUser, prompt: SetupCopy.herdrOptional, submit: submit).frame(width: 130)
-                        StandaloneField(title: SetupCopy.herdrServerLabel, text: $draft.sshHost, prompt: SetupCopy.herdrServerPrompt, submit: submit)
-                    }
+                    StandaloneField(title: SetupCopy.herdrServerLabel, text: $draft.sshDestination, prompt: SetupCopy.herdrServerPrompt,
+                                    note: part == .main && !draft.sshDestination.isEmpty ? draft.problem : nil, submit: submit)
+                }
+                if part != .main {
                     HStack(alignment: .bottom, spacing: 8) {
                         StandaloneField(title: SetupCopy.herdrKeyFileLabel, text: $draft.sshKeyPath, prompt: SetupCopy.herdrKeyFilePrompt, submit: submit)
                         Button(SetupCopy.herdrChoose, action: chooseKeyFile).controlSize(.large)
                     }
-                }
-                if part == .main { Text(SetupCopy.herdrSSHCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                if part != .main {
                     StandaloneField(title: SetupCopy.herdrAccessKeyLabel, text: $draft.key, prompt: SetupCopy.herdrSSHKeyPrompt, secure: true,
-                                    note: part == .all ? SetupCopy.herdrSSHCaption + " " + SetupCopy.herdrSSHKeyCaption : SetupCopy.herdrSSHKeyCaption, submit: submit)
+                                    note: SetupCopy.herdrSSHKeyCaption, submit: submit)
                     StandaloneField(title: SetupCopy.herdrPortLabel, text: $draft.port, submit: submit).frame(width: 140)
                 }
             case .address:

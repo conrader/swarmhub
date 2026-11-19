@@ -291,7 +291,7 @@ private let stepOne = HerdrProgram(template: "one", name: "Program One", takesMo
 private let stepTwo = HerdrProgram(template: "two", name: "Program Two", takesModel: true, models: [.init(id: "other-model", label: nil)])
 
 @Test func theWizardOffersProjectsAsItsLastOptionalStep() {
-    var flow = SetupFlow(); flow.apply(.pickHerdr(.ssh)); flow.herdr.sshHost = "box.example.com"
+    var flow = SetupFlow(); flow.apply(.pickHerdr(.ssh)); flow.herdr.sshDestination = "box.example.com"
     flow.apply(.herdrTest(.connected(server: stepServer, key: "k", offer: HerdrOffer(programs: [stepOne, stepTwo], projectServers: true)))); flow.apply(.advance)
     #expect(flow.step == .mainBot && flow.offersProjects && !flow.isLastWizardStep && flow.stepCount == 5 && flow.stepIndex == 2)
     flow.apply(.advance); #expect(flow.step == .moreBots && !flow.isLastWizardStep && flow.stepIndex == 3, "the optional bots are no longer the end")
@@ -300,12 +300,12 @@ private let stepTwo = HerdrProgram(template: "two", name: "Program Two", takesMo
     flow.apply(.advance); #expect(flow.step == .projects, "there is no step after it")
     flow.apply(.back); #expect(flow.step == .moreBots); flow.apply(.advance)
     // A server with one agent program goes from the main bot straight to the projects.
-    var single = SetupFlow(); single.apply(.pickHerdr(.ssh)); single.herdr.sshHost = "box.example.com"
+    var single = SetupFlow(); single.apply(.pickHerdr(.ssh)); single.herdr.sshDestination = "box.example.com"
     single.apply(.herdrTest(.connected(server: stepServer, key: nil, offer: HerdrOffer(programs: [stepOne], projectServers: true)))); single.apply(.advance)
     #expect(single.step == .mainBot && !single.isLastWizardStep && single.stepCount == 4)
     single.apply(.advance); #expect(single.step == .projects && single.isLastWizardStep && single.stepIndex == 3)
     // A server whose workspace has no project servers keeps the wizard as it was.
-    var older = SetupFlow(); older.apply(.pickHerdr(.ssh)); older.herdr.sshHost = "box.example.com"
+    var older = SetupFlow(); older.apply(.pickHerdr(.ssh)); older.herdr.sshDestination = "box.example.com"
     older.apply(.herdrTest(.connected(server: stepServer, key: nil, offer: HerdrOffer(programs: [stepOne, stepTwo])))); older.apply(.advance); older.apply(.advance)
     #expect(older.step == .moreBots && older.isLastWizardStep && !older.offersProjects && older.stepCount == 4)
     older.apply(.advance); #expect(older.step == .moreBots)
@@ -334,7 +334,7 @@ private let stepTwo = HerdrProgram(template: "two", name: "Program Two", takesMo
     let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
     let states = HeadlessHerdrShots.projectModels()
     #expect(states.count == HeadlessHerdrShots.projects.count)
-    var flow = SetupFlow(); flow.apply(.pickHerdr(.ssh)); flow.herdr.sshHost = "box.example.com"
+    var flow = SetupFlow(); flow.apply(.pickHerdr(.ssh)); flow.herdr.sshDestination = "box.example.com"
     flow.apply(.herdrTest(.connected(server: stepServer, key: nil, offer: HerdrOffer(programs: [stepOne], projectServers: true)))); flow.apply(.advance); flow.apply(.advance)
     #expect(flow.step == .projects)
     var sizes: [Int] = []

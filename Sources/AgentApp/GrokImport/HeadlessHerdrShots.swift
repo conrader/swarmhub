@@ -165,7 +165,7 @@ import SwiftUI
         var local = SetupFlow(); local.apply(.pickHerdr(.local))
         var nothing = local; nothing.apply(.herdrTest(.nothingHere(port: HerdrServer.defaultPort))); nothing.apply(.localSetup(.offer(hasCore: false)))
         var localConnected = local; localConnected.apply(.herdrTest(.connected(server: thisMac, key: nil, offer: offer)))
-        var ssh = SetupFlow(); ssh.place = .ssh; ssh.apply(.pickHerdr(.ssh)); ssh.herdr.sshHost = "studio.example.com"; ssh.herdr.sshUser = "deploy"; ssh.herdr.sshKeyPath = "~/.ssh/id_ed25519"
+        var ssh = SetupFlow(); ssh.place = .ssh; ssh.apply(.pickHerdr(.ssh)); ssh.herdr.sshDestination = "deploy@studio.example.com"; ssh.herdr.sshKeyPath = "~/.ssh/id_ed25519"
         var refused = ssh; refused.apply(.herdrTest(.failed(HerdrSetupProblem.sshFailed("deploy@studio.example.com: Permission denied (publickey).").line(for: server))))
         var noService = ssh; noService.apply(.herdrTest(.failed(HerdrSetupProblem.sshNoService.line(for: server))))
         var address = SetupFlow(); address.place = .address; address.apply(.pickHerdr(.address)); address.herdr.address = "http://127.0.0.1:8787"; address.herdr.key = "synthetic"
@@ -333,7 +333,7 @@ import SwiftUI
         do {
             let states = projectModels()
             var offering = offer; offering.projectServers = true
-            var flow = SetupFlow(); flow.place = .ssh; flow.apply(.pickHerdr(.ssh)); flow.herdr.sshHost = "studio.example.com"; flow.herdr.sshUser = "deploy"
+            var flow = SetupFlow(); flow.place = .ssh; flow.apply(.pickHerdr(.ssh)); flow.herdr.sshDestination = "deploy@studio.example.com"
             flow.apply(.herdrTest(.connected(server: server, key: nil, offer: offering))); flow.apply(.advance); flow.apply(.advance); flow.apply(.advance)
             for index in 0..<5 {
                 var shown = flow

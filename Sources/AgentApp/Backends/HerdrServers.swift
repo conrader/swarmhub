@@ -107,28 +107,38 @@ struct HerdrServerDraft: Equatable, Sendable {
     var address = ""
     /// `.local` and `.ssh`: the bridge's port, the same on both ends of the forward because the bridge checks it.
     var port = String(HerdrServer.defaultPort)
-    var sshHost = "", sshUser = "", sshKeyPath = ""
+    var sshDestination = "", sshKeyPath = ""
     /// The access token; empty reads it from the bridge's own file (this Mac, or the server over ssh).
     var key = ""
 
     init(kind: HerdrServer.Kind = .local) { self.kind = kind }
     init(server: HerdrServer) {
         kind = server.kind; name = server.name; address = server.address; port = String(server.port)
-        sshHost = server.sshHost; sshUser = server.sshUser; sshKeyPath = server.sshKeyPath
+        sshDestination = server.sshUser.isEmpty ? server.sshHost : "\(server.sshUser)@\(server.sshHost)"
+        sshKeyPath = server.sshKeyPath
     }
 
     var typedKey: String { key.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var portNumber: Int? { Int(port.trimmingCharacters(in: .whitespaces)).flatMap { (1...65535).contains($0) ? $0 : nil } }
+
+    /// Accept the usual Terminal spelling when pasted, but only extract a single SSH destination.
+    private var sshLogin: (host: String, user: String)? {
+        var target = sshDestination.trimmingCharacters(in: .whitespacesAndNewlines)
+        if target.hasPrefix("ssh ") { target = String(target.dropFirst(4)).trimmingCharacters(in: .whitespaces) }
+        let parts = target.components(separatedBy: "@")
+        guard parts.count <= 2, let host = parts.last, HerdrTunnel.isSafe(host: host) else { return nil }
+        if parts.count == 1 { return (host, "") }
+        let user = parts[0]
+        guard !user.isEmpty, HerdrTunnel.isSafe(user: user) else { return nil }
+        return (host, user)
+    }
 
     /// One plain line for the first thing that is missing or wrong; nil when Test can run.
     var problem: String? {
         switch kind {
         case .local: return portNumber == nil ? "The port is a number from 1 to 65535. It is 8787 unless you changed it." : nil
         case .ssh:
-            if sshHost.trimmingCharacters(in: .whitespaces).isEmpty { return "Enter the server's name or IP address." }
-            if !HerdrTunnel.isSafe(host: sshHost.trimmingCharacters(in: .whitespaces)) || !HerdrTunnel.isSafe(user: sshUser.trimmingCharacters(in: .whitespaces)) {
-                return "Use only the server's name or IP address, and a plain login name."
-            }
+            guard sshLogin != nil else { return "Enter a server name, IP address, or user@server." }
             return portNumber == nil ? "The port is a number from 1 to 65535. It is 8787 unless you changed it." : nil
         case .address:
             if address.trimmingCharacters(in: .whitespaces).isEmpty { return "Enter the address, for example http://127.0.0.1:8787." }
@@ -144,9 +154,9 @@ struct HerdrServerDraft: Equatable, Sendable {
         case .local:
             return HerdrServer(id: id, name: typed.isEmpty ? "This Mac" : typed, kind: .local, address: HerdrServer.loopback(port: portNumber ?? HerdrServer.defaultPort))
         case .ssh:
-            let host = sshHost.trimmingCharacters(in: .whitespaces)
-            return HerdrServer(id: id, name: typed.isEmpty ? host : typed, kind: .ssh, address: HerdrServer.loopback(port: portNumber ?? HerdrServer.defaultPort),
-                               sshHost: host, sshUser: sshUser.trimmingCharacters(in: .whitespaces), sshKeyPath: sshKeyPath.trimmingCharacters(in: .whitespaces))
+            guard let login = sshLogin else { return nil }
+            return HerdrServer(id: id, name: typed.isEmpty ? login.host : typed, kind: .ssh, address: HerdrServer.loopback(port: portNumber ?? HerdrServer.defaultPort),
+                               sshHost: login.host, sshUser: login.user, sshKeyPath: sshKeyPath.trimmingCharacters(in: .whitespaces))
         case .address:
             guard let url = HerdrClient.validatedBaseURL(address) else { return nil }
             return HerdrServer(id: id, name: typed.isEmpty ? (url.host ?? "Herdr") : typed, kind: .address, address: url.absoluteString)

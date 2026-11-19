@@ -27,7 +27,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
 }
 
 @Test func aServerWithOneProgramEndsOnTheMainBot() {
-    var flow = SetupFlow(); flow.apply(.pickHerdr(.ssh)); flow.herdr.sshHost = "box.example.com"
+    var flow = SetupFlow(); flow.apply(.pickHerdr(.ssh)); flow.herdr.sshDestination = "box.example.com"
     flow.apply(.herdrTest(.connected(server: boxServer, key: nil, offer: HerdrOffer(programs: [programTwo])))); flow.apply(.advance)
     #expect(flow.step == .mainBot && flow.moreChoices.isEmpty && flow.isLastWizardStep && flow.mainBot.template == "two")
     flow.apply(.advance); #expect(flow.step == .mainBot, "there is no step after it")
@@ -47,7 +47,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     flow.apply(.back); #expect(flow.step == .welcome && flow.herdrOffer == nil)
     // A saved server that cannot be read shows its own Connect screen, with the reason, and Back still leads to Welcome.
     var broken = SetupFlow(saved: boxServer); broken.apply(.herdrTest(.failed("down")))
-    #expect(broken.step == .herdr && broken.herdrFailure == "down" && broken.herdr.sshHost == "box.example.com")
+    #expect(broken.step == .herdr && broken.herdrFailure == "down" && broken.herdr.sshDestination == "deploy@box.example.com")
     broken.apply(.herdrTest(.connected(server: boxServer, key: nil, offer: serverOffer))); broken.apply(.advance)
     #expect(broken.step == .mainBot); broken.apply(.back); broken.apply(.back); #expect(broken.step == .welcome)
 }
@@ -65,7 +65,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
 @MainActor @Test func theWizardsLastButtonCreatesTheMainBotAndTheTickedBots() throws {
     let keys = InMemoryKeyStore(), store = wizardStore(keys: keys)
     store.bots = [Bot(name: "Sample", isDemo: true)]
-    var draft = HerdrServerDraft(kind: .ssh); draft.sshHost = "box.example.com"
+    var draft = HerdrServerDraft(kind: .ssh); draft.sshDestination = "box.example.com"
     #expect(store.setupHerdrID(for: draft) == "default", "the first server takes the stand-in's place")
     let server = try #require(draft.server(id: store.setupHerdrID(for: draft)))
     var main = HerdrMainBotDraft(); main.begin(offer: serverOffer, bots: [])
@@ -114,7 +114,7 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     let first = store.wizardStart()
     #expect(first.step == .mainBot && first.readsSavedServer && first.herdr.kind == .local && !store.setupAddsServer, "a server that is set up skips Connect")
     let jarvis = Bot(name: "Jarvis", backend: .herdr); store.bots = [jarvis]; jarvis.canManageBots = true
-    #expect(store.wizardStart().herdr.sshHost == "box.example.com", "the first server without a main bot")
+    #expect(store.wizardStart().herdr.sshDestination == "deploy@box.example.com", "the first server without a main bot")
     let other = Bot(name: "Other", backend: .herdr); store.bots.append(other); store.setHerdrServer("box1", for: other); other.canManageBots = true
     #expect(store.wizardStart().step == .welcome && store.setupAddsServer, "every server has its main bot: the wizard adds a server")
     #expect(store.setupHerdrBots(on: boxServer) == [HerdrSetupBot(id: other.id, name: "Other", isMain: true, template: nil)])
@@ -181,13 +181,13 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     #expect(flow.step == .welcome && flow.place == .local, "This Mac is selected to begin with")
     flow.place = .ssh; flow.apply(.pickHerdr(flow.place))
     #expect(flow.step == .herdr && flow.herdr.kind == .ssh && flow.canGoBack && !flow.herdrReady)
-    flow.herdr.sshHost = "box.example.com"
+    flow.herdr.sshDestination = "box.example.com"
     flow.apply(.herdrTest(.failed("no"))); #expect(flow.step == .herdr && flow.herdrFailure == "no" && !flow.herdrReady)
     flow.apply(.advance); #expect(flow.step == .herdr, "Continue does nothing until Test has passed")
     flow.apply(.herdrTest(.connected(server: boxServer, key: "k", offer: serverOffer)))
     #expect(flow.step == .herdr && flow.herdrReady && flow.herdrServer == boxServer && flow.herdrKey == "k", "a passed Test stays on Connect and shows its result")
-    flow.herdr.sshUser = "other"; #expect(!flow.herdrReady, "a result only counts for the fields it was tested with")
-    flow.herdr.sshUser = ""; flow.apply(.advance)
+    flow.herdr.sshDestination = "other@box.example.com"; #expect(!flow.herdrReady, "a result only counts for the fields it was tested with")
+    flow.herdr.sshDestination = "box.example.com"; flow.apply(.advance)
     #expect(flow.step == .mainBot && flow.mainBot.keep == nil && flow.mainBot.name == WizardCopy.suggestedName)
     #expect(flow.mainBot.template == "one" && flow.mainBot.model == HerdrModelChoice.recommended && flow.mainBotReady, "the first program uses its recommendation")
     #expect(flow.moreChoices.map(\.template) == ["two"] && !flow.isLastWizardStep)

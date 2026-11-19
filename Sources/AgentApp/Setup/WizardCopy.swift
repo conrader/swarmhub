@@ -35,7 +35,7 @@ enum WizardCopy {
     static let addressHeader = "Your server"
     static let localIntro = "Checking that this Mac is ready to run your bots."
     static let localSetupIntro = "Set it up once, and your bots work right here."
-    static var sshIntro: String { "\(AppConstants.name) logs in and checks that the server is ready to run your bots." }
+    static let sshIntro = "Use the same server name or SSH login you use in Terminal."
     static let addressIntro = "Give its address and access key."
     static let details = "Connection details"
     static func connected(_ name: String) -> String { "\(name) is ready" }

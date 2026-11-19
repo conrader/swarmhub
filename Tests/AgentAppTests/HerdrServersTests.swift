@@ -31,10 +31,24 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(HerdrTunnel.forwardArguments(for: hostile) == nil && !HerdrTunnel.isSafe(host: "a b") && !HerdrTunnel.isSafe(user: "-x"))
     #expect(HerdrTunnel.forwardArguments(for: HerdrServerList.servers(json: nil, legacyAddress: nil)[0]) == nil, "only an SSH server gets a forward")
     var draft = HerdrServerDraft(kind: .ssh); #expect(draft.problem != nil && draft.server(id: "n") == nil)
-    draft.sshHost = " box.example.com "; draft.port = "9001"
+    draft.sshDestination = " box.example.com "; draft.port = "9001"
     #expect(draft.server(id: "n") == HerdrServer(id: "n", name: "box.example.com", kind: .ssh, address: "http://127.0.0.1:9001", sshHost: "box.example.com"))
     #expect(HerdrServerDraft(server: boxServer).server(id: "box1") == boxServer)
     #expect(HerdrTunnel.reason("Warning: Permanently added 'x' to the list of known hosts.\nme@x: Permission denied (publickey).\n") == "me@x: Permission denied (publickey).")
+}
+
+@Test func oneSSHFieldAcceptsTerminalDestinations() throws {
+    var draft = HerdrServerDraft(kind: .ssh)
+    for (input, host, user) in [("mini-m4", "mini-m4", ""), ("deploy@studio", "studio", "deploy"),
+                                ("  ssh deploy@studio\n", "studio", "deploy"), ("2001:db8::1", "2001:db8::1", "")] {
+        draft.sshDestination = input
+        let server = try #require(draft.server(id: "test"))
+        #expect(server.sshHost == host && server.sshUser == user && server.name == host)
+    }
+    for input in ["user@", "@studio", "a@b@studio", "ssh -p 2222 studio", "ssh studio ls", "-oSomething"] {
+        draft.sshDestination = input
+        #expect(draft.server(id: "test") == nil)
+    }
 }
 
 @MainActor @Test func herdrStartersAreAddedPerServer() {

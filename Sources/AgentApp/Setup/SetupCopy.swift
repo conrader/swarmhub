@@ -24,8 +24,7 @@ enum SetupCopy {
     static let herdrOptional = "Optional"
     static let herdrPortLabel = "Port"
     static let herdrServerLabel = "Server"
-    static let herdrServerPrompt = "my-server.example.com"
-    static let herdrLoginLabel = "Login name"
+    static let herdrServerPrompt = "my-server or user@my-server"
     static let herdrKeyFileLabel = "SSH key file"
     static let herdrKeyFilePrompt = "Optional, for example ~/.ssh/id_ed25519"
     static let herdrChoose = "Choose…"
@@ -35,9 +34,6 @@ enum SetupCopy {
     static let herdrLocalKeyPrompt = "Read from this Mac"
     static let herdrSSHKeyPrompt = "Read from the server"
     static var herdrLocalCaption: String { "Leave the access key empty: \(AppConstants.name) finds it on this Mac." }
-    static var herdrSSHCaption: String {
-        "\(AppConstants.name) keeps the connection open for you. It never copies your key file; one with a passphrase must be unlocked first (ssh-add)."
-    }
     static var herdrSSHKeyCaption: String { "Leave the access key empty: \(AppConstants.name) finds it on the server." }
     static var herdrAddressCaption: String {
         "The server only answers on its own computer, so forward its port to this Mac first (the same port number on both ends). Or go back and choose “A server”, and \(AppConstants.name) does that for you."
@@ -60,8 +56,8 @@ enum SetupCopy {
     static var all: [String] { [windowTitle, back, cancel, sampleLink, test, testing, testAgain, failed, thisMac] + herdrScreen + ManagedHosting.all }
     static var herdrScreen: [String] {
         [herdrLocalTitle, herdrSSHTitle, herdrAddressTitle, herdrReadyMadeTitle, herdrReadyMadeDetail, herdrNameLabel, herdrOptional, herdrPortLabel, herdrServerLabel,
-         herdrServerPrompt, herdrLoginLabel, herdrKeyFileLabel, herdrKeyFilePrompt, herdrChoose, herdrAddressLabel, herdrAddressPrompt,
-         herdrAccessKeyLabel, herdrLocalKeyPrompt, herdrSSHKeyPrompt, herdrLocalCaption, herdrSSHCaption, herdrSSHKeyCaption, herdrAddressCaption,
+         herdrServerPrompt, herdrKeyFileLabel, herdrKeyFilePrompt, herdrChoose, herdrAddressLabel, herdrAddressPrompt,
+         herdrAccessKeyLabel, herdrLocalKeyPrompt, herdrSSHKeyPrompt, herdrLocalCaption, herdrSSHKeyCaption, herdrAddressCaption,
          herdrNothingHere(port: 8787), herdrStartHelp, localServiceTitle, localServiceDetail, localRemove, localRemoveQuestion, localRemoveDetail, localRemoveConfirm,
          localRemoving, localRemoved, localKept("Herdr Core.")]
     }
