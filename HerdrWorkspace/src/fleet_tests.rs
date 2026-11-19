@@ -328,6 +328,26 @@ fn job_writes(db: &Connection, id: &str) -> (i64, i64) {
     .unwrap()
 }
 
+fn reopen_job_journal(directory: &Path) -> History {
+    const LOCK_BUSY: &str = "Another workspace server may already be using this data directory.";
+    // A concurrently spawned child can briefly inherit the lock before exec.
+    let deadline = Instant::now() + WAIT;
+    loop {
+        match History::open_at(directory) {
+            Ok(history) => return history,
+            Err(error) => {
+                if error.to_string() != LOCK_BUSY || Instant::now() >= deadline {
+                    panic!(
+                        "could not reopen job journal at {}: {error}",
+                        directory.display()
+                    );
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+}
+
 #[test]
 fn gapplan_02_int_exit_and_replay_in_either_order_commit_one_event() {
     use jobs_fixture::{ATTEMPT, OWNER};
@@ -375,6 +395,106 @@ fn gapplan_02_int_exit_and_replay_in_either_order_commit_one_event() {
 }
 
 #[test]
+fn gapplan_02_int_concurrent_finish_callbacks_commit_one_event() {
+    use jobs_fixture::ATTEMPT;
+
+    let scratch = tempfile::tempdir().unwrap();
+    let h = jobs_fixture::journal(&scratch.path().join("journal"));
+    let job = {
+        let mut db = h.db().unwrap();
+        let job = jobs_fixture::submit_fixture(&mut db, "concurrent-finish");
+        assert_eq!(
+            jobs_fixture::dispatch(&mut db, &job),
+            jobs::Dispatch::Recorded
+        );
+        job
+    };
+    let writers = [
+        history::connection(h.file()).unwrap(),
+        history::connection(h.file()).unwrap(),
+    ];
+    let start = Barrier::new(writers.len());
+    let report = jobs_fixture::success();
+    let (first, second) = thread::scope(|scope| {
+        let [first, second] = writers.map(|mut db| {
+            let (start, id, report) = (&start, &job.id, &report);
+            scope.spawn(move || {
+                start.wait();
+                jobs::finish(&mut db, id, ATTEMPT, report).unwrap()
+            })
+        });
+        (first.join().unwrap(), second.join().unwrap())
+    });
+
+    assert_eq!(first, second);
+    let db = h.db().unwrap();
+    assert_eq!(job_writes(&db, &job.id), (1, 1));
+    let status = jobs::status(&db, &job.id).unwrap().unwrap();
+    assert_eq!(status.status, "exited");
+    assert_eq!(status.completion, Some(first));
+}
+
+#[tokio::test]
+async fn gapplan_02_int_http_job_status_returns_completion_or_not_found() {
+    use axum::http::StatusCode;
+    use jobs_fixture::ATTEMPT;
+
+    let scratch = tempfile::tempdir().unwrap();
+    let history = jobs_fixture::journal(&scratch.path().join("journal"));
+    let (job, event) = {
+        let mut db = history.db().unwrap();
+        let job = jobs_fixture::submit_fixture(&mut db, "http-status");
+        assert_eq!(
+            jobs_fixture::dispatch(&mut db, &job),
+            jobs::Dispatch::Recorded
+        );
+        let event = jobs::finish(&mut db, &job.id, ATTEMPT, &jobs_fixture::success()).unwrap();
+        (job, event)
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let token = "a".repeat(64);
+    let app = crate::workspace_router(crate::Workspace {
+        core: crate::Core(scratch.path().join("core.sock")),
+        history,
+        approvals: Default::default(),
+        drafts: Default::default(),
+        connected_files: None,
+        drive_access: Default::default(),
+        drive_files: None,
+        github_project: None,
+        vault: None,
+        slack: None,
+        port,
+        token: token.clone(),
+    });
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(WAIT)
+        .build()
+        .unwrap();
+    let get = |id: &str| {
+        client
+            .get(format!("http://127.0.0.1:{port}/api/jobs/{id}"))
+            .bearer_auth(&token)
+            .send()
+    };
+
+    let known = get(&job.id).await.unwrap();
+    assert_eq!(known.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_slice(&known.bytes().await.unwrap()).unwrap();
+    assert_eq!(body["id"], job.id);
+    assert_eq!(body["status"], "exited");
+    assert_eq!(body["completion"], serde_json::to_value(event).unwrap());
+    assert_eq!(
+        get("unknown-job").await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    server.abort();
+}
+
+#[test]
 fn gapplan_02_int_event_insert_failure_rolls_back_terminal_write_and_can_retry() {
     use jobs_fixture::ATTEMPT;
 
@@ -414,7 +534,7 @@ fn gapplan_02_int_killed_between_writes_leaves_no_exit_event_or_result() {
 
     if let Some(root) = std::env::var_os(JOB_CRASH_ROOT) {
         let root = Path::new(&root);
-        let h = History::open_at(&root.join("journal")).unwrap();
+        let h = reopen_job_journal(&root.join("journal"));
         let mut db = history::connection(h.file()).unwrap();
         let id: String = db.query_row("SELECT id FROM jobs", [], |r| r.get(0)).unwrap();
         jobs_fixture::finish_after_update(&mut db, &id, || {
@@ -465,7 +585,7 @@ fn gapplan_02_int_killed_between_writes_leaves_no_exit_event_or_result() {
     assert_eq!(during_writes, (0, 0));
     drop(reader);
 
-    let reopened = History::open_at(&directory).unwrap();
+    let reopened = reopen_job_journal(&directory);
     let mut db = reopened.db().unwrap();
     assert_eq!(jobs::status(&db, &job.id).unwrap().unwrap(), during);
     assert_eq!(job_writes(&db, &job.id), (0, 0));
@@ -502,7 +622,7 @@ fn gapplan_02_int_unresolved_status_survives_restarts_until_reconciled() {
     };
     drop(h);
 
-    let reopened = History::open_at(&directory).unwrap();
+    let reopened = reopen_job_journal(&directory);
     let event = {
         let mut db = reopened.db().unwrap();
         for (job, reason) in [(&start, "start_unconfirmed"), (&exit, "exit_unconfirmed")] {
@@ -518,7 +638,7 @@ fn gapplan_02_int_unresolved_status_survives_restarts_until_reconciled() {
     };
     drop(reopened);
 
-    let reopened = History::open_at(&directory).unwrap();
+    let reopened = reopen_job_journal(&directory);
     let db = reopened.db().unwrap();
     assert_eq!(jobs::status(&db, &exit.id).unwrap().unwrap().completion, Some(event));
     assert_eq!(job_writes(&db, &exit.id), (1, 1));
@@ -564,7 +684,7 @@ fn gapplan_02_int_journal_v53_fresh_upgrade_and_reopen() {
         std::os::unix::fs::PermissionsExt::from_mode(0o600),
     ).unwrap();
     for _ in 0..3 {
-        let reopened = History::open_at(&directory).unwrap();
+        let reopened = reopen_job_journal(&directory);
         let db = reopened.db().unwrap();
         assert_v53(&db);
         assert_eq!(parks::status(&db, &park).unwrap(), View::Status(State::Pending));

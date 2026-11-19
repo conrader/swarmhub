@@ -249,7 +249,15 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     warm::start_sweeping(workspace.clone());
     service::keep_core_running();
     workspace.history.watch_changes();
-    let app = Router::new()
+    let app = workspace_router(workspace);
+    println!("SwarmHub · http://127.0.0.1:{port}");
+    update::started();
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+fn workspace_router(workspace: Workspace) -> Router {
+    Router::new()
         .route(
             "/",
             get(|| async { Html(include_str!("../web/index.html")) }),
@@ -404,11 +412,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             workspace.clone(),
             local_browser,
         ))
-        .with_state(workspace);
-    println!("SwarmHub · http://127.0.0.1:{port}");
-    update::started();
-    axum::serve(listener, app).await?;
-    Ok(())
+        .with_state(workspace)
 }
 
 async fn local_browser(State(state): State<Workspace>, request: Request, next: Next) -> Response {
