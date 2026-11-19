@@ -784,29 +784,36 @@ Projects:
 
 ## Run a detached worker fixture
 
-On macOS or Linux, the worker account supplies a private local directory (mode `0700`) with an account-owned `identity.json` (mode `0600`). Its `id` and `host_fingerprint` come from the worker enrollment. The fingerprint uses the same `SHA256:` encoding as the machine API. The worker creates its version 1 `attempts.sqlite3` in that directory and binds it to that identity.
+On macOS or Linux, the worker account supplies a private local directory (mode `0700`) with an account-owned `identity.json` (mode `0600`). Its `id` and `host_fingerprint` come from the worker enrollment. The fingerprint uses the same `SHA256:` encoding as the machine API. The worker creates or upgrades its local `attempts.sqlite3` to schema 2 and binds it to that identity.
 
-Run `swarmhub-herdr job-worker <verb> <state-dir>` with a single JSON object on stdin. The request limit is 4 KiB. Each verb takes `protocol`, `worker`, and `attempt`. The `start` verb also takes a fixed `fixture` value.
+Run `swarmhub-herdr job-worker <verb> <state-dir>` with a single JSON object on stdin. The request limit is 4 KiB. Each verb takes `protocol`, `worker`, and `attempt`. The `start` verb requires a fixed `fixture` and the enrolled project manifest. The [fixture setup](../docs/architecture.md) describes the private admission configuration, signed probe and policy heartbeat.
 
 ```json
 {
-  "protocol": 1,
+  "protocol": 2,
   "worker": {"id": "fixture-mini-m4", "host_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
   "attempt": {"job_id": "fixture-job", "number": 1},
-  "fixture": "success"
+  "fixture": "success",
+  "manifest": {
+    "project_id": 1,
+    "project_created_ms": 1795089600000,
+    "workdir": "/fixture/work/project",
+    "owner_bot_id": "fixture-owner",
+    "provider": "codex"
+  }
 }
 ```
 
 | Verb | Behavior |
 | --- | --- |
-| `start` | Records one durable start intent for the job ID and attempt number, then starts a detached supervisor. Repeating the same manifest returns the current state. A different manifest for the same attempt is an error. |
+| `start` | Reserves capacity and records a durable start intent together when admission succeeds, then starts a detached supervisor. Retrying a queued or held manifest rechecks admission. Repeating an admitted manifest returns the current state. A different manifest for the same attempt is an error. |
 | `status` | Returns one JSON object with state, manifest digest if known, and any recorded exit and artifact references. |
 | `cancel` | Records a request for the current supervisor to stop its verified fixture process group. An already settled attempt returns its existing status. |
 | `collect` | Returns status and the bounded log and result text when available. `log_ref` and `result_ref` are opaque labels scoped to the requested attempt. |
 
 The available fixtures are `success`, `nonzero`, `oversized`, and `group`. The supervisor records the child PID, process group, and birth identity before releasing the child. A lost launch connection can be followed by `status` or `collect` from another process. `missing` means this store has no such attempt. `unknown` means the worker has an intent but cannot confirm its start or exit. Repeating `start` preserves that intent for reconciliation. A confirmed outcome stores the exit and artifact references together. Results over 4 KiB set `result_truncated` and have no result reference or digest. Log text is bounded to 1 KiB.
 
-This protocol is for local fixture verification. It accepts no executable, shell command, workdir, provider credentials, or network target. Worker admission, provider execution, and coordinator dispatch have separate implementation slices.
+This protocol runs fixed local fixtures. An enrolled workdir is required. Runtime metadata uses opaque account references, and later slices connect the provider adapters and coordinator.
 
 ## Keep an agent profile
 

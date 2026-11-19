@@ -107,6 +107,7 @@ pub(crate) enum RuleKind {
     RequireOwnerSignoff { signer: String },
     OwnerSignoff { signer: String, park: ParkPin },
     Exception { park: ParkPin },
+    WorkerException { job_id: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -132,9 +133,13 @@ impl Scope {
     }
 
     fn applies(&self, request: &Request<'_>, actor: &Actor) -> bool {
-        self.action.as_deref().is_none_or(|value| value == request.action)
-            && self.project.as_deref().is_none_or(|value| value == request.project)
-            && self.owner.as_deref().is_none_or(|value| value == request.owner)
+        self.matches(request.action, request.project, request.owner, actor)
+    }
+
+    fn matches(&self, action: &str, project: &str, owner: &str, actor: &Actor) -> bool {
+        self.action.as_deref().is_none_or(|value| value == action)
+            && self.project.as_deref().is_none_or(|value| value == project)
+            && self.owner.as_deref().is_none_or(|value| value == owner)
             && self.principal.as_ref().is_none_or(|value| value == actor)
     }
 
@@ -165,12 +170,68 @@ impl Rule {
                 RuleKind::Exception { park } => self.delegated_scope() && park.valid(),
                 RuleKind::RequireOwnerSignoff { signer } => principals::text(signer),
                 RuleKind::OwnerSignoff { signer, park } => principals::text(signer) && park.valid(),
+                RuleKind::WorkerException { job_id } => {
+                    self.scope.action.as_deref() == Some(WORKER_ACTION)
+                        && self.scope.project.is_some()
+                        && self.scope.owner.is_some()
+                        && self.expires_ms < i64::MAX
+                        && principals::identifier(job_id)
+                }
                 RuleKind::Stop => true,
             }
     }
 
     fn delegated_scope(&self) -> bool {
         self.scope.action.is_some() && matches!(self.scope.principal, Some(Actor::Bot { .. }))
+    }
+}
+
+const WORKER_ACTION: &str = "start_heavy_job";
+const MAX_WORKER_HEARTBEAT_MS: i64 = 60_000;
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WorkerHeartbeat {
+    pub policy: PolicyRef,
+    pub issued_ms: i64,
+    pub expires_ms: i64,
+}
+
+impl WorkerHeartbeat {
+    fn deadline(&self, current: &PolicyRef, now: i64) -> Option<i64> {
+        (&self.policy == current
+            && (self.issued_ms..self.expires_ms).contains(&now)
+            && self.expires_ms.saturating_sub(self.issued_ms) <= MAX_WORKER_HEARTBEAT_MS)
+            .then_some(self.expires_ms)
+    }
+}
+
+pub(crate) enum WorkerDecision<'a> {
+    Stop,
+    Hold,
+    Admit(Option<&'a Rule>),
+}
+
+impl Policy {
+    pub(crate) fn worker_decision(
+        &self, job_id: &str, project_id: i64, owner: &str, now: i64,
+    ) -> WorkerDecision<'_> {
+        let project = project_id.to_string();
+        let actor = Actor::Bot { id: owner.to_owned() };
+        let active = || self.rules.iter().filter(|rule| {
+            !self.revoked.contains(&rule.id)
+                && (rule.effective_ms..rule.expires_ms).contains(&now)
+                && rule.scope.matches(WORKER_ACTION, &project, owner, &actor)
+        });
+        if active().any(|rule| matches!(rule.rule, RuleKind::Stop)) {
+            return WorkerDecision::Stop;
+        }
+        if active().any(|rule| matches!(rule.rule, RuleKind::RequireOwnerSignoff { .. })) {
+            return WorkerDecision::Hold;
+        }
+        WorkerDecision::Admit(active().find(|rule| {
+            matches!(&rule.rule, RuleKind::WorkerException { job_id: id } if id == job_id)
+        }))
     }
 }
 
@@ -349,6 +410,18 @@ fn audit_version(
 }
 
 impl Authority {
+    pub(crate) fn with_worker_policy<T>(
+        &self,
+        read: impl FnOnce(&str, &PolicyRef, &Policy, Option<i64>) -> T,
+    ) -> Result<T, Error> {
+        self.with_snapshot(|snapshot| {
+            let (reference, published) = snapshot.current()?;
+            let deadline = snapshot.worker_heartbeat()?
+                .and_then(|heartbeat| heartbeat.deadline(&reference, history::now()));
+            Ok(read(&snapshot.trust.workspace, &reference, &published.publication.policy, deadline))
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn publish_fixture(&self, publication: Publication) -> Result<PolicyRef, Error> {
         self.import_policy(publication)

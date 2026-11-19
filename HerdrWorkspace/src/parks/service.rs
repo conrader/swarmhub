@@ -364,7 +364,7 @@ impl Service {
             Ok(Ok(view)) => return Ok(view.into()),
             Ok(Err(error)) => {
                 eprintln!("SwarmHub park execution needs reconciliation: {error:?}");
-                return reconcile_claim(db, park, &attempt).map(Into::into);
+                return reconcile_claim(db, park, &attempt, "reconciliation: execution evidence could not be settled").map(Into::into);
             }
         };
         let held = (|| {
@@ -390,7 +390,7 @@ impl Service {
             Ok(result) => Ok(result),
             Err(error) => {
                 eprintln!("SwarmHub park hold needs reconciliation: {error:?}");
-                reconcile_claim(db, park, &attempt).map(Into::into)
+                reconcile_claim(db, park, &attempt, "reconciliation: pre-effect hold could not be recorded").map(Into::into)
             }
         }
     }

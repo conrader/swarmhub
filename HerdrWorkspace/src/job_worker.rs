@@ -1,17 +1,20 @@
 //! Worker-local lifecycle for fixed, synthetic jobs. Each launch has its own
 //! session and supervisor, independent of the command that recorded the intent.
+mod admission;
 mod store;
 
-use crate::fleet_policy::principals::identifier;
+use crate::{fleet_policy::principals::identifier, history};
+use admission::{Admission, Blocker, Manifest, RuntimeReceipt, same_directory};
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     ffi::{OsStr, OsString},
+    fs::File,
     io::{self, BufRead, BufReader, Read, Write},
     net::Shutdown,
     os::{
-        fd::{AsFd, OwnedFd},
+        fd::{AsFd, AsRawFd, OwnedFd},
         unix::{
             net::UnixStream,
             process::{CommandExt, ExitStatusExt},
@@ -22,16 +25,18 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use store::Store;
+use store::{Run, Store};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-const PROTOCOL: u32 = 1;
+const PROTOCOL: u32 = 2;
+const LEGACY_PROTOCOL: u32 = 1;
 const INPUT_LIMIT: usize = 4096;
 const LOG_LIMIT: usize = 1024;
 const RESULT_LIMIT: usize = 4096;
 const POLL: Duration = Duration::from_millis(20);
-const LAUNCH_WAIT: Duration = Duration::from_secs(2);
+const LAUNCH_WAIT: Duration = Duration::from_secs(5);
+const PROBE_INTERVAL: Duration = Duration::from_millis(100);
 const GROUP_WAIT: Duration = Duration::from_secs(5);
 const RELEASE: u8 = b'G';
 pub(crate) const USAGE: &str =
@@ -78,6 +83,8 @@ struct Request {
     attempt: Attempt,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fixture: Option<Fixture>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manifest: Option<Manifest>,
 }
 
 pub(crate) fn cli(args: &[OsString]) -> Result<()> {
@@ -85,8 +92,8 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
         Some("_supervise") if let [_, root, token] = args => {
             supervise(Path::new(root), token.to_str().ok_or(USAGE)?)
         }
-        Some("_fixture") if let [_, fixture] = args => {
-            run_fixture(serde_json::from_str(fixture.to_str().ok_or(USAGE)?)?)
+        Some("_fixture") if let [_, root, fixture] = args => {
+            run_fixture(Path::new(root), serde_json::from_str(fixture.to_str().ok_or(USAGE)?)?)
         }
         Some("_fixture-member") if args.len() == 1 => {
             thread::sleep(GROUP_WAIT);
@@ -99,20 +106,24 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
                 return Err("Worker request exceeds 4096 bytes.".into());
             }
             let request: Request = serde_json::from_slice(&input)?;
-            if request.protocol != PROTOCOL {
+            if request.protocol != PROTOCOL
+                && !(request.protocol == LEGACY_PROTOCOL && verb != "start")
+            {
                 return Err("Unsupported job worker protocol.".into());
             }
             if !request.worker.valid()
                 || !identifier(&request.attempt.job_id)
                 || request.attempt.number <= 0
                 || (verb == "start") != request.fixture.is_some()
+                || (verb == "start") != request.manifest.is_some()
+                || request.manifest.as_ref().is_some_and(|manifest| !manifest.valid())
             {
                 return Err("Invalid job worker request.".into());
             }
 
             let mut store = Store::open(Path::new(root), Some(&request.worker))?;
-            if let Some(fixture) = request.fixture {
-                start(&mut store, &request, fixture)?;
+            if let (Some(fixture), Some(manifest)) = (request.fixture, &request.manifest) {
+                start(&mut store, &request, fixture, manifest)?;
             }
             let view = store.observe(&request.attempt, verb == "cancel", verb == "collect")?;
             let mut out = io::stdout().lock();
@@ -124,18 +135,22 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
     }
 }
 
-fn start(store: &mut Store, request: &Request, fixture: Fixture) -> Result<()> {
+fn start(store: &mut Store, request: &Request, fixture: Fixture, manifest: &Manifest) -> Result<()> {
     let manifest_digest = digest(&serde_json::to_vec(request)?);
     let launcher = ProcessIdentity::current()?;
-    let Some(token) = store.reserve(&request.attempt, &manifest_digest, fixture, &launcher)? else {
+    let Some(token) = store.reserve(&request.attempt, &manifest_digest, fixture, manifest, &launcher, |root, worker| {
+        Admission::open(root).map_err(|_| Blocker::hold("policy_unavailable"))?
+            .check(worker, &request.attempt.job_id, manifest, None).map(|(grant, _)| grant)
+    })? else {
         return Ok(());
     };
+    let (mut gate, supervisor_gate) = UnixStream::pair()?;
     let mut command = subprocess([
         OsStr::new("_supervise"),
         store.root.as_os_str(),
         OsStr::new(&token),
     ])?;
-    command.current_dir(&store.root);
+    command.current_dir(&store.root).stdin(Stdio::from(OwnedFd::from(supervisor_gate)));
     // SAFETY: setsid is async-signal-safe. Only the fresh child changes session.
     unsafe {
         command.pre_exec(|| {
@@ -148,24 +163,32 @@ fn start(store: &mut Store, request: &Request, fixture: Fixture) -> Result<()> {
     let mut supervisor = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            store.start_unconfirmed(&token)?;
+            store.start_unconfirmed(&token, "supervisor_spawn_failed")?;
             return Err(error.into());
         }
     };
 
-    // Pin the detached supervisor's identity before replying so status can
-    // recognize it while it is still opening the store or registering a child.
+    #[cfg(test)]
+    checkpoint(&store.root, "before-launcher-pin", &launcher)?;
+
+    // The detached supervisor waits for this durable pin before opening SQLite.
+    // A competing start can observe the launcher until the pin commits.
     let deadline = Instant::now() + LAUNCH_WAIT;
     loop {
-        if let Some(identity) = ProcessIdentity::read(supervisor.id() as i32) {
-            store.register_supervisor(&token, &identity)?;
+        if let Some(identity) = ProcessIdentity::read(supervisor.id() as i32)
+            .filter(|process| process.pid == process.group)
+        {
+            if store.register_supervisor(&token, &identity)?.is_some() {
+                let _ = gate.write_all(&[RELEASE]);
+            }
             break;
         }
         if supervisor.try_wait()?.is_some() {
-            store.start_unconfirmed(&token)?;
+            store.start_unconfirmed(&token, "supervisor_exited_before_pin")?;
             break;
         }
         if Instant::now() >= deadline {
+            store.start_unconfirmed(&token, "supervisor_identity_unavailable")?;
             break;
         }
         thread::sleep(POLL);
@@ -174,6 +197,10 @@ fn start(store: &mut Store, request: &Request, fixture: Fixture) -> Result<()> {
 }
 
 fn supervise(root: &Path, token: &str) -> Result<()> {
+    let mut release = [0];
+    if io::stdin().read_exact(&mut release).is_err() || release != [RELEASE] {
+        return Ok(());
+    }
     let mut store = Store::open(root, None)?;
     let supervisor = ProcessIdentity::current()?;
     // SAFETY: getsid(0) reads the current process's session ID.
@@ -187,17 +214,42 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
         return Err(io::Error::last_os_error().into());
     }
     #[cfg(test)]
-    checkpoint("before-supervisor-registration", &supervisor)?;
-    let Some(fixture) = store.register_supervisor(token, &supervisor)? else {
+    checkpoint(root, "after-supervisor-pin", &supervisor)?;
+    // The launcher already recorded the same identity before releasing the gate.
+    let Some(run) = store.run(token, &supervisor)? else {
         return Ok(());
     };
 
+    let admission = match Admission::open(root) {
+        Ok(admission) => admission,
+        Err(_) => return stopped_before_launch(&mut store, token, &run, Blocker::stop("policy_heartbeat_lost")),
+    };
+    let directory = match health(&mut store, token, &run, &admission, None) {
+        Ok(directory) => directory,
+        Err(stop) => return stopped_before_launch(&mut store, token, &run, stop),
+    };
     let (mut channel, child_channel) = UnixStream::pair()?;
-    let arg = serde_json::to_string(&fixture)?;
-    let mut child = subprocess(["_fixture", &arg])?
-        .process_group(0)
-        .stdin(Stdio::from(OwnedFd::from(child_channel)))
-        .spawn()?;
+    let arg = serde_json::to_string(&run.fixture)?;
+    let mut command = subprocess([OsStr::new("_fixture"), root.as_os_str(), OsStr::new(&arg)])?;
+    command.process_group(0).stdin(Stdio::from(OwnedFd::from(child_channel)));
+    let workdir_fd = directory.as_raw_fd();
+    // SAFETY: fchdir is async-signal-safe. The parent keeps the verified
+    // directory descriptor open through spawn so the child uses that directory.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fchdir(workdir_fd) == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => return stopped_before_launch(&mut store, token, &run, Blocker::stop("fixture_spawn_failed")),
+    };
+
+    // Command owns a duplicate of the child's socket endpoint until it is dropped.
+    drop(command);
 
     // EOF before the release byte makes the child exit without running the
     // fixture, including when this supervisor dies before the DB write.
@@ -206,7 +258,7 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
             .filter(|process| process.pid == process.group)
             .ok_or("Could not establish the fixture process group identity.")?;
         #[cfg(test)]
-        checkpoint("before-child-registration", &identity)?;
+        checkpoint(root, "before-child-registration", &identity)?;
         let cancelled = store.register_child(token, &identity)?;
         Ok::<_, Box<dyn std::error::Error>>((identity, cancelled))
     })();
@@ -219,10 +271,14 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
         }
     };
 
+    let mut stop = health(&mut store, token, &run, &admission, Some(&directory)).err();
     let mut sent_cancel = false;
+    if let Some(reason) = &stop {
+        store.record_stop(token, reason);
+    }
     if cancelled {
-        sent_cancel = cancel_group(&child, &identity)?;
-    } else {
+        sent_cancel = cancel_group(&child, &identity).unwrap_or(false);
+    } else if stop.is_none() {
         // If the child died before release, still reap it and record its exit.
         let _ = channel.write_all(&[RELEASE]);
     }
@@ -232,19 +288,70 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
     let capture = thread::Builder::new()
         .spawn(move || read_output(channel).unwrap_or_default())
         .ok();
+
+    let mut next_probe = Instant::now() + PROBE_INTERVAL;
     let exit = loop {
         if let Some(exit) = child.try_wait()? {
             break exit;
         }
-        if !sent_cancel && store.cancel_pending(token)? {
-            sent_cancel = cancel_group(&child, &identity)?;
+        if !sent_cancel {
+            if stop.is_none() && Instant::now() >= next_probe {
+                stop = health(&mut store, token, &run, &admission, Some(&directory)).err();
+                if let Some(reason) = &stop {
+                    store.record_stop(token, reason);
+                }
+                next_probe = Instant::now() + PROBE_INTERVAL;
+            }
+            let cancelled = stop.is_none() && match store.cancel_pending(token) {
+                Ok(cancelled) => cancelled,
+                Err(_) => {
+                    let reason = Blocker::stop("lease_unavailable");
+                    store.record_stop(token, &reason);
+                    stop = Some(reason);
+                    false
+                }
+            };
+            if stop.is_some() || cancelled {
+                let signalled = cancel_group(&child, &identity).unwrap_or(false);
+                sent_cancel = cancelled && signalled;
+            }
         }
         thread::sleep(POLL);
     };
 
     // A broken output channel cannot erase an exit that was already observed.
     let output = capture.and_then(|reader| reader.join().ok()).unwrap_or_default();
-    store.finish(token, &Receipt::new(exit, sent_cancel, output))
+    let deadline = Instant::now() + GROUP_WAIT;
+    while !identity.group_ended() && Instant::now() < deadline {
+        thread::sleep(POLL);
+    }
+    let mut receipt = Receipt::new(exit, sent_cancel, output);
+    receipt.set_runtime(&run);
+    store.finish(token, &receipt, stop.as_ref(), identity.group_ended())
+}
+
+fn health(
+    store: &mut Store, token: &str, run: &Run, admission: &Admission, launched_in: Option<&File>,
+) -> std::result::Result<File, Blocker> {
+    let (grant, directory) = admission.check(&store.worker, &run.job_id, &run.manifest, Some(&run.policy))?;
+    if launched_in.is_some_and(|original| !same_directory(original, &directory)) {
+        return Err(Blocker::stop("workdir_changed"));
+    }
+    if run.exception.as_ref().is_some_and(|exception| history::now() >= exception.expires_ms) {
+        return Err(Blocker::stop("exception_expired"));
+    }
+    match store.renew(token, run, &grant) {
+        Ok(true) => Ok(directory),
+        Ok(false) => Err(Blocker::stop("lease_expired")),
+        Err(_) => Err(Blocker::stop("lease_unavailable")),
+    }
+}
+
+fn stopped_before_launch(store: &mut Store, token: &str, run: &Run, stop: Blocker) -> Result<()> {
+    let mut receipt = Receipt::new(ExitStatus::from_raw(0), false, Output::default());
+    receipt.code = None;
+    receipt.set_runtime(run);
+    store.finish(token, &receipt, Some(&stop), true)
 }
 
 fn cancel_group(child: &Child, expected: &ProcessIdentity) -> io::Result<bool> {
@@ -285,7 +392,9 @@ fn subprocess(args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> io::Result<C
     Ok(command)
 }
 
-fn run_fixture(fixture: Fixture) -> Result<()> {
+fn run_fixture(root: &Path, fixture: Fixture) -> Result<()> {
+    #[cfg(not(test))]
+    let _ = root;
     let mut channel = UnixStream::from(io::stdin().as_fd().try_clone_to_owned()?);
     let mut release = [0];
     if channel.read(&mut release)? == 0 {
@@ -295,7 +404,7 @@ fn run_fixture(fixture: Fixture) -> Result<()> {
         return Err("Invalid fixture release.".into());
     }
     #[cfg(test)]
-    checkpoint("fixture-released", &ProcessIdentity::current()?)?;
+    checkpoint(root, "fixture-released", &ProcessIdentity::current()?)?;
     match fixture {
         Fixture::Success => channel.write_all(b"fixture completed\nfixture result\n")?,
         Fixture::Nonzero => {
@@ -316,7 +425,7 @@ fn run_fixture(fixture: Fixture) -> Result<()> {
             // The group member inherits the fixture's group and has no channel.
             writeln!(channel, "{}", serde_json::to_string(&identity)?)?;
             #[cfg(test)]
-            checkpoint("group-ready", &identity)?;
+            checkpoint(root, "group-ready", &identity)?;
             if !member.wait()?.success() {
                 return Err("The fixture group member failed.".into());
             }
@@ -368,6 +477,8 @@ struct Receipt {
     log: Option<String>,
     result: Option<String>,
     result_truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime: Option<RuntimeReceipt>,
 }
 
 impl Receipt {
@@ -379,8 +490,19 @@ impl Receipt {
             log: output.log,
             result: exit.success().then_some(output.result).flatten(),
             result_truncated: output.result_truncated,
+            runtime: None,
         }
     }
+
+    fn set_runtime(&mut self, run: &Run) {
+        self.runtime = Some(RuntimeReceipt {
+            provider: Some(run.manifest.provider),
+            account_ref: Some(run.account_ref.clone()),
+            result_digest: self.result.as_ref().map(|result| digest(result.as_bytes())),
+            ..RuntimeReceipt::default()
+        });
+    }
+
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -401,6 +523,15 @@ impl ProcessIdentity {
 
     fn live(&self) -> bool {
         Self::read(self.pid).as_ref() == Some(self)
+    }
+
+    fn group_ended(&self) -> bool {
+        if self.group <= 0 || self.pid != self.group {
+            return false;
+        }
+        // SAFETY: signal 0 queries existence without signalling the process group.
+        (unsafe { libc::kill(-self.group, 0) == -1 })
+            && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
     }
 
     #[cfg(target_os = "macos")]
@@ -453,13 +584,13 @@ impl ProcessIdentity {
 }
 
 #[cfg(test)]
-fn checkpoint(name: &str, value: &ProcessIdentity) -> Result<()> {
-    let pause = std::path::PathBuf::from(format!("pause-{name}"));
+fn checkpoint(root: &Path, name: &str, value: &ProcessIdentity) -> Result<()> {
+    let pause = root.join(format!("pause-{name}"));
     if pause.exists() {
-        let marker = tempfile::NamedTempFile::new_in(".")?;
+        let marker = tempfile::NamedTempFile::new_in(root)?;
         serde_json::to_writer(marker.as_file(), value)?;
-        marker.persist(format!("{name}.json"))?;
-        let deadline = Instant::now() + Duration::from_secs(10);
+        marker.persist(root.join(format!("{name}.json")))?;
+        let deadline = Instant::now() + Duration::from_secs(30);
         while pause.exists() {
             if Instant::now() >= deadline {
                 return Err("Fixture checkpoint timed out.".into());

@@ -385,6 +385,11 @@ async fn gapplan_06_int_post_claim_write_errors_preserve_attempt_for_reconciliat
         assert_eq!(h.git.head(), manifest.precondition);
         let db = h.w.history.db().unwrap();
         assert_eq!(db.query_row("SELECT attempt FROM park_executions", [], |r| r.get::<_, String>(0)).unwrap(), attempt);
+        let audit: (i64, String) = db.query_row(
+            "SELECT count(*),basis FROM park_decisions WHERE park_id=?1 AND source='backstop' AND action='hold'",
+            [&park.id], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(audit, (1, "reconciliation: execution evidence could not be settled".into()));
     }
 }
 
@@ -466,4 +471,12 @@ fn gapplan_06_int_startup_quarantines_unfinished_park_attempts() {
         |row| Ok((row.get(0)?, row.get(1)?)),
     ).unwrap();
     assert_eq!(saved, (attempt.into(), None));
+    parks::recover_interrupted(&db).unwrap();
+    let decisions: Vec<(String, String, String)> = db.prepare(
+        "SELECT action,source,basis FROM park_decisions WHERE park_id=?1",
+    ).unwrap().query_map([&park.id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert_eq!(decisions, vec![(
+        "hold".into(), "backstop".into(), "reconciliation: executor interrupted at startup".into(),
+    )]);
 }

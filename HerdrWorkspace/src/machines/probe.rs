@@ -1,7 +1,7 @@
 //! Admission evidence for fixture workers. The operator policy pins the identity
 //! and project assignment. The worker signs observations under that identity.
 
-mod admission;
+pub(crate) mod admission;
 mod store;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -221,7 +221,7 @@ impl Disk {
                 .is_some_and(|total| (1..=i64::MAX as u64).contains(&total))
     }
 
-    fn supported(&self) -> bool {
+    pub(crate) fn supported(&self) -> bool {
         matches!(self.filesystem.as_str(), "apfs" | "hfs" | "ext4" | "xfs" | "btrfs" | "zfs" | "ufs")
     }
 
@@ -287,7 +287,7 @@ impl Report {
 }
 
 impl SignedProbe {
-    fn verify(&self, workspace: &str, policy: &PolicyRef, worker: &Enrollment) -> Result<(), Reason> {
+    pub(crate) fn verify(&self, workspace: &str, policy: &PolicyRef, worker: &Enrollment) -> Result<(), Reason> {
         if self.report.workspace != workspace || &self.report.policy != policy || self.report.worker_id != worker.id {
             return Err(Reason::IdentityMismatch);
         }

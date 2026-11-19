@@ -552,22 +552,33 @@ fn run(
 /// Called at bridge startup after acquiring workspace.lock. Preserve the claimed
 /// attempt and any partial evidence for reconciliation, without touching the effect.
 pub(crate) fn recover_interrupted(db: &Connection) -> Result<(), rusqlite::Error> {
-    db.execute(
-        "UPDATE parks SET state='reconciliation' WHERE state='executing'",
-        [],
+    let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
+    tx.execute(
+        "INSERT INTO park_decisions(park_id,action,actor,source,basis,at_ms)
+         SELECT id,'hold','workspace','backstop','reconciliation: executor interrupted at startup',?1
+         FROM parks WHERE state='executing'",
+        [history::now()],
     )?;
-    Ok(())
+    tx.execute("UPDATE parks SET state='reconciliation' WHERE state='executing'", [])?;
+    tx.commit()
 }
 
-fn reconcile_claim(db: &Connection, park: &ParkRef, attempt: &str) -> Result<View, Error> {
-    db.execute(
+fn reconcile_claim(db: &Connection, park: &ParkRef, attempt: &str, basis: &str) -> Result<View, Error> {
+    let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)?;
+    if tx.execute(
         "UPDATE parks SET state='reconciliation'
          WHERE id=?1 AND manifest_digest=?2 AND state='executing'
            AND EXISTS (SELECT 1 FROM park_executions
                        WHERE park_id=?1 AND attempt=?3 AND receipt IS NULL)",
         params![park.id, park.manifest_digest, attempt],
-    )?;
-    status(db, park)
+    )? == 1 {
+        record_decision(&tx, park, "hold", Decision {
+            actor: "workspace", source: Source::Backstop, basis,
+        }, None)?;
+    }
+    let view = status(&tx, park)?;
+    tx.commit()?;
+    Ok(view)
 }
 
 /// Startup recovery requires the former executor to be gone. It only reads the
@@ -661,6 +672,12 @@ fn store_receipt(tx: &Transaction<'_>, park: &ParkRef, receipt: &Receipt) -> Res
     )?;
     if changed != 1 || stored != 1 {
         return Err(Error::Conflict);
+    }
+    if state == State::Reconciliation {
+        record_decision(tx, park, "hold", Decision {
+            actor: "workspace", source: Source::Backstop,
+            basis: "reconciliation: execution receipt requires review",
+        }, None)?;
     }
     Ok(state)
 }

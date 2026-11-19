@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Reason {
     Uncommissioned,
@@ -31,7 +31,7 @@ pub(crate) enum Reason {
 }
 
 impl Reason {
-    pub(in crate::machines) fn message(self) -> &'static str {
+    pub(crate) fn message(self) -> &'static str {
         match self {
             Self::Uncommissioned => "This server has no enrolled fixture worker.",
             Self::PolicyUnavailable => "The signed worker policy is unavailable.",
@@ -62,7 +62,7 @@ impl Reason {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Status {
     Eligible,
@@ -70,7 +70,7 @@ enum Status {
     Stop,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct DiskEvidence {
     path: String,
     free_bytes: u64,
@@ -90,13 +90,7 @@ impl Admission {
         Self { status: Status::Eligible, reason: None, message: None, disk: None }
     }
 
-    fn stop(path: &str, disk: &Disk, limit: u64) -> Self {
-        Self {
-            status: Status::Stop,
-            disk: Some(DiskEvidence { path: path.into(), free_bytes: disk.free_bytes, limit_bytes: limit }),
-            ..Self::from(Reason::DiskStop)
-        }
-    }
+
 }
 
 impl From<Reason> for Admission {
@@ -196,26 +190,38 @@ pub(super) fn heavy_admission(
 ) -> Admission {
     let current = fresh_report(worker, report, now);
     if let Ok(report) = current {
-        let floor = worker.thresholds.disk_stop_free_bytes;
-        if let Some(root) = &report.root_disk
-            && root.supported()
-            && root.free_bytes < floor
-        {
-            return Admission::stop("/", root, floor);
-        }
-        if let Some(project) = project
-            && let Some(disk) = report.work_disks.get(&project.folder)
-            && disk.supported()
-            && disk.free_bytes < floor
-        {
-            return Admission::stop(&project.folder, disk, floor);
+        if let Some(disk) = disk_stop(worker, report, project.map(|pin| pin.folder.as_str())) {
+            return Admission {
+                status: Status::Stop,
+                disk: Some(disk),
+                ..Admission::from(Reason::DiskStop)
+            };
         }
     }
-    assess(worker, current, project, connected, now)
+    assess(worker, current, project, connected, now, false)
         .map_or_else(Admission::from, |()| Admission::eligible())
 }
 
-fn fresh_report<'a>(worker: &Enrollment, report: Option<&'a Report>, now: i64) -> Result<&'a Report, Reason> {
+pub(crate) fn disk_stop(
+    worker: &Enrollment,
+    report: &Report,
+    workdir: Option<&str>,
+) -> Option<DiskEvidence> {
+    let mut floor = worker.thresholds.disk_stop_free_bytes;
+    if worker.machine == "ovh" || worker.id.eq_ignore_ascii_case("ovh") {
+        floor = floor.max(8_000_000_000);
+    }
+    let work = workdir.and_then(|path| Some((path, report.work_disks.get(path)?)));
+    [report.root_disk.as_ref().map(|disk| ("/", disk)), work]
+        .into_iter()
+        .flatten()
+        .find(|(_, disk)| disk.free_bytes < floor)
+        .map(|(path, disk)| DiskEvidence {
+            path: path.into(), free_bytes: disk.free_bytes, limit_bytes: floor,
+        })
+}
+
+pub(crate) fn fresh_report<'a>(worker: &Enrollment, report: Option<&'a Report>, now: i64) -> Result<&'a Report, Reason> {
     let report = report.ok_or(Reason::ProbeMissing)?;
     if !(1..=now).contains(&report.observed_ms) || now - report.observed_ms > worker.thresholds.max_probe_age_ms {
         return Err(Reason::ProbeStale);
@@ -226,18 +232,19 @@ fn fresh_report<'a>(worker: &Enrollment, report: Option<&'a Report>, now: i64) -
     Ok(report)
 }
 
-fn assess(
+pub(crate) fn assess(
     worker: &Enrollment,
     current: Result<&Report, Reason>,
     project: Option<&ProjectPin>,
     connected: bool,
     now: i64,
+    except_pressure: bool,
 ) -> Result<(), Reason> {
     use Reason::*;
     let t = &worker.thresholds;
     if worker.power_class == PowerClass::Portable
         || worker.id.eq_ignore_ascii_case("macbook-m4")
-        || worker.machine == "macbook-m4"
+        || worker.machine.eq_ignore_ascii_case("macbook-m4")
     {
         return Err(Portable);
     }
@@ -256,7 +263,7 @@ fn assess(
         if !disk.supported() {
             return Err(WorkDiskNotBacked);
         }
-        if disk.free_bytes < t.disk_admit_free_bytes || disk.used_at_least(t.disk_admit_used_bps) {
+        if !except_pressure && (disk.free_bytes < t.disk_admit_free_bytes || disk.used_at_least(t.disk_admit_used_bps)) {
             return Err(DiskAdmission);
         }
     }
@@ -266,10 +273,10 @@ fn assess(
     let io = report.io_busy_bps.ok_or(UnsupportedReadings)?;
     let heavy = report.heavy_running.ok_or(UnsupportedReadings)?;
     for (blocked, reason) in [
-        (ram <= t.ram_available_bytes, Ram),
-        (swap >= t.swap_used_bps, Swap),
-        (load >= t.load_milli, Load),
-        (io >= t.io_busy_bps, Io),
+        (!except_pressure && ram <= t.ram_available_bytes, Ram),
+        (!except_pressure && swap >= t.swap_used_bps, Swap),
+        (!except_pressure && load >= t.load_milli, Load),
+        (!except_pressure && io >= t.io_busy_bps, Io),
         (heavy >= t.heavy_slots, HeavySlots),
         (requirements.toolchain.as_deref().is_some_and(|tool| !report.toolchains.contains(tool)), Toolchain),
         (requirements.signing && !report.signing, Signing),

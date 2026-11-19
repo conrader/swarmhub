@@ -123,6 +123,12 @@ impl Authority {
             ),
             _ => return Err(Error::Invalid),
         };
+        Self::enrolled(directory, workspace, operator_uid, role).map(Some)
+    }
+
+    pub(crate) fn enrolled(
+        directory: PathBuf, workspace: String, operator_uid: u32, role: Role,
+    ) -> Result<Self, Error> {
         if !directory.is_absolute() || !principals::identifier(&workspace) || operator_uid == 0 {
             return Err(Error::Invalid);
         }
@@ -134,7 +140,7 @@ impl Authority {
             fixture: false,
         };
         authority.check_role(role)?;
-        Ok(Some(authority))
+        Ok(authority)
     }
 
     fn check_role(&self, role: Role) -> Result<(), Error> {
@@ -229,15 +235,20 @@ impl Authority {
             TryLockError::WouldBlock => Error::Busy,
             TryLockError::Error(_) => Error::Unavailable,
         })?;
-        let enrollment = self
-            .read(&directory, "trust.json")?
-            .ok_or(Error::Unavailable)?;
-        let trust = Trust::enrolled(enrollment, &self.workspace)?;
-        action(&Snapshot {
-            authority: self,
-            directory,
-            trust,
-        })
+        let result = (|| {
+            let enrollment = self
+                .read(&directory, "trust.json")?
+                .ok_or(Error::Unavailable)?;
+            let trust = Trust::enrolled(enrollment, &self.workspace)?;
+            action(&Snapshot {
+                authority: self,
+                directory,
+                trust,
+            })
+        })();
+        // A concurrent fork may briefly inherit this descriptor until exec.
+        let _ = lock.unlock();
+        result
     }
 
     pub(super) fn with_snapshot<T>(
@@ -384,6 +395,10 @@ impl Snapshot<'_> {
     pub(super) fn current(&self) -> Result<(PolicyRef, Published), Error> {
         let latest = self.generations()?.pop().ok_or(Error::Unavailable)?;
         self.version(latest)
+    }
+
+    pub(super) fn worker_heartbeat(&self) -> Result<Option<super::WorkerHeartbeat>, Error> {
+        self.authority.read(&self.directory, "worker-heartbeat.json")
     }
 
     pub(super) fn operator_decision(&self, nonce: &str) -> Result<Signed, Error> {
