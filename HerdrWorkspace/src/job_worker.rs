@@ -153,12 +153,19 @@ fn start(store: &mut Store, request: &Request, fixture: Fixture) -> Result<()> {
         }
     };
 
-    // Keep the launcher identity alive through the normal handoff. A lost or
-    // timed out reply cannot authorize a fresh launch for this attempt.
+    // Pin the detached supervisor's identity before replying so status can
+    // recognize it while it is still opening the store or registering a child.
     let deadline = Instant::now() + LAUNCH_WAIT;
-    while !store.supervisor_registered(&token)? && Instant::now() < deadline {
+    loop {
+        if let Some(identity) = ProcessIdentity::read(supervisor.id() as i32) {
+            store.register_supervisor(&token, &identity)?;
+            break;
+        }
         if supervisor.try_wait()?.is_some() {
             store.start_unconfirmed(&token)?;
+            break;
+        }
+        if Instant::now() >= deadline {
             break;
         }
         thread::sleep(POLL);
@@ -179,6 +186,8 @@ fn supervise(root: &Path, token: &str) -> Result<()> {
     if unsafe { libc::signal(libc::SIGCHLD, libc::SIG_DFL) } == libc::SIG_ERR {
         return Err(io::Error::last_os_error().into());
     }
+    #[cfg(test)]
+    checkpoint("before-supervisor-registration", &supervisor)?;
     let Some(fixture) = store.register_supervisor(token, &supervisor)? else {
         return Ok(());
     };
@@ -295,7 +304,10 @@ fn run_fixture(fixture: Fixture) -> Result<()> {
         }
         Fixture::Oversized => {
             channel.write_all(b"fixture emitted an oversized result\n")?;
-            channel.write_all(&[b'x'; RESULT_LIMIT + 1])?;
+            let block = [b'x'; RESULT_LIMIT];
+            for _ in 0..256 {
+                channel.write_all(&block)?;
+            }
         }
         Fixture::Group => {
             let mut member = subprocess(["_fixture-member"])?.spawn()?;
@@ -325,13 +337,19 @@ fn read_output(channel: UnixStream) -> Result<Output> {
     let mut reader = BufReader::new(channel);
     let mut log = Vec::new();
     (&mut reader).take((LOG_LIMIT + 1) as u64).read_until(b'\n', &mut log)?;
-    if log.last() != Some(&b'\n') {
+    let complete_log = log.last() == Some(&b'\n');
+    let mut result = Vec::new();
+    if complete_log {
+        (&mut reader).take((RESULT_LIMIT + 1) as u64).read_to_end(&mut result)?;
+    }
+    // Keep the socket open through EOF so discarded output cannot break the
+    // child's writes or change its exit status.
+    io::copy(&mut reader, &mut io::sink())?;
+    if !complete_log {
         // A partial log line cannot identify the boundary of a result.
         return Ok(Output::default());
     }
     log.pop();
-    let mut result = Vec::new();
-    reader.take((RESULT_LIMIT + 1) as u64).read_to_end(&mut result)?;
     let result_truncated = result.len() > RESULT_LIMIT;
     Ok(Output {
         log: Some(String::from_utf8(log)?),

@@ -201,14 +201,6 @@ impl Store {
         Ok(View::new(Some(stored), collect))
     }
 
-    pub(super) fn supervisor_registered(&self, token: &str) -> Result<bool> {
-        Ok(self.db.query_row(
-            "SELECT supervisor IS NOT NULL OR status!='dispatching' FROM attempts WHERE start_token=?1",
-            [token],
-            |row| row.get(0),
-        )?)
-    }
-
     pub(super) fn start_unconfirmed(&self, token: &str) -> Result<()> {
         self.db.execute(
             "UPDATE attempts SET status='unknown',unknown_reason='start_unconfirmed'
@@ -220,9 +212,12 @@ impl Store {
 
     pub(super) fn register_supervisor(&mut self, token: &str, identity: &ProcessIdentity) -> Result<Option<Fixture>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Either process can record the identity first. Once pinned, only
+        // that supervisor can use the token to obtain the fixture.
         let fixture = tx.query_row(
             "UPDATE attempts SET supervisor=?2
-             WHERE start_token=?1 AND status='dispatching' AND supervisor IS NULL RETURNING fixture",
+             WHERE start_token=?1 AND status='dispatching' AND (supervisor IS NULL OR supervisor=?2)
+             RETURNING fixture",
             params![token, serde_json::to_string(identity)?],
             |row| json(row, 0),
         ).optional()?;
@@ -356,7 +351,9 @@ mod tests {
         assert!(second.reserve(&attempt, "manifest-a", Fixture::Success, &launcher).unwrap().is_none());
         assert!(second.reserve(&attempt, "manifest-b", Fixture::Nonzero, &launcher).is_err());
         assert!(first.register_supervisor(&token, &launcher).unwrap().is_some());
-        assert!(second.register_supervisor(&token, &launcher).unwrap().is_none());
+        let other = ProcessIdentity { birth: "previous process".into(), ..launcher };
+        assert!(second.register_supervisor(&token, &other).unwrap().is_none());
+        assert!(second.register_supervisor(&token, &launcher).unwrap().is_some());
         assert_eq!(first.register_child(&token, &launcher).unwrap(), Some(false));
         assert_eq!(second.register_child(&token, &launcher).unwrap(), None);
     }

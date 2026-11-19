@@ -195,7 +195,8 @@ fn gapplan_07_int_cancel_ends_the_whole_fixture_process_group() {
 fn gapplan_07_int_concurrent_first_starts_share_one_manifest_and_child() {
     let scratch = tempfile::tempdir().unwrap();
     let worker = Worker::new(scratch.path(), "job-racing-starts", 1);
-    let pause = worker.pause("fixture-released");
+    let registration = worker.pause("before-supervisor-registration");
+    let release = worker.pause("fixture-released");
     let barrier = Barrier::new(2);
     let (first, second) = thread::scope(|scope| {
         let start = || {
@@ -207,37 +208,51 @@ fn gapplan_07_int_concurrent_first_starts_share_one_manifest_and_child() {
         (first.join().unwrap(), second.join().unwrap())
     });
     for response in [&first, &second] {
-        assert!(matches!(response["status"].as_str(), Some("dispatching" | "running")));
+        assert_eq!(response["status"], "dispatching");
     }
     assert_eq!(first["manifest_digest"], second["manifest_digest"]);
+    let supervisor = worker.checkpoint("before-supervisor-registration");
+    // Both launchers have exited while the supervisor is held before registration.
+    assert_eq!(worker.call("status", None), first);
+    assert_eq!(worker.call("start", Some("success")), first);
+    let (pinned, child, token) = identities(&worker.db());
+    assert_eq!(pinned, supervisor);
+    assert!(child.is_none());
+    fs::remove_file(registration).unwrap();
+
     let child = worker.checkpoint("fixture-released");
     let before = identities(&worker.db());
-    assert_eq!(before.1.as_ref(), Some(&child));
-    fs::remove_file(pause).unwrap();
+    assert_eq!(before, (supervisor, Some(child), token));
+    fs::remove_file(release).unwrap();
     worker.state("exited");
     assert_eq!(identities(&worker.db()), before);
 }
 
+fn assert_exit_without_result(fixture: &str, exit: i32, truncated: bool, log: &str) {
+    let scratch = tempfile::tempdir().unwrap();
+    let worker = Worker::new(scratch.path(), "job-results", 1);
+    worker.call("start", Some(fixture));
+    let status = worker.state("exited");
+    assert_eq!(status["exit_code"], exit);
+    assert!(status["exit_signal"].is_null());
+    assert_eq!(status["result_truncated"], truncated);
+    assert_eq!(status["log_ref"], "log");
+    assert!(status["result_ref"].is_null());
+    assert!(status["result_digest"].is_null());
+    let collect = worker.call("collect", None);
+    assert_eq!(collect["log"], log);
+    assert!(collect.get("result").is_none());
+    assert_eq!(worker.call("cancel", None), status);
+}
+
 #[test]
-fn gapplan_07_int_nonzero_and_truncated_results_preserve_the_exit() {
-    for (number, fixture, exit, truncated) in [
-        (1, "nonzero", 17, false),
-        (2, "oversized", 0, true),
-    ] {
-        let scratch = tempfile::tempdir().unwrap();
-        let worker = Worker::new(scratch.path(), "job-results", number);
-        worker.call("start", Some(fixture));
-        let status = worker.state("exited");
-        assert_eq!(status["exit_code"], exit);
-        assert_eq!(status["result_truncated"], truncated);
-        assert_eq!(status["log_ref"], "log");
-        assert!(status["result_ref"].is_null());
-        assert!(status["result_digest"].is_null());
-        let collect = worker.call("collect", None);
-        assert!(collect["log"].as_str().unwrap().starts_with("fixture "));
-        assert!(collect.get("result").is_none());
-        assert_eq!(worker.call("cancel", None), status);
-    }
+fn gapplan_07_int_nonzero_result_preserves_the_exit() {
+    assert_exit_without_result("nonzero", 17, false, "fixture exited nonzero");
+}
+
+#[test]
+fn gapplan_07_int_megabyte_result_is_drained_and_preserves_successful_exit() {
+    assert_exit_without_result("oversized", 0, true, "fixture emitted an oversized result");
 }
 
 #[test]
