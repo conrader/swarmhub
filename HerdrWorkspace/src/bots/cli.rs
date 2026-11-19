@@ -17,6 +17,10 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
   swarmhub-herdr bot decline ID REASON        refuse an ask or a hand-off
   swarmhub-herdr bot completion inbox [ID]   recover your job completions by JOB:ATTEMPT
   swarmhub-herdr bot completion ack ID       acknowledge and return the durable next-step key
+  swarmhub-herdr bot park file ID -         file an immutable manifest JSON as the current owner
+  swarmhub-herdr bot park status ID         inspect your park and its receipt
+  swarmhub-herdr bot park judge -           submit a delegated execute signature as JSON
+  swarmhub-herdr bot park backstop -        submit a delegated auto_execute signature as JSON
       TEXT `-` reads standard input. Quote a NAME of several words.
 Check-ins (the server brings you back to something, also with the app closed):
   swarmhub-herdr checkin in 30m WHAT          once; also: at 17:30
@@ -44,6 +48,7 @@ pub(crate) enum Ask {
     List,
     CompletionInbox { id: Option<String> },
     CompletionAck { id: String },
+    Park { command: Box<crate::parks::Command> },
     /// `kind` is `ask`, `tell` or `handoff`.
     Send {
         kind: String,
@@ -222,6 +227,27 @@ fn parse(
                 ["ack", id] => Ask::CompletionAck { id: event_id(id)? },
                 _ => return Err("Use bot completion inbox [ID] or bot completion ack ID.".into()),
             }
+        }
+        ("bot", "park") => {
+            use crate::{fleet_policy::principals::{Signed, Target}, parks::{Command, ParkRef}};
+            let command = match rest {
+                ["file", id, "-"] => Command::File {
+                    id: (*id).into(),
+                    manifest: serde_json::from_str(&text(&["-"], "")?).map_err(|_| "Use a park manifest JSON.")?,
+                },
+                ["status", id] => Command::Status { id: (*id).into() },
+                [verb @ ("judge" | "backstop"), "-"] => {
+                    let signed: Signed = serde_json::from_str(&text(&["-"], "")?).map_err(|_| "Use a signed park decision JSON.")?;
+                    let Target::Park { park, .. } = &signed.envelope.target else {
+                        return Err("The signed decision must name a park.".into());
+                    };
+                    let park = ParkRef { id: park.id.clone(), manifest_digest: park.manifest_digest.clone() };
+                    if *verb == "judge" { Command::Judge { park, signed } }
+                    else { Command::Backstop { park, signed } }
+                }
+                _ => return Err("Use bot park file ID -, status ID, judge -, or backstop -.".into()),
+            };
+            Ask::Park { command: Box::new(command) }
         }
         ("bot", kind @ ("ask" | "tell" | "handoff" | "hand-off")) => {
             let to = rest

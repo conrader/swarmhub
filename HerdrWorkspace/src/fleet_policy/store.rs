@@ -322,7 +322,8 @@ impl Authority {
                 crate::history::now(),
             )?;
             match &signed.envelope.target {
-                Target::Park { policy, .. } if signed.envelope.principal == Principal::Operator => {
+                Target::Park { policy, .. } | Target::Supersession { policy, .. }
+                    if signed.envelope.principal == Principal::Operator => {
                     if *policy != current {
                         return Err(Error::StalePolicy);
                     }

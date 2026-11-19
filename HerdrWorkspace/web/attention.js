@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const dialog = $("attention-dialog");
-  const empty = () => ({ approvals: [], requests: [], webhook_reviews: [], completions: [], more: false });
+  const empty = () => ({ approvals: [], requests: [], webhook_reviews: [], completions: [], parks: [], more: false });
   let queue = empty();
   let polling, ready = false, signature;
   const terminalKey = (core, address, created) => JSON.stringify([core, address, created]);
@@ -44,8 +44,13 @@
         pending: "Pending delivery", offered: "Awaiting acknowledgment", uncertain: "Delivery unconfirmed",
       })[item.state], item.blocker].filter(Boolean).join(" · "),
     }));
+    const parks = (queue.parks || []).map((item) => ({
+      key: "park-" + item.id, title: item.id,
+      summary: [item.project, item.owner, item.state].join(" · "),
+      open: () => window.approvalInbox.openPark(item.id),
+    }));
     return [["Approvals", approvals], ["Terminals", blocked], ["Group questions and forms", requests],
-      ["Webhook reviews", reviews], ["Job completions", completions]];
+      ["Webhook reviews", reviews], ["Job completions", completions], ["Parked actions", parks]];
   }
 
   function render() {

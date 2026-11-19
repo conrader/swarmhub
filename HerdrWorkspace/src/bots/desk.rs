@@ -59,10 +59,19 @@ pub(crate) async fn answer(
             why
         }
     })?;
-    let said = if matches!(ask, Ask::CompletionInbox { .. } | Ask::CompletionAck { .. }) {
-        completion_command(w, &core_id, key, ask).await
-    } else {
-        super::write(&w.history, |ctx| perform(ctx, key, ask)).map_err(|_| STORAGE.to_owned())?
+    let said = match ask {
+        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } =>
+            completion_command(w, &core_id, key, ask).await,
+        Ask::Park { command } => {
+            let w = w.clone();
+            let key = key.to_owned();
+            tokio::task::spawn_blocking(move || {
+                let mut db = crate::history::connection(w.history.file()).map_err(|_| STORAGE)?;
+                w.parks.command(&mut db, &w.fleet_policy, &key, *command)
+                    .map_err(|error| error.message())
+            }).await.map_err(|_| STORAGE.to_owned())?
+        }
+        _ => super::write(&w.history, |ctx| perform(ctx, key, ask)).map_err(|_| STORAGE.to_owned())?,
     };
     kick();
     said
@@ -79,7 +88,7 @@ fn perform(ctx: &super::Ctx<'_>, key: &str, ask: Ask) -> rusqlite::Result<Result
     let cmd = ctx.cmd;
     Ok(match ask {
         Ask::List => Ok(rules::list_text(ctx, &bot)?),
-        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } => Err(UNKNOWN_BOT.into()),
+        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } | Ask::Park { .. } => Err(UNKNOWN_BOT.into()),
         Ask::Send { kind, to, text } => match rules::Kind::parse(&kind) {
             Some(kind) => {
                 let task = rules::newest_task(ctx.db, key, None)?;

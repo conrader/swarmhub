@@ -14,9 +14,9 @@ use std::{cmp::Reverse, collections::BTreeSet, fmt, io::Write as _};
 pub(crate) use store::{Authority, Role};
 
 pub(crate) const USAGE: &str =
-    "Fleet policy: fleet-policy digest|payload|import-policy|import-decision|inspect|audit";
+    "Fleet policy: fleet-policy digest|park-pin|payload|import-policy|import-decision|inspect|audit";
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Error {
     Unavailable,
@@ -31,6 +31,8 @@ pub(crate) enum Error {
     OwnerSignoff,
     NoGrant,
     SelfApproval,
+    HumanScope,
+    Replay,
     Audit,
 }
 
@@ -49,6 +51,8 @@ impl fmt::Display for Error {
             Self::OwnerSignoff => "A required project-owner sign-off is missing.",
             Self::NoGrant => "There is no effective grant for this bot and operation.",
             Self::SelfApproval => "A bot cannot approve its own park.",
+            Self::HumanScope => "This operation requires an operator decision.",
+            Self::Replay => "This decision nonce has already been used.",
             Self::Audit => "The workspace journal could not record or read fleet policy evidence.",
         })
     }
@@ -96,6 +100,7 @@ pub(crate) struct Scope {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum RuleKind {
     Grant,
+    SafeClassGrant,
     Stop,
     RequireOwnerSignoff { signer: String },
     OwnerSignoff { signer: String, park: ParkPin },
@@ -152,6 +157,9 @@ impl Rule {
             && self.scope.valid()
             && match &self.rule {
                 RuleKind::Grant => self.delegated_scope(),
+                RuleKind::SafeClassGrant => self.delegated_scope()
+                    && self.scope.action.as_deref() == Some(parks::STAGING_ACTION)
+                    && self.scope.project.is_some(),
                 RuleKind::Exception { park } => self.delegated_scope() && park.valid(),
                 RuleKind::RequireOwnerSignoff { signer } => principals::text(signer),
                 RuleKind::OwnerSignoff { signer, park } => principals::text(signer) && park.valid(),
@@ -194,7 +202,7 @@ impl Policy {
         purpose: Purpose,
         now: i64,
     ) -> Result<Option<&Rule>, Error> {
-        if matches!(purpose, Purpose::Hold | Purpose::Deny) {
+        if matches!(purpose, Purpose::Hold | Purpose::Deny | Purpose::Supersede) {
             return Ok(None);
         }
         let active = || {
@@ -229,8 +237,9 @@ impl Policy {
         active()
             .filter_map(|rule| {
                 let exception = match &rule.rule {
-                    RuleKind::Exception { park } if park == &request.park => true,
-                    RuleKind::Grant => false,
+                    RuleKind::Exception { park } if purpose != Purpose::AutoExecute && park == &request.park => true,
+                    RuleKind::Grant if purpose != Purpose::AutoExecute => false,
+                    RuleKind::SafeClassGrant if purpose == Purpose::AutoExecute => false,
                     _ => return None,
                 };
                 Some(((exception, rule.scope.specificity(), Reverse(&rule.id)), rule))
@@ -285,29 +294,64 @@ pub(crate) enum Inspection {
 
 /// The callers in slice 5 supply the checked request's launch, or the nonce of a locally imported
 /// operator decision. A shared bearer or a chat response can only supply unverified evidence.
-#[allow(dead_code)]
+#[derive(Clone, Copy)]
 pub(crate) enum Evidence<'a> {
     Operator(&'a str),
+    OperatorSignature(&'a Signed),
     Bot {
         launch: &'a str,
         signed: &'a Signed,
     },
+    #[cfg(test)]
     Unverified,
 }
 
-#[allow(dead_code)]
 pub(crate) struct Verified {
     pub actor: Actor,
+    pub workspace: String,
     pub policy: PolicyRef,
     pub nonce: String,
     pub rule_id: Option<String>,
     pub decision_ref: Option<String>,
+    published_ms: i64,
+    signed_policy: String,
+}
+
+impl Verified {
+    pub(crate) fn audit(&self, db: &Connection) -> Result<(), Error> {
+        audit_version(db, &self.workspace, &self.policy, self.published_ms, &self.signed_policy)
+    }
+}
+
+fn audit_version(
+    db: &Connection, workspace: &str, reference: &PolicyRef, published_ms: i64, signed_policy: &str,
+) -> Result<(), Error> {
+    db.execute(
+        "INSERT INTO fleet_policy_versions (workspace,generation,digest,published_ms,signed_policy)
+         SELECT ?1,?2,?3,?4,?5 WHERE NOT EXISTS (
+            SELECT 1 FROM fleet_policy_versions WHERE workspace=?1 AND generation=?2
+         )",
+        params![workspace, reference.generation, reference.digest, published_ms, signed_policy],
+    )?;
+    let matches: bool = db.query_row(
+        "SELECT digest=?3 AND published_ms=?4 AND signed_policy=?5
+         FROM fleet_policy_versions WHERE workspace=?1 AND generation=?2",
+        params![workspace, reference.generation, reference.digest, published_ms, signed_policy],
+        |row| row.get(0),
+    )?;
+    if !matches {
+        return Err(Error::Audit);
+    }
+    Ok(())
 }
 
 impl Authority {
-    /// The operator store's shared lock spans verification and the bounded fixture effect.
-    /// Publishing uses the same lock exclusively, so completed revocations fence later effects.
-    #[allow(dead_code)]
+    #[cfg(test)]
+    pub(crate) fn publish_fixture(&self, publication: Publication) -> Result<PolicyRef, Error> {
+        self.import_policy(publication)
+    }
+
+    #[cfg(test)]
     pub(crate) fn at_effect<T>(
         &self,
         db: &mut Connection,
@@ -316,19 +360,26 @@ impl Authority {
         evidence: Evidence<'_>,
         effect: impl FnOnce(&mut Connection, Verified) -> T,
     ) -> Result<T, Error> {
+        self.with_park_decision(db, park, purpose, evidence, None, effect)
+    }
+
+    /// The shared operator lock spans verification and the caller's effect.
+    pub(crate) fn with_park_decision<D: std::ops::Deref<Target = Connection>, T>(
+        &self,
+        db: D,
+        park: &parks::ParkRef,
+        purpose: Purpose,
+        evidence: Evidence<'_>,
+        replacement: Option<&ParkPin>,
+        use_decision: impl FnOnce(D, Verified) -> T,
+    ) -> Result<T, Error> {
         self.with_snapshot(|snapshot| {
             let (reference, published) = snapshot.current()?;
-            let manifest = parks::manifest_for(db, park).map_err(|_| Error::Binding)?;
-            let action = match manifest.operation {
-                parks::Operation::SetRevisionMarker { .. } => "set_revision_marker",
-            };
+            let connection = &*db;
+            let manifest = parks::manifest_for(connection, park).map_err(|_| Error::Binding)?;
             let request = Request {
-                park: ParkPin {
-                    id: park.id.clone(),
-                    revision: manifest.revision,
-                    manifest_digest: park.manifest_digest.clone(),
-                },
-                action,
+                park: park.pin(&manifest),
+                action: manifest.operation.action(),
                 project: &manifest.project,
                 owner: &manifest.owner,
             };
@@ -338,40 +389,44 @@ impl Authority {
                     imported = snapshot.operator_decision(nonce)?;
                     (Actor::Operator, &imported, &snapshot.trust.operator_key)
                 }
+                Evidence::OperatorSignature(signed) if signed.envelope.principal == Principal::Operator =>
+                    (Actor::Operator, signed, &snapshot.trust.operator_key),
+                Evidence::OperatorSignature(_) => return Err(Error::Principal),
                 Evidence::Bot { launch, signed } => {
-                    let actor = principals::registered_bot(db, launch, &signed.envelope.principal)?;
+                    let actor = principals::registered_bot(connection, launch, &signed.envelope.principal)?;
                     let key = snapshot.trust.delegate_key(&actor)?;
                     (actor, signed, key)
                 }
+                #[cfg(test)]
                 Evidence::Unverified => return Err(Error::Principal),
             };
 
             let now = history::now();
             signed.verify(key, &snapshot.trust.workspace, now)?;
-            match &signed.envelope.target {
-                Target::Park { park, policy }
-                    if *park == request.park && signed.envelope.purpose == purpose =>
-                {
-                    if *policy != reference {
-                        return Err(Error::StalePolicy);
-                    }
-                }
-                _ => return Err(Error::Binding),
+            if signed.envelope.purpose != purpose {
+                return Err(Error::Binding);
             }
-            let rule = published
-                .publication
-                .policy
-                .allows(&request, &actor, purpose, now)?;
-            Ok(effect(
-                db,
-                Verified {
-                    actor,
-                    policy: reference,
-                    nonce: signed.envelope.nonce.clone(),
-                    rule_id: rule.map(|rule| rule.id.clone()),
-                    decision_ref: rule.map(|rule| rule.decision_ref.clone()),
-                },
-            ))
+            let policy = match &signed.envelope.target {
+                Target::Park { park, policy } if *park == request.park && replacement.is_none() => policy,
+                Target::Supersession { park, policy, replacement: signed_replacement }
+                    if *park == request.park && replacement == Some(signed_replacement) => policy,
+                _ => return Err(Error::Binding),
+            };
+            if *policy != reference {
+                return Err(Error::StalePolicy);
+            }
+            let rule = published.publication.policy.allows(&request, &actor, purpose, now)?;
+            let verified = Verified {
+                actor,
+                workspace: snapshot.trust.workspace.clone(),
+                policy: reference,
+                nonce: signed.envelope.nonce.clone(),
+                rule_id: rule.map(|rule| rule.id.clone()),
+                decision_ref: rule.map(|rule| rule.decision_ref.clone()),
+                published_ms: published.published_ms,
+                signed_policy: serde_json::to_string(&published.publication).map_err(|_| Error::Invalid)?,
+            };
+            Ok(use_decision(db, verified))
         })
     }
 
@@ -397,22 +452,7 @@ impl Authority {
                 let (reference, stored) = snapshot.version(generation)?;
                 let signed_policy =
                     serde_json::to_string(&stored.publication).map_err(|_| Error::Invalid)?;
-                tx.execute(
-                    "INSERT INTO fleet_policy_versions (workspace,generation,digest,published_ms,signed_policy)
-                     SELECT ?1,?2,?3,?4,?5 WHERE NOT EXISTS (
-                        SELECT 1 FROM fleet_policy_versions WHERE workspace=?1 AND generation=?2
-                     )",
-                    params![workspace, generation, reference.digest, stored.published_ms, signed_policy],
-                )?;
-                let matches: bool = tx.query_row(
-                    "SELECT digest=?3 AND published_ms=?4 AND signed_policy=?5
-                     FROM fleet_policy_versions WHERE workspace=?1 AND generation=?2",
-                    params![workspace, generation, reference.digest, stored.published_ms, signed_policy],
-                    |row| row.get(0),
-                )?;
-                if !matches {
-                    return Err(Error::Audit);
-                }
+                audit_version(&tx, workspace, &reference, stored.published_ms, &signed_policy)?;
             }
             tx.commit()?;
             Ok(())
@@ -431,6 +471,17 @@ pub(crate) fn cli() -> Result<(), Box<dyn std::error::Error>> {
     }
     match verb.as_deref() {
         Some("digest") => println!("{}", serde_json::to_string(&input::<Policy>()?.reference()?)?),
+        Some("park-pin") => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct ParkManifest {
+                id: String,
+                manifest: parks::Manifest,
+            }
+            let ParkManifest { id, manifest } = input()?;
+            let pin = parks::pin_for(&id, &manifest).map_err(|error| error.message())?;
+            println!("{}", serde_json::to_string(&pin)?);
+        }
         Some("payload") => std::io::stdout().lock().write_all(&input::<Envelope>()?.canonical()?)?,
         Some("import-policy") => {
             let store = Authority::configured(Role::Operator)?.ok_or(Error::Unavailable)?;
@@ -441,8 +492,11 @@ pub(crate) fn cli() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", store.import_decision(input()?)?);
         }
         Some("inspect") => {
-            let view = Authority::configured(Role::Inspect)?
-                .map_or(Inspection::Unconfigured, |store| store.inspect());
+            let view = match Authority::configured(Role::Inspect) {
+                Ok(Some(store)) => store.inspect(),
+                Ok(None) => Inspection::Unconfigured,
+                Err(reason) => Inspection::Held { reason },
+            };
             println!("{}", serde_json::to_string(&view)?);
         }
         Some("audit") => {

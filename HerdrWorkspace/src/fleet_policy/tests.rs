@@ -293,3 +293,51 @@ fn gapplan_04_unit_stop_and_signoff_take_precedence_over_named_exception() {
     chosen.revoked.insert("approval".into());
     assert_eq!(allowed(&chosen), Err(Error::OwnerSignoff));
 }
+
+#[test]
+fn gapplan_05_unit_staging_policy_matrix_stop_signoff_self_and_safe_class() {
+    let action = parks::STAGING_ACTION;
+    let mut grant = grant();
+    grant.scope.action = Some(action.into());
+    let mut safe = grant.clone();
+    safe.id = "safe-staging".into();
+    safe.rule = RuleKind::SafeClassGrant;
+    let mut project_stop = safe.clone();
+    project_stop.id = "project-stop".into();
+    project_stop.scope.action = None;
+    project_stop.scope.principal = None;
+    project_stop.rule = RuleKind::Stop;
+    let mut request = fixture_request();
+    request.action = action;
+    let bot = Actor::Bot { id: JARVIS.into() };
+    let now = 1;
+    let checked = policy(1, vec![grant.clone()]);
+    assert_eq!(checked.allows(&request, &bot, Purpose::Execute, now).unwrap().unwrap().id, grant.id);
+    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap_err(), Error::NoGrant);
+    let checked = policy(1, vec![grant.clone(), safe.clone(), project_stop]);
+    for (actor, purpose) in [(Actor::Operator, Purpose::Release), (bot.clone(), Purpose::AutoExecute), (bot.clone(), Purpose::Execute)] {
+        assert_eq!(checked.allows(&request, &actor, purpose, now).unwrap_err(), Error::Stopped);
+    }
+    assert!(checked.allows(&request, &Actor::Operator, Purpose::Hold, now).is_ok());
+
+    let mut consent = safe.clone();
+    consent.id = "partner-required".into();
+    consent.scope.principal = None;
+    consent.rule = RuleKind::RequireOwnerSignoff { signer: "fixture-partner".into() };
+    let mut signed = consent.clone();
+    signed.id = "partner-signed".into();
+    signed.rule = RuleKind::OwnerSignoff { signer: "fixture-partner".into(), park: request.park.clone() };
+    let checked = policy(1, vec![safe.clone(), consent.clone()]);
+    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap_err(), Error::OwnerSignoff);
+    let checked = policy(1, vec![safe.clone(), consent, signed]);
+    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap().unwrap().id, safe.id);
+
+    let mut broad = safe;
+    broad.scope.owner = None;
+    let checked = policy(1, vec![broad]);
+    request.owner = JARVIS;
+    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap_err(), Error::SelfApproval);
+    let mut broad_manual = grant;
+    broad_manual.scope.owner = None;
+    assert_eq!(policy(1, vec![broad_manual]).allows(&request, &bot, Purpose::Execute, now).unwrap_err(), Error::SelfApproval);
+}

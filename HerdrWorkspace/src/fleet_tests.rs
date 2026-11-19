@@ -457,7 +457,8 @@ async fn gapplan_02_int_http_job_status_returns_completion_or_not_found() {
     let app = crate::workspace_router(crate::Workspace {
         core: crate::Core(scratch.path().join("core.sock")),
         history,
-        fleet_policy: None,
+        fleet_policy: Ok(None),
+        parks: crate::parks::Service::default(),
         approvals: Default::default(),
         drafts: Default::default(),
         connected_files: None,
@@ -847,7 +848,8 @@ mod job_delivery {
         Workspace {
             core: Core(root.join("core.sock")),
             history,
-            fleet_policy: None,
+            fleet_policy: Ok(None),
+            parks: crate::parks::Service::default(),
             approvals: Default::default(),
             drafts: Default::default(),
             connected_files: None,
@@ -1397,7 +1399,7 @@ mod fleet_authority {
         ))
     }
 
-    fn registered_launch(history: &History, id: &str, name: &str) -> (i64, String) {
+    pub(super) fn registered_launch(history: &History, id: &str, name: &str) -> (i64, String) {
         let (bot, _) = bots::register(
             &history.db().unwrap(),
             &bots::Registration {
@@ -1577,7 +1579,7 @@ mod fleet_authority {
         let fixture = Fixture::new(scratch.path(), WORKSPACE, false);
         let current = fixture.publish(fixture.publication(policy(1, vec![]), WORKSPACE)).unwrap();
         let mut w = workspace(scratch.path(), h);
-        w.fleet_policy = Some(fixture.authority.clone());
+        w.fleet_policy = Ok(Some(fixture.authority.clone()));
         let api = TestApi::start(scratch.path(), &w);
         const PATH: &str = "/api/bots/fleet-policy";
         let read = api.client.get(format!("{ORIGIN}{PATH}")).send().await.unwrap();
@@ -1685,3 +1687,5 @@ mod fleet_authority {
         release.join().unwrap();
     }
 }
+
+mod park_decisions;

@@ -26,6 +26,8 @@ pub(crate) enum Principal {
 pub(crate) enum Purpose {
     PublishPolicy,
     Execute,
+    AutoExecute,
+    Supersede,
     Release,
     Hold,
     Deny,
@@ -48,6 +50,11 @@ pub(crate) enum Target {
     Park {
         park: ParkPin,
         policy: PolicyRef,
+    },
+    Supersession {
+        park: ParkPin,
+        policy: PolicyRef,
+        replacement: ParkPin,
     },
 }
 
@@ -75,9 +82,11 @@ impl Envelope {
         match (&self.principal, self.purpose, &self.target) {
             (Principal::Operator, Purpose::PublishPolicy, Target::Policy { policy })
                 if policy.valid() => {}
-            (Principal::Operator, purpose, Target::Park { park, policy })
-                if purpose != Purpose::PublishPolicy && park.valid() && policy.valid() => {}
-            (Principal::Bot { id, launch }, Purpose::Execute, Target::Park { park, policy })
+            (Principal::Operator, Purpose::Execute | Purpose::Hold | Purpose::Release | Purpose::Deny, Target::Park { park, policy })
+                if park.valid() && policy.valid() => {}
+            (Principal::Operator, Purpose::Supersede, Target::Supersession { park, policy, replacement })
+                if park.valid() && policy.valid() && replacement.valid() && park.id != replacement.id => {}
+            (Principal::Bot { id, launch }, Purpose::Execute | Purpose::AutoExecute, Target::Park { park, policy })
                 if bots::valid_id(id) && hex(launch, 32) && park.valid() && policy.valid() => {}
             _ => return Err(Error::Invalid),
         }

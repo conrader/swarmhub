@@ -3,6 +3,39 @@
 
   const state = { pending: [], history: [], rules: [], active: null, polling: false, working: false, signature: null };
   const dialog = $("approval-dialog");
+  const parkSection = document.createElement("section");
+  const parkHeading = document.createElement("h3");
+  parkHeading.textContent = "Parked actions";
+  const parkList = document.createElement("ul");
+  parkList.className = "library-items";
+  parkSection.append(parkHeading, parkList);
+  $("approval-list-view").append(parkSection);
+
+  const parkDetail = document.createElement("section");
+  parkDetail.hidden = true;
+  const parkTitle = document.createElement("h3");
+  const parkPreview = document.createElement("pre");
+  const parkBack = document.createElement("button");
+  parkBack.type = "button";
+  parkBack.textContent = "Back to approvals";
+  const parkForm = document.createElement("form");
+  const parkLabel = document.createElement("label");
+  parkLabel.textContent = "Signed park decision JSON";
+  const parkInput = document.createElement("textarea");
+  parkInput.rows = 5;
+  parkInput.required = true;
+  parkInput.autocomplete = "off";
+  parkInput.spellcheck = false;
+  parkLabel.append(parkInput);
+  const parkSubmit = document.createElement("button");
+  parkSubmit.type = "submit";
+  parkSubmit.textContent = "Submit signed decision";
+  parkForm.append(parkLabel, parkSubmit);
+  parkDetail.append(parkTitle, parkPreview, parkForm, parkBack);
+  $("approval-detail").after(parkDetail);
+  let parkId = null;
+  let parkRequest = 0;
+
   const status = { approved: "Allow once sent", denied: "Denial sent", terminal: "Returned to the agent" };
 
   function refreshBadge() {
@@ -17,8 +50,12 @@
   async function load() {
     const token = app.token;
     try {
-      const result = await api("/api/approvals");
+      const [result, parks] = await Promise.all([
+        api("/api/approvals"),
+        dialog.open ? api("/api/parks").catch(() => ({ parks: [] })) : { parks: [] },
+      ]);
       if (!app.authorized || token !== app.token) return;
+      state.parks = parks.parks;
       state.pending = result.pending;
       state.history = result.history;
       state.rules = result.read_rules;
@@ -46,6 +83,10 @@
 
   function listView() {
     state.active = null;
+    parkId = null;
+    parkRequest++;
+    parkDetail.hidden = true;
+    parkInput.value = parkPreview.textContent = "";
     $("approval-input").textContent = "";
     $("approval-path").textContent = "";
     state.signature = null;
@@ -78,6 +119,7 @@
   }
 
   function render() {
+    if (parkId !== null) return;
     if (state.active) {
       const waiting = state.pending.some(({id}) => id === state.active.id);
       for (const button of ["allow", "deny", "terminal", "remember"]) $("approval-" + button).disabled = !waiting || state.working;
@@ -88,7 +130,7 @@
       }
       return;
     }
-    const signature = JSON.stringify([state.pending.map(({id}) => id), state.history, state.rules]);
+    const signature = JSON.stringify([state.pending.map(({id}) => id), state.history, state.rules, state.parks]);
     if (state.signature === signature) return;
     state.signature = signature;
     $("approval-list").replaceChildren(...state.pending.map((request) => {
@@ -127,6 +169,16 @@
       row.append(button);
       return row;
     }));
+    parkList.replaceChildren(...(state.parks || []).map(({id, state}) => {
+      const row = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.append(...item(id, state));
+      button.addEventListener("click", () => void openPark(id));
+      row.append(button);
+      return row;
+    }));
+    parkSection.hidden = !parkList.children.length;
     for (const [id, text] of [["approval-list", "No requests are waiting."], ["approval-history", "No decisions recorded."], ["approval-read-rules","No temporary read rules."]]) {
       if ($(id).children.length) continue;
       const empty = document.createElement("li");
@@ -169,16 +221,82 @@
     if (request) details(request);
     else show("approval-notice", "This request is no longer waiting for a decision.");
   }
+  async function showPark(id) {
+    const request = ++parkRequest;
+    const token = app.token;
+    parkId = id;
+    state.active = null;
+    $("approval-list-view").hidden = $("approval-detail").hidden = true;
+    parkDetail.hidden = false;
+    parkForm.hidden = true;
+    parkTitle.textContent = id;
+    parkPreview.textContent = "";
+    const result = await api("/api/parks/" + encodeURIComponent(id));
+    if (!dialog.open || !app.authorized || app.token !== token || request !== parkRequest) return;
+    const { detail, pin, classification } = result;
+    const state = detail.view.status ?? detail.view.receipt?.[0];
+    parkTitle.textContent = [id, state].filter(Boolean).join(" · ");
+    parkPreview.textContent = visible(JSON.stringify({
+      pin, manifest: detail.manifest, classification,
+      decision: detail.decision, receipt: detail.view.receipt?.[1],
+      supersedes: detail.supersedes, superseded_by: detail.superseded_by,
+    }, null, 2));
+    parkForm.hidden = !["pending", "held", "failed"].includes(state);
+  }
+
+  async function openPark(id) {
+    if (!dialog.open) dialog.showModal();
+    show("approval-notice", "");
+    parkInput.value = "";
+    try { await showPark(id); }
+    catch (error) { if (dialog.open && parkId === id) show("approval-notice", error.message); }
+    parkBack.focus();
+  }
+
+  parkBack.addEventListener("click", () => { show("approval-notice", ""); listView(); void poll(); });
+
+  parkForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!app.authorized || parkSubmit.disabled || parkId === null) return;
+    const id = parkId;
+    parkSubmit.disabled = true;
+    try {
+      let input;
+      try { input = JSON.parse(parkInput.value); }
+      catch { throw new Error("Enter a signed decision as JSON."); }
+      const signed = input.signed ?? input;
+      const pin = signed.envelope?.target?.park;
+      if (pin?.id !== id) throw new Error("The signature must name this park.");
+      const result = await api("/api/parks/decide", {
+        park: { id, manifest_digest: pin.manifest_digest },
+        purpose: signed.envelope.purpose,
+        evidence: { signed },
+        replacement: input.replacement,
+      });
+      if (!dialog.open || parkId !== id) return;
+      if (result.view === "busy") {
+        show("approval-notice", "The workspace is busy. Retry the decision.");
+        return;
+      }
+      parkInput.value = "";
+      await showPark(id);
+      show("approval-notice", result.result === "held" ? "The park was held: " + result.reason : "Decision recorded.");
+    } catch (error) {
+      if (dialog.open && parkId === id) show("approval-notice", error.message);
+    } finally { parkSubmit.disabled = false; }
+  });
+
   function lockIfNeeded() {
     if (app.authorized) return;
     if (dialog.open) dialog.close();
-    state.pending = state.history = state.rules = [];
+    state.pending = state.history = state.rules = state.parks = [];
+    parkList.replaceChildren();
     state.active = null;
     refreshBadge();
     $("approval-input").textContent = $("approval-path").textContent = $("approval-action").textContent = "";
     for (const id of ["approval-list", "approval-history", "approval-read-rules"]) $(id).replaceChildren();
   }
-  window.approvalInbox = { open, lockIfNeeded };
+  window.approvalInbox = { open, openPark, lockIfNeeded };
   $("approvals-open").addEventListener("click", () => void open());
   $("approval-close").addEventListener("click", () => { if (!state.working) dialog.close(); });
   $("approval-back").addEventListener("click", () => { show("approval-notice", ""); listView(); });
@@ -188,6 +306,9 @@
   $("approval-terminal").addEventListener("click", () => decide("terminal"));
   dialog.addEventListener("cancel", (event) => { if (state.working) event.preventDefault(); });
   dialog.addEventListener("close", () => {
+    parkId = null;
+    parkRequest++;
+    parkInput.value = parkPreview.textContent = "";
     state.active = null;
     $("approval-input").textContent = "";
     $("approval-path").textContent = "";

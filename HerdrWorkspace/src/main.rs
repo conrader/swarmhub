@@ -85,7 +85,8 @@ use std::{net::Ipv4Addr, path::PathBuf};
 struct Workspace {
     core: Core,
     history: History,
-    fleet_policy: Option<fleet_policy::Authority>,
+    fleet_policy: Result<Option<fleet_policy::Authority>, fleet_policy::Error>,
+    parks: parks::Service,
     approvals: approvals::Desk,
     drafts: live_reply::Drafts,
     connected_files: Option<webdav::Folder>,
@@ -201,14 +202,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     let history = History::open()?;
-    let fleet_policy = match fleet_policy::Authority::configured(fleet_policy::Role::Bridge) {
-        Ok(store) => store,
-        Err(error) => {
-            eprintln!("SwarmHub fleet authority held: {error}");
-            None
-        }
-    };
-    if let Some(store) = &fleet_policy {
+    let fleet_policy = fleet_policy::Authority::configured(fleet_policy::Role::Bridge);
+    if let Err(error) = &fleet_policy {
+        eprintln!("SwarmHub fleet authority held: {error}");
+    }
+    if let Ok(Some(store)) = &fleet_policy {
         match history.db() {
             Ok(mut db) => {
                 if let Err(error) = store.audit(&mut db) {
@@ -228,6 +226,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         slack: slack_events::Signing::configured(&history, vault.as_ref())?,
         history,
         fleet_policy,
+        parks: parks::Service::default(),
         approvals: approvals::Desk::default(),
         drafts: live_reply::Drafts::default(),
         vault,
@@ -348,6 +347,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(terminal::routes())
         .merge(desktop::routes())
         .merge(approvals::routes())
+        .merge(parks::routes())
         .merge(attention::routes())
         .merge(activity::routes())
         .merge(skills::routes())
