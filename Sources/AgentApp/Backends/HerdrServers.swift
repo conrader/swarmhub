@@ -225,12 +225,23 @@ enum HerdrTunnel {
         }
     }
 
+    /// Only OpenSSH authentication failures that permit a password should open the sign-in form.
+    static func offersPassword(_ error: Error) -> Bool {
+        guard case .ended(let line) = error as? Failure,
+              let methods = line.range(of: #"Permission denied \(([a-zA-Z0-9@.,_-]+)\)\.?$"#, options: .regularExpression) else { return false }
+        let offered = line[methods].split(whereSeparator: { "(),. ".contains($0) })
+        return offered.contains("password") || offered.contains("keyboard-interactive")
+    }
+
     /// Runs `command` on the server and returns what it printed. Used once, to read the access token.
-    static func run(_ command: String, on server: HerdrServer, timeout: Duration = .seconds(30)) async throws -> String {
+    static func run(_ command: String, on server: HerdrServer, password: String? = nil, timeout: Duration = .seconds(30)) async throws -> String {
         guard let arguments = commandArguments(for: server, command: command) else { throw Failure.notSSH }
         final class Running: @unchecked Sendable { let process = Process() }
         let running = Running(), out = Pipe(), err = Pipe()
         running.process.executableURL = URL(fileURLWithPath: program); running.process.arguments = arguments
+        let input = try password.map(SSHPasswordInput.init(password:))
+        input?.configure(running.process, arguments: arguments)
+        defer { withExtendedLifetime(input) {} }
         running.process.standardInput = FileHandle.nullDevice; running.process.standardOutput = out; running.process.standardError = err
         let limit = Task { try await Task.sleep(for: timeout); if running.process.isRunning { kill(running.process.processIdentifier, SIGKILL) } }
         defer { limit.cancel() }
@@ -261,6 +272,36 @@ final class HerdrTunnels: @unchecked Sendable {
     private var entries: [String: Entry] = [:]
     /// One opening at a time per server: several requests may ask at once.
     private var opening: [String: Task<Void, Error>] = [:]
+    private struct Login: Hashable {
+        let host: String
+        let user: String
+        init(_ server: HerdrServer) { host = server.sshHost; user = server.sshUser }
+    }
+    private var passwords: [Login: String] = [:]
+
+    func password(for server: HerdrServer) -> String? { lock.withLock { passwords[Login(server)] } }
+
+    func forgetPassword(for server: HerdrServer) { lock.withLock { passwords[Login(server)] = nil } }
+
+    func signIn(to server: HerdrServer, password: String) async throws {
+        _ = try await HerdrTunnel.run("true", on: server, password: password)
+        try Task.checkCancellation()
+        lock.withLock { passwords[Login(server)] = password }
+    }
+
+    private func discardRejected(_ attempted: String?, for server: HerdrServer, error: Error) {
+        guard let attempted, HerdrTunnel.offersPassword(error) else { return }
+        lock.withLock {
+            if passwords[Login(server)] == attempted { passwords[Login(server)] = nil }
+        }
+    }
+
+    func readToken(on server: HerdrServer) async throws -> String {
+        let attempted = password(for: server)
+        do { return try await HerdrTunnel.run(HerdrServerList.remoteTokenCommand, on: server, password: attempted) }
+        catch { discardRejected(attempted, for: server, error: error); throw error }
+    }
+
     /// Checks forward to another local port; the app always uses the server's own.
     var localPort: (@Sendable (HerdrServer) -> Int?)?
 
@@ -288,7 +329,10 @@ final class HerdrTunnels: @unchecked Sendable {
         if let entry, entry.process.isRunning { kill(entry.process.processIdentifier, SIGKILL) }
     }
 
-    func closeAll() { for id in lock.withLock({ Array(entries.keys) }) { close(id) } }
+    func closeAll() {
+        lock.withLock { passwords.removeAll() }
+        for id in lock.withLock({ Array(entries.keys) }) { close(id) }
+    }
 
     private func open(_ server: HerdrServer, arguments: [String]) async throws {
         close(server.id)
@@ -297,6 +341,10 @@ final class HerdrTunnels: @unchecked Sendable {
         if await Self.answers(port: port) { return }
         let process = Process(), err = Pipe(), tail = Tail()
         process.executableURL = URL(fileURLWithPath: HerdrTunnel.program); process.arguments = arguments
+        let attempted = password(for: server)
+        let input = try attempted.map(SSHPasswordInput.init(password:))
+        input?.configure(process, arguments: arguments)
+        defer { withExtendedLifetime(input) {} }
         process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = err
         err.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -309,7 +357,9 @@ final class HerdrTunnels: @unchecked Sendable {
             if !process.isRunning {
                 lock.withLock { if entries[server.id]?.process === process { entries[server.id] = nil } }
                 try? await Task.sleep(for: .milliseconds(100)) // the last line may still be on its way through the pipe
-                throw HerdrTunnel.Failure.ended(HerdrTunnel.reason(tail.value))
+                let error = HerdrTunnel.Failure.ended(HerdrTunnel.reason(tail.value))
+                discardRejected(attempted, for: server, error: error)
+                throw error
             }
             if await Self.answers(port: port) {
                 lock.withLock { if entries[server.id]?.process === process { entries[server.id]?.ready = true } }

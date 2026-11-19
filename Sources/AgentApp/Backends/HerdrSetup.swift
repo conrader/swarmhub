@@ -193,7 +193,7 @@ enum HerdrSetupProblem: Error, Equatable, Sendable {
             }
         case .sshFailed(let line):
             let said = " (ssh said: \(line))"
-            if line.localizedCaseInsensitiveContains("Permission denied") { return "\(server.sshHost) refused the login. Check the user in user@server. If you use a specific SSH key file, choose it under Connection details and unlock it in Terminal first." + said }
+            if line.localizedCaseInsensitiveContains("Permission denied") { return "\(server.sshHost) refused the login. Check the username. If this account requires an SSH key, choose one in Connection details." + said }
             if line.localizedCaseInsensitiveContains("Could not resolve hostname") { return "No server named \(server.sshHost) was found. Check the name." }
             if ["Connection refused", "timed out", "No route to host", "Network is unreachable"].contains(where: { line.localizedCaseInsensitiveContains($0) }) {
                 return "\(server.sshHost) is not reachable over SSH. Check that the server is on and that this Mac is online." + said

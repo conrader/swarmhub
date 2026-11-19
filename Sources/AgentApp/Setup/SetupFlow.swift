@@ -4,6 +4,7 @@ import Foundation
 /// read from the server, and what it can run), nothing on this Mac's port, or one plain line.
 enum HerdrSetupOutcome: Equatable, Sendable {
     case connected(server: HerdrServer, key: String?, offer: HerdrOffer)
+    case sshLoginRequired(HerdrServer)
     case nothingHere(port: Int)
     case failed(String)
 }

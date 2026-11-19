@@ -37,6 +37,42 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(HerdrTunnel.reason("Warning: Permanently added 'x' to the list of known hosts.\nme@x: Permission denied (publickey).\n") == "me@x: Permission denied (publickey).")
 }
 
+@Test func onlySSHPasswordAuthenticationFailuresOfferSignIn() {
+    for methods in ["password", "publickey,password", "publickey,keyboard-interactive"] {
+        #expect(HerdrTunnel.offersPassword(HerdrTunnel.Failure.ended("user@host: Permission denied (\(methods)).")))
+    }
+    for line in ["user@host: Permission denied (publickey).", "Host key verification failed.",
+                 "Connection refused", "cat: token: Permission denied"] {
+        #expect(!HerdrTunnel.offersPassword(HerdrTunnel.Failure.ended(line)))
+    }
+    #expect(!HerdrTunnel.offersPassword(HerdrTunnel.Failure.timedOut))
+}
+
+@Test func sshPasswordInputOnlyAnswersItsOwnPasswordPromptOnce() throws {
+    let secret = "test $value ' with spaces"
+    let input = try SSHPasswordInput(password: secret)
+    let process = Process()
+    input.configure(process, arguments: [])
+    #expect(!(process.arguments ?? []).contains(where: { $0.contains(secret) }))
+    #expect(!(process.environment ?? [:]).values.contains(where: { $0.contains(secret) }))
+    process.arguments = ["-c", #"""
+        export SWARMHUB_SSH_PID=0
+        "$SSH_ASKPASS" "Password:" && exit 1
+        export SWARMHUB_SSH_PID=$$
+        "$SSH_ASKPASS" "Verification code:" && exit 2
+        "$SSH_ASKPASS" "Password:" || exit 3
+        "$SSH_ASKPASS" "Password:" && exit 4
+        exit 0
+        """#]
+    let output = Pipe()
+    process.standardOutput = output
+    try process.run()
+    process.waitUntilExit()
+    withExtendedLifetime(input) {}
+    #expect(process.terminationStatus == 0)
+    #expect(output.fileHandleForReading.readDataToEndOfFile() == Data((secret + "\n").utf8))
+}
+
 @Test func oneSSHFieldAcceptsTerminalDestinations() throws {
     var draft = HerdrServerDraft(kind: .ssh)
     for (input, host, user) in [("mini-m4", "mini-m4", ""), ("deploy@studio", "studio", "deploy"),

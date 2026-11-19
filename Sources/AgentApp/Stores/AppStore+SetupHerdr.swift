@@ -22,12 +22,17 @@ extension AppStore {
         var found: String?
         if server.kind == .ssh, draft.typedKey.isEmpty, herdrToken(for: server).isEmpty {
             // A server over SSH with no access key yet: it is read from the server's own file first.
-            do { found = try await HerdrTunnel.run(HerdrServerList.remoteTokenCommand, on: server) }
-            catch { return .failed(HerdrSetupProblem.of(error, readingKey: true).line(for: server)) }
+            do { found = try await herdrTunnels.readToken(on: server) }
+            catch { return setupConnectionFailure(error, server: server, readingKey: true) }
         }
         let key = draft.typedKey.isEmpty ? found : draft.typedKey
         do { return .connected(server: server, key: key, offer: try await herdrClient(for: server, token: key).offer()) }
-        catch { return .failed(HerdrSetupProblem.of(error).line(for: server)) }
+        catch { return setupConnectionFailure(error, server: server) }
+    }
+
+    private func setupConnectionFailure(_ error: Error, server: HerdrServer, readingKey: Bool = false) -> HerdrSetupOutcome {
+        if server.kind == .ssh, HerdrTunnel.offersPassword(error) { return .sshLoginRequired(server) }
+        return .failed(HerdrSetupProblem.of(error, readingKey: readingKey).line(for: server))
     }
 
     /// "This Mac", before its Test: the port its service is on, or will be put on, when that is not the one in the

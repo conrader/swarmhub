@@ -12,6 +12,7 @@ struct SetupView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var flow = SetupFlow()
     @State private var firstChoice = StarterAgents.codex
+    @State private var loginServer: HerdrServer?
     @State private var testing = false
     @State private var failure: String?
     @State private var closed = false
@@ -57,6 +58,12 @@ struct SetupView: View {
         .onAppear { if Self.cameBackUnasked(preset: preset, generation: store.setupGeneration) { closeUnasked() } else { restart() } }
         .onChange(of: store.setupGeneration) { _, _ in unasked = false; restart() }
         .onChange(of: flow.step, initial: true) { _, step in readProjects(step) }
+        .sheet(item: $loginServer) { server in
+            SSHLoginSheet(server: server) { signedIn in
+                flow.herdr.sshDestination = signedIn.sshUser + "@" + signedIn.sshHost
+                testHerdr()
+            }
+        }
         .onAppear { closed = false }
         .onDisappear { closed = true; if !unasked { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)) }; abandonHerdr() }
     }
@@ -223,6 +230,7 @@ struct SetupView: View {
             guard case .connected(let server, _, _) = outcome else {
                 guard current else { return }
                 flow.apply(.herdrTest(outcome))
+                if case .sshLoginRequired(let server) = outcome { loginServer = server }
                 // Nothing answers on this Mac: the app offers to set it up, unless that is what just failed.
                 if case .nothingHere = outcome, draft.kind == .local, flow.localSetup == nil { flow.apply(.localSetup(.offer(hasCore: store.localService.hasCore))) }
                 return

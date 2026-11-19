@@ -19,6 +19,7 @@ struct HerdrSettingsSection: View {
     @State private var draft = HerdrServerDraft(kind: .ssh); @State private var adding = false; @State private var addResult = ""; @State private var addFailed = false
     /// The server whose parts show (nil: the first), or `addID` for the form that adds one.
     @State private var chosen: String?
+    @State private var loginServer: HerdrServer?
     @State private var part: Part
 
     /// `chosen` and `part` (renders) open the section on one server's part, or on adding (`"+"`).
@@ -56,6 +57,12 @@ struct HerdrSettingsSection: View {
                 }
             }
         }
+        .sheet(item: $loginServer) { server in
+            SSHLoginSheet(server: server) { signedIn in
+                draft.sshDestination = signedIn.sshUser + "@" + signedIn.sshHost
+                add()
+            }
+        }
     }
 
     /// Adding a server: where it runs as a few large options, then that place's fields, each on its own.
@@ -88,6 +95,8 @@ struct HerdrSettingsSection: View {
             case .connected(let server, let key, _):
                 store.saveHerdrServer(server, token: key)
                 addResult = "Added \(server.name)."; self.draft = HerdrServerDraft(kind: draft.kind)
+            case .sshLoginRequired(let server):
+                if self.draft == draft && chosen == Self.addID { loginServer = server }
             case .nothingHere(let port): addFailed = true; addResult = SetupCopy.herdrNothingHere(port: port) + " " + SetupCopy.herdrStartHelp
             case .failed(let line): addFailed = true; addResult = line
             }
@@ -105,6 +114,7 @@ struct HerdrServerSection: View {
     @State private var name = ""; @State private var token = ""; @State private var result = ""; @State private var working = false
     @State private var failed = false
     @State private var confirmRemove = false
+    @State private var loginServer: HerdrServer?
     @State private var showKey = false
     /// The service was removed from this Mac just now: what that did stays on screen.
     @State private var localRemoval = false
@@ -145,6 +155,12 @@ struct HerdrServerSection: View {
         .onAppear { name = server.name; token = store.keyStore.key(for: server.keyAccount) }
         // The real app reads what the server can run when its connection shows, so "New bots run on" needs no Check first.
         .task(id: server.id) { if store.launchWorkEnabled, let read = try? await store.herdrTemplates(on: server) { loaded(read) } }
+        .sheet(item: $loginServer) { target in
+            SSHLoginSheet(server: target) { signedIn in
+                if signedIn.sshUser != server.sshUser { store.saveHerdrServer(signedIn, token: nil) }
+                test(on: signedIn)
+            }
+        }
         .confirmationDialog("Remove \(server.name)?", isPresented: $confirmRemove) {
             Button("Remove", role: .destructive) { store.removeHerdrServer(server) }
         } message: { Text("Its bots stay and move to \(store.herdrServers.first { $0.id != server.id }?.name ?? "your other server"). Nothing on the server itself changes.") }
@@ -169,15 +185,20 @@ struct HerdrServerSection: View {
         if !changed.name.isEmpty, changed != server { store.saveHerdrServer(changed, token: nil) }
     }
 
-    private func test() {
-        rename(); working = true; result = ""; failed = false
+    private func test(on target: HerdrServer? = nil) {
+        if target == nil { rename() }
+        let server = target ?? self.server
+        working = true; result = ""; failed = false
         Task {
             do {
                 let tested = try await store.testHerdrServer(server)
                 if let found = tested.token { store.setHerdrToken(found, for: server); token = found }
                 result = tested.line
                 loaded(try await store.herdrTemplates(on: server))
-            } catch { result = error.localizedDescription; failed = true }
+            } catch {
+                if server.kind == .ssh, HerdrTunnel.offersPassword(error) { loginServer = server }
+                else { result = error.localizedDescription; failed = true }
+            }
             working = false
         }
     }

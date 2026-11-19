@@ -78,7 +78,9 @@ extension AppStore {
         let server = herdrServer(for: bot), core = localService.corePath, environment = ProcessInfo.processInfo.environment
         return HerdrPromptAnswer.plan(server: server, address: agent.address, name: bot.name,
                                       localScript: { Self.terminalScript(core: core, address: $0, name: bot.name, environment: environment) },
-                                      sshOptions: HerdrTunnel.options(for: server))
+                                      sshOptions: HerdrTunnel.options(for: server).map { options in
+                                          herdrTunnels.password(for: server) == nil ? options : ["-o", "BatchMode=no"] + options
+                                      })
     }
 
     /// Opens the terminal (or the server's page). Returns false when nothing could be opened.

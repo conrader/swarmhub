@@ -72,7 +72,9 @@ extension AppStore {
     func saveHerdrServer(_ server: HerdrServer, token: String?) {
         var servers = herdrServers
         if let index = servers.firstIndex(where: { $0.id == server.id }) {
-            if servers[index] != server { herdrTunnels.close(server.id) }
+            let old = servers[index]
+            if old != server { herdrTunnels.close(server.id) }
+            if old.sshHost != server.sshHost || old.sshUser != server.sshUser { herdrTunnels.forgetPassword(for: old) }
             servers[index] = server
         } else { servers.append(server) }
         if let token, !token.isEmpty { setHerdrToken(token, for: server) }
@@ -85,6 +87,7 @@ extension AppStore {
         var servers = herdrServers
         guard servers.count > 1, servers.contains(where: { $0.id == server.id }) else { return }
         servers.removeAll { $0.id == server.id }
+        herdrTunnels.forgetPassword(for: server)
         herdrTunnels.close(server.id)
         keyStore.setKey("", for: server.keyAccount)
         // Its bots move to another server, which has its own projects: the ones chosen on this server do not go with them.
@@ -102,7 +105,7 @@ extension AppStore {
     func testHerdrServer(_ server: HerdrServer, token typed: String? = nil) async throws -> (line: String, token: String?) {
         var found: String?
         if server.kind == .ssh, (typed ?? "").isEmpty, herdrToken(for: server).isEmpty {
-            found = try await HerdrTunnel.run(HerdrServerList.remoteTokenCommand, on: server)
+            found = try await herdrTunnels.readToken(on: server)
         }
         let client = try herdrClient(for: server, token: found ?? typed)
         let line = try await HerdrBackend(client: client, botName: "", botID: UUID(), template: nil).testConnection()
