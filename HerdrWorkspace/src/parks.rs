@@ -519,7 +519,7 @@ fn store_receipt(tx: &Transaction<'_>, park: &ParkRef, receipt: &Receipt) -> Res
     Ok(state)
 }
 
-fn manifest_for(db: &Connection, park: &ParkRef) -> Result<Manifest, Error> {
+pub(crate) fn manifest_for(db: &Connection, park: &ParkRef) -> Result<Manifest, Error> {
     let stored: String = db.query_row("SELECT manifest FROM parks WHERE id=?1", [&park.id], |r| {
         r.get(0)
     })?;

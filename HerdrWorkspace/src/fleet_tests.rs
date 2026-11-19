@@ -457,6 +457,7 @@ async fn gapplan_02_int_http_job_status_returns_completion_or_not_found() {
     let app = crate::workspace_router(crate::Workspace {
         core: crate::Core(scratch.path().join("core.sock")),
         history,
+        fleet_policy: None,
         approvals: Default::default(),
         drafts: Default::default(),
         connected_files: None,
@@ -715,8 +716,8 @@ mod job_delivery {
     const CRASH_ACK: &str = "SWARMHUB_GAPPLAN_03_CRASH_ACK";
     const CRASH_TEST: &str =
         "fleet_tests::job_delivery::gapplan_03_int_killed_during_transport_reconciles_and_ack_retry_resumes";
-    const AUTH: &str = "fixture-workspace-token";
-    const ORIGIN: &str = "http://localhost:41053";
+    pub(super) const AUTH: &str = "fixture-workspace-token";
+    pub(super) const ORIGIN: &str = "http://localhost:41053";
 
     #[derive(Default)]
     struct CoreState {
@@ -842,10 +843,11 @@ mod job_delivery {
         }
     }
 
-    fn workspace(root: &Path, history: History) -> Workspace {
+    pub(super) fn workspace(root: &Path, history: History) -> Workspace {
         Workspace {
             core: Core(root.join("core.sock")),
             history,
+            fleet_policy: None,
             approvals: Default::default(),
             drafts: Default::default(),
             connected_files: None,
@@ -859,8 +861,8 @@ mod job_delivery {
         }
     }
 
-    struct TestApi {
-        client: reqwest::Client,
+    pub(super) struct TestApi {
+        pub(super) client: reqwest::Client,
         task: JoinHandle<()>,
     }
 
@@ -871,7 +873,7 @@ mod job_delivery {
     }
 
     impl TestApi {
-        fn start(root: &Path, w: &Workspace) -> Self {
+        pub(super) fn start(root: &Path, w: &Workspace) -> Self {
             let path = root.join("api.sock");
             let listener = UnixListener::bind(&path).unwrap();
             let app = crate::workspace_router(w.clone());
@@ -880,7 +882,7 @@ mod job_delivery {
             Self { client, task }
         }
 
-        async fn status(&self, path: &str) -> Value {
+        pub(super) async fn status(&self, path: &str) -> Value {
             let response = self.client.get(format!("{ORIGIN}{path}")).bearer_auth(AUTH)
                 .send().await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
@@ -1320,8 +1322,8 @@ mod job_delivery {
 
     #[test]
     fn gapplan_03_int_journal_v54_fresh_upgrade_and_reopen() {
-        fn assert_v54(db: &Connection) {
-            assert_eq!(schema(db), 54);
+        fn assert_delivery_schema(db: &Connection) {
+            assert_eq!(schema(db), history::migrations().len());
             for table in ["job_deliveries", "job_delivery_offers"] {
                 let count: i64 = db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0)).unwrap();
                 assert_eq!(count, 0);
@@ -1330,7 +1332,7 @@ mod job_delivery {
 
         let temp = tempfile::tempdir().unwrap();
         let fresh = History::open_at(&temp.path().join("fresh")).unwrap();
-        assert_v54(&fresh.db().unwrap());
+        assert_delivery_schema(&fresh.db().unwrap());
 
         let dir = temp.path().join("upgrade");
         fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
@@ -1350,10 +1352,336 @@ mod job_delivery {
         for _ in 0..3 {
             let reopened = reopen_journal(&dir);
             let db = reopened.db().unwrap();
-            assert_v54(&db);
+            assert_delivery_schema(&db);
             let event = jobs::status(&db, &job).unwrap().unwrap().completion.unwrap();
             assert_eq!(event.owner_bot_id, OWNER);
             assert_eq!(event.exit.result.unwrap().reference, "fixture-result");
         }
+    }
+}
+
+mod fleet_authority {
+    use super::*;
+    use crate::{
+        bots,
+        fleet_policy::{
+            Error, Evidence, Inspection, PolicyRef,
+            principals::{Actor, ParkPin, Principal, Purpose, Signed, Target},
+            tests::{Fixture, JARVIS, WORKSPACE, envelope, grant, policy},
+        },
+    };
+    use reqwest::StatusCode;
+    use rusqlite::params;
+
+    fn sign(
+        fixture: &Fixture,
+        park: &ParkRef,
+        reference: &PolicyRef,
+        principal: Principal,
+        purpose: Purpose,
+        nonce: &str,
+    ) -> Signed {
+        fixture.sign_decision(envelope(
+            WORKSPACE,
+            principal,
+            purpose,
+            Target::Park {
+                park: ParkPin {
+                    id: park.id.clone(),
+                    revision: manifest().revision,
+                    manifest_digest: park.manifest_digest.clone(),
+                },
+                policy: reference.clone(),
+            },
+            nonce,
+        ))
+    }
+
+    fn registered_launch(history: &History, id: &str, name: &str) -> (i64, String) {
+        let (bot, _) = bots::register(
+            &history.db().unwrap(),
+            &bots::Registration {
+                id: id.into(),
+                name: Some(name.into()),
+                main: Some(true),
+                ..Default::default()
+            },
+            history::now(),
+        ).unwrap().unwrap();
+        let (launch, key) = history.start_launch("fixture-core", &bot.agent_name, "fixture", None, "{}", "")
+            .unwrap().unwrap();
+        bots::noted(history, id, &key).unwrap();
+        (launch, key)
+    }
+
+    #[test]
+    fn gapplan_04_int_import_restart_and_revoke_use_protected_generation() {
+        let scratch = tempfile::tempdir().unwrap();
+        let (h, park) = setup(scratch.path());
+        let fixture = Fixture::new(scratch.path(), WORKSPACE, true);
+        let first = fixture.publish(fixture.publication(policy(1, vec![grant()]), WORKSPACE)).unwrap();
+        let (_, launch) = registered_launch(&h, JARVIS, "Jarvis");
+        let principal = Principal::Bot { id: JARVIS.into(), launch: launch.clone() };
+        let signed = sign(&fixture, &park, &first, principal.clone(), Purpose::Execute, "delegate-1");
+        let evidence = || Evidence::Bot { launch: &launch, signed: &signed };
+
+        let mut revoked = policy(2, vec![grant()]);
+        revoked.revoked.insert("fixture-grant".into());
+        {
+            let mut db = h.db().unwrap();
+            fixture.authority.audit(&mut db).unwrap();
+            fixture.authority.at_effect(&mut db, &park, Purpose::Execute, evidence(), |_, verified| {
+                assert_eq!(verified.actor, Actor::Bot { id: JARVIS.into() });
+                assert_eq!(verified.policy, first);
+                assert_eq!(verified.rule_id.as_deref(), Some("fixture-grant"));
+                assert_eq!(verified.decision_ref.as_deref(), Some("fixture-decision-ref"));
+                assert_eq!(verified.nonce, "delegate-1");
+                assert_eq!(fixture.publish(fixture.publication(revoked.clone(), WORKSPACE)), Err(Error::Busy));
+            }).unwrap();
+        }
+
+        let second = fixture.publish(fixture.publication(revoked, WORKSPACE)).unwrap();
+        assert_eq!(fixture.publish(fixture.publication(policy(1, vec![]), WORKSPACE)), Err(Error::StalePolicy));
+        assert_eq!(fixture.publish(fixture.publication(policy(3, vec![grant()]), WORKSPACE)), Err(Error::Invalid));
+        drop(h);
+
+        // The bridge was offline when the operator revoked the grant. The copy it
+        // reopens still has the old generation and has acquired a bogus higher row.
+        let h = reopen_journal(&scratch.path().join("journal"));
+        let trusted = fixture.restart(WORKSPACE);
+        let mut db = h.db().unwrap();
+        db.execute(
+            "INSERT INTO fleet_policy_versions SELECT workspace,99,?1,published_ms,signed_policy
+             FROM fleet_policy_versions WHERE generation=1",
+            ["0".repeat(64)],
+        ).unwrap();
+        assert!(matches!(trusted.inspect(), Inspection::Current { reference, .. } if reference == second));
+        assert_eq!(trusted.at_effect(&mut db, &park, Purpose::Execute, evidence(), |_, _| {
+            panic!("revoked evidence reached the effect")
+        }), Err(Error::StalePolicy));
+        let renewed = sign(&fixture, &park, &second, principal, Purpose::Execute, "delegate-2");
+        assert_eq!(trusted.at_effect(&mut db, &park, Purpose::Execute,
+            Evidence::Bot { launch: &launch, signed: &renewed }, |_, _| {
+                panic!("revoked rule granted execution")
+            }), Err(Error::NoGrant));
+        trusted.audit(&mut db).unwrap();
+        trusted.audit(&mut db).unwrap();
+        let digest: String = db.query_row(
+            "SELECT digest FROM fleet_policy_versions WHERE generation=2", [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(digest, second.digest);
+        assert!(db.execute("DELETE FROM fleet_policy_versions WHERE generation=1", []).is_err());
+        assert!(db.execute("UPDATE fleet_policy_versions SET published_ms=0", []).is_err());
+        assert!(db.execute("INSERT OR REPLACE INTO fleet_policy_versions SELECT * FROM fleet_policy_versions", []).is_err());
+        assert!(matches!(parks::status(&db, &park).unwrap(), View::Status(State::Pending)));
+    }
+
+    #[test]
+    fn gapplan_04_int_operator_decision_cannot_replay_on_another_park_workspace_or_purpose() {
+        let scratch = tempfile::tempdir().unwrap();
+        let (h, park) = setup(scratch.path());
+        let fixture = Fixture::new(scratch.path(), WORKSPACE, false);
+        let current = fixture.publish(fixture.publication(policy(1, vec![]), WORKSPACE)).unwrap();
+        let signed = sign(&fixture, &park, &current, Principal::Operator, Purpose::Execute, "human-1");
+        let mut wrong_workspace = signed.envelope.clone();
+        wrong_workspace.workspace = "other-workspace".into();
+        let wrong_workspace = fixture.sign_decision(wrong_workspace);
+        assert_eq!(fixture.import_decision(wrong_workspace), Err(Error::Binding));
+        let nonce = fixture.import_decision(signed.clone()).unwrap();
+        assert_eq!(fixture.import_decision(signed), Ok(nonce.clone()));
+
+        let mut db = h.db().unwrap();
+        let other = parks::file(&db, "other-park", &manifest()).unwrap();
+        assert_eq!(other.manifest_digest, park.manifest_digest);
+        assert_eq!(fixture.import_decision(sign(&fixture, &other, &current, Principal::Operator,
+            Purpose::Execute, &nonce)), Err(Error::Binding));
+        for (target, purpose) in [(&other, Purpose::Execute), (&park, Purpose::Release)] {
+            assert_eq!(fixture.authority.at_effect(&mut db, target, purpose, Evidence::Operator(&nonce), |_, _| {
+                panic!("replayed decision reached the effect")
+            }), Err(Error::Binding));
+        }
+        let peer_workspace = "other-workspace";
+        let peer = fixture.peer(scratch.path(), peer_workspace);
+        fs::copy(
+            scratch.path().join(WORKSPACE).join("decision-human-1.json"),
+            scratch.path().join(peer_workspace).join("decision-human-1.json"),
+        ).unwrap();
+        assert!(matches!(peer.inspect(), Inspection::Current { reference, .. } if reference == current));
+        assert_eq!(peer.at_effect(&mut db, &park, Purpose::Execute, Evidence::Operator(&nonce), |_, _| {
+            panic!("cross-workspace replay reached the effect even with the same operator key")
+        }), Err(Error::Binding));
+        let project = scratch.path().join("project");
+        let adapter = MarkerFile { project: &project, after_apply: || () };
+        assert_eq!(adapter.observe().unwrap(), marker("old"));
+        assert!(!project.join("applies").exists());
+        let result = fixture.authority.at_effect(&mut db, &park, Purpose::Execute, Evidence::Operator(&nonce),
+            |db, verified| {
+                assert_eq!(verified.actor, Actor::Operator);
+                parks::execute(db, &park, parks::Decision {
+                    actor: "operator", source: Source::Human, basis: &verified.nonce,
+                }, &adapter).unwrap()
+            },
+        ).unwrap();
+        assert_eq!(receipt(result, State::Verified).outcome, Outcome::Verified);
+        assert_eq!(adapter.apply_count(), 1);
+    }
+
+    #[test]
+    fn gapplan_04_int_jarvis_name_main_flag_and_helper_cannot_supply_delegation() {
+        let scratch = tempfile::tempdir().unwrap();
+        let (h, park) = setup(scratch.path());
+        let fixture = Fixture::new(scratch.path(), WORKSPACE, true);
+        let current = fixture.publish(fixture.publication(policy(1, vec![grant()]), WORKSPACE)).unwrap();
+        let (helper_row, helper) = registered_launch(&h, JARVIS, "Jarvis");
+        let (_, launch) = registered_launch(&h, JARVIS, "Jarvis");
+        let (_, impostor) = registered_launch(&h, "other-bot", "Jarvis");
+        let mut db = h.db().unwrap();
+        db.execute(
+            "INSERT INTO helpers(launch,parent_key,name,difficulty,template,model)
+             VALUES (?1,?2,'helper','easy','fixture','fixture')",
+            params![helper_row, launch],
+        ).unwrap();
+        assert!(bots::one(&db, "other-bot").unwrap().unwrap().main);
+        let signed = |id: &str, launch: &str| sign(&fixture, &park, &current, Principal::Bot {
+            id: id.into(), launch: launch.into(),
+        }, Purpose::Execute, "delegated-park");
+        let valid = signed(JARVIS, &launch);
+        for (key, document, error) in [
+            (&helper, signed(JARVIS, &helper), Error::Principal),
+            (&impostor, signed("other-bot", &impostor), Error::Principal),
+            (&impostor, valid.clone(), Error::Principal),
+            (&launch, Signed { signature: "forged".into(), ..valid.clone() }, Error::Signature),
+        ] {
+            assert_eq!(fixture.authority.at_effect(&mut db, &park, Purpose::Execute, Evidence::Bot {
+                launch: key, signed: &document,
+            }, |_, _| panic!("unverified bot reached the effect")), Err(error));
+        }
+        // Even when recorded under the delegated bot's exact current launch key,
+        // the helper row must be excluded.
+        drop(db);
+        bots::noted(&h, JARVIS, &helper).unwrap();
+        let mut db = h.db().unwrap();
+        assert_eq!(fixture.authority.at_effect(&mut db, &park, Purpose::Execute, Evidence::Bot {
+            launch: &helper, signed: &signed(JARVIS, &helper),
+        }, |_, _| panic!("helper inherited the parent's scope")), Err(Error::Principal));
+        assert_eq!(fixture.authority.at_effect(&mut db, &park, Purpose::Execute, Evidence::Bot {
+            launch: &launch, signed: &valid,
+        }, |_, _| panic!("obsolete launch reached the effect")), Err(Error::Principal));
+    }
+
+    #[tokio::test]
+    async fn gapplan_04_int_shared_bearer_can_inspect_but_cannot_claim_human_consent() {
+        use super::job_delivery::{AUTH, ORIGIN, TestApi, workspace};
+        let scratch = tempfile::tempdir().unwrap();
+        let (h, park) = setup(scratch.path());
+        let fixture = Fixture::new(scratch.path(), WORKSPACE, false);
+        let current = fixture.publish(fixture.publication(policy(1, vec![]), WORKSPACE)).unwrap();
+        let mut w = workspace(scratch.path(), h);
+        w.fleet_policy = Some(fixture.authority.clone());
+        let api = TestApi::start(scratch.path(), &w);
+        const PATH: &str = "/api/bots/fleet-policy";
+        let read = api.client.get(format!("{ORIGIN}{PATH}")).send().await.unwrap();
+        assert_eq!(read.status(), StatusCode::UNAUTHORIZED);
+        let view = api.status(PATH).await;
+        assert_eq!(view["status"], "current");
+        assert_eq!(view["reference"]["digest"], current.digest);
+        assert!(view.get("operator_key").is_none());
+        let write = api.client.post(format!("{ORIGIN}{PATH}"))
+            .bearer_auth(AUTH).header("Origin", ORIGIN)
+            .body(r#"{"principal":"operator","purpose":"execute"}"#).send().await.unwrap();
+        assert_eq!(write.status(), StatusCode::METHOD_NOT_ALLOWED);
+        let mut db = w.history.db().unwrap();
+        assert_eq!(fixture.authority.at_effect(&mut db, &park, Purpose::Execute, Evidence::Unverified, |_, _| {
+            panic!("shared bearer reached the effect")
+        }), Err(Error::Principal));
+        assert!(matches!(parks::status(&db, &park).unwrap(), View::Status(State::Pending)));
+    }
+
+    #[test]
+    fn gapplan_04_int_missing_signer_and_writable_trust_hold_the_effect() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = tempfile::tempdir().unwrap();
+        let (h, park) = setup(scratch.path());
+        let fixture = Fixture::new(scratch.path(), WORKSPACE, false);
+        let current = fixture.publish(fixture.publication(policy(1, vec![grant()]), WORKSPACE)).unwrap();
+        let (_, launch) = registered_launch(&h, JARVIS, "Jarvis");
+        let signed = sign(&fixture, &park, &current, Principal::Bot { id: JARVIS.into(), launch: launch.clone() },
+            Purpose::Execute, "no-enrollment");
+        let mut db = h.db().unwrap();
+        assert_eq!(fixture.authority.at_effect(&mut db, &park, Purpose::Execute, Evidence::Bot {
+            launch: &launch, signed: &signed,
+        }, |_, _| panic!("unenrolled delegate reached the effect")), Err(Error::Principal));
+        let trust = scratch.path().join(WORKSPACE).join("trust.json");
+        fs::set_permissions(trust, fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(matches!(fixture.authority.inspect(), Inspection::Held { reason: Error::Unavailable }));
+    }
+
+    #[test]
+    fn gapplan_04_int_journal_v55_fresh_upgrade_and_reopen() {
+        fn assert_v55(db: &Connection) {
+            assert_eq!(schema(db), 55);
+            let versions: i64 = db.query_row("SELECT count(*) FROM fleet_policy_versions", [], |r| r.get(0)).unwrap();
+            assert_eq!(versions, 0);
+        }
+        let scratch = tempfile::tempdir().unwrap();
+        let fresh = History::open_at(&scratch.path().join("fresh")).unwrap();
+        assert_v55(&fresh.db().unwrap());
+
+        let data = scratch.path().join("upgrade");
+        fs::DirBuilder::new().mode(0o700).create(&data).unwrap();
+        let file = data.join("workspace.sqlite3");
+        OpenOptions::new().create_new(true).write(true).mode(0o600).open(&file).unwrap();
+        let mut old = history::connection(&file).unwrap();
+        for migration in &history::migrations()[..54] {
+            old.execute_batch(migration).unwrap();
+        }
+        assert_eq!(schema(&old), 54);
+        let park = parks::file(&old, "seed-park", &manifest()).unwrap();
+        bots::register(&old, &bots::Registration {
+            id: jobs_fixture::OWNER.into(),
+            name: Some("Fixture owner".into()),
+            ..Default::default()
+        }, 1).unwrap().unwrap();
+        let job = jobs_fixture::submit_fixture(&mut old, "seed-v54");
+        assert_eq!(jobs_fixture::dispatch(&mut old, &job), jobs::Dispatch::Recorded);
+        let event = jobs::finish(&mut old, &job.id, jobs_fixture::ATTEMPT, &jobs_fixture::success()).unwrap();
+        let outbox: i64 = old.query_row(
+            "INSERT INTO bot_outbox(bot,text,cause,created_ms,give_up_ms)
+             VALUES (?1,'Fixture completion','outcome',1,2) RETURNING id",
+            [jobs_fixture::OWNER],
+            |row| row.get(0),
+        ).unwrap();
+        old.execute(
+            "INSERT INTO job_deliveries(job_id,attempt,outbox,state,blocker)
+             VALUES (?1,?2,?3,'uncertain','fixture blocker')",
+            params![job.id, jobs_fixture::ATTEMPT, outbox],
+        ).unwrap();
+        drop(old);
+
+        // Exercise the same bounded lock-contention retry used by the crash fixtures.
+        let lock = OpenOptions::new().create_new(true).write(true).mode(0o600)
+            .open(data.join("workspace.lock")).unwrap();
+        lock.lock().unwrap();
+        assert!(History::open_at(&data).is_err());
+        let release = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(40));
+            drop(lock);
+        });
+        for _ in 0..3 {
+            let reopened = reopen_journal(&data);
+            let db = reopened.db().unwrap();
+            assert_v55(&db);
+            assert!(matches!(parks::status(&db, &park).unwrap(), View::Status(State::Pending)));
+            let existing = jobs::status(&db, &job.id).unwrap().unwrap().completion.unwrap();
+            assert_eq!(existing.owner_bot_id, event.owner_bot_id);
+            assert_eq!(existing.exit.result.unwrap().reference, "fixture-result");
+            let delivery: (i64, String) = db.query_row(
+                "SELECT outbox,blocker FROM job_deliveries WHERE job_id=?1 AND state='uncertain'",
+                [&job.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).unwrap();
+            assert_eq!(delivery, (outbox, "fixture blocker".into()));
+        }
+        release.join().unwrap();
     }
 }

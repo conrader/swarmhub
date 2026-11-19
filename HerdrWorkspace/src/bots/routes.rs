@@ -35,6 +35,7 @@ pub(crate) fn routes() -> Router<Workspace> {
         .route("/api/bots", get(list).post(sync))
         .route("/api/bots/settings", get(settings).post(set_settings))
         .route("/api/bots/history", get(history))
+        .route("/api/bots/fleet-policy", get(fleet_policy))
         .route("/api/bots/events", get(events))
         .route("/api/bots/{id}", post(update))
         .route("/api/bots/{id}/remove", post(remove))
@@ -117,6 +118,18 @@ async fn list(State(w): State<Workspace>) -> Response {
         let db = w.history.db().map_err(storage)?;
         Ok(Json(directory(&db).map_err(storage)?).into_response())
     })())
+}
+
+async fn fleet_policy(State(w): State<Workspace>) -> Response {
+    use crate::fleet_policy::Inspection;
+
+    let Some(store) = w.fleet_policy else {
+        return Json(Inspection::Unconfigured).into_response();
+    };
+    answered(tokio::task::spawn_blocking(move || store.inspect())
+        .await
+        .map(|view| Json(view).into_response())
+        .map_err(storage))
 }
 
 /// Saves a bot and ends what the change ends.

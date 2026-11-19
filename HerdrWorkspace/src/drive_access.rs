@@ -575,6 +575,7 @@ mod tests {
         let w = Workspace {
             core: Core(core_path),
             history,
+            fleet_policy: None,
             approvals: Default::default(),
             drafts: Default::default(),
             connected_files: None,

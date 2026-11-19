@@ -13,6 +13,7 @@ mod drive_files;
 mod drive_oauth;
 mod email_drafts;
 mod events;
+mod fleet_policy;
 #[cfg(test)]
 mod fleet_tests;
 mod file_preview;
@@ -84,6 +85,7 @@ use std::{net::Ipv4Addr, path::PathBuf};
 struct Workspace {
     core: Core,
     history: History,
+    fleet_policy: Option<fleet_policy::Authority>,
     approvals: approvals::Desk,
     drafts: live_reply::Drafts,
     connected_files: Option<webdav::Folder>,
@@ -199,6 +201,23 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     let history = History::open()?;
+    let fleet_policy = match fleet_policy::Authority::configured(fleet_policy::Role::Bridge) {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!("SwarmHub fleet authority held: {error}");
+            None
+        }
+    };
+    if let Some(store) = &fleet_policy {
+        match history.db() {
+            Ok(mut db) => {
+                if let Err(error) = store.audit(&mut db) {
+                    eprintln!("SwarmHub fleet policy audit unavailable: {error}");
+                }
+            }
+            Err(_) => eprintln!("SwarmHub fleet policy audit could not open the journal."),
+        }
+    }
     let vault = vault::Vault::configured(history.file())?;
     let workspace = Workspace {
         core: Core(socket),
@@ -208,6 +227,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         github_project: github_project::Project::configured(&history, vault.as_ref())?,
         slack: slack_events::Signing::configured(&history, vault.as_ref())?,
         history,
+        fleet_policy,
         approvals: approvals::Desk::default(),
         drafts: live_reply::Drafts::default(),
         vault,
