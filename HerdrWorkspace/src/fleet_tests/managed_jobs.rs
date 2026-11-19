@@ -798,4 +798,61 @@ async fn gapplan_13_int_denied_lineage_can_be_abandoned_and_owner_change_can_pro
     assert_eq!(git.head(), manifest.precondition);
 }
 
+#[tokio::test]
+async fn gapplan_14_int_operator_can_close_a_lineage_without_its_owner() {
+    use super::job_delivery::{AUTH, ORIGIN, TestApi};
+    use crate::{
+        fleet_policy::{principals::{Principal, Purpose, Target}, tests::{WORKSPACE, envelope}},
+        parks::{self, GitFixture},
+    };
+    use reqwest::StatusCode;
+
+    let f = Fixture::new(Provider::Codex, "review-evidence");
+    let git = GitFixture::new(f.temp.path());
+    let mut manifest = staging_manifest(&f, &git);
+    let author = review_artifact("author", &manifest);
+    let lineage = completed_review_job(&f, "operator-close-lineage", Provider::Codex, author.clone()).await;
+    record_completed(&f, &lineage).await.unwrap();
+    manifest.review_ref = lineage.clone();
+    let park = parks::file(&f.bridge.history.db().unwrap(), "operator-close-park", &manifest).unwrap();
+    let next = completed_review_job(&f, "after-close", Provider::Codex, author).await;
+    let db = f.bridge.history.db().unwrap();
+    db.execute("UPDATE bots SET noted_launch=NULL WHERE id=?1", [OWNER]).unwrap();
+    db.execute("UPDATE parks SET state='reconciliation' WHERE id=?1", [&park.id]).unwrap();
+    drop(db);
+
+    let reason = "Project direction changed";
+    let signed = f.worker.inputs.signing().sign_decision(envelope(
+        WORKSPACE, Principal::Operator, Purpose::AbandonReview, Target::ReviewClosure {
+            lineage: lineage.clone(), policy: f.worker.inputs.reference.clone(), reason: reason.into(),
+        }, "operator-close-lineage",
+    ));
+    let api = TestApi::start(f.temp.path(), &f.bridge);
+    let submit = |decision: Value| api.client.post(format!("{ORIGIN}/api/job-reviews/abandon"))
+        .header("Origin", ORIGIN).bearer_auth(AUTH).header("Content-Type", "application/json")
+        .body(decision.to_string());
+    assert_eq!(submit(json!(signed)).send().await.unwrap().status(), StatusCode::CONFLICT);
+    f.bridge.history.db().unwrap().execute(
+        "UPDATE parks SET state='denied' WHERE id=?1", [&park.id],
+    ).unwrap();
+    let mut tampered = json!(signed);
+    tampered["envelope"]["target"]["reason"] = json!("Edited after signing");
+    assert_eq!(submit(tampered).send().await.unwrap().status(), StatusCode::FORBIDDEN);
+    for _ in 0..2 {
+        assert_eq!(submit(json!(signed)).send().await.unwrap().status(), StatusCode::OK);
+    }
+    {
+        let db = f.bridge.history.db().unwrap();
+        let (launch, stored): (String, String) = db.query_row(
+            "SELECT launch,operator_decision FROM job_review_closures WHERE lineage=?1",
+            [&lineage], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(launch, "operator");
+        assert_eq!(serde_json::from_str::<Value>(&stored).unwrap(), json!(signed));
+        assert_eq!(parks::status(&db, &park).unwrap(), parks::View::Status(parks::State::Denied));
+    }
+    bots::noted(&f.bridge.history, OWNER, key(&f.owner)).unwrap();
+    record_completed(&f, &next).await.unwrap();
+}
+
 mod workload_grants;

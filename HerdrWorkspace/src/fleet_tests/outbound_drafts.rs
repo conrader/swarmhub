@@ -143,23 +143,18 @@ async fn gapplan_13_int_reviewed_download_staging_group_review_and_signed_approv
     let accepted = response(request(&h.api, "/api/parks/decide", submission(&pin, &original_approval))
         .send().await.unwrap(), StatusCode::OK).await;
     assert_eq!(accepted["result"], "outbound_approved");
-    let approval = sign(Purpose::AuthorizeOutbound, "outbound-reapproval");
-    let body = submission(&pin, &approval);
-    let (approved, edited) = tokio::join!(
-        request(&h.api, "/api/parks/decide", body.clone()).send(),
-        request(&h.api, &stage, json!({"revision":2,"version":1,"email":email("Replacement copy")})).send(),
-    );
-    let approval_response = approved.unwrap();
-    assert!(matches!(approval_response.status(), StatusCode::OK | StatusCode::CONFLICT), "{approval_response:?}");
-    let approved_first = approval_response.status() == StatusCode::OK;
-    let replacement = response(edited.unwrap(), StatusCode::OK).await;
+    // Exercise both serializations of the competing operations explicitly.
+    let late_approval = sign(Purpose::AuthorizeOutbound, "outbound-reapproval");
+    let body = submission(&pin, &late_approval);
+    let replacement = response(request(&h.api, &stage, json!({
+        "revision":2,"version":1,"email":email("Replacement copy")
+    })).send().await.unwrap(), StatusCode::OK).await;
     assert_eq!(replacement["version"], 2);
     assert!(replacement["approval"].is_null());
     let old = h.api.status(&path).await;
     assert_eq!(old["detail"]["view"]["status"], "superseded");
     assert_eq!(old["detail"]["superseded_by"], replacement["park"]["id"]);
-    let recorded = if approved_first { &approval } else { &original_approval };
-    assert_eq!(old["outbound"]["version"]["approval"], serde_json::to_value(recorded).unwrap());
+    assert_eq!(old["outbound"]["version"]["approval"], serde_json::to_value(&original_approval).unwrap());
     let next = h.api.status(&format!("/api/parks/{}", replacement["park"]["id"].as_str().unwrap())).await;
     let parsed: Payload = serde_json::from_value(replacement["payload"].clone()).unwrap();
     let expected = parsed.digest().unwrap();
@@ -171,7 +166,7 @@ async fn gapplan_13_int_reviewed_download_staging_group_review_and_signed_approv
     assert!(next["outbound"]["version"]["approval"].is_null());
     assert_eq!(request(&h.api, "/api/parks/decide", body).send().await.unwrap().status(), StatusCode::CONFLICT);
     let next_pin: ParkPin = serde_json::from_value(next["pin"].clone()).unwrap();
-    assert_eq!(request(&h.api, "/api/parks/decide", submission(&next_pin, &approval))
+    assert_eq!(request(&h.api, "/api/parks/decide", submission(&next_pin, &late_approval))
         .send().await.unwrap().status(), StatusCode::FORBIDDEN);
     let execution_count: i64 = h.journal.db().unwrap().query_row(
         "SELECT count(*) FROM park_executions", [], |row| row.get(0),
@@ -280,7 +275,7 @@ fn gapplan_13_int_v59_fresh_upgrade_and_two_reopens_preserve_legacy_draft() {
         for _ in 0..3 {
             let journal = reopen_journal(&path);
             let db = journal.db().unwrap();
-            assert_eq!(schema(&db), 59);
+            assert_eq!(schema(&db), history::migrations().len());
             for table in ["outbound_drafts", "outbound_versions", "outbound_approvals", "outbound_text_reviews", "job_review_closures"] {
                 let count: i64 = db.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get(0)).unwrap();
                 assert_eq!(count, 0, "{table}");

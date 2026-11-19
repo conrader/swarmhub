@@ -46,6 +46,7 @@ test("the email editor stages every field, then opens the immutable signed appro
   };
   const park = {id: decision.envelope.target.park.id, manifest_digest: decision.envelope.target.park.manifest_digest};
   let approved = false;
+  let reopened;
   const calls = [];
   const browser = {
     TextEncoder,
@@ -66,7 +67,8 @@ test("the email editor stages every field, then opens the immutable signed appro
     async api(path, body) {
       calls.push(path);
       if (path === draft) return {
-        state: "reviewed", revision: 2, draft: {to: "reviewer@example.test", subject: "Draft", body: payload.body},
+        state: "reviewed", revision: 2, staged: reopened,
+        draft: {to: "reviewer@example.test", subject: "Draft", body: payload.body},
       };
       const version = {version: 1, park, in_flight: [], payload, state: "pending", approval: approved ? decision : null};
       if (path === draft + "/stage") {
@@ -110,4 +112,16 @@ test("the email editor stages every field, then opens the immutable signed appro
   assert.equal(get("approval-notice").textContent, "Signed decision recorded. Sending is disabled.");
   assert.equal(JSON.parse(preview.textContent).outbound.sending_enabled, false);
   assert.deepEqual(calls, [draft, draft + "/stage", parked, "/api/parks/decide", parked]);
+
+  reopened = {version: 2, park, payload, state: "pending", approval: decision,
+    approval_revoked: true, receipt: {status: "reconciliation"},
+    in_flight: [{version: 1, park: park.id, state: "verified", receipt: {
+      status: "accepted", provider_id: "fixture-message-1",
+    }}],
+  };
+  await browser.window.workspaceEmailDrafts.open(draft);
+  assert.match(get("email-draft-status").textContent, /Approval revoked/);
+  assert.match(get("email-draft-receipt").textContent, /Delivery uncertain/);
+  assert.equal(get("email-draft-inflight").children[0].children[0].textContent,
+    "Open revision 1 · Provider accepted · Receipt fixture-message-1");
 });

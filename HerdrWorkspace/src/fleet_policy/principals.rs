@@ -28,6 +28,7 @@ pub(crate) enum Purpose {
     Execute,
     AuthorizeWorkload,
     AuthorizeOutbound,
+    AbandonReview,
     AutoExecute,
     Supersede,
     Release,
@@ -52,6 +53,11 @@ pub(crate) enum Target {
     Park {
         park: ParkPin,
         policy: PolicyRef,
+    },
+    ReviewClosure {
+        lineage: String,
+        policy: PolicyRef,
+        reason: String,
     },
     Supersession {
         park: ParkPin,
@@ -86,6 +92,8 @@ impl Envelope {
                 if policy.valid() => {}
             (Principal::Operator, Purpose::Execute | Purpose::AuthorizeWorkload | Purpose::AuthorizeOutbound | Purpose::Hold | Purpose::Release | Purpose::Deny, Target::Park { park, policy })
                 if park.valid() && policy.valid() => {}
+            (Principal::Operator, Purpose::AbandonReview, Target::ReviewClosure { lineage, policy, reason })
+                if identifier(lineage) && policy.valid() && text(reason) && reason.trim() == reason => {}
             (Principal::Operator, Purpose::Supersede, Target::Supersession { park, policy, replacement })
                 if park.valid() && policy.valid() && replacement.valid() && park.id != replacement.id => {}
             (Principal::Bot { id, launch }, Purpose::Execute | Purpose::AutoExecute, Target::Park { park, policy })

@@ -2,10 +2,11 @@
 use crate::{
     Workspace, history, jobs,
     fleet_policy::{Authority, Policy, PolicyRef, ReviewPermission, Rule, principals},
-    parks::{Manifest, STAGING_ACTION},
+    parks::{self, Manifest, STAGING_ACTION},
     projects,
     runtimes::{self, ModelAgent},
 };
+use axum::{Json, Router, extract::State, routing::post};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -249,7 +250,10 @@ fn closed(db: &Connection, scope: &Scope<'_>, include_verified: bool) -> rusqlit
     db.query_row(&query, params![scope.lineage, scope.owner, scope.project, STAGING_ACTION, include_verified], |row| row.get(0))
 }
 
-fn abandon(tx: &Transaction<'_>, owner: &str, launch: &str, lineage: &str, reason: &str) -> Result<()> {
+fn abandon(
+    tx: &Transaction<'_>, owner: &str, launch: &str, lineage: &str, reason: &str,
+    operator_decision: Option<&principals::Signed>,
+) -> Result<()> {
     let reason = reason.trim();
     if reason.is_empty() || reason.len() > 512 || reason.chars().any(char::is_control) {
         return Err("Give a one-line reason for abandoning the review lineage.".into());
@@ -271,9 +275,36 @@ fn abandon(tx: &Transaction<'_>, owner: &str, launch: &str, lineage: &str, reaso
     if blocked || closed(tx, &scope, true)? {
         return Err("A verified or unsettled execution prevents abandoning this lineage.".into());
     }
-    tx.execute("INSERT INTO job_review_closures VALUES(?1,?2,?3,?4,?5)",
-        params![lineage, owner, launch, reason, history::now()])?;
+    let proof = operator_decision.map(serde_json::to_string).transpose()?;
+    tx.execute(
+        "INSERT INTO job_review_closures(lineage,owner_bot_id,launch,reason,closed_ms,operator_decision)
+         VALUES(?1,?2,?3,?4,?5,?6)",
+        params![lineage, owner, launch, reason, history::now(), proof],
+    )?;
     Ok(())
+}
+
+pub(crate) fn routes() -> Router<Workspace> {
+    Router::new().route("/api/job-reviews/abandon", post(abandon_by_operator))
+}
+
+async fn abandon_by_operator(
+    State(w): State<Workspace>, Json(signed): Json<principals::Signed>,
+) -> std::result::Result<Json<serde_json::Value>, parks::Error> {
+    tokio::task::spawn_blocking(move || {
+        let authority = w.fleet_policy.as_ref().map_err(Clone::clone)?.as_ref()
+            .ok_or(crate::fleet_policy::Error::Unavailable)?;
+        let mut db = history::connection(w.history.file())?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let result = authority.with_review_closure(&tx, &signed, |lineage, reason| {
+            let owner: String = tx.query_row("SELECT owner_bot_id FROM job_review_lineages WHERE id=?1",
+                [lineage], |row| row.get(0)).optional()?.ok_or(parks::Error::Missing)?;
+            abandon(&tx, &owner, "operator", lineage, reason, Some(&signed)).map_err(|_| parks::Error::Conflict)?;
+            Ok(serde_json::json!({ "status": "abandoned", "lineage": lineage }))
+        })?;
+        tx.commit()?;
+        Ok(Json(result))
+    }).await.map_err(|_| parks::Error::Store(history::StoreError))?
 }
 
 fn closure(db: &Connection, lineage: &str) -> rusqlite::Result<Option<(String, i64)>> {
@@ -559,7 +590,7 @@ fn answer_verified(
                 if !crate::helpers::policy::job_owner(&tx, core, launch, false)?.is_some_and(|bot| bot.id == owner) {
                     return Err("Use the current registered owner session.".into());
                 }
-                abandon(&tx, owner, launch, lineage, reason)?;
+                abandon(&tx, owner, launch, lineage, reason, None)?;
                 tx.commit()?;
                 Ok(serde_json::json!({ "status": "abandoned", "lineage": lineage }).to_string())
             };

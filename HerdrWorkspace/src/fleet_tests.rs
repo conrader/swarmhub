@@ -1826,3 +1826,5 @@ fn gapplan_11_int_killed_during_rollback_preserves_intent_without_replay() {
 }
 
 mod outbound_drafts;
+#[path = "fleet_tests/outbound_delivery.rs"]
+mod outbound_delivery;

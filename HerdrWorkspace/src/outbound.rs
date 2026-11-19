@@ -1,4 +1,9 @@
-//! Stages complete plain-text outbound payloads and records operator consent.
+//! Immutable outbound drafts, operator consent and provider receipts.
+mod delivery;
+pub(crate) mod gmail;
+pub(crate) use delivery::{Executor, Receipt, Reservation, reserve, submit};
+#[cfg(test)]
+pub(crate) use delivery::Adapter;
 use crate::{
     Workspace, core::Failure,
     email_drafts::{control, mailbox},
@@ -63,7 +68,7 @@ fn token(value: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
 }
 
-fn message_id(value: &str) -> bool {
+pub(crate) fn message_id(value: &str) -> bool {
     value.strip_prefix('<').and_then(|v| v.strip_suffix('>')).is_some_and(mailbox)
 }
 
@@ -138,6 +143,10 @@ pub(crate) struct Version {
     pub park: ParkRef,
     pub state: State,
     pub approval: Option<Signed>,
+    pub approval_revoked: bool,
+    #[serde(skip)]
+    approval_id: Option<i64>,
+    pub receipt: Option<Receipt>,
     pub in_flight: Vec<Flight>,
 }
 
@@ -146,6 +155,8 @@ pub(crate) struct Flight {
     version: i64,
     park: String,
     state: State,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    receipt: Option<Receipt>,
 }
 
 #[derive(Serialize)]
@@ -162,6 +173,11 @@ pub(crate) fn latest_legacy(db: &Connection, message: i64) -> Result<Option<Vers
     draft.map(|id| latest(db, &id)).transpose().map(Option::flatten)
 }
 
+fn is_latest(db: &Connection, version: &Version) -> rusqlite::Result<bool> {
+    db.query_row("SELECT max(version)=?2 FROM outbound_versions WHERE draft_id=?1",
+        params![version.draft_id, version.version], |row| row.get(0))
+}
+
 fn latest(db: &Connection, id: &str) -> Result<Option<Version>, parks::Error> {
     let park = db.query_row(
         "SELECT park_id FROM outbound_versions WHERE draft_id=?1 ORDER BY version DESC LIMIT 1",
@@ -173,12 +189,16 @@ fn latest(db: &Connection, id: &str) -> Result<Option<Version>, parks::Error> {
 pub(crate) fn for_park(db: &Connection, id: &str) -> Result<Option<Version>, parks::Error> {
     let row = db.query_row(
         "SELECT v.draft_id,v.version,v.payload,v.payload_digest,p.manifest_digest,p.state,
-                (SELECT a.signed FROM outbound_approvals a WHERE a.park_id=p.id ORDER BY a.id DESC LIMIT 1)
-         FROM outbound_versions v JOIN parks p ON p.id=v.park_id WHERE v.park_id=?1",
+                a.signed,a.id,r.approval_id IS NOT NULL
+         FROM outbound_versions v JOIN parks p ON p.id=v.park_id
+         LEFT JOIN outbound_approvals a ON a.id=(
+             SELECT id FROM outbound_approvals WHERE park_id=p.id ORDER BY id DESC LIMIT 1)
+         LEFT JOIN outbound_approval_revocations r ON r.approval_id=a.id
+         WHERE v.park_id=?1",
         [id], |row| Ok((row.get::<_, String>(0)?, row.get(1)?, row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?, row.get(4)?, row.get(5)?, row.get::<_, Option<String>>(6)?)),
+            row.get::<_, String>(3)?, row.get(4)?, row.get(5)?, row.get::<_, Option<String>>(6)?, row.get(7)?, row.get(8)?)),
     ).optional()?;
-    let Some((draft_id, version, encoded, payload_digest, manifest_digest, state, approval)) = row else {
+    let Some((draft_id, version, encoded, payload_digest, manifest_digest, state, approval, approval_id, approval_revoked)) = row else {
         return Ok(None);
     };
     let payload: Payload = serde_json::from_str(&encoded).map_err(|_| StoreError)?;
@@ -195,13 +215,20 @@ pub(crate) fn for_park(db: &Connection, id: &str) -> Result<Option<Version>, par
     let approval = approval.map(|signed| serde_json::from_str(&signed)).transpose().map_err(|_| StoreError)?;
     let mut stmt = db.prepare(
         "SELECT v.version,p.id,p.state FROM outbound_versions v JOIN parks p ON p.id=v.park_id
-         WHERE v.draft_id=?1 AND v.version!=?2 AND p.state IN ('executing','reconciliation')
+         WHERE v.draft_id=?1 AND v.version!=?2
+           AND (p.state IN ('executing','reconciliation')
+                OR EXISTS (SELECT 1 FROM outbound_receipts WHERE park_id=p.id))
          ORDER BY v.version",
     )?;
-    let in_flight = stmt.query_map(params![draft_id, version], |row| Ok(Flight {
-        version: row.get(0)?, park: row.get(1)?, state: row.get(2)?,
-    }))?.collect::<Result<_, _>>()?;
-    Ok(Some(Version { draft_id, version, payload, payload_digest, park, state, approval, in_flight }))
+    let mut in_flight = stmt.query_map(params![draft_id, version], |row| Ok(Flight {
+        version: row.get(0)?, park: row.get(1)?, state: row.get(2)?, receipt: None,
+    }))?.collect::<Result<Vec<_>, _>>()?;
+    for entry in &mut in_flight {
+        entry.receipt = delivery::receipt_for(db, &entry.park)?;
+    }
+    let receipt = delivery::receipt_for(db, &park.id)?;
+    Ok(Some(Version { draft_id, version, payload, payload_digest, park, state, approval,
+        approval_revoked, approval_id, receipt, in_flight }))
 }
 
 pub(crate) fn stage_legacy(
@@ -220,7 +247,8 @@ fn stage(
     }
     let payload = payload.normalize().map_err(|_| parks::Error::InvalidManifest)?;
     if let Some(previous) = &previous
-        && previous.payload == payload && matches!(previous.state, State::Pending | State::Held)
+        && previous.payload == payload && matches!(previous.state,
+            State::Pending | State::Held | State::Executing | State::Reconciliation | State::Verified)
     {
         return for_park(tx, &previous.park.id)?.ok_or(parks::Error::Missing);
     }
@@ -259,13 +287,11 @@ pub(crate) fn authorize(tx: &Transaction<'_>, park: &ParkRef, verified: &Verifie
         return Err(fleet_policy::Error::HumanScope.into());
     }
     let version = for_park(tx, &park.id)?.ok_or(parks::Error::InvalidDecision)?;
-    if version.park != *park || version.state != State::Pending
-        || latest(tx, &version.draft_id)?.map(|row| row.version) != Some(version.version)
-    {
+    if version.park != *park || !is_latest(tx, &version)? || !delivery::claimable(tx, &version)? {
         return Err(parks::Error::Conflict);
     }
     if version.approval.as_ref() == Some(&verified.signed) {
-        return Ok(());
+        return if version.approval_revoked { Err(fleet_policy::Error::Replay.into()) } else { Ok(()) };
     }
     let signed = serde_json::to_string(&verified.signed).map_err(|_| StoreError)?;
     verified.audit(tx)?;
@@ -285,7 +311,7 @@ pub(crate) fn attach_review(
     tx: &Transaction<'_>, group: i64, answer: i64, park: &str,
 ) -> Result<(), parks::Error> {
     let draft = for_park(tx, park)?.ok_or(parks::Error::Missing)?;
-    if draft.state != State::Pending || latest(tx, &draft.draft_id)?.map(|row| row.version) != Some(draft.version) {
+    if draft.state != State::Pending || !is_latest(tx, &draft)? {
         return Err(parks::Error::Conflict);
     }
     let (question, text, form, response): (i64, String, String, String) = tx.query_row(
@@ -341,7 +367,9 @@ struct Stage {
 }
 
 pub(crate) fn routes() -> Router<Workspace> {
-    Router::new().route("/api/outbound/stage", post(stage_generic).layer(DefaultBodyLimit::max(160 * 1024)))
+    Router::new()
+        .route("/api/outbound/stage", post(stage_generic).layer(DefaultBodyLimit::max(160 * 1024)))
+        .route("/api/outbound/reconcile", post(reconcile))
 }
 
 async fn stage_generic(
@@ -367,6 +395,16 @@ async fn stage_generic(
     let version = stage(&tx, previous, input.version, WORKSPACE_OWNER, &input.project, None, input.payload)?;
     tx.commit()?;
     Ok(Json(version))
+}
+
+async fn reconcile(
+    AxumState(w): AxumState<Workspace>, Json(park): Json<ParkRef>,
+) -> Result<Json<Receipt>, parks::Error> {
+    tokio::task::spawn_blocking(move || {
+        let executor = w.parks.outbound_executor().ok_or(parks::Error::Blocked(parks::Blocker::OutboundDisabled))?;
+        let mut db = history::connection(w.history.file())?;
+        delivery::reconcile(&mut db, &park, executor).map(Json)
+    }).await.map_err(|_| parks::Error::Store(StoreError))?
 }
 
 #[cfg(test)]

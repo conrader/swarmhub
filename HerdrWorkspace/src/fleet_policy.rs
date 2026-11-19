@@ -555,6 +555,29 @@ impl Authority {
         })
     }
 
+    pub(crate) fn with_review_closure<T>(
+        &self, db: &Connection, signed: &Signed,
+        close: impl FnOnce(&str, &str) -> Result<T, parks::Error>,
+    ) -> Result<T, parks::Error> {
+        self.with_snapshot(|snapshot| {
+            let (reference, published) = snapshot.current()?;
+            let workspace = &snapshot.trust.workspace;
+            signed.verify(&snapshot.trust.operator_key, workspace, history::now())?;
+            let Target::ReviewClosure { lineage, policy, reason } = &signed.envelope.target else {
+                return Err(Error::Binding);
+            };
+            if signed.envelope.principal != Principal::Operator || signed.envelope.purpose != Purpose::AbandonReview {
+                return Err(Error::Binding);
+            }
+            if policy != &reference {
+                return Err(Error::StalePolicy);
+            }
+            let publication = serde_json::to_string(&published.publication).map_err(|_| Error::Invalid)?;
+            audit_version(db, workspace, &reference, published.published_ms, &publication)?;
+            Ok(close(lineage, reason))
+        })?
+    }
+
     /// Copy the protected current generation and the dependent evidence in one transaction.
     pub(crate) fn with_audited_policy<T>(
         &self,

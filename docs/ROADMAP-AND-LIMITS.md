@@ -65,3 +65,9 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 
 - There is no iPhone app. A phone cannot reach the bridge today: it answers only on the machine it runs on. `Apps/iOS-seed` keeps starting material for one ([README](../Apps/iOS-seed/README.md)).
 - There is no Windows, Linux or Android app. The bridge's browser workspace runs wherever a browser can reach it.
+
+
+## Outbound delivery
+
+- Real Gmail, Slack and WhatsApp delivery stays off. The Gmail fixture exercises the send and Sent lookup contracts over a local executor channel. Email can be downloaded as an `.eml` for manual delivery.
+- Real enablement requires an authorized sender, both send and Sent lookup capabilities, operator-approved credential provisioning and verification against the chosen provider. P0-07 also needs isolated OS accounts for the worker and executor. A production Vault executor, a bridge-signed grant verified by the worker over an authenticated channel and real Core stdin execution remain open.

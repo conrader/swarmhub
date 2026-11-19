@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    Workspace, bots, job_reviews,
+    Workspace, bots, job_reviews, outbound,
     fleet_policy::{
         self, Authority, Evidence, Verified,
         principals::{Actor, Purpose, Signed},
@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Default)]
 pub(crate) struct Service {
     project: Option<staging_ref::Project>,
+    outbound: Option<outbound::Executor>,
     unsettled: Arc<Mutex<Vec<Unsettled>>>,
     #[cfg(test)]
     legacy_fixture_review: bool,
@@ -153,6 +154,7 @@ enum DecisionResult {
     Held { reason: Blocker },
     Superseded { replacement: ParkRef },
     OutboundApproved,
+    OutboundDelivery { receipt: outbound::Receipt },
 }
 
 impl From<View> for DecisionResult {
@@ -200,7 +202,7 @@ impl Recorded {
                 Purpose::Release => "release",
                 Purpose::Deny => "deny",
                 Purpose::Supersede => "supersede",
-                Purpose::PublishPolicy | Purpose::AuthorizeWorkload | Purpose::AuthorizeOutbound => return Err(Error::InvalidDecision),
+                Purpose::PublishPolicy | Purpose::AuthorizeWorkload | Purpose::AuthorizeOutbound | Purpose::AbandonReview => return Err(Error::InvalidDecision),
             },
             nonce_digest: &nonce_digest,
             rule: verified.rule_id.as_deref(),
@@ -243,6 +245,7 @@ struct Unsettled {
 enum Reservation {
     Finished(DecisionResult),
     Claimed { attempt: String, recorded: Recorded, review: Option<job_reviews::Accepted> },
+    OutboundClaimed,
 }
 
 impl Service {
@@ -254,6 +257,15 @@ impl Service {
     #[cfg(test)]
     pub(crate) fn fixture_with_prevalidated_review(git_dir: &std::path::Path, reviewed: Manifest) -> Self {
         Self { legacy_fixture_review: true, ..Self::fixture(git_dir, reviewed) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_outbound_fixture(self, executor: outbound::Executor) -> Self {
+        Self { outbound: Some(executor), ..self }
+    }
+
+    pub(crate) fn outbound_executor(&self) -> Option<&outbound::Executor> {
+        self.outbound.as_ref()
     }
 
     fn reviewed(&self, _manifest: &Manifest, review: Option<&job_reviews::Accepted>) -> bool {
@@ -305,7 +317,7 @@ impl Service {
             {
                 Some(pin_for(&next.id, &next.manifest)?)
             }
-            (Purpose::Supersede | Purpose::PublishPolicy | Purpose::AuthorizeWorkload, _) | (_, Some(_)) =>
+            (Purpose::Supersede | Purpose::PublishPolicy | Purpose::AuthorizeWorkload | Purpose::AbandonReview, _) | (_, Some(_)) =>
                 return Err(Error::InvalidDecision),
             _ => None,
         };
@@ -335,7 +347,31 @@ impl Service {
                         if verified.actor != Actor::Operator {
                             return Err(fleet_policy::Error::HumanScope.into());
                         }
-                        return Ok(Reservation::Finished(DecisionResult::Held { reason: Blocker::OutboundDisabled }));
+                        let Some(executor) = self.outbound_executor() else {
+                            return Ok(Reservation::Finished(DecisionResult::Held { reason: Blocker::OutboundDisabled }));
+                        };
+                        let result = outbound::reserve(tx, park, authority, executor, |retry| {
+                            let classification = classify(&manifest, false);
+                            let recorded = Recorded::new(tx, &verified, purpose, &classification, None)?;
+                            if !retry {
+                                return claim(tx, park, recorded.decision(), Some(&recorded.audit));
+                            }
+                            if tx.execute("UPDATE parks SET state='executing' WHERE id=?1 AND state='failed'",
+                                [&park.id])? != 1
+                            {
+                                return Err(Error::Conflict);
+                            }
+                            record_decision(tx, park, "claim", recorded.decision(), Some(&recorded.audit))?;
+                            Ok(tx.query_row("SELECT attempt FROM park_executions WHERE park_id=?1",
+                                [&park.id], |row| row.get(0))?)
+                        });
+                        return match result {
+                            Ok(outbound::Reservation::Claimed) => Ok(Reservation::OutboundClaimed),
+                            Ok(outbound::Reservation::Existing(receipt)) =>
+                                Ok(Reservation::Finished(DecisionResult::OutboundDelivery { receipt })),
+                            Err(Error::Blocked(reason)) => Ok(Reservation::Finished(DecisionResult::Held { reason })),
+                            Err(error) => Err(error),
+                        };
                     }
                 }
                 let view = status(tx, park)?;
@@ -376,15 +412,21 @@ impl Service {
                 Ok(Reservation::Claimed { attempt, recorded, review })
             })??;
         tx.commit()?;
-        let (attempt, mut recorded, review) = match reserved {
-            Reservation::Claimed { attempt, recorded, review } => (attempt, recorded, review),
-            Reservation::Finished(result) => return Ok(result),
-        };
-
         #[cfg(test)]
-        if let Some(after_claim) = &self.after_claim {
+        if !matches!(&reserved, Reservation::Finished(_))
+            && let Some(after_claim) = &self.after_claim
+        {
             after_claim();
         }
+        let (attempt, mut recorded, review) = match reserved {
+            Reservation::Claimed { attempt, recorded, review } => (attempt, recorded, review),
+            Reservation::OutboundClaimed => {
+                let executor = self.outbound_executor().ok_or(Error::Conflict)?;
+                let receipt = outbound::submit(db, park, authority, evidence, executor)?;
+                return Ok(DecisionResult::OutboundDelivery { receipt });
+            }
+            Reservation::Finished(result) => return Ok(result),
+        };
         let effect = authority.with_park_decision(&mut *db, park, purpose, evidence, None, |db, verified| {
             let current = job_reviews::accepted(db, &manifest, &verified.review_policy, history::now())?;
             if current != review {
@@ -660,6 +702,8 @@ impl Error {
             Self::InvalidDecision => "The park decision is invalid.".into(),
             Self::Missing => "The park was not found.".into(),
             Self::Authority(error) => error.to_string(),
+            Self::Blocked(Blocker::OutboundDisabled) => "Outbound sending is disabled.".into(),
+            Self::Blocked(Blocker::OutboundSender) => "The configured account cannot send and look up this sender.".into(),
             Self::Blocked(_) => "The staging project or its pins could not be verified.".into(),
         }
     }

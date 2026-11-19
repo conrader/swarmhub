@@ -9,3 +9,6 @@ pub(super) fn reserved_name(name: &str) -> bool {
 mod fixture;
 #[cfg(test)]
 pub(crate) use fixture::*;
+
+#[cfg(test)]
+pub(crate) mod outbound;

@@ -37,6 +37,8 @@ impl From<crate::fleet_policy::Error> for Error {
 pub(crate) enum Blocker {
     HumanReview,
     OutboundDisabled,
+    OutboundApproval,
+    OutboundSender,
     FixtureOnly,
     Pins,
     ReviewEvidence,
@@ -351,17 +353,15 @@ pub(crate) fn stage_outbound(
     }
     let id = format!("outbound-{}", manifest.revision);
     if let Some(previous) = previous
-        && matches!(status(tx, previous)?, View::Status(State::Pending | State::Held))
+        && matches!(status(tx, previous)?,
+            View::Status(State::Pending | State::Held) | View::Receipt(State::Pending | State::Held, _))
     {
-        let claimed: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM park_executions WHERE park_id=?1)",
-            [&previous.id], |row| row.get(0),
-        )?;
-        if !claimed {
-            return transition(tx, previous, Decision {
-                actor: "workspace", source: Source::Backstop, basis: "outbound draft edited in the workspace",
-            }, Change::Supersede { id: &id, manifest }, None)?.ok_or(Error::Conflict);
+        if has_execution(tx, previous)? {
+            return Err(Error::Conflict);
         }
+        return transition(tx, previous, Decision {
+            actor: "workspace", source: Source::Backstop, basis: "outbound draft edited in the workspace",
+        }, Change::Supersede { id: &id, manifest }, None)?.ok_or(Error::Conflict);
     }
     insert_park(tx, &id, manifest, None)
 }
@@ -373,18 +373,26 @@ fn transition(
     change: Change<'_>,
     audit: Option<&Audit>,
 ) -> Result<Option<ParkRef>, Error> {
+    let outbound = matches!(change, Change::Hold | Change::Release | Change::Deny)
+        && matches!(manifest_for(tx, park)?.operation, Operation::DeliverOutbound { .. });
+    let can_retry = outbound && tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM outbound_receipts WHERE park_id=?1 AND status='not_submitted')",
+        [&park.id], |row| row.get::<_, bool>(0),
+    )?;
     let (action, allowed, next) = match change {
         Change::Hold => ("hold", "pending", "held"),
-        Change::Release if matches!(decision.source, Source::Human) => ("release", "held", "pending"),
+        Change::Release if matches!(decision.source, Source::Human) =>
+            ("release", "held", if can_retry { "failed" } else { "pending" }),
         Change::Release => return Err(Error::InvalidDecision),
         Change::Deny => ("deny", "pending", "denied"),
         Change::Supersede { .. } => ("supersede", "pending", "superseded"),
     };
+    let allow_from_failed = next == "superseded" || (can_retry && matches!(action, "hold" | "deny"));
     let changed = tx.execute(
         "UPDATE parks SET state=?1 WHERE id=?2 AND manifest_digest=?3
          AND (state=?4 OR (state='held' AND ?1 IN ('denied','superseded'))
-                       OR (state='failed' AND ?1='superseded'))",
-        params![next, park.id, park.manifest_digest, allowed],
+                       OR (state='failed' AND ?5))",
+        params![next, park.id, park.manifest_digest, allowed, allow_from_failed],
     )?;
     if changed != 1 {
         return Err(Error::Conflict);
@@ -404,6 +412,13 @@ fn transition(
         None
     };
     record_decision(tx, park, action, decision, audit)?;
+    if action == "hold" && outbound {
+        tx.execute(
+            "INSERT OR IGNORE INTO outbound_approval_revocations(approval_id, hold_decision_id)
+             SELECT id,?2 FROM outbound_approvals WHERE park_id=?1",
+            params![park.id, tx.last_insert_rowid()],
+        )?;
+    }
     Ok(replacement)
 }
 
@@ -472,6 +487,11 @@ pub(crate) fn execute(
     let attempt = claim(&tx, park, decision, None)?;
     tx.commit()?;
     run(db, park, &manifest, attempt, adapter)
+}
+
+pub(crate) fn has_execution(db: &Connection, park: &ParkRef) -> rusqlite::Result<bool> {
+    db.query_row("SELECT EXISTS(SELECT 1 FROM park_executions WHERE park_id=?1)",
+        [&park.id], |row| row.get(0))
 }
 
 fn claim(

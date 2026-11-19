@@ -26,6 +26,7 @@
       <label for="email-draft-body">Message</label>
       <textarea id="email-draft-body" rows="8" maxlength="24576" required spellcheck="true"></textarea>
       <p class="subtle">Stage a revision for signed approval or download a draft for manual delivery. Sending is disabled.</p>
+      <p id="email-draft-receipt" role="status" hidden></p>
       <ul id="email-draft-inflight" hidden></ul>
       <p id="email-draft-error" class="error" role="alert" hidden></p>
       <button type="button" id="email-draft-dismiss">Dismiss draft</button>
@@ -56,6 +57,16 @@
       thread_id: thread.value.trim() || null, body: body.value};
   }
 
+  function receiptLabel(receipt) {
+    switch (receipt?.status) {
+      case "accepted": return `Provider accepted · Receipt ${receipt.provider_id}`;
+      case "submitting": return "Provider submission pending";
+      case "reconciliation": return "Delivery uncertain · Awaiting Sent-folder confirmation";
+      case "not_submitted": return "Provider submission did not occur";
+      default: return "";
+    }
+  }
+
   function showStage(staged) {
     const email = staged.payload;
     sender.value = email.sender;
@@ -75,13 +86,16 @@
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = `Open revision ${entry.version} · ${entry.state}`;
+      button.textContent = `Open revision ${entry.version} · ${receiptLabel(entry.receipt) || entry.state}`;
       button.addEventListener("click", () => openPreview(entry.park));
       item.append(button);
       return item;
     }));
     flight.hidden = !flight.children.length;
-    show("email-draft-status", `Revision ${staged.version} · ${staged.approval ? "Signed decision on file" : "Awaiting signed decision"} · ${staged.state}`);
+    const approval = staged.approval_revoked ? "Approval revoked"
+      : staged.approval ? "Signed decision on file" : "Awaiting signed decision";
+    show("email-draft-status", `Revision ${staged.version} · ${approval} · ${staged.state}`);
+    show("email-draft-receipt", receiptLabel(staged.receipt));
   }
 
   function openPreview(id) {
@@ -91,6 +105,7 @@
 
   function clear() {
     current = null;
+    show("email-draft-receipt", "");
     for (const field of fields) field.value = "";
     $("email-draft-inflight").replaceChildren();
     $("email-draft-inflight").hidden = true;

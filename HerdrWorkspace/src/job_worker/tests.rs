@@ -215,3 +215,8 @@ pub(crate) fn workload_child(
     }
     command.spawn()
 }
+
+pub(crate) fn outbound_child(input: std::os::unix::net::UnixStream) -> io::Result<std::process::Child> {
+    use std::{os::fd::OwnedFd, process::Stdio};
+    subprocess(["_outbound-executor"])?.stdin(Stdio::from(OwnedFd::from(input))).spawn()
+}

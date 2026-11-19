@@ -353,6 +353,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(desktop::routes())
         .merge(approvals::routes())
         .merge(parks::routes())
+        .merge(job_reviews::routes())
         .merge(outbound::routes())
         .merge(attention::routes())
         .merge(activity::routes())

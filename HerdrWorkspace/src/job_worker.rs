@@ -124,6 +124,13 @@ pub(crate) fn cli(args: &[OsString]) -> Result<()> {
             bridge::run(Path::new(root), verb.to_str().ok_or(USAGE)?)
         }
         #[cfg(test)]
+        Some("_outbound-executor") if args.len() == 1 => {
+            crate::vault::workload::outbound::serve(
+                UnixStream::from(io::stdin().as_fd().try_clone_to_owned()?),
+            )?;
+            Ok(())
+        }
+        #[cfg(test)]
         Some("_workload") if let [_, root, executor] = args => {
             relay_workload(Path::new(root), UnixStream::from(io::stdin().as_fd().try_clone_to_owned()?),
                 workload_socket(executor)?)?;

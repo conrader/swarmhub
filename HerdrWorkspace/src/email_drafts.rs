@@ -244,7 +244,7 @@ impl Draft {
     }
 }
 
-fn address_header(message: &mut String, label: &str, addresses: &str) {
+pub(crate) fn address_header(message: &mut String, label: &str, addresses: &str) {
     if !addresses.is_empty() {
         message.push_str(label);
         message.push_str(": ");
@@ -271,7 +271,7 @@ fn staged_eml(email: &Email) -> Vec<u8> {
     plain_eml(headers, &email.subject, &email.body)
 }
 
-fn plain_eml(mut message: String, subject: &str, body: &str) -> Vec<u8> {
+pub(crate) fn plain_eml(mut message: String, subject: &str, body: &str) -> Vec<u8> {
     message.push_str("Subject:");
     let mut remaining = subject;
     let mut first = true;
