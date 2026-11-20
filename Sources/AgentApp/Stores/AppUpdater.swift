@@ -41,6 +41,7 @@ import Sparkle
     @Published private(set) var problem: String?
     private var controller: SPUStandardUpdaterController?
     private var events: UpdaterEvents?
+    private var pendingManualCheck: AnyCancellable?
 
     init(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment, arguments: [String] = CommandLine.arguments) {
         unavailableReason = UpdateConfiguration.unavailableReason(bundleURL: bundle.bundleURL,
@@ -68,8 +69,18 @@ import Sparkle
 
     /// Sparkle's own window: the release notes, Install, and its progress. Also brings a found update into view.
     func checkForUpdates() {
-        guard canCheckForUpdates else { return }
-        controller?.checkForUpdates(nil)
+        guard let controller else { return }
+        if controller.updater.canCheckForUpdates {
+            pendingManualCheck = nil
+            controller.checkForUpdates(nil)
+        } else if pendingManualCheck == nil {
+            // Sparkle can briefly report ready before starting another phase of the same check.
+            pendingManualCheck = $canCheckForUpdates
+                .receive(on: DispatchQueue.main)
+                .filter { [weak controller] ready in ready && controller?.updater.canCheckForUpdates == true }
+                .first()
+                .sink { [weak self] _ in self?.checkForUpdates() }
+        }
     }
 
     /// Asks the feed without opening a window; `available`, `lastCheck` and `problem` say what came of it.

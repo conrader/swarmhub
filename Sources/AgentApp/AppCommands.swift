@@ -174,7 +174,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
 
 struct AppCommands: Commands {
     @ObservedObject var store: AppStore
-    @ObservedObject var updater: AppUpdater
+    let updater: AppUpdater
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
 
@@ -183,7 +183,8 @@ struct AppCommands: Commands {
         // About with the icon AppIconAppearance picks: the standard item shows the bundle's icon, which macOS redraws dark.
         CommandGroup(replacing: .appInfo) {
             Button("About \(AppConstants.name)") { AppIconAppearance.showAboutPanel() }
-            Button("Check for Updates…", action: updater.checkForUpdates).disabled(!updater.canCheckForUpdates)
+            // SwiftUI can keep the menu's initial state while Sparkle runs its startup check.
+            Button("Check for Updates…", action: updater.checkForUpdates).disabled(updater.unavailableReason != nil)
         }
         // Replace the default New Window binding so ⌘N creates exactly one agent.
         CommandGroup(replacing: .newItem) {
