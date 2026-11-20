@@ -17,6 +17,8 @@ use super::{
     Bot, Ctx, notes,
     rules::{About, Post, clean, entry, post, seconds},
 };
+use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
 use rusqlite::{OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +48,13 @@ pub(crate) enum Schedule {
     Once {
         at_ms: i64,
     },
+    LocalOnce {
+        date: NaiveDate,
+        hour: u8,
+        minute: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timezone: Option<Tz>,
+    },
     Interval {
         seconds: u64,
     },
@@ -54,11 +63,12 @@ pub(crate) enum Schedule {
         minute: u8,
         #[serde(default)]
         weekdays: bool,
-        timezone: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timezone: Option<Tz>,
     },
 }
 
-/// When, as an agent's command or the app says it. Clock times are in the settings' time zone.
+/// When, as an agent's command or the app says it. Clock times follow the person unless a zone is pinned.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "when", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum When {
@@ -73,6 +83,8 @@ pub(crate) enum When {
     At {
         hour: u8,
         minute: u8,
+        #[serde(default)]
+        timezone: Option<Tz>,
     },
     /// A moment.
     On {
@@ -87,29 +99,42 @@ pub(crate) enum When {
         hour: u8,
         minute: u8,
         weekdays: bool,
+        #[serde(default)]
+        timezone: Option<Tz>,
     },
 }
 
-fn daily(hour: u8, minute: u8, weekdays: bool, zone: &str) -> Option<crate::routines::Schedule> {
-    Some(crate::routines::Schedule::Daily {
-        hour,
-        minute,
-        timezone: zone.parse().ok()?,
-        weekdays,
-    })
-}
-
 impl When {
-    /// The moment it means, for a promise's "by".
-    pub(crate) fn moment(&self, ctx: &Ctx<'_>) -> Option<i64> {
-        match *self {
-            Self::In { seconds: count } => ctx.now.checked_add(seconds(count)),
-            Self::At { hour, minute } => {
-                daily(hour, minute, false, &ctx.set.timezone)?.next(ctx.now)
+    #[cfg(test)]
+    fn moment(&self, ctx: &Ctx<'_>) -> Option<i64> {
+        self.deadline(ctx)?.next(ctx.now, ctx.zone)
+    }
+
+    pub(crate) fn deadline(&self, ctx: &Ctx<'_>) -> Option<Schedule> {
+        Some(match *self {
+            Self::In { seconds: count } => Schedule::Once {
+                at_ms: ctx.now.checked_add(seconds(count))?,
+            },
+            Self::On { at_ms } => Schedule::Once { at_ms },
+            Self::At {
+                hour,
+                minute,
+                timezone,
+            } => {
+                let zone = timezone.unwrap_or(ctx.zone);
+                let at_ms = crate::routines::next_local(ctx.now, zone, hour, minute, false)?;
+                let date = DateTime::<Utc>::from_timestamp_millis(at_ms)?
+                    .with_timezone(&zone)
+                    .date_naive();
+                Schedule::LocalOnce {
+                    date,
+                    hour,
+                    minute,
+                    timezone,
+                }
             }
-            Self::On { at_ms } => Some(at_ms),
-            Self::Ci { .. } | Self::Every { .. } | Self::Daily { .. } => None,
-        }
+            _ => return None,
+        })
     }
 
     pub(crate) fn schedule(&self, ctx: &Ctx<'_>) -> Option<Schedule> {
@@ -123,30 +148,30 @@ impl When {
                 hour,
                 minute,
                 weekdays,
+                timezone,
             } => Schedule::Daily {
                 hour,
                 minute,
                 weekdays,
-                timezone: ctx.set.timezone.clone(),
+                timezone,
             },
-            _ => Schedule::Once {
-                at_ms: self.moment(ctx)?,
-            },
+            _ => return self.deadline(ctx),
         })
     }
 }
 
 impl Schedule {
     pub(crate) fn recurring(&self) -> bool {
-        !matches!(self, Self::Once { .. } | Self::Ci { .. })
+        matches!(self, Self::Daily { .. } | Self::Interval { .. })
     }
 
     /// When it fires next after `after`. `None` for a one-off whose moment has passed, and for a schedule that
     /// names no time.
-    pub(crate) fn next(&self, after: i64) -> Option<i64> {
+    pub(crate) fn next(&self, after: i64, zone: Tz) -> Option<i64> {
         match self {
             Self::Ci { .. } => Some(after),
             Self::Once { at_ms } => (*at_ms > after).then_some(*at_ms),
+            Self::LocalOnce { .. } => self.local_at(zone).filter(|at| *at > after),
             Self::Interval { seconds: count } if *count > 0 => after.checked_add(seconds(*count)),
             Self::Interval { .. } => None,
             Self::Daily {
@@ -154,7 +179,34 @@ impl Schedule {
                 minute,
                 weekdays,
                 timezone,
-            } => daily(*hour, *minute, *weekdays, timezone)?.next(after),
+            } => crate::routines::next_local(
+                after,
+                timezone.unwrap_or(zone),
+                *hour,
+                *minute,
+                *weekdays,
+            ),
+        }
+    }
+
+    fn local_at(&self, zone: Tz) -> Option<i64> {
+        let Self::LocalOnce {
+            date,
+            hour,
+            minute,
+            timezone,
+        } = *self
+        else {
+            return None;
+        };
+        crate::routines::local_on_date(date, timezone.unwrap_or(zone), hour, minute)
+    }
+
+    fn after_move(&self, at: i64, zone: Tz) -> Option<i64> {
+        match self {
+            Self::Daily { timezone: None, .. } => self.next(at, zone),
+            Self::LocalOnce { timezone: None, .. } => self.local_at(zone).map(|due| due.max(at)),
+            _ => None,
         }
     }
 
@@ -162,7 +214,13 @@ impl Schedule {
     pub(crate) fn words(&self, ctx: &Ctx<'_>) -> String {
         match self {
             Self::Ci { url, .. } => format!("when a check fails on {url}"),
-            Self::Once { at_ms } => format!("once, on {}", notes::clock(*at_ms, ctx.set)),
+            Self::Once { at_ms } => format!("once, on {}", notes::clock(*at_ms, ctx.zone)),
+            Self::LocalOnce { timezone, .. } => format!(
+                "once, on {} ({})",
+                self.local_at(ctx.zone)
+                    .map_or_else(|| "an unknown time".into(), |at| notes::clock(at, ctx.zone)),
+                zone_words(*timezone, ctx.zone)
+            ),
             Self::Interval { seconds } => format!("every {}", notes::span(*seconds)),
             Self::Daily {
                 hour,
@@ -170,11 +228,19 @@ impl Schedule {
                 weekdays,
                 timezone,
             } => format!(
-                "every {} at {hour:02}:{minute:02} ({timezone})",
-                if *weekdays { "weekday" } else { "day" }
+                "every {} at {hour:02}:{minute:02} ({})",
+                if *weekdays { "weekday" } else { "day" },
+                zone_words(*timezone, ctx.zone)
             ),
         }
     }
+}
+
+fn zone_words(pinned: Option<Tz>, user_zone: Tz) -> String {
+    pinned.map_or_else(
+        || format!("{user_zone}, follows user"),
+        |zone| zone.to_string(),
+    )
 }
 
 /// A planned check-in as the app and `checkin list` show it.
@@ -261,7 +327,7 @@ pub(crate) fn plan(
             "Check-ins of one bot are at least {gap} apart, so nothing was planned. Use `every {gap}` or longer."
         )));
     }
-    let Some(first) = schedule.next(ctx.now) else {
+    let Some(first) = schedule.next(ctx.now, ctx.zone) else {
         return Ok(Err(
             "That time has passed, so nothing was planned. Give a time that is still to come."
                 .into(),
@@ -291,7 +357,7 @@ pub(crate) fn plan(
             "Check-ins of one bot are at least {gap} apart, and #{} (\"{}\") is planned for {}. Nothing was planned: pick a time at least {gap} away from it, or put both into one check-in.",
             near.id,
             one_line(&near.what, 60),
-            notes::clock(near.next_ms.unwrap_or(first), ctx.set)
+            notes::clock(near.next_ms.unwrap_or(first), ctx.zone)
         )));
     }
     let fired: Option<i64> = ctx.db.query_row(
@@ -304,8 +370,8 @@ pub(crate) fn plan(
     {
         return Ok(Err(format!(
             "Check-ins of one bot are at least {gap} apart, and one fired at {}. Nothing was planned: the earliest time is {}.",
-            notes::clock(fired, ctx.set),
-            notes::clock(fired + apart, ctx.set)
+            notes::clock(fired, ctx.zone),
+            notes::clock(fired + apart, ctx.zone)
         )));
     }
     let id: i64 = ctx.db.query_row(
@@ -383,7 +449,7 @@ pub(crate) fn fire_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
             &task,
             often.as_deref(),
             checkin.created_ms,
-            ctx.set,
+            ctx.zone,
         );
         post(
             ctx,
@@ -398,7 +464,7 @@ pub(crate) fn fire_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
         )?;
         // A recurring one that was due while the server was down fires once, then goes on from now.
         let next = if recurring {
-            checkin.schedule.next(ctx.now)
+            checkin.schedule.next(ctx.now, ctx.zone)
         } else {
             None
         };
@@ -461,7 +527,7 @@ pub(crate) fn unanswered(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
             continue;
         }
         let name = notes::line(&super::name_of(ctx.db, bot));
-        let at = notes::clock(fired.unwrap_or(ctx.now), ctx.set);
+        let at = notes::clock(fired.unwrap_or(ctx.now), ctx.zone);
         let line = if typed {
             format!(
                 "The check-in \"{}\" fired at {at}, but {name}'s agent gave no answer within {}.",
@@ -512,7 +578,7 @@ pub(crate) fn checkin_text(ctx: &Ctx<'_>, bot: &Bot) -> rusqlite::Result<String>
             checkin.schedule.words(ctx),
             checkin
                 .next_ms
-                .map_or_else(|| "never".into(), |next| notes::clock(next, ctx.set)),
+                .map_or_else(|| "never".into(), |next| notes::clock(next, ctx.zone)),
             one_line(&checkin.what, 120)
         ));
     }
@@ -535,9 +601,12 @@ pub(crate) struct Promise {
     pub overdue_ms: Option<i64>,
     pub closed_ms: Option<i64>,
     pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_schedule: Option<Schedule>,
 }
 
-const PROMISE: &str = "id,bot,what,due_ms,state,created_ms,raised_ms,overdue_ms,closed_ms,note";
+const PROMISE: &str =
+    "id,bot,what,due_ms,state,created_ms,raised_ms,overdue_ms,closed_ms,note,local_schedule";
 
 fn read_promise(row: &Row<'_>) -> rusqlite::Result<Promise> {
     Ok(Promise {
@@ -551,6 +620,9 @@ fn read_promise(row: &Row<'_>) -> rusqlite::Result<Promise> {
         overdue_ms: row.get(7)?,
         closed_ms: row.get(8)?,
         note: row.get(9)?,
+        local_schedule: row
+            .get::<_, Option<String>>(10)?
+            .and_then(|text| serde_json::from_str(&text).ok()),
     })
 }
 
@@ -572,7 +644,7 @@ pub(crate) fn promises(
 pub(crate) fn promise(
     ctx: &Ctx<'_>,
     bot: &Bot,
-    due_ms: Option<i64>,
+    schedule: Option<Schedule>,
     what: &str,
 ) -> rusqlite::Result<Result<Promise, String>> {
     let Some(what) = clean(what, WHAT_CHARS) else {
@@ -580,7 +652,10 @@ pub(crate) fn promise(
             "Say what you promise: up to 1000 characters of plain text.".into(),
         ));
     };
-    let Some(due_ms) = due_ms.filter(|due| *due > ctx.now) else {
+    let Some(due_ms) = schedule
+        .as_ref()
+        .and_then(|schedule| schedule.next(ctx.now, ctx.zone))
+    else {
         return Ok(Err(
             "Say by when, as a time that is still to come: --by 30m, --by 17:30.".into(),
         ));
@@ -592,9 +667,12 @@ pub(crate) fn promise(
             ctx.cmd, ctx.cmd
         )));
     }
+    let local = schedule
+        .filter(|schedule| matches!(schedule, Schedule::LocalOnce { .. }))
+        .map(|schedule| serde_json::to_string(&schedule).expect("valid local schedule"));
     let id: i64 = ctx.db.query_row(
-        "INSERT INTO bot_promises (bot,what,due_ms,created_ms) VALUES (?1,?2,?3,?4) RETURNING id",
-        params![bot.id, what, due_ms, ctx.now],
+        "INSERT INTO bot_promises (bot,what,due_ms,created_ms,local_schedule) VALUES (?1,?2,?3,?4,?5) RETURNING id",
+        params![bot.id, what, due_ms, ctx.now, local],
         |row| row.get(0),
     )?;
     Ok(Ok(ctx
@@ -656,7 +734,7 @@ pub(crate) fn raise_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
                         promise.id,
                         &promise.what,
                         promise.due_ms,
-                        ctx.set,
+                        ctx.zone,
                     ),
                     cause: "promise",
                     promise: Some(promise.id),
@@ -673,7 +751,7 @@ pub(crate) fn raise_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
             "{} promised \"{}\" by {} and has not marked it done.",
             notes::line(&bot.name),
             one_line(&promise.what, 200),
-            notes::clock(promise.due_ms, ctx.set)
+            notes::clock(promise.due_ms, ctx.zone)
         );
         let about = About {
             code: Some("promise_overdue"),
@@ -699,7 +777,7 @@ pub(crate) fn promise_text(ctx: &Ctx<'_>, bot: &Bot) -> rusqlite::Result<String>
         text.push_str(&format!(
             "\n#{} · by {}{} · {}",
             promise.id,
-            notes::clock(promise.due_ms, ctx.set),
+            notes::clock(promise.due_ms, ctx.zone),
             if promise.state == "open" {
                 ""
             } else {
@@ -710,6 +788,36 @@ pub(crate) fn promise_text(ctx: &Ctx<'_>, bot: &Bot) -> rusqlite::Result<String>
     }
     text.push_str(&format!("\nClose one: {} promise done ID", ctx.cmd));
     Ok(text)
+}
+
+/// Recompute pending wall-clock plans in the same transaction as a profile change.
+pub(crate) fn rezone(db: &rusqlite::Connection, at: i64, zone: Tz) -> rusqlite::Result<()> {
+    for (select, update) in [
+        (
+            "SELECT id,schedule FROM bot_checkins WHERE state='planned'
+               AND json_extract(schedule,'$.kind') IN ('daily','local_once')
+               AND json_extract(schedule,'$.timezone') IS NULL",
+            "UPDATE bot_checkins SET next_ms=?2 WHERE id=?1",
+        ),
+        (
+            "SELECT id,local_schedule FROM bot_promises WHERE state='open'
+               AND local_schedule IS NOT NULL AND json_extract(local_schedule,'$.timezone') IS NULL",
+            "UPDATE bot_promises SET due_ms=?2 WHERE id=?1",
+        ),
+    ] {
+        let rows = db.prepare(select)?.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?.collect::<Result<Vec<_>, _>>()?;
+        let mut update = db.prepare_cached(update)?;
+        for (id, raw) in rows {
+            if let Some(due) = serde_json::from_str::<Schedule>(&raw).ok()
+                .and_then(|schedule| schedule.after_move(at, zone))
+            {
+                update.execute(params![id, due])?;
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---- What the main bot is told about.
@@ -862,13 +970,19 @@ mod tests {
             assert_eq!(
                 When::At {
                     hour: 17,
-                    minute: 30
+                    minute: 30,
+                    timezone: None
                 }
                 .moment(ctx),
                 Some(NOON + 330 * MINUTE)
             );
             assert_eq!(
-                When::At { hour: 9, minute: 0 }.moment(ctx),
+                When::At {
+                    hour: 9,
+                    minute: 0,
+                    timezone: None
+                }
+                .moment(ctx),
                 Some(NOON + 21 * 60 * MINUTE)
             );
             assert_eq!(
@@ -879,6 +993,7 @@ mod tests {
                 hour: 9,
                 minute: 0,
                 weekdays: true,
+                timezone: None,
             }
             .schedule(ctx)
             .unwrap();
@@ -888,19 +1003,25 @@ mod tests {
                     hour: 9,
                     minute: 0,
                     weekdays: true,
-                    timezone: "UTC".into()
+                    timezone: None
                 }
             );
-            assert_eq!(weekdays.words(ctx), "every weekday at 09:00 (UTC)");
+            assert_eq!(
+                weekdays.words(ctx),
+                "every weekday at 09:00 (UTC, follows user)"
+            );
             // Monday noon: Tuesday 9:00. Friday noon: Monday 9:00.
-            assert_eq!(weekdays.next(NOON), Some(NOON + 21 * 60 * MINUTE));
+            assert_eq!(
+                weekdays.next(NOON, chrono_tz::UTC),
+                Some(NOON + 21 * 60 * MINUTE)
+            );
             let friday = NOON + 4 * 24 * 60 * MINUTE;
             assert_eq!(
-                weekdays.next(friday),
+                weekdays.next(friday, chrono_tz::UTC),
                 Some(friday + (3 * 24 - 3) * 60 * MINUTE)
             );
             assert_eq!(
-                Schedule::Interval { seconds: 600 }.next(NOON),
+                Schedule::Interval { seconds: 600 }.next(NOON, chrono_tz::UTC),
                 Some(NOON + 10 * MINUTE)
             );
             assert_eq!(
@@ -908,7 +1029,7 @@ mod tests {
                 "every 10 minutes"
             );
             assert_eq!(
-                Schedule::Once { at_ms: NOON }.next(NOON),
+                Schedule::Once { at_ms: NOON }.next(NOON, chrono_tz::UTC),
                 None,
                 "a one-off does not fire twice"
             );
@@ -924,7 +1045,8 @@ mod tests {
             assert_eq!(
                 When::At {
                     hour: 17,
-                    minute: 30
+                    minute: 30,
+                    timezone: None
                 }
                 .moment(ctx),
                 Some(NOON + 270 * MINUTE)
@@ -1536,7 +1658,7 @@ mod tests {
         let set = utc();
         let infra = testing::bot(&history, "Infra");
         let made = testing::at(&history, NOON, &set, |ctx| {
-            let due = When::In { seconds: 1_800 }.moment(ctx);
+            let due = When::In { seconds: 1_800 }.deadline(ctx);
             promise(ctx, &infra, due, "Send the weekly report.")
         })
         .unwrap();
@@ -1548,7 +1670,7 @@ mod tests {
             testing::at(&history, NOON, &set, |ctx| promise(
                 ctx,
                 &infra,
-                Some(NOON - 1),
+                Some(Schedule::Once { at_ms: NOON - 1 }),
                 "Late."
             ))
             .unwrap_err()
@@ -1562,7 +1684,14 @@ mod tests {
         );
         // Done before it is due: closed, and never raised.
         let quick = testing::at(&history, NOON, &set, |ctx| {
-            promise(ctx, &infra, Some(NOON + MINUTE), "Quick one.")
+            promise(
+                ctx,
+                &infra,
+                Some(Schedule::Once {
+                    at_ms: NOON + MINUTE,
+                }),
+                "Quick one.",
+            )
         })
         .unwrap();
         assert!(testing::at(&history, NOON + 30_000, &set, |ctx| settle(
@@ -1672,7 +1801,14 @@ mod tests {
 
         // Done after it was raised and before the grace time is up: the person is never told.
         let second = testing::at(&history, NOON + 100 * MINUTE, &set, |ctx| {
-            promise(ctx, &infra, Some(NOON + 101 * MINUTE), "Second.")
+            promise(
+                ctx,
+                &infra,
+                Some(Schedule::Once {
+                    at_ms: NOON + 101 * MINUTE,
+                }),
+                "Second.",
+            )
         })
         .unwrap();
         assert_eq!(

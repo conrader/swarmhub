@@ -333,18 +333,18 @@ pub(crate) async fn send(
     wait: Wait,
 ) -> Result<Delivery, Failure> {
     let Some(key) = agent.launch_key() else {
-        return w.core.send(agent, prompt).await;
+        return send_prompt(w, agent, prompt).await;
     };
     let lookup =
         |_| Failure::Input("The workspace could not read this session. The task was not sent.");
     if waiting(&w.history, key).map_err(lookup)?.is_none() {
-        return w.core.send(agent, prompt).await;
+        return send_prompt(w, agent, prompt).await;
     }
     let gate = gate(key);
     let _one = gate.lock().await;
     // Another task may have been the first while this one waited its turn.
     let Some(waiting) = waiting(&w.history, key).map_err(lookup)? else {
-        return w.core.send(agent, prompt).await;
+        return send_prompt(w, agent, prompt).await;
     };
     core::validate_task(&prompt)?;
     let hints: Vec<&str> = waiting.hints.iter().map(String::as_str).collect();
@@ -354,7 +354,7 @@ pub(crate) async fn send(
     mark(&w.history, waiting.launch, "tried_ms").map_err(lookup)?;
     let until = Instant::now() + Duration::from_secs(10);
     loop {
-        match w.core.send(&agent, prompt.clone()).await {
+        match send_prompt(w, &agent, prompt.clone()).await {
             Ok(delivery) => {
                 // The task is in. If this cannot be recorded, the next task repeats the instructions.
                 let _ = mark(&w.history, waiting.launch, "delivered_ms");
@@ -371,6 +371,11 @@ pub(crate) async fn send(
             Err(error) => return Err(error),
         }
     }
+}
+
+async fn send_prompt(w: &Workspace, agent: &Terminal, prompt: String) -> Result<Delivery, Failure> {
+    let prompt = crate::person_profile::prompt(&w.history, agent.display_name(), prompt)?;
+    w.core.send(agent, prompt).await
 }
 
 /// Sends a guarded completion, with the same first-message envelope used for a warm launch.
@@ -396,6 +401,7 @@ pub(crate) async fn send_completion(
     } else {
         prompt
     };
+    let prompt = crate::person_profile::prompt(&w.history, agent.display_name(), prompt)?;
     let delivery = w.core.send_completion(core, agent, prompt).await?;
     if let Some(waiting) = waiting {
         let _ = mark(&w.history, waiting.launch, "delivered_ms");

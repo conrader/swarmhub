@@ -34,7 +34,7 @@
     if (schedule.kind === "webhook") return hookLabels[schedule.source] || "On webhook";
     if (schedule.kind === "interval") return `Every ${schedule.minutes} minute${schedule.minutes === 1 ? "" : "s"}`;
     const time = [schedule.hour, schedule.minute].map((n) => String(n).padStart(2, "0")).join(":");
-    return `${schedule.weekdays ? "Weekdays" : "Daily"} at ${time} · ${schedule.timezone}`;
+    return `${schedule.weekdays ? "Weekdays" : "Daily"} at ${time} · ${schedule.timezone || "Follows the user's time zone"}`;
   }
 
   function nextLabel(item) {
@@ -42,14 +42,7 @@
       return ({github:"Waiting for a GitHub event", slack:"Waiting for a Slack mention"})[item.schedule.source] || "Waiting for a webhook";
     }
     if (item.next_at === null) return routineState[item.state];
-    if (item.schedule.kind !== "daily") return displayDate(item.next_at);
-    try {
-      return new Intl.DateTimeFormat(undefined, {
-        dateStyle: "medium", timeStyle: "short", timeZone: item.schedule.timezone,
-      }).format(item.next_at) + ` · ${item.schedule.timezone}`;
-    } catch {
-      return displayDate(item.next_at) + " · browser time";
-    }
+    return displayDate(item.next_at);
   }
 
   function mode(mode, label) {
@@ -468,7 +461,8 @@
     $("routine-minutes").value = schedule?.minutes ?? 60;
     $("routine-time").value = schedule?.kind === "daily"
       ? [schedule.hour, schedule.minute].map((value) => String(value).padStart(2, "0")).join(":") : "09:00";
-    $("routine-zone").value = schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    $("routine-follow-zone").checked = !schedule?.timezone;
+    $("routine-zone").value = schedule?.timezone || app.timezone || "UTC";
     $("routine-filter-rules").replaceChildren();
     $("routine-review-enabled").checked = Boolean(schedule?.review);
     for (const filter of schedule?.filters || []) addFilter(filter);
@@ -497,10 +491,12 @@
     }
     $("routine-minutes").disabled = !interval;
     $("routine-minutes").required = interval;
-    for (const field of [$("routine-time"), $("routine-zone")]) {
-      field.disabled = !calendar;
-      field.required = calendar;
-    }
+    $("routine-time").disabled = !calendar;
+    $("routine-time").required = calendar;
+    $("routine-follow-zone").disabled = !calendar;
+    const pinned = calendar && !$("routine-follow-zone").checked;
+    $("routine-zone-field").hidden = $("routine-zone").disabled = !pinned;
+    $("routine-zone").required = pinned;
   }
 
   function addFilter({field = "", equals = ""} = {}, focus = false) {
@@ -573,6 +569,7 @@
   });
   $("routine-archived").addEventListener("change", showList);
   $("routine-kind").addEventListener("change", toggleFields);
+  $("routine-follow-zone").addEventListener("change", toggleFields);
   $("routine-edit").addEventListener("click", () => edit(state.item));
   $("routine-skill").addEventListener("click", () => {
     const current = state.editing && state.item;
@@ -606,7 +603,7 @@
     if (!kind) { show("routine-form-error", "Choose a schedule."); return; }
     const [hour, minute] = $("routine-time").value.split(":").map(Number);
     const schedule = hookKinds.includes(kind) ? {kind:"webhook"} : kind === "interval" ? { kind, minutes: Number($("routine-minutes").value) }
-      : { kind: "daily", hour, minute, timezone: $("routine-zone").value.trim(), weekdays: kind === "weekdays" };
+      : { kind: "daily", hour, minute, ...($("routine-follow-zone").checked ? {} : { timezone: $("routine-zone").value.trim() }), weekdays: kind === "weekdays" };
     if (schedule.kind === "webhook") {
       if (kind !== "webhook") schedule.source = kind;
       if ($("routine-review-enabled").checked) schedule.review = true;

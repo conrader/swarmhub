@@ -284,7 +284,7 @@ impl Core {
                     serde_json::from_value(reply["error"].take()).map_err(|_| lost())?;
                 Err(Failure::Rejected(
                     error.data.map(|data| data.kind).unwrap_or_default(),
-                    error.message,
+                    crate::person_profile::strip_prompt_context(error.message),
                 ))
             }
             _ => Err(lost()),
@@ -643,13 +643,15 @@ impl Core {
 
     pub async fn output(&self, agent: &Terminal) -> Result<Output, Failure> {
         // Zero lines avoids asking Core to drive a full-screen program to recover scrollback.
-        self.rpc(
+        let mut output: Output = self.rpc(
             "terminal.read",
             json!({"terminal":agent.address,"lines":0}),
             5,
             false,
         )
-        .await
+        .await?;
+        output.text = crate::person_profile::strip_prompt_context(output.text);
+        Ok(output)
     }
 
     pub async fn send(&self, agent: &Terminal, task: String) -> Result<Delivery, Failure> {

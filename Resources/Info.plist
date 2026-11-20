@@ -30,6 +30,12 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SwarmHub connects to a Herdr server on your local network only when you add one in Settings.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>SwarmHub uses an approximate location to find the city and country you choose to share with your workspace’s bots.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SwarmHub uses an approximate location to find the city and country you choose to share with your workspace’s bots.</string>
+	<key>NSLocationDefaultAccuracyReduced</key>
+	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>

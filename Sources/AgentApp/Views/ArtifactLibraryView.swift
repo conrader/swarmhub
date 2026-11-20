@@ -5,6 +5,7 @@ import SwiftUI
 /// with another agent, remove another agent's access. Removing access stops future sends; what a chat already
 /// received stays in that chat.
 struct ArtifactLibraryView: View {
+    @Environment(\.timeZone) private var timeZone
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     @State private var records: [RuntimeArtifact] = []
@@ -43,7 +44,7 @@ struct ArtifactLibraryView: View {
                 Image(systemName: DocumentKind(mimeType: artifact.mimeType) != nil ? "doc.richtext" : "doc.text").foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(artifact.name).font(.caption.weight(.medium)).lineLimit(1)
-                    Text("\(ByteCountFormatter.string(fromByteCount: Int64(artifact.byteCount), countStyle: .file)) · \(artifact.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                    Text("\(ByteCountFormatter.string(fromByteCount: Int64(artifact.byteCount), countStyle: .file)) · \(artifact.createdAt.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone)))")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)

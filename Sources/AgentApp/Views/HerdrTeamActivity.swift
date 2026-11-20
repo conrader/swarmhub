@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The bridge owns this work, including while the app is closed.
 struct HerdrTeamActivity: View {
+    @Environment(\.timeZone) private var timeZone
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     @State private var expanded = false
@@ -64,7 +65,9 @@ struct HerdrTeamActivity: View {
         }
     }
 
-    private func date(_ ms: Int64) -> String { Date(timeIntervalSince1970: Double(ms) / 1000).formatted(date: .abbreviated, time: .shortened) }
+    private func date(_ ms: Int64) -> String {
+        Date(timeIntervalSince1970: Double(ms) / 1000).formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone))
+    }
 
     private func load() async {
         do {

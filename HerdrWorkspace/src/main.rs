@@ -40,6 +40,7 @@ mod pages;
 mod outbound;
 mod parks;
 mod pdf_assets;
+mod person_profile;
 mod platform;
 mod portable_profiles;
 mod profile_avatars;
@@ -151,6 +152,7 @@ impl Workspace {
                 "This agent needs attention before it can receive another task.".into(),
             ));
         }
+        let prompt = person_profile::prompt(&self.history, current.display_name(), prompt)?;
         match group {
             Some(binding) => {
                 opencode_agent::follow_up::send_group(
@@ -340,6 +342,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(group_handoffs::routes())
         .merge(helpers::routes())
         .merge(bots::routes())
+        .merge(person_profile::routes())
         .merge(jobs::routes())
         .merge(machines::routes())
         .merge(projects::routes())
@@ -689,8 +692,12 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         .filter(|(terminal, helper)| helper.is_none() || terminal.state == "live")
         .map(|(terminal, helper)| AgentView::new(&w.history, terminal, helper.cloned().flatten()))
         .collect();
+    let timezone = {
+        let db = w.history.db()?;
+        person_profile::effective_timezone(&db).map_err(StoreError::from)?
+    };
     Ok(Json(
-        json!({"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
+        json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
                "attachments":hello.supports("terminal.put"),"terminal_attach":hello.supports("terminal.attach"),
@@ -893,6 +900,11 @@ async fn launch_agent(
         &instructions,
         &hints,
     )?;
+    let message = if body.warm {
+        message
+    } else {
+        person_profile::prompt(&w.history, &body.name, message)?
+    };
     if let Some(fixture) = &fixture {
         let db = w.history.db()?;
         if !bots::one(&db, &fixture.owner).map_err(StoreError::from)?.is_some_and(|bot| {

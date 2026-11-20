@@ -36,14 +36,10 @@ pub(crate) fn span(seconds: u64) -> String {
     format!("{count} {unit}{}", if count == 1 { "" } else { "s" })
 }
 
-/// A moment as "17 Nov 14:30" in the settings' time zone.
-pub(crate) fn clock(at_ms: i64, set: &Settings) -> String {
+/// A moment as "17 Nov 14:30" in the person's time zone.
+pub(crate) fn clock(at_ms: i64, zone: chrono_tz::Tz) -> String {
     chrono::DateTime::<chrono::Utc>::from_timestamp_millis(at_ms)
-        .map(|at| {
-            at.with_timezone(&set.zone())
-                .format("%-d %b %H:%M")
-                .to_string()
-        })
+        .map(|at| at.with_timezone(&zone).format("%-d %b %H:%M").to_string())
         .unwrap_or_else(|| "an unknown time".into())
 }
 
@@ -250,9 +246,9 @@ pub(crate) fn checkin(
     what: &str,
     recurring: Option<&str>,
     planned_ms: i64,
-    set: &Settings,
+    zone: chrono_tz::Tz,
 ) -> String {
-    let planned = clock(planned_ms, set);
+    let planned = clock(planned_ms, zone);
     match recurring {
         None => format!(
             "{CHECKIN_LEAD} #{id}, from SwarmHub] It was planned on {planned} for now: {what}\n\
@@ -265,11 +261,11 @@ pub(crate) fn checkin(
     }
 }
 
-pub(crate) fn promise(cmd: &str, id: i64, what: &str, due_ms: i64, set: &Settings) -> String {
+pub(crate) fn promise(cmd: &str, id: i64, what: &str, due_ms: i64, zone: chrono_tz::Tz) -> String {
     format!(
         "{SERVER_LEAD} Your promise #{id} was due at {}: {what}\n\
          (Do it or report on it now, in your reply, which the person reads; then run: {cmd} promise done {id}. If you cannot keep it, say why. The person is told if it stays open.)",
-        clock(due_ms, set)
+        clock(due_ms, zone)
     )
 }
 

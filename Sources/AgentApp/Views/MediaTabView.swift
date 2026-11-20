@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Every attachment, image and link in the bot's chat and threads, newest first; click jumps to the message.
 struct MediaTabView: View {
+    @Environment(\.timeZone) private var timeZone
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     var body: some View {
@@ -17,7 +18,7 @@ struct MediaTabView: View {
                             thumbnail(item).frame(width: 40, height: 40).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 7)).clipShape(RoundedRectangle(cornerRadius: 7))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).font(.caption.weight(.medium)).lineLimit(1)
-                                Text("\(item.kind.rawValue.capitalized) · \(item.date.formatted(date: .abbreviated, time: .shortened))").font(.caption2).foregroundStyle(.secondary)
+                                Text("\(item.kind.rawValue.capitalized) · \(item.date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone)))").font(.caption2).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 0)
                         }.contentShape(Rectangle())

@@ -114,7 +114,7 @@ fn saved_schedule(value: &Value, zone: Option<&str>) -> Option<Schedule> {
         Schedule::Daily {
             hour: hour.parse().ok()?,
             minute: minute.parse().ok()?,
-            timezone: zone?.trim().parse().ok()?,
+            timezone: zone.map(|zone| zone.trim().parse()).transpose().ok()?,
             weekdays: match *day {
                 "*" => false,
                 "1-5" => true,

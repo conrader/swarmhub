@@ -47,6 +47,7 @@ extension EnvironmentValues {
 }
 
 private struct ArchivedMessageRow: View {
+    @Environment(\.timeZone) private var timeZone
     let message: ArchivedMessage; let botName: String
     private var heading: String {
         if message.channel == "agent" { return "\(message.author ?? "Agent") → \(message.to ?? "Agent")" }
@@ -57,7 +58,7 @@ private struct ArchivedMessageRow: View {
             HStack(spacing: 6) {
                 Text(heading).font(.system(size: 11, weight: .semibold))
                 if message.hidden { Text("hidden prompt").font(.system(size: 10)).padding(.horizontal, 5).background(AppColor.raised, in: Capsule()) }
-                if let date = message.timestamp { Text(date.formatted(date: .abbreviated, time: .shortened)).font(.system(size: 10)).foregroundStyle(.tertiary) }
+                if let date = message.timestamp { Text(date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone))).font(.system(size: 10)).foregroundStyle(.tertiary) }
             }
             Text(message.text).font(.system(size: 12)).textSelection(.enabled).foregroundStyle(message.role == "system" || message.channel != "chat" ? .secondary : .primary)
         }

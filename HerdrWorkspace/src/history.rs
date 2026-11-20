@@ -821,16 +821,26 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-outbound-drafts.sql"),
         include_str!("migrate-outbound-receipts.sql"),
         include_str!("migrate-completion-backoff.sql"),
+        include_str!("migrate-person-profile.sql"),
     ]
 }
 
 fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     let version: usize = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    for script in migrations()
+    for (index, script) in migrations()
         .get(version..)
         .ok_or("This workspace database was created by a newer version.")?
+        .iter()
+        .enumerate()
     {
-        db.execute_batch(script)?;
+        if version + index == 61 {
+            let tx = db.unchecked_transaction()?;
+            tx.execute_batch(script)?;
+            crate::person_profile::migrate(&tx)?;
+            tx.commit()?;
+        } else {
+            db.execute_batch(script)?;
+        }
     }
     Ok(())
 }

@@ -477,6 +477,8 @@ async fn set_settings(State(w): State<Workspace>, bytes: Bytes) -> Response {
                 return Ok(Err(problem));
             }
             set.save(ctx.db)?;
+            let zone = crate::person_profile::zone(ctx.db, set.zone())?;
+            crate::person_profile::timezone_changed(ctx.db, ctx.now, ctx.zone, zone, false)?;
             Ok(Ok(set))
         })
         .map_err(storage)?
@@ -703,7 +705,15 @@ mod tests {
                 "bot",
             )?
             .unwrap();
-            plans::promise(ctx, &infra, Some(ctx.now + 60_000), "Report.")?.unwrap();
+            plans::promise(
+                ctx,
+                &infra,
+                Some(plans::Schedule::Once {
+                    at_ms: ctx.now + 60_000,
+                }),
+                "Report.",
+            )?
+            .unwrap();
             Ok(())
         });
         // The switch: Jarvis may no longer message bots. Its ask ends, and nobody else's does.

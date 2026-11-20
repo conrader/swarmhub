@@ -90,6 +90,7 @@ extension AppStore {
         turns.didLaunchRecovery = true
         if connectivity == nil { connectivity = makeConnectivity(); listenForConnectivity() }
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
+        startPersonSettings()
         recoverInterruptedRounds()
         resumeRestoredNextMessages()
         // Agents of bots that were removed while their server could not be reached are ended now.

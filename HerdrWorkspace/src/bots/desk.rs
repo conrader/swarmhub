@@ -110,7 +110,7 @@ fn perform(ctx: &super::Ctx<'_>, key: &str, ask: Ask) -> rusqlite::Result<Result
                 "Planned check-in #{}: {}, next on {}. It runs on the server, also with the app closed{}. Cancel it with: {cmd} checkin cancel {}",
                 planned.id,
                 planned.schedule.words(ctx),
-                planned.next_ms.map_or_else(|| "?".into(), |next| notes::clock(next, ctx.set)),
+                planned.next_ms.map_or_else(|| "?".into(), |next| notes::clock(next, ctx.zone)),
                 if planned.schedule.recurring() { "" } else { ", and what you find then is shown to the person" },
                 planned.id
             )
@@ -126,12 +126,12 @@ fn perform(ctx: &super::Ctx<'_>, key: &str, ask: Ask) -> rusqlite::Result<Result
             }
         }
         Ask::Promise { by, what } => {
-            let due = by.moment(ctx);
+            let due = by.deadline(ctx);
             plans::promise(ctx, &bot, due, &what)?.map(|made| {
                 format!(
                     "Recorded promise #{}, due {}. When it is done, run: {cmd} promise done {}. If it is still open then, you are reminded once, and after that the person is told.",
                     made.id,
-                    notes::clock(made.due_ms, ctx.set),
+                    notes::clock(made.due_ms, ctx.zone),
                     made.id
                 )
             })
@@ -1120,6 +1120,7 @@ mod tests {
                     hour: 9,
                     minute: 0,
                     weekdays: true,
+                    timezone: None,
                 },
                 what: "Read the alerts.".into(),
             },
@@ -1127,7 +1128,7 @@ mod tests {
         .unwrap();
         assert!(
             recurring.starts_with(
-                "Planned check-in #2: every weekday at 09:00 (UTC), next on 17 Nov 09:00."
+                "Planned check-in #2: every weekday at 09:00 (UTC, follows user), next on 17 Nov 09:00."
             ),
             "{recurring}"
         );
@@ -1150,6 +1151,7 @@ mod tests {
                 by: When::At {
                     hour: 17,
                     minute: 30,
+                    timezone: None,
                 },
                 what: "Send the report.".into(),
             },

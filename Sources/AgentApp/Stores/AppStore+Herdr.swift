@@ -79,6 +79,7 @@ extension AppStore {
         } else { servers.append(server) }
         if let token, !token.isEmpty { setHerdrToken(token, for: server) }
         saveHerdrServers(servers)
+        if launchWorkEnabled { personSettings(for: server).refresh() }
     }
 
     /// Forgets a server, its token and its forward. Its bots stay and move to the first server left. The last server

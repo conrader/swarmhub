@@ -32,6 +32,7 @@ mod rules;
 
 pub(crate) use cli::Ask;
 pub(crate) use desk::{answer, start_serving, stopped_agent};
+pub(crate) use plans::rezone as rezone_plans;
 pub(crate) use routes::routes;
 
 /// How an agent's shell reaches the commands: the workspace's own program, so an agent started by another
@@ -98,7 +99,7 @@ pub(crate) struct Settings {
     pub initiative_seconds: u64,
     /// Notify the main bot of an undeliverable job completion.
     pub completion_fallback_to_main: bool,
-    /// The IANA time zone of clock times in check-ins and promises ("every weekday at 9").
+    /// The fallback IANA time zone when the workspace person has no saved zone.
     pub timezone: String,
 }
 
@@ -575,6 +576,7 @@ pub(crate) struct Ctx<'a> {
     pub db: &'a Connection,
     pub now: i64,
     pub set: &'a Settings,
+    pub zone: chrono_tz::Tz,
     pub cmd: &'a str,
 }
 
@@ -591,6 +593,7 @@ pub(crate) fn write<T>(
         db: &tx,
         now: now(),
         set: &set,
+        zone: crate::person_profile::zone(&tx, set.zone())?,
         cmd: &cmd,
     })?;
     tx.commit()?;
@@ -610,12 +613,63 @@ pub(crate) fn attempt<T, E>(
         db: &tx,
         now: now(),
         set: &set,
+        zone: crate::person_profile::zone(&tx, set.zone())?,
         cmd: &cmd,
     })?;
     if done.is_ok() {
         tx.commit()?;
     }
     Ok(done)
+}
+
+pub(crate) fn profile_moved(
+    db: &Connection,
+    now: i64,
+    before: chrono_tz::Tz,
+    after: chrono_tz::Tz,
+    city_changed: bool,
+) -> rusqlite::Result<()> {
+    if before == after && !city_changed {
+        return Ok(());
+    }
+    let Some(main) = main_bot(db)? else {
+        return Ok(());
+    };
+    let line = if before != after {
+        format!("User moved: {before} -> {after}")
+    } else {
+        "User moved: location updated.".to_owned()
+    };
+    let set = Settings::load(db)?;
+    let ctx = Ctx {
+        db,
+        now,
+        set: &set,
+        zone: after,
+        cmd: &command(),
+    };
+    rules::entry(
+        &ctx,
+        &main.id,
+        "notice",
+        &line,
+        rules::About {
+            code: Some("user_moved"),
+            ..rules::About::default()
+        },
+        true,
+        false,
+    )?;
+    rules::post(
+        &ctx,
+        rules::Post {
+            bot: &main.id,
+            text: &format!("{} {line}", notes::MAIN_LEAD),
+            cause: "note",
+            ..rules::Post::default()
+        },
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -670,6 +724,7 @@ pub(crate) mod testing {
             db: &tx,
             now,
             set,
+            zone: crate::person_profile::zone(&tx, set.zone()).unwrap(),
             cmd: "swarmhub-herdr",
         })
         .unwrap();

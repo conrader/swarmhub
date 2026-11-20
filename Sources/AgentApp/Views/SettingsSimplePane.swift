@@ -4,7 +4,7 @@ import UserNotifications
 /// Settings → General: you (your name, and what your bots should know about you), how the app looks, and
 /// notifications. Laid out the way Apple lays out a person and an appearance: your initial with your name typed
 /// beside it, choices as galleries of tiles and swatches, a switch beside its heading. Nothing here is a row of a
-/// table, and opening the pane makes no network call and reads no key.
+/// table.
 struct SettingsSimplePane: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference; @AppStorage("accent") private var accent = AppTheme.defaultAccent
@@ -18,6 +18,7 @@ struct SettingsSimplePane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppleMetrics.groupSpacing) {
                 you
+                SettingsPersonSection()
                 appearanceGroup
                 SettingSwitch(title: SimpleCopy.notifyMaster, detail: Bundle.main.bundleIdentifier == nil ? SimpleCopy.notifyNeedsApp : SimpleCopy.notifyCaption,
                               symbol: "bell.badge.fill", colour: AppColor.clay, isOn: $notifications)

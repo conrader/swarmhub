@@ -379,7 +379,14 @@ function newHistory() {
   return { entries: [], before: null, older: false, loadingOlder: false, first: true, sequence: 0, signature: null };
 }
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const dateOptions = { dateStyle: "medium", timeStyle: "short" };
+let dateFormatter = new Intl.DateTimeFormat(undefined, dateOptions);
+function useTimezone(timezone) {
+  if (app.timezone === timezone) return;
+  app.timezone = timezone;
+  try { dateFormatter = new Intl.DateTimeFormat(undefined, { ...dateOptions, timeZone: timezone }); }
+  catch { dateFormatter = new Intl.DateTimeFormat(undefined, dateOptions); }
+}
 const displayDate = (timestamp) => dateFormatter.format(timestamp);
 const deliveryLabel = { pending: "Sending…", sent: "Sent to agent", not_sent: "Not sent",
   start_not_observed: "Sent · start not observed", unconfirmed: "Delivery not confirmed" };
@@ -872,6 +879,7 @@ async function refresh() {
   try {
     const state = await api("/api/workspace");
     if (change !== app.change) return;
+    useTimezone(state.timezone);
     app.core = state.core;
     app.agents = state.agents;
     app.templates = state.templates;

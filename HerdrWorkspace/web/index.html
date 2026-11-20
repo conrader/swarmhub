@@ -469,7 +469,8 @@
       <div id="routine-interval-field"><label for="routine-minutes">Minutes between runs</label><input id="routine-minutes" type="number" min="1" max="43200" step="1"></div>
       <div id="routine-time-field" hidden>
         <label for="routine-time">Time</label><input id="routine-time" type="time">
-        <label for="routine-zone">Time zone</label><input id="routine-zone" placeholder="Europe/Warsaw">
+        <label class="routine-check"><input type="checkbox" id="routine-follow-zone" checked> Follow the user's time zone</label>
+        <div id="routine-zone-field"><label for="routine-zone">Pinned time zone</label><input id="routine-zone" placeholder="Europe/Warsaw"></div>
       </div>
       <fieldset id="routine-filter-editor" hidden disabled>
         <legend>Only run when these conditions match</legend>

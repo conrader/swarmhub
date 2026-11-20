@@ -395,7 +395,7 @@ fn gapplan_14_int_v60_fresh_upgrade_and_reopens_preserve_approvals_and_backfill_
         for _ in 0..3 {
             let journal = reopen_journal(&root);
             let db = journal.db().unwrap();
-            assert_eq!(schema(&db), 61);
+            assert_eq!(schema(&db), history::migrations().len());
             let counts: (i64, i64, i64) = db.query_row(
                 "SELECT (SELECT count(*) FROM outbound_receipts),(SELECT count(*) FROM outbound_approvals),
                         (SELECT count(*) FROM outbound_approval_revocations)",

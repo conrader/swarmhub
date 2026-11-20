@@ -3,7 +3,9 @@ use crate::{
     groups::Target,
     history::{History, State as TaskState, StoreError, background_write, defer_if_busy, now},
 };
-use chrono::{DateTime, Datelike, LocalResult, NaiveTime, TimeDelta, TimeZone, Utc, Weekday};
+use chrono::{
+    DateTime, Datelike, LocalResult, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc, Weekday,
+};
 use chrono_tz::Tz;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
@@ -97,7 +99,8 @@ pub enum Schedule {
     Daily {
         hour: u8,
         minute: u8,
-        timezone: Tz,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timezone: Option<Tz>,
         weekdays: bool,
     },
 }
@@ -184,6 +187,10 @@ impl Schedule {
     }
 
     pub fn next(&self, after: i64) -> Option<i64> {
+        self.next_in(after, chrono_tz::UTC)
+    }
+
+    fn next_in(&self, after: i64, user_zone: Tz) -> Option<i64> {
         match *self {
             Self::Webhook { .. } => None,
             Self::Interval { minutes } if (1..=43_200).contains(&minutes) => {
@@ -195,50 +202,76 @@ impl Schedule {
                 minute,
                 timezone,
                 weekdays,
-            } => {
-                let time = NaiveTime::from_hms_opt(hour.into(), minute.into(), 0)?;
-                let local = DateTime::<Utc>::from_timestamp_millis(after)?.with_timezone(&timezone);
-                let mut date = local.date_naive();
-                for _ in 0..8 {
-                    if !weekdays || !matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
-                        let nominal = date.and_time(time);
-                        // On clock changes, use one occurrence. Move a missing local
-                        // minute forward to the first valid minute on the same date.
-                        for offset in 0..=180 {
-                            let candidate =
-                                nominal.checked_add_signed(TimeDelta::minutes(offset))?;
-                            if candidate.date() != date {
-                                break;
-                            }
-                            let timestamp = match timezone.from_local_datetime(&candidate) {
-                                LocalResult::Single(value) => value.timestamp_millis(),
-                                LocalResult::Ambiguous(first, second) => {
-                                    first.timestamp_millis().min(second.timestamp_millis())
-                                }
-                                LocalResult::None => continue,
-                            };
-                            if timestamp > after {
-                                return Some(timestamp);
-                            }
-                            break;
-                        }
-                    }
-                    date = date.succ_opt()?;
-                }
-                None
-            }
+            } => next_local(after, timezone.unwrap_or(user_zone), hour, minute, weekdays),
         }
     }
 
-    fn advance(&self, due: i64, at: i64) -> Option<i64> {
+    fn advance(&self, due: i64, at: i64, zone: Tz) -> Option<i64> {
         if let Self::Interval { .. } = self {
             let period = self.next(due)?.checked_sub(due)?;
             let future_slot = at.checked_sub(due)?.checked_div(period)?.checked_add(1)?;
             due.checked_add(period.checked_mul(future_slot)?)
         } else {
-            self.next(at)
+            self.next_in(at, zone)
         }
     }
+}
+
+/// A wall-clock time fires once on a repeated hour. In a gap, use the first
+/// valid minute on that date, including when the day's offset changed at midnight.
+pub(crate) fn local_on_date(date: NaiveDate, zone: Tz, hour: u8, minute: u8) -> Option<i64> {
+    let time = NaiveTime::from_hms_opt(hour.into(), minute.into(), 0)?;
+    let nominal = date.and_time(time);
+    for offset in 0..=180 {
+        let candidate = nominal.checked_add_signed(TimeDelta::minutes(offset))?;
+        if candidate.date() != date {
+            break;
+        }
+        match zone.from_local_datetime(&candidate) {
+            LocalResult::Single(value) => return Some(value.timestamp_millis()),
+            LocalResult::Ambiguous(first, second) => {
+                return Some(first.timestamp_millis().min(second.timestamp_millis()));
+            }
+            LocalResult::None => {}
+        }
+    }
+    None
+}
+
+pub(crate) fn next_local(
+    after: i64,
+    zone: Tz,
+    hour: u8,
+    minute: u8,
+    weekdays: bool,
+) -> Option<i64> {
+    NaiveTime::from_hms_opt(hour.into(), minute.into(), 0)?;
+    let mut date = DateTime::<Utc>::from_timestamp_millis(after)?
+        .with_timezone(&zone)
+        .date_naive();
+    for _ in 0..8 {
+        if (!weekdays || !matches!(date.weekday(), Weekday::Sat | Weekday::Sun))
+            && let Some(at) = local_on_date(date, zone, hour, minute).filter(|at| *at > after)
+        {
+            return Some(at);
+        }
+        date = date.succ_opt()?;
+    }
+    None
+}
+
+pub(crate) fn rezone(db: &Connection, at: i64, zone: Tz) -> rusqlite::Result<()> {
+    let routines = db.prepare(
+        "SELECT * FROM routines WHERE state='active'
+           AND json_extract(schedule,'$.kind')='daily' AND json_extract(schedule,'$.timezone') IS NULL",
+    )?.query_map([], from_row)?.collect::<Result<Vec<_>, _>>()?;
+    for routine in routines {
+        db.execute(
+            "UPDATE routines SET next_at=?2 WHERE id=?1",
+            params![routine.id, routine.schedule.next_in(at, zone)],
+        )?;
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -386,8 +419,9 @@ impl History {
         task: &str,
         schedule: &Schedule,
     ) -> Result<i64, StoreError> {
-        let next = schedule.next(now());
-        Ok(self.db()?.query_row(
+        let db = self.db()?;
+        let next = schedule.next_in(now(), crate::person_profile::effective_timezone(&db)?);
+        Ok(db.query_row(
             "INSERT INTO routines (core,address,created_ms,agent,name,task,schedule,state,next_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,'active',?8) RETURNING id",
             params![
@@ -469,11 +503,12 @@ impl History {
         task: &str,
         schedule: &Schedule,
     ) -> Result<bool, StoreError> {
-        let next = schedule.next(now());
+        let db = self.db()?;
+        let next = schedule.next_in(now(), crate::person_profile::effective_timezone(&db)?);
         let webhook = matches!(schedule, Schedule::Webhook { .. });
         let source = schedule.source();
         let schedule = encode(schedule)?;
-        Ok(self.db()?.execute(
+        Ok(db.execute(
             "UPDATE routines SET name=?2, task=?3,
              next_at=CASE WHEN state!='active' THEN NULL WHEN schedule=?4 THEN next_at ELSE ?5 END,
              schedule=?4,webhook_hash=CASE WHEN ?6 AND json_extract(schedule,'$.source') IS ?7 THEN webhook_hash END
@@ -483,13 +518,18 @@ impl History {
     }
 
     pub fn control_routine(&self, routine: &Routine, action: Control) -> Result<bool, StoreError> {
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let (state, next_at) = match action {
             Control::Pause => ("paused", None),
             Control::Archive => ("archived", None),
-            Control::Resume => ("active", routine.schedule.next(now())),
+            Control::Resume => (
+                "active",
+                routine
+                    .schedule
+                    .next_in(now(), crate::person_profile::effective_timezone(&tx)?),
+            ),
         };
-        let mut db = self.db()?;
-        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let changed = tx.execute(
             "UPDATE routines SET state=?2,next_at=?3,webhook_hash=CASE WHEN ?2!='archived' THEN webhook_hash END WHERE id=?1 AND state!='archived'",
             params![routine.id, state, next_at],
@@ -940,9 +980,13 @@ pub(crate) fn claim_schedule(db: &mut Connection, at: i64) -> Result<Vec<Dispatc
         stmt.query_map([at], from_row)?.collect::<Result<_, _>>()?
     };
     let mut dispatch = Vec::with_capacity(due.len());
+    let zone = crate::person_profile::effective_timezone(&txn)?;
     for routine in due {
         let due_at = routine.next_at.ok_or(StoreError)?;
-        let next = routine.schedule.advance(due_at, at).ok_or(StoreError)?;
+        let next = routine
+            .schedule
+            .advance(due_at, at, zone)
+            .ok_or(StoreError)?;
         txn.execute(
             "UPDATE routines SET next_at=?2 WHERE id=?1",
             params![routine.id, next],
@@ -1039,7 +1083,7 @@ mod tests {
         let daily = |hour| Schedule::Daily {
             hour,
             minute: 30,
-            timezone: chrono_tz::America::New_York,
+            timezone: Some(chrono_tz::America::New_York),
             weekdays: false,
         };
         assert_eq!(
@@ -1057,7 +1101,7 @@ mod tests {
         let schedule = Schedule::Daily {
             hour: 8,
             minute: 0,
-            timezone: chrono_tz::Europe::Warsaw,
+            timezone: Some(chrono_tz::Europe::Warsaw),
             weekdays: true,
         };
         assert_eq!(

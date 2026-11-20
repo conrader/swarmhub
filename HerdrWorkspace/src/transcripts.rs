@@ -108,10 +108,10 @@ impl Transcript {
             let _ = write!(block, " · {state}");
         }
         block.push('\n');
-        if !row.text.is_empty() {
+        let text = crate::person_profile::strip_prompt_context(row.text);
+        if !text.is_empty() {
             block.extend(
-                row.text
-                    .chars()
+                text.chars()
                     .filter(|&c| !c.is_control() || matches!(c, '\n' | '\t')),
             );
             block.push('\n');

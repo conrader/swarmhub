@@ -20,6 +20,8 @@ import UserNotifications
     @Published var setupGeneration = 0; var isSetupPreview = false
     /// The port forwards this app opened to Herdr servers reached over SSH (`AppStore+Herdr.swift`).
     let herdrTunnels = HerdrTunnels()
+    var personTimezoneObserver: AnyCancellable?
+    var personSettingsModels: [String: HerdrPersonSettings] = [:]
     /// The helper agents each Herdr bot's agent has now, by bot (`AppStore+HerdrHelpers.swift`); the helper open in the
     /// detail column; the poll that reads them, and the failed reads in a row per server.
     @Published var herdrHelpers: [UUID: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?

@@ -31,13 +31,13 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
   swarmhub-herdr bot park backstop -        submit a delegated auto_execute signature as JSON
       TEXT `-` reads standard input. Quote a NAME of several words.
 Check-ins (the server brings you back to something, also with the app closed):
-  swarmhub-herdr checkin in 30m WHAT          once; also: at 17:30
+  swarmhub-herdr checkin in 30m WHAT          once; also: at 17:30 [--timezone=Europe/Warsaw]
   swarmhub-herdr checkin every 2h WHAT        again and again; also: every day at 9:00, every weekday at 9:00
   swarmhub-herdr checkin ci PUBLIC_PR_URL WHAT   once, on a failed GitHub check
   swarmhub-herdr checkin list
   swarmhub-herdr checkin cancel ID
 Promises (what you told the person you will do or report later):
-  swarmhub-herdr promise add --by 30m WHAT    also: --by 17:30
+  swarmhub-herdr promise add --by 30m WHAT    also: --by 17:30 [--timezone=Europe/Warsaw]
   swarmhub-herdr promise done ID [NOTE]
   swarmhub-herdr promise list";
 
@@ -140,6 +140,15 @@ fn clock(word: &str) -> Option<(u8, u8)> {
     (hour < 24 && minute < 60).then_some((hour, minute))
 }
 
+fn pinned_zone(word: Option<&&str>) -> Result<(Option<chrono_tz::Tz>, usize), String> {
+    let Some(zone) = word.and_then(|word| word.strip_prefix("--timezone=")) else {
+        return Ok((None, 0));
+    };
+    zone.parse()
+        .map(|zone| (Some(zone), 1))
+        .map_err(|_| "Use an IANA time zone such as --timezone=Europe/Warsaw.".into())
+}
+
 /// The words that say when, at the start of `words`, and how many of them there were.
 fn when(words: &[&str]) -> Result<(When, usize), String> {
     const SHAPE: &str =
@@ -165,18 +174,28 @@ fn when(words: &[&str]) -> Result<(When, usize), String> {
         }
         ["at", time, ..] => {
             let (hour, minute) = clock(time).ok_or(SHAPE)?;
-            Ok((When::At { hour, minute }, 2))
+            let (timezone, used) = pinned_zone(words.get(2))?;
+            Ok((
+                When::At {
+                    hour,
+                    minute,
+                    timezone,
+                },
+                2 + used,
+            ))
         }
         ["every", days @ ("day" | "weekday"), "at", time, ..] => {
             let (hour, minute) = clock(time).ok_or(SHAPE)?;
             let weekdays = *days == "weekday";
+            let (timezone, used) = pinned_zone(words.get(4))?;
             Ok((
                 When::Daily {
                     hour,
                     minute,
                     weekdays,
+                    timezone,
                 },
-                4,
+                4 + used,
             ))
         }
         ["every", ..] => {
@@ -353,14 +372,22 @@ fn parse(
                 value.push(*unit);
                 used += 1;
             }
+            let (timezone, zone_used) = pinned_zone(rest.get(at + used))?;
             let joined = value.concat();
             let by = duration(&joined)
+                .filter(|_| timezone.is_none())
                 .map(|seconds| When::In { seconds })
-                .or_else(|| clock(&joined).map(|(hour, minute)| When::At { hour, minute }))
+                .or_else(|| {
+                    clock(&joined).map(|(hour, minute)| When::At {
+                        hour,
+                        minute,
+                        timezone,
+                    })
+                })
                 .ok_or(BY)?;
             let what: Vec<&str> = rest[..at]
                 .iter()
-                .chain(&rest[at + used..])
+                .chain(&rest[at + used + zone_used..])
                 .copied()
                 .collect();
             Ask::Promise {
@@ -546,7 +573,19 @@ mod tests {
             (
                 When::At {
                     hour: 17,
-                    minute: 30
+                    minute: 30,
+                    timezone: None
+                },
+                "Look at the queue".into()
+            )
+        );
+        assert_eq!(
+            checkin("at 17:30 --timezone=Asia/Bangkok Look at the queue"),
+            (
+                When::At {
+                    hour: 17,
+                    minute: 30,
+                    timezone: Some(chrono_tz::Asia::Bangkok)
                 },
                 "Look at the queue".into()
             )
@@ -561,7 +600,8 @@ mod tests {
                 When::Daily {
                     hour: 9,
                     minute: 0,
-                    weekdays: true
+                    weekdays: true,
+                    timezone: None
                 },
                 "Read the overnight alerts".into()
             )
@@ -572,7 +612,8 @@ mod tests {
                 When::Daily {
                     hour: 21,
                     minute: 15,
-                    weekdays: false
+                    weekdays: false,
+                    timezone: None
                 },
                 "from stdin".into()
             )
@@ -583,6 +624,7 @@ mod tests {
             "in soon Check",
             "in 30m",
             "at 25:00 Check",
+            "at 17:30 --timezone=Mars/Olympus Check",
             "at noon Check",
             "every Check it",
             "every weekday Check",
@@ -639,7 +681,8 @@ mod tests {
             Ask::Promise {
                 by: When::At {
                     hour: 17,
-                    minute: 30
+                    minute: 30,
+                    timezone: None
                 },
                 what: "Send the report".into()
             }
@@ -660,6 +703,20 @@ mod tests {
             Ask::PromiseDone {
                 id: 3,
                 note: Some("Sent to the list.".into())
+            }
+        );
+        assert_eq!(
+            ask(
+                "promise",
+                "add Send the report --by=17:30 --timezone=Asia/Bangkok"
+            ),
+            Ask::Promise {
+                by: When::At {
+                    hour: 17,
+                    minute: 30,
+                    timezone: Some(chrono_tz::Asia::Bangkok)
+                },
+                what: "Send the report".into(),
             }
         );
         assert_eq!(ask("promise", "list"), Ask::Promises);

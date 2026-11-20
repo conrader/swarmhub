@@ -37,6 +37,7 @@ struct ContentView: View {
             // Transient network trouble is this line, never the alert below.
             if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.errorMessage = nil } }
         }
+        .environment(\.timeZone, store.personDisplayZone)
         .task { store.startHerdrHelperPolling(); store.startLaunchWork(); store.startTeamCoordination(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
         // "New agent" with no server opens the setup window instead of an editor whose bot could not answer.
         .sheet(isPresented: Binding(get: { store.showingNewBot && store.herdrConfigured }, set: { store.showingNewBot = $0 })) { BotEditorView(bot: nil) }
