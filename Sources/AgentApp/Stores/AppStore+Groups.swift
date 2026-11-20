@@ -45,6 +45,7 @@ extension AppStore {
     }
 
     func deleteGroup(_ group: GroupChat) {
+        if !deletedGroupIDs.contains(group.id) { deletedGroupIDs.append(group.id) }
         discardComposerAttachments(for: group.id); grokHistory.remove(group.id); groups.removeAll { $0.id == group.id }
         if selectedGroup?.id == group.id { selectVisibleChat() }
         objectWillChange.send(); save()

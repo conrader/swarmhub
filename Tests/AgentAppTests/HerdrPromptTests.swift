@@ -35,7 +35,7 @@ private final class PromptBridge: @unchecked Sendable {
 
 /// An agent that waits in its terminal is something the person can act on from the chat.
 @MainActor struct HerdrPromptTests {
-    private final class Notices: @unchecked Sendable { var sent: [(bot: String, text: String)] = [] }
+    private final class Notices: @unchecked Sendable { var sent: [(bot: String, group: String?, text: String)] = [] }
 
     private func makeStore(_ kind: HerdrServer.Kind = .address, address: String = "http://127.0.0.1:1") -> (store: AppStore, bot: Bot, other: Bot, notices: Notices) {
         let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in TestBackend() }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
@@ -47,7 +47,7 @@ private final class PromptBridge: @unchecked Sendable {
         store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: kind, address: served.address), token: "t")
         store.herdrClientSetup = { $0.session = served.session }
         let notices = Notices()
-        store.herdrPromptBook.notifier = { bot, text in notices.sent.append((bot.name, text)) }
+        store.herdrPromptBook.notifier = { bot, group, text in notices.sent.append((bot.name, group?.name, text)) }
         return (store, bot, other, notices)
     }
 
@@ -122,6 +122,33 @@ private final class PromptBridge: @unchecked Sendable {
         let end = try await consuming.value
         store.finishTurn(end, assistant: reply, bot: bot, in: bot)
         #expect(store.herdrPrompts[bot.id] == nil && reply.metadata[TurnKey.agent] == nil)
+    }
+
+    @Test(arguments: ["permission", "trust"])
+    func aGroupTurnRaisesItsOwnTerminalPromptAndClearsItOnEnd(kind: String) async throws {
+        let (store, bot, _, notices) = makeStore()
+        let group = GroupChat(name: "Review", memberIDs: [bot.id])
+        store.groups = [group]
+        let name = try #require(HerdrBackend.groupRuntimeName(sessionID: store.turnSessionID(in: group, bot: bot), botID: bot.id))
+        let bridge = PromptBridge(agentName: name)
+        bridge.statusKind(kind)
+        bridge.show(kind == "trust" ? "Do you trust this folder?" : "Would you like to run the following command?")
+        let served = bridge.session()
+        store.herdrClientSetup = { $0.session = served.session }
+        store.saveHerdrServer(.init(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "t")
+        let reply = ChatMessage(role: .assistant, content: "", isStreaming: true, authorID: bot.id)
+        let (stream, feed) = AsyncThrowingStream<AgentEvent, Error>.makeStream()
+        defer { feed.finish() }
+        let consuming = Task { try await store.consumeTurn(stream, assistant: reply, bot: bot, group: group) }
+        feed.yield(.status(blocked.code))
+        try await waitUntil { store.herdrPrompts[group.id] != nil }
+        #expect(store.herdrPrompts[group.id]?.agent == .init(address: "t7", createdMs: 9))
+        #expect(group.isUnread && store.herdrPrompts[bot.id] == nil && !bot.isUnread)
+        #expect(notices.sent.count == 1 && notices.sent.first?.group == group.name)
+        #expect(store.herdrPromptAnswer(for: bot, in: group) == .browser(URL(string: served.address)!))
+        feed.yield(.status(blocked.code)); feed.yield(.completed); feed.finish()
+        store.finishTurn(try await consuming.value, assistant: reply, bot: bot, in: group)
+        #expect(store.herdrPrompts[group.id] == nil && notices.sent.count == 1)
     }
 
     @Test func theChatShowsWhatTheTerminalAsks() async throws {

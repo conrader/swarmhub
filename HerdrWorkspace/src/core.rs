@@ -829,7 +829,7 @@ fn bot_workspace_at(
     id: Option<&str>,
     runtime_name: &str,
 ) -> io::Result<PathBuf> {
-    use std::os::unix::fs::DirBuilderExt;
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "invalid bot workspace");
     let name = match id {
         Some(id)
@@ -853,19 +853,31 @@ fn bot_workspace_at(
         .mode(0o700)
         .create(root)?;
     let folder = root.canonicalize()?.join(name);
-    match std::fs::DirBuilder::new().mode(0o700).create(&folder) {
-        Ok(()) => std::fs::OpenOptions::new()
+    let mark = match std::fs::DirBuilder::new().mode(0o700).create(&folder) {
+        Ok(()) => true,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            let meta = std::fs::symlink_metadata(&folder)?;
+            if !meta.is_dir() {
+                return Err(error);
+            }
+            // Creation may have stopped before writing the marker. Only adopt an empty, private directory
+            // owned by this account, as it would be immediately after mkdir.
+            meta.mode() & 0o7777 == 0o700
+                && meta.uid() == unsafe { libc::geteuid() }
+                && std::fs::read_dir(&folder)?.next().is_none()
+        }
+        Err(error) => return Err(error),
+    };
+    if mark {
+        match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(folder.join(".swarmhub-workspace"))
-            .map(|_| ())?,
-        Err(error)
-            if error.kind() == io::ErrorKind::AlreadyExists
-                && std::fs::symlink_metadata(&folder)?.is_dir() =>
         {
-            ()
+            Ok(_) => (),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(error) => return Err(error),
         }
-        Err(error) => return Err(error),
     }
     Ok(folder)
 }
@@ -974,5 +986,29 @@ mod workspace_tests {
 
         symlink(&first, root.path().join("agent-existing")).unwrap();
         assert!(bot_workspace_at(root.path(), None, "existing").is_err());
+    }
+
+    #[test]
+    fn a_crash_before_the_marker_recovers_an_empty_private_folder() {
+        use std::os::unix::fs::DirBuilderExt;
+        let root = tempfile::tempdir().unwrap();
+        let recovered = root.path().join("agent-recover");
+        let existing = root.path().join("agent-existing");
+        let shared = root.path().join("agent-shared");
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700).create(&recovered).unwrap();
+        builder.create(&existing).unwrap();
+        std::fs::write(existing.join("user-file"), "keep").unwrap();
+        builder.mode(0o755).create(&shared).unwrap();
+
+        let folder = bot_workspace_at(root.path(), None, "recover").unwrap();
+        assert_eq!(
+            std::fs::read(folder.join(".swarmhub-workspace")).unwrap(),
+            b""
+        );
+        for name in ["existing", "shared"] {
+            let folder = bot_workspace_at(root.path(), None, name).unwrap();
+            assert!(!folder.join(".swarmhub-workspace").exists());
+        }
     }
 }

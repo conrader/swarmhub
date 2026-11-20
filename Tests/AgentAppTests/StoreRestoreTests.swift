@@ -148,12 +148,16 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     try original.write(to: url)
 
     let store = launch(url, defaults)
-    #expect(store.bots.isEmpty && !store.persistenceEnabled)
+    #expect(store.bots.isEmpty && store.persistenceEnabled)
     #expect(store.unreadableStoreSetAside && store.storeRestoreOffer == nil)
     #expect(!FileManager.default.fileExists(atPath: url.path))
     let directory = url.deletingLastPathComponent()
     let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
     let preserved = try #require(files.first { $0.lastPathComponent.hasPrefix("store.json.corrupt-") })
+    #expect(try Data(contentsOf: preserved) == original)
+    #expect(FirstRun.settle(store))
+    store.addBot(name: "Fresh", persona: "", backend: .herdr, avatarName: nil)
+    #expect(launch(url, defaults).bots.map(\.name) == ["Fresh"])
     #expect(try Data(contentsOf: preserved) == original)
 }
 
@@ -259,6 +263,17 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     store.save()
     #expect(try Data(contentsOf: url) == healthy)
     #expect(launch(url, defaults).storeRestoreOffer == nil)
+}
+
+@Test @MainActor func aBackupThatBecomesUnreadableDoesNotLeaveSetupBlocked() throws {
+    let (url, defaults) = try setup()
+    let backup = try writeStore(["Old"], as: "store.json.bak-old", beside: url)
+    let store = launch(url, defaults)
+    #expect(store.storeRestoreOffer != nil && !store.persistenceEnabled)
+    try Data("unreadable".utf8).write(to: backup)
+    #expect(!store.restoreSetAsideStore())
+    #expect(store.storeRestoreOffer == nil && store.persistenceEnabled)
+    #expect(FirstRun.settle(store))
 }
 
 @Test @MainActor func recoveringRetainsSmallerLargerAndUnreadableCopies() throws {

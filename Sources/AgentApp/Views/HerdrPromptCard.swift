@@ -6,11 +6,12 @@ import SwiftUI
 /// there. The card goes when the agent moves again.
 struct HerdrPromptCard: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot
+    var group: GroupChat? = nil
     @State private var terminal = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let prompt = store.herdrPrompts[bot.id]
+        let prompt = store.herdrPrompts[group?.id ?? bot.id]
         Group {
             if let prompt { card(prompt).transition(.opacity.combined(with: .move(edge: .bottom))) }
         }
@@ -19,7 +20,7 @@ struct HerdrPromptCard: View {
         .task(id: prompt?.since) {
             guard prompt != nil, store.launchWorkEnabled else { return }
             while !Task.isCancelled {
-                await store.refreshHerdrPrompt(for: bot)
+                await store.refreshHerdrPrompt(for: bot, in: group)
                 do { try await Task.sleep(for: .seconds(4)) } catch { return }
             }
         }
@@ -31,7 +32,7 @@ struct HerdrPromptCard: View {
                 Image(systemName: "hand.raised.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(AppColor.caution)
                     .frame(width: 30, height: 30).background(Circle().fill(AppColor.caution.opacity(0.16))).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(prompt.title).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    Text(group == nil ? prompt.title : "\(bot.name) · \(prompt.title)").font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 4) {
                         Text(HerdrPrompt.detail)
                         Text("Since") + Text(" ") + Text(prompt.since, style: .time) + Text(".")
@@ -42,7 +43,7 @@ struct HerdrPromptCard: View {
                     Button("Answer here") { terminal = true }
                         .buttonStyle(.appleProminent).accessibilityIdentifier("chat.prompt.answer")
                         .sheet(isPresented: $terminal) {
-                            HerdrTerminalSheet(bot: bot, agent: agent)
+                            HerdrTerminalSheet(bot: bot, agent: agent, group: group)
                         }
                 }
             }

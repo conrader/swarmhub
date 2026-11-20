@@ -48,7 +48,8 @@ extension AppStore {
     /// The same import with the redaction and archive work off the main actor, yielding between bundles.
     /// `timing` (tests) records how long each synchronous main-actor stretch of the import took.
     @discardableResult func importGrokBundles(_ bundles: [GrokBotBundle], policy: GrokImportPolicy,
-                                              timing: GrokImportTiming? = nil, destination: GrokDestination? = nil) async throws -> [GrokImportRow] {
+                                              timing: GrokImportTiming? = nil, destination: GrokDestination? = nil,
+                                              settledFetchedSequences: [String: Set<Int64>] = [:]) async throws -> [GrokImportRow] {
         var stretch = timing?.start()
         try beginGrokImport()
         var rows: [GrokImportRow] = []
@@ -60,7 +61,9 @@ extension AppStore {
                 try validateGrokDestination(destination)
                 let target = grokTarget(for: prepared, destination: destination)
                 timing?.end(&stretch)
-                let count = try await grokHistory.mergeInBackground(prepared.lines, sourceID: prepared.bundle.sourceId, for: target.id)
+                let sourceID = prepared.bundle.sourceId
+                let count = try await grokHistory.mergeInBackground(prepared.lines, sourceID: sourceID, for: target.id,
+                                                                    settledFetchedSequences: settledFetchedSequences[sourceID] ?? [])
                 stretch = timing?.start()
                 try validateGrokDestination(destination)
                 rows.append(apply(prepared, to: target, historyCount: count, policy: policy, destination: destination))

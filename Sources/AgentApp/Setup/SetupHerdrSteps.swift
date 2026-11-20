@@ -106,8 +106,9 @@ struct SetupHerdrStep: View {
     private var intro: String {
         switch flow.herdr.kind { case .local: flow.localSetup == nil ? WizardCopy.localIntro : WizardCopy.localSetupIntro; case .ssh: WizardCopy.sshIntro; case .address: WizardCopy.addressIntro }
     }
-    private func fields(_ part: HerdrServerFields.Part) -> HerdrServerFields {
+    private func fields(_ part: HerdrServerFields.Part) -> some View {
         HerdrServerFields(draft: $flow.herdr, part: part, submit: { if flow.herdr.problem == nil, !testing, !flow.herdrReady { test() } })
+            .disabled(flow.localSetup?.isWorking == true)
     }
 
     /// Test asked for the access key, or refused the one it found: the folded field for it is opened.
@@ -151,11 +152,11 @@ struct SetupHerdrStep: View {
     }
 
     @ViewBuilder private var result: some View {
-        if testing {
-            StatusCard(kind: .working, title: SetupCopy.testing).transition(.opacity)
-        } else if let setup = flow.localSetup {
+        if let setup = flow.localSetup, !testing || setup == .working(.checkingConnection) {
             // This Mac is being set up, or setting it up is offered or has stopped.
             SetupLocalOffer(setup: setup, answers: $flow.localAnswers, portNote: portNote).transition(.opacity)
+        } else if testing {
+            StatusCard(kind: .working, title: SetupCopy.testing).transition(.opacity)
         } else if let port = flow.herdrNothingHere {
             StatusCard(kind: .warning, title: WizardCopy.nothingHere(port: port), detail: WizardCopy.nothingElse).transition(.opacity)
         } else if let failure = flow.herdrFailure {

@@ -1,12 +1,12 @@
 import Foundation
 
-/// The agent of a bot that was removed: which server it runs on and what the server calls it. Kept until the server
-/// has been asked to end it, so a server that could not be reached then is asked again later.
-struct HerdrAgentEnding: Codable, Equatable, Sendable {
+/// The runtime names to end on a removed bot's server. Kept until the server confirms they are gone.
+struct HerdrAgentEnding: Codable, Hashable, Sendable {
     var server: String
-    var agent: String
+    var agent: String?
     /// The bot's name, for a person reading the saved list.
     var bot: String
+    var groupAgents: [String]? = nil
 }
 
 /// What the person reads before a bot is removed.
@@ -16,19 +16,17 @@ enum BotRemovalCopy {
     /// `server`: where the bot's agent runs; nil for a bot that has none there (a sample, an archive).
     static func message(server: String?) -> String {
         guard let server else { return "Its chat is removed from this Mac. This can’t be undone." }
-        return "Its chat is removed from this Mac, and its agent on \(server) is ended, with what that agent remembers. This can’t be undone."
+        return "Its chat is removed from this Mac. Its agent on \(server) and its agents in group chats are ended, with what they remember. This can’t be undone."
     }
 }
 
 /// Removing a bot ends its agent. A Herdr bot is this app's record plus an agent program running on its server;
 /// deleting the record used to leave that program running there, unseen, until the server's own limit.
-/// Only that bot's agent is ended: the one the server lists under the bot's own name (`HerdrBackend.agentName`,
-/// which ends in the start of the bot's id), found the way a message finds it. Its helpers, other bots' agents and
-/// anything started outside the app are left alone. A server that cannot be reached is tolerated: the bot is removed
-/// all the same, and its agent is ended the next time the app starts or another bot is removed.
+/// The bot's direct and group agents are ended by their runtime names. If the server cannot be reached, the app
+/// tries again the next time it starts or another bot is removed.
 extension AppStore {
-    /// `UserDefaults`: the agents still to end, as JSON, newest last.
-    static let herdrEndingsKey = "herdrAgentsToEnd", herdrEndingsKept = 40
+    /// Earlier versions kept outstanding direct agents in `UserDefaults`.
+    static let herdrEndingsKey = "herdrAgentsToEnd"
 
     /// What removing `bot` ends on its server; nil for a bot that has no agent there.
     func herdrEnding(for bot: Bot) -> HerdrAgentEnding? {
@@ -40,12 +38,16 @@ extension AppStore {
     func herdrEndingPlace(for bot: Bot) -> String? { herdrEnding(for: bot).flatMap { herdrServer(id: $0.server)?.name } }
 
     var herdrEndings: [HerdrAgentEnding] {
+        pendingHerdrEndings + legacyHerdrEndings.filter { !pendingHerdrEndings.contains($0) }
+    }
+
+    private var legacyHerdrEndings: [HerdrAgentEnding] {
         defaults.data(forKey: Self.herdrEndingsKey).flatMap { try? JSONDecoder().decode([HerdrAgentEnding].self, from: $0) } ?? []
     }
 
-    private func setHerdrEndings(_ endings: [HerdrAgentEnding]) {
+    private func setLegacyHerdrEndings(_ endings: [HerdrAgentEnding]) {
         if endings.isEmpty { defaults.removeObject(forKey: Self.herdrEndingsKey) }
-        else { defaults.set(try? JSONEncoder().encode(Array(endings.suffix(Self.herdrEndingsKept))), forKey: Self.herdrEndingsKey) }
+        else { defaults.set(try? JSONEncoder().encode(endings), forKey: Self.herdrEndingsKey) }
     }
 
     enum HerdrEnded: Equatable, Sendable {
@@ -62,35 +64,61 @@ extension AppStore {
         guard let server = herdrServer(id: ending.server) else { return .nothingToEnd }
         do {
             let client = try herdrClient(for: server)
-            guard let agent = client.liveAgent(named: ending.agent, in: try await client.workspace()) else { return .nothingToEnd }
-            try await client.end(agent)
+            let workspace = try await client.workspace()
+            let groupNames = Set(ending.groupAgents ?? [])
+            var agents = workspace.agents.filter { $0.isLive && $0.parent == nil && groupNames.contains($0.name) }
+            if let name = ending.agent, let direct = client.liveAgent(named: name, in: workspace) { agents.append(direct) }
+            guard !agents.isEmpty else { return .nothingToEnd }
+            for agent in agents {
+                do { try await client.end(agent) }
+                catch HerdrClient.Failure.http(404, _) { /* It has already ended. */ }
+            }
             return .ended
         } catch { return .unreachable }
     }
 
-    /// `bot` is being removed: its turn stops here, and its agent is noted for ending before the record goes, because
-    /// the server and the name are read from the bot's own settings. `delete` calls `herdrAgentRemoved` with it.
-    func herdrEndingBeforeRemoval(of bot: Bot) -> (ending: HerdrAgentEnding, warming: Task<Void, Never>?)? {
-        guard launchWorkEnabled, let ending = herdrEnding(for: bot) else { return nil }
-        turn(in: bot)?.task?.cancel()
-        setHerdrEndings(herdrEndings.filter { $0 != ending } + [ending])
-        return (ending, herdrWarming[bot.id])
+    /// Group runtime names are stable even when the bot leaves the group or moves to another server.
+    func herdrEndingsForRemoval(of bot: Bot) -> [HerdrAgentEnding] {
+        guard launchWorkEnabled, var ending = herdrEnding(for: bot) else { return [] }
+        let groupNames = (groups.map(\.id) + deletedGroupIDs).compactMap { groupID in
+            HerdrBackend.groupRuntimeName(sessionID: sessionNamespace + GroupRouting.sessionID(group: groupID, bot: bot.id), botID: bot.id)
+        }
+        guard !groupNames.isEmpty else { return [ending] }
+        ending.groupAgents = groupNames
+        return [ending] + herdrServers.filter { $0.id != ending.server }.map {
+            HerdrAgentEnding(server: $0.id, agent: nil, bot: bot.name, groupAgents: groupNames)
+        }
     }
 
-    /// Ends the removed bot's agent, in the background. A start ahead of time that is on its way is let through
-    /// first, so the agent it starts is the one that is ended.
-    @discardableResult func herdrAgentRemoved(_ removal: (ending: HerdrAgentEnding, warming: Task<Void, Never>?), botID: UUID) -> Task<Void, Never> {
-        herdrReadiness[botID] = nil; herdrAgentReadings[botID] = nil; herdrHelpers[botID] = nil
-        return Task { [weak self] in
-            await removal.warming?.value
-            await self?.settleHerdrEndings()
+    /// Cancel this bot's turns and let any warm start finish before asking the server to end its agents.
+    func herdrAgentRemoved(_ bot: Bot, endings: [HerdrAgentEnding]) {
+        busyHerdrEndings.formUnion(endings)
+        let warming = herdrWarming[bot.id]
+        let tasks = runningTurns.values.filter { $0.botID == bot.id }.compactMap(\.task)
+        tasks.forEach { $0.cancel() }
+        herdrReadiness[bot.id] = nil; herdrAgentReadings[bot.id] = nil; herdrHelpers[bot.id] = nil
+        Task { [weak self] in
+            await warming?.value
+            for task in tasks { await task.value }
+            guard let self else { return }
+            self.busyHerdrEndings.subtract(endings)
+            await self.settleHerdrEndings()
         }
     }
 
     /// Asks each server to end the agents of removed bots that are still noted, and forgets those it answered for.
     func settleHerdrEndings() async {
-        for ending in herdrEndings where await endHerdrAgent(ending) != .unreachable {
-            setHerdrEndings(herdrEndings.filter { $0 != ending })
+        for ending in herdrEndings where busyHerdrEndings.insert(ending).inserted {
+            let outcome = await endHerdrAgent(ending)
+            busyHerdrEndings.remove(ending)
+            guard outcome != .unreachable else { continue }
+            if let index = pendingHerdrEndings.firstIndex(of: ending) {
+                pendingHerdrEndings.remove(at: index)
+                save()
+                if turns.saveFailing { pendingHerdrEndings.insert(ending, at: index) }
+            }
+            let legacy = legacyHerdrEndings
+            if legacy.contains(ending) { setLegacyHerdrEndings(legacy.filter { $0 != ending }) }
         }
     }
 }

@@ -47,6 +47,7 @@ import Sparkle
     private var controller: SPUStandardUpdaterController?
     private var events: UpdaterEvents?
     private var pendingManualCheck: AnyCancellable?
+    private var pendingManualCheckTimeout: Task<Void, Never>?
 
     init(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment, arguments: [String] = CommandLine.arguments) {
         automaticInstallPreferenceAvailable = (bundle.object(forInfoDictionaryKey: "SUAllowsAutomaticUpdates") as? Bool) != false
@@ -61,10 +62,7 @@ import Sparkle
             try controller.updater.start()
             self.controller = controller; self.events = events
             let updater = controller.updater
-            updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheckForUpdates)
-            updater.publisher(for: \.automaticallyChecksForUpdates).assign(to: &$automaticallyChecksForUpdates)
-            updater.publisher(for: \.automaticallyDownloadsUpdates).assign(to: &$automaticallyDownloadsUpdates)
-            updater.publisher(for: \.allowsAutomaticUpdates).assign(to: &$allowsAutomaticUpdates)
+            observeSparkleUpdater(updater)
             // A rehearsal does not wait a day for the scheduled check.
             if environment["SWARMHUB_UPDATE_CHECK_ON_LAUNCH"] == "1" { updater.checkForUpdatesInBackground() }
         } catch {
@@ -72,25 +70,56 @@ import Sparkle
         }
     }
 
+    func observeSparkleUpdater(_ updater: SPUUpdater) {
+        lastCheck = updater.lastUpdateCheckDate
+        updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheckForUpdates)
+        updater.publisher(for: \.automaticallyChecksForUpdates).assign(to: &$automaticallyChecksForUpdates)
+        updater.publisher(for: \.automaticallyDownloadsUpdates).assign(to: &$automaticallyDownloadsUpdates)
+        updater.publisher(for: \.allowsAutomaticUpdates).assign(to: &$allowsAutomaticUpdates)
+    }
+
     /// Sparkle's own window: the release notes, Install, and its progress. Also brings a found update into view.
     func checkForUpdates() {
         guard let controller else { return }
         if controller.updater.canCheckForUpdates {
-            pendingManualCheck = nil
-            manualCheckQueued = false
-            UpdateNotice.shared.manualCheckQueued = false
+            clearQueuedCheck()
             isChecking = true; problem = nil
             controller.checkForUpdates(nil)
-        } else if pendingManualCheck == nil {
-            manualCheckQueued = true
-            UpdateNotice.shared.manualCheckQueued = true
-            // Sparkle can briefly report ready before starting another phase of the same check.
-            pendingManualCheck = $canCheckForUpdates
-                .receive(on: DispatchQueue.main)
-                .filter { [weak controller] ready in ready && controller?.updater.canCheckForUpdates == true }
-                .first()
-                .sink { [weak self] _ in self?.checkForUpdates() }
+        } else {
+            queueManualCheck(readiness: $canCheckForUpdates.eraseToAnyPublisher(),
+                             isReady: { [weak controller] in controller?.updater.canCheckForUpdates == true },
+                             start: { [weak self] in self?.checkForUpdates() })
         }
+    }
+
+    func queueManualCheck(readiness: AnyPublisher<Bool, Never>, timeout: Duration = .seconds(60),
+                          isReady: @escaping () -> Bool, start: @escaping () -> Void) {
+        guard pendingManualCheck == nil else { return }
+        manualCheckQueued = true
+        UpdateNotice.shared.manualCheckQueued = true
+        problem = nil
+        // Sparkle can briefly report ready before starting another phase of the same check.
+        pendingManualCheck = readiness.receive(on: DispatchQueue.main)
+            .filter { $0 && isReady() }.first()
+            .sink { [weak self] _ in
+                guard let self, self.manualCheckQueued else { return }
+                self.clearQueuedCheck()
+                start()
+            }
+        pendingManualCheckTimeout = Task { [weak self] in
+            do { try await Task.sleep(for: timeout) } catch { return }
+            guard let self, self.manualCheckQueued else { return }
+            self.clearQueuedCheck()
+            self.problem = "The updater stayed busy. Try checking for updates again."
+        }
+    }
+
+    private func clearQueuedCheck() {
+        pendingManualCheck = nil
+        pendingManualCheckTimeout?.cancel()
+        pendingManualCheckTimeout = nil
+        manualCheckQueued = false
+        UpdateNotice.shared.manualCheckQueued = false
     }
 
     /// Asks the feed without opening a window; `available`, `lastCheck` and `problem` say what came of it.

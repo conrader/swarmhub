@@ -40,7 +40,7 @@ private func seqs(_ entries: [JSONValue]) -> [Int64] { entries.compactMap { $0["
     #expect(gets.allSatisfy { URL(string: $0.url)!.path.hasPrefix("/blob/") && $0.headers["authorization"] == nil })
     #expect(Set(fake.requests.map(\.method)) == ["GET", "POST"])
 
-    // Merged with the cached newest entries 1149…1200 (cached text wins): gaps 11 and 300–301, 1,197 messages.
+    // Merged with the cached newest entries 1149…1200: gaps 11 and 300–301, 1,197 messages.
     let cached = (1149...1200).map { GrokJSON.from(FakeGrok.entry(Int64($0), "cached \($0)")) }
     let merged = GrokHistoryMerge.merge(cached: cached, fetched: result)
     #expect(merged.entries.count == 1197)
@@ -48,7 +48,8 @@ private func seqs(_ entries: [JSONValue]) -> [Int64] { entries.compactMap { $0["
     #expect(merged.unresolvedSequences == [11])
     let repaired = GrokHistoryMerge.merge(cached: cached + [GrokJSON.from(FakeGrok.entry(11, "cached body"))], fetched: result)
     #expect(repaired.coverage == .serverGaps([[300, 301]]))
-    #expect(merged.entries.first { $0["seq"] == .int(1149) }?["content"] == .string("cached 1149"))
+    #expect(merged.entries.first { $0["seq"] == .int(1149) }?["content"] == .string("synthetic 1149"))
+    #expect(merged.settledFetchedSequences.contains(1149) && !repaired.settledFetchedSequences.contains(11))
     var redactor = GrokRedactor(), stats = GrokBundleV1.Statistics()
     let mapped = GrokEntryMapper(names: [:], botName: "Alpha").map(merged.entries, redact: &redactor, stats: &stats)
     #expect(mapped.messages.count == 1197)

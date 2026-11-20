@@ -26,23 +26,25 @@ struct SetupLocalOffer: View {
             }.appleCard(padding: 14)
         case .working(let step):
             switch step {
+            case .checkingRelease:
+                StatusCard(kind: .working, title: "Checking the SwarmHub service release…", detail: WizardCopy.fetchingDetail)
             case .fetching(let download):
-                if let download {
-                    StatusCard(kind: .info, title: WizardCopy.fetching) {
-                        ProgressView(value: Double(download.received), total: Double(download.total)) {
-                            Text(download.attempt > 1 ? "Attempt \(download.attempt) of 3" : "SwarmHub service")
-                        } currentValueLabel: {
-                            Text("\(download.received.formatted()) of \(download.total.formatted()) bytes")
-                                .monospacedDigit()
-                        }
+                StatusCard(kind: .info, title: WizardCopy.fetching) {
+                    ProgressView(value: Double(download.received), total: Double(download.total)) {
+                        Text(download.attempt > 1 ? "Attempt \(download.attempt) of 3" : "SwarmHub service")
+                    } currentValueLabel: {
+                        Text("\(download.received.formatted()) of \(download.total.formatted()) bytes")
+                            .monospacedDigit()
                     }
-                } else {
-                    StatusCard(kind: .working, title: "Checking the SwarmHub service release…", detail: WizardCopy.fetchingDetail)
                 }
+            case .verifying:
+                StatusCard(kind: .working, title: "Verifying the SwarmHub service…", detail: "Checking the downloaded program against the signed release.")
             case .installing:
                 StatusCard(kind: .working, title: WizardCopy.installing, detail: WizardCopy.installingDetail)
+            case .checkingConnection:
+                StatusCard(kind: .working, title: "Checking the connection…")
             }
-        case .failed(let line):
+        case .failed(let line), .failedDownload(let line):
             StatusCard(kind: .warning, title: WizardCopy.setUpFailed, detail: line)
         }
     }

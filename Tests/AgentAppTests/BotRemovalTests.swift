@@ -89,6 +89,37 @@ private final class RemovalBridge: @unchecked Sendable {
         #expect(bridge.ended.isEmpty && store.bots.map(\.name) == ["Other"])
     }
 
+    @Test func deletingABotEndsItsAgentsAcrossGroupsIncludingADeletedGroup() async throws {
+        let bridge = RemovalBridge(), store = makeStore(bridge)
+        let previousHost = RemovalBridge(), previousConnection = previousHost.session()
+        store.saveHerdrServer(.init(id: "former", name: "Former host", kind: .address, address: previousConnection.address), token: "t")
+        let primarySetup = store.herdrClientSetup
+        store.herdrClientSetup = { client in
+            if client.baseURL.absoluteString == previousConnection.address { client.session = previousConnection.session }
+            else { primarySetup?(&client) }
+        }
+        let bot = Bot(name: "Infra", backend: .herdr), other = Bot(name: "Other", backend: .herdr)
+        let current = GroupChat(name: "Current", memberIDs: [bot.id, other.id])
+        let former = GroupChat(name: "Former", memberIDs: [bot.id])
+        store.bots = [bot, other]; store.groups = [current, former]
+        func groupAgent(_ group: GroupChat, _ bot: Bot) throws -> String {
+            try #require(HerdrBackend.groupRuntimeName(sessionID: store.turnSessionID(in: group, bot: bot), botID: bot.id))
+        }
+        bridge.run(name(bot), address: "t1", created: 1)
+        bridge.run(try groupAgent(current, bot), address: "t2", created: 2)
+        previousHost.run(try groupAgent(former, bot), address: "t3", created: 3)
+        bridge.run(try groupAgent(current, other), address: "t4", created: 4)
+        previousHost.run(name(bot), address: "t5", created: 5)
+        store.removeMember(bot.id, from: current)
+        store.deleteGroup(former)
+        #expect(try StoreFile.decode(Data(contentsOf: store.fileURL)).deletedGroupIDs == [former.id])
+
+        store.delete(bot)
+        try await waitUntil { store.herdrEndings.isEmpty }
+        #expect(Set(bridge.ended) == ["/api/agents/t1/1/end", "/api/agents/t2/2/end"])
+        #expect(previousHost.ended == ["/api/agents/t3/3/end"])
+    }
+
     @Test func aServerThatCannotBeReachedIsToleratedAndAskedAgainLater() async throws {
         let bridge = RemovalBridge(), store = makeStore(bridge)
         let infra = Bot(name: "Infra", backend: .herdr)
@@ -99,7 +130,8 @@ private final class RemovalBridge: @unchecked Sendable {
         // The bot is gone at once, no error is raised, and its agent stays noted.
         #expect(store.bots.isEmpty && store.errorMessage == nil)
         #expect(store.herdrEndings.map(\.agent) == [name(infra)])
-        try await waitUntil { bridge.requests >= 1 }
+        #expect(try StoreFile.decode(Data(contentsOf: store.fileURL)).pendingHerdrEndings == store.herdrEndings)
+        try await waitUntil { bridge.requests >= 1 && store.busyHerdrEndings.isEmpty }
         await store.settleHerdrEndings()
         #expect(bridge.ended.isEmpty && store.herdrEndings.count == 1 && store.errorMessage == nil)
         // The server is back: the next try (at launch, or when another bot is removed) ends it.
@@ -134,7 +166,7 @@ private final class RemovalBridge: @unchecked Sendable {
         store.bots = [infra]
         #expect(BotRemovalCopy.title("Infra") == "Delete Infra?")
         #expect(store.herdrEndingPlace(for: infra) == "Studio")
-        #expect(BotRemovalCopy.message(server: "Studio") == "Its chat is removed from this Mac, and its agent on Studio is ended, with what that agent remembers. This can’t be undone.")
+        #expect(BotRemovalCopy.message(server: "Studio") == "Its chat is removed from this Mac. Its agent on Studio and its agents in group chats are ended, with what they remember. This can’t be undone.")
         #expect(BotRemovalCopy.message(server: nil) == "Its chat is removed from this Mac. This can’t be undone.")
     }
 

@@ -13,6 +13,7 @@ struct HerdrTerminalSheet: View {
     @Environment(\.dismiss) private var dismiss
     let bot: Bot
     let agent: HerdrClient.AgentRef
+    var group: GroupChat? = nil
     var target: HerdrPickerTarget? = nil
     var didConfirm: (() -> Void)? = nil
     @State private var client: HerdrClient?
@@ -23,9 +24,9 @@ struct HerdrTerminalSheet: View {
             HStack {
                 Text(bot.name).font(.headline)
                 Spacer()
-                if let fallback = store.herdrPromptAnswer(for: bot) {
+                if let fallback = store.herdrPromptAnswer(for: bot, in: group) {
                     Button(fallback.button) {
-                        if !store.answerHerdrPrompt(for: bot) { error = "The external terminal could not be opened." }
+                        if !store.answerHerdrPrompt(for: bot, in: group) { error = "The external terminal could not be opened." }
                     }.help(fallback.help)
                 }
                 Button("Done") { dismiss() }

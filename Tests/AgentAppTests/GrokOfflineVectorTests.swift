@@ -108,7 +108,7 @@ import Testing
     }
     let fetched = [entry(1, "s1"), entry(2, "s2"), entry(4, "s4"), entry(5, "s5")]
     let cached = [entry(4, "c4"), entry(5, "c5", streaming: true), entry(7, "c7"), .object(["seq": .double(8), "id": .string("bad")])]
-    let merged = GrokEntryMerge.merge(cached: cached, fetched: fetched)
+    let merged = GrokEntryMerge.merge(cached: cached, fetched: fetched).entries
     #expect(merged.compactMap { $0["id"]?.stringValue } == ["s1", "s2", "c4", "s5", "c7"])
     let coverage = GrokEntryMerge.coverage(merged)
     #expect(coverage == .init(min: 1, max: 7, count: 5, gaps: [[3, 3], [6, 6]], complete: false))

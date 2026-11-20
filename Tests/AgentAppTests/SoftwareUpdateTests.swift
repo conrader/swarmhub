@@ -452,7 +452,7 @@ private final class ServiceDownloadFixture: URLProtocol, @unchecked Sendable {
         let path = url.path
         let range = request.value(forHTTPHeaderField: "Range")
         Self.received.append(path + (range ?? ""))
-        let program = path.hasPrefix("/resume/") ? Self.resumeProgram : Data("the program".utf8)
+        let program = path.hasPrefix("/resume/") || path.hasPrefix("/stall/") ? Self.resumeProgram : Data("the program".utf8)
         func respond(_ code: Int, contentRange: String? = nil, data: Data) {
             var headers = ["Content-Length": String(contentRange == nil ? program.count : data.count)]
             if let contentRange { headers["Content-Range"] = contentRange }
@@ -461,8 +461,14 @@ private final class ServiceDownloadFixture: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didLoad: data)
         }
 
-        if path.hasPrefix("/waiting/") {
-            respond(200, data: program.prefix(4))
+        if path.hasPrefix("/stall/"), range != nil {
+            let headers = ["Content-Range": "bytes \(Self.resumeOffset)-\(program.count - 1)/\(program.count)"]
+            let response = HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: headers)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            return
+        }
+        if path.hasPrefix("/waiting/") || path.hasPrefix("/stall/") {
+            respond(200, data: program.prefix(path.hasPrefix("/stall/") ? Self.resumeOffset : 4))
             return
         }
         if path.hasPrefix("/timeout/") {
@@ -471,6 +477,8 @@ private final class ServiceDownloadFixture: URLProtocol, @unchecked Sendable {
         }
         if path.hasPrefix("/damage/") {
             respond(200, data: Data("BAD PROGRAM".utf8))
+        } else if path.hasPrefix("/verify/") {
+            respond(200, data: program)
         } else if range != nil {
             let offset = Self.resumeOffset
             respond(206, contentRange: "bytes \(offset)-\(program.count - 1)/\(program.count)", data: program.dropFirst(offset))
@@ -491,14 +499,19 @@ private final class ServiceDownloadFixture: URLProtocol, @unchecked Sendable {
     let signed = SignedRelease(program: ServiceDownloadFixture.resumeProgram), data = signed.manifest()
     let release = try WorkspaceRelease.verified(manifest: data, signature: signed.sign(data), publicKey: signed.publicKey)
     var progress: [WorkspaceRelease.DownloadProgress] = []
+    var verificationBegan = false
     defer {
         #expect(progress.contains { $0.attempt == 2 && $0.received == ServiceDownloadFixture.resumeOffset },
                 "Progress \(progress) and requests \(ServiceDownloadFixture.received.all)")
     }
     let program = try await release.downloadProgram(for: "x86_64-linux", mirror: "http://127.0.0.1:18435/resume/",
-                                                    configuration: ServiceDownloadFixture.configuration, retryDelay: .zero) { progress.append($0) }
+                                                    configuration: ServiceDownloadFixture.configuration, retryDelay: .zero,
+                                                    verifying: {
+        #expect(progress.last?.received == signed.program.count)
+        verificationBegan = true
+    }) { progress.append($0) }
     #expect(program == signed.program)
-    #expect(progress.last?.received == program.count && progress.last?.total == program.count)
+    #expect(verificationBegan && progress.last?.received == program.count && progress.last?.total == program.count)
     #expect(ServiceDownloadFixture.received.all.contains { $0.hasPrefix("/resume/") && $0.hasSuffix("bytes=\(ServiceDownloadFixture.resumeOffset)-") })
 
     let damagedFixture = SignedRelease(), fixtureData = damagedFixture.manifest()
@@ -526,6 +539,41 @@ private final class ServiceDownloadFixture: URLProtocol, @unchecked Sendable {
                                           configuration: ServiceDownloadFixture.configuration, retryDelay: .zero) { _ in }
     }
     #expect(ServiceDownloadFixture.received.all.filter { $0.hasPrefix("/timeout/") }.count == 3)
+}
+
+@Test func aSilentServiceTransferTimesOutAndKeepsPartialByteProgress() async throws {
+    let signed = SignedRelease(program: ServiceDownloadFixture.resumeProgram), data = signed.manifest()
+    let release = try WorkspaceRelease.verified(manifest: data, signature: signed.sign(data), publicKey: signed.publicKey)
+    var progress: [WorkspaceRelease.DownloadProgress] = []
+    await #expect(throws: WorkspaceRelease.Failure.timedOut) {
+        try await release.downloadProgram(for: "x86_64-linux", mirror: "http://127.0.0.1:18435/stall/",
+                                          configuration: ServiceDownloadFixture.configuration, requestTimeout: 0.8,
+                                          resourceTimeout: 10, retryDelay: .zero) { progress.append($0) }
+    }
+    #expect(progress.contains(.init(received: ServiceDownloadFixture.resumeOffset, total: signed.program.count, attempt: 1)))
+    #expect(ServiceDownloadFixture.received.all.filter { $0.hasPrefix("/stall/") && $0.hasSuffix("bytes=\(ServiceDownloadFixture.resumeOffset)-") }.count == 2)
+}
+
+@Test func cancellationAtServiceVerificationLeavesTheProgramUnplaced() async throws {
+    let signed = SignedRelease(), data = signed.manifest(target: HerdrLocalService.target)
+    let release = try WorkspaceRelease.verified(manifest: data, signature: signed.sign(data), publicKey: signed.publicKey)
+    let home = temporaryStore().deletingLastPathComponent()
+    let service = HerdrLocalService(home: home.path)
+    defer { try? FileManager.default.removeItem(at: home) }
+    let transfer = Task {
+        let program = try await release.downloadProgram(for: HerdrLocalService.target, mirror: "http://127.0.0.1:18435/verify/",
+                                                        configuration: ServiceDownloadFixture.configuration, retryDelay: .zero,
+                                                        verifying: { withUnsafeCurrentTask { $0?.cancel() } }) { _ in }
+        try service.place(program)
+    }
+    await #expect(throws: CancellationError.self) { try await transfer.value }
+    #expect(!service.isPlaced)
+    let placement = Task {
+        withUnsafeCurrentTask { $0?.cancel() }
+        try service.place(signed.program)
+    }
+    await #expect(throws: CancellationError.self) { try await placement.value }
+    #expect(!service.isPlaced)
 }
 
 @Test func theServiceReusesOnlyAnInstalledBinaryMatchingItsSignedProof() throws {

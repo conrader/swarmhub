@@ -42,10 +42,11 @@ import UserNotifications
     /// the chat header says it. `herdrWarming`: the starts ahead of time that are on their way, by bot; a message to
     /// such a bot waits for its start. `herdrNoWarmStarts`: the servers and agent programs that refused such a start.
     @Published var herdrReadiness: [UUID: HerdrAgentReadiness] = [:] { didSet { if herdrReadiness != oldValue { herdrPromptsFollowReadiness() } } }
-    /// The bots whose agent waits at a question in its terminal, with what it asks (`AppStore+HerdrPrompt.swift`).
+    /// Waiting terminal prompts, keyed by the bot or group conversation ID.
     @Published var herdrPrompts: [UUID: HerdrPrompt] = [:]
     var herdrPromptBook = HerdrPromptBook()
     var herdrWarming: [UUID: Task<Void, Never>] = [:]
+    var localServiceSetupInProgress = false
     @Published var herdrNoWarmStarts: Set<String> = []
     /// Applied to every Herdr client the store makes; tests point it at a scripted server.
     var herdrClientSetup: (@Sendable (inout HerdrClient) -> Void)?
@@ -125,9 +126,12 @@ import UserNotifications
     var storeRevision: Data?
     var restoreUndoRevision: Data?
     var removedBots: [String: Set<String>] = [:]
+    var deletedGroupIDs: [UUID] = []
+    var pendingHerdrEndings: [HerdrAgentEnding] = []
+    var busyHerdrEndings: Set<HerdrAgentEnding> = []
     /// A set-aside store (`store.json.corrupt-*`, a backup) this launch offers to restore (`AppStore+StoreRestore.swift`).
     @Published var storeRestoreOffer: StoreRestore.Offer?; @Published var storeRestoreNote: String?
-    /// This launch moved an unreadable store.json aside (so saving is off until Restore or Start fresh).
+    /// This launch moved an unreadable store.json aside.
     private(set) var unreadableStoreSetAside = false
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     /// Prepended to every session id the app creates (chat, group).
@@ -190,7 +194,7 @@ import UserNotifications
                     let backup = fileURL.appendingPathExtension("corrupt-\(stamp)-\(UUID().uuidString)")
                     do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true; storeRevision = nil }
                     catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
-                    if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
+                    if unreadableStoreSetAside { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent)." }
                 }
             }
             if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
@@ -202,6 +206,7 @@ import UserNotifications
                     declined: Set(defaults.stringArray(forKey: StoreRestore.declinedKey) ?? []),
                     hideSamples: herdrConfigured)
                 if storeRestoreOffer != nil { persistenceEnabled = false }
+                else if unreadableStoreSetAside { persistenceEnabled = true }
             }
         }
         // A fresh install starts empty; the setup window or "Look around with sample agents" fills it.
@@ -213,7 +218,8 @@ import UserNotifications
 
     /// The decoded store becomes this window's state (launch, and the restore of a set-aside store).
     func adoptStoreFile(_ file: StoreFile) {
-        bots = file.bots; groups = file.groups; removedBots = file.removedBots ?? [:]
+        bots = file.bots; groups = file.groups; removedBots = file.removedBots ?? [:]; deletedGroupIDs = file.deletedGroupIDs ?? []
+        pendingHerdrEndings = file.pendingHerdrEndings ?? []
         chatScroll.restore(file.scrollPositions)
         turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
         migrateArchivedGroups()
@@ -263,6 +269,9 @@ import UserNotifications
     func delete(_ bot: Bot) {
         guard storeRestoreOffer == nil else { return }
         let oldBots = bots, oldMembers = groups.map(\.memberIDs), oldRemoved = removedBots
+        let oldEndings = pendingHerdrEndings
+        let endings = herdrEndingsForRemoval(of: bot)
+        pendingHerdrEndings.append(contentsOf: endings.filter { !oldEndings.contains($0) })
         if bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo {
             removedBots[herdrServer(for: bot).id, default: []].insert(bot.id.uuidString.lowercased())
         }
@@ -271,7 +280,7 @@ import UserNotifications
         if persistenceEnabled {
             save()
             if turns.saveFailing {
-                bots = oldBots; removedBots = oldRemoved
+                bots = oldBots; removedBots = oldRemoved; pendingHerdrEndings = oldEndings
                 for (group, ids) in zip(groups, oldMembers) { group.memberIDs = ids }
                 selectVisibleChat()
                 return
@@ -279,12 +288,14 @@ import UserNotifications
         }
         grokHistory.remove(bot.id)
         discardComposerAttachments(for: bot.id)
-        if let removal = herdrEndingBeforeRemoval(of: bot) { herdrAgentRemoved(removal, botID: bot.id) }
+        if !endings.isEmpty { herdrAgentRemoved(bot, endings: endings) }
     }
     /// Writes store.json; a failed write is reported once per streak instead of being swallowed.
     var storeFile: StoreFile {
         var file = StoreFile(bots: bots, groups: groups, scrollPositions: chatScroll.stored)
         file.removedBots = removedBots.isEmpty ? nil : removedBots
+        file.deletedGroupIDs = deletedGroupIDs.isEmpty ? nil : deletedGroupIDs
+        file.pendingHerdrEndings = pendingHerdrEndings.isEmpty ? nil : pendingHerdrEndings
         return file
     }
 

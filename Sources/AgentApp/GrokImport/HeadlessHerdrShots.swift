@@ -80,7 +80,7 @@ import SwiftUI
              Enter to confirm · Esc to cancel
             """)
         var none = local; none.apply(.herdrTest(.connected(server: thisMac, key: nil, offer: HerdrOffer()))); none.apply(.localReport(localReport(found: false)))
-        return [setup(.offer(hasCore: false)), setup(.offer(hasCore: true)), setup(.working(.fetching())), setup(.working(.installing)),
+        return [setup(.offer(hasCore: false)), setup(.offer(hasCore: true)), setup(.working(.checkingRelease)), setup(.working(.installing)),
                 setup(.failed(WizardCopy.portBusy(HerdrServer.defaultPort))), checks(.checking, .checking),
                 checks(.asks(screen: question, agent: .init(address: "t1", createdMs: 1)), .ready), checks(.ready, .ready), none]
     }

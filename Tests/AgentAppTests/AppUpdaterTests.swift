@@ -1,4 +1,6 @@
+import Combine
 import Foundation
+import Sparkle
 import Testing
 @testable import AgentApp
 
@@ -50,6 +52,43 @@ private var updateInfo: [String: Any] {
     updater.setAutomaticallyChecksForUpdates(true)
     updater.setAutomaticallyDownloadsUpdates(true)
     #expect(!updater.automaticallyChecksForUpdates && !updater.automaticallyDownloadsUpdates)
+}
+
+@MainActor @Test func aQueuedUpdateCheckExpiresAndCanBeRequestedAgain() async throws {
+    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
+    let readiness = PassthroughSubject<Bool, Never>()
+    var started = 0
+    updater.queueManualCheck(readiness: readiness.eraseToAnyPublisher(), timeout: .milliseconds(30), isReady: { true }) { started += 1 }
+    #expect(updater.manualCheckQueued && UpdateNotice.shared.manualCheckQueued)
+    try await waitUntil(timeout: .seconds(3)) { !updater.manualCheckQueued }
+    #expect(!UpdateNotice.shared.manualCheckQueued && updater.problem?.contains("stayed busy") == true)
+    readiness.send(true)
+    #expect(started == 0)
+
+    updater.queueManualCheck(readiness: readiness.eraseToAnyPublisher(), isReady: { true }) { started += 1 }
+    readiness.send(true)
+    try await waitUntil(timeout: .seconds(3)) { started > 0 }
+    #expect(started == 1 && !updater.manualCheckQueued && !UpdateNotice.shared.manualCheckQueued && updater.problem == nil)
+}
+
+@MainActor @Test func lastCheckStartsWithTheDateSparklePersisted() throws {
+    let directory = temporaryStore().deletingLastPathComponent()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let bundleURL = directory.appending(path: "Fixture.app")
+    let contents = bundleURL.appending(path: "Contents")
+    try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+    let defaults = IsolatedDefaults()
+    let info = ["CFBundleIdentifier": defaults.domainName, "CFBundlePackageType": "APPL", "CFBundleVersion": "1"]
+    try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appending(path: "Info.plist"))
+    let host = try #require(Bundle(url: bundleURL))
+    let checked = Date(timeIntervalSince1970: 1_760_000_000)
+    defaults.set(checked, forKey: "SULastCheckTime")
+
+    let driver = SPUStandardUserDriver(hostBundle: host, delegate: nil)
+    let sparkle = SPUUpdater(hostBundle: host, applicationBundle: host, userDriver: driver, delegate: nil)
+    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
+    updater.observeSparkleUpdater(sparkle)
+    #expect(updater.lastCheck == checked)
 }
 
 @Test func canonicalInstallationAndOlderCopiesAreComparedByVersionThenBuild() {

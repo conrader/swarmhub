@@ -20,19 +20,33 @@ extension AppStore {
     /// program then does the rest: Herdr Core when it is missing, the access key, the starter templates, and the job
     /// that starts it now and at every login.
     /// `answerFirstTime`: the person left "answer my AIs' first questions" on.
-    func setUpThisMac(port: Int, answerFirstTime: Bool, progress: @MainActor (HerdrLocalSetup.Step) -> Void) async throws -> HerdrLocalReport {
+    func setUpThisMac(port: Int, answerFirstTime: Bool, retryInstall: Bool = false,
+                     progress: @MainActor (HerdrLocalSetup.Step) -> Void) async throws -> HerdrLocalReport {
+        guard !localServiceSetupInProgress else {
+            throw HerdrLocalFailure(kind: "setup_busy", message: "Setup on this Mac is still running. Try again when it finishes.")
+        }
+        localServiceSetupInProgress = true
+        defer { localServiceSetupInProgress = false }
         let service = localService
+        progress(.checkingRelease)
         if !service.hasVerifiedProgram() {
-            progress(.fetching())
             let release = try await WorkspaceRelease.latest()
             if !service.matchesInstalledProgram(release) {
-                let program = try await release.downloadProgram(for: HerdrLocalService.target) { progress(.fetching($0)) }
+                let program = try await release.downloadProgram(for: HerdrLocalService.target, verifying: { progress(.verifying) }) {
+                    progress(.fetching($0))
+                }
                 try Task.checkCancellation()
                 try service.place(program)
             }
             service.rememberVerifiedProgram(release)
         }
         try Task.checkCancellation()
+        if retryInstall {
+            progress(.checkingConnection)
+            let status = try? await service.status(port: port)
+            try Task.checkCancellation()
+            if let status, status.service.answers, status.core.running { return status }
+        }
         progress(.installing)
         do { return try await service.install(port: port, answerFirstTime: answerFirstTime) }
         catch let failure as HerdrLocalFailure where failure.kind == "port_busy" { throw HerdrLocalFailure(kind: failure.kind, message: WizardCopy.portBusy(port)) }

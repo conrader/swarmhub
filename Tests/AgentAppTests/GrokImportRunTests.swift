@@ -23,6 +23,28 @@ import Testing
     #expect(run.rows.map(\.archiveLines) == [9, 2, 0, 3] && archive(store, GrokRunIDs.jarvis) == 9)
 }
 
+@MainActor @Test func aShorterFinalGrokEditReplacesTheSavedMessageButAStreamingCopyDoesNot() async throws {
+    let id = GrokRunIDs.jarvis, sequence: Int64 = 60
+    let world = try GrokWorld(history: [id: sequence])
+    let store = world.store()
+    let original = "A longer original message"
+    world.fake.history[id]?[sequence] = FakeGrok.entry(sequence, original)
+    #expect(await makeRun(world, store, selection: [id]).start() == .finished)
+    let bot = try #require(store.bots.first { $0.grokSourceID == id })
+    func text() -> String? { store.grokHistory.messages(for: bot.id).first { $0.id == "e\(sequence)" }?.text }
+    #expect(text() == original)
+
+    var streaming = FakeGrok.entry(sequence, "A draft streaming for longer than the original")
+    streaming["isStreaming"] = true
+    world.fake.history[id]?[sequence] = streaming
+    #expect(await makeRun(world, store, selection: [id]).start() == .finished)
+    #expect(text() == original)
+
+    world.fake.history[id]?[sequence] = FakeGrok.entry(sequence, "Edited")
+    #expect(await makeRun(world, store, selection: [id]).start() == .finished)
+    #expect(text() == "Edited")
+}
+
 @MainActor @Test func aNetworkPauseResumesFromTheCursorWithoutASecondRead() async throws {
     let world = try GrokWorld()
     world.fake.pageCap = 10

@@ -203,14 +203,14 @@ final class IsolatedDefaults: UserDefaults, @unchecked Sendable {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }()
-    private let name: String
+    let domainName: String
     init() {
         let name = Self.folder.appending(path: "AgentAppTests-\(UUID().uuidString)").path
-        self.name = name
+        domainName = name
         super.init(suiteName: name)!
     }
     override init?(suiteName: String?) { fatalError("use isolatedDefaults()") }
-    deinit { removePersistentDomain(forName: name) }
+    deinit { removePersistentDomain(forName: domainName) }
 }
 
 /// Isolated settings whose "Your name" is "Konrad", so group-context expectations hold on any machine (P21 D6).
@@ -221,6 +221,7 @@ func namedDefaults(_ name: String = "Konrad") -> UserDefaults {
 
 /// Synthetic HTTP server keyed by a unique host per test, so parallel tests never share state.
 final class MockHTTPProtocol: URLProtocol, @unchecked Sendable {
+    struct PendingResponse {}
     typealias Handler = @Sendable (URLRequest) -> (Int, Any)
     private static let lock = NSLock()
     nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
@@ -245,6 +246,7 @@ final class MockHTTPProtocol: URLProtocol, @unchecked Sendable {
         let host = request.url?.host ?? ""
         Self.lock.lock(); let handler = Self.handlers[host]; Self.lock.unlock(); Self.log(host).append(request)
         let (status, body) = handler?(request) ?? (404, ["error": "no route"])
+        if body is PendingResponse { return }
         if let error = body as? Error {
             client?.urlProtocol(self, didFailWithError: error)
             return

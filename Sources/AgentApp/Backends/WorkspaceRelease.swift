@@ -25,7 +25,7 @@ struct WorkspaceRelease: Equatable, Sendable {
         var errorDescription: String? {
             switch self {
             case .unreachable: "Neither the server nor this Mac could reach the \(AppConstants.name) releases. Try again when one of them is online."
-            case .timedOut: "The \(AppConstants.name) service download timed out after three attempts. Check the connection and retry setup."
+            case .timedOut: "The \(AppConstants.name) service download stalled after three attempts. Check the connection and retry the download."
             case .unsigned: "The update is not signed with the \(AppConstants.name) release key, so it was not installed."
             case .unreadable: "The update's description could not be read, so it was not installed."
             case .noProgram(let target): "The release has no program for this kind of machine (\(target))."
@@ -138,6 +138,7 @@ struct WorkspaceRelease: Equatable, Sendable {
                          configuration: () -> URLSessionConfiguration = { .ephemeral },
                          requestTimeout: TimeInterval = 30, resourceTimeout: TimeInterval = 300,
                          retryDelay: Duration = .seconds(1), isolation: isolated (any Actor)? = #isolation,
+                         verifying: () -> Void = {},
                          progress: (DownloadProgress) -> Void) async throws -> Data {
         guard let asset = asset(for: target) else { throw Failure.noProgram(target) }
         let url = try programURL(for: target, mirror: mirror)
@@ -152,17 +153,18 @@ struct WorkspaceRelease: Equatable, Sendable {
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
             if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range") }
             progress(.init(received: offset, total: asset.size, attempt: attempt))
-            var lastUpdate = ContinuousClock.now
+            var lastUpdate: ContinuousClock.Instant?
             timedOut = false
             do {
-                let stream = HerdrByteStream.open(request, configuration: configuration(), resourceTimeout: resourceTimeout) { response in
+                let stream = HerdrByteStream.open(request, configuration: configuration(), resourceTimeout: resourceTimeout,
+                                                  idleTimeout: requestTimeout) { response in
                     try Self.validateDownload(response, offset: offset, size: asset.size)
                 }
                 for try await chunk in stream {
                     try Task.checkCancellation()
                     guard chunk.count <= asset.size - data.count else { throw Failure.mismatch }
                     data.append(chunk)
-                    if data.count == asset.size || lastUpdate.duration(to: .now) >= .milliseconds(100) {
+                    if data.count == asset.size || (lastUpdate.map { $0.duration(to: .now) >= .milliseconds(100) } ?? true) {
                         progress(.init(received: data.count, total: asset.size, attempt: attempt))
                         lastUpdate = .now
                     }
@@ -182,7 +184,12 @@ struct WorkspaceRelease: Equatable, Sendable {
             }
             try Task.checkCancellation()
             if data.count == asset.size {
-                guard Self.matches(data, asset) else { throw Failure.mismatch }
+                verifying()
+                try Task.checkCancellation()
+                let downloaded = data
+                let matches = await Task.detached { Self.matches(downloaded, asset) }.value
+                try Task.checkCancellation()
+                guard matches else { throw Failure.mismatch }
                 return data
             }
             if !canResume { data = Data() }

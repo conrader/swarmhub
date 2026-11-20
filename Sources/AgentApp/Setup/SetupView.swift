@@ -96,19 +96,22 @@ struct SetupView: View {
             SetupWizardProgress(current: flow.stepIndex, count: flow.stepCount, name: flow.step == .projects ? WizardCopy.projectsStep : nil)
                 .accessibilityFocused($progressFocused)
             HStack(spacing: 10) {
-                if flow.canGoBack { Button(SetupCopy.back, action: back).disabled(flow.localSetup?.isInstalling == true) }
+                if flow.canGoBack {
+                    Button(flow.localSetup?.downloadFailed == true ? "Change host" : SetupCopy.back, action: back)
+                        .disabled(flow.localSetup?.isInstalling == true)
+                }
                 Spacer()
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction).disabled(flow.localSetup?.isInstalling == true)
                 switch flow.step {
                 case .welcome:
                     Button(WizardCopy.next, action: pickPlace).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                 case .herdr:
-                    if let setup = flow.localSetup, !testing {
-                        if setup.isWorking, !setup.isInstalling {
+                    if let setup = flow.localSetup {
+                        if setup.canStopDownload {
                             Button("Stop", action: cancelLocalDownload)
                         } else {
                             Button(localSetupButton(for: setup), action: setUpThisMac).buttonStyle(.appleProminent)
-                                .disabled(setup.isWorking || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
+                                .disabled(setup.isWorking || testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
                         }
                     } else if flow.herdrNoPrograms || !flow.missingStarterPrograms.isEmpty, flow.herdr.kind == .local, flow.localReport != nil, !testing {
                         // An AI program installed since is found by setting this Mac up again, which changes nothing else.
@@ -198,37 +201,39 @@ struct SetupView: View {
         guard flow.herdr.problem == nil, !testing else { return }
         let typed = flow.herdr, step = flow.step
         testing = true; failure = nil
-        Task {
-            var draft = typed
-            // This Mac's usual port can lead to another server: its own port is found before anything is asked.
-            if let port = await store.thisMacPort(for: typed), !closed, flow.step == step, flow.herdr == typed {
-                flow.localMovedFrom = Int(typed.port.trimmingCharacters(in: .whitespaces)); flow.herdr.port = String(port); draft = flow.herdr
-            }
-            let outcome = await store.testSetupHerdr(draft)
-            testing = false
-            let current = !closed && flow.step == step && flow.herdr == draft
-            guard case .connected(let server, _, _) = outcome else {
-                guard current else { return }
-                flow.apply(.herdrTest(outcome))
-                if case .sshLoginRequired(let server) = outcome { loginServer = server }
-                // Nothing answers on this Mac: the app offers to set it up, unless that is what just failed.
-                if case .nothingHere = outcome, draft.kind == .local, flow.localSetup == nil { flow.apply(.localSetup(.offer(hasCore: store.localService.hasCore))) }
-                return
-            }
-            guard current else { store.abandonSetupHerdr(server); return }
-            let existing = store.setupHerdrBots(on: server)
-            flow.apply(.herdrTest(outcome, bots: existing))
-            if existing.count == 1, let only = existing.first, only.needsFirstConnection {
-                flow.mainBot.keep = only.id
-            }
-            if server.kind == .local, step == .herdr { await lookAtThisMac(server) }
+        Task { await checkHerdr(typed, step: step) }
+    }
+
+    private func checkHerdr(_ typed: HerdrServerDraft, step: SetupFlow.Step) async {
+        var draft = typed
+        // This Mac's usual port can lead to another server: its own port is found before anything is asked.
+        if let port = await store.thisMacPort(for: typed), !closed, !Task.isCancelled, flow.step == step, flow.herdr == typed {
+            flow.localMovedFrom = Int(typed.port.trimmingCharacters(in: .whitespaces)); flow.herdr.port = String(port); draft = flow.herdr
         }
+        guard !Task.isCancelled else { testing = false; return }
+        let outcome = await store.testSetupHerdr(draft)
+        testing = false
+        let current = !closed && !Task.isCancelled && flow.step == step && flow.herdr == draft
+        if current, flow.localSetup == .working(.checkingConnection) { flow.apply(.localSetup(nil)) }
+        guard case .connected(let server, _, _) = outcome else {
+            guard current else { return }
+            flow.apply(.herdrTest(outcome))
+            if case .sshLoginRequired(let server) = outcome { loginServer = server }
+            if case .nothingHere = outcome, draft.kind == .local, flow.localSetup == nil { flow.apply(.localSetup(.offer(hasCore: store.localService.hasCore))) }
+            return
+        }
+        guard current else { store.abandonSetupHerdr(server); return }
+        let existing = store.setupHerdrBots(on: server)
+        flow.apply(.herdrTest(outcome, bots: existing))
+        if existing.count == 1, let only = existing.first, only.needsFirstConnection { flow.mainBot.keep = only.id }
+        if server.kind == .local, step == .herdr { await lookAtThisMac(server) }
     }
 
     private func localSetupButton(for setup: HerdrLocalSetup) -> String {
         switch setup {
         case .offer: WizardCopy.setUp
         case .working: WizardCopy.settingUp
+        case .failedDownload: "Retry download"
         case .failed: "Retry setup"
         }
     }
@@ -238,7 +243,9 @@ struct SetupView: View {
         guard flow.localSetup?.isInstalling != true else { return }
         if let localSetupTask {
             localSetupTask.cancel()
-            flow.apply(.localSetup(.failed("Download stopped. Retry to continue setup.")))
+            if flow.localSetup?.canStopDownload == true {
+                flow.apply(.localSetup(.failedDownload("Download stopped. Retry to continue setup.")))
+            }
         }
     }
 
@@ -247,19 +254,23 @@ struct SetupView: View {
     private func setUpThisMac() {
         guard flow.step == .herdr, flow.herdr.kind == .local, localSetupTask == nil, let server = flow.herdr.server(id: "") else { return }
         let draft = flow.herdr, answers = flow.localAnswers
-        failure = nil; flow.apply(.localSetup(.working(.fetching())))
+        let retryInstall = if case .failed? = flow.localSetup { true } else { false }
+        failure = nil; flow.apply(.localSetup(.working(.checkingRelease)))
         localSetupTask = Task {
             defer { localSetupTask = nil }
             do {
-                let report = try await store.setUpThisMac(port: server.port, answerFirstTime: answers) { step in
+                let report = try await store.setUpThisMac(port: server.port, answerFirstTime: answers, retryInstall: retryInstall) { step in
                     if !closed, !Task.isCancelled, flow.herdr == draft { flow.apply(.localSetup(.working(step))) }
                 }
                 guard !closed, !Task.isCancelled, flow.step == .herdr, flow.herdr == draft else { return }
-                flow.apply(.localReport(report)); flow.apply(.localSetup(nil))
-                testHerdr()
+                flow.apply(.localReport(report)); flow.apply(.localSetup(.working(.checkingConnection)))
+                testing = true
+                await checkHerdr(draft, step: .herdr)
             } catch {
                 guard !closed, !Task.isCancelled, flow.step == .herdr, flow.herdr == draft else { return }
-                flow.apply(.localSetup(.failed(HerdrLocalSetup.line(for: error))))
+                let line = HerdrLocalSetup.line(for: error)
+                let downloadFailed = flow.localSetup?.canStopDownload == true && (error as? HerdrLocalFailure)?.kind != "setup_busy"
+                flow.apply(.localSetup(downloadFailed ? .failedDownload(line) : .failed(line)))
             }
         }
     }

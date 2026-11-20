@@ -55,10 +55,12 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
     }
 
     /// `merge`, with the file read, sort, encode and write off the main actor (the in-app import path).
-    @discardableResult func mergeInBackground(_ incoming: [ArchivedMessage], sourceID: String, for botID: UUID) async throws -> Int {
+    @discardableResult func mergeInBackground(_ incoming: [ArchivedMessage], sourceID: String, for botID: UUID,
+                                               settledFetchedSequences: Set<Int64> = []) async throws -> Int {
         let url = fileURL(for: botID), directory = directory
         let merged = try await Task.detached(priority: .userInitiated) {
-            try Self.mergeOnDisk(incoming, sourceID: sourceID, url: url, directory: directory)
+            try Self.mergeOnDisk(incoming, sourceID: sourceID, url: url, directory: directory,
+                                 settledFetchedSequences: settledFetchedSequences)
         }.value
         loaded[botID] = merged; newestCache[botID] = nil
         return merged.count
@@ -83,7 +85,7 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
     }
 
     nonisolated static func mergeOnDisk(_ incoming: [ArchivedMessage], sourceID: String, url: URL,
-                                        directory: URL) throws -> [ArchivedMessage] {
+                                        directory: URL, settledFetchedSequences: Set<Int64> = []) throws -> [ArchivedMessage] {
         var existing: [ArchivedMessage] = []
         if FileManager.default.fileExists(atPath: url.path) {
             guard let file = read(url) else { throw GrokHistoryError.archiveUnreadable(keptAs: try setAside(url)) }
@@ -94,7 +96,8 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
         for message in existing + incoming {
             if let saved = byKey[message.dedupeKey] {
                 if message.streaming == true, saved.streaming != true { continue }
-                if message.text.utf8.count < saved.text.utf8.count { continue }
+                if message.text.utf8.count < saved.text.utf8.count,
+                   message.streaming == true || !settledFetchedSequences.contains(message.seq) { continue }
             }
             byKey[message.dedupeKey] = message
         }

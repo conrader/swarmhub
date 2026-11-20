@@ -101,29 +101,54 @@ struct HerdrSSEParser: Sendable {
 final class HerdrByteStream: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let continuation: AsyncThrowingStream<Data, Error>.Continuation
     private let validateResponse: @Sendable (URLResponse) throws -> Void
+    private let idleTimeout: TimeInterval?
+    private let idleTimer: DispatchSourceTimer?
+    private var idleDeadline: DispatchTime = .distantFuture
 
     /// The bytes of `request`'s answer, chunk by chunk. A status other than 2xx throws `HerdrClient.Failure`; the
     /// stream ends when the server closes. The request's own timeout is how long nothing may arrive before the read
     /// fails: it counts silence, not the length of the answer.
     static func open(_ request: URLRequest, configuration: URLSessionConfiguration = .ephemeral,
                      resourceTimeout: TimeInterval = 24 * 3600,
+                     idleTimeout: TimeInterval? = nil,
                      validateResponse: @escaping @Sendable (URLResponse) throws -> Void = validateHerdrResponse) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             configuration.timeoutIntervalForRequest = request.timeoutInterval
             configuration.timeoutIntervalForResource = resourceTimeout
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            let reader = HerdrByteStream(continuation, validateResponse: validateResponse)
-            let session = URLSession(configuration: TestRunGuard.guarded(configuration), delegate: reader, delegateQueue: nil)
+            // The timer and URLSession callbacks share a serial queue so only received bytes extend the deadline.
+            let queue = DispatchQueue(label: "HerdrByteStream")
+            let callbacks = OperationQueue()
+            callbacks.maxConcurrentOperationCount = 1
+            callbacks.underlyingQueue = queue
+            let timer = idleTimeout.map { _ in DispatchSource.makeTimerSource(queue: queue) }
+            let reader = HerdrByteStream(continuation, idleTimeout: idleTimeout, idleTimer: timer, validateResponse: validateResponse)
+            let session = URLSession(configuration: TestRunGuard.guarded(configuration), delegate: reader, delegateQueue: callbacks)
             let task = session.dataTask(with: request)
-            continuation.onTermination = { _ in task.cancel(); session.invalidateAndCancel() }
+            continuation.onTermination = { _ in timer?.cancel(); task.cancel(); session.invalidateAndCancel() }
+            timer?.setEventHandler { [weak reader] in
+                guard let reader, DispatchTime.now() >= reader.idleDeadline else { return }
+                reader.continuation.finish(throwing: URLError(.timedOut))
+            }
+            reader.resetIdleDeadline()
+            timer?.activate()
             task.resume()
         }
     }
 
     private init(_ continuation: AsyncThrowingStream<Data, Error>.Continuation,
+                 idleTimeout: TimeInterval?, idleTimer: DispatchSourceTimer?,
                  validateResponse: @escaping @Sendable (URLResponse) throws -> Void) {
         self.continuation = continuation
+        self.idleTimeout = idleTimeout
+        self.idleTimer = idleTimer
         self.validateResponse = validateResponse
+    }
+
+    private func resetIdleDeadline() {
+        guard let idleTimeout else { return }
+        idleDeadline = .now() + idleTimeout
+        idleTimer?.schedule(deadline: idleDeadline)
     }
 
     private static func validateHerdrResponse(_ response: URLResponse) throws {
@@ -141,7 +166,11 @@ final class HerdrByteStream: NSObject, URLSessionDataDelegate, @unchecked Sendab
         }
     }
 
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) { continuation.yield(data) }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard !data.isEmpty else { return }
+        resetIdleDeadline()
+        continuation.yield(data)
+    }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error { continuation.finish(throwing: error) } else { continuation.finish() }

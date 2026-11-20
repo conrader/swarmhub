@@ -37,7 +37,9 @@ extension AppStore {
             return true
         } catch {
             let reviewed: Date? = defaults.object(forKey: StoreRestore.decisionKey(for: fileURL)) as? Date
-            storeRestoreOffer = StoreRestore.offer(store: fileURL, resolvedThrough: reviewed, hideSamples: herdrConfigured)
+            let nextOffer = StoreRestore.offer(store: fileURL, resolvedThrough: reviewed, hideSamples: herdrConfigured)
+            if nextOffer == nil { resumeSavingAfterRecovery() }
+            storeRestoreOffer = nextOffer
             storeRestoreNote = StoreRestoreCopy.failed
             return false
         }

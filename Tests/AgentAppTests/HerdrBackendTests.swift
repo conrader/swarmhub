@@ -18,6 +18,37 @@ import Testing
     #expect(HerdrClient.suffix(of: "ada-lovelace-1a2b3c") == HerdrClient.suffix(of: "renamed-1a2b3c"))
 }
 
+@Test(arguments: [false, true])
+func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async throws {
+    let id = UUID()
+    let groupSession = GroupRouting.sessionID(group: UUID(), bot: id)
+    let sessionID = inGroup ? groupSession : id.uuidString
+    let direct = HerdrBackend.agentName(botName: "Ada", botID: id)
+    let group = try #require(HerdrBackend.groupRuntimeName(sessionID: groupSession, botID: id))
+    let address = inGroup ? "t2" : "t1"
+    let target = "/api/agents/\(address)/1"
+    let (host, session) = MockHTTPProtocol.serve { request in
+        switch request.url?.path {
+        case "/api/workspace":
+            let agents = [["name": direct, "address": "t1", "created_ms": 1, "state": "live"],
+                          ["name": group, "address": "t2", "created_ms": 1, "state": "live"]] as [[String: Any]]
+            return (200, ["core": "c", "agents": agents, "templates": []])
+        case "/api/history/c/\(address)/1", "/api/history/c/\(address)/1/draft": return (200, ["items": [], "tools": []])
+        case target + "/messages": return (200, MockHTTPProtocol.PendingResponse())
+        case target + "/interrupt": return (200, [:])
+        default: return (404, ["error": "Unexpected fixture route"])
+        }
+    }
+    let client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
+    let backend = HerdrBackend(client: client, botName: "Ada", botID: id, template: nil)
+    let stream = try await backend.send(.init(sessionID: sessionID, systemPrompt: "", messages: [(role: "user", content: "Hello")], images: []))
+    let consuming = Task { for try await _ in stream {} }
+    defer { consuming.cancel() }
+    try await MockHTTPProtocol.log(host).wait(ceiling: .seconds(5)) { $0.contains { $0.url?.path == target + "/messages" } }
+    #expect(try await backend.cancel(sessionID: sessionID) == .requested)
+    #expect(MockHTTPProtocol.recorded(host).filter { $0.url?.path.hasSuffix("/interrupt") == true }.map { $0.url?.path } == [target + "/interrupt"])
+}
+
 /// Claude Code's and Codex's tool calls show with the chat's own step words; a start is reported once.
 @Test func herdrToolCallsBecomeActivitySteps() {
     let running = HerdrClient.ToolCall(seq: 7, tool: "Bash", detail: "cargo test", finished: false, failed: false)

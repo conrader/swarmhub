@@ -12,17 +12,27 @@ enum GrokEntryMerge {
         return .object(object)
     }
 
-    /// Union by integer seq, sorted. On a collision the cached entry wins unless it is still streaming
-    /// (`isStreaming == true`), in which case the server's settled copy replaces it.
-    static func merge(cached: [JSONValue], fetched: [JSONValue]) -> [JSONValue] {
+    /// Union by integer seq, sorted. The cache fills gaps and disambiguates differing IDs at one sequence.
+    /// Keep track of finalized server rows so an imported edit can replace a longer archived copy.
+    static func merge(cached: [JSONValue], fetched: [JSONValue]) -> (entries: [JSONValue], settledFetched: Set<Int64>) {
         var bySeq: [Int64: JSONValue] = [:]
-        for entry in fetched { if let seq = entry["seq"]?.intValue { bySeq[seq] = entry } }
+        var settledFetched: Set<Int64> = []
+        for entry in fetched {
+            guard let seq = entry["seq"]?.intValue else { continue }
+            bySeq[seq] = entry
+            if entry["isStreaming"]?.boolValue == true { settledFetched.remove(seq) }
+            else { settledFetched.insert(seq) }
+        }
         for entry in cached {
             guard let seq = entry["seq"]?.intValue else { continue }
-            if entry["isStreaming"]?.boolValue == true, bySeq[seq] != nil { continue }
+            if let server = bySeq[seq] {
+                if entry["isStreaming"]?.boolValue == true { continue }
+                if settledFetched.contains(seq), let id = entry["id"]?.stringValue, id == server["id"]?.stringValue { continue }
+            }
             bySeq[seq] = entry
+            settledFetched.remove(seq)
         }
-        return bySeq.keys.sorted().map { bySeq[$0]! }
+        return (bySeq.keys.sorted().map { bySeq[$0]! }, settledFetched)
     }
 
     struct Coverage: Sendable, Equatable {

@@ -95,6 +95,7 @@ struct HerdrLocalService: Sendable {
 
     /// Puts a checked program in place in one step, for this account to run.
     func place(_ program: Data) throws {
+        try Task.checkCancellation()
         let target = URL(fileURLWithPath: programPath), folder = target.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let draft = folder.appendingPathComponent(".swarmhub-herdr-\(UUID().uuidString)")
@@ -102,6 +103,7 @@ struct HerdrLocalService: Sendable {
         guard FileManager.default.createFile(atPath: draft.path, contents: program, attributes: [.posixPermissions: 0o755]) else {
             throw HerdrLocalFailure(kind: "not_placed", message: "The \(AppConstants.name) service could not be saved in \(folder.path).")
         }
+        try Task.checkCancellation()
         guard rename(draft.path, target.path) == 0 else {
             throw HerdrLocalFailure(kind: "not_placed", message: "The \(AppConstants.name) service could not be saved in \(folder.path).")
         }
@@ -162,17 +164,29 @@ struct HerdrLocalService: Sendable {
 /// under way, or stopped with the reason in one sentence.
 enum HerdrLocalSetup: Equatable, Sendable {
     enum Step: Equatable, Sendable {
-        case fetching(WorkspaceRelease.DownloadProgress? = nil)
+        case checkingRelease
+        case fetching(WorkspaceRelease.DownloadProgress)
+        case verifying
         case installing
+        case checkingConnection
     }
     /// `hasCore`: Herdr Core is already on this Mac, so it is not installed again.
     case offer(hasCore: Bool)
     case working(Step)
+    case failedDownload(String)
     case failed(String)
 
     var isWorking: Bool { if case .working = self { true } else { false } }
 
     var isInstalling: Bool { self == .working(.installing) }
+    var canStopDownload: Bool {
+        switch self {
+        case .working(.checkingRelease), .working(.fetching), .working(.verifying): true
+        default: false
+        }
+    }
+
+    var downloadFailed: Bool { if case .failedDownload = self { true } else { false } }
 
     /// One sentence for a failure, whatever threw it: the service's own, the release check's, or the network's.
     static func line(for error: Error) -> String {

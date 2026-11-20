@@ -122,10 +122,14 @@ struct HerdrBackend: AgentBackend {
     }
 
     func runtimeName(sessionID: String) -> String {
+        Self.groupRuntimeName(sessionID: sessionID, botID: botID) ?? agentName
+    }
+
+    static func groupRuntimeName(sessionID: String, botID: UUID) -> String? {
         let groupSuffix = String(sessionID.suffix(79))
         guard groupSuffix.hasPrefix("group-"),
               UUID(uuidString: String(groupSuffix.dropFirst(6).prefix(36))) != nil,
-              UUID(uuidString: String(groupSuffix.suffix(36))) == botID else { return agentName }
+              UUID(uuidString: String(groupSuffix.suffix(36))) == botID else { return nil }
         let digest = SHA256.hash(data: Data(sessionID.utf8))
         return "group-" + digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
@@ -254,8 +258,13 @@ struct HerdrBackend: AgentBackend {
 
     /// The bot's running agent, as `address/created`; an agent that is not running has nothing to stop.
     func stopTarget(sessionID: String) async throws -> StopTarget {
-        guard let turn = accepted.current else { return .noActiveRun }
-        return .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)")
+        if let turn = accepted.current { return .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)") }
+        // The bridge may have accepted the message before its HTTP response reached this stream.
+        let workspace = try await client.workspace()
+        if let turn = accepted.current { return .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)") }
+        guard let core = workspace.core,
+              let agent = client.liveAgent(named: runtimeName(sessionID: sessionID), in: workspace) else { return .noActiveRun }
+        return .serverRun("\(core)/\(agent.address)/\(agent.createdMs)")
     }
 
     /// Herdr presses the agent's own interrupt key; the agent stays open for the next message.

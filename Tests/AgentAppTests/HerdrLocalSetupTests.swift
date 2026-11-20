@@ -77,7 +77,7 @@ private let statusJSON = #"""
     #expect(flow.localSetup == nil)
     flow.apply(.localSetup(.offer(hasCore: false)))
     #expect(flow.localSetup == .offer(hasCore: false) && flow.localSetup?.isWorking == false && !flow.herdrReady)
-    flow.apply(.localSetup(.working(.fetching()))); #expect(flow.localSetup?.isWorking == true)
+    flow.apply(.localSetup(.working(.checkingRelease))); #expect(flow.localSetup?.isWorking == true)
     flow.apply(.localSetup(.failed("No.")))
     // Trying again finds nothing still: the reason stays on screen.
     flow.apply(.herdrTest(.nothingHere(port: 8787))); #expect(flow.localSetup == .failed("No."))

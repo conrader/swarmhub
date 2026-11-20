@@ -49,7 +49,7 @@ extension AppStore {
             case .status(let value) where HerdrTurnStatus(code: value) != nil:
                 agentStatus = value; row.metadata[TurnKey.agent] = value
                 // An agent that waits in its terminal is raised to the person, with what it asks.
-                if group == nil { herdrTurnStatus(HerdrTurnStatus(code: value), for: bot) }
+                herdrTurnStatus(HerdrTurnStatus(code: value), for: bot, in: group)
                 objectWillChange.send()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
@@ -88,7 +88,7 @@ extension AppStore {
         assistant.isStreaming = false
         // The live "first tool" status ends with the turn.
         assistant.metadata["status"] = nil; assistant.metadata[TurnKey.reconnecting] = nil; assistant.metadata[TurnKey.agent] = nil
-        if conversation is Bot { herdrTurnStatus(nil, for: bot) }
+        herdrTurnStatus(nil, for: bot, in: conversation as? GroupChat)
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)

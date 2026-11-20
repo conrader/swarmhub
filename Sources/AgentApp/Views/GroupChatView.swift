@@ -47,11 +47,14 @@ struct GroupChatView: View {
                         HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
                     }
-                    if let current = store.turn(in: group), let bot = store.bots.first(where: { $0.id == current.botID }),
-                       current.assistant?.metadata[TurnKey.agent].flatMap(HerdrTurnStatus.init(code:))?.needsPerson == true {
-                        Button("View terminal") {
-                            Task { await store.viewHerdrTerminal(for: bot, sessionID: store.turnSessionID(in: group, bot: bot)) }
-                        }.buttonStyle(.link).font(.caption)
+                    if let current = store.turn(in: group), let bot = store.bots.first(where: { $0.id == current.botID }) {
+                        if store.herdrPrompts[group.id] != nil {
+                            HerdrPromptCard(bot: bot, group: group).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
+                        } else if current.assistant?.metadata[TurnKey.agent].flatMap(HerdrTurnStatus.init(code:))?.needsPerson == true {
+                            Button("View terminal") {
+                                Task { await store.viewHerdrTerminal(for: bot, sessionID: store.turnSessionID(in: group, bot: bot)) }
+                            }.buttonStyle(.link).font(.caption)
+                        }
                     }
                     AttachmentComposer(intake: intake) { attachments in
                      ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,

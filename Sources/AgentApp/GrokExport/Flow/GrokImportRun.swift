@@ -325,7 +325,8 @@ import Foundation
         let before = store.grokArchiveLines(sourceID: id)
         do {
             let policy = GrokImportPolicy.inApp(refreshIdentity: options.refreshIdentity)
-            let imported = try await store.importGrokBundles([GrokBotBundle(built)], policy: policy, timing: nil, destination: options.destination)
+            let imported = try await store.importGrokBundles([GrokBotBundle(built)], policy: policy, destination: options.destination,
+                                                             settledFetchedSequences: [id: merge?.settledFetchedSequences ?? []])
             row.archiveLines = imported.first?.historyCount ?? 0
             row.created = imported.first?.created
             row.addedLines = max(0, row.archiveLines - before)
