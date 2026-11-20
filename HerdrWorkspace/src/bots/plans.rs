@@ -202,9 +202,16 @@ impl Schedule {
         crate::routines::local_on_date(date, timezone.unwrap_or(zone), hour, minute)
     }
 
-    fn after_move(&self, at: i64, zone: Tz) -> Option<i64> {
+    fn after_move(&self, at: i64, zone: Tz, next_ms: Option<i64>) -> Option<i64> {
         match self {
-            Self::Daily { timezone: None, .. } => self.next(at, zone),
+            Self::Daily { timezone: None, .. } => {
+                // Leave a recently due check-in for fire_due to claim.
+                let cutoff = crate::routines::schedule_lateness_cutoff(at);
+                if next_ms.is_some_and(|due| (cutoff..=at).contains(&due)) {
+                    return None;
+                }
+                self.next(at, zone)
+            }
             Self::LocalOnce { timezone: None, .. } => self.local_at(zone).map(|due| due.max(at)),
             _ => None,
         }
@@ -794,24 +801,24 @@ pub(crate) fn promise_text(ctx: &Ctx<'_>, bot: &Bot) -> rusqlite::Result<String>
 pub(crate) fn rezone(db: &rusqlite::Connection, at: i64, zone: Tz) -> rusqlite::Result<()> {
     for (select, update) in [
         (
-            "SELECT id,schedule FROM bot_checkins WHERE state='planned'
+            "SELECT id,schedule,next_ms FROM bot_checkins WHERE state='planned'
                AND json_extract(schedule,'$.kind') IN ('daily','local_once')
                AND json_extract(schedule,'$.timezone') IS NULL",
             "UPDATE bot_checkins SET next_ms=?2 WHERE id=?1",
         ),
         (
-            "SELECT id,local_schedule FROM bot_promises WHERE state='open'
+            "SELECT id,local_schedule,NULL FROM bot_promises WHERE state='open'
                AND local_schedule IS NOT NULL AND json_extract(local_schedule,'$.timezone') IS NULL",
             "UPDATE bot_promises SET due_ms=?2 WHERE id=?1",
         ),
     ] {
         let rows = db.prepare(select)?.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get(2)?))
         })?.collect::<Result<Vec<_>, _>>()?;
         let mut update = db.prepare_cached(update)?;
-        for (id, raw) in rows {
+        for (id, raw, next_ms) in rows {
             if let Some(due) = serde_json::from_str::<Schedule>(&raw).ok()
-                .and_then(|schedule| schedule.after_move(at, zone))
+                .and_then(|schedule| schedule.after_move(at, zone, next_ms))
             {
                 update.execute(params![id, due])?;
             }
@@ -1053,6 +1060,66 @@ mod tests {
             );
             Ok(())
         });
+    }
+
+    #[test]
+    fn rezone_preserves_a_recent_daily_check_in_and_advances_a_missed_one() {
+        use chrono_tz::{Asia::Bangkok, Europe::Warsaw};
+        let (_scratch, history) = testing::journal(&["Jarvis"]);
+        let ms = |input| {
+            DateTime::parse_from_rfc3339(input)
+                .unwrap()
+                .timestamp_millis()
+        };
+        let warsaw = Settings {
+            timezone: Warsaw.to_string(),
+            ..Settings::default()
+        };
+        let bangkok = Settings {
+            timezone: Bangkok.to_string(),
+            ..Settings::default()
+        };
+        let due_in_warsaw = ms("2026-03-29T01:00:00Z"); // 02:30 falls in Warsaw's DST gap.
+        let due_in_bangkok = ms("2026-03-29T19:30:00Z");
+        let next_in_warsaw = ms("2026-03-30T00:30:00Z");
+        let checkin = planned(
+            &history,
+            due_in_warsaw - 60 * MINUTE,
+            &warsaw,
+            "Jarvis",
+            When::Daily {
+                hour: 2,
+                minute: 30,
+                weekdays: false,
+                timezone: None,
+            },
+            "Check the deploy.",
+        )
+        .unwrap();
+        assert_eq!(checkin.next_ms, Some(due_in_warsaw));
+        let slot = || {
+            let db = history.db().unwrap();
+            let checkins = checkins(&db, Some("jarvis-id"), false).unwrap();
+            (checkins[0].next_ms, checkins[0].fires)
+        };
+
+        let moved_at = due_in_warsaw + 30_000;
+        testing::at(&history, moved_at, &bangkok, |ctx| {
+            crate::person_profile::rezone(ctx.db, ctx.now, Warsaw, Bangkok)
+        });
+        assert_eq!(slot(), (Some(due_in_warsaw), 0));
+        assert_eq!(testing::at(&history, moved_at, &bangkok, fire_due), 1);
+        assert_eq!(testing::at(&history, moved_at, &bangkok, fire_due), 0);
+        assert_eq!(slot(), (Some(due_in_bangkok), 1));
+
+        let returned_at = due_in_bangkok + 30_001;
+        testing::at(&history, returned_at, &warsaw, |ctx| {
+            crate::person_profile::rezone(ctx.db, ctx.now, Bangkok, Warsaw)
+        });
+        assert_eq!(testing::at(&history, returned_at, &warsaw, fire_due), 0);
+        assert_eq!(slot(), (Some(next_in_warsaw), 1));
+        assert_eq!(testing::at(&history, next_in_warsaw, &warsaw, fire_due), 1);
+        assert_eq!(outbox(&history).len(), 2);
     }
 
     #[test]

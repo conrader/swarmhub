@@ -260,13 +260,17 @@ pub(crate) fn next_local(
     None
 }
 
+pub(crate) fn schedule_lateness_cutoff(at: i64) -> i64 {
+    at.saturating_sub(30_000)
+}
+
 pub(crate) fn rezone(db: &Connection, at: i64, zone: Tz) -> rusqlite::Result<()> {
-    // Keep a due occurrence until claim_schedule records it, even if the
-    // scheduler runs after the normal lateness cutoff.
+    // Give recently due occurrences time to claim an idle target. Leave all
+    // due timestamps for claim_schedule to record and advance in the new zone.
     db.execute(
-        "UPDATE routines SET run_due_after_rezone=1 WHERE state='active' AND next_at <= ?1
+        "UPDATE routines SET run_due_after_rezone=(next_at >= ?2) WHERE state='active' AND next_at <= ?1
            AND json_extract(schedule,'$.kind')='daily' AND json_extract(schedule,'$.timezone') IS NULL",
-        [at],
+        [at, schedule_lateness_cutoff(at)],
     )?;
     let routines = db.prepare(
         "SELECT * FROM routines WHERE state='active' AND (next_at IS NULL OR next_at > ?1)
@@ -988,16 +992,17 @@ pub(crate) fn claim_schedule(db: &mut Connection, at: i64) -> Result<Vec<Dispatc
     let Some(txn) = background_write(db)? else {
         return Ok(Vec::new());
     };
+    let cutoff = schedule_lateness_cutoff(at);
     let due: Vec<(Routine, bool)> = {
         let mut stmt = txn.prepare(
             "SELECT r.* FROM routines r WHERE r.state='active' AND r.next_at <= ?1
-             AND (r.run_due_after_rezone=0 OR NOT EXISTS (
+             AND (r.run_due_after_rezone=0 OR r.next_at < ?2 OR NOT EXISTS (
                  SELECT 1 FROM routine_runs run JOIN routines target ON target.id=run.routine
                  WHERE run.state='pending' AND target.core=r.core AND target.address=r.address
                    AND target.created_ms=r.created_ms
              )) ORDER BY r.next_at, r.id LIMIT 16",
         )?;
-        stmt.query_map([at], |row| {
+        stmt.query_map([at, cutoff], |row| {
             Ok((from_row(row)?, row.get("run_due_after_rezone")?))
         })?
         .collect::<Result<_, _>>()?
@@ -1006,7 +1011,8 @@ pub(crate) fn claim_schedule(db: &mut Connection, at: i64) -> Result<Vec<Dispatc
     let zone = crate::person_profile::effective_timezone(&txn)?;
     for (routine, preserve_due) in due {
         let due_at = routine.next_at.ok_or(StoreError)?;
-        let busy = pending(&txn, &routine)?;
+        let missed = due_at < cutoff;
+        let busy = !missed && pending(&txn, &routine)?;
         if preserve_due && busy {
             continue;
         }
@@ -1018,7 +1024,7 @@ pub(crate) fn claim_schedule(db: &mut Connection, at: i64) -> Result<Vec<Dispatc
             "UPDATE routines SET next_at=?2,run_due_after_rezone=0 WHERE id=?1",
             params![routine.id, next],
         )?;
-        let (state, detail) = if !preserve_due && at.saturating_sub(due_at) > 30_000 {
+        let (state, detail) = if missed {
             ("skipped", Some("The workspace missed the scheduled time."))
         } else if busy {
             (
@@ -1105,19 +1111,30 @@ mod tests {
             .timestamp_millis()
     }
 
+    fn insert_daily(db: &Connection, hour: u8, minute: u8, due_at: i64) -> i64 {
+        let schedule = Schedule::Daily {
+            hour,
+            minute,
+            timezone: None,
+            weekdays: false,
+        };
+        db.query_row(
+            "INSERT INTO routines(core,address,created_ms,agent,name,task,schedule,state,next_at)
+             VALUES ('core','1',1,'main','Daily','Do it',?1,'active',?2) RETURNING id",
+            params![encode(&schedule).unwrap(), due_at],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn rezone_keeps_an_unclaimed_daily_occurrence_and_claim_advances_in_the_new_zone() {
         use chrono_tz::{Asia::Bangkok, Europe::Warsaw};
         let (_scratch, history) = crate::bots::testing::journal(&[]);
         let mut db = history.db().unwrap();
         let due_at = ms("2026-03-29T07:00:00Z");
-        let moved_at = ms("2026-03-29T07:05:00Z");
-        let id: i64 = db.query_row(
-            "INSERT INTO routines(core,address,created_ms,agent,name,task,schedule,state,next_at)
-             VALUES ('core','1',1,'main','Daily','Do it',?1,'active',?2) RETURNING id",
-            params![r#"{"kind":"daily","hour":9,"minute":0,"weekdays":false}"#, due_at],
-            |row| row.get(0),
-        ).unwrap();
+        let moved_at = due_at + 29_000;
+        let id = insert_daily(&db, 9, 0, due_at);
         let pending_run = make_run(&db, id, "test", due_at - 1, "pending", None).unwrap();
         let tx = db.transaction().unwrap();
         crate::bots::Settings {
@@ -1159,6 +1176,58 @@ mod tests {
             "SELECT count(*) FROM routine_runs WHERE routine=?1 AND kind='schedule' AND state='pending'",
             [id], |row| row.get::<_, i64>(0),
         ).unwrap(), 1);
+    }
+
+    #[test]
+    fn rezone_skips_old_routines_and_expires_a_preserved_routine_at_the_normal_cutoff() {
+        use chrono_tz::{Asia::Bangkok, Europe::Warsaw};
+        let (_scratch, history) = crate::bots::testing::journal(&[]);
+        let mut db = history.db().unwrap();
+        let due_at = ms("2026-03-28T19:30:00Z");
+        let moved_at = due_at + 30_000;
+        let old_due = due_at - 86_400_000;
+        let old = insert_daily(&db, 2, 30, old_due);
+        let recent = insert_daily(&db, 2, 30, due_at);
+        make_run(&db, recent, "test", due_at - 1, "pending", None).unwrap();
+
+        let tx = db.transaction().unwrap();
+        crate::bots::Settings {
+            timezone: Warsaw.to_string(),
+            ..Default::default()
+        }
+        .save(&tx)
+        .unwrap();
+        crate::person_profile::rezone(&tx, moved_at, Bangkok, Warsaw).unwrap();
+        tx.commit().unwrap();
+
+        let slot = |db: &Connection, id| {
+            db.query_row(
+                "SELECT next_at,run_due_after_rezone FROM routines WHERE id=?1",
+                [id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(slot(&db, old), (old_due, false));
+        assert_eq!(slot(&db, recent), (due_at, true));
+        let next = ms("2026-03-29T01:00:00Z"); // First valid minute after Warsaw's DST gap.
+        assert!(claim_schedule(&mut db, moved_at).unwrap().is_empty());
+        assert_eq!(slot(&db, old), (next, false));
+        assert_eq!(slot(&db, recent), (due_at, true));
+        assert!(claim_schedule(&mut db, moved_at + 1).unwrap().is_empty());
+        assert_eq!(slot(&db, recent), (next, false));
+
+        for id in [old, recent] {
+            let run: (String, String) = db
+                .query_row(
+                    "SELECT state,detail FROM routine_runs WHERE routine=?1 AND kind='schedule'",
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(run.0, "skipped");
+            assert_eq!(run.1, "The workspace missed the scheduled time.");
+        }
     }
 
     #[test]
