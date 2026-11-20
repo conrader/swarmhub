@@ -1,5 +1,8 @@
 //! Opt-in OpenCode V2 first tasks. The launcher owns the only submission.
-use crate::core::{Template, valid_name, validate_task};
+use crate::{
+    core::{Template, valid_name},
+    person_profile::validate_prompt,
+};
 use reqwest::{Client, Url, redirect::Policy};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
@@ -118,7 +121,7 @@ pub struct Prepared {
 
 impl Prepared {
     pub fn new(journal: &Path, launch: &str, task: &str) -> io::Result<Self> {
-        validate_task(task).map_err(|_| io::Error::other("invalid OpenCode first task"))?;
+        validate_prompt(task).map_err(|_| io::Error::other("invalid OpenCode first task"))?;
         let parent = journal
             .parent()
             .ok_or_else(|| io::Error::other("no workspace directory"))?;
@@ -213,7 +216,7 @@ impl Handoff {
             return Err(io::Error::other("Invalid OpenCode first task."));
         }
         let task: Task = serde_json::from_slice(&bytes)?;
-        if task.launch != launch || validate_task(&task.text).is_err() {
+        if task.launch != launch || validate_prompt(&task.text).is_err() {
             return Err(io::Error::other("Invalid OpenCode first task."));
         }
         Ok(Self {

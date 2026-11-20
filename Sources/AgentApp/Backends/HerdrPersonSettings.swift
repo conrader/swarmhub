@@ -31,19 +31,47 @@ struct WorkspacePersonProfile: Decodable, Equatable {
     var timezone: String?
     var location: PersonPlace?
     var updatedAt: Int64?
+    var followSource: String?
 }
 
 struct PersonSettingsPreferences: Codable {
-    var followsMac = true
-    var pinnedZone: String?
+    var followMacChoice: Bool?
     var usesDeviceLocation = false
 
-    func timezone(macZone: String, workspaceZone: String?) -> String {
-        followsMac ? macZone : pinnedZone ?? workspaceZone ?? macZone
+    var followsMac: Bool { followMacChoice == true }
+
+    static func restored(from data: Data?) -> Self {
+        guard let data, var saved = try? JSONDecoder().decode(Self.self, from: data) else { return .init() }
+        // The old true default did not distinguish an explicit opt-in from a launch.
+        // Preserve the old explicit opt-out and keep the device's location consent.
+        struct Legacy: Decodable { let followsMac: Bool? }
+        if saved.followMacChoice == nil, (try? JSONDecoder().decode(Legacy.self, from: data))?.followsMac == false {
+            saved.followMacChoice = false
+        }
+        return saved
     }
 }
 
 @MainActor final class HerdrPersonSettings: ObservableObject {
+    enum ZoneChange: Equatable {
+        case manual(String), firstMac(String), enable(String), sync(String), disable
+
+        func fields(device: String) -> [String: Any] {
+            let kind: String
+            let timezone: String?
+            switch self {
+            case .manual(let value): return ["timezone": value]
+            case .firstMac(let value): (kind, timezone) = ("default", value)
+            case .enable(let value): (kind, timezone) = ("enable", value)
+            case .sync(let value): (kind, timezone) = ("sync", value)
+            case .disable: (kind, timezone) = ("disable", nil)
+            }
+            var follow = ["kind": kind, "device": device]
+            follow["timezone"] = timezone
+            return ["follow": follow]
+        }
+    }
+
     enum LocationChange: Equatable {
         case set(PersonPlace), clear, clearDevice
 
@@ -62,20 +90,23 @@ struct PersonSettingsPreferences: Codable {
     private(set) var locationTask: Task<Void, Never>?
     private(set) var updateTask: Task<Void, Never>?
     private let load: () async throws -> WorkspacePersonProfile
-    private let update: (String?, LocationChange?) async throws -> WorkspacePersonProfile
+    private let update: (ZoneChange?, LocationChange?) async throws -> WorkspacePersonProfile
     private let locate: (Bool) async -> PersonPlace?
     private let macZone: () -> String
+    private let deviceID: () -> String
     private let persist: (PersonSettingsPreferences) -> Void
     private let onZoneChange: () -> Void
+    private var zoneChoiceRevision = 0
 
-    var zone: String { preferences.timezone(macZone: macZone(), workspaceZone: profile.timezone) }
+    var zone: String { preferences.followsMac ? macZone() : profile.timezone ?? macZone() }
     var displayZone: TimeZone { TimeZone(identifier: zone) ?? .autoupdatingCurrent }
 
     init(preferences: PersonSettingsPreferences,
          load: @escaping () async throws -> WorkspacePersonProfile,
-         update: @escaping (String?, LocationChange?) async throws -> WorkspacePersonProfile,
+         update: @escaping (ZoneChange?, LocationChange?) async throws -> WorkspacePersonProfile,
          locate: @escaping (Bool) async -> PersonPlace?,
          macZone: @escaping () -> String = { TimeZone.autoupdatingCurrent.identifier },
+         deviceID: @escaping () -> String,
          persist: @escaping (PersonSettingsPreferences) -> Void,
          onZoneChange: @escaping () -> Void = {}) {
         self.preferences = preferences
@@ -83,30 +114,31 @@ struct PersonSettingsPreferences: Codable {
         self.update = update
         self.locate = locate
         self.macZone = macZone
+        self.deviceID = deviceID
         self.persist = persist
         self.onZoneChange = onZoneChange
     }
 
     func followMac(_ follows: Bool) {
-        let pinned = follows ? preferences.pinnedZone : zone
-        preferences.followsMac = follows
-        preferences.pinnedZone = pinned
+        zoneChoiceRevision += 1
+        preferences.followMacChoice = follows
         persist(preferences)
-        send(timezone: zone)
+        send(zone: follows ? .enable(macZone()) : .disable)
         onZoneChange()
     }
 
     func pin(_ identifier: String) {
         guard !preferences.followsMac, TimeZone(identifier: identifier) != nil else { return }
-        preferences.pinnedZone = identifier
+        zoneChoiceRevision += 1
+        preferences.followMacChoice = false
         persist(preferences)
-        send(timezone: identifier)
+        send(zone: .manual(identifier))
         onZoneChange()
     }
 
     func save(_ place: PersonPlace?) {
         guard !preferences.usesDeviceLocation else { return }
-        send(timezone: nil, location: place.map(LocationChange.set) ?? .clear)
+        send(location: place.map(LocationChange.set) ?? .clear)
     }
 
     func useDeviceLocation(_ enabled: Bool) {
@@ -116,7 +148,7 @@ struct PersonSettingsPreferences: Codable {
             refresh(askForLocation: true)
         } else {
             locationTask?.cancel()
-            send(timezone: nil, location: .clearDevice)
+            send(location: .clearDevice)
         }
     }
 
@@ -137,25 +169,38 @@ struct PersonSettingsPreferences: Codable {
         }
     }
 
-    func read() { send(timezone: nil) }
+    func read() { send() }
 
     private func refreshZone(location: LocationChange? = nil, message: String? = nil) {
-        let timezone = preferences.followsMac || preferences.pinnedZone != nil ? zone : nil
-        send(timezone: timezone, location: location, message: message)
+        let change: ZoneChange = switch preferences.followMacChoice {
+        case nil: .firstMac(macZone())
+        case true?: .sync(macZone())
+        case false?: .disable
+        }
+        send(zone: change, location: location, message: message)
     }
 
-    private func send(timezone: String?, location: LocationChange? = nil, message: String? = nil) {
+    private func send(zone: ZoneChange? = nil, location: LocationChange? = nil, message: String? = nil) {
         let previous = updateTask
+        let revision = zoneChoiceRevision
         updateTask = Task { [weak self] in
             await previous?.value
             guard let self else { return }
             do {
-                let saved = if timezone != nil || location != nil {
-                    try await update(timezone, location)
+                let saved = if zone != nil || location != nil {
+                    try await update(zone, location)
                 } else {
                     try await load()
                 }
                 profile = saved
+                if revision == zoneChoiceRevision,
+                   preferences.followsMac || (preferences.followMacChoice == nil && zone != nil) {
+                    let follows = saved.followSource == deviceID()
+                    if preferences.followMacChoice != follows {
+                        preferences.followMacChoice = follows
+                        persist(preferences)
+                    }
+                }
                 status = message
                 onZoneChange()
             } catch {
@@ -168,9 +213,8 @@ struct PersonSettingsPreferences: Codable {
 extension HerdrClient {
     func personProfile() async throws -> WorkspacePersonProfile { try await get("/api/person-profile") }
 
-    func updatePersonProfile(timezone: String?, location: HerdrPersonSettings.LocationChange?) async throws -> WorkspacePersonProfile {
-        var fields: [String: Any] = [:]
-        fields["timezone"] = timezone
+    func updatePersonProfile(zone: HerdrPersonSettings.ZoneChange?, device: String, location: HerdrPersonSettings.LocationChange?) async throws -> WorkspacePersonProfile {
+        var fields = zone?.fields(device: device) ?? [:]
         fields["location"] = location?.fields
         return try await post("/api/person-profile", fields)
     }

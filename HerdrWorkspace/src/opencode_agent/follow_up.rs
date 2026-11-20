@@ -1,8 +1,9 @@
 //! A private local capability bound to one running OpenCode session.
 use super::first_task::{ApiSession, Outcome};
 use super::models::{ModelChange, ModelOperation, ModelResult, ModelState};
-use crate::core::{Delivery, Failure, Terminal, validate_task};
+use crate::core::{Delivery, Failure, Terminal};
 use crate::group_preview::Binding;
+use crate::person_profile::validate_prompt;
 use ring::{
     hmac,
     rand::{SecureRandom, SystemRandom},
@@ -162,7 +163,7 @@ async fn send_task(
     task: &str,
     group: Option<Binding>,
 ) -> Result<Delivery, Failure> {
-    validate_task(task)?;
+    validate_prompt(task)?;
     agent.require_live()?;
     if agent
         .status
@@ -504,7 +505,7 @@ async fn handle(
     let result = if launch != identity.launch
         || terminal != identity.terminal
         || !authenticated
-        || validate_task(&text).is_err()
+        || validate_prompt(&text).is_err()
     {
         Response::Unavailable
     } else if let Ok(_permit) = admission.try_acquire() {

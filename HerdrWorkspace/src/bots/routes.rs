@@ -81,7 +81,7 @@ fn answered(result: Result<Response, Refusal>) -> Response {
     result.unwrap_or_else(IntoResponse::into_response)
 }
 
-fn body<T: for<'a> Deserialize<'a>>(bytes: &Bytes, shape: &str) -> Result<T, Refusal> {
+fn body<T: for<'a> Deserialize<'a>>(bytes: &[u8], shape: &str) -> Result<T, Refusal> {
     serde_json::from_slice(bytes).map_err(|_| invalid(shape))
 }
 
@@ -460,32 +460,36 @@ async fn settings(State(w): State<Workspace>) -> Response {
 
 async fn set_settings(State(w): State<Workspace>, bytes: Bytes) -> Response {
     answered((|| {
-        const SHAPE: &str = "Send the settings that change, by their names.";
-        let wanted: Value = body(&bytes, SHAPE)?;
-        let Some(wanted) = wanted.as_object() else {
-            return Err(invalid(SHAPE));
-        };
-        let set = super::attempt(&w.history, |ctx| {
-            let mut merged = serde_json::to_value(ctx.set).unwrap_or(Value::Null);
-            for (name, value) in wanted {
-                merged[name] = value.clone();
-            }
-            let Ok(set) = serde_json::from_value::<Settings>(merged) else {
-                return Ok(Err(SHAPE.to_owned()));
-            };
-            if let Some(problem) = set.problem() {
-                return Ok(Err(problem));
-            }
-            set.save(ctx.db)?;
-            let zone = crate::person_profile::zone(ctx.db, set.zone())?;
-            crate::person_profile::timezone_changed(ctx.db, ctx.now, ctx.zone, zone, false)?;
-            Ok(Ok(set))
-        })
-        .map_err(storage)?
-        .map_err(|why| invalid(&why))?;
+        let set = save_settings(&w.history, &bytes)?;
         desk::kick();
         Ok(Json(json!({"settings":set,"bounds":bounds()})).into_response())
     })())
+}
+
+fn save_settings(history: &crate::history::History, bytes: &[u8]) -> Result<Settings, Refusal> {
+    const SHAPE: &str = "Send the settings that change, by their names.";
+    let wanted: Value = body(bytes, SHAPE)?;
+    let Some(wanted) = wanted.as_object() else {
+        return Err(invalid(SHAPE));
+    };
+    super::attempt(history, |ctx| {
+        let mut merged = serde_json::to_value(ctx.set).unwrap_or(Value::Null);
+        for (name, value) in wanted {
+            merged[name] = value.clone();
+        }
+        let Ok(set) = serde_json::from_value::<Settings>(merged) else {
+            return Ok(Err(SHAPE.to_owned()));
+        };
+        if let Some(problem) = set.problem() {
+            return Ok(Err(problem));
+        }
+        set.save(ctx.db)?;
+        let zone = crate::person_profile::zone(ctx.db, set.zone())?;
+        crate::person_profile::rezone(ctx.db, ctx.now, ctx.zone, zone)?;
+        Ok(Ok(set))
+    })
+    .map_err(storage)?
+    .map_err(|why| invalid(&why))
 }
 
 // ---- The event stream.
@@ -659,6 +663,68 @@ async fn events(State(w): State<Workspace>, Query(resume): Query<Resume>) -> Res
 mod tests {
     use super::*;
     use crate::bots::{plans::When, testing};
+    use rusqlite::params;
+
+    #[test]
+    fn saving_the_fallback_zone_rezones_following_routines_without_a_move_note() {
+        let (_scratch, history) = testing::journal(&["Main"]);
+        let db = history.db().unwrap();
+        Settings {
+            timezone: "UTC".into(),
+            ..Settings::default()
+        }
+        .save(&db)
+        .unwrap();
+        db.execute(
+            "INSERT INTO routines(core,address,created_ms,agent,name,task,schedule,state,next_at)
+             VALUES ('core','1',1,'main','Daily','Do it',?1,'active',?2)",
+            params![
+                r#"{"kind":"daily","hour":9,"minute":0,"weekdays":false}"#,
+                i64::MAX
+            ],
+        )
+        .unwrap();
+        drop(db);
+        let next = || {
+            history
+                .db()
+                .unwrap()
+                .query_row("SELECT next_at FROM routines", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap()
+        };
+        let at = crate::history::now();
+        let saved = save_settings(&history, br#"{"timezone":"Asia/Bangkok"}"#).unwrap();
+        assert_eq!(saved.timezone, "Asia/Bangkok");
+        let expected =
+            |at| crate::routines::next_local(at, chrono_tz::Asia::Bangkok, 9, 0, false).unwrap();
+        assert!((expected(at)..=expected(crate::history::now())).contains(&next()));
+        let active_next = next();
+
+        history.db().unwrap().execute(
+            "INSERT INTO person_profile_history(timezone,updated_at) VALUES ('Asia/Bangkok',?1)",
+            [at],
+        ).unwrap();
+        save_settings(&history, br#"{"timezone":"Europe/Warsaw"}"#).unwrap();
+        assert_eq!(
+            crate::person_profile::effective_timezone(&history.db().unwrap()).unwrap(),
+            chrono_tz::Asia::Bangkok
+        );
+        assert_eq!(next(), active_next);
+        assert!(save_settings(&history, br#"{"timezone":"Mars/Olympus"}"#).is_err());
+        let db = history.db().unwrap();
+        assert_eq!(Settings::load(&db).unwrap().timezone, "Europe/Warsaw");
+        for sql in [
+            "SELECT count(*) FROM bot_history WHERE code='user_moved'",
+            "SELECT count(*) FROM bot_outbox",
+        ] {
+            assert_eq!(
+                db.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap(),
+                0
+            );
+        }
+    }
 
     #[test]
     fn turning_messages_off_ends_a_bots_exchanges_and_removing_it_ends_everything_it_had() {

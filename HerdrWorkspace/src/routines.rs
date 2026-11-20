@@ -261,10 +261,17 @@ pub(crate) fn next_local(
 }
 
 pub(crate) fn rezone(db: &Connection, at: i64, zone: Tz) -> rusqlite::Result<()> {
-    let routines = db.prepare(
-        "SELECT * FROM routines WHERE state='active'
+    // Keep a due occurrence until claim_schedule records it, even if the
+    // scheduler runs after the normal lateness cutoff.
+    db.execute(
+        "UPDATE routines SET run_due_after_rezone=1 WHERE state='active' AND next_at <= ?1
            AND json_extract(schedule,'$.kind')='daily' AND json_extract(schedule,'$.timezone') IS NULL",
-    )?.query_map([], from_row)?.collect::<Result<Vec<_>, _>>()?;
+        [at],
+    )?;
+    let routines = db.prepare(
+        "SELECT * FROM routines WHERE state='active' AND (next_at IS NULL OR next_at > ?1)
+           AND json_extract(schedule,'$.kind')='daily' AND json_extract(schedule,'$.timezone') IS NULL",
+    )?.query_map([at], from_row)?.collect::<Result<Vec<_>, _>>()?;
     for routine in routines {
         db.execute(
             "UPDATE routines SET next_at=?2 WHERE id=?1",
@@ -419,9 +426,10 @@ impl History {
         task: &str,
         schedule: &Schedule,
     ) -> Result<i64, StoreError> {
-        let db = self.db()?;
-        let next = schedule.next_in(now(), crate::person_profile::effective_timezone(&db)?);
-        Ok(db.query_row(
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let next = schedule.next_in(now(), crate::person_profile::effective_timezone(&tx)?);
+        let id = tx.query_row(
             "INSERT INTO routines (core,address,created_ms,agent,name,task,schedule,state,next_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,'active',?8) RETURNING id",
             params![
@@ -435,7 +443,9 @@ impl History {
                 next
             ],
             |row| row.get(0),
-        )?)
+        )?;
+        tx.commit()?;
+        Ok(id)
     }
 
     pub fn routines(&self) -> Result<Vec<Routine>, StoreError> {
@@ -489,7 +499,8 @@ impl History {
             return Ok(Move::Busy);
         }
         tx.execute(
-            "UPDATE routines SET core=?2,address=?3,created_ms=?4,agent=?5,state='paused',next_at=NULL WHERE id=?1",
+            "UPDATE routines SET core=?2,address=?3,created_ms=?4,agent=?5,state='paused',
+             next_at=NULL,run_due_after_rezone=0 WHERE id=?1",
             params![id,to.core,to.target.address,to.target.created_ms,agent.display_name()],
         )?;
         tx.commit()?;
@@ -503,18 +514,22 @@ impl History {
         task: &str,
         schedule: &Schedule,
     ) -> Result<bool, StoreError> {
-        let db = self.db()?;
-        let next = schedule.next_in(now(), crate::person_profile::effective_timezone(&db)?);
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let next = schedule.next_in(now(), crate::person_profile::effective_timezone(&tx)?);
         let webhook = matches!(schedule, Schedule::Webhook { .. });
         let source = schedule.source();
         let schedule = encode(schedule)?;
-        Ok(db.execute(
+        let changed = tx.execute(
             "UPDATE routines SET name=?2, task=?3,
              next_at=CASE WHEN state!='active' THEN NULL WHEN schedule=?4 THEN next_at ELSE ?5 END,
+             run_due_after_rezone=CASE WHEN schedule=?4 THEN run_due_after_rezone ELSE 0 END,
              schedule=?4,webhook_hash=CASE WHEN ?6 AND json_extract(schedule,'$.source') IS ?7 THEN webhook_hash END
              WHERE id=?1 AND state!='archived'",
             params![id, name, task, schedule, next, webhook, source],
-        )? == 1)
+        )? == 1;
+        tx.commit()?;
+        Ok(changed)
     }
 
     pub fn control_routine(&self, routine: &Routine, action: Control) -> Result<bool, StoreError> {
@@ -531,7 +546,8 @@ impl History {
             ),
         };
         let changed = tx.execute(
-            "UPDATE routines SET state=?2,next_at=?3,webhook_hash=CASE WHEN ?2!='archived' THEN webhook_hash END WHERE id=?1 AND state!='archived'",
+            "UPDATE routines SET state=?2,next_at=?3,run_due_after_rezone=0,
+             webhook_hash=CASE WHEN ?2!='archived' THEN webhook_hash END WHERE id=?1 AND state!='archived'",
             params![routine.id, state, next_at],
         )? == 1;
         if changed && state == "archived" {
@@ -972,28 +988,39 @@ pub(crate) fn claim_schedule(db: &mut Connection, at: i64) -> Result<Vec<Dispatc
     let Some(txn) = background_write(db)? else {
         return Ok(Vec::new());
     };
-    let due: Vec<Routine> = {
+    let due: Vec<(Routine, bool)> = {
         let mut stmt = txn.prepare(
-            "SELECT * FROM routines WHERE state='active' AND next_at <= ?1
-             ORDER BY next_at, id LIMIT 16",
+            "SELECT r.* FROM routines r WHERE r.state='active' AND r.next_at <= ?1
+             AND (r.run_due_after_rezone=0 OR NOT EXISTS (
+                 SELECT 1 FROM routine_runs run JOIN routines target ON target.id=run.routine
+                 WHERE run.state='pending' AND target.core=r.core AND target.address=r.address
+                   AND target.created_ms=r.created_ms
+             )) ORDER BY r.next_at, r.id LIMIT 16",
         )?;
-        stmt.query_map([at], from_row)?.collect::<Result<_, _>>()?
+        stmt.query_map([at], |row| {
+            Ok((from_row(row)?, row.get("run_due_after_rezone")?))
+        })?
+        .collect::<Result<_, _>>()?
     };
     let mut dispatch = Vec::with_capacity(due.len());
     let zone = crate::person_profile::effective_timezone(&txn)?;
-    for routine in due {
+    for (routine, preserve_due) in due {
         let due_at = routine.next_at.ok_or(StoreError)?;
+        let busy = pending(&txn, &routine)?;
+        if preserve_due && busy {
+            continue;
+        }
         let next = routine
             .schedule
             .advance(due_at, at, zone)
             .ok_or(StoreError)?;
         txn.execute(
-            "UPDATE routines SET next_at=?2 WHERE id=?1",
+            "UPDATE routines SET next_at=?2,run_due_after_rezone=0 WHERE id=?1",
             params![routine.id, next],
         )?;
-        let (state, detail) = if at.saturating_sub(due_at) > 30_000 {
+        let (state, detail) = if !preserve_due && at.saturating_sub(due_at) > 30_000 {
             ("skipped", Some("The workspace missed the scheduled time."))
-        } else if pending(&txn, &routine)? {
+        } else if busy {
             (
                 "skipped",
                 Some("Another routine is still delivering a task to this agent."),
@@ -1076,6 +1103,62 @@ mod tests {
         DateTime::parse_from_rfc3339(input)
             .unwrap()
             .timestamp_millis()
+    }
+
+    #[test]
+    fn rezone_keeps_an_unclaimed_daily_occurrence_and_claim_advances_in_the_new_zone() {
+        use chrono_tz::{Asia::Bangkok, Europe::Warsaw};
+        let (_scratch, history) = crate::bots::testing::journal(&[]);
+        let mut db = history.db().unwrap();
+        let due_at = ms("2026-03-29T07:00:00Z");
+        let moved_at = ms("2026-03-29T07:05:00Z");
+        let id: i64 = db.query_row(
+            "INSERT INTO routines(core,address,created_ms,agent,name,task,schedule,state,next_at)
+             VALUES ('core','1',1,'main','Daily','Do it',?1,'active',?2) RETURNING id",
+            params![r#"{"kind":"daily","hour":9,"minute":0,"weekdays":false}"#, due_at],
+            |row| row.get(0),
+        ).unwrap();
+        let pending_run = make_run(&db, id, "test", due_at - 1, "pending", None).unwrap();
+        let tx = db.transaction().unwrap();
+        crate::bots::Settings {
+            timezone: Warsaw.to_string(),
+            ..Default::default()
+        }
+        .save(&tx)
+        .unwrap();
+        tx.execute(
+            "INSERT INTO person_profile_history(timezone,updated_at) VALUES ('Asia/Bangkok',?1)",
+            [moved_at],
+        )
+        .unwrap();
+        crate::person_profile::rezone(&tx, moved_at, Warsaw, Bangkok).unwrap();
+        tx.commit().unwrap();
+        let next = |db: &Connection| {
+            db.query_row("SELECT next_at FROM routines WHERE id=?1", [id], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(next(&db), Some(due_at));
+        assert!(claim_schedule(&mut db, moved_at).unwrap().is_empty());
+        assert_eq!(next(&db), Some(due_at));
+
+        db.execute("DELETE FROM routine_runs WHERE id=?1", [pending_run])
+            .unwrap();
+        let claimed = claim_schedule(&mut db, moved_at + 1_000).unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].routine.id, id);
+        assert_eq!(claimed[0].routine.next_at, Some(due_at));
+        assert!(
+            claim_schedule(&mut db, moved_at + 1_000)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(next(&db), Some(ms("2026-03-30T02:00:00Z")));
+        assert_eq!(db.query_row(
+            "SELECT count(*) FROM routine_runs WHERE routine=?1 AND kind='schedule' AND state='pending'",
+            [id], |row| row.get::<_, i64>(0),
+        ).unwrap(), 1);
     }
 
     #[test]

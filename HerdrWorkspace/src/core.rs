@@ -554,7 +554,7 @@ impl Core {
             ));
         }
         if let Some(task) = task.as_deref() {
-            validate_task(task)?;
+            crate::person_profile::validate_prompt(task)?;
         }
         let mut labels = BTreeMap::from([(LABEL, LABEL_VALUE), (LAUNCH_LABEL, env.key)]);
         let argv = match (task, &line) {
@@ -655,7 +655,7 @@ impl Core {
     }
 
     pub async fn send(&self, agent: &Terminal, task: String) -> Result<Delivery, Failure> {
-        validate_task(&task)?;
+        crate::person_profile::validate_prompt(&task)?;
         agent.require_live()?;
         self.rpc(
             "terminal.send",
@@ -671,7 +671,7 @@ impl Core {
     pub(crate) async fn send_completion(
         &self, core: &str, agent: &Terminal, task: String,
     ) -> Result<Delivery, Failure> {
-        validate_task(&task)?;
+        crate::person_profile::validate_prompt(&task)?;
         self.rpc(
             COMPLETION_SEND,
             json!({"core":core,"terminal":agent.address,"created_ms":agent.created_ms,

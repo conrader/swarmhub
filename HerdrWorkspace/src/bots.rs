@@ -120,7 +120,7 @@ impl Default for Settings {
             promise_grace_seconds: 600,
             initiative_seconds: 300,
             completion_fallback_to_main: false,
-            timezone: server_timezone(),
+            timezone: configured_server_timezone().unwrap_or_else(|| "UTC".to_owned()),
         }
     }
 }
@@ -142,25 +142,26 @@ pub(crate) const BOUNDS: [(&str, u64, u64); 13] = [
     ("initiative_seconds", 30, 86_400),
 ];
 
-fn server_timezone() -> String {
+pub(crate) fn configured_server_timezone() -> Option<String> {
     std::env::var("TZ")
         .ok()
         .or_else(|| std::fs::read_to_string("/etc/timezone").ok())
         .map(|zone| zone.trim().trim_start_matches(':').to_owned())
         .filter(|zone| zone.parse::<chrono_tz::Tz>().is_ok())
-        .unwrap_or_else(|| "UTC".to_owned())
 }
 
 impl Settings {
+    pub(crate) fn saved(db: &Connection) -> rusqlite::Result<Option<String>> {
+        db.query_row(
+            "SELECT value FROM bot_state WHERE key='settings'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+    }
+
     pub(crate) fn load(db: &Connection) -> rusqlite::Result<Self> {
-        let saved: Option<String> = db
-            .query_row(
-                "SELECT value FROM bot_state WHERE key='settings'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
-        Ok(saved
+        Ok(Self::saved(db)?
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_default())
     }
@@ -635,6 +636,15 @@ pub(crate) fn profile_moved(
     let Some(main) = main_bot(db)? else {
         return Ok(());
     };
+    const MOVE_NOTE_GAP_MS: i64 = 60_000;
+    let recently_noted: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM bot_history WHERE bot=?1 AND code='user_moved' AND at_ms>?2)",
+        params![main.id, now.saturating_sub(MOVE_NOTE_GAP_MS)],
+        |row| row.get(0),
+    )?;
+    if recently_noted {
+        return Ok(());
+    }
     let line = if before != after {
         format!("User moved: {before} -> {after}")
     } else {

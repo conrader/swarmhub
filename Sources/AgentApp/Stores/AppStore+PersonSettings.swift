@@ -7,19 +7,29 @@ extension AppStore {
         "personSettings.\(server.id).\(server.kind.rawValue).\(server.place).\(server.address)"
     }
 
+    private func personSettingsDeviceID() -> String {
+        let key = "personSettings.deviceID"
+        if let id = defaults.string(forKey: key) { return id }
+        let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
+        defaults.set(id, forKey: key)
+        return id
+    }
+
     func personSettings(for server: HerdrServer) -> HerdrPersonSettings {
         let key = personSettingsKey(server)
         if let model = personSettingsModels[key] { return model }
-        let saved = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(PersonSettingsPreferences.self, from: $0) }
+        let saved = PersonSettingsPreferences.restored(from: defaults.data(forKey: key))
+        let deviceID = { [weak self] in self?.personSettingsDeviceID() ?? "" }
         let client: () throws -> HerdrClient = { [weak self] in
             guard let self, let current = herdrServers.first(where: { personSettingsKey($0) == key }) else { throw CancellationError() }
             return try herdrClient(for: current)
         }
         let model = HerdrPersonSettings(
-            preferences: saved ?? PersonSettingsPreferences(),
+            preferences: saved,
             load: { try await client().personProfile() },
-            update: { try await client().updatePersonProfile(timezone: $0, location: $1) },
+            update: { try await client().updatePersonProfile(zone: $0, device: deviceID(), location: $1) },
             locate: { await DevicePersonLocation.current(askForPermission: $0) },
+            deviceID: deviceID,
             persist: { [weak self] in self?.defaults.set(try? JSONEncoder().encode($0), forKey: key) },
             onZoneChange: { [weak self] in self?.objectWillChange.send() }
         )
@@ -27,8 +37,8 @@ extension AppStore {
         return model
     }
 
-    func startPersonSettings() {
-        personTimezoneObserver = NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange).sink { [weak self] _ in
+    func startPersonSettings(notificationCenter: NotificationCenter = .default) {
+        personTimezoneObserver = notificationCenter.publisher(for: .NSSystemTimeZoneDidChange).sink { [weak self] _ in
             Task { @MainActor in self?.refreshPersonSettings() }
         }
         refreshPersonSettings()

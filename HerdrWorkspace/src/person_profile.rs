@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 
 const CONTEXT_START: &str = "[SwarmHub person profile]";
 const CONTEXT_END: &str = "[/SwarmHub person profile]";
+const CONTEXT_FOOTER: &str =
+    " Use this time zone for local times. Keep the location private. [/SwarmHub person profile]";
+const CONTEXT_LIMIT: usize = 1536;
 const HISTORY_LIMIT: i64 = 20;
 const INVALID: &str = "Enter an IANA time zone and a valid location.";
 
@@ -55,7 +58,24 @@ enum LocationChange {
 #[serde(deny_unknown_fields)]
 struct Update {
     timezone: Option<Tz>,
+    follow: Option<Follow>,
     location: Option<LocationChange>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum Follow {
+    Default { device: String, timezone: Tz },
+    Enable { device: String, timezone: Tz },
+    Sync { device: String, timezone: Tz },
+    Disable { device: String },
+}
+
+#[derive(Serialize)]
+struct ProfileState {
+    #[serde(flatten)]
+    profile: Profile,
+    follow_source: Option<String>,
 }
 
 fn place_name(raw: &str) -> Option<String> {
@@ -141,10 +161,33 @@ pub(crate) fn effective_timezone(db: &Connection) -> rusqlite::Result<Tz> {
     zone(db, bots::Settings::load(db)?.zone())
 }
 
-fn save(ctx: &bots::Ctx<'_>, update: Update) -> rusqlite::Result<Result<Profile, &'static str>> {
+fn follow_state(db: &Connection) -> rusqlite::Result<Option<String>> {
+    db.query_row(
+        "SELECT value FROM bot_state WHERE key='person_follow_source'",
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn follow_source(state: &Option<String>) -> Option<&str> {
+    state.as_deref().filter(|device| !device.is_empty())
+}
+
+fn write_follow_state(db: &Connection, device: &str) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO bot_state(key,value) VALUES('person_follow_source',?1)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        [device],
+    )?;
+    Ok(())
+}
+
+fn save(
+    ctx: &bots::Ctx<'_>,
+    update: Update,
+) -> rusqlite::Result<Result<ProfileState, &'static str>> {
     let mut profile = profiles(ctx.db, 1)?.pop().unwrap_or_default();
-    let old_zone = profile.timezone.unwrap_or(ctx.set.zone());
-    let timezone = update.timezone.or(profile.timezone);
     let location = match update.location {
         Some(LocationChange::Set { place }) => match place.validated() {
             Some(place) => Some(place),
@@ -157,8 +200,50 @@ fn save(ctx: &bots::Ctx<'_>, update: Update) -> rusqlite::Result<Result<Profile,
             .filter(|place| place.source != Source::Device),
         None => profile.location.clone(),
     };
+    let state = follow_state(ctx.db)?;
+    let mut source = follow_source(&state);
+    let mut wanted_zone = update.timezone;
+    if let Some(follow) = &update.follow {
+        let (device, timezone) = match follow {
+            Follow::Default { device, timezone }
+            | Follow::Enable { device, timezone }
+            | Follow::Sync { device, timezone } => (device, Some(*timezone)),
+            Follow::Disable { device } => (device, None),
+        };
+        if wanted_zone.is_some()
+            || device.len() != 32
+            || !device.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Ok(Err(INVALID));
+        }
+        match follow {
+            // Keep an empty row after disabling so a later Mac cannot become primary by default.
+            Follow::Default { .. } if state.is_none() || source == Some(device) => {
+                source = Some(device);
+                wanted_zone = timezone;
+            }
+            Follow::Enable { .. } => {
+                source = Some(device);
+                wanted_zone = timezone;
+            }
+            Follow::Sync { .. } if source == Some(device) => wanted_zone = timezone,
+            Follow::Disable { .. } if source == Some(device) => source = None,
+            _ => {}
+        }
+    } else if wanted_zone.is_some() {
+        source = None;
+    }
+    if source != follow_source(&state) || update.timezone.is_some() && state.is_none() {
+        write_follow_state(ctx.db, source.unwrap_or_default())?;
+    }
+    let source = source.map(str::to_owned);
+    let old_zone = profile.timezone.unwrap_or(ctx.set.zone());
+    let timezone = wanted_zone.or(profile.timezone);
     if (timezone, &location) == (profile.timezone, &profile.location) {
-        return Ok(Ok(profile));
+        return Ok(Ok(ProfileState {
+            profile,
+            follow_source: source,
+        }));
     }
     let city_changed =
         profile.location.as_ref().map(Location::label) != location.as_ref().map(Location::label);
@@ -182,28 +267,41 @@ fn save(ctx: &bots::Ctx<'_>, update: Update) -> rusqlite::Result<Result<Profile,
         [HISTORY_LIMIT],
     )?;
     let new_zone = timezone.unwrap_or(ctx.set.zone());
-    timezone_changed(ctx.db, ctx.now, old_zone, new_zone, city_changed)?;
-    Ok(Ok(profile))
+    rezone(ctx.db, ctx.now, old_zone, new_zone)?;
+    bots::profile_moved(ctx.db, ctx.now, old_zone, new_zone, city_changed)?;
+    Ok(Ok(ProfileState {
+        profile,
+        follow_source: source,
+    }))
 }
 
-pub(crate) fn timezone_changed(
+pub(crate) fn rezone(
     db: &Connection,
     at: i64,
     before: Tz,
     after: Tz,
-    city_changed: bool,
 ) -> rusqlite::Result<()> {
     if before != after {
         crate::routines::rezone(db, at, after)?;
         bots::rezone_plans(db, at, after)?;
     }
-    bots::profile_moved(db, at, before, after, city_changed)
+    Ok(())
 }
 
-/// Apply the old workspace default while it is still available during migration.
+/// A matching zone can be inferred as inherited only when the legacy workspace
+/// inherited a configured server zone. Preserve saved settings and the implicit
+/// UTC fallback, which has no evidence of a server zone (common on Mac hosts).
 /// Old absolute deadlines lack the wall-clock intent needed to move them.
-pub(crate) fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    let default = bots::Settings::load(db)?.zone().to_string();
+pub(crate) fn migrate(db: &Connection, server_zone: Option<&str>) -> rusqlite::Result<()> {
+    let Some(default) = server_zone else {
+        return Ok(());
+    };
+    if bots::Settings::saved(db)?
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|settings| settings.get("timezone").is_some())
+    {
+        return Ok(());
+    }
     for table in ["routines", "bot_checkins"] {
         db.execute(
             &format!(
@@ -211,7 +309,7 @@ pub(crate) fn migrate(db: &Connection) -> rusqlite::Result<()> {
                        WHERE json_extract(schedule,'$.kind')='daily'
                          AND json_extract(schedule,'$.timezone')=?1"
             ),
-            [&default],
+            [default],
         )?;
     }
     Ok(())
@@ -237,6 +335,7 @@ fn context_line(profile: &Profile, zone: Tz, at: DateTime<Utc>) -> String {
 /// The injected line is for the live prompt only. Keep saved task text and API
 /// errors independent of the person's location.
 pub(crate) fn prompt(history: &History, agent: &str, text: String) -> Result<String, Failure> {
+    validate_task(&text)?;
     let context = (|| -> Result<_, StoreError> {
         let db = history.db()?;
         if bots::of_agent(&db, agent)?.is_none() {
@@ -256,12 +355,27 @@ pub(crate) fn prompt(history: &History, agent: &str, text: String) -> Result<Str
     let Some(context) = context else {
         return Ok(text);
     };
-    let prompt = format!(
-        "{text}\n\n{CONTEXT_START} {context} Use this time zone for local times. Keep the location private. {CONTEXT_END}"
-    );
-    validate_task(&prompt)
-        .map_err(|_| Failure::Input("Leave room in the task for the workspace profile."))?;
-    Ok(prompt)
+    Ok(format!(
+        "{text}\n\n{CONTEXT_START} {context}{CONTEXT_FOOTER}"
+    ))
+}
+
+// Internal delivery paths can receive a decorated prompt across a process boundary.
+// Reserve room only for the bounded, single-line suffix. Raw input uses validate_task.
+pub(crate) fn validate_prompt(prompt: &str) -> Result<(), Failure> {
+    let original = validate_task(prompt);
+    if original.is_ok() {
+        return original;
+    }
+    if let Some((task, context)) = prompt.rsplit_once(concat!("\n\n", "[SwarmHub person profile] "))
+        && context.len() <= CONTEXT_LIMIT
+        && context.starts_with("The user's time zone is ")
+        && context.ends_with(CONTEXT_FOOTER)
+        && !context.chars().any(char::is_control)
+    {
+        return validate_task(task);
+    }
+    original
 }
 
 /// Core's terminal screen may echo what was typed, including a wrapped profile
@@ -286,14 +400,17 @@ pub(crate) fn routes() -> Router<Workspace> {
 
 async fn get_profile(State(w): State<Workspace>) -> Result<impl IntoResponse, ApiError> {
     let db = w.history.db()?;
+    let tx = db.unchecked_transaction().map_err(StoreError::from)?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
-        Json(
-            profiles(&db, 1)
+        Json(ProfileState {
+            profile: profiles(&tx, 1)
                 .map_err(StoreError::from)?
                 .pop()
                 .unwrap_or_default(),
-        ),
+            follow_source: follow_source(&follow_state(&tx).map_err(StoreError::from)?)
+                .map(str::to_owned),
+        }),
     ))
 }
 
@@ -324,10 +441,6 @@ mod tests {
     use crate::bots::{Settings, testing};
     use chrono_tz::{Asia::Bangkok, Europe::Warsaw};
     use serde_json::json;
-    use std::{
-        fs,
-        os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-    };
 
     fn ms(text: &str) -> i64 {
         DateTime::parse_from_rfc3339(text)
@@ -343,6 +456,113 @@ mod tests {
         json!({"kind":"set","place":{
             "city":city,"country":"Thailand","source":source,"latitude":13.7563,"longitude":100.5018
         }})
+    }
+
+    #[test]
+    fn only_the_active_mac_can_sync_and_move_notes_are_debounced() {
+        let (_scratch, history) = testing::journal(&["Main"]);
+        let set = Settings {
+            timezone: Warsaw.to_string(),
+            ..Settings::default()
+        };
+        let first = "a".repeat(32);
+        let other = "b".repeat(32);
+        let follow = |at, kind: &str, device: &str, timezone: Option<Tz>| {
+            let mut fields = json!({"kind":kind,"device":device});
+            if let Some(timezone) = timezone {
+                fields["timezone"] = json!(timezone);
+            }
+            testing::at(&history, at, &set, |ctx| {
+                save(ctx, change(json!({"follow":fields})))
+            })
+            .unwrap()
+        };
+        let notes = |table: &str, filter: &str| {
+            history
+                .db()
+                .unwrap()
+                .query_row(
+                    &format!("SELECT count(*) FROM {table} WHERE {filter}"),
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+        };
+        let state = follow(1_000, "default", &first, Some(Warsaw));
+        assert_eq!(state.follow_source.as_deref(), Some(first.as_str()));
+        assert_eq!(
+            notes("bot_history", "code='user_moved'"),
+            0,
+            "the effective zone was unchanged"
+        );
+        for kind in ["default", "sync"] {
+            let state = follow(2_000, kind, &other, Some(Bangkok));
+            assert_eq!(state.follow_source.as_deref(), Some(first.as_str()));
+            assert_eq!(state.profile.timezone, Some(Warsaw));
+        }
+        assert_eq!(
+            profiles(&history.db().unwrap(), HISTORY_LIMIT)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            follow(3_000, "sync", &first, Some(Bangkok))
+                .profile
+                .timezone,
+            Some(Bangkok)
+        );
+        assert_eq!(
+            follow(4_000, "sync", &first, Some(Bangkok))
+                .profile
+                .updated_at,
+            Some(3_000)
+        );
+        assert_eq!(
+            follow(5_000, "enable", &other, Some(Warsaw))
+                .follow_source
+                .as_deref(),
+            Some(other.as_str())
+        );
+        assert_eq!(
+            follow(6_000, "sync", &first, Some(Bangkok))
+                .profile
+                .timezone,
+            Some(Warsaw)
+        );
+        assert_eq!(
+            follow(7_000, "disable", &first, None)
+                .follow_source
+                .as_deref(),
+            Some(other.as_str())
+        );
+        assert_eq!(notes("bot_history", "code='user_moved'"), 1);
+        assert_eq!(notes("bot_outbox", "cause='note'"), 1);
+
+        assert_eq!(
+            follow(63_000, "sync", &other, Some(Bangkok))
+                .profile
+                .timezone,
+            Some(Bangkok)
+        );
+        assert_eq!(notes("bot_history", "code='user_moved'"), 2);
+        assert_eq!(follow(64_000, "disable", &other, None).follow_source, None);
+        let disabled = follow(65_000, "default", &first, Some(Warsaw));
+        assert_eq!(disabled.follow_source, None);
+        assert_eq!(disabled.profile.timezone, Some(Bangkok));
+
+        follow(66_000, "enable", &first, Some(Bangkok));
+        let manual = testing::at(&history, 67_000, &set, |ctx| {
+            save(ctx, change(json!({"timezone": Warsaw})))
+        })
+        .unwrap();
+        assert_eq!(manual.follow_source, None);
+        assert_eq!(
+            follow(68_000, "sync", &first, Some(Bangkok))
+                .profile
+                .timezone,
+            Some(Warsaw)
+        );
     }
 
     #[test]
@@ -363,15 +583,15 @@ mod tests {
                 change(json!({"timezone":"Asia/Bangkok","location":city("  Bangkok  ", "manual")})),
             )?
             .unwrap();
-            assert_eq!(saved.timezone, Some(Bangkok));
-            let place = saved.location.unwrap();
+            assert_eq!(saved.profile.timezone, Some(Bangkok));
+            let place = saved.profile.location.unwrap();
             assert_eq!(
                 (&*place.city, place.latitude, place.longitude),
                 ("Bangkok", Some(13.8), Some(100.5))
             );
             let saved = save(ctx, change(json!({"location":{"kind":"clear_device"}})))?.unwrap();
             assert!(
-                saved.location.is_some(),
+                saved.profile.location.is_some(),
                 "disabling the Mac source retains a manual location"
             );
             let saved = save(
@@ -379,7 +599,7 @@ mod tests {
                 change(json!({"timezone":"Asia/Bangkok","location":city("Bangkok", "manual")})),
             )?
             .unwrap();
-            assert_eq!(saved.updated_at, Some(10));
+            assert_eq!(saved.profile.updated_at, Some(10));
             assert_eq!(profiles(ctx.db, HISTORY_LIMIT)?.len(), 1);
             for index in 0..HISTORY_LIMIT + 2 {
                 assert!(
@@ -392,7 +612,7 @@ mod tests {
             }
             assert_eq!(profiles(ctx.db, 100)?.len() as i64, HISTORY_LIMIT);
             let saved = save(ctx, change(json!({"location":{"kind":"clear_device"}})))?.unwrap();
-            assert!(saved.location.is_none());
+            assert!(saved.profile.location.is_none());
             Ok(())
         });
     }
@@ -416,70 +636,68 @@ mod tests {
     }
 
     #[test]
-    fn version_62_migrates_the_old_default_and_keeps_pinned_and_absolute_plans() {
-        let scratch = tempfile::tempdir().unwrap();
-        let directory = scratch.path().join("workspace");
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&directory)
-            .unwrap();
-        let path = directory.join("workspace.sqlite3");
-        fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&path)
-            .unwrap();
-        let old = Connection::open(&path).unwrap();
-        for script in &crate::history::migrations()[..61] {
-            old.execute_batch(script).unwrap();
-        }
-        Settings {
-            timezone: Warsaw.to_string(),
-            ..Settings::default()
-        }
-        .save(&old)
-        .unwrap();
-        seed(&old, "bot", Some(Warsaw), 100);
-        seed(&old, "bot", Some(Bangkok), 200);
-        old.execute(
-            "INSERT INTO bot_promises(bot,what,due_ms,created_ms) VALUES('bot','Do it',123,1)",
-            [],
-        )
-        .unwrap();
-        drop(old);
-
-        for _ in 0..2 {
-            let history = History::open_at(&directory).unwrap();
-            let db = history.db().unwrap();
-            assert_eq!(
-                db.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
-                    .unwrap(),
-                62
-            );
-            assert_eq!(effective_timezone(&db).unwrap(), Warsaw);
-            for (table, next_column) in [("routines", "next_at"), ("bot_checkins", "next_ms")] {
-                let sql = format!(
-                    "SELECT json_extract(schedule,'$.timezone'),{next_column} FROM {table} WHERE id=?1"
-                );
-                let read = |id: i64| {
-                    db.query_row(&sql, [id], |row| {
-                        Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?))
-                    })
-                    .unwrap()
-                };
-                assert_eq!(read(1), (None, 100));
-                assert_eq!(read(2), (Some(Bangkok.to_string()), 200));
+    fn legacy_migration_follows_only_an_inherited_configured_server_zone() {
+        for (server_zone, saved_zone, matching_zone, follows) in [
+            (Some("Europe/Warsaw"), None, Warsaw, true),
+            (Some("Europe/Warsaw"), Some(Warsaw), Warsaw, false),
+            (Some("UTC"), None, chrono_tz::UTC, true),
+            (None, None, chrono_tz::UTC, false),
+            (None, Some(chrono_tz::UTC), chrono_tz::UTC, false),
+        ] {
+            let db = Connection::open_in_memory().unwrap();
+            for script in &crate::history::migrations()[..61] {
+                db.execute_batch(script).unwrap();
             }
-            assert_eq!(
-                db.query_row(
-                    "SELECT due_ms,local_schedule FROM bot_promises",
-                    [],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
-                )
-                .unwrap(),
-                (123, None)
-            );
+            // Legacy settings rows can exist without a saved timezone.
+            let mut settings = json!({"ask_seconds":900});
+            if let Some(saved_zone) = saved_zone {
+                settings["timezone"] = json!(saved_zone);
+            }
+            db.execute(
+                "INSERT INTO bot_state(key,value) VALUES('settings',?1)",
+                [settings.to_string()],
+            )
+            .unwrap();
+            seed(&db, "bot", Some(matching_zone), 100);
+            seed(&db, "bot", Some(Bangkok), 200);
+            db.execute(
+                "INSERT INTO bot_promises(bot,what,due_ms,created_ms) VALUES('bot','Do it',123,1)",
+                [],
+            )
+            .unwrap();
+
+            for _ in 0..2 {
+                crate::history::migrate(&db, server_zone).unwrap();
+                let version: usize = db
+                    .pragma_query_value(None, "user_version", |row| row.get(0))
+                    .unwrap();
+                assert_eq!(version, 63);
+                for (table, next_column) in [("routines", "next_at"), ("bot_checkins", "next_ms")] {
+                    let sql = format!(
+                        "SELECT json_extract(schedule,'$.timezone'),{next_column} FROM {table} WHERE id=?1"
+                    );
+                    let read = |id: i64| {
+                        db.query_row(&sql, [id], |row| {
+                            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?))
+                        })
+                        .unwrap()
+                    };
+                    assert_eq!(
+                        read(1),
+                        ((!follows).then(|| matching_zone.to_string()), 100)
+                    );
+                    assert_eq!(read(2), (Some(Bangkok.to_string()), 200));
+                }
+                assert_eq!(
+                    db.query_row(
+                        "SELECT due_ms,local_schedule FROM bot_promises",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+                    )
+                    .unwrap(),
+                    (123, None)
+                );
+            }
         }
     }
 
@@ -559,7 +777,7 @@ mod tests {
             )?
             .unwrap();
             assert_eq!(
-                context_line(&profile, Bangkok, at),
+                context_line(&profile.profile, Bangkok, at),
                 "The user's time zone is Asia/Bangkok (currently UTC+7), location Bangkok, Thailand."
             );
             assert!(context_line(&Profile::default(), Warsaw, at).contains("UTC+2"));
@@ -580,6 +798,27 @@ mod tests {
         assert_eq!(
             prompt(&history, "other-agent", "Original task".into()).unwrap(),
             "Original task"
+        );
+    }
+
+    #[test]
+    fn profile_context_has_its_own_delivery_budget() {
+        let (_scratch, history) = testing::journal(&["Main"]);
+        let agent = testing::bot(&history, "Main").agent_name;
+        let task = "x".repeat(16_384);
+        let delivered = prompt(&history, &agent, task.clone()).unwrap();
+        assert!(delivered.len() > task.len());
+        assert!(validate_prompt(&delivered).is_ok());
+        assert!(validate_task(&delivered).is_err());
+        let literal = delivered.trim_start_matches('x');
+        assert!(validate_task(literal).is_ok());
+        assert!(validate_prompt(literal).is_ok());
+        assert!(prompt(&history, &agent, format!("{task}x")).is_err());
+        assert!(validate_prompt(&format!("x{delivered}")).is_err());
+        assert!(validate_prompt(&format!("{delivered}x")).is_err());
+        assert!(validate_prompt(&delivered.replace("currently", "currently\n")).is_err());
+        assert!(
+            validate_prompt(&delivered.replace("currently", &"x".repeat(CONTEXT_LIMIT))).is_err()
         );
     }
 }

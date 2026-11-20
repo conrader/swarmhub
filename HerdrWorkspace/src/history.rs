@@ -247,7 +247,7 @@ impl History {
                 "SwarmHub could not enable WAL. Keep its data directory on local storage.".into(),
             );
         }
-        migrate(&db)?;
+        migrate(&db, crate::bots::configured_server_timezone().as_deref())?;
         recover_interrupted_parks(&db)?;
         db.execute(
             "UPDATE journal SET state = 'unconfirmed' WHERE state = 'pending'",
@@ -822,10 +822,14 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-outbound-receipts.sql"),
         include_str!("migrate-completion-backoff.sql"),
         include_str!("migrate-person-profile.sql"),
+        include_str!("migrate-routine-rezone.sql"),
     ]
 }
 
-fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn migrate(
+    db: &Connection,
+    server_zone: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let version: usize = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     for (index, script) in migrations()
         .get(version..)
@@ -836,7 +840,7 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         if version + index == 61 {
             let tx = db.unchecked_transaction()?;
             tx.execute_batch(script)?;
-            crate::person_profile::migrate(&tx)?;
+            crate::person_profile::migrate(&tx, server_zone)?;
             tx.commit()?;
         } else {
             db.execute_batch(script)?;
