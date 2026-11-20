@@ -4,7 +4,7 @@ import Testing
 
 private let installedAppURL = URL(fileURLWithPath: "/Applications/SwarmHub.app")
 private var updateInfo: [String: Any] {
-    ["SUFeedURL": "https://github.com/conrader/swarmhub/releases/latest/download/appcast.xml",
+    ["CFBundleIdentifier": SingleInstallation.bundleID, "SUFeedURL": "https://github.com/conrader/swarmhub/releases/latest/download/appcast.xml",
      "SUPublicEDKey": Data(repeating: 7, count: 32).base64EncodedString()]
 }
 
@@ -22,7 +22,11 @@ private var updateInfo: [String: Any] {
         #expect(reason(info) != nil)
     }
     info = updateInfo; info["SUFeedURL"] = "http://127.0.0.1:8123/appcast.xml"
-    #expect(reason(info) == nil, "a rehearsal's feed on this Mac's own loopback address")
+    #expect(reason(info) != nil)
+    let devURL = URL(fileURLWithPath: "/tmp/SwarmHub Dev.app")
+    info["CFBundleIdentifier"] = "com.konrad.agentapp.update-rehearsal"
+    #expect(UpdateConfiguration.unavailableReason(bundleURL: devURL, info: info, environment: [:]) == nil)
+    #expect(UpdateConfiguration.unavailableReason(bundleURL: devURL, info: updateInfo, environment: [:]) != nil)
     for feed in ["http://example.com/appcast.xml", "http://127.0.0.1/appcast.xml", "http://localhost:8123/appcast.xml", "http://127.0.0.1.example.com:8123/appcast.xml", "https:///appcast.xml", "file:///tmp/appcast.xml", "https://user:password@example.com/feed", "https://example.com/feed#fragment"] {
         info = updateInfo; info["SUFeedURL"] = feed
         #expect(reason(info) != nil)
@@ -46,4 +50,17 @@ private var updateInfo: [String: Any] {
     updater.setAutomaticallyChecksForUpdates(true)
     updater.setAutomaticallyDownloadsUpdates(true)
     #expect(!updater.automaticallyChecksForUpdates && !updater.automaticallyDownloadsUpdates)
+}
+
+@Test func canonicalInstallationAndOlderCopiesAreComparedByVersionThenBuild() {
+    #expect(SingleInstallation.isInstalled(installedAppURL))
+    #expect(SingleInstallation.isInstalled(URL(fileURLWithPath: "/Applications/../Applications/SwarmHub.app")))
+    #expect(!SingleInstallation.isInstalled(URL(fileURLWithPath: "/Volumes/SwarmHub/SwarmHub.app")))
+    #expect(!SingleInstallation.isInstalled(URL(fileURLWithPath: "/Applications/Old SwarmHub.app")))
+    let old = AppBuildInfo(version: "0.6.8", build: "999")
+    let current = AppBuildInfo(version: "0.8.5", build: "39")
+    #expect(SingleInstallation.isNewer(current, than: old))
+    #expect(!SingleInstallation.isNewer(old, than: current))
+    #expect(!SingleInstallation.isNewer(current, than: current))
+    #expect(SingleInstallation.isNewer(AppBuildInfo(version: "0.8.5", build: "40"), than: current))
 }

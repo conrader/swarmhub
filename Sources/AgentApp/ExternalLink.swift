@@ -10,6 +10,11 @@ import AppKit
         return NSWorkspace.shared.open(url)
     }
 
+    static func revealInFinder(_ url: URL) {
+        if TestRunGuard.refuses("reveal \(url.path)") { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     static func openApplication(at url: URL, probe: String? = nil) {
         if TestRunGuard.refuses("open app \(url.path)", probe: probe) { return }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())

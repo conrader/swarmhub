@@ -25,8 +25,23 @@ struct SetupLocalOffer: View {
                 Text(WizardCopy.setUpNote).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }.appleCard(padding: 14)
         case .working(let step):
-            StatusCard(kind: .working, title: step == .fetching ? WizardCopy.fetching : WizardCopy.installing,
-                       detail: step == .fetching ? WizardCopy.fetchingDetail : WizardCopy.installingDetail)
+            switch step {
+            case .fetching(let download):
+                if let download {
+                    StatusCard(kind: .info, title: WizardCopy.fetching) {
+                        ProgressView(value: Double(download.received), total: Double(download.total)) {
+                            Text(download.attempt > 1 ? "Attempt \(download.attempt) of 3" : "SwarmHub service")
+                        } currentValueLabel: {
+                            Text("\(download.received.formatted()) of \(download.total.formatted()) bytes")
+                                .monospacedDigit()
+                        }
+                    }
+                } else {
+                    StatusCard(kind: .working, title: "Checking the SwarmHub service release…", detail: WizardCopy.fetchingDetail)
+                }
+            case .installing:
+                StatusCard(kind: .working, title: WizardCopy.installing, detail: WizardCopy.installingDetail)
+            }
         case .failed(let line):
             StatusCard(kind: .warning, title: WizardCopy.setUpFailed, detail: line)
         }

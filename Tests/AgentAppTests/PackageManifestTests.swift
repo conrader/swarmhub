@@ -15,6 +15,8 @@ private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent
 
 @Test func packageScriptWritesOnlyIntoExcludedFolders() throws {
     let script = try String(contentsOf: repoRoot.appending(path: "scripts/package-release.sh"), encoding: .utf8)
-    #expect(script.contains("APP_DIR=\"$ROOT_DIR/dist/$APP_NAME.app\""))
-    #expect(script.contains("ZIP_PATH=\"$ROOT_DIR/dist/"))
+    #expect(script.contains("APP_DIR=\"$STAGING/$APP_NAME.app\""))
+    #expect(script.contains("ARCHIVE_DIR=\"$ROOT_DIR/dist\""))
+    #expect(script.contains("trap cleanup EXIT"))
+    #expect(script.contains("unregister_app \"$APP_DIR\""))
 }

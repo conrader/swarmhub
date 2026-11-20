@@ -14,6 +14,7 @@ struct SetupView: View {
     @State private var firstChoice = StarterAgents.codex
     @State private var loginServer: HerdrServer?
     @State private var testing = false
+    @State private var localSetupTask: Task<Void, Never>?
     @State private var failure: String?
     @State private var closed = false
     /// The wizard's last button was pressed and its bots exist: Return in a field and the default button may both ask.
@@ -65,7 +66,7 @@ struct SetupView: View {
             }
         }
         .onAppear { closed = false }
-        .onDisappear { closed = true; if !unasked { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)) }; abandonHerdr() }
+        .onDisappear { closed = true; cancelLocalDownload(); if !unasked { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)) }; abandonHerdr() }
     }
 
     /// macOS brings back the windows that were open when an app was killed or the Mac restarted. Every way to this
@@ -131,9 +132,9 @@ struct SetupView: View {
             // The optional bots are no step on a server whose only agent program the main bot already has.
             SetupWizardProgress(current: flow.stepIndex, count: flow.stepCount, name: flow.step == .projects ? WizardCopy.projectsStep : nil)
             HStack(spacing: 10) {
-                if flow.canGoBack { Button(SetupCopy.back, action: back) }
+                if flow.canGoBack { Button(SetupCopy.back, action: back).disabled(flow.localSetup?.isInstalling == true) }
                 Spacer()
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
+                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction).disabled(flow.localSetup?.isInstalling == true)
                 switch flow.step {
                 case .welcome:
                     if store.herdrConfigured {
@@ -142,7 +143,7 @@ struct SetupView: View {
                 case .herdr:
                     if let setup = flow.localSetup, !testing {
                         // Nothing runs on this Mac yet: the one button sets it up.
-                        Button(setup.isWorking ? WizardCopy.settingUp : WizardCopy.setUp, action: setUpThisMac).buttonStyle(.appleProminent)
+                        Button(localSetupButton(for: setup), action: setUpThisMac).buttonStyle(.appleProminent)
                             .disabled(setup.isWorking || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
                     } else if flow.herdrNoPrograms || !flow.missingStarterPrograms.isEmpty, flow.herdr.kind == .local, flow.localReport != nil, !testing {
                         // An AI program installed since is found by setting this Mac up again, which changes nothing else.
@@ -180,6 +181,7 @@ struct SetupView: View {
     /// The wizard opens where `AppStore.wizardStart` says; on the main bot of a server that is already set up it
     /// reads that server at once.
     private func restart() {
+        cancelLocalDownload()
         abandonHerdr()
         flow = preset ?? store.wizardStart(); testing = presetTesting; failure = nil; finished = false; projects = nil
         if preset == nil, flow.readsSavedServer { testHerdr() }
@@ -194,9 +196,10 @@ struct SetupView: View {
         projects = HerdrProjectsModel { try store.herdrClient(for: server, token: key) }
     }
 
-    private func cancel() { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonHerdr(); dismiss() }
+    private func cancel() { cancelLocalDownload(); FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)); abandonHerdr(); dismiss() }
 
     private func back() {
+        cancelLocalDownload()
         failure = nil
         let tested = flow.herdrServer
         flow.apply(.back)
@@ -245,20 +248,37 @@ struct SetupView: View {
         }
     }
 
+    private func localSetupButton(for setup: HerdrLocalSetup) -> String {
+        switch setup {
+        case .offer: WizardCopy.setUp
+        case .working: WizardCopy.settingUp
+        case .failed: "Retry setup"
+        }
+    }
+
+    private func cancelLocalDownload() {
+        // Once the verified program starts mutating LaunchAgents and templates, let that transaction finish.
+        guard flow.localSetup?.isInstalling != true else { return }
+        localSetupTask?.cancel()
+    }
+
     /// The one button of a Mac where nothing runs yet. It fetches the service, checks it, has it set this Mac up,
     /// and then connects as it would have.
     private func setUpThisMac() {
-        guard flow.step == .herdr, flow.herdr.kind == .local, flow.localSetup?.isWorking != true, let server = flow.herdr.server(id: "") else { return }
+        guard flow.step == .herdr, flow.herdr.kind == .local, localSetupTask == nil, let server = flow.herdr.server(id: "") else { return }
         let draft = flow.herdr, answers = flow.localAnswers
-        failure = nil; flow.apply(.localSetup(.working(.installing)))
-        Task {
+        failure = nil; flow.apply(.localSetup(.working(.fetching())))
+        localSetupTask = Task {
+            defer { localSetupTask = nil }
             do {
-                let report = try await store.setUpThisMac(port: server.port, answerFirstTime: answers) { step in if !closed, flow.herdr == draft { flow.apply(.localSetup(.working(step))) } }
-                guard !closed, flow.step == .herdr, flow.herdr == draft else { return }
+                let report = try await store.setUpThisMac(port: server.port, answerFirstTime: answers) { step in
+                    if !closed, !Task.isCancelled, flow.herdr == draft { flow.apply(.localSetup(.working(step))) }
+                }
+                guard !closed, !Task.isCancelled, flow.step == .herdr, flow.herdr == draft else { return }
                 flow.apply(.localReport(report)); flow.apply(.localSetup(nil))
                 testHerdr()
             } catch {
-                guard !closed, flow.step == .herdr, flow.herdr == draft else { return }
+                guard !closed, !Task.isCancelled, flow.step == .herdr, flow.herdr == draft else { return }
                 flow.apply(.localSetup(.failed(HerdrLocalSetup.line(for: error))))
             }
         }

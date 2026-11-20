@@ -193,3 +193,20 @@ import Testing
         #expect(!text.contains("eyJzeW50aGV0aWMi"), "a JWT-shaped string leaked")
     }
 }
+
+@MainActor @Test func theGrokDestinationMatchesTheImportedBotAndItsArchive() async throws {
+    let world = try GrokWorld()
+    let store = world.store()
+    let coordinator = makeCoordinator(world, store)
+    await coordinator.scan()
+    let item = try #require(coordinator.items.first { $0.id == GrokRunIDs.jarvis })
+    #expect(coordinator.historyDirectory.path == store.fileURL.deletingLastPathComponent().appending(path: "grok-history").path)
+    #expect(coordinator.destination(for: item).contains("“\(item.name)”"))
+    coordinator.recentOnly()
+    await coordinator.settled()
+    let bot = try #require(store.bots.first { $0.grokSourceID == item.id })
+    #expect(bot.backend == .herdr && bot.name == item.name)
+    #expect(store.herdrServer(for: bot).id == store.herdrServers[0].id)
+    #expect(FileManager.default.fileExists(atPath: store.grokHistory.fileURL(for: bot.id).path))
+    #expect(coordinator.destination(for: item).contains("“\(bot.name)”"))
+}

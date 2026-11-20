@@ -21,10 +21,11 @@ struct WorkspaceRelease: Equatable, Sendable {
     }
 
     enum Failure: LocalizedError, Equatable {
-        case unreachable, unsigned, unreadable, noProgram(String), elsewhere, mismatch
+        case unreachable, timedOut, unsigned, unreadable, noProgram(String), elsewhere, mismatch
         var errorDescription: String? {
             switch self {
             case .unreachable: "Neither the server nor this Mac could reach the \(AppConstants.name) releases. Try again when one of them is online."
+            case .timedOut: "The \(AppConstants.name) service download timed out after three attempts. Check the connection and retry setup."
             case .unsigned: "The update is not signed with the \(AppConstants.name) release key, so it was not installed."
             case .unreadable: "The update's description could not be read, so it was not installed."
             case .noProgram(let target): "The release has no program for this kind of machine (\(target))."
@@ -33,6 +34,14 @@ struct WorkspaceRelease: Equatable, Sendable {
             }
         }
     }
+
+    struct DownloadProgress: Equatable, Sendable {
+        let received: Int
+        let total: Int
+        let attempt: Int
+    }
+
+    private enum TransferFailure: Error { case restart, retryable, rejected }
 
     static let manifestName = "workspace-manifest.json"
     static let product = "swarmhub-herdr"
@@ -96,8 +105,15 @@ struct WorkspaceRelease: Equatable, Sendable {
     /// The release key this app trusts: the one its own updates are checked against.
     static var bundledKey: String { Bundle.main.infoDictionary?["SUPublicEDKey"] as? String ?? "" }
 
+    private static let releaseSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForResource = 45
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: TestRunGuard.guarded(configuration))
+    }()
+
     /// The newest release, read and checked on this Mac.
-    static func latest(session: URLSession = .shared, publicKey: String = bundledKey,
+    static func latest(session: URLSession = releaseSession, publicKey: String = bundledKey,
                        mirror: String? = mirror(ProcessInfo.processInfo.environment["SWARMHUB_WORKSPACE_FEED"])) async throws -> WorkspaceRelease {
         let folder = mirror ?? feed
         guard let manifestURL = URL(string: folder + manifestName), let signatureURL = URL(string: folder + manifestName + ".sig") else { throw Failure.unreachable }
@@ -115,10 +131,101 @@ struct WorkspaceRelease: Equatable, Sendable {
         return program
     }
 
+    /// First-run setup keeps a partial body in memory across retries. A signed size and digest are required before
+    /// any bytes can be installed. Cancellation releases the partial body and cancels the URLSession task.
+    func downloadProgram(for target: String,
+                         mirror: String? = mirror(ProcessInfo.processInfo.environment["SWARMHUB_WORKSPACE_FEED"]),
+                         configuration: () -> URLSessionConfiguration = { .ephemeral },
+                         requestTimeout: TimeInterval = 30, resourceTimeout: TimeInterval = 300,
+                         retryDelay: Duration = .seconds(1), isolation: isolated (any Actor)? = #isolation,
+                         progress: (DownloadProgress) -> Void) async throws -> Data {
+        guard let asset = asset(for: target) else { throw Failure.noProgram(target) }
+        let url = try programURL(for: target, mirror: mirror)
+        var data = Data()
+        var attempt = 1
+        var canResume = true
+        var timedOut = false
+        while attempt <= 3 {
+            try Task.checkCancellation()
+            let offset = data.count
+            var request = URLRequest(url: url, timeoutInterval: requestTimeout)
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range") }
+            progress(.init(received: offset, total: asset.size, attempt: attempt))
+            var lastUpdate = ContinuousClock.now
+            timedOut = false
+            do {
+                let stream = HerdrByteStream.open(request, configuration: configuration(), resourceTimeout: resourceTimeout) { response in
+                    try Self.validateDownload(response, offset: offset, size: asset.size)
+                }
+                for try await chunk in stream {
+                    try Task.checkCancellation()
+                    guard chunk.count <= asset.size - data.count else { throw Failure.mismatch }
+                    data.append(chunk)
+                    if data.count == asset.size || lastUpdate.duration(to: .now) >= .milliseconds(100) {
+                        progress(.init(received: data.count, total: asset.size, attempt: attempt))
+                        lastUpdate = .now
+                    }
+                }
+            } catch TransferFailure.restart {
+                // Some mirrors ignore Range. Retry this attempt from zero, and discard partial bodies from this mirror.
+                canResume = false
+                data = Data()
+                continue
+            } catch TransferFailure.rejected {
+                throw Failure.unreachable
+            } catch let failure as Failure {
+                throw failure
+            } catch {
+                try Task.checkCancellation()
+                timedOut = (error as? URLError)?.code == .timedOut
+            }
+            try Task.checkCancellation()
+            if data.count == asset.size {
+                guard Self.matches(data, asset) else { throw Failure.mismatch }
+                return data
+            }
+            if !canResume { data = Data() }
+            attempt += 1
+            if attempt <= 3 { try await Task.sleep(for: retryDelay) }
+        }
+        throw timedOut ? Failure.timedOut : Failure.unreachable
+    }
+
+    private static func validateDownload(_ response: URLResponse, offset: Int, size: Int) throws {
+        guard let http = response as? HTTPURLResponse else { throw TransferFailure.rejected }
+        switch http.statusCode {
+        case 200 where offset == 0:
+            return
+        case 200 where offset > 0, 416 where offset > 0:
+            throw TransferFailure.restart
+        case 206 where offset > 0:
+            guard http.value(forHTTPHeaderField: "Content-Range") == "bytes \(offset)-\(size - 1)/\(size)" else {
+                throw TransferFailure.restart
+            }
+        case 408, 429, 500...599:
+            throw TransferFailure.retryable
+        default:
+            throw TransferFailure.rejected
+        }
+    }
+
     private static func fetch(_ url: URL, limit: Int, session: URLSession) async throws -> Data {
-        guard let (data, response) = try? await session.data(for: URLRequest(url: url, timeoutInterval: 600)),
-              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false, data.count <= limit else { throw Failure.unreachable }
-        return data
+        for attempt in 1...3 {
+            try Task.checkCancellation()
+            do {
+                let (data, response) = try await session.data(for: URLRequest(url: url, timeoutInterval: 20))
+                try Task.checkCancellation()
+                if let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= limit { return data }
+                if let http = response as? HTTPURLResponse, !(http.statusCode == 408 || http.statusCode == 429 || http.statusCode >= 500) {
+                    break
+                }
+            } catch {
+                try Task.checkCancellation()
+            }
+            if attempt < 3 { try await Task.sleep(for: .seconds(1)) }
+        }
+        throw Failure.unreachable
     }
     #endif
 }

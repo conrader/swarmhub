@@ -65,17 +65,44 @@ struct HerdrLocalService: Sendable {
     /// Herdr Core's command, for opening one of its terminals.
     var corePath: String { ["hc", "herdr-core"].map { path(".local/bin/\($0)") }.first { FileManager.default.isExecutableFile(atPath: $0) } ?? path(".local/bin/hc") }
 
+    private struct ReleaseProof: Codable {
+        let manifest: Data
+        let signature: String
+    }
+
+    private var proofURL: URL { URL(fileURLWithPath: programPath).appendingPathExtension("release.json") }
+
+    /// Reuse a service whose installed bytes still match a manifest signed by the bundled release key.
+    func hasVerifiedProgram(publicKey: String = WorkspaceRelease.bundledKey) -> Bool {
+        guard isPlaced, let data = try? Data(contentsOf: proofURL),
+              let proof = try? JSONDecoder().decode(ReleaseProof.self, from: data),
+              let release = try? WorkspaceRelease.verified(manifest: proof.manifest, signature: proof.signature, publicKey: publicKey) else { return false }
+        return matchesInstalledProgram(release)
+    }
+
+    func matchesInstalledProgram(_ release: WorkspaceRelease) -> Bool {
+        guard isPlaced, let asset = release.asset(for: Self.target) else { return false }
+        let url = URL(fileURLWithPath: programPath)
+        guard (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize == asset.size,
+              let program = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+        return WorkspaceRelease.matches(program, asset)
+    }
+
+    func rememberVerifiedProgram(_ release: WorkspaceRelease) {
+        let proof = ReleaseProof(manifest: release.manifestData, signature: release.signature)
+        if let data = try? JSONEncoder().encode(proof) { try? data.write(to: proofURL, options: .atomic) }
+    }
+
     /// Puts a checked program in place in one step, for this account to run.
     func place(_ program: Data) throws {
         let target = URL(fileURLWithPath: programPath), folder = target.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let draft = folder.appendingPathComponent("swarmhub-herdr.new")
-        try? FileManager.default.removeItem(at: draft)
+        let draft = folder.appendingPathComponent(".swarmhub-herdr-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: draft) }
         guard FileManager.default.createFile(atPath: draft.path, contents: program, attributes: [.posixPermissions: 0o755]) else {
             throw HerdrLocalFailure(kind: "not_placed", message: "The \(AppConstants.name) service could not be saved in \(folder.path).")
         }
         guard rename(draft.path, target.path) == 0 else {
-            try? FileManager.default.removeItem(at: draft)
             throw HerdrLocalFailure(kind: "not_placed", message: "The \(AppConstants.name) service could not be saved in \(folder.path).")
         }
     }
@@ -89,7 +116,11 @@ struct HerdrLocalService: Sendable {
         try Self.answer(try await run("install", port: port, limit: 900, extra: answerFirstTime ? ["--answer-first-time"] : []))
     }
     /// Stops the service and removes what `install` put on this Mac. Conversations stay.
-    func remove() async throws -> HerdrLocalRemoval { try Self.answer(try await run("remove", port: nil, limit: 120)) }
+    func remove() async throws -> HerdrLocalRemoval {
+        let report: HerdrLocalRemoval = try Self.answer(try await run("remove", port: nil, limit: 120))
+        if !isPlaced { try? FileManager.default.removeItem(at: proofURL) }
+        return report
+    }
 
     private struct Refusal: Decodable { let error: String; var kind: String? = nil }
 
@@ -130,7 +161,10 @@ struct HerdrLocalService: Sendable {
 /// Getting this Mac ready from the setup window, when nothing answers here yet: offered with what will be installed,
 /// under way, or stopped with the reason in one sentence.
 enum HerdrLocalSetup: Equatable, Sendable {
-    enum Step: Equatable, Sendable { case fetching, installing }
+    enum Step: Equatable, Sendable {
+        case fetching(WorkspaceRelease.DownloadProgress? = nil)
+        case installing
+    }
     /// `hasCore`: Herdr Core is already on this Mac, so it is not installed again.
     case offer(hasCore: Bool)
     case working(Step)
@@ -138,12 +172,14 @@ enum HerdrLocalSetup: Equatable, Sendable {
 
     var isWorking: Bool { if case .working = self { true } else { false } }
 
+    var isInstalling: Bool { self == .working(.installing) }
+
     /// One sentence for a failure, whatever threw it: the service's own, the release check's, or the network's.
     static func line(for error: Error) -> String {
         if let failure = error as? HerdrLocalFailure { return failure.message }
         if let failure = error as? WorkspaceRelease.Failure {
             switch failure {
-            case .unreachable: return "This Mac could not download the \(AppConstants.name) service. Check the internet connection, then try again."
+            case .unreachable: return "This Mac could not finish downloading the \(AppConstants.name) service. Check the internet connection, then try again."
             case .noProgram: return "This version of the \(AppConstants.name) service is not published for this kind of Mac yet."
             default: return failure.localizedDescription
             }

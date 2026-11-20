@@ -36,6 +36,11 @@ import SwiftUI
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if !DEBUG
+        if !UpdateConfiguration.isAutomated(environment: ProcessInfo.processInfo.environment, arguments: CommandLine.arguments) {
+            Task.detached(priority: .utility) { SingleInstallation.cleanUpAfterLaunch() }
+        }
+        #endif
         start()
         systemAppearance = NSApplication.shared.observe(\.effectiveAppearance) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.refreshIcon() }

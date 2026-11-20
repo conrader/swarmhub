@@ -67,7 +67,7 @@ enum WizardCopy {
     static var fetching: String { "Downloading the \(AppConstants.name) service…" }
     static let fetchingDetail = "It is checked against the release’s signature before it is used."
     static let installing = "Setting up this Mac…"
-    static let installingDetail = "This takes a moment the first time."
+    static let installingDetail = "The service sets up its files and downloads Herdr Core if this Mac needs it."
     static let setUpFailed = "This Mac could not be set up"
     /// The usual port already answers for something else (a forward to a server): another one was taken, unasked.
     static func portMoved(from: Int, to: Int) -> String { "Port \(from) on this Mac is already in use, so \(AppConstants.name) uses port \(to) here." }

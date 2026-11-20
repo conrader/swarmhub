@@ -156,7 +156,8 @@ This runs a real update with nothing of yours: two scratch builds with their own
 
 ## For developers
 
-- `scripts/package-release.sh` packages the app. `SWARMHUB_SIGN_IDENTITY=-` signs ad-hoc and asks the Keychain nothing.
+- `scripts/package-release.sh` writes the release ZIP to `dist/` and removes its temporary app. `SWARMHUB_SIGN_IDENTITY=-` signs ad-hoc and asks the Keychain nothing.
+- Run `scripts/install-app.sh path/to/SwarmHub-release.zip` to install or replace `/Applications/SwarmHub.app`. Quit SwarmHub before running it. The installer verifies the signature and checks that the app launches before discarding its temporary rollback copy.
 - `scripts/generate-appcast.sh v<version> ZIP` writes `dist/appcast.xml`. `SWARMHUB_UPDATE_KEY_FILE` signs with a key file instead of the Keychain.
 - `scripts/release-signature.swift` checks a signature the way the app and the server do.
 - `scripts/package-workspace.sh` builds the workspace programs. On a Mac, `SWARMHUB_SIGN_IDENTITY=-` signs both ad-hoc and asks the Keychain nothing, which works over SSH; `scripts/release.sh` does not publish those.

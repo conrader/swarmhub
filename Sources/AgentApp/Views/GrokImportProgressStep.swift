@@ -47,6 +47,9 @@ struct GrokProgressStep: View {
                 Spacer()
                 Text(row.label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
+            if let item = coordinator.items.first(where: { $0.id == row.id }) {
+                Text(coordinator.destination(for: item)).font(.caption).foregroundStyle(.secondary)
+            }
             if row.status == .fetching || row.status == .paused {
                 ProgressView(value: row.fraction).progressViewStyle(.linear).controlSize(.small)
                     .accessibilityLabel("About \(Int(row.fraction * 100)) percent")

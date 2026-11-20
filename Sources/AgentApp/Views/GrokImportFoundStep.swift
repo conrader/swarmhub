@@ -15,8 +15,6 @@ struct GrokFoundStep: View {
                 modePicker
                 Toggle("Also refresh names, avatars and instructions from Grok", isOn: $coordinator.refreshIdentity)
                     .toggleStyle(.checkbox).font(.callout)
-                Label(bindingLine, systemImage: coordinator.hasServer ? "link" : "exclamationmark.circle")
-                    .font(.callout).foregroundStyle(.secondary)
                 if coordinator.mode == .full { GrokGuaranteeBox() }
                 Button("Use an export folder instead") { useExportFolder() }.buttonStyle(.link).font(.callout)
             }.padding(20)
@@ -30,10 +28,6 @@ struct GrokFoundStep: View {
             (groups > 0 ? " and \(groups) \(groups == 1 ? "group" : "groups")" : "")
     }
 
-    private var bindingLine: String {
-        coordinator.hasServer ? "New bots run as agents on \(coordinator.serverName)." : "No server is set up yet: the bots are imported, and answer once you set one up."
-    }
-
     private func row(_ item: GrokFoundItem) -> some View {
         HStack(spacing: 10) {
             Toggle("", isOn: Binding(get: { coordinator.selected.contains(item.id) }, set: { _ in coordinator.toggle(item.id) }))
@@ -45,6 +39,7 @@ struct GrokFoundStep: View {
                     Text(item.isGroup ? "group" : "bot").font(.caption.monospaced())
                         .padding(.horizontal, 6).padding(.vertical, 1).background(Color.primary.opacity(0.08), in: Capsule())
                 }
+                Text(coordinator.destination(for: item)).font(.caption).foregroundStyle(.secondary)
                 Text(details(item)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

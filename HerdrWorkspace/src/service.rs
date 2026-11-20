@@ -639,19 +639,7 @@ async fn install_core(home: &Path) -> Result<(String, PathBuf), Stop> {
     } else {
         "=identifier \"dev.herdr.core\"".to_owned()
     };
-    let signed = run_program(
-        Path::new("/usr/bin/codesign"),
-        &[
-            "--verify".into(),
-            "--strict".into(),
-            "-R".into(),
-            requirement,
-            bundle.to_string_lossy().into_owned(),
-        ],
-        &[],
-        Duration::from_secs(120),
-    );
-    if !signed.as_ref().is_ok_and(|ran| ran.ok) {
+    if !matches_core_signature(&bundle, &requirement) {
         return Err(Stop::new(
             "core_signature",
             "The Herdr Core download is not signed by Herdr, so it was not installed.",
@@ -679,6 +667,22 @@ async fn install_core(home: &Path) -> Result<(String, PathBuf), Stop> {
         let _ = std::os::unix::fs::symlink("herdr-core", &short);
     }
     Ok((version, installed))
+}
+
+fn matches_core_signature(path: &Path, requirement: &str) -> bool {
+    run_program(
+        Path::new("/usr/bin/codesign"),
+        &[
+            "--verify".into(),
+            "--strict".into(),
+            "-R".into(),
+            requirement.into(),
+            path.to_string_lossy().into_owned(),
+        ],
+        &[],
+        Duration::from_secs(30),
+    )
+    .is_ok_and(|ran| ran.ok)
 }
 
 // MARK: The access key, the templates, the model list
@@ -1066,16 +1070,23 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     }
     let port = asked.port.unwrap_or(DEFAULT_PORT);
     let mut did: Vec<String> = Vec::new();
-    // Stop the job first, so the port is only busy when something else has it.
-    unload(&asked.label);
-    if !port_free(port) {
-        return Err(Stop::new(
-            "port_busy",
-            format!("Another program on this Mac already uses port {port}. Choose another port."),
-        ));
-    }
     let mut folders = search_folders(&places.home);
-    if hc(&folders).is_none() {
+    if let Some(core) = hc(&folders) {
+        // An explicitly supplied service PATH also supports development tools and smoke-test stand-ins.
+        if setting("SWARMHUB_SERVICE_PATH").is_none()
+            && !core
+                .canonicalize()
+                .is_ok_and(|path| matches_core_signature(&path, &format!("={CORE_SIGNED_BY}")))
+        {
+            return Err(Stop::new(
+                "core_signature",
+                format!(
+                    "The Herdr Core command at {} could not be verified. Reinstall Herdr Core and try again.",
+                    core.display()
+                ),
+            ));
+        }
+    } else {
         let (version, installed) = install_core(&places.home).await?;
         did.push(format!("Installed Herdr Core {version}."));
         // Herdr Core's command is in a folder of its own choosing: look there too from now on, and nowhere new.
@@ -1084,6 +1095,14 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
         {
             folders.push(folder);
         }
+    }
+    // Leave any existing service alone until the Core download and verification have completed.
+    unload(&asked.label);
+    if !port_free(port) {
+        return Err(Stop::new(
+            "port_busy",
+            format!("Another program on this Mac already uses port {port}. Choose another port."),
+        ));
     }
     if ensure_token(&places.token)?.1 {
         did.push("Made the access key.".into());

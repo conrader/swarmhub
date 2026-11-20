@@ -7,6 +7,7 @@ import SwiftUI
 struct GrokImportSheet: View {
     @EnvironmentObject private var store: AppStore
     @StateObject private var coordinator: GrokImportCoordinator
+    @State private var historyFolderUnavailable = false
 
     init(store: AppStore) {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
@@ -28,6 +29,10 @@ struct GrokImportSheet: View {
                     .buttonStyle(.plain).accessibilityLabel("Close")
             }.padding(20)
             Divider()
+            if coordinator.availability?.canImport == true {
+                destination.padding(.horizontal, 20).padding(.vertical, 12)
+                Divider()
+            }
             content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             Divider()
             GrokImportFooter(coordinator: coordinator, close: close, useExportFolder: useExportFolder).padding(16)
@@ -36,6 +41,29 @@ struct GrokImportSheet: View {
         .transaction { $0.animation = nil }
         .task { if coordinator.step == .idle { await coordinator.scan() } }
         .onDisappear { Task { await coordinator.dismiss() } }
+        .alert("Couldn’t open the history folder", isPresented: $historyFolderUnavailable) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private var destination: some View {
+        let folder = coordinator.historyDirectory
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Read-only history on this Mac").font(.callout.weight(.semibold))
+                Text((folder.path as NSString).abbreviatingWithTildeInPath)
+                    .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            Spacer()
+            Button("Show in Finder") {
+                do {
+                    try GrokHistoryStore.prepareDirectory(folder)
+                    ExternalLink.revealInFinder(folder)
+                } catch {
+                    historyFolderUnavailable = true
+                }
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {

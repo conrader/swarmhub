@@ -11,6 +11,21 @@ import SwiftUI
     private let snapshotAppearance: String?
     init() {
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
+        let launchCheck = CommandLine.arguments.contains(SingleInstallation.launchCheckFlag)
+        #if !DEBUG
+        if !UpdateConfiguration.isAutomated(environment: ProcessInfo.processInfo.environment, arguments: CommandLine.arguments),
+           SingleInstallation.redirectOlderCopy() { exit(0) }
+        #endif
+        if launchCheck {
+            AppIconAppearance.applyAtLaunch()
+            let preview = SetupPreview.makeStore()
+            _store = StateObject(wrappedValue: preview)
+            _updater = StateObject(wrappedValue: AppUpdater())
+            snapshotAppearance = nil
+            // The event loop must start. A desktop session is optional for the installer verification.
+            DispatchQueue.main.async { exit(EXIT_SUCCESS) }
+            return
+        }
         AppIconAppearance.applyAtLaunch()
         SidebarWidth.dropStaleSavedWidths()
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]

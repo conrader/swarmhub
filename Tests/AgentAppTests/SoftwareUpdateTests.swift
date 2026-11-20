@@ -231,13 +231,13 @@ private let restarting: [HerdrServerUpdate.Event] = [answered, .checked(check("0
 private struct SignedRelease {
     let key = Curve25519.Signing.PrivateKey()
     var publicKey: String { key.publicKey.rawRepresentation.base64EncodedString() }
-    let program = Data("the program".utf8)
+    var program = Data("the program".utf8)
 
-    func manifest(version: String = "0.2.1", product: String = "swarmhub-herdr", name: String = "swarmhub-herdr-0.2.1-x86_64-linux", base: String? = nil) -> Data {
+    func manifest(version: String = "0.2.1", product: String = "swarmhub-herdr", name: String = "swarmhub-herdr-0.2.1-x86_64-linux", base: String? = nil, target: String = "x86_64-linux") -> Data {
         let digest = SHA256.hash(data: program).map { String(format: "%02x", $0) }.joined()
         let object: [String: Any] = ["product": product, "version": version, "api": 1, "api_min": 1, "released": "2026-11-17", "notes": "Faster starts.",
                                      "base": base ?? "\(WorkspaceRelease.assets)v0.7.1/",
-                                     "assets": [["target": "x86_64-linux", "name": name, "size": program.count, "sha256": digest]]]
+                                     "assets": [["target": target, "name": name, "size": program.count, "sha256": digest]]]
         return try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
     func sign(_ data: Data) -> String { try! key.signature(for: data).base64EncodedString() }
@@ -422,4 +422,116 @@ private final class UpdatingServer: @unchecked Sendable {
         #expect(data.count > 4_000, "\(HeadlessHerdrShots.updates[index]) looks blank"); sizes.append(data.count)
     }
     #expect(Set(sizes).count == sizes.count, "each state draws something of its own")
+}
+
+private final class ServiceDownloadFixture: URLProtocol, @unchecked Sendable {
+    static let received = AwaitableLog<String>()
+    static let resumeProgram = Data(repeating: 42, count: 128 * 1024)
+    static let resumeOffset = 64 * 1024
+    static let stopped = AwaitableLog<String>()
+
+    static func configuration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ServiceDownloadFixture.self]
+        return configuration
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.port == 18_435 }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let path = url.path
+        let range = request.value(forHTTPHeaderField: "Range")
+        Self.received.append(path + (range ?? ""))
+        let program = path.hasPrefix("/resume/") ? Self.resumeProgram : Data("the program".utf8)
+        func respond(_ code: Int, contentRange: String? = nil, data: Data) {
+            var headers = ["Content-Length": String(contentRange == nil ? program.count : data.count)]
+            if let contentRange { headers["Content-Range"] = contentRange }
+            let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "HTTP/1.1", headerFields: headers)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+        }
+
+        if path.hasPrefix("/waiting/") {
+            respond(200, data: program.prefix(4))
+            return
+        }
+        if path.hasPrefix("/timeout/") {
+            client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
+            return
+        }
+        if path.hasPrefix("/damage/") {
+            respond(200, data: Data("BAD PROGRAM".utf8))
+        } else if range != nil {
+            let offset = Self.resumeOffset
+            respond(206, contentRange: "bytes \(offset)-\(program.count - 1)/\(program.count)", data: program.dropFirst(offset))
+        } else {
+            respond(200, data: program.prefix(Self.resumeOffset))
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(100)) {
+                self.client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            }
+            return
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() { if let path = request.url?.path { Self.stopped.append(path) } }
+}
+
+@Test func theServiceDownloadResumesWithRealByteProgressAndRejectsDamagedBytes() async throws {
+    let signed = SignedRelease(program: ServiceDownloadFixture.resumeProgram), data = signed.manifest()
+    let release = try WorkspaceRelease.verified(manifest: data, signature: signed.sign(data), publicKey: signed.publicKey)
+    var progress: [WorkspaceRelease.DownloadProgress] = []
+    defer {
+        #expect(progress.contains { $0.attempt == 2 && $0.received == ServiceDownloadFixture.resumeOffset },
+                "Progress \(progress) and requests \(ServiceDownloadFixture.received.all)")
+    }
+    let program = try await release.downloadProgram(for: "x86_64-linux", mirror: "http://127.0.0.1:18435/resume/",
+                                                    configuration: ServiceDownloadFixture.configuration, retryDelay: .zero) { progress.append($0) }
+    #expect(program == signed.program)
+    #expect(progress.last?.received == program.count && progress.last?.total == program.count)
+    #expect(ServiceDownloadFixture.received.all.contains { $0.hasPrefix("/resume/") && $0.hasSuffix("bytes=\(ServiceDownloadFixture.resumeOffset)-") })
+
+    let damagedFixture = SignedRelease(), fixtureData = damagedFixture.manifest()
+    let original = try WorkspaceRelease.verified(manifest: fixtureData, signature: damagedFixture.sign(fixtureData), publicKey: damagedFixture.publicKey)
+    await #expect(throws: WorkspaceRelease.Failure.mismatch) {
+        try await original.downloadProgram(for: "x86_64-linux", mirror: "http://127.0.0.1:18435/damage/",
+                                          configuration: ServiceDownloadFixture.configuration, retryDelay: .zero) { _ in }
+    }
+}
+
+@Test func theServiceDownloadStopsOnCancellationAndBoundsTimeoutRetries() async throws {
+    let signed = SignedRelease(), data = signed.manifest()
+    let release = try WorkspaceRelease.verified(manifest: data, signature: signed.sign(data), publicKey: signed.publicKey)
+    let transfer = Task {
+        try await release.downloadProgram(for: "x86_64-linux", mirror: "http://127.0.0.1:18435/waiting/",
+                                          configuration: ServiceDownloadFixture.configuration, retryDelay: .zero) { _ in }
+    }
+    try await ServiceDownloadFixture.received.wait { $0.contains { $0.hasPrefix("/waiting/") } }
+    transfer.cancel()
+    await #expect(throws: CancellationError.self) { try await transfer.value }
+    try await ServiceDownloadFixture.stopped.wait { $0.contains { $0.hasPrefix("/waiting/") } }
+
+    await #expect(throws: WorkspaceRelease.Failure.timedOut) {
+        try await release.downloadProgram(for: "x86_64-linux", mirror: "http://127.0.0.1:18435/timeout/",
+                                          configuration: ServiceDownloadFixture.configuration, retryDelay: .zero) { _ in }
+    }
+    #expect(ServiceDownloadFixture.received.all.filter { $0.hasPrefix("/timeout/") }.count == 3)
+}
+
+@Test func theServiceReusesOnlyAnInstalledBinaryMatchingItsSignedProof() throws {
+    let signed = SignedRelease(), data = signed.manifest(target: HerdrLocalService.target)
+    let release = try WorkspaceRelease.verified(manifest: data, signature: signed.sign(data), publicKey: signed.publicKey)
+    let home = temporaryStore().deletingLastPathComponent()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let service = HerdrLocalService(home: home.path)
+    try service.place(signed.program)
+    #expect(service.matchesInstalledProgram(release))
+    #expect(!service.hasVerifiedProgram(publicKey: signed.publicKey))
+    service.rememberVerifiedProgram(release)
+    #expect(service.hasVerifiedProgram(publicKey: signed.publicKey))
+    #expect(!service.hasVerifiedProgram(publicKey: SignedRelease().publicKey))
+    try service.place(Data("BAD PROGRAM".utf8))
+    #expect(!service.hasVerifiedProgram(publicKey: signed.publicKey))
 }

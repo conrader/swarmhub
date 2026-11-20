@@ -77,7 +77,7 @@ private let statusJSON = #"""
     #expect(flow.localSetup == nil)
     flow.apply(.localSetup(.offer(hasCore: false)))
     #expect(flow.localSetup == .offer(hasCore: false) && flow.localSetup?.isWorking == false && !flow.herdrReady)
-    flow.apply(.localSetup(.working(.fetching))); #expect(flow.localSetup?.isWorking == true)
+    flow.apply(.localSetup(.working(.fetching()))); #expect(flow.localSetup?.isWorking == true)
     flow.apply(.localSetup(.failed("No.")))
     // Trying again finds nothing still: the reason stays on screen.
     flow.apply(.herdrTest(.nothingHere(port: 8787))); #expect(flow.localSetup == .failed("No."))
@@ -94,7 +94,7 @@ private let statusJSON = #"""
     #expect(flow.step == .welcome && flow.aiChecks.isEmpty && flow.localSetup == nil && flow.localReport == nil)
     #expect(HerdrLocalSetup.line(for: HerdrLocalFailure(kind: "core_signature", message: "Not signed by Herdr.")) == "Not signed by Herdr.")
     #expect(HerdrLocalSetup.line(for: WorkspaceRelease.Failure.unsigned) == WorkspaceRelease.Failure.unsigned.localizedDescription)
-    #expect(HerdrLocalSetup.line(for: WorkspaceRelease.Failure.unreachable).contains("could not download"))
+    #expect(HerdrLocalSetup.line(for: WorkspaceRelease.Failure.unreachable).contains("could not finish downloading"))
     #expect(HerdrLocalSetup.line(for: WorkspaceRelease.Failure.noProgram("x86_64-macos")).contains("not published for this kind of Mac"))
 }
 

@@ -1,22 +1,33 @@
 #!/bin/zsh
-# Run against a packaged SwarmHub.app. The scratch copy uses its own preferences.
+# Run against a packaged SwarmHub ZIP or app. The scratch copy uses its own preferences.
 # Simulate Sparkle being busy at launch and record manual requests without fetching an update.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-SOURCE_APP="${1:?Usage: Tests/Scripts/update-menu-test.sh /path/to/SwarmHub.app}"
+SOURCE_APP="${1:?Usage: Tests/Scripts/update-menu-test.sh /path/to/SwarmHub.zip-or-app}"
 WORK="$(mktemp -d /tmp/swarmhub-update-menu.XXXXXX)"
-APP="$WORK/SwarmHub.app"
+source "$ROOT_DIR/scripts/unregister-app.sh"
+APP="$WORK/SwarmHub Dev.app"
 DOMAIN="com.konrad.agentapp.update-menu-test.$$"
 APP_PID=""
 cleanup() {
   if [[ -n "$APP_PID" ]]; then kill "$APP_PID" 2>/dev/null || true; fi
+  unregister_app "$APP"
+  unregister_app "$WORK/extracted/SwarmHub.app"
   defaults delete "$DOMAIN" 2>/dev/null || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
+if [[ "$SOURCE_APP" == *.zip ]]; then
+  ditto -x -k "$SOURCE_APP" "$WORK/extracted"
+  SOURCE_APP="$WORK/extracted/SwarmHub.app"
+fi
 ditto "$SOURCE_APP" "$APP"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $DOMAIN" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $DOMAIN" \
+  -c 'Set :CFBundleName SwarmHub Dev' -c 'Set :CFBundleDisplayName SwarmHub Dev' \
+  -c 'Set :SUFeedURL http://127.0.0.1:18734/appcast.xml' "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 
 xcrun clang -fobjc-arc -dynamiclib -framework AppKit -x objective-c -o "$WORK/probe.dylib" - <<'PROBE'

@@ -82,7 +82,10 @@ extension AppStore {
     /// Writes `store.json`, surfacing a failure (the plain `save()` ignores it).
     func saveThrowing() throws {
         guard persistenceEnabled else { throw GrokImportError.persistenceDisabled }
-        do { try JSONEncoder().encode(storeFile).write(to: fileURL, options: .atomic) }
+        do {
+            try JSONEncoder().encode(storeFile).write(to: fileURL, options: .atomic)
+            recordHealthyStoreIfNeeded()
+        }
         catch { throw GrokImportError.saveFailed }
     }
 
@@ -129,10 +132,12 @@ struct PreparedGrokBundle: Sendable {
     let members: [(name: String, sourceID: String)]
     let lines: [ArchivedMessage]
 
+    static func cleanIdentity(_ text: String) -> String {
+        SecretFilter.redacted(text, replacement: GrokRedactor.marker).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     init(_ bundle: GrokBotBundle) {
-        let clean = { (text: String) in
-            SecretFilter.redacted(text, replacement: GrokRedactor.marker).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let clean = Self.cleanIdentity
         self.bundle = bundle
         name = clean(bundle.name); title = clean(bundle.title ?? ""); description = clean(bundle.description ?? "")
         instructions = clean(bundle.instructions ?? bundle.description ?? "")

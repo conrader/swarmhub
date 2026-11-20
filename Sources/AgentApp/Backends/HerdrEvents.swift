@@ -100,34 +100,45 @@ struct HerdrSSEParser: Sendable {
 /// Apple's Foundation, but swift-corelibs-foundation on Linux has none, so both use this delegate.
 final class HerdrByteStream: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let continuation: AsyncThrowingStream<Data, Error>.Continuation
+    private let validateResponse: @Sendable (URLResponse) throws -> Void
 
     /// The bytes of `request`'s answer, chunk by chunk. A status other than 2xx throws `HerdrClient.Failure`; the
     /// stream ends when the server closes. The request's own timeout is how long nothing may arrive before the read
     /// fails: it counts silence, not the length of the answer.
-    static func open(_ request: URLRequest) -> AsyncThrowingStream<Data, Error> {
+    static func open(_ request: URLRequest, configuration: URLSessionConfiguration = .ephemeral,
+                     resourceTimeout: TimeInterval = 24 * 3600,
+                     validateResponse: @escaping @Sendable (URLResponse) throws -> Void = validateHerdrResponse) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
-            let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = request.timeoutInterval
-            // A turn can take as long as it takes; only silence ends the read.
-            configuration.timeoutIntervalForResource = 24 * 3600
+            configuration.timeoutIntervalForResource = resourceTimeout
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            let reader = HerdrByteStream(continuation)
-            let session = URLSession(configuration: configuration, delegate: reader, delegateQueue: nil)
+            let reader = HerdrByteStream(continuation, validateResponse: validateResponse)
+            let session = URLSession(configuration: TestRunGuard.guarded(configuration), delegate: reader, delegateQueue: nil)
             let task = session.dataTask(with: request)
             continuation.onTermination = { _ in task.cancel(); session.invalidateAndCancel() }
             task.resume()
         }
     }
 
-    private init(_ continuation: AsyncThrowingStream<Data, Error>.Continuation) { self.continuation = continuation }
+    private init(_ continuation: AsyncThrowingStream<Data, Error>.Continuation,
+                 validateResponse: @escaping @Sendable (URLResponse) throws -> Void) {
+        self.continuation = continuation
+        self.validateResponse = validateResponse
+    }
+
+    private static func validateHerdrResponse(_ response: URLResponse) throws {
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else { throw HerdrClient.failure(status: code, body: Data()) }
+    }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(code) else {
-            continuation.finish(throwing: HerdrClient.failure(status: code, body: Data()))
-            completionHandler(.cancel); return
+        do {
+            try validateResponse(response)
+            completionHandler(.allow)
+        } catch {
+            continuation.finish(throwing: error)
+            completionHandler(.cancel)
         }
-        completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) { continuation.yield(data) }

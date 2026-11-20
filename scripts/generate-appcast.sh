@@ -20,11 +20,24 @@ if [[ ! -f "$ARCHIVE" ]]; then
   exit 1
 fi
 source "$ROOT_DIR/scripts/sparkle-tools.sh"
+source "$ROOT_DIR/scripts/unregister-app.sh"
 ensure_sparkle
 
 # An isolated folder prevents accidental publication of old, dirty or development archives from dist/.
 STAGING="$(mktemp -d "$ROOT_DIR/.build/appcast.XXXXXX")"
-trap 'rm -rf "$STAGING"' EXIT
+# Sparkle caches this archive's unpacked app under the ZIP's SHA-256. Clean it as well as our own staging.
+CACHE_DIR=""
+cleanup() {
+  for app in "$STAGING"/unpacked/*.app(N); do unregister_app "$app"; done
+  if [[ -n "$CACHE_DIR" ]]; then
+    for app in "$CACHE_DIR"/*.app(N) "$CACHE_DIR.tmp"/*.app(N); do unregister_app "$app"; done
+    rm -rf "$CACHE_DIR" "$CACHE_DIR.tmp"
+  fi
+  rm -rf "$STAGING"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 /usr/bin/ditto -x -k "$ARCHIVE" "$STAGING/unpacked"
 APPS=("$STAGING"/unpacked/*.app(N))
 if [[ ${#APPS[@]} != 1 ]]; then
@@ -67,6 +80,9 @@ if [[ ! -s "$NOTES" ]]; then
   exit 1
 fi
 cp "$NOTES" "$STAGING/feed/${ARCHIVE:t:r}.${NOTES:e}"
+ARCHIVE_SHA="$(shasum -a 256 "$STAGING/feed/${ARCHIVE:t}" | awk '{print $1}')"
+[[ "$ARCHIVE_SHA" =~ '^[a-f0-9]{64}$' ]] || exit 1
+CACHE_DIR="${CFFIXED_USER_HOME:-$HOME}/Library/Caches/Sparkle_generate_appcast/$ARCHIVE_SHA"
 "$SPARKLE_DIR/bin/generate_appcast" "${KEY_ARGS[@]}" --maximum-deltas 0 --embed-release-notes \
   --download-url-prefix "${SWARMHUB_UPDATE_DOWNLOAD_URL_PREFIX:-https://github.com/conrader/swarmhub/releases/download/$RELEASE_TAG/}" \
   -o "$STAGING/feed/appcast.xml" "$STAGING/feed"
@@ -93,7 +109,11 @@ PY
 )"
 # The check an installed app makes: the signature in the appcast, over this archive, by the key inside the archive.
 /usr/bin/xcrun swift "$ROOT_DIR/scripts/release-signature.swift" verify "$ARCHIVE" "$SIGNATURE" "$BUNDLED_KEY"
-mkdir -p "$ROOT_DIR/dist"
-cp "$STAGING/feed/appcast.xml" "$ROOT_DIR/dist/appcast.xml"
-echo "$ROOT_DIR/dist/appcast.xml"
+OUTPUT_DIR="$ROOT_DIR/dist"
+if [[ "${SWARMHUB_REHEARSAL:-}" == 1 ]]; then
+  OUTPUT_DIR="${SWARMHUB_REHEARSAL_DIR:-$OUTPUT_DIR}"
+fi
+mkdir -p "$OUTPUT_DIR"
+cp "$STAGING/feed/appcast.xml" "$OUTPUT_DIR/appcast.xml"
+echo "$OUTPUT_DIR/appcast.xml"
 echo "Upload appcast.xml and ${ARCHIVE:t} as assets of the GitHub release $RELEASE_TAG."

@@ -37,7 +37,7 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(!FileManager.default.fileExists(atPath: url.path))
     let offer = try #require(store.storeRestoreOffer)
     #expect(offer.url.lastPathComponent == corrupt.lastPathComponent && offer.botCount == 3)
-    #expect(StoreRestoreCopy.question(offer).contains("3 bots") && StoreRestoreCopy.restore(offer) == "Restore my 3 bots")
+    #expect(StoreRestoreCopy.question(offer).contains("3 bots") && StoreRestoreCopy.restore(offer) == "Restore backup (3 bots)")
 }
 
 @Test @MainActor func withNothingToRestoreTheStoreStartsEmpty() throws {
@@ -117,9 +117,9 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(store.storeRestoreOffer?.url.lastPathComponent == "store.json.backup-old" && store.storeRestoreOffer?.botCount == 2)
     #expect(store.bots.isEmpty)
     // The bounds: only the `limit` newest files are tried, and none bigger than `maxBytes`.
-    #expect(StoreRestore.offer(directory: directory, store: url, current: [], limit: 8) == nil)
-    #expect(StoreRestore.offer(directory: directory, store: url, current: [], limit: 9)?.url.lastPathComponent == "store.json.backup-old")
-    #expect(StoreRestore.offer(directory: directory, store: url, current: [], maxBytes: 64) == nil)
+    #expect(StoreRestore.offer(store: url, resolvedThrough: nil, limit: 8) == nil)
+    #expect(StoreRestore.offer(store: url, resolvedThrough: nil, limit: 9)?.url.lastPathComponent == "store.json.backup-old")
+    #expect(StoreRestore.offer(store: url, resolvedThrough: nil, maxBytes: 64) == nil)
 }
 
 @Test @MainActor func restoreLoadsTheSetAsideStoreAndKeepsTheCopy() throws {
@@ -175,7 +175,7 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(file.bots.first?.sessionID == "session-1")
 }
 
-@Test @MainActor func aMixedStoreLoadsHerdrBotsAndOffersThemFromASetAsideCopy() throws {
+@Test @MainActor func aMixedStoreLoadsHerdrBotsAndAHealthyEmptyStoreDoesNotOfferABackup() throws {
     let (url, defaults) = try setup()
     let current = Bot(name: "Current", backend: .herdr, sessionID: "session-1")
     let hermesID = UUID()
@@ -203,8 +203,70 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     try JSONSerialization.data(withJSONObject: mixed).write(to: url)
     let store = launch(url, defaults)
     #expect(store.persistenceEnabled && store.bots.isEmpty)
-    #expect(store.storeRestoreOffer?.botNames == ["Current"])
-    #expect(store.restoreSetAsideStore())
-    #expect(store.bots.map(\.id) == [current.id] && store.groups.first?.memberIDs == [current.id])
+    #expect(store.storeRestoreOffer == nil)
     #expect(try Data(contentsOf: backup) == original)
+}
+
+@Test @MainActor func aHealthyGrokImportStoreSupersedesOlderBackupsAcrossLaunches() throws {
+    let (url, defaults) = try setup()
+    let names = (1...25).map { "Imported agent \($0)" }
+    _ = try writeStore(["Old"], as: "store.json.corrupt-previous", beside: url, modified: Date(timeIntervalSinceNow: -3_600))
+    _ = try writeStore(names, as: "store.json", beside: url)
+    let healthy = try Data(contentsOf: url)
+
+    let store = launch(url, defaults)
+    #expect(store.bots.count == 25 && store.storeRestoreOffer == nil)
+    store.declineStoreRestore()
+    #expect(!store.restoreSetAsideStore())
+    #expect(try Data(contentsOf: url) == healthy)
+
+    try FileManager.default.removeItem(at: url)
+    #expect(launch(url, defaults).storeRestoreOffer == nil)
+}
+
+@Test @MainActor func skipSuppressesEveryExistingBackupAndLeavesAConcurrentLiveStoreIntact() throws {
+    let (url, defaults) = try setup()
+    _ = try writeStore(["Old"], as: "store.json.bak-old", beside: url)
+    _ = try writeStore(["Other"], as: "store.json.seed-old", beside: url)
+    let store = launch(url, defaults)
+    #expect(store.storeRestoreOffer != nil)
+    _ = try writeStore(["Current"], as: "store.json", beside: url)
+    let healthy = try Data(contentsOf: url)
+    store.declineStoreRestore()
+    store.save()
+    #expect(try Data(contentsOf: url) == healthy)
+    try FileManager.default.removeItem(at: url)
+    #expect(launch(url, defaults).storeRestoreOffer == nil)
+}
+
+@Test @MainActor func restoringNeverReplacesAStoreSavedWhileThePromptWasOpen() throws {
+    let (url, defaults) = try setup()
+    _ = try writeStore(["Old"], as: "store.json.bak-old", beside: url)
+    let store = launch(url, defaults)
+    _ = try writeStore(["New"], as: "store.json", beside: url)
+    let healthy = try Data(contentsOf: url)
+    #expect(!store.restoreSetAsideStore())
+    store.save()
+    #expect(try Data(contentsOf: url) == healthy)
+    #expect(launch(url, defaults).storeRestoreOffer == nil)
+}
+
+@Test @MainActor func olderCopiesArePrunedOnlyWithinAFamilyWithAVerifiedReplacement() throws {
+    let (url, defaults) = try setup()
+    let directory = url.deletingLastPathComponent()
+    let backups = directory.appending(path: "backups")
+    try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: false)
+    let oldDate = Date(timeIntervalSinceNow: -3_600)
+    let old = try writeStore(["Old"], as: "store.json.bak-old", beside: url, modified: oldDate)
+    let newest = try writeStore(["Latest"], as: "store.json.bak-new", beside: url, modified: Date(timeIntervalSinceNow: -60))
+    let otherSet = try writeStore(["Seed"], as: "store.json.seed-old", beside: url, modified: oldDate)
+    let bad = directory.appending(path: "store.json.bak-interrupted")
+    try Data("incomplete".utf8).write(to: bad)
+    let subStore = backups.appending(path: "store.json")
+    let oldSub = try writeStore(["Old in backups"], as: "store.json.bak-first", beside: subStore, modified: oldDate)
+    let newSub = try writeStore(["Current in backups"], as: "store.json.bak-last", beside: subStore)
+    let store = launch(url, defaults)
+    #expect(store.storeRestoreOffer?.url.resolvingSymlinksInPath().path == newSub.resolvingSymlinksInPath().path)
+    for copy in [newest, bad, otherSet, newSub] { #expect(FileManager.default.fileExists(atPath: copy.path)) }
+    for copy in [old, oldSub] { #expect(!FileManager.default.fileExists(atPath: copy.path)) }
 }

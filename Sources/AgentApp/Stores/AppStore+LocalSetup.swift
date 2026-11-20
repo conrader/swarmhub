@@ -22,11 +22,17 @@ extension AppStore {
     /// `answerFirstTime`: the person left "answer my AIs' first questions" on.
     func setUpThisMac(port: Int, answerFirstTime: Bool, progress: @MainActor (HerdrLocalSetup.Step) -> Void) async throws -> HerdrLocalReport {
         let service = localService
-        if !service.isPlaced {
-            progress(.fetching)
+        if !service.hasVerifiedProgram() {
+            progress(.fetching())
             let release = try await WorkspaceRelease.latest()
-            try service.place(try await release.program(for: HerdrLocalService.target))
+            if !service.matchesInstalledProgram(release) {
+                let program = try await release.downloadProgram(for: HerdrLocalService.target) { progress(.fetching($0)) }
+                try Task.checkCancellation()
+                try service.place(program)
+            }
+            service.rememberVerifiedProgram(release)
         }
+        try Task.checkCancellation()
         progress(.installing)
         do { return try await service.install(port: port, answerFirstTime: answerFirstTime) }
         catch let failure as HerdrLocalFailure where failure.kind == "port_busy" { throw HerdrLocalFailure(kind: failure.kind, message: WizardCopy.portBusy(port)) }

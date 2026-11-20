@@ -1,49 +1,50 @@
+import Darwin
 import Foundation
 
-/// The restore prompt's two answers. Restore copies the set-aside file over store.json (whatever store.json held is
-/// moved aside as `store.json.before-restore-<stamp>`, never deleted) and loads it in this window; Start fresh keeps
-/// the set-aside file untouched.
 extension AppStore {
     @discardableResult func restoreSetAsideStore() -> Bool {
         guard let offer = storeRestoreOffer else { return false }
-        let manager = FileManager.default
-        let directory = fileURL.deletingLastPathComponent()
-        let staged = directory.appending(path: "store.json.restoring-\(UUID().uuidString).tmp")
-        defer { try? manager.removeItem(at: staged) }
+        let staged = fileURL.appendingPathExtension("restoring-\(UUID().uuidString).tmp")
+        defer { try? FileManager.default.removeItem(at: staged) }
         do {
-            let file = try StoreFile.decode(Data(contentsOf: offer.url))
-            // The copy is made first; store.json is only moved aside once it exists, and put back if the swap fails.
-            try manager.copyItem(at: offer.url, to: staged)
-            var setAside: URL?
-            if manager.fileExists(atPath: fileURL.path) {
-                let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
-                let aside = directory.appending(path: "store.json.before-restore-\(stamp)")
-                try manager.moveItem(at: fileURL, to: aside); setAside = aside
+            let data = try Data(contentsOf: offer.url)
+            let file = try StoreFile.decode(data)
+            try data.write(to: staged, options: .withoutOverwriting)
+            // Another launch may have saved while the prompt was open. Publish atomically only to a vacant path.
+            guard renamex_np(staged.path, fileURL.path, UInt32(RENAME_EXCL)) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
-            do { try manager.moveItem(at: staged, to: fileURL) }
-            catch { if let setAside { try? manager.moveItem(at: setAside, to: fileURL) }; throw error }
-            storeRestoreOffer = nil
+            resolveStoreRecovery()
             adoptRestoredStore(file)
             migrateSampleBots()
             selectVisibleChat()
             storeRestoreNote = StoreRestoreCopy.restored(offer.botCount)
+            errorMessage = nil
             save()
             return true
         } catch {
-            storeRestoreOffer = nil
+            resolveStoreRecovery()
+            resumeSavingAfterRecovery()
             storeRestoreNote = StoreRestoreCopy.failed
             return false
         }
     }
 
-    var declinedRestores: Set<String> { Set(defaults.stringArray(forKey: StoreRestore.declinedKey) ?? []) }
-
-    /// The set-aside file stays where it is; it is not offered again. A window whose store.json was unreadable saves again
-    /// (store.json is new; the unreadable copy and every backup are left as they are).
-    func declineStoreRestore() {
-        guard let offer = storeRestoreOffer else { return }
+    func resolveStoreRecovery() {
         storeRestoreOffer = nil
-        defaults.set(Array(declinedRestores.union([offer.url.lastPathComponent])).sorted(), forKey: StoreRestore.declinedKey)
-        resumeSavingAfterSetAside()
+        let latest = StoreRestore.candidates(for: fileURL).first.map(StoreRestore.date) ?? .distantPast
+        defaults.set(max(Date(), latest), forKey: StoreRestore.decisionKey(for: fileURL))
+    }
+
+    func recordHealthyStoreIfNeeded() {
+        let key = StoreRestore.decisionKey(for: fileURL)
+        let resolved = defaults.object(forKey: key) as? Date ?? .distantPast
+        if resolved < .now { defaults.set(Date(), forKey: key) }
+    }
+
+    func declineStoreRestore() {
+        guard storeRestoreOffer != nil else { return }
+        resolveStoreRecovery()
+        resumeSavingAfterRecovery()
     }
 }

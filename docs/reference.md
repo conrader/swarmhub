@@ -14,7 +14,7 @@ swift test              # the Mac tests in Tests/AgentAppTests
 
 `scripts/build.sh` uses SwiftPM when `xcrun` finds the macOS SDK and falls back to calling `swiftc` directly otherwise. Both link Sparkle and the vendored BotAvatarsKit. `SWARMHUB_FORCE_SWIFTC=1` takes the fallback on purpose.
 
-`scripts/package-release.sh` builds a release `.app` under `dist/`, embeds and signs Sparkle, and notarizes when `SWARMHUB_NOTARY_PROFILE` is set. `scripts/release.sh` makes a whole release from it: the app archive, the appcast, and the signed manifest for the bridge's programs, which `scripts/package-workspace.sh` builds: one on a Linux build machine, and two on the Mac (Apple silicon and Intel), which it also signs. The release steps, and `Tests/Scripts/update-rehearsal.sh`, which rehearses an update without credentials, are in [Updates](updates.md#releasing).
+`scripts/package-release.sh` builds a release ZIP under `dist/`, embeds and signs Sparkle, and notarizes when `SWARMHUB_NOTARY_PROFILE` is set. `scripts/release.sh` makes a whole release from it: the app archive, the appcast, and the signed manifest for the bridge's programs, which `scripts/package-workspace.sh` builds: one on a Linux build machine, and two on the Mac (Apple silicon and Intel), which it also signs. The release steps, and `Tests/Scripts/update-rehearsal.sh`, which rehearses an update without credentials, are in [Updates](updates.md#releasing).
 
 The Swift package (`Package.swift`) has two targets besides the tests: `AgentApp` and `BotAvatarsKit`. Its only remote dependency is Sparkle.
 

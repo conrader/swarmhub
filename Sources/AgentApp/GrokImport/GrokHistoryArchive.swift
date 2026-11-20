@@ -105,8 +105,12 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
         return backup.lastPathComponent
     }
 
-    nonisolated private static func write(_ file: GrokHistoryFile, to url: URL, directory: URL) throws {
+    nonisolated static func prepareDirectory(_ directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    }
+
+    nonisolated private static func write(_ file: GrokHistoryFile, to url: URL, directory: URL) throws {
+        try prepareDirectory(directory)
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(file).write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

@@ -4,15 +4,32 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$ROOT_DIR/.build"
 CONFIGURED_PLIST="$(mktemp "$ROOT_DIR/.build/release-info.XXXXXX")"
-trap 'rm -f "$CONFIGURED_PLIST"' EXIT
+STAGING=""
+APP_DIR=""
+cleanup() {
+  if [[ -n "$STAGING" ]]; then
+    unregister_app "$APP_DIR"
+    rm -rf "$STAGING"
+  fi
+  rm -f "$CONFIGURED_PLIST"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cp "$ROOT_DIR/Resources/Info.plist" "$CONFIGURED_PLIST"
 # Fail before building if a distributable bundle would have a missing key or an invalid feed.
 CONFIG_ARGS=()
 [[ "${SWARMHUB_ALLOW_MISSING_UPDATE_KEY:-}" != 1 ]] || CONFIG_ARGS=(--allow-missing-key)
 python3 "$ROOT_DIR/scripts/configure-updates.py" "$CONFIGURED_PLIST" "${CONFIG_ARGS[@]}"
-SWARMHUB_BUILD_CONFIGURATION="${SWARMHUB_BUILD_CONFIGURATION:-release}" "$ROOT_DIR/scripts/build.sh"
+BUILD_CONFIGURATION="${SWARMHUB_BUILD_CONFIGURATION:-release}"
+if [[ "$BUILD_CONFIGURATION" != release && "${SWARMHUB_REHEARSAL_PACKAGE:-}" != 1 ]]; then
+  echo "ERROR: Developer packages need a separate rehearsal identity and scratch directory." >&2
+  exit 1
+fi
+SWARMHUB_BUILD_CONFIGURATION="$BUILD_CONFIGURATION" "$ROOT_DIR/scripts/build.sh"
 BUILD_DIR="$(cat "$ROOT_DIR/.build/agentapp-bin-path")"
 source "$ROOT_DIR/scripts/sparkle-tools.sh"
+source "$ROOT_DIR/scripts/unregister-app.sh"
 ensure_sparkle
 
 SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
@@ -23,14 +40,24 @@ fi
 DIRTY_SUMMARY="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)"
 DIRTY_SUMMARY_SHA="$(printf '%s' "$DIRTY_SUMMARY" | shasum -a 256 | awk '{print $1}')"
 # The bundle is named after CFBundleName (AppConstants.name; a test keeps them equal), so a rename touches no script.
-APP_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$ROOT_DIR/Resources/Info.plist")"
-APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
+if [[ "${SWARMHUB_REHEARSAL_PACKAGE:-}" == 1 ]]; then
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleName SwarmHub Dev' -c 'Set :CFBundleDisplayName SwarmHub Dev' \
+    -c 'Set :CFBundleIdentifier com.konrad.agentapp.update-rehearsal' "$CONFIGURED_PLIST"
+fi
+APP_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$CONFIGURED_PLIST")"
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$CONFIGURED_PLIST")"
+STAGING="$(mktemp -d "$ROOT_DIR/.build/swarmhub-package.XXXXXX")"
+APP_DIR="$STAGING/$APP_NAME.app"
+ARCHIVE_DIR="$ROOT_DIR/dist"
+if [[ "${SWARMHUB_REHEARSAL_PACKAGE:-}" == 1 ]]; then
+  ARCHIVE_DIR="${SWARMHUB_REHEARSAL_DIR:?set a scratch directory for the rehearsal archive}"
+fi
+mkdir -p "$ARCHIVE_DIR"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CONFIGURED_PLIST")"
 BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$CONFIGURED_PLIST")"
 ARCHITECTURES="$(/usr/bin/lipo -archs "$BUILD_DIR/AgentApp" | tr ' ' '-')"
-ZIP_PATH="$ROOT_DIR/dist/$APP_NAME-$VERSION-$BUILD_NUMBER-${SOURCE_SHA}${DIRTY_SUFFIX}-$ARCHITECTURES.zip"
+ZIP_PATH="$ARCHIVE_DIR/$APP_NAME-$VERSION-$BUILD_NUMBER-${SOURCE_SHA}${DIRTY_SUFFIX}-$ARCHITECTURES.zip"
 
-rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Frameworks"
 cp "$BUILD_DIR/AgentApp" "$APP_DIR/Contents/MacOS/AgentApp"
 /usr/bin/ditto "$BUILD_DIR/Sparkle.framework" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
@@ -90,10 +117,10 @@ done
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK/Versions/B/Autoupdate"
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK/Versions/B/Updater.app"
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK"
-/usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier com.konrad.agentapp "$APP_DIR/Contents/MacOS/AgentApp"
+/usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier "$BUNDLE_ID" "$APP_DIR/Contents/MacOS/AgentApp"
 TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -F= '/^TeamIdentifier=/ {print $2}')"
 echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
-/usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier com.konrad.agentapp "$APP_DIR"
+/usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier "$BUNDLE_ID" "$APP_DIR"
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
 if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
   echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
@@ -122,6 +149,8 @@ fi
 if (( ${#NOTARY_ARGS[@]} )); then
   /usr/bin/xcrun notarytool submit "$ZIP_PATH" "${NOTARY_ARGS[@]}" --wait
   /usr/bin/xcrun stapler staple "$APP_DIR"
+  /usr/bin/xcrun stapler validate "$APP_DIR"
+  /usr/sbin/spctl --assess --type execute --verbose=2 "$APP_DIR"
   rm -f "$ZIP_PATH"
   /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
 fi

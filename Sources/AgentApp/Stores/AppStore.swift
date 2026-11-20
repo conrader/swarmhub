@@ -118,6 +118,7 @@ import UserNotifications
         self.didCancelLocalStream = didCancelLocalStream
         let directory = storeURL?.deletingLastPathComponent() ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appending(path: "AgentApp", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); fileURL = storeURL ?? directory.appending(path: "store.json")
+        var liveStoreIsHealthy = false
         if readOnly { persistenceEnabled = false }
         if demoMode {
             persistenceEnabled = false
@@ -125,23 +126,30 @@ import UserNotifications
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
                 adoptStoreFile(try StoreFile.decode(Data(contentsOf: fileURL)))
+                liveStoreIsHealthy = true
             } catch {
                 persistenceEnabled = false
                 if readOnly {
                     errorMessage = "Could not read store.json: \(error.localizedDescription)"
                 } else {
                     let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
-                    let backup = fileURL.deletingLastPathComponent().appending(path: "store.json.corrupt-\(stamp)")
+                    let backup = fileURL.appendingPathExtension("corrupt-\(stamp)-\(UUID().uuidString)")
                     do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true }
                     catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
                     if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
                 }
             }
             if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
-            // A store set aside unreadable is offered back, never replaced.
-            storeRestoreOffer = StoreRestore.offer(directory: directory, store: fileURL, current: persistenceEnabled ? bots : [], declined: declinedRestores)
-        } else if let offer = StoreRestore.offer(directory: directory, store: fileURL, current: [], declined: declinedRestores) {
-            storeRestoreOffer = offer
+        }
+        if !demoMode, !readOnly {
+            if liveStoreIsHealthy { resolveStoreRecovery() }
+            else {
+                storeRestoreOffer = StoreRestore.offer(
+                    store: fileURL, resolvedThrough: defaults.object(forKey: StoreRestore.decisionKey(for: fileURL)) as? Date,
+                    declined: Set(defaults.stringArray(forKey: StoreRestore.declinedKey) ?? []))
+                if storeRestoreOffer != nil { persistenceEnabled = false }
+            }
+            StoreRestore.pruneBackups(for: fileURL)
         }
         // A fresh install starts empty; the setup window or "Look around with sample agents" fills it.
         if !demoMode, !readOnly { migrateSampleBots(); restoreLedger() }
@@ -164,10 +172,9 @@ import UserNotifications
         adoptStoreFile(file)
         if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
     }
-    /// Start fresh after an unreadable store.json was moved aside: this window saves again, as a fresh install would.
-    /// Never while a store.json is there (the move failed, or another window wrote one): saving would replace it.
-    func resumeSavingAfterSetAside() {
-        guard !persistenceEnabled, unreadableStoreSetAside, !FileManager.default.fileExists(atPath: fileURL.path) else { return }
+    /// A recovery choice can conflict with another launch that has already saved a store.
+    func resumeSavingAfterRecovery() {
+        guard !FileManager.default.fileExists(atPath: fileURL.path) else { return }
         persistenceEnabled = true; unreadableStoreSetAside = false
         if errorMessage?.hasPrefix("The saved store could not be decoded.") == true { errorMessage = nil }
     }
@@ -210,6 +217,7 @@ import UserNotifications
         do {
             try JSONEncoder().encode(storeFile).write(to: fileURL, options: .atomic)
             turns.saveFailing = false
+            recordHealthyStoreIfNeeded()
         } catch {
             if !turns.saveFailing { errorMessage = "Could not save your chats: \(error.localizedDescription)" }
             turns.saveFailing = true

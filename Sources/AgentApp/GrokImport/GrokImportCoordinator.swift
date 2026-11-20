@@ -66,6 +66,29 @@ import Foundation
     /// A Herdr server is set up, and the first one's name: new bots run there.
     var hasServer: Bool { store.herdrConfigured }
     var serverName: String { store.herdrServers[0].name }
+    var historyDirectory: URL { store.grokHistory.directory }
+
+    func destination(for item: GrokFoundItem) -> String {
+        let refreshedName = PreparedGrokBundle.cleanIdentity(item.name)
+        if item.isGroup {
+            let group = store.groups.first { $0.grokSourceID == item.id }
+            let name = group.flatMap { refreshIdentity ? nil : $0.name } ?? refreshedName
+            let hidden = group?.isHidden ?? item.hiddenInGrok
+            return "“\(name)” in \(hidden ? "Hidden chats" : "the sidebar as a group chat")"
+        }
+        let bot = store.bots.first { $0.grokSourceID == item.id }
+        let name = bot.flatMap { refreshIdentity ? nil : $0.name } ?? AppStore.importedGrokName(refreshedName)
+        let hidden = bot?.isHidden ?? item.hiddenInGrok
+        let location = hidden ? "Hidden chats" : "the sidebar"
+        let server = bot.map { store.herdrServer(for: $0).name } ?? serverName
+        if !hasServer { return "“\(name)” in \(location) · runs after server setup" }
+        if let bot {
+            let agent = HerdrBackend.agentName(botName: name, botID: bot.id)
+            return "“\(name)” in \(location) · \(agent) on \(server)"
+        }
+        return "“\(name)” in \(location) · Herdr agent on \(server)"
+    }
+
     var selectedItems: [GrokFoundItem] { items.filter { selected.contains($0.id) } }
     /// "At least N read requests, about T s" for the Full mode line: one canary plus the pages, 0.5 s apart.
     var requestEstimate: (requests: Int, seconds: Int) {

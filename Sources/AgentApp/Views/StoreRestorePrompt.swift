@@ -10,7 +10,7 @@ struct StoreRestorePrompt: View {
             bubble(StoreRestoreCopy.question(offer)) {
                 HStack(spacing: 6) {
                     chip(StoreRestoreCopy.restore(offer)) { store.restoreSetAsideStore() }
-                    chip(StoreRestoreCopy.startFresh) { store.declineStoreRestore() }
+                    chip(StoreRestoreCopy.skip) { store.declineStoreRestore() }
                 }.accessibilityElement(children: .contain).accessibilityLabel("Suggested replies")
             }
         } else if let note = store.storeRestoreNote {

@@ -52,9 +52,8 @@ fi
 
 # 2. The app: built for release, signed with the Developer ID, notarized and stapled.
 ZIP="$(./scripts/package-release.sh | tail -1)"
-APP="$ROOT_DIR/dist/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST").app"
-/usr/bin/xcrun stapler validate "$APP"
-/usr/sbin/spctl --assess --type execute --verbose=2 "$APP"
+APP_TEAM="$(/usr/bin/unzip -p "$ZIP" 'SwarmHub.app/Contents/Resources/SOURCE.txt' | sed -n 's/^signing_team=//p')"
+[[ -n "$APP_TEAM" && "$APP_TEAM" != adhoc ]] || die "The packaged app has no Developer ID team."
 
 # 3. The appcast: the archive's EdDSA signature and the release notes.
 ./scripts/generate-appcast.sh "$TAG" "$ZIP"
@@ -68,7 +67,6 @@ if [[ ${#FRAGMENTS[@]} -gt 0 ]]; then
   WORKSPACE_NOTES="${SWARMHUB_WORKSPACE_NOTES:-}"
   [[ -n "$WORKSPACE_NOTES" ]] || die "set SWARMHUB_WORKSPACE_NOTES to one or two plain sentences on what the new workspace server changes; the app shows them beside Update."
   python3 "$ROOT_DIR/scripts/workspace-manifest.py" manifest --tag "$TAG" --notes "$WORKSPACE_NOTES" --released "$(date +%Y-%m-%d)" --out "$MANIFEST" "${FRAGMENTS[@]}"
-  APP_TEAM="$(/usr/bin/codesign -dv "$APP" 2>&1 | awk -F= '/^TeamIdentifier=/ {print $2}')"
   for FRAGMENT in "${FRAGMENTS[@]}"; do
     PROGRAM="${FRAGMENT%.asset.json}"
     [[ -s "$PROGRAM" ]] || die "$PROGRAM is missing beside its fragment."
@@ -114,7 +112,7 @@ fi
 ASSETS=("$ZIP" "$ROOT_DIR/dist/appcast.xml")
 [[ ! -s "$MANIFEST" ]] || ASSETS+=("$MANIFEST" "$MANIFEST.sig" "${PROGRAMS[@]}")
 echo
-echo "Ready: $VERSION (build $BUILD), signed by team $(/usr/bin/codesign -dv "$APP" 2>&1 | awk -F= '/^TeamIdentifier=/ {print $2}'), notarized, appcast and signatures checked."
+echo "Ready: $VERSION (build $BUILD), signed by team $APP_TEAM, notarized, appcast and signatures checked."
 if [[ -s "$MANIFEST" ]]; then
   echo "The workspace manifest carries a program for: ${(j:, :)CARRIED:-no kind of machine}."
   for WANTED in "${MISSING[@]}"; do
