@@ -8,6 +8,14 @@
 - A bot whose project holds a skillshare project of its own can show that project's library.
 - The bridge's API is at level 2 for this (`/api/skillshare/library` and the routes beside it, in the [bridge manual](../HerdrWorkspace/README.md#manage-the-servers-skillshare-library)). An MCP server's secret values never leave the server. A server still at level 1 keeps the list of skill switches until it is updated.
 
+## 0.8.5 (build 39)
+
+- The workspace time zone follows your Mac by default. You can also choose a fixed time zone in Settings.
+- You can opt in to share your city and country. The Mac resolves approximate location locally, and bots can see your workspace time zone and the city you choose to share.
+- Routines that follow the workspace time zone stay on local wall-clock time as the zone changes. Routines with an explicit time zone keep that zone.
+
+Workspace 0.2.4 applies one-way database migration 62. Keep a pre-upgrade workspace backup if you need to return to 0.2.3.
+
 ## 0.8.4 (build 38)
 
 Workspace 0.2.3 ships the Herdr fleet, jobs and approval changes.
