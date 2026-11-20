@@ -9,11 +9,7 @@ struct SetupWizardProgress: View {
     /// The step's name where it is not one of the usual four.
     var name: String? = nil
     var body: some View {
-        HStack(spacing: 7) {
-            ForEach(0..<count, id: \.self) { index in
-                Circle().fill(index == current ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.quaternary)).frame(width: index == current ? 7 : 6, height: index == current ? 7 : 6)
-            }
-        }
+        Text(name ?? WizardCopy.steps[current]).font(.caption).foregroundStyle(.secondary)
         .accessibilityElement(children: .ignore).accessibilityLabel(WizardCopy.stepLabel(current, of: count, name: name))
     }
 }
@@ -45,12 +41,20 @@ extension HerdrServer.Kind {
 struct SetupHerdrWelcomeStep: View {
     @Binding var flow: SetupFlow
     let advance: () -> Void
+    var saved: [HerdrServer] = []
+    @Binding var savedHostID: String?
     @State private var showOther = false
     var body: some View {
         VStack(spacing: 22) {
             HeroHeader(title: WizardCopy.welcomeTitle, detail: WizardCopy.welcomeIntro) { SetupAppMark() }
             VStack(alignment: .leading, spacing: 8) {
                 Text(WizardCopy.whereTitle).font(.headline).padding(.bottom, 2).accessibilityAddTraits(.isHeader)
+                ForEach(saved) { server in
+                    OptionCard(symbol: server.kind.mark.symbol, colour: server.kind.mark.colour, title: server.name,
+                               detail: server.kind == .ssh ? server.sshHost : server.address, selected: savedHostID == server.id,
+                               select: { savedHostID = server.id }, open: { savedHostID = server.id; advance() })
+                }
+                if !saved.isEmpty { Text(WizardCopy.addHost).font(.subheadline.weight(.semibold)).padding(.top, 6) }
                 place(.local, SetupCopy.herdrLocalTitle, WizardCopy.localDetail)
                 place(.ssh, SetupCopy.herdrSSHTitle, WizardCopy.sshDetail)
                 ReadyMadeServerNote().padding(.top, 2)
@@ -62,8 +66,8 @@ struct SetupHerdrWelcomeStep: View {
     }
 
     private func place(_ kind: HerdrServer.Kind, _ title: String, _ detail: String) -> some View {
-        OptionCard(symbol: kind.mark.symbol, colour: kind.mark.colour, title: title, detail: detail, selected: flow.place == kind,
-                   select: { flow.place = kind }, open: { flow.place = kind; advance() })
+        OptionCard(symbol: kind.mark.symbol, colour: kind.mark.colour, title: title, detail: detail, selected: savedHostID == nil && flow.place == kind,
+                   select: { savedHostID = nil; flow.place = kind }, open: { savedHostID = nil; flow.place = kind; advance() })
     }
 }
 

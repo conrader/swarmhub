@@ -54,6 +54,18 @@ enum GroupRouting {
         names.filter { partial.isEmpty || $0.lowercased().hasPrefix(partial.lowercased()) }.filter { $0.caseInsensitiveCompare(partial) != .orderedSame }
     }
 
+    static func herdrContext(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage],
+                             current: ChatMessage, limit: Int, userName: String) throws -> String {
+        let message = "\(userName): \(current.content)"
+        try HerdrClient.validateMessage(message, limit: limit)
+        let room = limit - HerdrClient.plain(message, bytes: Int.max).utf8.count - 1
+        let previous = messages.prefix { $0.id != current.id }
+        let earlier = context(for: bot, groupName: groupName, members: members, messages: Array(previous),
+                              limit: max(0, room), userName: userName)
+        let prefix = HerdrClient.plain(earlier, bytes: max(0, room))
+        return prefix.isEmpty ? message : prefix + "\n" + message
+    }
+
     /// Replaces the trailing `@partial` with `@Name `.
     static func complete(_ text: String, with name: String) -> String {
         guard let at = text.lastIndex(of: "@") else { return text }

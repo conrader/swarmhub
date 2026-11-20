@@ -103,6 +103,7 @@ struct HerdrOffer: Equatable, Sendable {
     /// The server's workspace can add project servers (`HerdrProjects.swift`); an older one cannot, and the wizard
     /// then has no step for them.
     var projectServers = false
+    var workspaceRoot: String? = nil
 
     func program(_ template: String) -> HerdrProgram? { programs.first { $0.template == template } }
 
@@ -230,6 +231,6 @@ extension HerdrClient {
         }
         // Asked once here, so the wizard knows whether to offer the step; a workspace without the route answers 404.
         let projectServers = (try? await machines()) != nil
-        return HerdrOffer(programs: programs, running: current.agents.filter { $0.isLive && $0.parent == nil }.map(\.name), projectServers: projectServers)
+        return HerdrOffer(programs: programs, running: current.agents.filter { $0.isLive && $0.parent == nil }.map(\.name), projectServers: projectServers, workspaceRoot: current.workspaceRoot)
     }
 }

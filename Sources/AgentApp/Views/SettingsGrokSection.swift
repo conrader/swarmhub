@@ -39,6 +39,6 @@ struct SettingsGrokSection: View {
     private func open() {
         NSApp.activate(ignoringOtherApps: true)
         if let window = UISmoke.mainWindow() { window.makeKeyAndOrderFront(nil) } else { openWindow(id: ContentView.windowID) }
-        store.showingGrokImport = true
+        store.openSetup(openWindow: openWindow, forGrok: true)
     }
 }

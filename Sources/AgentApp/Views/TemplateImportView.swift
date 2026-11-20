@@ -4,14 +4,13 @@ import UniformTypeIdentifiers
 struct TemplateImportView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     @State private var shareLink = ""
     @State private var plan: TemplateImportPlan?
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var choosingFile = false
     @State private var isImporting = false
-    @State private var grokBundles: [GrokBotBundle]?
-    @State private var choosingExport = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,18 +22,11 @@ struct TemplateImportView: View {
                 Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary).font(.title3) }.buttonStyle(.plain)
             }.padding(20)
             Divider()
-            if let grokBundles { GrokImportPreview(bundles: grokBundles) } else if let plan { preview(plan) } else { sourcePicker }
+            if let plan { preview(plan) } else { sourcePicker }
             Divider()
             HStack {
-                if plan != nil || grokBundles != nil { Button("Back") { plan = nil; grokBundles = nil; errorMessage = nil } }
+                if plan != nil { Button("Back") { plan = nil; errorMessage = nil } }
                 Spacer(); Button("Cancel") { dismiss() }
-                if let grokBundles {
-                    Button(isImporting ? "Importing…" : "Import \(grokBundles.count) bots") {
-                        guard !isImporting else { return }
-                        isImporting = true
-                        do { try store.importGrokBundles(grokBundles); dismiss() } catch { isImporting = false; self.grokBundles = nil; show(error) }
-                    }.buttonStyle(.appleProminent).disabled(isImporting)
-                }
                 if let plan {
                     Button(isImporting ? "Importing…" : "Import agent") {
                         guard !isImporting else { return }
@@ -63,18 +55,15 @@ struct TemplateImportView: View {
             }
             Section("Exported file") { Button("Choose JSON file…") { choosingFile = true } }
             Section("Grok Bot export") {
-                Button("Choose export folder or bundle.json…") { choosingExport = true }
+                Button("Choose a host for Grok Bot import…") {
+                    dismiss()
+                    store.openSetup(openWindow: openWindow, forGrok: true, export: true)
+                }
                 Text("Folder written by scripts/export-grokbot.py (~/Documents/\(AppConstants.grokExportFolder().lastPathComponent)). Bots, avatars and a read-only Grok history are imported; importing again updates without duplicates.").font(.caption).foregroundStyle(.secondary)
             }
             if let errorMessage { Section { Label(errorMessage, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) } }
             Section { Text("Only import a template you own or are allowed to use. Credentials, tokens, passwords, private keys, and similar sensitive fields are rejected and never shown in the preview.").font(.caption).foregroundStyle(.secondary) }
         }.formStyle(.grouped).padding(8)
-        .fileImporter(isPresented: $choosingExport, allowedContentTypes: [.folder, .json]) { result in
-            guard case .success(let url) = result else { return }
-            let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do { grokBundles = try GrokBundleLoader.load(from: url); errorMessage = nil } catch { show(error) }
-        }
-        .defaultFileDialogDirectory(AppConstants.grokExportFolder())
     }
 
     private func preview(_ plan: TemplateImportPlan) -> some View {
@@ -119,11 +108,4 @@ struct TemplateImportView: View {
     private func show(_ error: Error) { errorMessage = (error as? TemplateImportError)?.localizedDescription ?? (error as? GrokBundleError)?.localizedDescription ?? "The template could not be loaded. Export it as JSON and try the file instead." }
     private func icon(_ status: TemplateImportStatus) -> String { switch status { case .mapped: "checkmark.circle.fill"; case .converted: "arrow.triangle.2.circlepath.circle.fill"; case .skipped: "minus.circle.fill"; case .unsupported: "xmark.circle.fill" } }
     private func color(_ status: TemplateImportStatus) -> Color { switch status { case .mapped: .green; case .converted: .blue; case .skipped: .orange; case .unsupported: .red } }
-}
-
-private extension View {
-    /// Opens the export picker in the Grok export folder (the new name, else the pre-P18 one) where macOS supports it.
-    @ViewBuilder func defaultFileDialogDirectory(_ url: URL) -> some View {
-        if #available(macOS 15.0, *) { fileDialogDefaultDirectory(url) } else { self }
-    }
 }

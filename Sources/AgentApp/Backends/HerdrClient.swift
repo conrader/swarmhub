@@ -35,7 +35,7 @@ struct HerdrClient: Sendable {
     }
 
     struct Agent: Decodable, Sendable, Equatable {
-        struct Status: Decodable, Sendable, Equatable { let state: String? }
+        struct Status: Decodable, Sendable, Equatable { let state: String?; var kind: String? = nil }
         /// Core types the first task only once the agent reports that it is ready; a start-up prompt leaves it unsent.
         struct FirstMessage: Decodable, Sendable, Equatable { let sent: Bool? }
         let address: String; let name: String; let state: String; let createdMs: UInt64; let template: String?; let status: Status?
@@ -59,6 +59,10 @@ struct HerdrClient: Sendable {
         /// What the workspace server says it is (`HerdrUpdates.swift`); `version` above is Herdr Core's. A server
         /// from before it said so sends none.
         var bridge: HerdrBridgeInfo? = nil
+        var attachments: Bool? = nil
+        var botWorkspaces: Bool? = nil
+        var workspaceRoot: String? = nil
+        var launchAttachments: Bool? = nil
         /// The server's name for the agent program `agent` runs ("Codex"); nil when its template names none.
         func program(of agent: Agent) -> String? { templates.first { $0.name == agent.template }?.programName }
     }
@@ -196,12 +200,17 @@ struct HerdrClient: Sendable {
     /// tells the agent about them in its first task itself.
     /// `task` nil starts the agent ahead of time (`"warm": true`): its program starts and waits, and its first task
     /// is the first message sent to it (`deliver`). A bridge that cannot do that refuses the launch.
-    func launch(name: String, template: String, task: String?, profileID: Int?, modelID: String? = nil, projects: [Int] = []) async throws -> Agent {
+    func launch(name: String, template: String, task: String?, profileID: Int?, modelID: String? = nil, projects: [Int] = [], workspaceID: UUID? = nil, files: [TaskFile] = [], expectedCore: String? = nil) async throws -> Agent {
         var body: [String: Any] = ["name": name, "template": template]
         if let task { body["task"] = task } else { body["warm"] = true }
         if let profileID { body["profile_id"] = profileID }
         if let modelID { body["model_id"] = modelID }
         if !projects.isEmpty { body["projects"] = projects }
+        if let workspaceID { body["workspace_id"] = workspaceID.uuidString.lowercased() }
+        if !files.isEmpty {
+            body["expected_core"] = expectedCore
+            return try await postFileTask("/api/agents/with-files", body, files: files)
+        }
         return try await post("/api/agents", body)
     }
 
@@ -263,12 +272,12 @@ struct HerdrClient: Sendable {
     /// Starts this bot's agent ahead of time when none is running, exactly as its first message would (the same name,
     /// template, model and projects), but with no task: the first message then finds it running (`deliver`).
     /// Never a second agent: a running one is returned as it is.
-    func warm(name: String, template: String?, model: String? = nil, projects: [HerdrBotProject] = []) async throws -> Warmed {
+    func warm(name: String, template: String?, model: String? = nil, projects: [HerdrBotProject] = [], workspaceID: UUID? = nil) async throws -> Warmed {
         let current = try await workspace()
         guard current.core != nil else { throw Failure.http(503, "Herdr Core is not running on the server. Start it there, then try again.") }
         if let agent = liveAgent(named: name, in: current) { return .running(agent, program: current.program(of: agent)) }
         do {
-            let agent = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), in: current)
+            let agent = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), workspaceID: workspaceID, in: current)
             return .started(agent, program: current.program(of: agent))
         }
         // A bridge from before this route knew `warm` refuses the body itself (422), as a newer one refuses a
@@ -287,10 +296,58 @@ struct HerdrClient: Sendable {
         return true
     }
 
-    /// The bridge takes up to 16 KB of plain text per task: the message and the bot's own instructions each get
-    /// under half. The app's notes (`notesBytes`) come on top of the instructions when an agent starts; a first message
-    /// that would not fit beside all of it is the part that is cut, never the bot's instructions.
+    /// A first message must fit alongside the bot’s instructions and the app’s notes. Validate the byte budget
+    /// before sending so the complete message reaches the agent.
     static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 6_200, taskBytes = 16_000
+
+    struct TaskFile: Sendable {
+        let name: String
+        let mime: String
+        let data: Data
+
+        var uploadName: String {
+            let cleaned = String(name.unicodeScalars.map { scalar in
+                (scalar.isASCII && (CharacterSet.alphanumerics.contains(scalar) || " ._-".unicodeScalars.contains(scalar))) ? Character(String(scalar)) : "_"
+            }.prefix(170)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty || cleaned == "." || cleaned == ".." ? "attachment" : cleaned
+        }
+
+        static func validate(_ files: [Self]) throws {
+            guard files.count <= 4, files.reduce(0, { $0 + $1.data.count }) <= 8 * 1024 * 1024 else {
+                throw BackendError.unavailable("Attach up to four files totaling 8 MB per message.")
+            }
+        }
+    }
+
+    static func validateMessage(_ text: String, limit: Int = messageBytes) throws {
+        if plain(text, bytes: Int.max).utf8.count > limit {
+            throw BackendError.unavailable("This message exceeds the server’s \(limit)-byte limit. Shorten the message or send it as a text file.")
+        }
+    }
+
+    func message(_ text: String, files: [TaskFile], to agent: Agent, core: String) async throws -> Bool {
+        guard !files.isEmpty else { return try await message(text, to: agent) }
+        struct Delivery: Decodable { let queued: Bool? }
+        let path = "/api/agents/\(agent.address)/\(agent.createdMs)/messages/with-files"
+        let delivery: Delivery = try await postFileTask(path, ["text": text, "expected_core": core], files: files)
+        return delivery.queued == true
+    }
+
+    private func postFileTask<T: Decodable>(_ path: String, _ payload: [String: Any], files: [TaskFile]) async throws -> T {
+        let boundary = UUID().uuidString
+        var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"message\"\r\n\r\n".utf8)
+        body.append(try JSONSerialization.data(withJSONObject: payload))
+        for file in files {
+            let mime = file.mime.range(of: #"^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$"#, options: .regularExpression) != nil
+                ? file.mime : "application/octet-stream"
+            body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(file.uploadName)\"\r\nContent-Type: \(mime)\r\n\r\n".utf8))
+            body.append(file.data)
+        }
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var upload = try request(path, method: "POST", body: body)
+        upload.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        return try await send(upload)
+    }
 
     /// Plain text as the bridge accepts it: no control characters except new lines and tabs, cut to `bytes` of UTF-8
     /// on a character boundary.
@@ -304,11 +361,17 @@ struct HerdrClient: Sendable {
 
     /// The first task of a new agent: the bot's standing instructions (with the app's notes after them), then the
     /// message. A running agent already has them.
-    static func firstTask(_ text: String, instructions: String?) -> String {
+    private static func firstTaskPrefix(_ instructions: String?) -> String {
         let rules = plain(instructions ?? "", bytes: instructionsBytes + notesBytes).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rules.isEmpty else { return text }
-        let lead = "Standing instructions for this whole conversation:\n\(rules)\n\nMy first message:\n"
-        return lead + plain(text, bytes: max(0, taskBytes - lead.utf8.count))
+        return rules.isEmpty ? "" : "Standing instructions for this whole conversation:\n\(rules)\n\nMy first message:\n"
+    }
+
+    static func firstMessageBudget(instructions: String?, hasFiles: Bool) -> Int {
+        min(messageBytes, max(0, (hasFiles ? 12 * 1024 : taskBytes) - firstTaskPrefix(instructions).utf8.count))
+    }
+
+    static func firstTask(_ text: String, instructions: String?) -> String {
+        firstTaskPrefix(instructions) + text
     }
 
     /// Types `text` into this bot's running agent, or starts one from `template` (on `model`, when the template takes
@@ -329,12 +392,22 @@ struct HerdrClient: Sendable {
     /// starting, as it does before a launch.
     func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil,
                  once: [(marker: String, note: String)] = [], changing: [(lead: String, note: String)] = [],
-                 projects: [HerdrBotProject] = [], resync: Bool = false, synced: @Sendable () -> Void = {},
+                 projects: [HerdrBotProject] = [], files: [TaskFile] = [], workspaceID: UUID? = nil, resync: Bool = false, synced: @Sendable () -> Void = {},
                  status: @Sendable (HerdrTurnStatus) -> Void = { _ in }) async throws -> Turn {
-        let text = Self.plain(text, bytes: Self.messageBytes)
+        try Self.validateMessage(text)
+        try TaskFile.validate(files)
+        let text = Self.plain(text, bytes: Int.max)
         let current = try await workspace()
+        if !files.isEmpty, current.attachments != true {
+            throw BackendError.unavailable("This server cannot receive attachments. Update its workspace and Herdr Core, then try again.")
+        }
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the server. Start it there, then try again.") }
-        if let agent = liveAgent(named: name, in: current) {
+        var active = liveAgent(named: name, in: current)
+        if active == nil, !files.isEmpty, current.launchAttachments != true {
+            try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: true))
+            active = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), workspaceID: workspaceID, in: current)
+        }
+        if let agent = active {
             // Started ahead of time and not ready yet: the bridge keeps the message and types it when the agent is.
             if agent.isStarting { status(.starting(program: current.program(of: agent))) }
             let saved = try await history(core: core, address: agent.address, createdMs: agent.createdMs)
@@ -353,14 +426,24 @@ struct HerdrClient: Sendable {
             // whole. Any later message finds that task saved, also while the bridge still keeps it, and carries none
             // of it again; a task that was never typed does not count (`Item.reachedAgent`), so the next one
             // carries it all again.
-            let first = agent.warm == true && tasks.isEmpty ? Self.firstTask(text, instructions: instructions) : text
-            let body = first != text ? first
-                : (notes.isEmpty ? text : Self.plain(notes.joined(separator: "\n\n"), bytes: Self.instructionsBytes) + "\n\n" + text)
-            let queued = try await message(body, to: agent)
+            let firstMessage = (agent.warm == true || liveAgent(named: name, in: current) == nil) && tasks.isEmpty
+            let body: String
+            if firstMessage, !Self.firstTaskPrefix(instructions).isEmpty {
+                try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: !files.isEmpty))
+                body = Self.firstTask(text, instructions: instructions)
+            } else {
+                let budget = (files.isEmpty ? Self.taskBytes : 12 * 1024) - text.utf8.count - 2
+                let prefix = Self.plain(notes.joined(separator: "\n\n"), bytes: min(Self.instructionsBytes, budget))
+                body = prefix.isEmpty ? text : prefix + "\n\n" + text
+            }
+            if !files.isEmpty { try Self.validateMessage(body, limit: 12 * 1024) }
+            let queued = try await message(body, files: files, to: agent, core: core)
             return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool, program: current.program(of: agent), queued: queued)
         }
         status(.starting(program: Self.program(template: template, in: current)))
-        let agent = try await start(name: name, template: template, model: model, task: Self.firstTask(text, instructions: instructions), projects: projects.map(\.id), in: current)
+        try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: !files.isEmpty))
+        let first = Self.firstTask(text, instructions: instructions)
+        let agent = try await start(name: name, template: template, model: model, task: first, projects: projects.map(\.id), workspaceID: workspaceID, files: files, in: current)
         if resync { synced() }
         if agent.openCodeFirstTask == "uncertain" { throw Failure.unconfirmedDelivery }
         if agent.openCodeFirstTask == "not_sent" { throw Failure.notDelivered("OpenCode did not accept the first task.") }
@@ -371,7 +454,7 @@ struct HerdrClient: Sendable {
     /// Starts this bot's agent from `template` (nil: the first the server can start), on `model` when the template
     /// takes one, with `task` as its first task, or with none (ahead of time, `launch`).
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
-    func start(name: String, template: String?, model: String?, task: String?, projects: [Int], in current: Workspace) async throws -> Agent {
+    func start(name: String, template: String?, model: String?, task: String?, projects: [Int], workspaceID: UUID? = nil, files: [TaskFile] = [], in current: Workspace) async throws -> Agent {
         let usable = current.templates.filter { $0.error == nil }
         guard let chosen = usable.first(where: { $0.name == template }) ?? (template == nil ? usable.first : nil) else { throw Failure.noTemplate }
         let known = try await profiles().first { $0.runtimeName == name || Self.suffix(of: $0.runtimeName) == Self.suffix(of: name) }
@@ -384,7 +467,7 @@ struct HerdrClient: Sendable {
                 ? HerdrModelChoice.suggested(program: chosen.modelAgent ?? chosen.programName, offered: offered)?.id
                 : Self.defaultModel(offered: offered)
         }
-        return try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: task, profileID: known?.id, modelID: modelID, projects: projects)
+        return try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: task, profileID: known?.id, modelID: modelID, projects: projects, workspaceID: current.botWorkspaces == true ? workspaceID : nil, files: files, expectedCore: current.core)
     }
 
     /// The server's name for the agent program a bot's next agent starts ("Codex"); nil when the server names none.
@@ -456,33 +539,40 @@ struct HerdrClient: Sendable {
     func polledReply(to turn: Turn, follower: inout HerdrTurnFollower, emit: ([HerdrTurnFollower.Step]) -> Void) async throws -> String {
         let clock = ContinuousClock()
         var nextAgentCheck = clock.now
+        var readFailures = 0
         while true {
-            try Task.checkCancellation()
-            follower.take(rows: try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs))
-            // The preview is a convenience: a failed read never ends the turn.
-            if let seen = try? await preview(core: turn.core, address: turn.address, createdMs: turn.createdMs) { follower.take(tools: seen.tools); follower.take(draftText: seen.draft) }
-            // A message steered into the turn is one more task. The agent may answer it within the same reply, or queue
-            // it and answer it right after: then a second reply follows, and the turn's text is both.
-            let saved = follower.judgeSaved(now: clock.now)
-            emit(follower.drain())
-            if case .reply(let text) = saved { return text }
-            if case .failed(let failure) = saved { throw failure }
-            if follower.wantsAgentNow { nextAgentCheck = clock.now; follower.wantsAgentNow = false }
-            if clock.now >= nextAgentCheck {
-                nextAgentCheck = clock.now + agentCheckInterval
-                let agent = try await workspace().agents.first { $0.address == turn.address && $0.createdMs == turn.createdMs }
-                guard let agent, agent.isLive else {
-                    // One more read: the hook may have saved the reply as the session closed.
-                    follower.take(rows: try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs))
-                    emit(follower.drain())
-                    return try follower.ended()
-                }
-                follower.take(agent: agent)
-                let verdict = follower.judgeAgent(now: clock.now)
+            do {
+                try Task.checkCancellation()
+                follower.take(rows: try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs))
+                // The preview is a convenience: a failed read never ends the turn.
+                if let seen = try? await preview(core: turn.core, address: turn.address, createdMs: turn.createdMs) { follower.take(tools: seen.tools); follower.take(draftText: seen.draft) }
+                // A message steered into the turn is one more task. The agent may answer it within the same reply, or queue
+                // it and answer it right after: then a second reply follows, and the turn's text is both.
+                let saved = follower.judgeSaved(now: clock.now)
                 emit(follower.drain())
-                if case .failed(let failure) = verdict { throw failure }
+                if case .reply(let text) = saved { return text }
+                if case .failed(let failure) = saved { throw failure }
+                if follower.wantsAgentNow { nextAgentCheck = clock.now; follower.wantsAgentNow = false }
+                if clock.now >= nextAgentCheck {
+                    nextAgentCheck = clock.now + agentCheckInterval
+                    let agent = try await workspace().agents.first { $0.address == turn.address && $0.createdMs == turn.createdMs }
+                    guard let agent, agent.isLive else {
+                        // One more read: the hook may have saved the reply as the session closed.
+                        follower.take(rows: try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs))
+                        emit(follower.drain())
+                        return try follower.ended()
+                    }
+                    follower.take(agent: agent)
+                    let verdict = follower.judgeAgent(now: clock.now)
+                    emit(follower.drain())
+                    if case .failed(let failure) = verdict { throw failure }
+                }
+                readFailures = 0
+                try await Task.sleep(for: pollInterval)
+            } catch let error as URLError where error.code != .cancelled && readFailures < 4 {
+                readFailures += 1
+                try await Task.sleep(for: pollInterval)
             }
-            try await Task.sleep(for: pollInterval)
         }
     }
 

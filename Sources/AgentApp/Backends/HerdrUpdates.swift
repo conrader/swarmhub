@@ -301,7 +301,7 @@ struct HerdrServerUpdate: Equatable, Sendable {
 /// The answer to "is everything up to date?" across the app and its servers, in one headline and one count.
 struct SoftwareUpdateSummary: Equatable, Sendable {
     /// The app's own state as the summary needs it.
-    enum App: Equatable, Sendable { case upToDate, available(String), unknown }
+    enum App: Equatable, Sendable { case upToDate, available(String), checking, failed, unknown }
 
     var app: App
     var servers: [HerdrServerUpdate]
@@ -312,7 +312,7 @@ struct SoftwareUpdateSummary: Equatable, Sendable {
     var updates: Int { installableServers + (appUpdate == nil ? 0 : 1) }
     /// Behind in a way no button here fixes.
     var needsHand: Int { servers.filter { if case .manual = $0.phase { true } else { false } }.count }
-    var isChecking: Bool { servers.contains { $0.phase == .checking } }
+    var isChecking: Bool { app == .checking || servers.contains { $0.phase == .checking } }
     var isWorking: Bool { servers.contains { $0.isBusy && $0.phase != .checking } }
     var unreachable: Int { servers.filter { if case .unreachable = $0.phase { true } else { false } }.count }
 
@@ -322,9 +322,17 @@ struct SoftwareUpdateSummary: Equatable, Sendable {
         if updates > 1 { return "\(updates) updates are available" }
         if needsHand > 0 { return needsHand == 1 ? "One server needs an update by hand" : "\(needsHand) servers need an update by hand" }
         if isChecking { return "Checking for updates…" }
-        if unreachable > 0 { return unreachable == servers.count && app != .upToDate ? "Could not check" : "\(AppConstants.name) is up to date" }
-        if app == .unknown && servers.allSatisfy({ $0.phase == .unknown }) { return "Software Update" }
-        return "Everything is up to date"
+        if app == .failed || unreachable > 0 || servers.contains(where: {
+            if case .failed = $0.phase { return true }
+            if case .rolledBack = $0.phase { return true }
+            return false
+        }) { return "Could not check for updates" }
+        if app == .upToDate, servers.allSatisfy({
+            if case .upToDate = $0.phase { return true }
+            if case .updated = $0.phase { return true }
+            return false
+        }) { return "Everything is up to date" }
+        return "Software Update"
     }
 
     /// The main button's title; nil when there is nothing to install.

@@ -4,6 +4,7 @@ import Foundation
 struct ArchivedMessage: Codable, Equatable, Identifiable, Sendable {
     var id: String; var seq: Int64; var role: String; var author: String?; var text: String
     var timestamp: Date?; var hidden: Bool; var channel: String; var to: String?
+    var streaming: Bool? = nil
 
     var dedupeKey: String { id.isEmpty ? "seq:\(seq)" : id }
     func matches(_ query: String) -> Bool {
@@ -86,10 +87,17 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
         var existing: [ArchivedMessage] = []
         if FileManager.default.fileExists(atPath: url.path) {
             guard let file = read(url) else { throw GrokHistoryError.archiveUnreadable(keptAs: try setAside(url)) }
+            guard file.sourceID == sourceID else { throw GrokHistoryError.sourceMismatch }
             existing = file.messages
         }
         var byKey: [String: ArchivedMessage] = [:]
-        for message in existing + incoming { byKey[message.dedupeKey] = message }
+        for message in existing + incoming {
+            if let saved = byKey[message.dedupeKey] {
+                if message.streaming == true, saved.streaming != true { continue }
+                if message.text.utf8.count < saved.text.utf8.count { continue }
+            }
+            byKey[message.dedupeKey] = message
+        }
         let merged = byKey.values.sorted { ($0.seq, $0.timestamp ?? .distantPast, $0.id) < ($1.seq, $1.timestamp ?? .distantPast, $1.id) }
         try write(GrokHistoryFile(sourceID: sourceID, messages: merged), to: url, directory: directory)
         return merged
@@ -121,9 +129,11 @@ enum GrokHistoryError: LocalizedError, Equatable {
     /// The existing archive could not be decoded; it was renamed, nothing deleted, nothing merged.
     case archiveUnreadable(keptAs: String)
     case archiveUnmovable(String)
+    case sourceMismatch
 
     var errorDescription: String? {
         switch self {
+        case .sourceMismatch: "The saved archive belongs to another conversation."
         case .archiveUnreadable(let name): "A history archive could not be read; it was kept as \(name), nothing deleted."
         case .archiveUnmovable(let name): "The history archive \(name) could not be read or set aside; nothing was changed."
         }
@@ -142,7 +152,7 @@ extension ArchivedMessage {
         let messages = bundle.messages.map { message in
             ArchivedMessage(id: message.id, seq: message.seq, role: ["user", "assistant", "system"].contains(message.role) ? message.role : "system",
                             author: message.author.map(clean), text: clean(message.text), timestamp: date(message.timestamp),
-                            hidden: message.hidden ?? false, channel: message.channel ?? "chat", to: message.to.map(clean))
+                            hidden: message.hidden ?? false, channel: message.channel ?? "chat", to: message.to.map(clean), streaming: message.streaming)
         }
         let renames = bundle.events.compactMap { event -> ArchivedMessage? in
             guard event.event.type == "name-changed", let from = event.event.from, let to = event.event.to else { return nil }

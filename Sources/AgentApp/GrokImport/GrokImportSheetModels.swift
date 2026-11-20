@@ -17,6 +17,9 @@ struct GrokFoundItem: Identifiable, Equatable, Sendable {
     /// Lines already in this app's archive for it, and when that archive was last written (nil = never imported).
     var importedLines = 0
     var importedAt: Date?
+    var description = ""
+    var needsDescriptionEdit = false
+    var memberNames: [String] = []
 
     /// List requests a full fetch needs at least: one page of 500 per started 500 seqs, one for an empty history.
     var minimumRequests: Int { max(1, Int((newestCachedSeq + Int64(GrokProtocol.pageLimit) - 1) / Int64(GrokProtocol.pageLimit))) }
@@ -77,8 +80,18 @@ struct GrokImportOutcome: Identifiable, Equatable, Sendable {
         case .complete where row.gapRanges == 0: return "Complete"
         case .complete, .serverGaps: return "Complete; Grok has no entry for \(row.missingSeqs) sequence numbers inside this history"
         case .incomplete:
+            if let reason = row.reason { return "Partial · " + reason }
             return "Incomplete: stopped" + (row.stoppedAtSeq.map { " at seq \($0)" } ?? "") + ", nothing older was fetched"
+        case .fileExport: return "History from the selected export"
         case .cacheOnly: return "Recent messages from this Mac only"
+        }
+    }
+
+    var statusLabel: String {
+        switch row.status {
+        case .done: "Imported"
+        case .incomplete: "Partial"
+        case .skipped: "Skipped"
         }
     }
 

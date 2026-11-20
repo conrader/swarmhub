@@ -6,6 +6,7 @@ import Foundation
     let token = UUID()
     let conversation: any Conversation
     var task: Task<Void, Never>?
+    var backend: (any AgentBackend)?
     /// The bot answering now (a group round moves it from member to member) and the row it streams into.
     var botID: UUID?; var assistant: ChatMessage?
     /// The running turn takes steer messages (`run_steer`).
@@ -97,7 +98,7 @@ extension AppStore {
         // The row is `stopped` at once and never extended.
         if let row = turn.assistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
         objectWillChange.send()
-        guard let bot, let activeBackend = try? backend(for: bot) else {
+        guard let bot, let activeBackend = turn.backend ?? (try? backend(for: bot)) else {
             // The task's end frees the slot; a slot without a task is freed here.
             if let task = turn.task { task.cancel() } else { endTurn(streamToken) }
             return

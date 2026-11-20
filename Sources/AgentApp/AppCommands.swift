@@ -184,7 +184,8 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About \(AppConstants.name)") { AppIconAppearance.showAboutPanel() }
             // SwiftUI can keep the menu's initial state while Sparkle runs its startup check.
-            Button("Check for Updates…", action: updater.checkForUpdates).disabled(updater.unavailableReason != nil)
+            Button(updater.manualCheckQueued ? "Update Check Queued…" : "Check for Updates…", action: updater.checkForUpdates)
+                .disabled(updater.unavailableReason != nil || updater.manualCheckQueued)
         }
         // Replace the default New Window binding so ⌘N creates exactly one agent.
         CommandGroup(replacing: .newItem) {

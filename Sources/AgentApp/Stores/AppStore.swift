@@ -15,6 +15,9 @@ import UserNotifications
     /// The Grok Bot import sheet, and whether Grok Bot is on this Mac at all (existence checks only, run once, on first
     /// use; false hides every door).
     @Published var showingGrokImport = false
+    var grokDestination: GrokDestination?
+    var setupForGrok = false
+    var grokStartsWithExport = false
     /// Bumping `setupGeneration` restarts the setup window; `--setup-preview` runs on a throwaway store, keys and
     /// settings (Settings are off).
     @Published var setupGeneration = 0; var isSetupPreview = false
@@ -83,6 +86,33 @@ import UserNotifications
     var sendRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// Unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
+    private var composerIntakes: [UUID: AttachmentIntake] = [:]
+
+    func attachmentIntake(for conversationID: UUID) -> AttachmentIntake {
+        if let intake = composerIntakes[conversationID] { return intake }
+        let intake = AttachmentIntake()
+        composerIntakes[conversationID] = intake
+        return intake
+    }
+
+    func discardComposerAttachments(for conversationID: UUID) {
+        if let intake = composerIntakes.removeValue(forKey: conversationID) { intake.discard(store: self) }
+    }
+
+    func confirmHerdrAttachments(_ bots: [Bot]) async -> Bool {
+        let servers = Set(bots.filter { $0.backend == .herdr && !$0.isReadOnlyArchive }.map { herdrServer(for: $0).id })
+        do {
+            for id in servers {
+                guard let server = herdrServer(id: id), try await herdrClient(for: server).workspace().attachments == true else {
+                    throw BackendError.unavailable("This host cannot receive attachments. Update its workspace and Herdr Core, then try again.")
+                }
+            }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
     /// Where each chat was left and whether it is away from the newest message.
     let chatScroll = ChatScrollModel()
     let keyStore: any KeyStore; let defaults: UserDefaults
@@ -91,6 +121,10 @@ import UserNotifications
     /// The execution ledger (`runtime.sqlite`, opened by `journal()`).
     var runtime: (any RuntimeStoring)?
     let fileURL: URL
+    private var writerLease: StoreWriterLease?
+    var storeRevision: Data?
+    var restoreUndoRevision: Data?
+    var removedBots: [String: Set<String>] = [:]
     /// A set-aside store (`store.json.corrupt-*`, a backup) this launch offers to restore (`AppStore+StoreRestore.swift`).
     @Published var storeRestoreOffer: StoreRestore.Offer?; @Published var storeRestoreNote: String?
     /// This launch moved an unreadable store.json aside (so saving is off until Restore or Start fresh).
@@ -106,7 +140,7 @@ import UserNotifications
 
     /// `autoStart`: the launch work a real window does. Tests and headless commands pass false.
     /// `readOnly`: opening the store for `--render-snapshot` leaves the store file and settings untouched.
-    init(demoMode: Bool = false, storeURL: URL? = nil, autoStart: Bool = true, readOnly: Bool = false, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, keyStore: any KeyStore = KeychainKeyStore(), defaults: UserDefaults = .standard, connectivity: (any ConnectivitySource)? = nil) {
+    init(demoMode: Bool = false, storeURL: URL? = nil, autoStart: Bool = true, readOnly: Bool = false, exclusiveWriter: Bool = false, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, keyStore: any KeyStore = KeychainKeyStore(), defaults: UserDefaults = .standard, connectivity: (any ConnectivitySource)? = nil) {
         // A test run never opens the real store.json or the standard defaults; either is reported and replaced.
         var storeURL = storeURL, defaults = defaults
         if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {
@@ -119,13 +153,33 @@ import UserNotifications
         let directory = storeURL?.deletingLastPathComponent() ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appending(path: "AgentApp", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); fileURL = storeURL ?? directory.appending(path: "store.json")
         var liveStoreIsHealthy = false
+        if !readOnly, !demoMode, storeURL == nil || exclusiveWriter {
+            do { writerLease = try StoreWriterLease(store: fileURL) }
+            catch {
+                persistenceEnabled = false
+                errorMessage = "SwarmHub could not acquire its store. Close the other SwarmHub window or import and reopen."
+                return
+            }
+        }
         if readOnly { persistenceEnabled = false }
         if demoMode {
             persistenceEnabled = false
             loadDemoData(includeActivity: true)
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                adoptStoreFile(try StoreFile.decode(Data(contentsOf: fileURL)))
+                let data = try Data(contentsOf: fileURL)
+                storeRevision = data
+                let file = try StoreFile.decode(data)
+                if !readOnly, file.bots.contains(where: \.needsRetiredBackendMigration) {
+                    do { try data.write(to: fileURL.appendingPathExtension("before-herdr-only-\(UUID().uuidString)"), options: .atomic) }
+                    catch {
+                        persistenceEnabled = false
+                        errorMessage = "Could not save a pre-migration copy. The saved store was kept."
+                    }
+                }
+                adoptStoreFile(file)
+                if !readOnly { recoverRestoreUndoIfAvailable(data) }
+                if !migratedGroupNames.isEmpty, persistenceEnabled { save() }
                 liveStoreIsHealthy = true
             } catch {
                 persistenceEnabled = false
@@ -134,7 +188,7 @@ import UserNotifications
                 } else {
                     let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
                     let backup = fileURL.appendingPathExtension("corrupt-\(stamp)-\(UUID().uuidString)")
-                    do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true }
+                    do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true; storeRevision = nil }
                     catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
                     if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
                 }
@@ -142,17 +196,16 @@ import UserNotifications
             if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
         }
         if !demoMode, !readOnly {
-            if liveStoreIsHealthy { resolveStoreRecovery() }
-            else {
+            if !liveStoreIsHealthy {
                 storeRestoreOffer = StoreRestore.offer(
                     store: fileURL, resolvedThrough: defaults.object(forKey: StoreRestore.decisionKey(for: fileURL)) as? Date,
-                    declined: Set(defaults.stringArray(forKey: StoreRestore.declinedKey) ?? []))
+                    declined: Set(defaults.stringArray(forKey: StoreRestore.declinedKey) ?? []),
+                    hideSamples: herdrConfigured)
                 if storeRestoreOffer != nil { persistenceEnabled = false }
             }
-            StoreRestore.pruneBackups(for: fileURL)
         }
         // A fresh install starts empty; the setup window or "Look around with sample agents" fills it.
-        if !demoMode, !readOnly { migrateSampleBots(); restoreLedger() }
+        if !demoMode, !readOnly, persistenceEnabled { migrateSampleBots(); restoreLedger() }
         selectVisibleChat()
         launchWorkEnabled = !demoMode && autoStart
         if connectivity != nil { listenForConnectivity() }
@@ -160,10 +213,10 @@ import UserNotifications
 
     /// The decoded store becomes this window's state (launch, and the restore of a set-aside store).
     func adoptStoreFile(_ file: StoreFile) {
-        bots = file.bots; groups = file.groups
+        bots = file.bots; groups = file.groups; removedBots = file.removedBots ?? [:]
         chatScroll.restore(file.scrollPositions)
         turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
-        if !migrateArchivedGroups().isEmpty { save() }
+        migrateArchivedGroups()
     }
 
     /// A restored store is this launch's store again, saved as store.json.
@@ -173,14 +226,19 @@ import UserNotifications
         if herdrConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
     }
     /// A recovery choice can conflict with another launch that has already saved a store.
+    var writerLeaseAvailable: Bool { writerLease != nil }
+    func pauseSavingForRecovery() { persistenceEnabled = false }
+
     func resumeSavingAfterRecovery() {
         guard !FileManager.default.fileExists(atPath: fileURL.path) else { return }
         persistenceEnabled = true; unreadableStoreSetAside = false
         if errorMessage?.hasPrefix("The saved store could not be decoded.") == true { errorMessage = nil }
     }
     func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, template: String? = nil, model: String = HerdrModelChoice.recommended) {
+        guard storeRestoreOffer == nil else { return }
         let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName)
         avatar.apply(to: bot)
+        bot.offersReleaseNotesExample = backend == .herdr
         if backend == .herdr {
             if let template {
                 setHerdrTemplate(template, for: bot)
@@ -203,21 +261,56 @@ import UserNotifications
     }
     /// Removes the bot and its chat from this Mac, and ends its agent on its server (`AppStore+HerdrRemoval.swift`).
     func delete(_ bot: Bot) {
-        let removal = herdrEndingBeforeRemoval(of: bot)
-        grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }
+        guard storeRestoreOffer == nil else { return }
+        let oldBots = bots, oldMembers = groups.map(\.memberIDs), oldRemoved = removedBots
+        if bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo {
+            removedBots[herdrServer(for: bot).id, default: []].insert(bot.id.uuidString.lowercased())
+        }
+        bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }
         if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }
-        save()
-        if let removal { herdrAgentRemoved(removal, botID: bot.id) }
+        if persistenceEnabled {
+            save()
+            if turns.saveFailing {
+                bots = oldBots; removedBots = oldRemoved
+                for (group, ids) in zip(groups, oldMembers) { group.memberIDs = ids }
+                selectVisibleChat()
+                return
+            }
+        }
+        grokHistory.remove(bot.id)
+        discardComposerAttachments(for: bot.id)
+        if let removal = herdrEndingBeforeRemoval(of: bot) { herdrAgentRemoved(removal, botID: bot.id) }
     }
     /// Writes store.json; a failed write is reported once per streak instead of being swallowed.
-    var storeFile: StoreFile { StoreFile(bots: bots, groups: groups, scrollPositions: chatScroll.stored) }
+    var storeFile: StoreFile {
+        var file = StoreFile(bots: bots, groups: groups, scrollPositions: chatScroll.stored)
+        file.removedBots = removedBots.isEmpty ? nil : removedBots
+        return file
+    }
+
+    func writeStore() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let data = try encoder.encode(storeFile)
+        guard try currentStoreRevision() == storeRevision else {
+            throw BackendError.unavailable("The store changed on disk. Reopen SwarmHub before saving.")
+        }
+        if data != storeRevision {
+            try data.write(to: fileURL, options: .atomic)
+            storeRevision = data
+        }
+    }
+
+    func currentStoreRevision() throws -> Data? {
+        do { return try Data(contentsOf: fileURL) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
+    }
 
     func save() {
         guard persistenceEnabled else { return }
         do {
-            try JSONEncoder().encode(storeFile).write(to: fileURL, options: .atomic)
+            try writeStore()
             turns.saveFailing = false
-            recordHealthyStoreIfNeeded()
         } catch {
             if !turns.saveFailing { errorMessage = "Could not save your chats: \(error.localizedDescription)" }
             turns.saveFailing = true
@@ -227,7 +320,8 @@ import UserNotifications
     /// steers; otherwise it waits as the chat's next message, and the turn is never stopped. Other chats never block
     /// it; when the turn limit is reached the message waits as the chat's next message.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
-        guard let bot = selectedBot, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        guard storeRestoreOffer == nil, let bot = selectedBot, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        if bot.backend == .herdr, !validateHerdrDraft(text, attachments: attachments, bot: bot) { return false }
         guard isIdle(bot) else { return steer(text: text, attachments: attachments, bot: bot) }
         guard send(text: text, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true) else { return false }
         replyTo = nil
@@ -238,8 +332,9 @@ import UserNotifications
     /// does a message sent while earlier ones still wait there.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?, waitWhenFull: Bool = false,
                                  metadata: [String: String] = [:]) -> Bool {
-        guard !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        guard storeRestoreOffer == nil, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         guard isIdle(conversation) else { return false }
+        if bot.backend == .herdr, !validateHerdrDraft(text, attachments: attachments, bot: bot) { return false }
         let full = turnCapacityProblem(for: [bot])
         if let full, !waitWhenFull { errorMessage = full; return false }
         let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
@@ -250,23 +345,40 @@ import UserNotifications
         } catch { errorMessage = error.localizedDescription; return false }
         steerHint = nil
         captureAttachments(user, readers: [bot.id])
+        if conversation === bot { bot.offersReleaseNotesExample = false }
         conversation.messages.append(user)
         if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) { return waitForTurn(user, in: conversation, reason: reason) }
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true
     }
+    func validateHerdrDraft(_ text: String, attachments: [ChatAttachment], bot: Bot? = nil) -> Bool {
+        do {
+            try HerdrClient.validateMessage(text)
+            try HerdrClient.TaskFile.validate(attachments.map(attachmentEncoder.taskFile(for:)))
+            if let bot, bot.messages.allSatisfy({ $0.role != .assistant }), let backend = try? herdrBackend(for: bot) {
+                try HerdrClient.validateMessage(text, limit: HerdrClient.firstMessageBudget(
+                    instructions: backend.launchInstructions, hasFiles: !attachments.isEmpty))
+            }
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+
     /// Starts the turn answering `user`, a row of `conversation`. The reply goes right under it and the turn sends the
     /// chat only up to it: messages queued after it wait below and go in their own turns.
     func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
+        let herdr = activeBackend is HerdrBackend
+        let files: [HerdrClient.TaskFile]
+        do { files = herdr ? try user.attachments.map(attachmentEncoder.taskFile(for:)) : [] }
+        catch { errorMessage = error.localizedDescription; return }
         let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
         objectWillChange.send(); save()
         let streamToken = turn.token
-        let history = chatHistory(conversation, upTo: conversation.messages.contains { $0 === user } ? user : nil, excluding: assistant)
+        let history = chatHistory(conversation, upTo: conversation.messages.contains { $0 === user } ? user : nil, excluding: assistant, inlineFiles: !herdr)
         turn.task = Task { [weak self] in
-            await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.outboundPersona,
-                                    backend: activeBackend, token: streamToken)
+            await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: herdr ? [] : images, systemPrompt: bot.outboundPersona,
+                                    backend: activeBackend, token: streamToken, files: files)
         }
     }
     func notifyIfNeeded(bot: Bot, message: String) {

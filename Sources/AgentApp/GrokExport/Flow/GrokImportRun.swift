@@ -128,7 +128,7 @@ import Foundation
         guard store.persistenceEnabled else { return stop(.persistenceDisabled) }
         guard let cache = preflight?.cache else { return stop(.cache(preflight?.cacheError ?? .notFound)) }
         if queue == nil {
-            do { queue = try Self.conversations(in: cache, selection: options.selection) } catch let error as GrokImportRunError {
+            do { queue = try Self.conversations(in: cache, selection: options.selection).filter { !options.excludedSourceIDs.contains($0) } } catch let error as GrokImportRunError {
                 return stop(error)
             } catch { return stop(.cache(.unrecognisedShape)) }
         }
@@ -307,6 +307,9 @@ import Foundation
         case .incomplete(let stoppedAt, _)?: row.coverage = .incomplete; row.status = .incomplete; row.stoppedAtSeq = stoppedAt
         case nil: break
         }
+        if let unresolved = merge?.unresolvedSequences, !unresolved.isEmpty {
+            row.reason = "\(unresolved.count) listed messages had no readable body. Retry to fetch them again."
+        }
         let gaps = merge?.summary.gaps ?? []
         row.gapRanges = gaps.count
         row.missingSeqs = gaps.reduce(0) { $0 + ($1[1] - $1[0] + 1) }
@@ -322,8 +325,9 @@ import Foundation
         let before = store.grokArchiveLines(sourceID: id)
         do {
             let policy = GrokImportPolicy.inApp(refreshIdentity: options.refreshIdentity)
-            let imported = try await store.importGrokBundles([GrokBotBundle(built)], policy: policy, timing: nil)
+            let imported = try await store.importGrokBundles([GrokBotBundle(built)], policy: policy, timing: nil, destination: options.destination)
             row.archiveLines = imported.first?.historyCount ?? 0
+            row.created = imported.first?.created
             row.addedLines = max(0, row.archiveLines - before)
         } catch let error as GrokImportError {
             row.status = .skipped

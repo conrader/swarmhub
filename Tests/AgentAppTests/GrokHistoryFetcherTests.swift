@@ -44,7 +44,10 @@ private func seqs(_ entries: [JSONValue]) -> [Int64] { entries.compactMap { $0["
     let cached = (1149...1200).map { GrokJSON.from(FakeGrok.entry(Int64($0), "cached \($0)")) }
     let merged = GrokHistoryMerge.merge(cached: cached, fetched: result)
     #expect(merged.entries.count == 1197)
-    #expect(merged.coverage == .serverGaps([[11, 11], [300, 301]]))
+    #expect(merged.coverage == .incomplete(stoppedAt: nil, gaps: []))
+    #expect(merged.unresolvedSequences == [11])
+    let repaired = GrokHistoryMerge.merge(cached: cached + [GrokJSON.from(FakeGrok.entry(11, "cached body"))], fetched: result)
+    #expect(repaired.coverage == .serverGaps([[300, 301]]))
     #expect(merged.entries.first { $0["seq"] == .int(1149) }?["content"] == .string("cached 1149"))
     var redactor = GrokRedactor(), stats = GrokBundleV1.Statistics()
     let mapped = GrokEntryMapper(names: [:], botName: "Alpha").map(merged.entries, redact: &redactor, stats: &stats)

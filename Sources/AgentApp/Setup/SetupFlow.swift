@@ -136,6 +136,11 @@ struct SetupFlow: Equatable {
 
     init() {}
 
+    mutating func connectToSaved(_ server: HerdrServer) {
+        apply(.pickHerdr(server.kind))
+        herdr = HerdrServerDraft(server: server)
+    }
+
     /// Back exists on every step but the first.
     var canGoBack: Bool { !history.isEmpty }
 

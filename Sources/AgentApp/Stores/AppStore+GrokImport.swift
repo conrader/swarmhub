@@ -16,10 +16,12 @@ enum GrokImportPolicy: Sendable, Equatable {
 enum GrokImportError: LocalizedError, Equatable {
     case persistenceDisabled
     case saveFailed
+    case destinationUnavailable
 
     var errorDescription: String? {
         switch self {
         case .persistenceDisabled: "\(AppConstants.name) cannot save right now (its store could not be read at launch), so nothing was imported."
+        case .destinationUnavailable: "The tested import host is no longer available. Select and test it again."
         case .saveFailed: "\(AppConstants.name) could not save its store after the import; the history archives were written but the bots were not saved."
         }
     }
@@ -46,7 +48,7 @@ extension AppStore {
     /// The same import with the redaction and archive work off the main actor, yielding between bundles.
     /// `timing` (tests) records how long each synchronous main-actor stretch of the import took.
     @discardableResult func importGrokBundles(_ bundles: [GrokBotBundle], policy: GrokImportPolicy,
-                                              timing: GrokImportTiming? = nil) async throws -> [GrokImportRow] {
+                                              timing: GrokImportTiming? = nil, destination: GrokDestination? = nil) async throws -> [GrokImportRow] {
         var stretch = timing?.start()
         try beginGrokImport()
         var rows: [GrokImportRow] = []
@@ -55,11 +57,13 @@ extension AppStore {
                 timing?.end(&stretch)
                 let prepared = await Task.detached(priority: .userInitiated) { PreparedGrokBundle(bundle) }.value
                 stretch = timing?.start()
-                let target = grokTarget(for: prepared)
+                try validateGrokDestination(destination)
+                let target = grokTarget(for: prepared, destination: destination)
                 timing?.end(&stretch)
                 let count = try await grokHistory.mergeInBackground(prepared.lines, sourceID: prepared.bundle.sourceId, for: target.id)
                 stretch = timing?.start()
-                rows.append(apply(prepared, to: target, historyCount: count, policy: policy))
+                try validateGrokDestination(destination)
+                rows.append(apply(prepared, to: target, historyCount: count, policy: policy, destination: destination))
                 timing?.end(&stretch)
                 await Task.yield()
                 stretch = timing?.start()
@@ -83,8 +87,7 @@ extension AppStore {
     func saveThrowing() throws {
         guard persistenceEnabled else { throw GrokImportError.persistenceDisabled }
         do {
-            try JSONEncoder().encode(storeFile).write(to: fileURL, options: .atomic)
-            recordHealthyStoreIfNeeded()
+            try writeStore()
         }
         catch { throw GrokImportError.saveFailed }
     }
@@ -94,6 +97,12 @@ extension AppStore {
     /// Bots first, so a group's members resolve to the bots imported in this run.
     private static func ordered(_ bundles: [GrokBotBundle]) -> [GrokBotBundle] {
         bundles.filter { !($0.isGroup ?? false) } + bundles.filter { $0.isGroup ?? false }
+    }
+
+    private func validateGrokDestination(_ destination: GrokDestination?) throws {
+        guard let destination else { return }
+        guard let host = herdrServer(id: destination.serverID),
+              destination.testedHost.map({ $0 == host }) ?? true else { throw GrokImportError.destinationUnavailable }
     }
 
     private func beginGrokImport() throws {
@@ -136,11 +145,24 @@ struct PreparedGrokBundle: Sendable {
         SecretFilter.redacted(text, replacement: GrokRedactor.marker).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    static func meaningful(_ value: String?) -> String {
+        let text = cleanIdentity(value ?? "")
+        let key = text.lowercased().split(whereSeparator: { !$0.isLetter }).joined(separator: " ")
+        let generic = ["a teammate with its own computer that takes real work off your plate",
+                       "personal agent", "imported from grok bot", "grok bot",
+                       "you are a thoughtful capable assistant"]
+        return generic.contains(key) ? "" : text
+    }
+
     init(_ bundle: GrokBotBundle) {
         let clean = Self.cleanIdentity
         self.bundle = bundle
-        name = clean(bundle.name); title = clean(bundle.title ?? ""); description = clean(bundle.description ?? "")
-        instructions = clean(bundle.instructions ?? bundle.description ?? "")
+        name = clean(bundle.name); title = Self.meaningful(bundle.title)
+        let sourceDescription = Self.meaningful(bundle.description)
+        let suppliedInstructions = Self.meaningful(bundle.instructions)
+        description = !sourceDescription.isEmpty ? sourceDescription
+            : (!title.isEmpty ? title : String(suppliedInstructions.prefix(300)))
+        instructions = suppliedInstructions.isEmpty ? sourceDescription : suppliedInstructions
         members = (bundle.members ?? []).map { (clean($0.name), $0.sourceId) }
         lines = ArchivedMessage.from(bundle)
     }

@@ -122,7 +122,7 @@ private final class WarmBridge: @unchecked Sendable {
     for status in all { #expect(HerdrTurnStatus(code: status.code) == status, "\(status.code)") }
     #expect(HerdrTurnStatus(code: "Planning") == nil && HerdrTurnStatus(code: "herdr.unknown") == nil && HerdrTurnStatus.starting(program: "Agent One").code == "herdr.starting|Agent One")
     #expect(all.map(\.line) == ["Sending…", "Starting Agent One…", "Starting the agent…", "Delivered to Agent One…", "Agent One is working…",
-                                "Agent One is waiting for you in its terminal", "Finishing…", "The agent reported an error"])
+                                "Agent One needs a terminal status check", "Finishing…", "The agent reported an error"])
     #expect(HerdrTurnStatus.starting(program: nil).note == "the first reply takes longer" && HerdrTurnStatus.working(program: nil).note == nil)
 
     // What the agent reports, read for the turn it is in.
@@ -138,7 +138,7 @@ private final class WarmBridge: @unchecked Sendable {
     #expect(ActivityCopy.liveLine(nil, since: start, now: now, status: .working(program: "Agent One")) == "Agent One is working… · 14 s")
     var activity = ToolActivity(); activity.apply(ToolEvent(phase: .started, name: "bash", preview: "ls", callID: "1"), at: start + 2)
     #expect(ActivityCopy.liveLine(activity, since: start, now: now, status: .working(program: "Agent One")) == "Working… · Running a command · step 1 · 14 s", "a running tool step says more than the report")
-    #expect(ActivityCopy.liveLine(activity, since: start, now: now, status: .blocked(program: "Agent One")) == "Agent One is waiting for you in its terminal · 1 step · 14 s", "unless the agent waits for the person")
+    #expect(ActivityCopy.liveLine(activity, since: start, now: now, status: .blocked(program: "Agent One")) == "Agent One needs a terminal status check · 1 step · 14 s", "unless the agent waits for the person")
     activity.apply(ToolEvent(phase: .completed, name: "bash", callID: "1"), at: start + 3)
     #expect(ActivityCopy.liveLine(activity, since: start, now: now, status: .working(program: "Agent One")) == "Agent One is working… · 1 step · 14 s")
     #expect(ActivityCopy.liveLine(activity, since: start, lastText: now - 1, now: now, status: .working(program: "Agent One")) == "Typing… · 1 step · 14 s", "text that arrives says more too")
@@ -247,7 +247,7 @@ private final class WarmBridge: @unchecked Sendable {
     // An agent that shows a prompt in its terminal is running but takes no message: the header says so.
     let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
     let prompting = try decoder.decode(HerdrClient.Agent.self, from: Data(#"{"address":"t1","created_ms":5,"name":"x","state":"live","template":"tpl-one","status":{"state":"blocked"},"ready":true,"warm":true,"warm_ends_ms":9}"#.utf8))
-    #expect(prompting.warmEndsMs == 9 && HerdrAgentReadiness(prompting, in: now) == .blocked(program: "Agent One") && HerdrAgentReadiness.blocked(program: nil).word == "Waiting for you in its terminal")
+    #expect(prompting.warmEndsMs == 9 && HerdrAgentReadiness(prompting, in: now) == .blocked(program: "Agent One") && HerdrAgentReadiness.blocked(program: nil).word == "Check terminal")
 }
 
 /// Opening a chat starts that bot's agent, once, and only that bot's; the switch and a server that does not start

@@ -67,7 +67,7 @@ import Foundation
         }
         let selection = value(after: "--bots", in: arguments).map { $0.split(separator: ",").map(String.init) }
         let storeURL = value(after: "--store", in: arguments).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-        let store = store ?? AppStore(storeURL: storeURL, autoStart: false)
+        let store = store ?? AppStore(storeURL: storeURL, autoStart: false, exclusiveWriter: true)
         if mode == .full {
             output("Mode full: \(AppConstants.name) reads Grok Bot's sign-in once; macOS will show its own Keychain window. " +
                    "Click Allow, not Always Allow.")

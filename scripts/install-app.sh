@@ -11,7 +11,12 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 [[ $# -eq 1 && -f "$1" ]] || die "Usage: $0 /path/to/SwarmHub-release.zip"
 archive="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
-mkdir "$lock" 2>/dev/null || die "Cannot start installation in /Applications. Check access and whether another installation is running."
+if ! mkdir "$lock" 2>/dev/null; then
+  if [[ -d "$lock/previous" ]]; then
+    die "An earlier installation kept the previous app at $lock/previous. Confirm that the earlier installer has stopped before recovering it."
+  fi
+  die "Cannot start installation in /Applications. Check access and whether another installation is running ($lock)."
+fi
 
 staged="$lock/incoming/SwarmHub.app"
 previous="$lock/previous"

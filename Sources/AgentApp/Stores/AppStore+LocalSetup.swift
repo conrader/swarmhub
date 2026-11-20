@@ -65,7 +65,11 @@ extension AppStore {
 
     /// Opens the terminal of an AI that waits for an answer. Returns false when Terminal could not be opened.
     @discardableResult func answerInTerminal(_ check: HerdrAICheck) -> Bool {
-        guard case .asks(_, let agent) = check.state else { return false }
+        let agent: HerdrClient.AgentRef
+        switch check.state {
+        case .asks(_, let ref), .unready(let ref): agent = ref
+        default: return false
+        }
         return openInTerminal(script: Self.terminalScript(core: localService.corePath, address: agent.address, name: check.name, environment: ProcessInfo.processInfo.environment), name: check.name)
     }
 

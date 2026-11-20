@@ -168,9 +168,17 @@ extension AppStore {
     static func herdrProjectsKey(_ botID: UUID) -> String { "herdrProjects.\(botID.uuidString.lowercased())" }
     static func herdrProjectsChangedKey(_ botID: UUID) -> String { "herdrProjectsChanged.\(botID.uuidString.lowercased())" }
 
-    /// The projects on other servers this bot may use, in the order they were chosen. None unless the person chose some.
+    private struct ProjectGrant: Codable {
+        let serverID: String
+        let projects: [HerdrBotProject]
+    }
+
+    /// The projects on other servers this bot may use, in the order they were chosen.
     func herdrProjects(for bot: Bot) -> [HerdrBotProject] {
         guard let data = defaults.data(forKey: Self.herdrProjectsKey(bot.id)) else { return [] }
+        if let grant = try? JSONDecoder().decode(ProjectGrant.self, from: data) {
+            return grant.serverID == herdrServer(for: bot).id ? grant.projects : []
+        }
         return (try? JSONDecoder().decode([HerdrBotProject].self, from: data)) ?? []
     }
 
@@ -182,7 +190,7 @@ extension AppStore {
     func setHerdrProjects(_ projects: [HerdrBotProject], for bot: Bot) {
         guard projects != herdrProjects(for: bot) else { return }
         if projects.isEmpty { defaults.removeObject(forKey: Self.herdrProjectsKey(bot.id)) }
-        else if let data = try? JSONEncoder().encode(projects) { defaults.set(data, forKey: Self.herdrProjectsKey(bot.id)) }
+        else if let data = try? JSONEncoder().encode(ProjectGrant(serverID: herdrServer(for: bot).id, projects: projects)) { defaults.set(data, forKey: Self.herdrProjectsKey(bot.id)) }
         defaults.set(true, forKey: Self.herdrProjectsChangedKey(bot.id))
         objectWillChange.send()
     }

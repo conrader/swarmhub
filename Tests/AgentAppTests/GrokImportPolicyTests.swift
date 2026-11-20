@@ -117,3 +117,67 @@ private func inApp(_ server: String? = nil, refresh: Bool = false) -> GrokImport
     let archive = store.grokHistory.fileURL(for: try #require(store.bots.first { $0.grokSourceID == jarvisID }).id)
     #expect(!String(decoding: try Data(contentsOf: archive), as: UTF8.self).contains("FAKE1"))
 }
+
+@MainActor @Test func fullThenRecentPreservesSettledArchiveText() async throws {
+    var bundle = try #require(try native().first { $0.sourceId == jarvisID })
+    let complete = "The entire settled answer ends here."
+    var message = try #require(bundle.messages.first)
+    message.text = complete
+    message.streaming = nil
+    bundle.messages = [message]
+    let store = policyStore()
+    try await store.importGrokBundles([bundle], policy: .inApp(refreshIdentity: false))
+    message.text = "The entire"
+    message.streaming = true
+    bundle.messages = [message]
+    try await store.importGrokBundles([bundle], policy: .inApp(refreshIdentity: false))
+    let bot = try #require(store.bots.first)
+    let line = try #require(store.grokHistory.messages(for: bot.id).first { $0.id == message.id })
+    #expect(line.text == complete && line.streaming == nil)
+    message.text = "Stale export"
+    message.streaming = nil
+    bundle.messages = [message]
+    try await store.importGrokBundles([bundle], policy: .inApp(refreshIdentity: false))
+    #expect(store.grokHistory.messages(for: bot.id).first { $0.id == message.id }?.text == complete)
+}
+
+@MainActor @Test func testedSecondHostReceivesAnImportedBotWithoutCreatingAnotherBot() async throws {
+    let store = policyStore()
+    let local = HerdrServer(id: "one", name: "Mac", kind: .local, address: "http://127.0.0.1:8787")
+    let remote = HerdrServer(id: "two", name: "Studio", kind: .address, address: "http://127.0.0.1:8788")
+    store.saveHerdrServers([local, remote])
+    let programs = [HerdrProgram(template: "a", name: "Codex", takesModel: false, models: []),
+                    HerdrProgram(template: "b", name: "Claude", takesModel: false, models: [])]
+    let offer = HerdrOffer(programs: programs)
+    var flow = SetupFlow()
+    flow.connectToSaved(remote)
+    #expect(flow.step == .herdr && !flow.herdrReady)
+    flow.apply(.herdrTest(.connected(server: remote, key: nil, offer: offer)))
+    #expect(flow.herdrReady && store.bots.isEmpty)
+
+    var bundle = try #require(try native().first { $0.sourceId == jarvisID })
+    bundle.description = "A teammate with its own computer that takes real work off your plate."
+    bundle.title = nil
+    bundle.instructions = nil
+    #expect(PreparedGrokBundle(bundle).description.isEmpty)
+    let id = UUID()
+    var destination = GrokDestination(serverID: remote.id, offer: offer, testedHost: remote,
+        templates: [bundle.sourceId: "b"], newBotIDs: [bundle.sourceId: id],
+        descriptions: [bundle.sourceId: "Runs infrastructure reviews."])
+    try await store.importGrokBundles([bundle], policy: .inApp(refreshIdentity: false), destination: destination)
+    let bot = try #require(store.bots.first)
+    #expect(store.bots.count == 1 && bot.id == id && bot.canManageBots)
+    #expect(store.herdrServer(for: bot) == remote && store.herdrTemplate(for: bot) == "b")
+    #expect(bot.botDescription == "Runs infrastructure reviews." && !bot.showsReleaseNotesExample)
+
+    bot.name = "Edited name"; bot.persona = "Edited instructions"
+    destination.descriptions.removeAll()
+    try await store.importGrokBundles([bundle], policy: .inApp(refreshIdentity: false), destination: destination)
+    #expect(bot.name == "Edited name" && bot.persona == "Edited instructions" && bot.botDescription == "Runs infrastructure reviews.")
+    try await store.importGrokBundles([bundle], policy: .inApp(refreshIdentity: true), destination: destination)
+    #expect(bot.botDescription == "Runs infrastructure reviews.")
+    store.removeHerdrServer(remote)
+    await #expect(throws: GrokImportError.destinationUnavailable) {
+        try await store.importGrokBundles([bundle], policy: .inApp(refreshIdentity: false), destination: destination)
+    }
+}

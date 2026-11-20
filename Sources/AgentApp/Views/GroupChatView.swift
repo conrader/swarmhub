@@ -3,7 +3,8 @@ import SwiftUI
 /// A group's shared thread: the user's messages and each member's replies under its own avatar.
 struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
-    @State private var draft = ""; @StateObject private var intake = AttachmentIntake()
+    @State private var draft = ""; private var intake: AttachmentIntake { store.attachmentIntake(for: group.id) }
+    @State private var verifyingAttachmentSupport = false
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
@@ -46,11 +47,19 @@ struct GroupChatView: View {
                         HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
                     }
-                    ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
+                    if let current = store.turn(in: group), let bot = store.bots.first(where: { $0.id == current.botID }),
+                       current.assistant?.metadata[TurnKey.agent].flatMap(HerdrTurnStatus.init(code:))?.needsPerson == true {
+                        Button("View terminal") {
+                            Task { await store.viewHerdrTerminal(for: bot, sessionID: store.turnSessionID(in: group, bot: bot)) }
+                        }.buttonStyle(.link).font(.caption)
+                    }
+                    AttachmentComposer(intake: intake) { attachments in
+                     ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
                                  send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
                                  pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                                  reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                                  mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), recipient: group.name)
+        }
                     }
                     .frame(maxWidth: .infinity).glassGroup(spacing: 4)
                     .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy).alignmentGuide(.top) { $0[.bottom] } }
@@ -73,10 +82,22 @@ struct GroupChatView: View {
         message.role == .user ? "you" : message.authorID.flatMap { id in store.bots.first { $0.id == id }?.name } ?? "bot"
     }
     private func send() {
-        let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
-        store.chatScroll.toBottom(group.id) // Sending always goes to the bottom.
-        // During a round the attachments go too (the message waits for the round to end).
-        if store.send(text: value, attachments: intake.items, to: group) { draft = ""; intake.items = [] }
+        let value = draft, items = intake.items
+        guard !verifyingAttachmentSupport, !intake.isReading,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !items.isEmpty else { return }
+        if items.isEmpty { submit(value, items: items); return }
+        verifyingAttachmentSupport = true
+        Task {
+            defer { verifyingAttachmentSupport = false }
+            guard await store.confirmHerdrAttachments(store.groupRecipients(of: value, in: group)), store.selectedGroup?.id == group.id,
+                  value == draft, items == intake.items else { return }
+            submit(value, items: items)
+        }
+    }
+
+    private func submit(_ value: String, items: [ChatAttachment]) {
+        store.chatScroll.toBottom(group.id)
+        if store.send(text: value, attachments: items, to: group) { draft = ""; intake.items = [] }
     }
 }
 

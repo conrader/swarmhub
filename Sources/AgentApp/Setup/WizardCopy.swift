@@ -6,6 +6,7 @@ import Foundation
 /// key" for the server's secret. It names no AI and no model itself: those names come from the server.
 enum WizardCopy {
     /// The four steps, as the strip at the top of the window names them.
+    static let addHost = "Add a host"
     static let steps = ["Where", "Connect", "Main bot", "More bots"]
     /// The optional step after the bots, on a server that can add project servers.
     static let projectsStep = "Projects"

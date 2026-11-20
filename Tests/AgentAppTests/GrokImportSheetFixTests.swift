@@ -60,3 +60,43 @@ import Testing
     #expect(coordinator.selected == [GrokRunIDs.finance, GrokRunIDs.plain])
 }
 
+
+@MainActor @Test func exportReviewUsesTheTestedPlanAndRetrySeparatesSkippedFromImported() async throws {
+    let world = try GrokWorld()
+    let store = world.store()
+    let host = HerdrServer(id: "studio", name: "Studio", kind: .address, address: "http://127.0.0.1:8788")
+    store.saveHerdrServers([host])
+    let offer = HerdrOffer(programs: [.init(template: "claude", name: "Claude Code", takesModel: false, models: [])],
+        workspaceRoot: "/private/workspaces")
+    let coordinator = GrokImportCoordinator(store: store, environment: world.environment(),
+        destination: .init(serverID: host.id, offer: offer, testedHost: host), requiresTestedHost: true)
+    let bundles = try GrokBundleLoader.load(from: grokGoldenExport).filter { $0.isGroup != true }
+    let chosen = try #require(bundles.first)
+    coordinator.useExportBundles([chosen])
+    let item = try #require(coordinator.items.first)
+    #expect(coordinator.destination(for: item).contains("New bot"))
+    #expect(coordinator.destination(for: item).contains("Studio") && coordinator.destination(for: item).contains("Claude Code"))
+    let id = try #require(coordinator.destinationPlan?.newBotIDs[item.id])
+    try GrokHistoryStore.prepareDirectory(store.grokHistory.directory)
+    try Data("invalid archive".utf8).write(to: store.grokHistory.fileURL(for: id))
+
+    await coordinator.proceed()
+    await coordinator.settled()
+    #expect(coordinator.outcomeHeadline == "0 imported · 0 partial · 1 skipped")
+    #expect(coordinator.botOutcomes.isEmpty && coordinator.unfinishedIDs == [chosen.sourceId])
+    await coordinator.retryUnfinished()
+    await coordinator.settled()
+    #expect(coordinator.outcomeHeadline == "1 imported · 0 partial · 0 skipped")
+    let imported = try #require(store.bots.first { $0.id == id })
+    let done = try #require(coordinator.outcomes.first.flatMap(coordinator.savedDestination(for:)))
+    #expect(done.location.contains("Created bot") && done.location.contains("Studio"))
+    #expect(done.workspace == "/private/workspaces/" + id.uuidString.lowercased())
+    #expect(store.herdrServer(for: imported) == host && store.herdrTemplate(for: imported) == "claude")
+    imported.name = "Local name"
+    imported.persona = "Local instructions"
+    coordinator.useExportBundles([chosen])
+    #expect(coordinator.destination(for: item).contains("Update history"))
+    await coordinator.proceed()
+    await coordinator.settled()
+    #expect(imported.name == "Local name" && imported.persona == "Local instructions")
+}

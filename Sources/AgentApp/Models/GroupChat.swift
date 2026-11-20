@@ -61,52 +61,54 @@ struct StoreFile: Codable {
     var version = StoreFile.currentVersion; var bots: [Bot]; var groups: [GroupChat]
     /// Each chat's top visible message (conversation id → message id); absent while empty.
     var scrollPositions: [String: String]?
+    var removedBots: [String: Set<String>]?
 
     init(bots: [Bot], groups: [GroupChat], scrollPositions: [String: String]? = nil) {
         self.bots = bots; self.groups = groups; self.scrollPositions = scrollPositions
     }
 
-    enum CodingKeys: CodingKey { case version, bots, groups, scrollPositions }
+    enum CodingKeys: CodingKey { case version, bots, groups, scrollPositions, removedBots }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        let stored = try c.decodeIfPresent([StoredBot].self, forKey: .bots) ?? []
-        bots = stored.compactMap(\.bot)
+        guard version <= StoreFile.currentVersion, c.contains(.bots) || c.contains(.groups) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath, debugDescription: "Unsupported store structure."))
+        }
+        bots = try c.decodeIfPresent([Bot].self, forKey: .bots) ?? []
         groups = try c.decodeIfPresent([GroupChat].self, forKey: .groups) ?? []
         scrollPositions = (try? c.decodeIfPresent([String: String].self, forKey: .scrollPositions)) ?? nil
-        let retired = Set(stored.compactMap(\.retiredID))
-        if !retired.isEmpty {
-            for group in groups {
-                group.memberIDs.removeAll(where: retired.contains)
-                for id in retired { group.sessions.removeValue(forKey: id.uuidString.lowercased()) }
-            }
-        }
-    }
-
-    private struct StoredBot: Decodable {
-        let bot: Bot?
-        let retiredID: UUID?
-        private enum Key: CodingKey { case backend, id }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: Key.self)
-            switch try container.decodeIfPresent(String.self, forKey: .backend) {
-            case .some("Hermes Agent"), .some("OpenClaw"):
-                bot = nil
-                retiredID = try? container.decode(UUID.self, forKey: .id)
-            default:
-                bot = try Bot(from: decoder)
-                retiredID = nil
-            }
-        }
+        removedBots = try c.decodeIfPresent([String: Set<String>].self, forKey: .removedBots)
     }
 
     static func decode(_ data: Data) throws -> StoreFile {
         let first = data.first { ![0x20, 0x09, 0x0A, 0x0D].contains($0) }
         guard first == UInt8(ascii: "[") else { return try JSONDecoder().decode(StoreFile.self, from: data) }
-        let bots = try JSONDecoder().decode([StoredBot].self, from: data).compactMap(\.bot)
-        var file = StoreFile(bots: bots, groups: [])
+        var file = StoreFile(bots: try JSONDecoder().decode([Bot].self, from: data), groups: [])
         file.version = 1
         return file
+    }
+
+    mutating func migrateArchivedGroups() -> [String] {
+        let archived = bots.filter { $0.retiredBackend == nil && $0.archivedMembers != nil }
+        var names: [String] = []
+        for old in archived {
+            let ids = AppStore.resolveMembers((old.archivedMembers ?? []).map { ($0, nil) }, from: bots)
+            let group = GroupChat(id: old.id, name: old.name, memberIDs: ids, messages: old.messages, createdAt: old.createdAt)
+            group.grokSourceID = old.grokSourceID; group.grokHistoryCount = old.grokHistoryCount
+            group.isHidden = old.isHidden; group.isMuted = !old.notificationsEnabled
+            group.unreadCount = old.unreadCount; group.manualUnread = old.manualUnread
+            if let existing = groups.first(where: { $0.id == group.id }) {
+                let saved = Set(existing.messages.map(\.id))
+                existing.messages += group.messages.filter { !saved.contains($0.id) }
+                existing.messages.sort { $0.createdAt < $1.createdAt }
+                existing.grokSourceID = existing.grokSourceID ?? group.grokSourceID
+                existing.grokHistoryCount = max(existing.grokHistoryCount, group.grokHistoryCount)
+            } else {
+                groups.append(group); names.append(group.name)
+            }
+        }
+        let archivedIDs = Set(archived.map(\.id))
+        bots.removeAll { archivedIDs.contains($0.id) }
+        return names
     }
 }

@@ -112,10 +112,14 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     /// conversation — its member names.
     @Published var accentColor: String?; @Published var grokSourceID: String?
     @Published var grokHistoryCount: Int; @Published var archivedMembers: [String]?
-    var isReadOnlyArchive: Bool { archivedMembers != nil }
+    private(set) var retiredBackend: String?
+    private(set) var needsRetiredBackendMigration = false
+    var isReadOnlyArchive: Bool { archivedMembers != nil || retiredBackend != nil }
+    var offersReleaseNotesExample = false
+    var showsReleaseNotesExample: Bool { (isDemo || offersReleaseNotesExample) && messages.isEmpty && grokSourceID == nil && !isReadOnlyArchive }
     let createdAt: Date; @Published var messages: [ChatMessage]
-    init(name: String, title: String = "", description: String = "", persona: String = Bot.defaultPersona, backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, messages: [ChatMessage] = [], sessionID: String? = nil, isDemo: Bool = false) {
-        id = UUID(); self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
+    init(id: UUID = UUID(), name: String, title: String = "", description: String = "", persona: String = Bot.defaultPersona, backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, messages: [ChatMessage] = [], sessionID: String? = nil, isDemo: Bool = false) {
+        self.id = id; self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
         self.avatarName = avatarName ?? .faceCoral; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
         self.sessionID = sessionID; self.isDemo = isDemo; accentColor = nil; grokSourceID = nil; grokHistoryCount = 0; archivedMembers = nil
         manualUnread = false; createdAt = .now; self.messages = messages
@@ -131,22 +135,35 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     var outboundPersona: String { grokSourceID == nil ? persona : SecretFilter.redacted(persona, replacement: GrokRedactor.marker) }
     static func ==(lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots, retiredBackend, offersReleaseNotesExample }
     required init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
+        let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id)
+        let savedBackend = try c.decodeIfPresent(String.self, forKey: .backend)
+        let fallbackName = savedBackend == "Hermes Agent" || savedBackend == "OpenClaw" ? savedBackend : nil
+        let decodedName = try c.decodeIfPresent(String.self, forKey: .name) ?? fallbackName ?? "Bot"
+        name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
-        persona = try c.decode(String.self, forKey: .persona); let decodedBackend = try c.decode(BackendKind.self, forKey: .backend); backend = decodedBackend
+        persona = try c.decodeIfPresent(String.self, forKey: .persona) ?? Bot.defaultPersona
+        if savedBackend == "Hermes Agent" || savedBackend == "OpenClaw" {
+            needsRetiredBackendMigration = true
+            retiredBackend = savedBackend
+        }
+        else { retiredBackend = try c.decodeIfPresent(String.self, forKey: .retiredBackend) }
+        let decodedBackend = retiredBackend == nil ? try c.decode(BackendKind.self, forKey: .backend) : .mock
+        backend = decodedBackend
         let legacyAvatar: BotAvatarName = ["Atlas": .robot, "Mira": .blob, "Patch": .headphones, "Scout": .fox, "Nova": .planet][decodedName] ?? .robot
         avatarName = try c.decodeIfPresent(BotAvatarName.self, forKey: .avatarName) ?? legacyAvatar; unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
         isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false; notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
         sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
-        isDemo = try c.decodeIfPresent(Bool.self, forKey: .isDemo) ?? Bot.looksLikeLegacyDemo(name: decodedName, backend: decodedBackend)
+        isDemo = try c.decodeIfPresent(Bool.self, forKey: .isDemo) ?? (retiredBackend == nil && Bot.looksLikeLegacyDemo(name: decodedName, backend: decodedBackend))
         accentColor = try c.decodeIfPresent(String.self, forKey: .accentColor)
         grokSourceID = try c.decodeIfPresent(String.self, forKey: .grokSourceID); grokHistoryCount = try c.decodeIfPresent(Int.self, forKey: .grokHistoryCount) ?? 0
         archivedMembers = try c.decodeIfPresent([String].self, forKey: .archivedMembers)
         manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
+        offersReleaseNotesExample = try c.decodeIfPresent(Bool.self, forKey: .offersReleaseNotesExample) ?? false
         canManageBots = try c.decodeIfPresent(Bool.self, forKey: .canManageBots) ?? false
-        createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        messages = try c.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
         avatarMark = (try? c.decodeIfPresent(AvatarMark.self, forKey: .avatarMark)) ?? nil
         if avatarMark == nil, let migrated = AvatarMigration.mark(avatarName: avatarName, accentColor: accentColor, grokSourceID: grokSourceID) {
@@ -166,6 +183,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(grokHistoryCount, forKey: .grokHistoryCount); try c.encodeIfPresent(archivedMembers, forKey: .archivedMembers)
         try c.encode(manualUnread, forKey: .manualUnread)
         try c.encodeIfPresent(avatarMark, forKey: .avatarMark)
+        try c.encodeIfPresent(retiredBackend, forKey: .retiredBackend)
+        if offersReleaseNotesExample { try c.encode(true, forKey: .offersReleaseNotesExample) }
         if canManageBots { try c.encode(true, forKey: .canManageBots) }
     }
 }

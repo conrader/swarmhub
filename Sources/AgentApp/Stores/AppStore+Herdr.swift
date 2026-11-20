@@ -33,7 +33,10 @@ extension AppStore {
     }
 
     func setHerdrServer(_ id: String, for bot: Bot) {
-        if id.isEmpty || id == herdrServers.first?.id { defaults.removeObject(forKey: HerdrServer.botKey(bot.id)) } else { defaults.set(id, forKey: HerdrServer.botKey(bot.id)) }
+        let previous = herdrServer(for: bot)
+        let next = herdrServer(id: id) ?? herdrServers[0]
+        if previous.id != next.id { setHerdrProjects([], for: bot) }
+        defaults.set(next.id, forKey: HerdrServer.botKey(bot.id))
         objectWillChange.send()
     }
 
@@ -73,6 +76,10 @@ extension AppStore {
         var servers = herdrServers
         if let index = servers.firstIndex(where: { $0.id == server.id }) {
             let old = servers[index]
+            if old.kind != server.kind || old.address != server.address ||
+                old.sshHost != server.sshHost || old.sshUser != server.sshUser {
+                for bot in herdrBots(on: old) { setHerdrProjects([], for: bot) }
+            }
             if old != server { herdrTunnels.close(server.id) }
             if old.sshHost != server.sshHost || old.sshUser != server.sshUser { herdrTunnels.forgetPassword(for: old) }
             servers[index] = server
@@ -87,12 +94,16 @@ extension AppStore {
     func removeHerdrServer(_ server: HerdrServer) {
         var servers = herdrServers
         guard servers.count > 1, servers.contains(where: { $0.id == server.id }) else { return }
+        let moving = herdrBots(on: server)
+        for bot in moving {
+            setHerdrProjects([], for: bot)
+            defaults.removeObject(forKey: HerdrServer.botKey(bot.id))
+        }
         servers.removeAll { $0.id == server.id }
         herdrTunnels.forgetPassword(for: server)
         herdrTunnels.close(server.id)
         keyStore.setKey("", for: server.keyAccount)
         // Its bots move to another server, which has its own projects: the ones chosen on this server do not go with them.
-        for bot in bots where defaults.string(forKey: HerdrServer.botKey(bot.id)) == server.id { defaults.removeObject(forKey: HerdrServer.botKey(bot.id)); setHerdrProjects([], for: bot) }
         herdrProjectModels[server.id] = nil
         saveHerdrServers(servers)
     }

@@ -6,10 +6,12 @@ import Testing
 private final class PromptBridge: @unchecked Sendable {
     private let lock = NSLock()
     private var screen = "", state = "blocked"
+    private var kind = "permission"
     let agentName: String
     init(agentName: String) { self.agentName = agentName }
 
     func show(_ text: String) { lock.withLock { screen = text } }
+    func statusKind(_ value: String) { lock.withLock { kind = value } }
     func move() { lock.withLock { state = "working" } }
 
     func session() -> (address: String, session: URLSession) {
@@ -21,7 +23,7 @@ private final class PromptBridge: @unchecked Sendable {
         lock.withLock { () -> (Int, Any) in
             switch "\(request.httpMethod ?? "GET") \(request.url?.path ?? "")" {
             case "GET /api/workspace":
-                let agent: [String: Any] = ["address": "t7", "created_ms": 9, "name": agentName, "state": "live", "template": "tpl-one", "status": ["state": state, "kind": "permission"], "first_message": NSNull(), "ready": true]
+                let agent: [String: Any] = ["address": "t7", "created_ms": 9, "name": agentName, "state": "live", "template": "tpl-one", "status": ["state": state, "kind": kind], "first_message": NSNull(), "ready": true]
                 let template: [String: Any] = ["name": "tpl-one", "description": "", "error": NSNull(), "runtime": ["harness": "Agent One", "provider": NSNull(), "model": NSNull()]]
                 return (200, ["core": "c", "version": "1", "agents": [agent], "templates": [template]])
             case "GET /api/agents/t7/9/output": return (200, ["text": screen])
@@ -40,6 +42,10 @@ private final class PromptBridge: @unchecked Sendable {
         store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: kind, address: address, sshHost: kind == .ssh ? "studio.example.com" : "", sshUser: kind == .ssh ? "deploy" : ""), token: "t")
         let bot = Bot(name: "Infra", backend: .herdr), other = Bot(name: "Jarvis", backend: .herdr)
         store.bots = [other, bot]; store.selectedBot = other
+        let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
+        let served = bridge.session()
+        store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: kind, address: served.address), token: "t")
+        store.herdrClientSetup = { $0.session = served.session }
         let notices = Notices()
         store.herdrPromptBook.notifier = { bot, text in notices.sent.append((bot.name, text)) }
         return (store, bot, other, notices)
@@ -47,10 +53,11 @@ private final class PromptBridge: @unchecked Sendable {
 
     private let blocked = HerdrTurnStatus.blocked(program: "Agent One")
 
-    @Test func aWaitingAgentIsRaisedOnceAsUnreadAndANotification() {
+    @Test func aWaitingAgentIsRaisedOnceAsUnreadAndANotification() async throws {
         let (store, bot, _, notices) = makeStore()
         #expect(store.herdrPrompts[bot.id] == nil && !bot.isUnread && !store.needsAttention(bot))
         store.herdrTurnStatus(blocked, for: bot)
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
         let prompt = store.herdrPrompts[bot.id]
         #expect(prompt?.program == "Agent One" && prompt?.title == "Agent One is waiting for your answer")
         #expect(bot.isUnread, "the chat is marked unread")
@@ -66,12 +73,14 @@ private final class PromptBridge: @unchecked Sendable {
         #expect(!bot.isUnread && notices.sent.count == 1)
     }
 
-    @Test func thePromptGoesWhenTheAgentMovesAndANewOneIsRaisedAnew() {
+    @Test func thePromptGoesWhenTheAgentMovesAndANewOneIsRaisedAnew() async throws {
         let (store, bot, other, notices) = makeStore()
         store.herdrTurnStatus(blocked, for: bot)
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
         store.herdrTurnStatus(.working(program: "Agent One"), for: bot)
         #expect(store.herdrPrompts[bot.id] == nil && !store.needsAttention(bot))
         store.herdrTurnStatus(blocked, for: bot)
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
         #expect(store.herdrPrompts[bot.id] != nil && notices.sent.count == 2, "a second question is a new thing to tell")
         // The turn ends (the person stopped it, or it finished): no prompt is left behind.
         store.herdrTurnStatus(nil, for: bot)
@@ -79,18 +88,20 @@ private final class PromptBridge: @unchecked Sendable {
         #expect(store.herdrPrompts[other.id] == nil && notices.sent.allSatisfy { $0.bot == "Infra" }, "only the bot that waits")
     }
 
-    @Test func aMutedBotIsMarkedButSendsNoNotification() {
+    @Test func aMutedBotIsMarkedButSendsNoNotification() async throws {
         let (store, bot, _, notices) = makeStore()
         bot.notificationsEnabled = false
         store.herdrTurnStatus(blocked, for: bot)
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
         #expect(store.herdrPrompts[bot.id] != nil && bot.isUnread)
         #expect(notices.sent.isEmpty, "the bot's notification switch is respected")
     }
 
-    @Test func anAgentThatWaitsBeforeAnyMessageIsRaisedToo() {
+    @Test func anAgentThatWaitsBeforeAnyMessageIsRaisedToo() async throws {
         let (store, bot, _, notices) = makeStore()
         // The chat header's reading of the server's list: the agent shows a prompt, and no turn runs.
         store.herdrReadiness[bot.id] = .blocked(program: "Agent One")
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
         #expect(store.herdrPrompts[bot.id]?.program == "Agent One" && notices.sent.count == 1)
         store.herdrReadiness[bot.id] = .ready
         #expect(store.herdrPrompts[bot.id] == nil)
@@ -130,8 +141,8 @@ private final class PromptBridge: @unchecked Sendable {
               2. No, and tell the agent what to do differently (esc)
             """)
         store.herdrTurnStatus(.blocked(program: nil), for: bot)
-        #expect(store.herdrPrompts[bot.id]?.question == "" && store.herdrPromptAnswer(for: bot) == nil, "nothing is offered before the server was read")
-        await store.refreshHerdrPrompt(for: bot)
+        #expect(store.herdrPrompts[bot.id] == nil && store.herdrPromptAnswer(for: bot) == nil)
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
         let prompt = try #require(store.herdrPrompts[bot.id])
         #expect(prompt.question == "Would you like to run the following command?\n$ make publish\n› 1. Yes, proceed (y)\n2. No, and tell the agent what to do differently (esc)")
         #expect(prompt.agent == HerdrClient.AgentRef(address: "t7", createdMs: 9))
@@ -169,9 +180,27 @@ private final class PromptBridge: @unchecked Sendable {
         #expect(HerdrPromptAnswer.isSafe(address: "t7") && HerdrPromptAnswer.isSafe(address: "build-box/t12"))
     }
 
-    @Test func aRemovedBotLeavesNoPrompt() {
+    @Test func aClaudeWelcomeScreenNeverMarksTheBotUnreadOrNotifies() async throws {
+        let (store, bot, _, notices) = makeStore()
+        let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
+        bridge.statusKind("ready")
+        bridge.show("Claude Code v2\nWelcome back!\n❯ Try fixing a bug\n? for shortcuts")
+        let served = bridge.session()
+        store.saveHerdrServer(.init(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "fixture")
+        store.herdrClientSetup = { $0.session = served.session }
+        store.herdrTurnStatus(.blocked(program: "Claude"), for: bot)
+        await store.refreshHerdrPrompt(for: bot)
+        #expect(store.herdrPrompts[bot.id] == nil && !bot.isUnread && notices.sent.isEmpty)
+        bridge.show("Do you trust the files in this folder?\n1. Yes, I trust this folder\n2. No, exit")
+        await store.refreshHerdrPrompt(for: bot)
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
+        #expect(bot.isUnread && notices.sent.count == 1)
+    }
+
+    @Test func aRemovedBotLeavesNoPrompt() async throws {
         let (store, bot, _, _) = makeStore()
         store.herdrReadiness[bot.id] = .blocked(program: nil)
+        try await waitUntil { store.herdrPrompts[bot.id] != nil }
         #expect(store.herdrPrompts[bot.id] != nil)
         store.bots.removeAll { $0.id == bot.id }
         store.herdrReadiness[bot.id] = nil

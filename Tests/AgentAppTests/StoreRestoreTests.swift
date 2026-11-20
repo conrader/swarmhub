@@ -37,7 +37,7 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(!FileManager.default.fileExists(atPath: url.path))
     let offer = try #require(store.storeRestoreOffer)
     #expect(offer.url.lastPathComponent == corrupt.lastPathComponent && offer.botCount == 3)
-    #expect(StoreRestoreCopy.question(offer).contains("3 bots") && StoreRestoreCopy.restore(offer) == "Restore backup (3 bots)")
+    #expect(offer.entries.map(\.name) == ["Boppy", "Jarvis", "Swarmhub"])
 }
 
 @Test @MainActor func withNothingToRestoreTheStoreStartsEmpty() throws {
@@ -180,31 +180,41 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     let current = Bot(name: "Current", backend: .herdr, sessionID: "session-1")
     let hermesID = UUID()
     let group = GroupChat(name: "Team", memberIDs: [current.id, hermesID])
+    group.sessions[hermesID.uuidString.lowercased()] = "retired-session"
+    let retiredMessages = try JSONSerialization.jsonObject(with: JSONEncoder().encode([ChatMessage(role: .user, content: "Old transcript")]))
     let data = try JSONEncoder().encode(StoreFile(bots: [current], groups: [group]))
     var mixed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let bots = try #require(mixed["bots"] as? [[String: Any]]) + [
-        ["backend": "Hermes Agent", "id": hermesID.uuidString],
+        ["backend": "Hermes Agent", "id": hermesID.uuidString, "name": "Hermes", "messages": retiredMessages],
         ["backend": "OpenClaw", "id": UUID().uuidString],
     ]
     mixed["bots"] = bots
     let original = try JSONSerialization.data(withJSONObject: mixed)
     let versionOne = try StoreFile.decode(JSONSerialization.data(withJSONObject: bots))
-    #expect(versionOne.version == 1 && versionOne.bots.map(\.id) == [current.id])
+    #expect(versionOne.version == 1 && versionOne.bots.count == 3)
+    #expect(versionOne.bots.first { $0.id == hermesID }?.messages.first?.content == "Old transcript")
 
     try original.write(to: url)
     let loaded = launch(url, defaults)
     #expect(loaded.persistenceEnabled && loaded.storeRestoreOffer == nil)
-    #expect(loaded.bots.map(\.id) == [current.id] && loaded.bots.first?.sessionID == "session-1")
-    #expect(loaded.groups.first?.memberIDs == [current.id])
+    #expect(loaded.bots.first?.id == current.id && loaded.bots.first?.sessionID == "session-1")
+    #expect(loaded.groups.first?.memberIDs == [current.id, hermesID])
+    #expect(loaded.groups.first?.session(for: hermesID) == "retired-session")
+    #expect(loaded.routingMembers(of: group).map(\.id) == [current.id])
+    loaded.save()
+    let archived = try #require(launch(url, defaults).bots.first(where: { $0.id == hermesID }))
+    #expect(archived.isReadOnlyArchive && archived.messages.first?.content == "Old transcript")
+    let preMigration = try #require(StoreRestore.candidates(for: url).first { $0.lastPathComponent.contains("before-herdr-only") })
+    #expect(try Data(contentsOf: preMigration) == original)
 
     let backup = url.appendingPathExtension("corrupt-fixture")
     try FileManager.default.moveItem(at: url, to: backup)
     mixed["bots"] = Array(bots.dropFirst())
     try JSONSerialization.data(withJSONObject: mixed).write(to: url)
     let store = launch(url, defaults)
-    #expect(store.persistenceEnabled && store.bots.isEmpty)
+    #expect(store.persistenceEnabled && store.bots.allSatisfy(\.isReadOnlyArchive))
     #expect(store.storeRestoreOffer == nil)
-    #expect(try Data(contentsOf: backup) == original)
+    #expect(try StoreFile.decode(Data(contentsOf: backup)).bots.count == 3)
 }
 
 @Test @MainActor func aHealthyGrokImportStoreSupersedesOlderBackupsAcrossLaunches() throws {
@@ -221,7 +231,7 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(try Data(contentsOf: url) == healthy)
 
     try FileManager.default.removeItem(at: url)
-    #expect(launch(url, defaults).storeRestoreOffer == nil)
+    #expect(launch(url, defaults).storeRestoreOffer?.botNames == ["Old"])
 }
 
 @Test @MainActor func skipSuppressesEveryExistingBackupAndLeavesAConcurrentLiveStoreIntact() throws {
@@ -251,7 +261,7 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(launch(url, defaults).storeRestoreOffer == nil)
 }
 
-@Test @MainActor func olderCopiesArePrunedOnlyWithinAFamilyWithAVerifiedReplacement() throws {
+@Test @MainActor func recoveringRetainsSmallerLargerAndUnreadableCopies() throws {
     let (url, defaults) = try setup()
     let directory = url.deletingLastPathComponent()
     let backups = directory.appending(path: "backups")
@@ -268,5 +278,85 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     let store = launch(url, defaults)
     #expect(store.storeRestoreOffer?.url.resolvingSymlinksInPath().path == newSub.resolvingSymlinksInPath().path)
     for copy in [newest, bad, otherSet, newSub] { #expect(FileManager.default.fileExists(atPath: copy.path)) }
-    for copy in [old, oldSub] { #expect(!FileManager.default.fileExists(atPath: copy.path)) }
+    for copy in [old, oldSub] { #expect(FileManager.default.fileExists(atPath: copy.path)) }
+}
+
+@Test @MainActor func restoreReviewsAMigratedSnapshotAndUndoSurvivesRelaunch() throws {
+    let (url, defaults) = try setup()
+    let legacy = Bot(name: "Old Grok group", messages: [ChatMessage(role: .user, content: "Saved line")])
+    legacy.archivedMembers = ["Jarvis"]
+    legacy.grokHistoryCount = 3
+    let backup = url.appendingPathExtension("bak-grok")
+    try JSONEncoder().encode([legacy]).write(to: backup)
+    let store = launch(url, defaults)
+    let offer = try #require(store.storeRestoreOffer)
+    #expect(offer.botCount == 0)
+    #expect(offer.entries == [.init(id: legacy.id, name: legacy.name, kind: "Group", messages: 1, archiveLines: nil, expectsArchive: true)])
+
+    #expect(store.restoreSetAsideStore())
+    #expect(store.bots.isEmpty && store.groups.first?.messages.first?.content == "Saved line")
+    let reopened = launch(url, defaults)
+    #expect(reopened.storeRestoreOffer == nil && reopened.restoreUndoRevision != nil)
+    reopened.undoStoreRestore()
+    #expect(reopened.groups.isEmpty && !FileManager.default.fileExists(atPath: url.path))
+    #expect(FileManager.default.fileExists(atPath: backup.path))
+    #expect(launch(url, defaults).storeRestoreOffer == nil)
+}
+
+@Test @MainActor func aChangedSnapshotAndGroupOnlyLiveDataBothPreventRestore() throws {
+    let (url, defaults) = try setup()
+    let backup = try writeStore(["One"], as: "store.json.bak-review", beside: url)
+    let store = launch(url, defaults)
+    try JSONEncoder().encode(StoreFile(bots: [Bot(name: "Other")], groups: [])).write(to: backup)
+    #expect(!store.restoreSetAsideStore())
+    #expect(!FileManager.default.fileExists(atPath: url.path))
+    let group = GroupChat(name: "Healthy group", memberIDs: [])
+    try JSONEncoder().encode(StoreFile(bots: [], groups: [group])).write(to: url)
+    #expect(launch(url, defaults).storeRestoreOffer == nil)
+    #expect(!store.restoreSetAsideStore())
+    #expect(try StoreFile.decode(Data(contentsOf: url)).groups.first?.id == group.id)
+}
+
+@Test @MainActor func aPendingRecoveryLeavesTheLedgerAndServerRegistrationUntouched() async throws {
+    let (url, defaults) = try setup()
+    let writer = launch(url, defaults)
+    let bot = Bot(name: "Existing", backend: .herdr)
+    let queued = ChatMessage(role: .user, content: "Keep waiting")
+    queued.metadata[TurnWaitCopy.key] = "waiting"
+    bot.messages = [queued]
+    writer.bots = [bot]
+    writer.save()
+    let record = NextMessageRecord(id: UUID(), anchorID: queued.id, kind: .turn, text: queued.content, state: .waiting)
+    try writer.journal().put(record, kind: AppStore.nextMessageKind, id: record.id.uuidString)
+    try FileManager.default.moveItem(at: url, to: url.appendingPathExtension("backup"))
+
+    let recovering = AppStore(storeURL: url, autoStart: true, keyStore: InMemoryKeyStore(), defaults: defaults)
+    #expect(recovering.storeRestoreOffer != nil && recovering.turns.nextMessages.isEmpty)
+    recovering.startLaunchWork(makeConnectivity: { nil })
+    recovering.startTeamCoordination()
+    #expect(!recovering.turns.didLaunchRecovery && recovering.teamPolling == nil)
+    #expect(try await recovering.ensureTeam(recovering.herdrServers[0]) == false)
+    #expect(try writer.journal().records(NextMessageRecord.self, kind: AppStore.nextMessageKind) == [record])
+    #expect(recovering.restoreSetAsideStore())
+    #expect(recovering.turns.nextMessages.map(\.id) == [record.id])
+}
+
+@Test @MainActor func onlyOneLiveWriterCanOpenTheSameStoreAndStaleWritesAreRefused() throws {
+    let (url, defaults) = try setup()
+    var gui: AppStore? = AppStore(storeURL: url, autoStart: false, exclusiveWriter: true, keyStore: InMemoryKeyStore(), defaults: defaults)
+    gui?.bots = [Bot(name: "GUI")]
+    gui?.save()
+    let stale = launch(url, defaults)
+    let command = AppStore(storeURL: url, autoStart: false, exclusiveWriter: true, keyStore: InMemoryKeyStore(), defaults: defaults)
+    #expect(!command.persistenceEnabled)
+    let result = HeadlessCommands.importGrok(path: grokGoldenExport.path, store: command, output: { _ in })
+    #expect(result != 0)
+    gui = nil
+    let next = AppStore(storeURL: url, autoStart: false, exclusiveWriter: true, keyStore: InMemoryKeyStore(), defaults: defaults)
+    #expect(next.persistenceEnabled)
+    #expect(HeadlessCommands.importGrok(path: grokGoldenExport.path, store: next, output: { _ in }) == 0)
+    let newer = try Data(contentsOf: url)
+    stale.save()
+    #expect(stale.turns.saveFailing)
+    #expect(try Data(contentsOf: url) == newer)
 }

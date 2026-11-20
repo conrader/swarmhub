@@ -61,9 +61,13 @@ extension AppStore {
         }
         row.turnState = .incomplete; row.isStreaming = true
         [TurnKey.why, TurnKey.ambiguous, TurnKey.retry, TurnKey.end].forEach { row.metadata[$0] = nil }
-        let history = chatHistory(conversation, upTo: trigger, excluding: row)
-        await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: bot.outboundPersona,
-                          backend: activeBackend, token: token)
+        let herdr = activeBackend is HerdrBackend
+        let files: [HerdrClient.TaskFile]
+        do { files = herdr ? try trigger.attachments.map(attachmentEncoder.taskFile(for:)) : [] }
+        catch { addWarning(error.localizedDescription, in: conversation, after: row); return }
+        let history = chatHistory(conversation, upTo: trigger, excluding: row, inlineFiles: !herdr)
+        await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: herdr ? [] : images, systemPrompt: bot.outboundPersona,
+                          backend: activeBackend, token: token, files: files)
     }
 
     func releaseSlot(_ token: UUID) {

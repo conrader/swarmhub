@@ -5,6 +5,7 @@ import SwiftUI
 /// own row directly above that bar (beside it, the Settings pill would truncate in a 240 pt sidebar).
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.openWindow) private var openWindow
     @Binding var selection: Bot?
     @State private var botToDelete: Bot?; @State private var groupToDelete: GroupChat?
     @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
@@ -21,7 +22,7 @@ struct SidebarView: View {
                     Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
                     Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }
                     if store.grokBotPresent {
-                        Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.showingGrokImport = true }
+                        Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.openSetup(openWindow: openWindow, forGrok: true) }
                     }
                 } label: { RoundSidebarLabel(symbol: "plus") }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()

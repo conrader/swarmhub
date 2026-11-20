@@ -23,12 +23,15 @@ struct SetupProjectsStep: View {
                 }
             }.frame(maxWidth: AppleMetrics.column)
         }
-        .task { if model.phase == .idle { await model.load() }; offerFirstProject() }
-        .onChange(of: model.machines.count) { _, _ in offerFirstProject() }
+        .task { if model.phase == .idle { await model.load() } }
     }
 
     @ViewBuilder private var ready: some View {
         StatusCard(kind: .info, title: HerdrProjectsCopy.consequence(flow.mainBotName), detail: WizardCopy.projectsSkip)
+        if let host = flow.herdrServer?.name {
+            Text("Saving a project server or project applies the change on \(host) immediately.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         ForEach(model.machines) { HerdrMachineCard(model: model, machine: $0) }
         if model.machines.isEmpty || addingServer || model.adding != .fields {
             HerdrAddMachineFlow(model: model, serverName: flow.herdrServer?.name ?? "")
@@ -44,15 +47,10 @@ struct SetupProjectsStep: View {
                             .accessibilityLabel(WizardCopy.projectsMayUse(flow.mainBotName, project.name))
                     }
                 }
-                if model.draft != nil { HerdrProjectEditor(model: model, saved: { choose($0, true) }, canCancel: !model.projects.isEmpty) }
-                else { Button(WizardCopy.projectsAnother) { model.newProject() } }
+                if model.draft != nil { HerdrProjectEditor(model: model, saved: { choose($0, true) }, canCancel: true) }
+                else { Button("Add project") { model.newProject() } }
             }
         }
-    }
-
-    /// A server with no project yet shows the form for the first one at once.
-    private func offerFirstProject() {
-        if model.phase == .ready, !model.machines.isEmpty, model.projects.isEmpty, model.draft == nil { model.newProject() }
     }
 
     private func choose(_ project: HerdrProject, _ on: Bool) {

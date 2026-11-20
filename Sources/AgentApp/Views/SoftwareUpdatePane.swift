@@ -15,20 +15,24 @@ struct SoftwareUpdatePane: View {
         var checking = false
         var lastCheck: Date? = nil
         var problem: String? = nil
+        var queued = false
         /// Why this build cannot update itself (a development build); the switches are hidden with it.
         var unavailable: String? = nil
         var checksAutomatically = true, installsAutomatically = false, mayInstallAutomatically = true
 
         var state: SoftwareUpdateSummary.App {
+            if checking { return .checking }
+            if problem != nil { return .failed }
             if let available { return .available(available) }
             return unavailable == nil && lastCheck != nil ? .upToDate : .unknown
         }
 
         var sentence: String {
             if let unavailable { return unavailable }
-            if let available { return "Version \(available) is available. Update Now shows what is new and installs it." }
+            if queued { return "Update check queued. It will start when the updater is ready." }
             if checking { return "Checking…" }
             if let problem { return "Could not check: \(problem)" }
+            if let available { return "Version \(available) is available. Update Now shows what is new and installs it." }
             guard let lastCheck else { return "Not checked yet." }
             return "Up to date. Last checked \(lastCheck.formatted(.relative(presentation: .named)))."
         }
@@ -46,9 +50,9 @@ struct SoftwareUpdatePane: View {
     private var model: SoftwareUpdateModel { preset ?? live }
     private var app: AppLine {
         presetApp ?? AppLine(version: info.version + (info.build.map { " (\($0))" } ?? ""), available: updater.available, checking: updater.isChecking,
-                             lastCheck: updater.lastCheck, problem: updater.problem, unavailable: updater.unavailableReason,
+                             lastCheck: updater.lastCheck, problem: updater.problem, queued: updater.manualCheckQueued, unavailable: updater.unavailableReason,
                              checksAutomatically: updater.automaticallyChecksForUpdates, installsAutomatically: updater.automaticallyDownloadsUpdates,
-                             mayInstallAutomatically: updater.allowsAutomaticUpdates)
+                             mayInstallAutomatically: updater.automaticInstallPreferenceAvailable)
     }
 
     var body: some View {
@@ -119,7 +123,7 @@ struct SoftwareUpdatePane: View {
                     if case .newer(let found) = release, let page = found.pageURL { Link(SimpleCopy.openRelease(found.name ?? found.tag), destination: page).font(.callout) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            if app.available != nil { Button("Update Now…") { updater.checkForUpdates() }.buttonStyle(.appleProminent) }
+            if case .available = app.state { Button("Update Now…") { updater.checkForUpdates() }.buttonStyle(.appleProminent) }
             else if app.checking { ProgressView().controlSize(.small) }
             else if app.state == .upToDate { Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(AppColor.good).accessibilityLabel("Up to date") }
         }.appleCard(padding: 12)

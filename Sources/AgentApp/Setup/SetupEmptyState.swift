@@ -18,7 +18,7 @@ struct SetupEmptyState: View {
                 Text(SimpleCopy.emptyTitle).font(.system(size: 26, weight: .bold))
                 Text(SimpleCopy.herdrEmptyDetail).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button(SimpleCopy.emptySetUp) { store.openSetup(openWindow: openWindow) }.buttonStyle(.appleProminent).controlSize(.large).padding(.top, 10)
-                Button("Bring my Grok bot") { store.showingGrokImport = true }
+                Button("Bring my Grok bot") { store.openSetup(openWindow: openWindow, forGrok: true) }
                 Button(SetupCopy.sampleLink) { store.loadSamples() }.buttonStyle(.plain).foregroundStyle(.tint)
             }.padding(40).frame(maxWidth: .infinity, maxHeight: .infinity).background(AppColor.chat)
         }

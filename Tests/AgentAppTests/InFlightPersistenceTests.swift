@@ -31,6 +31,7 @@ import Testing
     #expect(store.errorMessage == nil, "reported once per streak")
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     store.save(); try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    store.bots.append(Bot(name: "Unsaved change"))
     store.save()
     #expect(store.errorMessage != nil, "a new streak reports again")
 }

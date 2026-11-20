@@ -13,7 +13,7 @@ extension AppStore {
     // MARK: Membership
 
     func members(of group: GroupChat) -> [Bot] { group.memberIDs.compactMap { id in bots.first { $0.id == id } } }
-    func routingMembers(of group: GroupChat) -> [GroupRouting.Member] { members(of: group).map { .init(id: $0.id, name: $0.name) } }
+    func routingMembers(of group: GroupChat) -> [GroupRouting.Member] { members(of: group).filter { !$0.isReadOnlyArchive }.map { .init(id: $0.id, name: $0.name) } }
     func defaultGroupName(_ memberIDs: [UUID]) -> String {
         ([userName] + memberIDs.compactMap { id in bots.first { $0.id == id }?.name }).joined(separator: ", ")
     }
@@ -45,7 +45,7 @@ extension AppStore {
     }
 
     func deleteGroup(_ group: GroupChat) {
-        grokHistory.remove(group.id); groups.removeAll { $0.id == group.id }
+        discardComposerAttachments(for: group.id); grokHistory.remove(group.id); groups.removeAll { $0.id == group.id }
         if selectedGroup?.id == group.id { selectVisibleChat() }
         objectWillChange.send(); save()
     }
@@ -62,6 +62,10 @@ extension AppStore {
     /// Group members by Grok source id, then by name (Grok-imported bots first, demo bots last). The user and
     /// unknown names are skipped.
     func resolveMembers(_ entries: [(name: String, sourceID: String?)]) -> [UUID] {
+        Self.resolveMembers(entries, from: bots)
+    }
+
+    nonisolated static func resolveMembers(_ entries: [(name: String, sourceID: String?)], from bots: [Bot]) -> [UUID] {
         let candidates = bots.filter { !$0.isReadOnlyArchive }
         var ids: [UUID] = []
         for entry in entries {
@@ -76,23 +80,21 @@ extension AppStore {
     /// P6 stored an imported Grok group as a read-only bot listing member names. Each becomes a group with
     /// the same id (so its `grok-history/<id>.json` archive stays attached) and resolved members.
     @discardableResult func migrateArchivedGroups() -> [GroupChat] {
-        let archived = bots.filter(\.isReadOnlyArchive)
-        guard !archived.isEmpty else { return [] }
-        var migrated: [GroupChat] = []
-        for old in archived {
-            let ids = resolveMembers((old.archivedMembers ?? []).map { ($0, nil) })
-            let group = GroupChat(id: old.id, name: old.name, memberIDs: ids, messages: old.messages, createdAt: old.createdAt)
-            group.grokSourceID = old.grokSourceID; group.grokHistoryCount = old.grokHistoryCount
-            group.isHidden = old.isHidden; group.isMuted = !old.notificationsEnabled; group.unreadCount = old.unreadCount; group.manualUnread = old.manualUnread
-            if !groups.contains(where: { $0.id == group.id }) { groups.append(group); migrated.append(group) }
-        }
-        bots.removeAll(where: \.isReadOnlyArchive)
+        var file = storeFile
+        let names = file.migrateArchivedGroups()
+        guard file.bots.count != bots.count else { return [] }
+        bots = file.bots; groups = file.groups
         if selectedBot.map({ bot in !bots.contains(bot) }) == true { selectVisibleChat() }
-        migratedGroupNames = migrated.map(\.name)
-        return migrated
+        migratedGroupNames = names
+        return groups.filter { names.contains($0.name) }
     }
 
     // MARK: Sending
+
+    func groupRecipients(of text: String, in group: GroupChat) -> [Bot] {
+        let ids = GroupRouting.recipients(of: text, members: routingMembers(of: group))
+        return ids.compactMap { id in bots.first { $0.id == id } }
+    }
 
     /// The composer in a group: `@Name` picks recipients (none = everyone). Members answer one after another
     /// in member order, each in its own group session with the transcript since its last reply as context.
@@ -113,6 +115,9 @@ extension AppStore {
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
         let recipients = recipientIDs ?? GroupRouting.recipients(of: text, members: members)
+        for bot in bots where recipients.contains(bot.id) && bot.backend == .herdr {
+            guard validateGroupDraft(text, attachments: attachments, bot: bot) else { return false }
+        }
         let full = turnCapacityProblem(for: recipients.compactMap { id in bots.first { $0.id == id } })
         if let full, recipientIDs != nil { errorMessage = full; return false }
         steerHint = nil
@@ -121,6 +126,21 @@ extension AppStore {
         group.messages.append(message); replyTo = nil
         if let reason = full ?? (hasWaitingTurn(in: group) ? TurnWaitCopy.behind : nil) { return waitForTurn(message, in: group, reason: reason) }
         return startGroupRound(group, message: message, recipients: recipients, images: images)
+    }
+
+    private func validateGroupDraft(_ text: String, attachments: [ChatAttachment], bot: Bot) -> Bool {
+        guard validateHerdrDraft(text, attachments: attachments) else { return false }
+        do {
+            let limit = (try? herdrBackend(for: bot)).map { backend in
+                groupMessageBudget(backend, hasFiles: !attachments.isEmpty)
+            } ?? HerdrClient.messageBytes
+            try HerdrClient.validateMessage("\(userName): \(text)", limit: limit)
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+
+    func groupMessageBudget(_ backend: HerdrBackend, hasFiles: Bool) -> Int {
+        HerdrClient.firstMessageBudget(instructions: backend.launchInstructions, hasFiles: hasFiles)
     }
 
     /// Starts the round answering `message`, which is already the group's last user row.
@@ -145,7 +165,7 @@ extension AppStore {
         if let turn = turn(in: group), turn.steerAvailable, attachments.isEmpty, !value.isEmpty,
            let bot = turn.botID.flatMap({ id in bots.first { $0.id == id } }), let activeBackend = try? backend(for: bot) {
             noteFirstSteer()
-            deliverSteer(value, into: group, sessionID: group.sessionID ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id), backend: activeBackend)
+            deliverSteer(value, into: group, sessionID: turnSessionID(in: group, bot: bot), backend: activeBackend)
             return true
         }
         return queueAfterRound(text: text, attachments: attachments, group: group)
@@ -162,8 +182,12 @@ extension AppStore {
         }
         do { _ = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
         steerHint = nil
+        let recipients = GroupRouting.recipients(of: text, members: members)
+        for bot in bots where recipients.contains(bot.id) && bot.backend == .herdr {
+            guard validateGroupDraft(text, attachments: attachments, bot: bot) else { return false }
+        }
         let message = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)
-        captureAttachments(message, readers: GroupRouting.recipients(of: text, members: members))
+        captureAttachments(message, readers: recipients)
         group.messages.append(message)
         return waitForTurn(message, in: group, reason: SteerCopy.afterTurn)
     }

@@ -86,13 +86,15 @@ extension AppStore {
     /// Launch work, once per process and only in the real app (`launchWorkEnabled`): connectivity, terminate save,
     /// interrupted rounds, then the restored next-message queue.
     func startLaunchWork(makeConnectivity: () -> (any ConnectivitySource)? = { let system = SystemConnectivity(); system.start(); return system }) {
-        guard launchWorkEnabled, !turns.didLaunchRecovery else { return }
+        guard launchWorkEnabled, persistenceEnabled, !turns.didLaunchRecovery else { return }
         turns.didLaunchRecovery = true
         if connectivity == nil { connectivity = makeConnectivity(); listenForConnectivity() }
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
         startPersonSettings()
-        recoverInterruptedRounds()
-        resumeRestoredNextMessages()
+        if !bots.isEmpty || !groups.isEmpty {
+            recoverInterruptedRounds()
+            resumeRestoredNextMessages()
+        }
         // Agents of bots that were removed while their server could not be reached are ended now.
         if !herdrEndings.isEmpty { Task { await settleHerdrEndings() } }
     }

@@ -11,7 +11,7 @@ enum SetupCopy {
     static let test = "Connect"
     static let testing = "Connecting…"
     static let testAgain = "Try again"
-    static let failed = "Your setup could not be saved, so nothing was changed. Try again."
+    static let failed = "The bot setup could not be saved. Any service or projects you installed are still in place. Try saving the bot again."
     static let thisMac = "this Mac"
 
     // The ways to reach a server and the fields of its Connect screen.

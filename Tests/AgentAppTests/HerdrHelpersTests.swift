@@ -89,8 +89,11 @@ private let listingJSON = """
     #expect(main.helperNote == HerdrHelperNote.text && main.creationNote == AppStore.herdrCreationNote && main.askNote == nil)
     let launch = try #require(main.launchInstructions)
     #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrAboutYou.how + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Plain"])) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
-    let first = HerdrClient.firstTask(String(repeating: "m", count: HerdrClient.messageBytes), instructions: launch)
-    #expect(first.utf8.count <= 16_384 && first.contains(HerdrHelperNote.text), "the longest instructions, every note and a long first message fit one task")
+    let budget = HerdrClient.firstMessageBudget(instructions: launch, hasFiles: false)
+    let text = String(repeating: "m", count: budget)
+    let first = HerdrClient.firstTask(text, instructions: launch)
+    #expect(first.utf8.count <= HerdrClient.taskBytes && first.contains(HerdrHelperNote.text) && first.hasSuffix(text))
+    #expect(throws: BackendError.self) { try HerdrClient.validateMessage(text + "m", limit: budget) }
     store.setStartsHerdrHelpers(false, for: jarvis)
     let off = try store.herdrBackend(for: jarvis)
     #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil && store.startsHerdrHelpers(plain), "its own switch turns it off for that bot only")

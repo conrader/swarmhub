@@ -96,7 +96,7 @@ extension AppStore {
         let key = "herdrTeamMembers.\(server.id)"
         owned.formUnion(ids)
         defaults.set(Array(owned), forKey: key)
-        for removed in owned.subtracting(ids) {
+        for removed in owned.subtracting(ids).intersection(removedBots[server.id] ?? []) {
             do { let _: HerdrClient.TeamOK = try await client.post("/api/bots/\(removed)/remove", [:]) }
             catch HerdrClient.Failure.http(404, _) { /* Already removed on the bridge. */ }
             owned.remove(removed)

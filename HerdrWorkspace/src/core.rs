@@ -120,6 +120,7 @@ pub struct LaunchEnv<'a> {
     pub opencode_first_task: Option<&'a str>,
     /// A helper's parent terminal and starting folder (`helpers`); `None` for an agent a person starts.
     pub helper: Option<HelperOf<'a>>,
+    pub workspace: Option<&'a str>,
 }
 
 pub struct HelperOf<'a> {
@@ -602,7 +603,12 @@ impl Core {
             params["no_notify"] = true.into();
         }
         // Without a folder, Core starts the agent in its own working directory.
-        if let Some(cwd) = env.helper.as_ref().and_then(|helper| helper.cwd) {
+        if let Some(cwd) = env
+            .helper
+            .as_ref()
+            .and_then(|helper| helper.cwd)
+            .or(env.workspace)
+        {
             params["cwd"] = cwd.into();
         } else if let Some(cwd) = agent_cwd().map_err(|_| Failure::Input(AGENT_CWD_ERROR))? {
             params["cwd"] = cwd.into();
@@ -811,6 +817,72 @@ pub fn agent_cwd() -> Result<Option<String>, ()> {
     }
 }
 
+/// A host-local folder keyed by the app's full bot ID. Browser agents use their persistent runtime name.
+pub(crate) fn bot_workspace(id: Option<&str>, runtime_name: &str) -> io::Result<Option<PathBuf>> {
+    bot_workspace_root()?
+        .map(|root| bot_workspace_at(&root, id, runtime_name))
+        .transpose()
+}
+
+fn bot_workspace_at(
+    root: &std::path::Path,
+    id: Option<&str>,
+    runtime_name: &str,
+) -> io::Result<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "invalid bot workspace");
+    let name = match id {
+        Some(id)
+            if id.len() == 36
+                && id.bytes().enumerate().all(|(i, c)| {
+                    if [8, 13, 18, 23].contains(&i) {
+                        c == b'-'
+                    } else {
+                        c.is_ascii_hexdigit()
+                    }
+                }) =>
+        {
+            id.to_ascii_lowercase()
+        }
+        Some(_) => return Err(invalid()),
+        None if valid_name(runtime_name) => format!("agent-{runtime_name}"),
+        None => return Err(invalid()),
+    };
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(root)?;
+    let folder = root.canonicalize()?.join(name);
+    match std::fs::DirBuilder::new().mode(0o700).create(&folder) {
+        Ok(()) => std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(folder.join(".swarmhub-workspace"))
+            .map(|_| ())?,
+        Err(error)
+            if error.kind() == io::ErrorKind::AlreadyExists
+                && std::fs::symlink_metadata(&folder)?.is_dir() =>
+        {
+            ()
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(folder)
+}
+
+pub(crate) fn bot_workspace_root() -> io::Result<Option<PathBuf>> {
+    let root = agent_cwd()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, AGENT_CWD_ERROR))?
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|home| home.join("swarmhub-agents"))
+        });
+    Ok(root.map(|root| root.canonicalize().unwrap_or(root)))
+}
+
 /// A terminal address on this Core: `t`, a digit 1-9, then Core's 30 id symbols
 /// (digits and consonants without `l`), such as `t7`, `t1b` or `t9z`.
 pub(crate) fn local_address(value: &str) -> bool {
@@ -873,5 +945,34 @@ mod tests {
         ] {
             assert!(!local_address(address), "{address}");
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+
+    #[test]
+    fn each_bot_has_a_stable_private_directory_and_existing_links_are_refused() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = tempfile::tempdir().unwrap();
+        let ada = "12345678-aaaa-4aaa-aaaa-123456789abc";
+        let bea = "12345678-bbbb-4bbb-bbbb-123456789def";
+        let first = bot_workspace_at(root.path(), Some(ada), "ada-123456").unwrap();
+        let second = bot_workspace_at(root.path(), Some(bea), "bea-123456").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            first,
+            bot_workspace_at(root.path(), Some(ada), "renamed-123456").unwrap()
+        );
+        assert_eq!(
+            first.metadata().unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert!(first.join(".swarmhub-workspace").is_file());
+        assert!(bot_workspace_at(root.path(), Some("../unsafe"), "ignored").is_err());
+
+        symlink(&first, root.path().join("agent-existing")).unwrap();
+        assert!(bot_workspace_at(root.path(), None, "existing").is_err());
     }
 }

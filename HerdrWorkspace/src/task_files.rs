@@ -174,3 +174,44 @@ pub async fn read<T: DeserializeOwned>(
     }
     Ok((message, files))
 }
+
+
+pub fn stage_launch_files(
+    workspace: &std::path::Path,
+    files: &[Upload],
+) -> Result<(tempfile::TempDir, String), ApiError> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    const ERROR: ApiError = ApiError::Conflict("A file could not be attached. The task was not sent.");
+    let directory = tempfile::Builder::new().prefix(".swarmhub-files-").tempdir_in(workspace).map_err(|_| ERROR)?;
+    let mut paths = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        if !valid_filename(&file.name) { return Err(ERROR); }
+        let path = directory.path().join(format!("{}-{}", index + 1, file.name));
+        let mut target = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).map_err(|_| ERROR)?;
+        target.write_all(&file.data).map_err(|_| ERROR)?;
+        let path = path.to_str().ok_or(ERROR)?;
+        paths.push(serde_json::json!({"name": file.name, "path": path}));
+    }
+    Ok((directory, format!("\n\nAttached files (name and terminal path):\n{}", serde_json::json!(paths))))
+}
+
+#[cfg(test)]
+mod launch_file_tests {
+    use super::*;
+
+    #[test]
+    fn first_task_files_remain_whole_and_have_distinct_private_paths() {
+        let workspace = tempfile::tempdir().unwrap();
+        let document = "x".repeat(12_000) + "final question";
+        let files = vec![
+            Upload { name: "notes.txt".into(), data: document.clone().into_bytes().into() },
+            Upload { name: "notes.txt".into(), data: b"second file".to_vec().into() },
+        ];
+        let (directory, suffix) = stage_launch_files(workspace.path(), &files).ok().unwrap();
+        assert_eq!(std::fs::read(directory.path().join("1-notes.txt")).unwrap(), document.as_bytes());
+        assert_eq!(std::fs::read(directory.path().join("2-notes.txt")).unwrap(), b"second file");
+        assert!(suffix.contains("1-notes.txt") && suffix.contains("2-notes.txt"));
+        assert!(stage_launch_files(workspace.path(), &[Upload { name: "../outside".into(), data: Default::default() }]).is_err());
+    }
+}

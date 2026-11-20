@@ -92,6 +92,12 @@ struct AttachmentEncoder {
 
     func fileURL(for attachment: ChatAttachment) -> URL? { attachment.fileName.map { directory.appending(path: $0) } }
 
+    func taskFile(for attachment: ChatAttachment) throws -> HerdrClient.TaskFile {
+        if let text = attachment.text { return .init(name: attachment.name, mime: "text/plain", data: Data(text.utf8)) }
+        guard let url = fileURL(for: attachment), let data = try? Data(contentsOf: url) else { throw AttachmentError.unreadable(attachment.name) }
+        return .init(name: attachment.name, mime: attachment.mimeType, data: data)
+    }
+
     func dataURL(for attachment: ChatAttachment) throws -> String {
         guard attachment.kind == .image, let url = fileURL(for: attachment), let data = try? Data(contentsOf: url) else { throw AttachmentError.unreadable(attachment.name) }
         return Self.dataURL(mime: attachment.mimeType, data: data)

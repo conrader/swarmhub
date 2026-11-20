@@ -41,6 +41,8 @@ const MAX_FILE: u64 = 64 * 1024 * 1024;
 struct Record {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     claude: Option<Trusted>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    workspaces: Vec<Trusted>,
     /// The person agreed that `run-codex` tells Codex to trust the hooks it passes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     codex_hooks: bool,
@@ -202,7 +204,11 @@ fn edit<T>(
 
 /// Has Claude Code trust `folder`. `Ok(None)`: it does already, and nothing was written.
 fn trust(file: &Path, folder: &str) -> Result<Option<Trusted>, Left> {
-    edit(file, true, |tree| {
+    mark_trusted(file, folder, true)
+}
+
+fn mark_trusted(file: &Path, folder: &str, backup: bool) -> Result<Option<Trusted>, Left> {
+    edit(file, backup, |tree| {
         let odd = Left::Unrecognised("its list of folders is not where it is expected");
         let (projects, _) = tree.object("projects").ok_or(odd)?;
         let odd = Left::Unrecognised("the folder's entry is not what is expected");
@@ -333,18 +339,79 @@ fn prepare_claude(home: &Path, data: &Path, folder: &Path) -> Value {
     }
 }
 
+/// Only trust folders created by this installation. Serialize edits and keep the existing Claude preferences.
+pub(crate) fn trust_workspace(journal: &Path, folder: &Path) -> Result<(), ()> {
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or(())?;
+    let file = claude_file(&home);
+    trust_workspace_at(journal.parent().ok_or(())?, &file, folder)
+}
+
+fn trust_workspace_at(data: &Path, file: &Path, folder: &Path) -> Result<(), ()> {
+    if !fs::symlink_metadata(folder.join(".swarmhub-workspace"))
+        .is_ok_and(|meta| meta.is_file() && meta.len() == 0)
+    {
+        return Ok(());
+    }
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(data.join("claude-trust.lock"))
+        .map_err(|_| ())?;
+    lock.lock().map_err(|_| ())?;
+    let named = folder.to_str().ok_or(())?;
+    if matches!(fs::symlink_metadata(file), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+    {
+        // Persist without replacing settings Claude may just have created in another process.
+        let mut draft =
+            tempfile::NamedTempFile::new_in(file.parent().ok_or(())?).map_err(|_| ())?;
+        draft.write_all(b"{}").map_err(|_| ())?;
+        draft.as_file().sync_all().map_err(|_| ())?;
+        if let Err(error) = draft.persist_noclobber(file)
+            && error.error.kind() != std::io::ErrorKind::AlreadyExists
+        {
+            return Err(());
+        }
+    }
+    let mut record = Record::load(data);
+    if let Some(trusted) = mark_trusted(file, named, false).map_err(|_| ())? {
+        if record
+            .workspaces
+            .iter()
+            .all(|known| known.folder != named || known.file != file)
+        {
+            record.workspaces.push(trusted);
+            record.save(data).map_err(|_| ())?;
+        }
+    }
+    Ok(())
+}
+
 /// Removes what `prepare` wrote. Returns what it did, one sentence each.
 pub(crate) fn undo(data: &Path) -> Vec<String> {
     let mut record = Record::load(data);
     let mut did = Vec::new();
-    if let Some(trusted) = record.claude.take() {
+    for trusted in record
+        .claude
+        .take()
+        .into_iter()
+        .chain(std::mem::take(&mut record.workspaces))
+    {
         match untrust(&trusted) {
             Ok(true) => did.push(format!(
                 "Claude Code no longer trusts the bots' folder ({}) on SwarmHub's word.",
                 trusted.folder
             )),
             Ok(false) => {}
-            Err(left) => did.push(left.sentence(&trusted.file)),
+            Err(left) => {
+                did.push(left.sentence(&trusted.file));
+                record.workspaces.push(trusted);
+            }
         }
     }
     if record.codex_hooks {
@@ -359,6 +426,46 @@ pub(crate) fn undo(data: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_trust_is_scoped_and_preserves_other_preferences() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join(".claude.json");
+        fs::write(
+            &config,
+            br#"{"numStartups":7,"projects":{"/unrelated":{"allowedTools":["Read"]}}}"#,
+        )
+        .unwrap();
+        let ada = root.path().join("ada");
+        let bea = root.path().join("bea");
+        let existing = root.path().join("existing");
+        for path in [&ada, &bea, &existing] {
+            fs::create_dir(path).unwrap();
+        }
+        for path in [&ada, &bea] {
+            fs::write(path.join(".swarmhub-workspace"), b"").unwrap();
+        }
+        for path in [&ada, &bea, &existing] {
+            trust_workspace_at(root.path(), &config, path).unwrap();
+        }
+        let value: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        assert_eq!(value["numStartups"], 7);
+        assert_eq!(
+            value["projects"]["/unrelated"]["allowedTools"],
+            json!(["Read"])
+        );
+        for path in [&ada, &bea] {
+            assert_eq!(value["projects"][path.to_str().unwrap()][TRUST], true);
+        }
+        assert!(value["projects"][existing.to_str().unwrap()].is_null());
+        assert_eq!(Record::load(root.path()).workspaces.len(), 2);
+        undo(root.path());
+        let value: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        assert_eq!(
+            value["projects"],
+            json!({"/unrelated": {"allowedTools": ["Read"]}})
+        );
+    }
 
     const BEFORE: &str = "{\n  \"numStartups\": 7,\n  \"projects\": {\n    \"/Users/ada/app\": {\n      \"allowedTools\": [],\n      \"hasTrustDialogAccepted\": true\n    }\n  },\n  \"oauthAccount\": {\"emailAddress\":\"ada@example.com\"}\n}";
 

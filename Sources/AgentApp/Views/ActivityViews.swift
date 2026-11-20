@@ -83,8 +83,7 @@ struct ActivityRow: View {
             let phase = ChatActivityPhase.current(activity, lastText: message.lastTextAt, now: now)
             let said = ActivityCopy.agentStatus(reported, phase: phase)
             if said?.needsPerson == true {
-                // Nothing moves until the person acts, so no spinner: a hand.
-                Image(systemName: "hand.raised.fill").foregroundStyle(AppColor.caution).accessibilityHidden(true)
+                Image(systemName: "terminal").foregroundStyle(.secondary).accessibilityHidden(true)
             } else { ProgressView().controlSize(.mini) }
             Text(ActivityCopy.liveLine(activity, since: message.createdAt, lastText: message.lastTextAt, now: now, status: reported)).monospacedDigit()
                 .accessibilityIdentifier("reply.status")

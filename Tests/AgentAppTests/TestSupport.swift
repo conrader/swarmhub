@@ -245,6 +245,10 @@ final class MockHTTPProtocol: URLProtocol, @unchecked Sendable {
         let host = request.url?.host ?? ""
         Self.lock.lock(); let handler = Self.handlers[host]; Self.lock.unlock(); Self.log(host).append(request)
         let (status, body) = handler?(request) ?? (404, ["error": "no route"])
+        if let error = body as? Error {
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
         // A 3xx with `["location": path or URL]` redirects; URLSession follows it like GitHub's renamed-repo redirect.
         if (300..<400).contains(status), let location = (body as? [String: Any])?["location"] as? String, let target = URL(string: location, relativeTo: request.url)?.absoluteURL {
             let redirect = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Location": target.absoluteString])!

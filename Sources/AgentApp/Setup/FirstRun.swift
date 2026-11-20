@@ -26,7 +26,8 @@ enum FirstRun {
     /// The one launch-time call from `ContentView`: an already configured install is marked done without a window;
     /// returns whether the window should open.
     @MainActor static func settle(_ store: AppStore) -> Bool {
-        if needsWizard(defaults: store.defaults, bots: store.bots) { return true }
+        if state(store.defaults) != .skipped,
+           needsWizard(defaults: store.defaults, bots: store.bots) || !store.herdrConfigured { return true }
         if state(store.defaults) == nil { record(.done, in: store.defaults) }
         return false
     }

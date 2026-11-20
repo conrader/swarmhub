@@ -7,6 +7,7 @@ struct GrokBundleV1: Sendable, Equatable, Encodable {
         var id: String; var seq: Int64; var timestamp: String?; var replyTo: String?
         var attachments: [Attachment]; var hidden: Bool; var channel: String; var to: String?
         var role: String; var author: String?; var text: String
+        var streaming: Bool? = nil
     }
     struct Attachment: Sendable, Equatable { var file: String; var available: Bool }
     struct Event: Sendable, Equatable {
@@ -42,13 +43,15 @@ struct GrokBundleV1: Sendable, Equatable, Encodable {
     var json: JSONValue {
         let string = { (value: String?) in value.map(JSONValue.string) ?? .null }
         let messages = messages.map { message in
-            JSONValue.object([
+            var fields: [String: JSONValue] = [
                 "id": .string(message.id), "seq": .int(message.seq), "timestamp": string(message.timestamp), "thread": .null,
                 "reply_to": string(message.replyTo),
                 "attachments": .array(message.attachments.map { .object(["file": .string($0.file), "available": .bool($0.available)]) }),
                 "hidden": .bool(message.hidden), "channel": .string(message.channel), "to": string(message.to),
                 "role": .string(message.role), "author": string(message.author), "text": .string(message.text),
-            ])
+            ]
+            if message.streaming == true { fields["streaming"] = .bool(true) }
+            return JSONValue.object(fields)
         }
         let events = events.map { event in
             JSONValue.object([
@@ -109,7 +112,7 @@ extension GrokBotBundle {
                 .init(id: message.id, seq: message.seq, role: message.role, author: message.author, text: message.text,
                       timestamp: message.timestamp, hidden: message.hidden, channel: message.channel, to: message.to,
                       attachments: message.attachments.map { .init(file: $0.file, available: $0.available) },
-                      replyTo: message.replyTo, thread: nil)
+                      replyTo: message.replyTo, thread: nil, streaming: message.streaming)
             },
             events: v1.events.map { event in
                 .init(id: event.id, seq: event.seq, timestampMs: event.timestampMs.intValue,

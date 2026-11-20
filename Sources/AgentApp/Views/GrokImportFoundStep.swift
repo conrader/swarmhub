@@ -5,19 +5,45 @@ struct GrokFoundStep: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var coordinator: GrokImportCoordinator
     let useExportFolder: () -> Void
+    @State private var editingDescription: GrokFoundItem?
+    @State private var descriptionDraft = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(headline).font(.headline)
-                VStack(spacing: 6) { ForEach(coordinator.items) { item in row(item) } }
-                Text("Bots created in Grok since Grok Bot last ran on this Mac are not listed.").font(.caption).foregroundStyle(.secondary)
-                modePicker
-                Toggle("Also refresh names, avatars and instructions from Grok", isOn: $coordinator.refreshIdentity)
+                if coordinator.exportBundles == nil { modePicker }
+                Toggle("Refresh existing names, avatars, descriptions and instructions", isOn: $coordinator.refreshIdentity)
                     .toggleStyle(.checkbox).font(.callout)
                 if coordinator.mode == .full { GrokGuaranteeBox() }
+                if let plan = coordinator.destinationPlan, plan.offer.programs.count > 1 {
+                    Picker("Program for new bots", selection: Binding(
+                        get: { coordinator.destinationPlan?.template ?? plan.offer.programs[0].template },
+                        set: { coordinator.destinationPlan?.template = $0 })) {
+                            ForEach(plan.offer.programs) { Text(plan.offer.label($0)).tag($0.template) }
+                        }
+                }
+                HStack {
+                    Button("Select all") { coordinator.selected = Set(coordinator.items.map(\.id)) }
+                    Button("Clear") { coordinator.selected.removeAll() }
+                    Text("Selecting a group also selects its members.").font(.caption).foregroundStyle(.secondary)
+                }
+                VStack(spacing: 6) { ForEach(coordinator.items) { item in row(item) } }
                 Button("Use an export folder instead") { useExportFolder() }.buttonStyle(.link).font(.callout)
             }.padding(20)
+        }
+        .sheet(item: $editingDescription) { item in
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Description for \(item.name)").font(.headline)
+                TextField("What does this bot do?", text: $descriptionDraft, axis: .vertical).lineLimit(3...6)
+                HStack {
+                    Button("Cancel") { editingDescription = nil }.keyboardShortcut(.cancelAction)
+                    Button("Use description") {
+                        coordinator.destinationPlan?.descriptions[item.id] = descriptionDraft
+                        editingDescription = nil
+                    }.keyboardShortcut(.defaultAction).disabled(descriptionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }.padding(20).frame(minWidth: 380)
         }
     }
 
@@ -40,6 +66,31 @@ struct GrokFoundStep: View {
                         .padding(.horizontal, 6).padding(.vertical, 1).background(Color.primary.opacity(0.08), in: Capsule())
                 }
                 Text(coordinator.destination(for: item)).font(.caption).foregroundStyle(.secondary)
+                if !item.isGroup {
+                    let existing = store.bots.first { $0.grokSourceID == item.id }
+                    let edited = coordinator.destinationPlan?.descriptions[item.id]
+                    let description = edited ?? (coordinator.refreshIdentity ? nil : existing?.botDescription) ?? item.description
+                    if !description.isEmpty { Text(description).font(.caption).lineLimit(4) }
+                    if item.needsDescriptionEdit, edited == nil, PreparedGrokBundle.meaningful(existing?.botDescription).isEmpty {
+                        Label("No specific description in Grok", systemImage: "exclamationmark.circle").font(.caption)
+                        Button("Edit description") { descriptionDraft = item.description; editingDescription = item }.buttonStyle(.link).font(.caption)
+                    }
+                    if let plan = coordinator.destinationPlan {
+                        if let id = existing?.id ?? plan.newBotIDs[item.id] {
+                            let root = existing == nil ? plan.offer.workspaceRoot : nil
+                            Text(root.map { $0 + "/" + id.uuidString.lowercased() } ?? "Bot workspace · " + id.uuidString.lowercased())
+                                .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                        if existing == nil, plan.offer.programs.count > 1 {
+                            Picker("Program for \(item.name)", selection: Binding(
+                                get: { coordinator.destinationPlan?.templates[item.id] ?? "" },
+                                set: { coordinator.destinationPlan?.templates[item.id] = $0.isEmpty ? nil : $0 })) {
+                                    Text("Use import default").tag("")
+                                    ForEach(plan.offer.programs) { Text(plan.offer.label($0)).tag($0.template) }
+                                }.font(.caption)
+                        }
+                    }
+                }
                 Text(details(item)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -115,32 +166,35 @@ struct GrokImportFooter: View {
             Spacer()
             switch coordinator.step {
             case .idle, .scanning:
-                Button("Cancel") { close() }
+                Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
             case .found:
-                Button("Cancel") { close() }
+                Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
                 Button(primaryTitle) { Task { await coordinator.proceed() } }.buttonStyle(.appleProminent)
-                    .disabled(coordinator.selected.isEmpty || coordinator.availability?.canImport != true)
+                    .keyboardShortcut(.defaultAction).disabled(!coordinator.canProceed)
             case .permission:
-                Button("Cancel") { close() }
-                Button("Continue") { coordinator.continueToMacOS() }.buttonStyle(.appleProminent).disabled(coordinator.keychainBusy)
+                Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
+                Button("Continue") { coordinator.continueToMacOS() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction).disabled(coordinator.keychainBusy)
             case .awaitingMacOS, .running:
-                Button("Cancel") { coordinator.cancel() }
+                Button("Cancel") { coordinator.cancel() }.keyboardShortcut(.cancelAction)
             case .paused(let pause):
-                Button("Cancel") { coordinator.cancel() }
+                Button("Cancel") { coordinator.cancel() }.keyboardShortcut(.cancelAction)
                 Button(pause == .tokenExpired ? "Check again" : pause == .signInInvalid ? "Continue" : "Retry remaining") {
                     pause == .tokenExpired ? coordinator.checkAgain() : coordinator.retryRemaining()
-                }.buttonStyle(.appleProminent).disabled(coordinator.keychainBusy && pause == .signInInvalid)
+                }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction).disabled(coordinator.keychainBusy && pause == .signInInvalid)
             case .failed(let error):
                 if error.recentStillAvailable { Button("Recent messages only") { coordinator.recentOnly() } }
                 if error.isSignInStep {
                     Button("Try again") { coordinator.continueToMacOS() }.disabled(coordinator.keychainBusy)
                 }
-                Button("Close") { close() }.buttonStyle(.appleProminent)
+                Button("Close") { close() }.buttonStyle(.appleProminent).keyboardShortcut(.cancelAction)
             case .cancelled:
                 if coordinator.canImportWhatWasFetched { Button("Import what was fetched") { coordinator.importWhatWasFetched() } }
-                Button("Done") { close() }.buttonStyle(.appleProminent)
+                Button("Done") { close() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
             case .finished:
-                Button("Done") { close() }.buttonStyle(.appleProminent)
+                if !coordinator.unfinishedIDs.isEmpty {
+                    Button("Retry remaining (\(coordinator.unfinishedIDs.count))") { Task { await coordinator.retryUnfinished() } }
+                }
+                Button("Done") { close() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
             }
         }
     }

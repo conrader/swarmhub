@@ -1,3 +1,4 @@
+import SwiftUI
 import Foundation
 
 /// The composer's attachments: ready ones plus files still being read (P19). Each read runs in a task whose
@@ -28,8 +29,23 @@ import Foundation
         reading.remove(at: index).task.cancel()
     }
 
+    func discard(store: AppStore) {
+        for item in reading { item.task.cancel() }
+        reading.removeAll()
+        store.discardAttachments(items)
+        items.removeAll()
+    }
+
     /// The remove button on a ready chip: unsent page images and pasted images are deleted from `attachments/`.
     func remove(_ attachment: ChatAttachment, store: AppStore) {
         items.removeAll { $0.id == attachment.id }; store.discardAttachments([attachment])
     }
+}
+
+/// Observes the attachment draft shared by every presentation of the same conversation.
+struct AttachmentComposer<Content: View>: View {
+    @ObservedObject var intake: AttachmentIntake
+    @ViewBuilder var content: (Binding<[ChatAttachment]>) -> Content
+
+    var body: some View { content($intake.items) }
 }

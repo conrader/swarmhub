@@ -32,7 +32,7 @@ struct GrokEntryMapper {
             let content = entry["content"]?.stringValue ?? ""
             var message = GrokBundleV1.Message(
                 id: id, seq: seq, timestamp: entry["timestampMs"]?.intValue.map(GrokNaming.iso), replyTo: entry["replyTo"]?.stringValue,
-                attachments: [], hidden: false, channel: "chat", to: nil, role: "", author: nil, text: "")
+                attachments: [], hidden: false, channel: "chat", to: nil, role: "", author: nil, text: "", streaming: entry["isStreaming"]?.boolValue == true ? true : nil)
             if kind == "message", role == "user", !Self.present(entry["fromAgent"]) {
                 message.role = "user"; message.text = redact(content)
             } else if kind == "message", role == "user" {

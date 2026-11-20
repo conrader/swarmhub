@@ -121,7 +121,7 @@ const PROGRAMS: [Program; 3] = [
         wrapper: "run-claude --workspace-approvals --workspace-preview",
         description: "Claude Code with replies saved to SwarmHub",
         how: "Install Claude Code from claude.com/claude-code, then open Terminal, type claude, and sign in.",
-        first_time: "The first time, Claude Code asks whether it may work in your bots’ folder ({folder}). “Yes, I trust this folder” lets it read, change and run files there.",
+        first_time: "SwarmHub prepares Claude Code’s folder trust for each private workspace it creates.",
     },
     Program {
         id: "codex",
@@ -1199,37 +1199,40 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     Ok(status)
 }
 
-/// Ends the agents this server started from its own starter templates. Other terminals in Core are not its own.
-fn end_agents(hc: &Path, templates: &[&str]) -> usize {
-    #[derive(Deserialize)]
-    struct Listed {
-        #[serde(default)]
-        terminals: Vec<Terminal>,
+/// End only live Core instances whose launch key and identity belong to this service's journal.
+async fn end_agents(places: &Places) -> usize {
+    let file = places.data.join("workspace.sqlite3");
+    if !file.is_file() {
+        return 0;
     }
-    #[derive(Deserialize)]
-    struct Terminal {
-        address: String,
-        #[serde(default)]
-        template: String,
-    }
-    let Ok(ran) = run_program(hc, &words(&["ls", "--json"]), &[], Duration::from_secs(20)) else {
+    let Ok(db) = history::connection(&file) else {
         return 0;
     };
-    let Ok(listed) = serde_json::from_str::<Listed>(&ran.out) else {
+    let core = crate::core::Core(core_socket_here(&places.home));
+    let Ok(hello) = core.identify().await else {
+        return 0;
+    };
+    let Ok(agents) = core.agents().await else {
         return 0;
     };
     let mut ended = 0;
-    for terminal in listed.terminals {
-        let own =
-            templates.contains(&terminal.template.as_str()) && !terminal.address.contains('/');
-        if own
-            && run_program(
-                hc,
-                &words(&["kill", &terminal.address]),
-                &[],
-                Duration::from_secs(20),
-            )
-            .is_ok_and(|ran| ran.ok)
+    for agent in agents.iter().filter(|agent| agent.state == "live") {
+        let Some(key) = agent.launch_key() else {
+            continue;
+        };
+        if !owned_launch(&db, key, &hello.core.id, &agent.address, agent.created_ms) {
+            continue;
+        }
+        if !core
+            .identify()
+            .await
+            .is_ok_and(|current| current.core.id == hello.core.id)
+        {
+            break;
+        }
+        if let Ok(current) = core.agent(&agent.address, agent.created_ms).await
+            && current.launch_key() == Some(key)
+            && core.end(&current).await.is_ok()
         {
             ended += 1;
         }
@@ -1237,7 +1240,21 @@ fn end_agents(hc: &Path, templates: &[&str]) -> usize {
     ended
 }
 
-fn remove(places: &Places, asked: &Asked) -> Result<Value, Stop> {
+fn owned_launch(
+    db: &rusqlite::Connection,
+    key: &str,
+    core: &str,
+    address: &str,
+    created: u64,
+) -> bool {
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM journal WHERE launch_key=?1 AND core_id=?2 AND address=?3 AND created_ms=?4)",
+        rusqlite::params![key, core, address, created],
+        |row| row.get(0),
+    ).unwrap_or(false)
+}
+
+async fn remove(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     if env::consts::OS != "macos" {
         return Err(Stop::new(
             "not_macos",
@@ -1248,23 +1265,9 @@ fn remove(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     let job = places.job(&asked.label);
     let was_loaded = job_state(&asked.label).is_some();
     if was_loaded || job.exists() {
-        // The agents are ended while it is still known that they are this server's.
-        if let Some(hc) = hc(&search_folders(&places.home)) {
-            let own: Vec<&str> = PROGRAMS
-                .iter()
-                .filter(|program| {
-                    own_template(
-                        &places.templates.join(format!("{}.md", program.template)),
-                        program,
-                        &places.exe,
-                    )
-                })
-                .map(|program| program.template)
-                .collect();
-            let ended = end_agents(&hc, &own);
-            if ended > 0 {
-                did.push(format!("Ended {ended} running bot agents."));
-            }
+        let ended = end_agents(places).await;
+        if ended > 0 {
+            did.push(format!("Ended {ended} running bot agents."));
         }
     }
     unload(&asked.label);
@@ -1349,15 +1352,21 @@ fn first_time(places: &Places, folders: &[PathBuf]) -> Value {
             .current_dir(&places.agents);
         command
     });
-    let claude = find("claude", folders).is_some();
-    crate::first_time::prepare(
+    let mut answers = crate::first_time::prepare(
         &places.home,
         &places.data,
         &places.agents,
         &places.exe,
-        claude,
+        false,
         codex,
-    )
+    );
+    if find("claude", folders).is_some()
+        && let Some(items) = answers.as_array_mut()
+    {
+        items.push(json!({"id":"claude","done":true,"changed":false,
+            "what":"Claude Code trusts each bot’s private folder when SwarmHub creates it."}));
+    }
+    answers
 }
 
 /// What was done about each program's first-time question, one sentence each.
@@ -1386,7 +1395,7 @@ pub(crate) async fn cli() -> Result<(), Failed> {
     let result = match verb.to_str() {
         Some("status") => Ok(look(&places, &asked, &search_folders(&places.home))),
         Some("install") => install(&places, &asked).await,
-        Some("remove") => remove(&places, &asked),
+        Some("remove") => remove(&places, &asked).await,
         Some("prepare") if asked.undo => Ok(json!({"did": crate::first_time::undo(&places.data)})),
         Some("prepare") => {
             let folders = search_folders(&places.home);
@@ -1804,7 +1813,21 @@ mod tests {
     }
 
     #[test]
-    fn install_and_remove_are_for_macs_and_say_so_elsewhere() {
+    fn removal_requires_the_exact_service_launch_identity() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE journal (launch_key TEXT, core_id TEXT, address TEXT, created_ms INTEGER);
+             INSERT INTO journal VALUES ('managed', 'core-a', 't7', 11);"
+        ).unwrap();
+        assert!(owned_launch(&db, "managed", "core-a", "t7", 11));
+        assert!(!owned_launch(&db, "external", "core-a", "t7", 11));
+        assert!(!owned_launch(&db, "managed", "core-b", "t7", 11));
+        assert!(!owned_launch(&db, "managed", "core-a", "t7", 12));
+        assert!(!owned_launch(&db, "managed", "core-a", "t8", 11));
+    }
+
+    #[tokio::test]
+    async fn install_and_remove_are_for_macs_and_say_so_elsewhere() {
         if env::consts::OS == "macos" {
             return;
         }
@@ -1817,6 +1840,6 @@ mod tests {
             port: None,
             label: LABEL.into(),
         };
-        assert_eq!(remove(&places, &asked).unwrap_err().kind, "not_macos");
+        assert_eq!(remove(&places, &asked).await.unwrap_err().kind, "not_macos");
     }
 }

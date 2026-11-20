@@ -46,7 +46,10 @@ extension AppStore {
     }
 
     /// Opens the setup window (its own scene), restarted for this app's state.
-    func openSetup(openWindow: OpenWindowAction) {
+    func openSetup(openWindow: OpenWindowAction, forGrok: Bool = false, export: Bool = false) {
+        guard storeRestoreOffer == nil, persistenceEnabled else { return }
+        setupForGrok = forGrok
+        grokStartsWithExport = export
         setupGeneration += 1
         openWindow(id: SetupView.windowID)
     }

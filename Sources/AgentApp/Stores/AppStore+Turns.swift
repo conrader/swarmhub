@@ -25,7 +25,7 @@ import Foundation
 /// One stream consumer and one `finishTurn` for both send paths (a bot's chat and a group).
 extension AppStore {
     /// Reads the stream into `assistant` (and the parts a delivered steer opens after it, `endTurnParts`). Returns how it ended; throws what the backend threw (and cancellation).
-    func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot) async throws -> TurnEnd {
+    func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot, group: GroupChat? = nil) async throws -> TurnEnd {
         var completed = false; var failure: String?
         var launchModel: String?
         var activitySummary: (seconds: Int, tools: Int)?
@@ -49,7 +49,8 @@ extension AppStore {
             case .status(let value) where HerdrTurnStatus(code: value) != nil:
                 agentStatus = value; row.metadata[TurnKey.agent] = value
                 // An agent that waits in its terminal is raised to the person, with what it asks.
-                herdrTurnStatus(HerdrTurnStatus(code: value), for: bot)
+                if group == nil { herdrTurnStatus(HerdrTurnStatus(code: value), for: bot) }
+                objectWillChange.send()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
@@ -87,7 +88,7 @@ extension AppStore {
         assistant.isStreaming = false
         // The live "first tool" status ends with the turn.
         assistant.metadata["status"] = nil; assistant.metadata[TurnKey.reconnecting] = nil; assistant.metadata[TurnKey.agent] = nil
-        herdrTurnStatus(nil, for: bot)
+        if conversation is Bot { herdrTurnStatus(nil, for: bot) }
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)
@@ -129,12 +130,13 @@ extension AppStore {
     /// The turn behind `send(text:)` and Retry: the stream, `finishTurn`, release. A turn that never left the Mac
     /// (offline, server unreachable) is sent again by itself: "Reconnecting…".
     func runChatTurn(bot: Bot, conversation: any Conversation, assistant: ChatMessage, history: [(role: String, content: String)], images: [String],
-                     systemPrompt: String, backend activeBackend: any AgentBackend, token: UUID) async {
+                     systemPrompt: String, backend activeBackend: any AgentBackend, token: UUID, files: [HerdrClient.TaskFile] = []) async {
+        turn(token: token)?.backend = activeBackend
         var end: TurnEnd
         var sendFailures = 0
         while true {
             end = await streamChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: systemPrompt,
-                                       backend: activeBackend, token: token)
+                                       backend: activeBackend, token: token, files: files)
             if Task.isCancelled { end = .stoppedByUser }
             guard let delay = sendRetryDelay(after: end, failures: sendFailures), isCurrent(token) else { break }
             sendFailures += 1
@@ -147,12 +149,13 @@ extension AppStore {
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation)
         endTurn(token)
-        save()
         let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
+            if conversation === bot, selectedGroup != nil || selectedBot?.id != bot.id { bot.unreadCount += 1 }
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(bot: bot, message: displayLine(assistant))
         }
+        save()
         sendQueuedNextMessage()
         // The main bot's decided bots are created, and requests for bots are passed between bots.
         if conversation === bot { herdrReplyEnded(assistant, from: bot, finished: outcome.state == .finished) }
@@ -160,10 +163,10 @@ extension AppStore {
 
     /// One attempt of a turn: the stream, and how it ended.
     private func streamChatTurn(bot: Bot, conversation: any Conversation, assistant: ChatMessage, history: [(role: String, content: String)], images: [String],
-                                systemPrompt: String, backend activeBackend: any AgentBackend, token: UUID) async -> TurnEnd {
+                                systemPrompt: String, backend activeBackend: any AgentBackend, token: UUID, files: [HerdrClient.TaskFile]) async -> TurnEnd {
         var end: TurnEnd
         do {
-            let stream = try await activeBackend.send(.init(sessionID: turnSessionID(in: conversation, bot: bot), systemPrompt: systemPrompt, messages: history, images: images))
+            let stream = try await activeBackend.send(.init(sessionID: turnSessionID(in: conversation, bot: bot), systemPrompt: systemPrompt, messages: history, images: images, files: files))
             if isCurrent(token) {
                 let flags = try? await activeBackend.features()
                 setSteerAvailable(flags?.contains("run_steer") == true, token: token)
@@ -176,7 +179,13 @@ extension AppStore {
     }
 
     /// The session a turn names to its backend: the chat's own when it has one, else the bot's id.
-    func turnSessionID(in conversation: any Conversation, bot: Bot) -> String { conversation.sessionID ?? bot.id.uuidString }
+    func turnSessionID(in conversation: any Conversation, bot: Bot) -> String {
+        if let group = conversation as? GroupChat, bot.backend == .herdr {
+            return sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
+        }
+        if let group = conversation as? GroupChat { return group.session(for: bot.id) ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id) }
+        return conversation.sessionID ?? bot.id.uuidString
+    }
 
     /// How long to wait before a turn that provably never started is sent again; nil when it is not sent again.
     func sendRetryDelay(after end: TurnEnd, failures: Int) -> Duration? {
@@ -206,11 +215,11 @@ extension AppStore {
     }
 
     /// History for a turn: the transcript up to and including `last`, without steer bubbles, warning lines, app-only lines and empty replies.
-    func chatHistory(_ conversation: any Conversation, upTo last: ChatMessage? = nil, excluding reply: ChatMessage) -> [(role: String, content: String)] {
+    func chatHistory(_ conversation: any Conversation, upTo last: ChatMessage? = nil, excluding reply: ChatMessage, inlineFiles: Bool = true) -> [(role: String, content: String)] {
         var rows = (conversation as? Bot).map { readableMessages(conversation.messages, for: $0.id) } ?? conversation.messages
         if let last, let index = rows.firstIndex(where: { $0.id == last.id }) { rows = Array(rows[...index]) }
         return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && !AppOnlyLine.isAppOnly($0, knownBotNames: bots.map(\.name)) && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
-            .map { (role: $0.role.rawValue, content: $0.outgoingText) }
+            .map { (role: $0.role.rawValue, content: inlineFiles || $0.id != last?.id ? $0.outgoingText : ($0.isCorrection ? SteerCopy.lead + "\n" + $0.content : $0.content)) }
     }
 
     // MARK: Saves

@@ -17,18 +17,23 @@ enum GrokHistoryMerge {
         var entries: [JSONValue]
         var coverage: Coverage
         var summary: GrokEntryMerge.Coverage
+        var unresolvedSequences: Set<Int64>
     }
 
     static func merge(cached: [JSONValue], fetched: GrokHistoryFetcher.Result) -> Result {
         let entries = GrokEntryMerge.merge(cached: cached, fetched: fetched.entries)
         let summary = GrokEntryMerge.coverage(entries)
         let coverage: Coverage
-        if fetched.reachedStart {
+        let readable = Set(entries.filter { $0["isStreaming"]?.boolValue != true }.compactMap { $0["seq"]?.intValue })
+        let unresolved = fetched.unresolvedSequences.subtracting(readable)
+        if fetched.reachedStart, !unresolved.isEmpty {
+            coverage = .incomplete(stoppedAt: nil, gaps: [])
+        } else if fetched.reachedStart {
             coverage = summary.gaps.isEmpty ? .complete : .serverGaps(summary.gaps)
         } else {
             let stoppedAt = fetched.oldestFetched ?? summary.min
             coverage = .incomplete(stoppedAt: stoppedAt, gaps: summary.gaps.filter { gap in stoppedAt.map { gap[0] > $0 } ?? false })
         }
-        return Result(entries: entries, coverage: coverage, summary: summary)
+        return Result(entries: entries, coverage: coverage, summary: summary, unresolvedSequences: unresolved)
     }
 }

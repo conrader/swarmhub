@@ -60,7 +60,7 @@ enum HerdrTurnStatus: Equatable, Sendable {
         case .starting(let program): "Starting \(program ?? "the agent")…"
         case .delivered(let program): "Delivered to \(program ?? "the agent")…"
         case .working(let program): "\(program ?? "The agent") is working…"
-        case .blocked(let program): "\(program ?? "The agent") is waiting for you in its terminal"
+        case .blocked(let program): "\(program ?? "The agent") needs a terminal status check"
         case .finishing: "Finishing…"
         case .failing(let program): "\(program ?? "The agent") reported an error"
         }

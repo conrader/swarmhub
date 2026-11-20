@@ -2,7 +2,8 @@ import SwiftUI
 
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
-    @StateObject private var intake = AttachmentIntake()
+    private var intake: AttachmentIntake { store.attachmentIntake(for: bot.id) }
+    @State private var verifyingAttachmentSupport = false
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     /// The messages between bots that are unfolded, while this chat is on screen.
@@ -44,7 +45,7 @@ struct ChatView: View {
                         Color.clear.frame(height: 20)
                         if bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                         if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
-                        if bot.messages.isEmpty, bot.backend == .herdr, !bot.isReadOnlyArchive, draft.isEmpty {
+                        if bot.showsReleaseNotesExample, draft.isEmpty {
                             Button("Draft release notes") {
                                 draft = ReleaseNotesExample.prompt
                                 store.composerFocus = bot.id
@@ -104,13 +105,17 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
-                Text("Imported from Grok Bot. You can read this chat, but not write in it.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
+                Text(bot.retiredBackend.map { "Read-only chat from \($0)." } ?? "Read-only chat from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
             } else {
                 // What needs the person waits here, above the message box: an agent that asks something in its
                 // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
                 // (Remember or Don't save), and, once, the offer to get to know them.
                 VStack(spacing: 8) {
                     if bot.backend == .herdr {
+                        if store.herdrPrompts[bot.id] == nil, store.herdrReadiness[bot.id]?.isBlocked == true {
+                            Button("View terminal") { Task { await store.viewHerdrTerminal(for: bot) } }
+                                .buttonStyle(.link).font(.caption)
+                        }
                         let server = store.herdrServer(for: bot)
                         HerdrChatApprovals(bot: bot, server: server).id(bot.id.uuidString + server.id + server.address)
                     }
@@ -129,12 +134,14 @@ struct ChatView: View {
 
     private var composer: some View {
         // The main bot's "+" menu: its one action writes a request for a new bot into the composer.
-        ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
+        AttachmentComposer(intake: intake) { attachments in
+                     ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
                      send: send, stop: { store.stop(bot) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
                      manage: { action in if let request = action.request { draft = request } else { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot, again: true) } },
                      wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name)
+        }
     }
     /// Media tab → Attach puts a saved document into this chat's composer.
     private func takePendingAttachment() {
@@ -143,9 +150,21 @@ struct ChatView: View {
     }
     private func attach(_ urls: [URL]) { intake.attach(urls, store: store) }
     private func send() {
-        let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
-        // Sending always goes to the bottom. During a turn the attachments go too (the message waits for it).
+        let value = draft, items = intake.items
+        guard !verifyingAttachmentSupport, !intake.isReading,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !items.isEmpty else { return }
+        if items.isEmpty { submit(value, items: items); return }
+        verifyingAttachmentSupport = true
+        Task {
+            defer { verifyingAttachmentSupport = false }
+            guard await store.confirmHerdrAttachments([bot]), store.selectedGroup == nil && store.selectedBot?.id == bot.id,
+                  value == draft, items == intake.items else { return }
+            submit(value, items: items)
+        }
+    }
+
+    private func submit(_ value: String, items: [ChatAttachment]) {
         store.chatScroll.toBottom(bot.id)
-        if store.send(text: value, attachments: intake.items) { draft = ""; intake.items = [] }
+        if store.send(text: value, attachments: items) { draft = ""; intake.items = [] }
     }
 }

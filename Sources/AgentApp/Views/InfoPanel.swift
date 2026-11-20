@@ -41,7 +41,10 @@ struct InfoPanel: View {
                 }
                 // A role and a description show when the bot has them; "Personal agent" was the placeholder of older versions.
                 if !bot.title.isEmpty, bot.title != Bot.placeholderTitle { Text(bot.title).foregroundStyle(.secondary).multilineTextAlignment(.center) }
-                if !bot.botDescription.isEmpty {
+                if bot.grokSourceID != nil, PreparedGrokBundle.meaningful(bot.botDescription).isEmpty {
+                    Text("No specific description in Grok").font(.callout).foregroundStyle(.secondary)
+                    Button("Edit description") { store.editingBot = bot }.buttonStyle(.link)
+                } else if !bot.botDescription.isEmpty {
                     Text(bot.botDescription).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).padding(.top, 2)
                 }
             }.frame(maxWidth: .infinity).padding(.top, 6)

@@ -83,7 +83,7 @@ extension AppStore {
     /// saving fails. Returns the main bot.
     /// `projects`: the projects on other servers chosen for the main bot on the wizard's last step; its first agent starts with them.
     @discardableResult func commitSetupWizard(server: HerdrServer?, key: String?, main: HerdrMainBotDraft, more: [HerdrProgram], offer: HerdrOffer?, projects: [HerdrBotProject] = []) throws -> Bot {
-        guard let server, let offer else { throw SetupCommitError.notTested }
+        guard persistenceEnabled, storeRestoreOffer == nil, let server, let offer else { throw SetupCommitError.notTested }
         let kept = main.keep.flatMap { id in bots.first { $0.id == id && $0.backend == .herdr && !$0.isReadOnlyArchive } }
         let connectingImport = kept?.grokSourceID != nil && !herdrConfigured
         if connectingImport, offer.program(main.template) == nil { throw SetupCommitError.nothingChosen }
@@ -110,6 +110,7 @@ extension AppStore {
             if let kept { mainBot = kept } else {
                 mainBot = Bot(name: main.trimmedName, persona: main.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Bot.defaultPersona : main.instructions, backend: .herdr)
                 main.avatar.apply(to: mainBot)
+                mainBot.offersReleaseNotesExample = true
                 add(mainBot, main.template, main.model, 0)
             }
             if connectingImport {
@@ -123,12 +124,8 @@ extension AppStore {
                 setHerdrAsksFirst(true, for: mainBot)
             }
             if !projects.isEmpty {
-                let before = herdrProjects(for: mainBot), changed = herdrProjectsChanged(mainBot), id = mainBot.id
-                transaction.record {
-                    defaults.removeObject(forKey: Self.herdrProjectsKey(id)); defaults.removeObject(forKey: Self.herdrProjectsChangedKey(id))
-                    if !before.isEmpty, let data = try? JSONEncoder().encode(before) { defaults.set(data, forKey: Self.herdrProjectsKey(id)) }
-                    if changed { defaults.set(true, forKey: Self.herdrProjectsChangedKey(id)) }
-                }
+                let before = herdrProjects(for: mainBot), id = mainBot.id
+                transaction.captureDefaults([Self.herdrProjectsKey(id), Self.herdrProjectsChangedKey(id)])
                 // A main bot that stays keeps the projects it has and gains the chosen ones.
                 setHerdrProjects(before + projects.filter { chosen in !before.contains { $0.id == chosen.id } }, for: mainBot)
             }

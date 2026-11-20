@@ -12,7 +12,10 @@ trap 'rm -rf "$tmp"' EXIT
 fails=0
 mkdir -p "$tmp/src/scripts" "$tmp/bin"
 : > "$tmp/src/scripts/test_stub.py"  # scripts.log needs a test to list.
+# Keep the variable literal so the generated scripts read it when they run.
+# shellcheck disable=SC2016
 printf '#!/bin/bash\nexit "${SCRIPTS_EXIT:-0}"\n' > "$tmp/runner.sh"
+# shellcheck disable=SC2016
 printf '#!/bin/bash\nexit "${SCRIPTS_EXIT:-0}"\n' > "$tmp/bin/python3"
 chmod +x "$tmp/runner.sh" "$tmp/bin/python3"
 

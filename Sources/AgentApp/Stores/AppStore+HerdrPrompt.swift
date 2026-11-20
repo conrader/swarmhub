@@ -4,6 +4,7 @@ import Foundation
 /// What the store keeps beside the prompts themselves: the bots whose running turn says its agent waits (with the
 /// agent program's name), and where a notification goes (tests listen here).
 struct HerdrPromptBook {
+    var refreshing: Set<UUID> = []
     var turnWaits: [UUID: String] = [:]
     var notifier: (@MainActor (Bot, String) -> Void)?
 }
@@ -35,14 +36,7 @@ extension AppStore {
             if herdrPrompts[bot.id] != nil { herdrPrompts[bot.id] = nil }
             return
         }
-        if var prompt = herdrPrompts[bot.id] {
-            if prompt.program == nil, let program = state.program { prompt.program = program; herdrPrompts[bot.id] = prompt }
-            return
-        }
-        let prompt = HerdrPrompt(program: state.program ?? herdrProgramName(for: bot), since: now())
-        herdrPrompts[bot.id] = prompt
-        raiseHerdrPrompt(prompt, for: bot)
-        if launchWorkEnabled { Task { await refreshHerdrPrompt(for: bot) } }
+        if launchWorkEnabled || herdrClientSetup != nil { Task { await refreshHerdrPrompt(for: bot) } }
     }
 
     /// The header's reading changed: every bot it covers, and every bot that has a prompt, is looked at again.
@@ -62,19 +56,31 @@ extension AppStore {
 
     /// Reads what the waiting agent's terminal shows. A server that cannot be read leaves the prompt as it is.
     func refreshHerdrPrompt(for bot: Bot) async {
-        guard herdrPrompts[bot.id] != nil, let backend = try? herdrBackend(for: bot) else { return }
-        guard let workspace = try? await backend.client.workspace(), let agent = backend.client.liveAgent(named: backend.agentName, in: workspace) else { return }
-        let screen = (try? await backend.client.screen(of: agent.ref)).map(HerdrPrompt.question(from:))
-        guard var prompt = herdrPrompts[bot.id] else { return }
-        prompt.agent = agent.ref
-        if prompt.program == nil { prompt.program = workspace.program(of: agent) }
-        if let screen, !screen.isEmpty { prompt.question = screen }
-        if prompt != herdrPrompts[bot.id] { herdrPrompts[bot.id] = prompt }
+        guard herdrWaits(bot).waits, let backend = try? herdrBackend(for: bot),
+              herdrPromptBook.refreshing.insert(bot.id).inserted else { return }
+        defer { herdrPromptBook.refreshing.remove(bot.id) }
+        guard let workspace = try? await backend.client.workspace(),
+              let agent = backend.client.liveAgent(named: backend.agentName, in: workspace),
+              agent.status?.state == "blocked" else { herdrPrompts[bot.id] = nil; return }
+        let screen = (try? await backend.client.screen(of: agent.ref)) ?? ""
+        guard herdrWaits(bot).waits, bots.contains(bot),
+              HerdrPrompt.actionable(kind: agent.status?.kind, screen: screen) else { herdrPrompts[bot.id] = nil; return }
+        let old = herdrPrompts[bot.id]
+        let question = HerdrPrompt.question(from: screen)
+        let prompt = HerdrPrompt(program: workspace.program(of: agent) ?? herdrWaits(bot).program,
+                                 question: question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,
+                                 since: old?.agent == agent.ref ? old?.since ?? now() : now())
+        if prompt != old { herdrPrompts[bot.id] = prompt }
+        if old?.agent != agent.ref { raiseHerdrPrompt(prompt, for: bot) }
     }
 
     /// How the person gets to the terminal of `bot`'s waiting agent; nil until the agent is known.
     func herdrPromptAnswer(for bot: Bot) -> HerdrPromptAnswer? {
         guard let agent = herdrPrompts[bot.id]?.agent else { return nil }
+        return herdrTerminalAnswer(for: bot, agent: agent)
+    }
+
+    private func herdrTerminalAnswer(for bot: Bot, agent: HerdrClient.AgentRef) -> HerdrPromptAnswer? {
         let server = herdrServer(for: bot), core = localService.corePath, environment = ProcessInfo.processInfo.environment
         return HerdrPromptAnswer.plan(server: server, address: agent.address, name: bot.name,
                                       localScript: { Self.terminalScript(core: core, address: $0, name: bot.name, environment: environment) },
@@ -85,8 +91,24 @@ extension AppStore {
 
     /// Opens the terminal (or the server's page). Returns false when nothing could be opened.
     @discardableResult func answerHerdrPrompt(for bot: Bot) -> Bool {
-        switch herdrPromptAnswer(for: bot) {
-        case .terminal(let script)?: openInTerminal(script: script, name: bot.name)
+        openHerdrTerminal(herdrPromptAnswer(for: bot), name: bot.name)
+    }
+
+    func viewHerdrTerminal(for bot: Bot, sessionID: String? = nil) async {
+        do {
+            let backend = try herdrBackend(for: bot)
+            let name = sessionID.map(backend.runtimeName(sessionID:)) ?? backend.agentName
+            guard let agent = backend.client.liveAgent(named: name, in: try await backend.client.workspace()),
+                  openHerdrTerminal(herdrTerminalAnswer(for: bot, agent: agent.ref), name: bot.name) else {
+                errorMessage = "The agent’s terminal is no longer available."
+                return
+            }
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func openHerdrTerminal(_ answer: HerdrPromptAnswer?, name: String) -> Bool {
+        switch answer {
+        case .terminal(let script)?: openInTerminal(script: script, name: name)
         case .browser(let url)?: ExternalLink.open(url)
         case nil: false
         }

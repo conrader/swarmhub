@@ -8,10 +8,14 @@ struct GrokImportSheet: View {
     @EnvironmentObject private var store: AppStore
     @StateObject private var coordinator: GrokImportCoordinator
     @State private var historyFolderUnavailable = false
+    @State private var exportError: String?
+    @AccessibilityFocusState private var headingFocused: Bool
+    private var startsWithExport = false
 
     init(store: AppStore) {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-        _coordinator = StateObject(wrappedValue: GrokImportCoordinator(store: store, environment: .live(appVersion: version)))
+        _coordinator = StateObject(wrappedValue: GrokImportCoordinator(store: store, environment: .live(appVersion: version), destination: store.grokDestination, requiresTestedHost: true))
+        startsWithExport = store.grokStartsWithExport
     }
 
     /// Snapshots and tests: a coordinator with injected state.
@@ -21,7 +25,7 @@ struct GrokImportSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.title2.bold())
+                    Text(title).font(.title2.bold()).accessibilityAddTraits(.isHeader).accessibilityFocused($headingFocused)
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -29,7 +33,7 @@ struct GrokImportSheet: View {
                     .buttonStyle(.plain).accessibilityLabel("Close")
             }.padding(20)
             Divider()
-            if coordinator.availability?.canImport == true {
+            if coordinator.testedServer != nil {
                 destination.padding(.horizontal, 20).padding(.vertical, 12)
                 Divider()
             }
@@ -37,9 +41,18 @@ struct GrokImportSheet: View {
             Divider()
             GrokImportFooter(coordinator: coordinator, close: close, useExportFolder: useExportFolder).padding(16)
         }
-        .frame(width: 680, height: 680).background(AppColor.panel)
+        .frame(minWidth: 580, idealWidth: 680, minHeight: 540, idealHeight: 680).background(AppColor.panel)
         .transaction { $0.animation = nil }
-        .task { if coordinator.step == .idle { await coordinator.scan() } }
+        .task {
+            if coordinator.step == .idle {
+                if startsWithExport { useExportFolder() }
+                if coordinator.step == .idle { await coordinator.scan() }
+            }
+        }
+        .onChange(of: coordinator.step) { _, _ in headingFocused = true }
+        .alert("Couldn’t open the Grok export", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("OK", role: .cancel) { exportError = nil }
+        } message: { Text(exportError ?? "") }
         .onDisappear { Task { await coordinator.dismiss() } }
         .alert("Couldn’t open the history folder", isPresented: $historyFolderUnavailable) {
             Button("OK", role: .cancel) {}
@@ -50,7 +63,14 @@ struct GrokImportSheet: View {
         let folder = coordinator.historyDirectory
         return HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Read-only history on this Mac").font(.callout.weight(.semibold))
+                if let server = coordinator.testedServer {
+                    Text("Destination · \(server.name) · \(server.place)").font(.callout.weight(.semibold))
+                }
+                Text("History stays on this Mac. Agents start with a fresh conversation.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if coordinator.step == .found {
+                    Text("\(coordinator.selected.count) selected").font(.caption.weight(.semibold))
+                }
                 Text((folder.path as NSString).abbreviatingWithTildeInPath)
                     .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
             }
@@ -106,13 +126,18 @@ struct GrokImportSheet: View {
 
     private func close() { store.showingGrokImport = false }
 
-    /// "Use an export folder instead": the existing template-import sheet, unchanged.
+    /// An export uses the same host, preview, identity policy and receipt as a cache import.
     private func useExportFolder() {
-        store.showingGrokImport = false
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(400))
-            store.showingTemplateImport = true
-        }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.directoryURL = AppConstants.grokExportFolder()
+        panel.prompt = "Review export"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do { coordinator.useExportBundles(try GrokBundleLoader.load(from: url)) }
+        catch { exportError = (error as? GrokBundleError)?.localizedDescription ?? "Choose a Grok Bot export folder or bundle JSON." }
     }
 }
 
@@ -140,7 +165,7 @@ struct GrokUnavailableView: View {
                 if reason == .cache(.notFound) || reason == .cache(.noRoster) {
                     Button("Open Grok Bot") { GrokImportActions.openGrokBot() }
                 }
-                if reason.offersExportFolder { Button("Use an export folder instead") { useExportFolder() } }
+                Button("Use an export folder instead") { useExportFolder() }
                 Button("Check again") { rescan() }
             }
         }.padding(20)

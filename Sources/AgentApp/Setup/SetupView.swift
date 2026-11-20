@@ -11,7 +11,8 @@ struct SetupView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @State private var flow = SetupFlow()
-    @State private var firstChoice = StarterAgents.codex
+    @State private var savedHostID: String?
+    @AccessibilityFocusState private var progressFocused: Bool
     @State private var loginServer: HerdrServer?
     @State private var testing = false
     @State private var localSetupTask: Task<Void, Never>?
@@ -39,11 +40,8 @@ struct SetupView: View {
                 Group {
                     switch flow.step {
                     case .welcome:
-                        if !store.herdrConfigured {
-                            firstRunChoices
-                        } else {
-                            SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace)
-                        }
+                        SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace, saved: store.herdrConfigured ? store.herdrServers : [],
+                                              savedHostID: $savedHostID)
                     case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, checkAgain: checkAIs)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
@@ -55,10 +53,13 @@ struct SetupView: View {
             Divider()
             footer.padding(.horizontal, 20).padding(.vertical, 14)
         }
-        .frame(width: Self.size.width, height: presetHeight ?? Self.size.height).background(AppColor.panel)
+        .frame(minWidth: preset == nil ? 560 : Self.size.width, idealWidth: Self.size.width,
+               maxWidth: preset == nil ? .infinity : Self.size.width,
+               minHeight: preset == nil ? 530 : (presetHeight ?? Self.size.height), idealHeight: presetHeight ?? Self.size.height,
+               maxHeight: preset == nil ? .infinity : (presetHeight ?? Self.size.height)).background(AppColor.panel)
         .onAppear { if Self.cameBackUnasked(preset: preset, generation: store.setupGeneration) { closeUnasked() } else { restart() } }
         .onChange(of: store.setupGeneration) { _, _ in unasked = false; restart() }
-        .onChange(of: flow.step, initial: true) { _, step in readProjects(step) }
+        .onChange(of: flow.step, initial: true) { _, step in readProjects(step); progressFocused = true }
         .sheet(item: $loginServer) { server in
             SSHLoginSheet(server: server) { signedIn in
                 flow.herdr.sshDestination = signedIn.sshUser + "@" + signedIn.sshHost
@@ -66,7 +67,7 @@ struct SetupView: View {
             }
         }
         .onAppear { closed = false }
-        .onDisappear { closed = true; cancelLocalDownload(); if !unasked { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)) }; abandonHerdr() }
+        .onDisappear { closed = true; cancelLocalDownload(); if !unasked, !finished { FirstRun.dismissed(store.defaults, hasBots: FirstRun.hasRealAgents(store.bots)) }; abandonHerdr() }
     }
 
     /// macOS brings back the windows that were open when an app was killed or the Mac restarted. Every way to this
@@ -89,67 +90,36 @@ struct SetupView: View {
         DispatchQueue.main.async { NSApp?.windows.first { $0.isVisible && $0.title == SetupCopy.windowTitle }?.close() }
     }
 
-    private var firstRunChoices: some View {
-        VStack(spacing: 18) {
-            HeroHeader(title: "Start with one bot", detail: "Use an agent you already have, or explore a local sample.") { SetupAppMark() }
-            Picker("Local agents", selection: $firstChoice) {
-                ForEach(StarterAgents.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }.pickerStyle(.segmented)
-            Text(firstChoice.detail)
-                .font(.callout).foregroundStyle(.secondary)
-            if firstChoice == .api, let guide = URL(string: "https://opencode.ai/docs/providers/") {
-                Link("Connect an API provider in OpenCode", destination: guide)
-            }
-            Button("Set up on this Mac") {
-                if flow.starter != firstChoice { flow.mainBot.template = "" }
-                flow.starter = firstChoice
-                flow.place = .local
-                pickPlace()
-            }.buttonStyle(.appleProminent).controlSize(.large).keyboardShortcut(.defaultAction)
-            if !store.hasRealBots {
-                Button("Bring my Grok bot") {
-                    showMainWindow()
-                    closeWindow()
-                    store.showingGrokImport = true
-                }
-                Button("Try a sample") {
-                    store.loadSamples()
-                    if let example = store.bots.first(where: { $0.isDemo && $0.name == "Patch" }) { store.open(example) }
-                    showMainWindow()
-                    closeWindow()
-                }
-            }
-            Divider()
-            Button("Connect my own server") { flow.starter = nil; flow.place = .ssh; pickPlace() }
-            Button("Connect by address and access key") { flow.starter = nil; flow.place = .address; pickPlace() }
-                .buttonStyle(.link)
-        }
-    }
-
     /// Back on the left, the step dots in the middle, Cancel and the default button (Return) on the right.
     private var footer: some View {
-        ZStack {
-            // The optional bots are no step on a server whose only agent program the main bot already has.
+        VStack(spacing: 8) {
             SetupWizardProgress(current: flow.stepIndex, count: flow.stepCount, name: flow.step == .projects ? WizardCopy.projectsStep : nil)
+                .accessibilityFocused($progressFocused)
             HStack(spacing: 10) {
                 if flow.canGoBack { Button(SetupCopy.back, action: back).disabled(flow.localSetup?.isInstalling == true) }
                 Spacer()
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction).disabled(flow.localSetup?.isInstalling == true)
                 switch flow.step {
                 case .welcome:
-                    if store.herdrConfigured {
-                        Button(WizardCopy.next, action: pickPlace).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
-                    }
+                    Button(WizardCopy.next, action: pickPlace).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                 case .herdr:
                     if let setup = flow.localSetup, !testing {
-                        // Nothing runs on this Mac yet: the one button sets it up.
-                        Button(localSetupButton(for: setup), action: setUpThisMac).buttonStyle(.appleProminent)
-                            .disabled(setup.isWorking || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
+                        if setup.isWorking, !setup.isInstalling {
+                            Button("Stop", action: cancelLocalDownload)
+                        } else {
+                            Button(localSetupButton(for: setup), action: setUpThisMac).buttonStyle(.appleProminent)
+                                .disabled(setup.isWorking || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
+                        }
                     } else if flow.herdrNoPrograms || !flow.missingStarterPrograms.isEmpty, flow.herdr.kind == .local, flow.localReport != nil, !testing {
                         // An AI program installed since is found by setting this Mac up again, which changes nothing else.
                         Button(SetupCopy.testAgain, action: setUpThisMac).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                     } else if flow.herdrReady, !testing {
-                        Button(WizardCopy.next) { failure = nil; flow.apply(.advance) }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                        Button("Import from Grok Bot", action: startGrokImport)
+                            .keyboardShortcut(store.setupForGrok ? .defaultAction : nil)
+                        if !store.setupForGrok {
+                            Button("Create a bot") { failure = nil; flow.apply(.advance) }
+                                .buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                        }
                     } else {
                         Button(testing ? SetupCopy.testing : flow.herdrOutcome != nil ? SetupCopy.testAgain : SetupCopy.test, action: testHerdr).buttonStyle(.appleProminent)
                             .disabled(testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
@@ -158,13 +128,13 @@ struct SetupView: View {
                     if !flow.isLastWizardStep && flow.herdrOffer != nil {
                         Button("More options") { flow.apply(.advance) }.disabled(!flow.mainBotReady)
                     }
-                    Button(finishTitle, action: leaveMainBot).buttonStyle(.appleProminent)
+                    Button(failure == nil ? finishTitle : "Retry saving bot", action: leaveMainBot).buttonStyle(.appleProminent)
                         .disabled(!flow.mainBotReady).keyboardShortcut(.defaultAction)
                 case .moreBots:
                     Button(flow.isLastWizardStep ? finishTitle : WizardCopy.next) { if flow.isLastWizardStep { finishWizard() } else { failure = nil; flow.apply(.advance) } }
                         .buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                 case .projects:
-                    Button(finishTitle, action: finishWizard).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                    Button(failure == nil ? (flow.mainProjects.isEmpty ? "Finish without projects" : finishTitle) : "Retry saving bot", action: finishWizard).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
                 }
             }.controlSize(.large)
         }
@@ -183,7 +153,8 @@ struct SetupView: View {
     private func restart() {
         cancelLocalDownload()
         abandonHerdr()
-        flow = preset ?? store.wizardStart(); testing = presetTesting; failure = nil; finished = false; projects = nil
+        flow = preset ?? SetupFlow(); testing = presetTesting; failure = nil; finished = false; projects = nil
+        savedHostID = nil
         if preset == nil, flow.readsSavedServer { testHerdr() }
     }
 
@@ -212,8 +183,14 @@ struct SetupView: View {
     /// Welcome's Continue. "This Mac" needs nothing typed, so it looks for Herdr at once.
     private func pickPlace() {
         guard flow.step == .welcome else { return }
-        failure = nil; flow.apply(.pickHerdr(flow.place))
-        if flow.place == .local { testHerdr() }
+        failure = nil
+        if let savedHostID, let server = store.herdrServer(id: savedHostID) {
+            flow.connectToSaved(server)
+            testHerdr()
+        } else {
+            flow.apply(.pickHerdr(flow.place))
+            if flow.place == .local { testHerdr() }
+        }
     }
 
     /// Connect's Test, and the reading of a server that was set up before (the window then waits on the main bot).
@@ -259,7 +236,10 @@ struct SetupView: View {
     private func cancelLocalDownload() {
         // Once the verified program starts mutating LaunchAgents and templates, let that transaction finish.
         guard flow.localSetup?.isInstalling != true else { return }
-        localSetupTask?.cancel()
+        if let localSetupTask {
+            localSetupTask.cancel()
+            flow.apply(.localSetup(.failed("Download stopped. Retry to continue setup.")))
+        }
     }
 
     /// The one button of a Mac where nothing runs yet. It fetches the service, checks it, has it set this Mac up,
@@ -323,6 +303,16 @@ struct SetupView: View {
             store.open(main); store.composerFocus = main.id
             showMainWindow(); closeWindow()
         } catch { failure = SetupCopy.failed }
+    }
+
+    private func startGrokImport() {
+        guard flow.herdrReady, let server = flow.herdrServer, let offer = flow.herdrOffer else { return }
+        store.saveHerdrServer(server, token: flow.herdrKey)
+        store.grokDestination = GrokDestination(serverID: server.id, offer: offer, testedHost: server)
+        finished = true
+        showMainWindow()
+        closeWindow()
+        store.showingGrokImport = true
     }
 
     private func showMainWindow() {

@@ -639,6 +639,7 @@ async fn start(
                     model: Some(&model),
                     results: None,
                     opencode_first_task: None,
+                    workspace: None,
                     helper: Some(core::HelperOf {
                         parent: &parent_address,
                         cwd: cwd.as_deref(),

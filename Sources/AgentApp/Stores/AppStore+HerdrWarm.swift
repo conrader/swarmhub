@@ -14,7 +14,7 @@ enum HerdrAgentReadiness: Equatable, Sendable {
 
     init?(_ agent: HerdrClient.Agent?, program: String?) {
         guard let agent, agent.isLive else { return nil }
-        if agent.isStarting { self = .starting(program: program) } else if agent.status?.state == "blocked" { self = .blocked(program: program) } else { self = .ready }
+        if agent.status?.state == "blocked" { self = .blocked(program: program) } else if agent.isStarting { self = .starting(program: program) } else { self = .ready }
     }
 
     var isStarting: Bool { if case .starting = self { true } else { false } }
@@ -25,7 +25,7 @@ enum HerdrAgentReadiness: Equatable, Sendable {
         switch self {
         case .starting(let program): "Starting \(program ?? "its agent")…"
         case .ready: "Ready"
-        case .blocked: "Waiting for you in its terminal"
+        case .blocked: "Check terminal"
         }
     }
 
@@ -33,7 +33,7 @@ enum HerdrAgentReadiness: Equatable, Sendable {
         switch self {
         case .starting: "It is starting. You can write now: your message is delivered as soon as it is ready."
         case .ready: "Ready: a reply starts at once."
-        case .blocked(let program): "\(program ?? "Its agent") is asking a question in its terminal. Answer it with the button above the message box: a message does not get through until then."
+        case .blocked(let program): "The terminal status for \(program ?? "this agent") needs another check."
         }
     }
 }
@@ -99,7 +99,7 @@ extension AppStore {
     /// time and has not been written to is ended first, and the new one starts as now chosen. An agent that has had
     /// a message is never ended here.
     @discardableResult func warmHerdrAgent(for bot: Bot, replacingUnused: Bool = false) -> Task<Void, Never>? {
-        guard bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo, herdrWarming[bot.id] == nil,
+        guard storeRestoreOffer == nil, bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo, herdrWarming[bot.id] == nil,
               !runningTurns.values.contains(where: { $0.botID == bot.id }), herdrStartsAhead(for: bot),
               let backend = try? herdrBackend(for: bot) else { return nil }
         let starts = herdrKeepsReady(bot)
@@ -107,7 +107,7 @@ extension AppStore {
         let id = bot.id, refused = herdrWarmKey(for: bot)
         let task = Task { [weak self] in
             if replacingUnused, (try? await backend.client.endUnused(name: backend.agentName)) == true { self?.herdrReadiness[id] = nil }
-            let outcome = starts ? try? await backend.client.warm(name: backend.agentName, template: backend.template, model: backend.model, projects: backend.projects) : nil
+            let outcome = starts ? try? await backend.client.warm(name: backend.agentName, template: backend.template, model: backend.model, projects: backend.projects, workspaceID: backend.botID) : nil
             guard let self else { return }
             self.herdrWarming[id] = nil
             switch outcome {
@@ -142,5 +142,7 @@ extension AppStore {
         var now = herdrReadiness.filter { entry in watched.contains { $0.id == entry.key } || herdrWarming[entry.key] != nil || runningTurns.values.contains { $0.botID == entry.key } }
         for (id, readiness) in read { now[id] = readiness }
         if now != herdrReadiness { herdrReadiness = now }
+        else { for bot in watched where herdrWaits(bot).waits { herdrPromptCheck(bot) } }
+
     }
 }

@@ -388,6 +388,10 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(vault::routes())
         .route("/api/workspace", get(workspace_state))
         .route("/api/agents", post(launch))
+        .route(
+            "/api/agents/with-files",
+            post(launch_with_files).layer(DefaultBodyLimit::max(task_files::UPLOAD_LIMIT)),
+        )
         .route("/api/agents/{id}/{created}/output", get(output))
         .route("/api/agents/{id}/{created}/messages", post(send))
         .route(
@@ -700,7 +704,8 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
-               "attachments":hello.supports("terminal.put"),"terminal_attach":hello.supports("terminal.attach"),
+               "attachments":hello.supports("terminal.put"),"bot_workspaces":true,"launch_attachments":true,
+               "workspace_root":core::bot_workspace_root().ok().flatten(),"terminal_attach":hello.supports("terminal.attach"),
                "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)}),
     ))
 }
@@ -720,6 +725,8 @@ struct Launch {
     expected_runtime: Option<runtimes::Runtime>,
     model_choice: Option<runtimes::ModelChoice>,
     model_id: Option<String>,
+    workspace_id: Option<String>,
+    expected_core: Option<String>,
     standing_instructions: Option<String>,
     instructions_revision: Option<i64>,
     #[serde(default)]
@@ -747,7 +754,21 @@ async fn launch(
 ) -> Result<impl IntoResponse, ApiError> {
     Ok((
         StatusCode::CREATED,
-        Json(launch_agent(w, body, None, None).await?),
+        Json(launch_agent(w, body, None, None, vec![]).await?),
+    ))
+}
+
+async fn launch_with_files(
+    State(w): State<Workspace>,
+    multipart: Multipart,
+) -> Result<impl IntoResponse, ApiError> {
+    let (body, files): (Launch, _) = task_files::read(multipart).await?;
+    if body.expected_core.is_none() || body.warm {
+        return Err(Failure::Input("Choose the current Herdr Core and include a first task with attachments.").into());
+    }
+    Ok((
+        StatusCode::CREATED,
+        Json(launch_agent(w, body, None, None, files).await?),
     ))
 }
 
@@ -765,6 +786,7 @@ async fn launch_agent(
     body: Launch,
     own_instructions: Option<String>,
     fixture: Option<CompletionStart>,
+    files: Vec<groups::Upload>,
 ) -> Result<CreatedLaunch, ApiError> {
     if !body.warm {
         core::validate_task(&body.task)?;
@@ -782,6 +804,9 @@ async fn launch_agent(
     let first_instructions =
         profiles::validate_instructions(body.standing_instructions.as_deref().unwrap_or(""))?;
     let hello = w.core.identify().await?;
+    if body.expected_core.as_ref().is_some_and(|core| *core != hello.core.id) {
+        return Err(ApiError::Conflict("Herdr Core changed. The task was not sent."));
+    }
     if fixture.as_ref().is_some_and(|fixture| {
         fixture.core != hello.core.id || !hello.supports_completion_start()
     }) {
@@ -890,12 +915,30 @@ async fn launch_agent(
         .chain(bot_note.as_ref().map(|(_, note)| note.as_str()))
         .chain(w.vault.as_ref().map(|_| vault::NOTE))
         .collect();
+    let folder = core::bot_workspace(body.workspace_id.as_deref(), &body.name)
+        .map_err(|_| Failure::Input("Could not prepare this bot’s private workspace folder."))?;
+    if let Some(folder) = &folder
+        && serde_json::from_str::<serde_json::Value>(&runtime)
+            .ok()
+            .and_then(|labels| labels["harness"].as_str().map(str::to_owned))
+            .is_some_and(|harness| harness.to_ascii_lowercase().contains("claude"))
+    {
+        first_time::trust_workspace(w.history.file(), folder)
+            .map_err(|_| Failure::Input("Claude Code’s folder trust could not be saved. Check Claude Code’s settings on the host."))?;
+    }
+    let staged = if files.is_empty() {
+        None
+    } else {
+        let directory = folder.as_deref().ok_or(Failure::Input("This bot needs a workspace folder for attachments."))?;
+        Some(task_files::stage_launch_files(directory, &files)?)
+    };
+    let first_task = staged.as_ref().map(|(_, suffix)| format!("{}{}", body.task, suffix));
     // A warm agent reads the same words around its first message. Check now that a message still fits.
     let message = warm::first_message(
         if body.warm {
             "A first message."
         } else {
-            &body.task
+            first_task.as_deref().unwrap_or(&body.task)
         },
         &instructions,
         &hints,
@@ -936,6 +979,12 @@ async fn launch_agent(
     let (record, key) = started.ok_or(ApiError::Conflict(
         "A session for this profile is already starting.",
     ))?;
+    if !files.is_empty() {
+        if let Err(error) = w.history.save_launch_files(record, &files) {
+            w.history.finish(record, DeliveryState::NotSent, Some("The attachments could not be saved."), None)?;
+            return Err(error.into());
+        }
+    }
     // The note is left out of a first task that has no room for it; a warm agent gets it with its first task.
     let noted = bot_note
         .filter(|(_, note)| body.warm || message.contains(note.as_str()))
@@ -968,6 +1017,10 @@ async fn launch_agent(
     } else {
         None
     };
+    if let Some((directory, _)) = staged {
+        // The agent will read these paths after launch, including when a reply is disconnected.
+        let _ = directory.keep();
+    }
     let action = tokio::spawn(async move {
         use opencode_agent::first_task::{Outcome, Prepared};
         let journal = w.history.file().to_str().ok_or(Failure::Input(
@@ -1014,6 +1067,7 @@ async fn launch_agent(
                     results: results.as_deref().and_then(std::path::Path::to_str),
                     opencode_first_task: prepared.as_ref().and_then(|task| task.path().to_str()),
                     helper: None,
+                    workspace: folder.as_deref().and_then(std::path::Path::to_str),
                 },
             )
             .await

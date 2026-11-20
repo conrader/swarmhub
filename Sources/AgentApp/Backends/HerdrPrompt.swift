@@ -23,6 +23,23 @@ struct HerdrPrompt: Equatable, Sendable {
     var notice: String { "\(program ?? "Its agent") is asking a question and waits for your answer." }
 
     /// The question as the chat shows it (`HerdrAICheck.question`): the lines with words, without the frames.
+    static func actionable(kind: String?, screen: String) -> Bool {
+        let text = question(from: screen).lowercased()
+        let tail = text.split(separator: "\n").suffix(3)
+        if tail.contains(where: { $0.contains("? for shortcuts") || $0.contains("for help with commands") }),
+           !tail.contains(where: { $0.contains("esc to cancel") || $0.contains("yes,") || $0.contains("no,") }) {
+            return false
+        }
+        if ["trust this folder?", "do you trust the files", "do you trust this folder", "do you trust the contents", "yes, i trust this folder",
+            "do you want to proceed?", "do you want to make this edit", "do you want to allow", "would you like to run the following command",
+            "allow this command", "allow once", "yes, and don’t ask again", "yes, and don't ask again"].contains(where: text.contains) {
+            return true
+        }
+        if text.contains("esc to cancel") && text.contains("yes") && text.contains("no") { return true }
+        guard let kind else { return false }
+        return ["permission", "permission_request", "trust", "trust_dialog", "input_request", "user_input", "approval"].contains(kind.lowercased())
+    }
+
     static func question(from screen: String) -> String { HerdrAICheck.question(from: screen, lines: lines) }
 }
 

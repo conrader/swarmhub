@@ -12,25 +12,34 @@ struct ContentView: View {
             || store.showingNewGroup || store.editingBot != nil || store.showingCommandPalette || store.modalErrorMessage != nil
     }
 
+    private func continueLaunch() {
+        guard store.persistenceEnabled || store.isSetupPreview else { return }
+        store.startHerdrHelperPolling()
+        store.startLaunchWork()
+        store.startTeamCoordination()
+        if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) }
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
                 .background(SidebarWidthClamp())
+                .disabled(store.storeRestoreOffer != nil)
                 .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
         } detail: {
             Group {
                 if let group = store.selectedGroup {
-                    GroupChatView(group: group).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
+                    GroupChatView(group: group).id(group.id).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
                     HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: 500)
                 } else if let bot = store.selectedBot {
-                    ChatView(bot: bot).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
+                    ChatView(bot: bot).id(bot.id).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
                 } else {
                     SetupEmptyState()
                         .overlay(alignment: .top) { if store.sidebarHidden { WindowDragArea().frame(height: ChromeMetrics.titleRow).chromeProbe("empty_strip") } }
                 }
-            }.ignoresSafeArea(.container, edges: .top)
+            }.disabled(store.storeRestoreOffer != nil).ignoresSafeArea(.container, edges: .top)
             .overlay(alignment: .top) { StoreRestorePrompt() }
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -38,7 +47,10 @@ struct ContentView: View {
             if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.errorMessage = nil } }
         }
         .environment(\.timeZone, store.personDisplayZone)
-        .task { store.startHerdrHelperPolling(); store.startLaunchWork(); store.startTeamCoordination(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
+         .task { if store.storeRestoreOffer == nil { continueLaunch() } }
+        .onChange(of: store.storeRestoreOffer) { _, offer in
+            if offer == nil { continueLaunch() }
+        }
         // "New agent" with no server opens the setup window instead of an editor whose bot could not answer.
         .sheet(isPresented: Binding(get: { store.showingNewBot && store.herdrConfigured }, set: { store.showingNewBot = $0 })) { BotEditorView(bot: nil) }
         .onChange(of: store.showingNewBot) { _, shown in if shown, !store.herdrConfigured { store.showingNewBot = false; store.openSetup(openWindow: openWindow) } }

@@ -13,7 +13,7 @@ struct GrokBotBundle: Decodable, Equatable, Sendable {
     struct Message: Decodable, Equatable, Sendable {
         var id: String; var seq: Int64; var role: String; var author: String?; var text: String
         var timestamp: String?; var hidden: Bool?; var channel: String?; var to: String?
-        var attachments: [Attachment]?; var replyTo: String?; var thread: String?
+        var attachments: [Attachment]?; var replyTo: String?; var thread: String?; var streaming: Bool? = nil
     }
     struct Event: Decodable, Equatable, Sendable {
         struct Payload: Decodable, Equatable, Sendable { var type: String; var from: String?; var to: String? }

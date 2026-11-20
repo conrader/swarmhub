@@ -1,9 +1,10 @@
+import CryptoKit
 import Foundation
 
 /// An agent that Herdr Core runs in a terminal (Claude Code, Codex, or any other template), reached through the
 /// SwarmHub bridge (`HerdrClient`). The agent program keeps its own conversation, model, tools and permissions, so
 /// only the newest user message is sent (after the bot's own instructions, once, when an agent starts):
-/// `systemPrompt`, earlier `messages` and images go nowhere. The reply is saved by the agent's Stop hook when its
+/// The bridge receives the newest user message and its attachments. The reply is saved by the agent's Stop hook when its
 /// turn ends. Until then the reply so far is shown as it is written: Claude Code, Codex and OpenCode all publish it
 /// through the bridge, and both report their tool calls through hooks, which become the reply's activity steps.
 /// A turn is followed on the bridge's event stream (`HerdrEvents.swift`), and by polling where there is none.
@@ -28,6 +29,8 @@ struct HerdrBackend: AgentBackend {
     let kind = BackendKind.herdr
     let client: HerdrClient
     let agentName: String
+    let botID: UUID
+    private let accepted = LockedValue<HerdrClient.Turn?>(nil)
     /// nil: the first template the bridge can start.
     let template: String?
     /// nil: the agent program's own default model. Used when the bot next starts an agent.
@@ -106,6 +109,7 @@ struct HerdrBackend: AgentBackend {
     }
 
     init(client: HerdrClient, botName: String, botID: UUID, template: String?, model: String? = nil, instructions: String? = nil) {
+        self.botID = botID
         self.client = client; self.template = template?.isEmpty == false ? template : nil
         self.model = model?.isEmpty == false ? model : nil
         self.instructions = instructions == Bot.defaultPersona ? nil : instructions
@@ -117,31 +121,55 @@ struct HerdrBackend: AgentBackend {
         HerdrClient.agentName(for: botName, suffix: botID.uuidString.replacingOccurrences(of: "-", with: ""))
     }
 
+    func runtimeName(sessionID: String) -> String {
+        let groupSuffix = String(sessionID.suffix(79))
+        guard groupSuffix.hasPrefix("group-"),
+              UUID(uuidString: String(groupSuffix.dropFirst(6).prefix(36))) != nil,
+              UUID(uuidString: String(groupSuffix.suffix(36))) == botID else { return agentName }
+        let digest = SHA256.hash(data: Data(sessionID.utf8))
+        return "group-" + digest.prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
+
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
-        guard let text = request.messages.last(where: { $0.role == "user" })?.content, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw BackendError.unavailable("There is no message to send.")
+        let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
+        let images = try request.images.map { url -> HerdrClient.TaskFile in
+            guard let comma = url.firstIndex(of: ","), url.hasPrefix("data:image/"),
+                  let data = Data(base64Encoded: String(url[url.index(after: comma)...])) else { throw BackendError.unavailable("Could not read the attached image.") }
+            let mime = String(url.dropFirst(5).prefix { $0 != ";" && $0 != "," })
+            return .init(name: "image.\(mime.split(separator: "/").last ?? "png")", mime: mime, data: data)
         }
+        let files = request.files + images
+        let blank = input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard !blank || !files.isEmpty else { throw BackendError.unavailable("There is no message to send.") }
+        let text = blank ? "Read the attached files." : input
+        let name = runtimeName(sessionID: request.sessionID)
+        try HerdrClient.validateMessage(text)
+        try HerdrClient.TaskFile.validate(files)
         var configured = self
-        if try await coordinate?() == true {
+        if name == agentName, try await coordinate?() == true {
             configured.roster = nil
             configured.messageNote = Self.teamNote
         }
         let backend = configured
+        _ = accepted.swap(nil)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 let started = ContinuousClock.now
+                var delivered = false
                 do {
                     // A start ahead of time that is still on its way ends first, so this message never starts a second agent.
-                    if let starting = backend.starting {
+                    if name == backend.agentName, let starting = backend.starting {
                         continuation.yield(.status(HerdrTurnStatus.starting(program: starting.program).code))
                         await starting.settled()
                     }
                     continuation.yield(.status(HerdrTurnStatus.sending.code))
-                    let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
+                    let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : nil,
                                                                 once: backend.notes, changing: backend.rosters,
-                                                                projects: backend.projects, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
+                                                                projects: backend.projects, files: files, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
                                                                 status: { continuation.yield(.status($0.code)) })
+                    delivered = true
+                    _ = backend.accepted.swap(turn)
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     // Read the launch model from this exact session. Following the answer proceeds concurrently.
@@ -178,7 +206,11 @@ struct HerdrBackend: AgentBackend {
                     continuation.yield(.completed)
                     continuation.finish()
                 } catch is CancellationError { continuation.finish()
-                } catch { continuation.finish(throwing: error) }
+                } catch HerdrClient.Failure.notDelivered(let reason) {
+                    continuation.finish(throwing: HerdrClient.Failure.notDelivered(reason))
+                } catch {
+                    continuation.finish(throwing: delivered ? StreamBreak(delivered: true, underlying: error) : error)
+                }
             }
             continuation.onTermination = { _ in task.cancel() }
         }
@@ -213,22 +245,25 @@ struct HerdrBackend: AgentBackend {
     /// mid-turn, so nothing is handed back; with no agent running there is nothing to steer.
     func steer(sessionID: String, text: String) async throws {
         guard steers else { throw BackendError.unavailable("This bot holds messages until its answer ends.") }
-        guard let agent = client.liveAgent(named: agentName, in: try await client.workspace()) else { throw BackendError.http(404, "run_not_found") }
-        try await client.message(HerdrClient.plain(text, bytes: HerdrClient.messageBytes), to: agent)
+        guard let agent = client.liveAgent(named: runtimeName(sessionID: sessionID), in: try await client.workspace()) else { throw BackendError.http(404, "run_not_found") }
+        try HerdrClient.validateMessage(text)
+        try await client.message(HerdrClient.plain(text, bytes: Int.max), to: agent)
     }
 
     func cancel(sessionID: String) async throws -> StopOutcome { try await requestStop(try await stopTarget(sessionID: sessionID)) }
 
     /// The bot's running agent, as `address/created`; an agent that is not running has nothing to stop.
     func stopTarget(sessionID: String) async throws -> StopTarget {
-        guard let agent = client.liveAgent(named: agentName, in: try await client.workspace()) else { return .noActiveRun }
-        return .serverRun("\(agent.address)/\(agent.createdMs)")
+        guard let turn = accepted.current else { return .noActiveRun }
+        return .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)")
     }
 
     /// Herdr presses the agent's own interrupt key; the agent stays open for the next message.
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
         guard case .serverRun(let id) = target else { return .noActiveRun }
-        guard let agent = try await client.workspace().agents.first(where: { "\($0.address)/\($0.createdMs)" == id && $0.isLive }) else { return .noActiveRun }
+        let workspace = try await client.workspace()
+        guard let core = workspace.core,
+              let agent = workspace.agents.first(where: { "\(core)/\($0.address)/\($0.createdMs)" == id && $0.isLive }) else { return .noActiveRun }
         try await client.interrupt(agent)
         return .requested
     }

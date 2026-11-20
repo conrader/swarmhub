@@ -3,23 +3,14 @@ import SwiftUI
 /// Done: the imported bots first, then the details (coverage, what was not imported, redactions, hidden prompts,
 /// failures) collapsed. Counts come from the store and the archive files.
 struct GrokDoneStep: View {
-    @EnvironmentObject private var store: AppStore
     @ObservedObject var coordinator: GrokImportCoordinator
-    @Environment(\.openWindow) private var openWindow
     @State private var showingDetails = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Imported bots").font(.headline)
-                VStack(spacing: 6) { ForEach(coordinator.botOutcomes) { outcome in botRow(outcome) } }
-                if coordinator.botOutcomes.isEmpty { Text("No bot was imported.").foregroundStyle(.secondary) }
-                if !store.herdrConfigured && !coordinator.botOutcomes.isEmpty {
-                    Button("Connect an agent to use my bot") {
-                        store.showingGrokImport = false
-                        store.openSetup(openWindow: openWindow)
-                    }
-                }
+                Text(coordinator.outcomeHeadline).font(.headline)
+                VStack(spacing: 6) { ForEach(coordinator.outcomes) { outcome in botRow(outcome) } }
                 Text("Each bot keeps its name, avatar and instructions and runs as an agent on your Herdr server. Imported chats are a read-only archive on this Mac; the bots start fresh and do not remember them.")
                     .font(.callout).foregroundStyle(.secondary)
                 DisclosureGroup("Details", isExpanded: $showingDetails) { details }.font(.callout)
@@ -29,9 +20,19 @@ struct GrokDoneStep: View {
 
     private func botRow(_ outcome: GrokImportOutcome) -> some View {
         HStack(spacing: 10) {
-            Text(outcome.name).fontWeight(.medium)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(outcome.name + (outcome.isGroup ? " (group)" : "")).fontWeight(.medium)
+                Text(outcome.statusLabel + (outcome.row.reason.map { " · " + $0 } ?? "")).font(.caption).foregroundStyle(.secondary)
+                if let target = coordinator.savedDestination(for: outcome) {
+                    Text(target.location).font(.caption).foregroundStyle(.secondary)
+                    if let path = target.workspace { Text(path).font(.caption.monospaced()).foregroundStyle(.secondary) }
+                }
+            }
             Spacer()
-            Text("\(outcome.archiveLines) archived lines").font(.caption).foregroundStyle(.secondary)
+            if outcome.botID != nil {
+                Text("\(outcome.archiveLines) archived lines").font(.caption).foregroundStyle(.secondary)
+                Button("Open") { coordinator.open(outcome) }
+            }
         }
         .padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9))
     }
@@ -54,10 +55,7 @@ struct GrokDoneStep: View {
             }
             let failed = coordinator.progress.filter { if case .failed = $0.status { true } else { false } }
             ForEach(failed) { row in Text("\(row.name): \(row.label)").font(.caption).foregroundStyle(.red) }
-            if !coordinator.unfinishedIDs.isEmpty {
-                Button("Retry remaining (\(coordinator.unfinishedIDs.count))") { Task { await coordinator.retryUnfinished() } }
-                    .help("Imports the conversations above that did not finish; Full mode asks macOS once more first.")
-            }
+
         }.padding(.top, 6)
     }
 }

@@ -11,7 +11,7 @@ extension AppStore {
             // A round starts no member's turn while the path is down.
             if turns.pathDown { skipped = rest; skipWhy = "offline"; break }
             group.round?.remaining.removeAll { $0 == botID }
-            guard group.memberIDs.contains(botID), let bot = bots.first(where: { $0.id == botID }) else { save(); continue }
+            guard group.memberIDs.contains(botID), let bot = bots.first(where: { $0.id == botID && !$0.isReadOnlyArchive }) else { save(); continue }
             group.round?.active = botID; save()
             let outcome = await groupTurn(bot: bot, group: group, run: run, token: token, images: images, trigger: trigger)
             group.round?.active = nil; save()
@@ -43,7 +43,6 @@ extension AppStore {
         do { try validateArtifactAccess(trigger, botID: bot.id) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return nil }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return nil }
-        let context = GroupRouting.context(for: .init(id: bot.id, name: bot.name), groupName: group.name, members: routingMembers(of: group), messages: readableMessages(group.messages, for: bot.id), current: trigger.id, userName: userName)
         let assistant: ChatMessage
         if let row {
             assistant = row; row.isStreaming = true; row.turnState = .incomplete
@@ -53,15 +52,29 @@ extension AppStore {
             group.messages.append(assistant)
         }
         group.activeMemberID = bot.id
-        if let turn = turn(token: token) { turn.botID = bot.id; turn.assistant = assistant }
+        if let turn = turn(token: token) { turn.botID = bot.id; turn.assistant = assistant; turn.backend = activeBackend }
         objectWillChange.send(); save()
-        let sessionID = group.session(for: bot.id) ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
+        let sessionID = turnSessionID(in: group, bot: bot)
         var end: TurnEnd
         do {
             try Task.checkCancellation()
-            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.outboundPersona, messages: [(role: "user", content: context)], images: images))
+            let member = GroupRouting.Member(id: bot.id, name: bot.name)
+            let members = routingMembers(of: group), messages = readableMessages(group.messages, for: bot.id)
+            let herdr = activeBackend as? HerdrBackend
+            let files = herdr == nil ? [] : try trigger.attachments.map(attachmentEncoder.taskFile(for:))
+            let context: String
+            if let herdr {
+                let limit = groupMessageBudget(herdr, hasFiles: !files.isEmpty)
+                context = try GroupRouting.herdrContext(for: member, groupName: group.name, members: members,
+                    messages: messages, current: trigger, limit: limit, userName: userName)
+            } else {
+                context = GroupRouting.context(for: member, groupName: group.name, members: members,
+                    messages: messages, current: trigger.id, userName: userName)
+            }
+            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.outboundPersona,
+                messages: [(role: "user", content: context)], images: herdr == nil ? images : [], files: files))
             if isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
-            end = try await consumeTurn(stream, assistant: assistant, bot: bot)
+            end = try await consumeTurn(stream, assistant: assistant, bot: bot, group: group)
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
         } catch { end = .error(error) }
@@ -70,6 +83,7 @@ extension AppStore {
         if case .stoppedByUser = end, reply.turnState != .stopped { reply.turnState = .stopped; reply.metadata[TurnKey.why] = "stopped" }
         let outcome = finishTurn(end, assistant: reply, bot: bot, in: group, alertPrefix: "\(bot.name): ")
         group.activeMemberID = nil
+        if let turn = turn(token: token) { turn.botID = nil; turn.backend = nil }
         setSteerAvailable(false, token: token)
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty && !reply.isSilent && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }

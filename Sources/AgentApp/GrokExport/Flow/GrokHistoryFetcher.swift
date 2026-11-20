@@ -17,6 +17,7 @@ struct GrokHistoryFetcher: Sendable {
 
     struct Result: Sendable {
         var entries: [JSONValue] = []
+        var unresolvedSequences: Set<Int64> = []
         var stats = Stats()
         /// Paging reached seq 1 or an empty page: nothing older exists on the server.
         var reachedStart = false
@@ -60,6 +61,8 @@ struct GrokHistoryFetcher: Sendable {
                 // Commit the page only once it is fully resolved, so a resume refetches a half-read page.
                 result.stats = stats
                 result.entries += entries
+                let resolved = Set(entries.compactMap { $0["seq"]?.intValue })
+                result.unresolvedSequences.formUnion(Set(rows.map(\.seq)).subtracting(resolved))
                 let oldest = rows.map(\.seq).min()!
                 result.oldestFetched = oldest
                 result.nextBeforeSeq = oldest

@@ -187,7 +187,7 @@ private let restarting: [HerdrServerUpdate.Event] = [answered, .checked(check("0
     #expect(summary(.upToDate, [moved([.checkBegan]), current]).headline == "Checking for updates…")
     let working = summary(.available("0.7.1"), [moved(restarting), behind])
     #expect(working.headline == "Updating…" && working.action == nil, "no second update is started while one runs")
-    #expect(summary(.upToDate, [away, current]).headline == "SwarmHub is up to date" && summary(.unknown, [away]).headline == "Could not check")
+    #expect(summary(.upToDate, [away, current]).headline == "Could not check for updates" && summary(.unknown, [away]).headline == "Could not check for updates")
     #expect(summary(.unknown, [HerdrServerUpdate()]).headline == "Software Update" && summary(.upToDate, []).headline == "Everything is up to date")
     #expect(SoftwareUpdatePane.detail(fine, servers: ["Mac", "Studio"]) == "SwarmHub and the workspace on your 2 servers." && SoftwareUpdatePane.detail(appOnly, servers: []) == "SwarmHub 0.7.1.")
     #expect(SoftwareUpdatePane.detail(one, servers: ["Mac", "Studio"]) == "The workspace on Studio." && SoftwareUpdatePane.detail(both, servers: ["Mac", "Studio"]) == "SwarmHub 0.7.1 and the workspace on Mac and Studio.")
@@ -202,9 +202,17 @@ private let restarting: [HerdrServerUpdate.Event] = [answered, .checked(check("0
     line.problem = "The feed could not be read."
     #expect(line.sentence == "Could not check: The feed could not be read.")
     line.available = "0.7.1"
+    #expect(line.state == .failed)
+    line.problem = nil
     #expect(line.state == .available("0.7.1") && line.sentence.hasPrefix("Version 0.7.1 is available."))
     let development = SoftwareUpdatePane.AppLine(version: "0.7.0", lastCheck: .now, unavailable: "Run the installed application to enable automatic updates.")
     #expect(development.state == .unknown && development.sentence == "Run the installed application to enable automatic updates.")
+
+    var queued = SoftwareUpdatePane.AppLine(version: "0.8.6", queued: true)
+    #expect(queued.sentence.contains("queued"))
+    queued.queued = false
+    queued.checking = true
+    #expect(queued.state == .checking)
 
     #expect(UpdateConfiguration.problem(from: NSError(domain: "SUSparkleErrorDomain", code: 1001)) == nil, "nothing newer is not a problem")
     #expect(UpdateConfiguration.problem(from: NSError(domain: "SUSparkleErrorDomain", code: 4007)) == nil)
@@ -403,7 +411,7 @@ private final class UpdatingServer: @unchecked Sendable {
     await model.refresh(store: store)
     guard case .unreachable(let why) = model.state(for: server).phase else { Issue.record("\(model.state(for: server).phase)"); return }
     #expect(why.contains("not reachable") && !model.state(for: server).isBehind)
-    #expect(model.summary(store: store, updater: AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])).headline == "Could not check")
+    #expect(model.summary(store: store, updater: AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])).headline == "Could not check for updates")
 }
 
 /// Software Update renders in each of its states, each differently.

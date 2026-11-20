@@ -342,6 +342,19 @@ impl History {
         ).optional()?)
     }
 
+    pub fn save_launch_files(&self, task: i64, files: &[crate::groups::Upload]) -> Result<(), StoreError> {
+        let mut db = self.db()?;
+        let tx = db.transaction()?;
+        for file in files {
+            tx.execute(
+                "INSERT INTO direct_task_files (task_id,name,data) VALUES (?1,?2,?3)",
+                params![task, file.name, file.data.as_ref()],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn start_task(
         &self,
         core_id: &str,

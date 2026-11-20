@@ -6,6 +6,7 @@ struct AgentRequest: Sendable {
     let messages: [(role: String, content: String)]
     /// `data:image/...` URLs sent as image parts with the last user message.
     var images: [String] = []
+    var files: [HerdrClient.TaskFile] = []
 }
 
 /// What answers a bot's messages. `HerdrBackend` is the one real implementation (an agent that Herdr Core runs);

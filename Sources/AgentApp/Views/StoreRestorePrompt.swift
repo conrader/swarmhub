@@ -8,13 +8,27 @@ struct StoreRestorePrompt: View {
     var body: some View {
         if let offer = store.storeRestoreOffer {
             bubble(StoreRestoreCopy.question(offer)) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(offer.entries) { entry in
+                            Text("\(entry.name) · \(entry.kind) · \(entry.messages) messages" +
+                                 (entry.archiveLines.map { " · \($0) archived" } ?? (entry.expectsArchive ? " · Archive missing" : "")))
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 260)
+                if let note = store.storeRestoreNote { Text(note).foregroundStyle(.secondary) }
                 HStack(spacing: 6) {
                     chip(StoreRestoreCopy.restore(offer)) { store.restoreSetAsideStore() }
                     chip(StoreRestoreCopy.skip) { store.declineStoreRestore() }
                 }.accessibilityElement(children: .contain).accessibilityLabel("Suggested replies")
             }
         } else if let note = store.storeRestoreNote {
-            bubble(note) { Button("Dismiss") { store.storeRestoreNote = nil }.buttonStyle(.link).font(.callout) }
+            bubble(note) {
+                HStack {
+                    if store.restoreUndoRevision != nil { Button("Undo restore") { store.undoStoreRestore() } }
+                    Button("Dismiss") { store.storeRestoreNote = nil }
+                }.buttonStyle(.link).font(.callout)
+            }
         }
     }
 

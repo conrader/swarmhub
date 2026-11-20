@@ -36,6 +36,7 @@ enum GrokAvailability: Sendable, Equatable {
     case unavailable(GrokUnavailable)
     case cacheOnly(GrokImportRunError)
     case ready
+    case recentExport
 
     var canImport: Bool { if case .unavailable = self { false } else { true } }
 }

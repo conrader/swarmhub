@@ -63,7 +63,8 @@ import SwiftUI
                 .defaultAppStorage(store.defaults)
                 .preferredColorScheme(AppTheme.colorScheme(for: appearance))
                 .tint(AppTheme.accentColor(for: accent))
-        }.windowResizability(.contentSize)
+        }.defaultSize(width: SetupView.size.width, height: SetupView.size.height)
+            .windowResizability(.contentMinSize)
         Settings {
             SettingsView()
                 .environmentObject(store)

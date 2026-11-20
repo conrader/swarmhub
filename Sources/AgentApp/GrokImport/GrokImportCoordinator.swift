@@ -26,6 +26,9 @@ import Foundation
     @Published var selected: Set<String> = []
     @Published var mode: GrokImportMode = .full
     @Published var refreshIdentity = false
+    @Published var destinationPlan: GrokDestination?
+    @Published private(set) var exportBundles: [GrokBotBundle]?
+    let requiresTestedHost: Bool
     @Published var progress: [GrokProgressRow] = []
     @Published var outcomes: [GrokImportOutcome] = []
     @Published var requests = 0
@@ -52,9 +55,11 @@ import Foundation
     private var keepCommittedRows = false
     private var startedAt = ContinuousClock.now
 
-    init(store: AppStore, environment: GrokImportEnvironment,
+    init(store: AppStore, environment: GrokImportEnvironment, destination: GrokDestination? = nil, requiresTestedHost: Bool = false,
          isGrokRunning: @escaping @Sendable () -> Bool = { GrokImportCoordinator.grokBotIsRunning() }) {
         self.store = store
+        self.destinationPlan = destination
+        self.requiresTestedHost = requiresTestedHost
         self.environment = environment
         self.isGrokRunning = isGrokRunning
     }
@@ -64,8 +69,14 @@ import Foundation
     }
 
     /// A Herdr server is set up, and the first one's name: new bots run there.
-    var hasServer: Bool { store.herdrConfigured }
-    var serverName: String { store.herdrServers[0].name }
+    var hasServer: Bool { testedServer != nil || (!requiresTestedHost && store.herdrConfigured) }
+    var testedServer: HerdrServer? {
+        guard let plan = destinationPlan, let saved = store.herdrServer(id: plan.serverID),
+              plan.testedHost.map({ $0 == saved }) ?? true else { return nil }
+        return saved
+    }
+    var canProceed: Bool { !selected.isEmpty && availability?.canImport == true && (!requiresTestedHost || testedServer != nil) }
+    var serverName: String { testedServer?.name ?? store.herdrServers[0].name }
     var historyDirectory: URL { store.grokHistory.directory }
 
     func destination(for item: GrokFoundItem) -> String {
@@ -74,7 +85,9 @@ import Foundation
             let group = store.groups.first { $0.grokSourceID == item.id }
             let name = group.flatMap { refreshIdentity ? nil : $0.name } ?? refreshedName
             let hidden = group?.isHidden ?? item.hiddenInGrok
-            return "“\(name)” in \(hidden ? "Hidden chats" : "the sidebar as a group chat")"
+            let operation = group == nil ? "New group" : (refreshIdentity ? "Update group name and history" : "Update group history")
+            let members = (group.map { store.members(of: $0).map(\.name) } ?? item.memberNames).joined(separator: ", ")
+            return "\(operation) · “\(name)” · \(hidden ? "Hidden chats" : "sidebar")" + (members.isEmpty ? "" : " · \(members)")
         }
         let bot = store.bots.first { $0.grokSourceID == item.id }
         let name = bot.flatMap { refreshIdentity ? nil : $0.name } ?? AppStore.importedGrokName(refreshedName)
@@ -83,10 +96,14 @@ import Foundation
         let server = bot.map { store.herdrServer(for: $0).name } ?? serverName
         if !hasServer { return "“\(name)” in \(location) · runs after server setup" }
         if let bot {
-            let agent = HerdrBackend.agentName(botName: name, botID: bot.id)
-            return "“\(name)” in \(location) · \(agent) on \(server)"
+            let reading = store.herdrProgramName(for: bot) ?? store.herdrTemplate(for: bot) ?? "current program"
+            let action = refreshIdentity ? "Update history and bot identity" : "Update history"
+            return "\(action) · “\(name)” · \(server) · \(reading) · \(location)"
         }
-        return "“\(name)” in \(location) · Herdr agent on \(server)"
+        let program = destinationPlan?.program(for: item.id)
+        let model = program.flatMap { HerdrModelChoice.suggested(program: $0.modelAgent ?? $0.name, offered: $0.models) }
+        let runtime = [program?.name, model.map(HerdrProgram.modelName)].compactMap { $0 }.joined(separator: " · ")
+        return "New bot · “\(name)” · \(server) · \(runtime.isEmpty ? "Herdr agent" : runtime) · \(location)"
     }
 
     var selectedItems: [GrokFoundItem] { items.filter { selected.contains($0.id) } }
@@ -101,12 +118,15 @@ import Foundation
 
     /// Tier 2: the no-prompt preflight (cache, account binding, secrets-file structure, attributes-only Keychain query).
     func scan() async {
+        guard driver == nil else { return }
         step = .scanning
         let found = await GrokPreflight.run(location: environment.location, passwords: environment.passwords)
         preflight = found
         grokVersion = found.versionReadable ? found.clientVersion : nil
         availability = GrokLocator.availability(found, persistenceEnabled: store.persistenceEnabled)
+        exportBundles = nil
         items = found.cache.map(makeItems) ?? []
+        planNewBotIDs()
         selected = Set(items.map(\.id))
         mode = availability == .ready ? .full : .recent
         signInMayBeStale = secretsOlderThanADay() && !isGrokRunning()
@@ -129,7 +149,8 @@ import Foundation
 
     /// Found → Permission (Full mode, when macOS would be asked) or straight to importing.
     func proceed() async {
-        guard !selected.isEmpty, availability?.canImport == true else { return }
+        guard canProceed else { return }
+        if exportBundles != nil { beginExport(); return }
         if mode == .full, availability == .ready, await currentRun().willAskMacOS() { step = .permission; watchKeychain(); return }
         begin(fresh: true) { run, options in await run.start(options) }
     }
@@ -161,6 +182,7 @@ import Foundation
 
     /// Stop after the in-flight request; a pending Keychain wait is abandoned. Finished bots stay.
     func cancel() {
+        if exportBundles != nil { driver?.cancel(); return }
         guard let run else { return }
         run.cancel()
         guard driver == nil, step.isPaused else { return }
@@ -229,7 +251,8 @@ import Foundation
 
     private func options() -> GrokImportOptions {
         let ids = items.map(\.id).filter(selected.contains)
-        return GrokImportOptions(mode: mode, selection: ids.count == items.count ? nil : ids, refreshIdentity: refreshIdentity)
+        return GrokImportOptions(mode: mode, selection: ids.count == items.count ? nil : ids, refreshIdentity: refreshIdentity, destination: destinationPlan,
+            excludedSourceIDs: keepCommittedRows ? Set(committedRows.filter { $0.status == .done }.map(\.sourceID)) : [])
     }
 
     /// `fresh`: a new run (Start, Try again, Recent only) rather than a continuation of the paused or cancelled one.
@@ -252,7 +275,7 @@ import Foundation
     private func resetProgress(_ options: GrokImportOptions) {
         guard let cache = preflight?.cache else { progress = []; return }
         let order = (try? GrokImportRun.conversations(in: cache, selection: options.selection)) ?? []
-        progress = order.compactMap { id in
+        progress = order.filter { !options.excludedSourceIDs.contains($0) }.compactMap { id in
             items.first { $0.id == id }.map { GrokProgressRow(id: id, name: $0.name, isGroup: $0.isGroup, newestSeq: $0.newestCachedSeq) }
         }
         current = nil
@@ -264,6 +287,7 @@ import Foundation
         switch state {
         case .finished:
             await refreshOutcomes()
+            selectImportedMainBotIfNeeded()
             step = .finished
             stopTicker()
         case .paused(let pause):
@@ -363,14 +387,18 @@ import Foundation
     // MARK: Helpers
 
     private func makeItems(_ cache: GrokCache) -> [GrokFoundItem] {
-        let built = GrokBundleBuilder.build(cache).bundles
+        let built = GrokBundleBuilder.build(roster: cache.roster, transcripts: [:]).bundles
         return built.map { bundle in
             let newest = (cache.transcripts[bundle.sourceID] ?? []).compactMap { $0.objectValue?["seq"]?.intValue }.max() ?? 0
             var item = GrokFoundItem(
                 id: bundle.sourceID, name: bundle.name, isGroup: bundle.isGroup, memberIDs: bundle.members.map(\.sourceID),
                 mark: GrokAvatarMap.map(shape: bundle.avatarShape, colour: bundle.avatarColour, sourceID: bundle.sourceID),
-                profile: bundle.profile, cachedMessages: bundle.messages.count, newestCachedSeq: newest,
+                profile: bundle.profile, cachedMessages: cache.transcripts[bundle.sourceID]?.count ?? 0, newestCachedSeq: newest,
                 hiddenInGrok: bundle.source.hiddenFromSidebar)
+            let source = PreparedGrokBundle(GrokBotBundle(bundle))
+            item.description = source.description
+            item.needsDescriptionEdit = !bundle.isGroup && source.description.isEmpty
+            item.memberNames = bundle.members.map(\.name)
             if let bot = store.bots.first(where: { $0.grokSourceID == bundle.sourceID }) {
                 item.importedLines = bot.grokHistoryCount
                 item.importedAt = store.grokHistory.lastModified(for: bot.id)
@@ -379,6 +407,66 @@ import Foundation
                 item.importedAt = store.grokHistory.lastModified(for: group.id)
             }
             return item
+        }
+    }
+
+    private func planNewBotIDs() {
+        guard var plan = destinationPlan else { return }
+        for item in items where !item.isGroup && plan.newBotIDs[item.id] == nil {
+            plan.newBotIDs[item.id] = UUID()
+        }
+        destinationPlan = plan
+    }
+
+    func useExportBundles(_ bundles: [GrokBotBundle]) {
+        guard driver == nil else { return }
+        exportBundles = bundles
+        run = nil
+        availability = .recentExport
+        mode = .recent
+        items = bundles.map { bundle in
+            let prepared = PreparedGrokBundle(bundle)
+            return GrokFoundItem(id: bundle.sourceId, name: prepared.name, isGroup: bundle.isGroup ?? false,
+                memberIDs: prepared.members.map(\.sourceID), mark: GrokAvatarMap.map(shape: bundle.avatar?.shape,
+                    colour: bundle.avatar?.colour, sourceID: bundle.sourceId), profile: bundle.profile,
+                cachedMessages: bundle.messages.count, newestCachedSeq: bundle.messages.map(\.seq).max() ?? 0,
+                hiddenInGrok: bundle.source?.hiddenFromSidebar ?? false, description: prepared.description,
+                needsDescriptionEdit: prepared.description.isEmpty,
+                memberNames: prepared.members.map(\.name))
+        }
+        planNewBotIDs()
+        selected = Set(items.map(\.id))
+        step = .found
+    }
+
+    private func beginExport() {
+        guard driver == nil, let exportBundles else { return }
+        if !keepCommittedRows { committedRows = []; outcomes = [] }
+        keepCommittedRows = false
+        let bundles = exportBundles.filter { selected.contains($0.sourceId) }.sorted { $0.isGroup != true && $1.isGroup == true }
+        let destination = destinationPlan
+        let policy = GrokImportPolicy.inApp(refreshIdentity: refreshIdentity)
+        progress = bundles.map { .init(id: $0.sourceId, name: $0.name, isGroup: $0.isGroup ?? false, newestSeq: 0) }
+        step = .running
+        startTicker()
+        driver = Task {
+            for bundle in bundles {
+                if Task.isCancelled { break }
+                let id = bundle.sourceId
+                mark(id, .saving)
+                var row = GrokImportRunRow(sourceID: id, name: bundle.name, isGroup: bundle.isGroup == true,
+                    status: .done, coverage: .fileExport)
+                do {
+                    let imported = try await store.importGrokBundles([bundle], policy: policy, timing: nil, destination: destination)
+                    row.archiveLines = imported.first?.historyCount ?? 0
+                    row.created = imported.first?.created
+                } catch {
+                    row.status = .skipped
+                    row.reason = (error as? LocalizedError)?.errorDescription ?? "The conversation could not be saved."
+                }
+                handle(.committed(row))
+            }
+            await settle(Task.isCancelled ? .cancelled : .finished)
         }
     }
 

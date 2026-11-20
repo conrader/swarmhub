@@ -599,6 +599,8 @@ async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result
         expected_runtime: None,
         model_choice: None,
         model_id,
+        expected_core: None,
+        workspace_id: (bot.id.len() == 36).then(|| bot.id.clone()),
         standing_instructions: None,
         instructions_revision: None,
         collect_results: false,
@@ -612,7 +614,7 @@ async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result
         owner: bot.id.clone(),
         agent_name: bot.agent_name.clone(),
     });
-    crate::launch_agent(w.clone(), launch, Some(instructions), fixture)
+    crate::launch_agent(w.clone(), launch, Some(instructions), fixture, vec![])
         .await
         .map(|created| created.terminal)
         .map_err(explain)

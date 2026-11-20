@@ -88,12 +88,14 @@ struct GrokImportOptions: Sendable, Equatable {
     /// Roster ids or names (case-insensitive) to import; nil imports every conversation. A group brings its members.
     var selection: [String]?
     var refreshIdentity = false
+    var destination: GrokDestination? = nil
+    var excludedSourceIDs: Set<String> = []
 }
 
 /// One conversation's result, read back from what was committed. Counts only, plus the bot's display name.
 struct GrokImportRunRow: Sendable, Equatable {
     enum Status: String, Sendable { case done, incomplete, skipped }
-    enum Coverage: String, Sendable { case complete, serverGaps = "server-gaps", incomplete, cacheOnly = "cache-only" }
+    enum Coverage: String, Sendable { case complete, serverGaps = "server-gaps", incomplete, cacheOnly = "cache-only", fileExport = "file-export" }
 
     var sourceID: String
     var name: String
@@ -102,6 +104,7 @@ struct GrokImportRunRow: Sendable, Equatable {
     var coverage: Coverage
     /// A secret-free reason when skipped.
     var reason: String?
+    var created: Bool? = nil
     var cachedEntries = 0
     var fetchedEntries = 0
     var messages = 0
@@ -147,6 +150,7 @@ struct GrokFetchProgress: Sendable {
 
     mutating func absorb(_ next: GrokHistoryFetcher.Result) {
         result.entries += next.entries
+        result.unresolvedSequences.formUnion(next.unresolvedSequences)
         result.stats.pages += next.stats.pages
         result.stats.rows += next.stats.rows
         result.stats.blobsRead += next.stats.blobsRead

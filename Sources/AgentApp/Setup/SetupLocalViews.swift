@@ -99,6 +99,11 @@ struct SetupAIChecks: View {
             line(symbol: "checkmark.circle.fill", colour: AppColor.good, title: check.name, detail: WizardCopy.aiReady, inline: true)
         case .failed(let why):
             line(symbol: "exclamationmark.triangle.fill", colour: AppColor.caution, title: "\(check.name): \(WizardCopy.aiFailed)", detail: why)
+        case .unready:
+            HStack {
+                line(symbol: "terminal", colour: AppColor.sky, title: check.name, detail: "Still starting")
+                Button("View terminal") { answer(check) }
+            }
         case .asks(let screen, _):
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {

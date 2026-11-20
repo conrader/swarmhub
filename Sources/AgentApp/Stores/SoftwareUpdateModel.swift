@@ -166,7 +166,9 @@ import Foundation
     }
 
     func summary(store: AppStore, updater: AppUpdater) -> SoftwareUpdateSummary {
-        let app: SoftwareUpdateSummary.App = updater.available.map { .available($0) } ?? (updater.lastCheck == nil || updater.unavailableReason != nil ? .unknown : .upToDate)
+        let app = SoftwareUpdatePane.AppLine(version: "", available: updater.available, checking: updater.isChecking,
+            lastCheck: updater.lastCheck, problem: updater.problem, queued: updater.manualCheckQueued,
+            unavailable: updater.unavailableReason).state
         return SoftwareUpdateSummary(app: app, servers: store.herdrServers.map(state(for:)))
     }
 }

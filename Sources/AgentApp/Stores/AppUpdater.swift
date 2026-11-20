@@ -8,11 +8,13 @@ import Sparkle
     static let shared = UpdateNotice()
     /// The version of the app a check found and the person has neither installed nor skipped.
     @Published var appVersion: String?
+    @Published var manualCheckQueued = false
     /// How many servers have a workspace update ready, or need one by hand.
     @Published var serversBehind = 0
 
     /// "SwarmHub 0.7.1 is available", "2 server updates", or nil when there is nothing to say.
     var line: String? {
+        if manualCheckQueued { return "Update check queued" }
         if let appVersion { return serversBehind > 0 ? "Updates are available" : "\(AppConstants.name) \(appVersion) is available" }
         if serversBehind > 0 { return serversBehind == 1 ? "A server update is available" : "\(serversBehind) server updates are available" }
         return nil
@@ -27,6 +29,9 @@ import Sparkle
 /// downloads in the background and installs when the app quits. Every archive is checked against the EdDSA key in
 /// Info.plist before it is unpacked.
 @MainActor final class AppUpdater: ObservableObject {
+    @Published private(set) var manualCheckQueued = false
+    let automaticInstallPreferenceAvailable: Bool
+
     @Published private(set) var canCheckForUpdates = false
     @Published private(set) var automaticallyChecksForUpdates = false
     @Published private(set) var automaticallyDownloadsUpdates = false
@@ -44,6 +49,7 @@ import Sparkle
     private var pendingManualCheck: AnyCancellable?
 
     init(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment, arguments: [String] = CommandLine.arguments) {
+        automaticInstallPreferenceAvailable = (bundle.object(forInfoDictionaryKey: "SUAllowsAutomaticUpdates") as? Bool) != false
         unavailableReason = UpdateConfiguration.unavailableReason(bundleURL: bundle.bundleURL,
             info: bundle.infoDictionary ?? [:], environment: environment, arguments: arguments)
         guard unavailableReason == nil else { return }
@@ -59,7 +65,6 @@ import Sparkle
             updater.publisher(for: \.automaticallyChecksForUpdates).assign(to: &$automaticallyChecksForUpdates)
             updater.publisher(for: \.automaticallyDownloadsUpdates).assign(to: &$automaticallyDownloadsUpdates)
             updater.publisher(for: \.allowsAutomaticUpdates).assign(to: &$allowsAutomaticUpdates)
-            lastCheck = updater.lastUpdateCheckDate
             // A rehearsal does not wait a day for the scheduled check.
             if environment["SWARMHUB_UPDATE_CHECK_ON_LAUNCH"] == "1" { updater.checkForUpdatesInBackground() }
         } catch {
@@ -72,8 +77,13 @@ import Sparkle
         guard let controller else { return }
         if controller.updater.canCheckForUpdates {
             pendingManualCheck = nil
+            manualCheckQueued = false
+            UpdateNotice.shared.manualCheckQueued = false
+            isChecking = true; problem = nil
             controller.checkForUpdates(nil)
         } else if pendingManualCheck == nil {
+            manualCheckQueued = true
+            UpdateNotice.shared.manualCheckQueued = true
             // Sparkle can briefly report ready before starting another phase of the same check.
             pendingManualCheck = $canCheckForUpdates
                 .receive(on: DispatchQueue.main)
@@ -96,16 +106,22 @@ import Sparkle
     }
 
     func setAutomaticallyDownloadsUpdates(_ enabled: Bool) {
-        controller?.updater.automaticallyDownloadsUpdates = enabled
+        guard automaticInstallPreferenceAvailable, let updater = controller?.updater else { return }
+        if enabled, !updater.automaticallyChecksForUpdates { updater.automaticallyChecksForUpdates = true }
+        updater.automaticallyDownloadsUpdates = enabled
     }
 
     // MARK: What Sparkle reports (`UpdaterEvents`)
 
-    fileprivate func found(_ version: String) { available = version; UpdateNotice.shared.appVersion = version }
+    fileprivate func found(_ version: String) {
+        lastCheck = .now; problem = nil
+        available = version; UpdateNotice.shared.appVersion = version
+    }
     fileprivate func foundNone() { available = nil; UpdateNotice.shared.appVersion = nil }
+    fileprivate func noUpdate() { lastCheck = .now; problem = nil; foundNone() }
     fileprivate func finished(_ failure: String?) {
         isChecking = false; problem = failure
-        lastCheck = controller?.updater.lastUpdateCheckDate ?? lastCheck
+        if failure != nil { foundNone() }
     }
 }
 
@@ -114,7 +130,7 @@ import Sparkle
     weak var owner: AppUpdater?
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) { owner?.found(item.displayVersionString) }
-    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) { owner?.foundNone() }
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) { owner?.noUpdate() }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
         owner?.finished(error.flatMap(UpdateConfiguration.problem(from:)))
