@@ -22,7 +22,7 @@ enum SecretFilter {
     static let secretValuePatterns = [
         #"(?si)-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----.*?(?:-----END \1-----[^\r\n]*(?:\r?\n|\z)|\z)"#,
         #"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"#,
-        #"(?i)\b(sk|xai|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b"#,
+        #"(?i)\b(?:(?:sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}|xai-[A-Za-z0-9]{20,})\b"#,
         #"(?i)github_pat_[A-Za-z0-9_-]{8,}"#,
         // Starts only where a dot-separated part starts and commits to the first `eyJ` in it (the lookahead is atomic), so
         // a run of `eyJ`/`-eyJ` pieces is scanned once, yet any `eyJ` in the part counts: a header holding `-eyJ` still
@@ -33,8 +33,10 @@ enum SecretFilter {
         #"(?i)\bxapp-[A-Za-z0-9_-]{8,}"#,
         #"(?i)https?://hooks\.slack\.com/services/\S+"#,
         #"://[^/\s:@]+:[^/\s@]+@"#,
-        // The key name may be quoted or emphasised (`"password": …`, `**Password**: …`), and a quoted value goes whole.
-        #"(?i)(?<![A-Za-z0-9])(api[_ -]?key|token|secret|password|passwd|pwd|passphrase|credential|auth[_-]?token|access[_-]?token|client[_-]?secret|secret[_-]?access[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?key|authorization)["'*`]{0,3}\s*[:=]\s*(?:"[^"\r\n]{0,400}"|'[^'\r\n]{0,400}'|\S+)"#
+        // The key name may be quoted, escaped or emphasised (`"password": …`, `\"password\": …`, `**Password:** …`). A value
+        // in straight, curly or back quotes goes whole, unless it starts with a space: that is the gap between two string
+        // literals in code, not a value. `passwd` counts only with `=`: `passwd: files` and `/etc/passwd: …` are not secrets.
+        #"(?i)(?<![A-Za-z0-9])(?:(?:api[_ -]?key|token|secret|password|passphrase|credential|auth[_-]?token|access[_-]?token|client[_-]?secret|secret[_-]?access[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?key|authorization)[\\"'*`]{0,4}\s*[:=][*`]{0,3}|passwd=)\s*(?:\\?"(?! )(?:[^"\\\r\n]|\\.){1,400}"|'(?! )[^'\r\n]{1,400}'|“[^”\r\n]{1,400}”|`[^`\r\n]{1,400}`|\S+)"#
     ]
     // The patterns are constants covered by tests; a failure here is a programming error.
     private static let expressions = secretValuePatterns.map { try! NSRegularExpression(pattern: $0) }
