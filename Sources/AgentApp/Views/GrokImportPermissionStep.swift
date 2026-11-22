@@ -55,7 +55,7 @@ struct GrokPermissionStep: View {
 
     private var waiting: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Waiting for macOS… \(coordinator.elapsedSeconds) s", systemImage: "lock.shield").font(.headline)
+            Label("Waiting for macOS… \(coordinator.waitingSeconds) s", systemImage: "lock.shield").font(.headline)
             Text("Its window may be behind this one. Choose Allow, not Always Allow.").font(.callout)
             Text("Cancel stops waiting here; the macOS window stays until you answer or close it, and its answer is then ignored.")
                 .font(.caption).foregroundStyle(.secondary)

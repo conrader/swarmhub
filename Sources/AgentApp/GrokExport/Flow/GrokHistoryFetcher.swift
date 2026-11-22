@@ -88,10 +88,17 @@ struct GrokHistoryFetcher: Sendable {
             let urls = try await client.presign(relPaths: hashes.map { GrokProtocol.blobPathPrefix + $0 })
             for hash in hashes {
                 try Task.checkCancellation()
-                if let url = urls[GrokProtocol.blobPathPrefix + hash], let body = try await client.fetchBlob(url) {
-                    blobs[hash] = body
-                    stats.blobsRead += 1
-                } else {
+                guard let url = urls[GrokProtocol.blobPathPrefix + hash] else { stats.blobsMissing += 1; continue }
+                do {
+                    if let body = try await client.fetchBlob(url) {
+                        blobs[hash] = body
+                        stats.blobsRead += 1
+                    } else {
+                        stats.blobsMissing += 1
+                    }
+                } catch let error as GrokServerError where error.kind == .blob && Self.isOneMissingFile(error) {
+                    // A refused, oversized or unusable download is one file: its line counts as unreadable (a later
+                    // run fetches it again) and the conversation goes on. Network trouble and the ceiling still stop.
                     stats.blobsMissing += 1
                 }
             }
@@ -117,5 +124,12 @@ struct GrokHistoryFetcher: Sendable {
             }
         }
         return entries
+    }
+
+    private static func isOneMissingFile(_ error: GrokServerError) -> Bool {
+        switch error.reason {
+        case .rejected, .tooLarge, .blobURLRejected, .redirectRefused: true
+        default: false
+        }
     }
 }

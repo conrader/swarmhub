@@ -63,6 +63,8 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     #expect(refusal.reason == .signInInvalid && refusal.serverMessage == said)
     #expect(coordinator.requests == 1 && world.passwords.reads == 1)
     #expect(coordinator.outcomes.count == 4 && coordinator.outcomes.allSatisfy { $0.row.coverage == .cacheOnly })
+    // All history was asked for: the chats are partial, and "Retry remaining" offers all four.
+    #expect(coordinator.outcomes.allSatisfy { $0.row.status == .incomplete } && coordinator.unfinishedIDs.count == 4)
     #expect(coordinator.lastRefusal?.summary == "Grok said: “\(said)” (HTTP 401).")
     try await render(coordinator, store, name: "4-done-after-refusal")
 
@@ -79,7 +81,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     again.mode = .full
     await runFull(again)
     #expect(again.step == .finished && again.fallback == nil && again.lastRefusal == nil)
-    #expect(GrokRefusalNote.load(store.defaults) == nil)
+    #expect(store.defaults.data(forKey: GrokRefusalNote.key) == nil)
 }
 
 /// Every other step of the sheet, rendered for review: the macOS explanation, a run in flight, cancelled, a network

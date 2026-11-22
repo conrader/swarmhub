@@ -126,7 +126,12 @@ enum GrokProbe {
         guard diagnose else {
             do {
                 result.canaryRows = try await client.listEntries(agentID: agent, limit: 1, beforeSeq: nil).count
-                result.canaryOK = true
+                // As in an import: no row for a conversation this Mac holds entries of is not a readable answer.
+                if result.canaryRows == 0, cache.transcripts[agent]?.isEmpty == false {
+                    result.failure = "emptyCanary"
+                } else {
+                    result.canaryOK = true
+                }
             } catch {
                 result.failure = (error as? GrokServerError)?.description ?? "cancelled"
             }
@@ -152,7 +157,8 @@ enum GrokProbe {
                 attempt.failure = (error as? GrokServerError)?.description ?? "cancelled"
             }
             attempts.append(attempt)
-            if attempt.status == 200 || attempt.failure != nil { break }
+            // Another variant is worth a request only after a refusal; anything else would be answered the same way.
+            if attempt.status != 401 && attempt.status != 403 { break }
         }
         result.attempts = attempts
         if let first = attempts.first {

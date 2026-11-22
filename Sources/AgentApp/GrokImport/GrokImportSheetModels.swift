@@ -102,15 +102,26 @@ struct GrokImportOutcome: Identifiable, Equatable, Sendable {
 }
 
 /// The last time Grok's service stopped All history, kept in the app's defaults so the sheet opens on Recent messages
-/// instead of asking macOS for a sign-in Grok will refuse again. A date and plain words; forgotten when All history works.
+/// instead of asking macOS for a sign-in Grok will refuse again. A date, plain words and the account it was about. It is
+/// forgotten when All history works, after a week, and when another account is signed in to Grok Bot: an account that
+/// was put right is then asked again without the user having to know the note exists.
 struct GrokRefusalNote: Codable, Equatable, Sendable {
     var date: Date
     var summary: String
+    /// Grok Bot's id of the signed-in account (`cursor-accounts.active`); nil when it could not be read.
+    var account: String?
 
     static let key = "grokImportLastRefusal"
+    static let lifetime: TimeInterval = 7 * 24 * 3600
 
-    static func load(_ defaults: UserDefaults) -> GrokRefusalNote? {
-        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(GrokRefusalNote.self, from: $0) }
+    static func load(_ defaults: UserDefaults, now: Date, account: String?) -> GrokRefusalNote? {
+        guard let note = defaults.data(forKey: key).flatMap({ try? JSONDecoder().decode(GrokRefusalNote.self, from: $0) }) else { return nil }
+        let otherAccount = note.account != nil && account != nil && note.account != account
+        if now.timeIntervalSince(note.date) > lifetime || otherAccount {
+            clear(defaults)
+            return nil
+        }
+        return note
     }
 
     func save(_ defaults: UserDefaults) {
