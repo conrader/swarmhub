@@ -1,34 +1,21 @@
 import SwiftUI
 
-/// Found (no prompt, no network): the checklist, the mode, the binding line and what the import promises.
+/// Found (no prompt, no network): the one question first (how much history, as two large cards), then the options,
+/// then the chats to import. What the full import promises is one click away, not in the way.
 struct GrokFoundStep: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var coordinator: GrokImportCoordinator
     let useExportFolder: () -> Void
     @State private var editingDescription: GrokFoundItem?
     @State private var descriptionDraft = ""
+    @State private var showingPromises = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(headline).font(.headline)
-                if coordinator.exportBundles == nil { modePicker }
-                Toggle("Refresh existing names, avatars, descriptions and instructions", isOn: $coordinator.refreshIdentity)
-                    .toggleStyle(.checkbox).font(.callout)
-                if coordinator.mode == .full { GrokGuaranteeBox() }
-                if let plan = coordinator.destinationPlan, plan.offer.programs.count > 1 {
-                    Picker("Program for new bots", selection: Binding(
-                        get: { coordinator.destinationPlan?.template ?? plan.offer.programs[0].template },
-                        set: { coordinator.destinationPlan?.template = $0 })) {
-                            ForEach(plan.offer.programs) { Text(plan.offer.label($0)).tag($0.template) }
-                        }
-                }
-                HStack {
-                    Button("Select all") { coordinator.selected = Set(coordinator.items.map(\.id)) }
-                    Button("Clear") { coordinator.selected.removeAll() }
-                    Text("Selecting a group also selects its members.").font(.caption).foregroundStyle(.secondary)
-                }
-                VStack(spacing: 6) { ForEach(coordinator.items) { item in row(item) } }
+            VStack(alignment: .leading, spacing: 18) {
+                if coordinator.exportBundles == nil { historyChoice }
+                options
+                chats
                 Button("Use an export folder instead") { useExportFolder() }.buttonStyle(.link).font(.callout)
             }.padding(20)
         }
@@ -50,89 +37,133 @@ struct GrokFoundStep: View {
     private var headline: String {
         let bots = coordinator.items.filter { !$0.isGroup }.count, groups = coordinator.items.count - bots
         let version = coordinator.grokVersion.map { " \($0)" } ?? ""
-        return "Grok Bot\(version) found: \(bots) \(bots == 1 ? "bot" : "bots")" +
-            (groups > 0 ? " and \(groups) \(groups == 1 ? "group" : "groups")" : "")
+        return "\(bots) \(bots == 1 ? "bot" : "bots")" + (groups > 0 ? " and \(groups) \(groups == 1 ? "group" : "groups")" : "") +
+            " in Grok Bot\(version)"
     }
 
     private func row(_ item: GrokFoundItem) -> some View {
         HStack(spacing: 10) {
             Toggle("", isOn: Binding(get: { coordinator.selected.contains(item.id) }, set: { _ in coordinator.toggle(item.id) }))
                 .toggleStyle(.checkbox).labelsHidden().accessibilityLabel(item.name)
-            ShowcaseMark(mark: item.mark, seed: item.id, size: 26)
-            VStack(alignment: .leading, spacing: 2) {
+            ShowcaseMark(mark: item.mark, seed: item.id, size: 30)
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(item.name).fontWeight(.medium)
-                    Text(item.isGroup ? "group" : "bot").font(.caption.monospaced())
-                        .padding(.horizontal, 6).padding(.vertical, 1).background(Color.primary.opacity(0.08), in: Capsule())
+                    if item.isGroup { GrokTag(text: "group") }
+                    if item.hiddenInGrok { GrokTag(text: "hidden in Grok") }
                 }
-                Text(coordinator.destination(for: item)).font(.caption).foregroundStyle(.secondary)
-                if !item.isGroup {
-                    let existing = store.bots.first { $0.grokSourceID == item.id }
-                    let edited = coordinator.destinationPlan?.descriptions[item.id]
-                    let description = edited ?? (coordinator.refreshIdentity ? nil : existing?.botDescription) ?? item.description
-                    if !description.isEmpty { Text(description).font(.caption).lineLimit(4) }
-                    if item.needsDescriptionEdit, edited == nil, PreparedGrokBundle.meaningful(existing?.botDescription).isEmpty {
-                        Label("No specific description in Grok", systemImage: "exclamationmark.circle").font(.caption)
-                        Button("Edit description") { descriptionDraft = item.description; editingDescription = item }.buttonStyle(.link).font(.caption)
-                    }
-                    if let plan = coordinator.destinationPlan {
-                        if let id = existing?.id ?? plan.newBotIDs[item.id] {
-                            let root = existing == nil ? plan.offer.workspaceRoot : nil
-                            Text(root.map { $0 + "/" + id.uuidString.lowercased() } ?? "Bot workspace · " + id.uuidString.lowercased())
-                                .font(.caption.monospaced()).foregroundStyle(.secondary)
-                        }
-                        if existing == nil, plan.offer.programs.count > 1 {
-                            Picker("Program for \(item.name)", selection: Binding(
-                                get: { coordinator.destinationPlan?.templates[item.id] ?? "" },
-                                set: { coordinator.destinationPlan?.templates[item.id] = $0.isEmpty ? nil : $0 })) {
-                                    Text("Use import default").tag("")
-                                    ForEach(plan.offer.programs) { Text(plan.offer.label($0)).tag($0.template) }
-                                }.font(.caption)
-                        }
-                    }
-                }
-                Text(details(item)).font(.caption).foregroundStyle(.secondary)
+                Text(coordinator.destination(for: item)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .help(workspace(for: item) ?? "")
+                if !item.isGroup { botDetails(item) }
             }
-            Spacer()
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(item.cachedMessages) cached").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                if item.importedLines > 0 {
+                    Text("\(item.importedLines) already here").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .help(item.importedAt.map { "Imported \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "")
+                }
+            }
         }
-        .padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9))
+        .grokCard()
     }
 
-    private func details(_ item: GrokFoundItem) -> String {
-        var parts = ["\(item.cachedMessages) cached \(item.cachedMessages == 1 ? "message" : "messages")"]
-        if let date = item.importedAt {
-            let day = date.formatted(date: .abbreviated, time: .omitted)
-            parts.append("already in \(AppConstants.name) \(day), \(item.importedLines) lines")
-        } else if item.importedLines > 0 {
-            parts.append("already in \(AppConstants.name), \(item.importedLines) lines")
+    /// The description (two lines at most), the nudge to write one when Grok had none, and the per-bot program.
+    @ViewBuilder private func botDetails(_ item: GrokFoundItem) -> some View {
+        let existing = store.bots.first { $0.grokSourceID == item.id }
+        let edited = coordinator.destinationPlan?.descriptions[item.id]
+        let description = edited ?? (coordinator.refreshIdentity ? nil : existing?.botDescription) ?? item.description
+        if !description.isEmpty { Text(description).font(.caption).lineLimit(2) }
+        if item.needsDescriptionEdit, edited == nil, PreparedGrokBundle.meaningful(existing?.botDescription).isEmpty {
+            HStack(spacing: 6) {
+                Label("No description in Grok", systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary)
+                Button("Edit description") { descriptionDraft = item.description; editingDescription = item }.buttonStyle(.link).font(.caption)
+            }
         }
-        if item.hiddenInGrok { parts.append("hidden in Grok") }
-        return parts.joined(separator: " · ")
+        if let plan = coordinator.destinationPlan, existing == nil, plan.offer.programs.count > 1 {
+            Picker("Program for \(item.name)", selection: Binding(
+                get: { coordinator.destinationPlan?.templates[item.id] ?? "" },
+                set: { coordinator.destinationPlan?.templates[item.id] = $0.isEmpty ? nil : $0 })) {
+                    Text("Use import default").tag("")
+                    ForEach(plan.offer.programs) { Text(plan.offer.label($0)).tag($0.template) }
+                }.font(.caption)
+        }
     }
 
-    private var modePicker: some View {
+    /// Where the bot's workspace is (a tooltip: a long path is a detail, not a line of every row).
+    private func workspace(for item: GrokFoundItem) -> String? {
+        guard !item.isGroup, let plan = coordinator.destinationPlan else { return nil }
+        let existing = store.bots.first { $0.grokSourceID == item.id }
+        guard let id = existing?.id ?? plan.newBotIDs[item.id] else { return nil }
+        let root = existing == nil ? plan.offer.workspaceRoot : nil
+        return root.map { $0 + "/" + id.uuidString.lowercased() } ?? "Bot workspace · " + id.uuidString.lowercased()
+    }
+
+    // MARK: The question, the options, the list
+
+    private var historyChoice: some View {
         let estimate = coordinator.requestEstimate
         let fullAvailable = coordinator.availability == .ready
-        return VStack(alignment: .leading, spacing: 8) {
-            Picker("History", selection: $coordinator.mode) {
-                Text("All history Grok returns").tag(GrokImportMode.full).disabled(!fullAvailable)
-                Text("Recent messages from this Mac").tag(GrokImportMode.recent)
-            }.pickerStyle(.radioGroup).font(.callout)
-            Group {
-                if coordinator.mode == .full {
-                    Text("One macOS prompt; at least \(estimate.requests) read requests, about \(estimate.seconds) s.")
-                } else {
-                    Text("The latest 28–200 entries of each chat, from Grok Bot's cache on this Mac: no prompt, no network.")
-                }
-            }.font(.caption).foregroundStyle(.secondary)
-            if coordinator.mode == .full, let drift = coordinator.versionDriftNote {
-                Label("\(drift) If Grok refuses All history, Recent messages still works.", systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("How much history?").font(.headline)
+            HStack(alignment: .top, spacing: 10) {
+                GrokChoiceCard(title: "All history", detail: "Everything Grok still returns for each chat.",
+                               footnote: fullAvailable ? "One macOS prompt · about \(estimate.seconds) s" : "Not available now",
+                               selected: coordinator.mode == .full, enabled: fullAvailable) { coordinator.mode = .full }
+                GrokChoiceCard(title: "Recent messages", detail: "The latest 28–200 entries of each chat, kept on this Mac.",
+                               footnote: "No prompt · no network", selected: coordinator.mode == .recent) { coordinator.mode = .recent }
             }
-            if case .cacheOnly(let reason) = coordinator.availability {
-                Label("All history is not available: \(reason.errorDescription ?? "")", systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            if let note = historyNote { GrokNotice(text: note.text, symbol: note.symbol, tone: note.caution ? .caution : .info) }
+            if coordinator.mode == .full {
+                DisclosureGroup("What All history reads and keeps", isExpanded: $showingPromises) {
+                    GrokGuaranteeBox().padding(.top, 6)
+                }.font(.callout)
             }
+        }
+    }
+
+    /// At most one sentence under the cards: why All history is off, that Grok stopped it last time, or that Grok Bot
+    /// is newer than the version this import was checked against.
+    private var historyNote: (text: String, symbol: String, caution: Bool)? {
+        if case .cacheOnly(let reason) = coordinator.availability {
+            return ("All history is not available: \(reason.errorDescription ?? "")", "info.circle", false)
+        }
+        if let refusal = coordinator.refusalNote { return (refusal, "exclamationmark.triangle", true) }
+        if coordinator.mode == .full, let drift = coordinator.versionDriftNote {
+            return ("\(drift) If Grok stops All history, the recent messages are imported instead.", "info.circle", false)
+        }
+        return nil
+    }
+
+    @ViewBuilder private var options: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Refresh existing names, avatars, descriptions and instructions", isOn: $coordinator.refreshIdentity)
+                .toggleStyle(.checkbox).font(.callout)
+            if let plan = coordinator.destinationPlan, plan.offer.programs.count > 1 {
+                Picker("Program for new bots", selection: Binding(
+                    get: { coordinator.destinationPlan?.template ?? plan.offer.programs[0].template },
+                    set: { coordinator.destinationPlan?.template = $0 })) {
+                        ForEach(plan.offer.programs) { Text(plan.offer.label($0)).tag($0.template) }
+                    }
+            }
+        }
+    }
+
+    private var chats: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(headline).font(.headline)
+                Spacer()
+                Text("\(coordinator.selected.count) of \(coordinator.items.count) selected")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Button("Select all") { coordinator.selected = Set(coordinator.items.map(\.id)) }.buttonStyle(.link).font(.callout)
+                Button("Clear") { coordinator.selected.removeAll() }.buttonStyle(.link).font(.callout)
+            }
+            if coordinator.items.contains(where: \.isGroup) {
+                Text("Selecting a group also selects its members.").font(.caption).foregroundStyle(.secondary)
+            }
+            VStack(spacing: 6) { ForEach(coordinator.items) { item in row(item) } }
         }
     }
 }
@@ -141,12 +172,11 @@ struct GrokFoundStep: View {
 struct GrokGuaranteeBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("What this import does").font(.caption.bold()).foregroundStyle(.secondary)
             ForEach(Self.lines, id: \.self) { line in
                 Label(line, systemImage: "checkmark").font(.caption).labelStyle(.titleAndIcon)
             }
         }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9))
+        .grokCard(padding: 12)
     }
 
     static let lines = [
@@ -156,63 +186,4 @@ struct GrokGuaranteeBox: View {
         "History is saved in \(AppConstants.name)'s data folder on this Mac, with secret-like text replaced by [REDACTED].",
         "It uses Grok Bot's own private interface, and can stop working when Grok changes it.",
     ]
-}
-
-/// The buttons for each step.
-struct GrokImportFooter: View {
-    @ObservedObject var coordinator: GrokImportCoordinator
-    let close: () -> Void
-    let useExportFolder: () -> Void
-
-    var body: some View {
-        HStack {
-            if showsBack { Button("Back") { coordinator.back() } }
-            Spacer()
-            switch coordinator.step {
-            case .idle, .scanning:
-                Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
-            case .found:
-                Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
-                Button(primaryTitle) { Task { await coordinator.proceed() } }.buttonStyle(.appleProminent)
-                    .keyboardShortcut(.defaultAction).disabled(!coordinator.canProceed)
-            case .permission:
-                Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
-                Button("Continue") { coordinator.continueToMacOS() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction).disabled(coordinator.keychainBusy)
-            case .awaitingMacOS, .running:
-                Button("Cancel") { coordinator.cancel() }.keyboardShortcut(.cancelAction)
-            case .paused(let pause):
-                Button("Cancel") { coordinator.cancel() }.keyboardShortcut(.cancelAction)
-                Button(pause == .tokenExpired ? "Check again" : pause == .signInInvalid ? "Continue" : "Retry remaining") {
-                    pause == .tokenExpired ? coordinator.checkAgain() : coordinator.retryRemaining()
-                }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction).disabled(coordinator.keychainBusy && pause == .signInInvalid)
-            case .failed(let error):
-                if error.recentStillAvailable { Button("Recent messages only") { coordinator.recentOnly() } }
-                if error.isSignInStep {
-                    Button("Try again") { coordinator.continueToMacOS() }.disabled(coordinator.keychainBusy)
-                }
-                Button("Close") { close() }.buttonStyle(.appleProminent).keyboardShortcut(.cancelAction)
-            case .cancelled:
-                if coordinator.canImportWhatWasFetched { Button("Import what was fetched") { coordinator.importWhatWasFetched() } }
-                Button("Done") { close() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
-            case .finished:
-                if !coordinator.unfinishedIDs.isEmpty {
-                    Button("Retry remaining (\(coordinator.unfinishedIDs.count))") { Task { await coordinator.retryUnfinished() } }
-                }
-                Button("Done") { close() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
-            }
-        }
-    }
-
-    private var showsBack: Bool {
-        switch coordinator.step {
-        case .permission: true
-        case .failed(let error): !error.isSignInStep
-        default: false
-        }
-    }
-
-    private var primaryTitle: String {
-        let count = coordinator.selected.count
-        return coordinator.mode == .full ? "Continue" : "Import \(count) \(count == 1 ? "chat" : "chats")"
-    }
 }

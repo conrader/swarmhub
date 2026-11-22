@@ -10,8 +10,13 @@ struct GrokDoneStep: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(coordinator.outcomeHeadline).font(.headline)
+                if let fallback = coordinator.fallback {
+                    GrokNotice(text: "Grok did not give the full history, so the recent messages kept on this Mac were imported. " +
+                               fallback.userSummary, symbol: "exclamationmark.triangle", tone: .caution)
+                }
                 VStack(spacing: 6) { ForEach(coordinator.outcomes) { outcome in botRow(outcome) } }
-                Text("Each bot keeps its name, avatar and instructions and runs as an agent on your Herdr server. Imported chats are a read-only archive on this Mac; the bots start fresh and do not remember them.")
+                Text("Bots keep their name, avatar and instructions and run on your Herdr server. Imported chats are a read-only " +
+                     "archive on this Mac; the bots start a fresh conversation.")
                     .font(.callout).foregroundStyle(.secondary)
                 DisclosureGroup("Details", isExpanded: $showingDetails) { details }.font(.callout)
             }.padding(20)
@@ -20,8 +25,13 @@ struct GrokDoneStep: View {
 
     private func botRow(_ outcome: GrokImportOutcome) -> some View {
         HStack(spacing: 10) {
+            Image(systemName: symbol(outcome.row.status)).foregroundStyle(tint(outcome.row.status)).frame(width: 18)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(outcome.name + (outcome.isGroup ? " (group)" : "")).fontWeight(.medium)
+                HStack(spacing: 6) {
+                    Text(outcome.name).fontWeight(.medium)
+                    if outcome.isGroup { GrokTag(text: "group") }
+                }
                 Text(outcome.statusLabel + (outcome.row.reason.map { " · " + $0 } ?? "")).font(.caption).foregroundStyle(.secondary)
                 if let target = coordinator.savedDestination(for: outcome) {
                     Text(target.location).font(.caption).foregroundStyle(.secondary)
@@ -30,11 +40,27 @@ struct GrokDoneStep: View {
             }
             Spacer()
             if outcome.botID != nil {
-                Text("\(outcome.archiveLines) archived lines").font(.caption).foregroundStyle(.secondary)
+                Text("\(outcome.archiveLines) lines").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 Button("Open") { coordinator.open(outcome) }
             }
         }
-        .padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9))
+        .grokCard()
+    }
+
+    private func symbol(_ status: GrokImportRunRow.Status) -> String {
+        switch status {
+        case .done: "checkmark.circle.fill"
+        case .incomplete: "exclamationmark.circle.fill"
+        case .skipped: "minus.circle"
+        }
+    }
+
+    private func tint(_ status: GrokImportRunRow.Status) -> Color {
+        switch status {
+        case .done: AppColor.good
+        case .incomplete: AppColor.caution
+        case .skipped: .secondary
+        }
     }
 
     private var details: some View {

@@ -59,20 +59,16 @@ struct GrokImportSheet: View {
         }
     }
 
+    /// One line about where things land, and the folder a click away (its path is the button's tooltip).
     private var destination: some View {
         let folder = coordinator.historyDirectory
-        return HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
                 if let server = coordinator.testedServer {
-                    Text("Destination · \(server.name) · \(server.place)").font(.callout.weight(.semibold))
+                    Text("Destination · \(server.name)" + (server.place == server.name ? "" : " · \(server.place)"))
+                        .font(.callout.weight(.semibold))
                 }
-                Text("History stays on this Mac. Agents start with a fresh conversation.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if coordinator.step == .found {
-                    Text("\(coordinator.selected.count) selected").font(.caption.weight(.semibold))
-                }
-                Text((folder.path as NSString).abbreviatingWithTildeInPath)
-                    .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                Text("History stays on this Mac; bots start with a fresh conversation.").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Show in Finder") {
@@ -82,7 +78,7 @@ struct GrokImportSheet: View {
                 } catch {
                     historyFolderUnavailable = true
                 }
-            }
+            }.help((folder.path as NSString).abbreviatingWithTildeInPath)
         }
     }
 

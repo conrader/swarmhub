@@ -30,6 +30,10 @@ import Foundation
     @Published private(set) var exportBundles: [GrokBotBundle]?
     let requiresTestedHost: Bool
     @Published var progress: [GrokProgressRow] = []
+    /// Why this run imported the recent messages although All history was chosen; nil while Grok answers.
+    @Published var fallback: GrokServerError?
+    /// The last such stop, from an earlier sheet session: the sheet then opens on Recent messages.
+    @Published var lastRefusal: GrokRefusalNote?
     @Published var outcomes: [GrokImportOutcome] = []
     @Published var requests = 0
     @Published var elapsedSeconds = 0
@@ -81,33 +85,6 @@ import Foundation
     var serverName: String { testedServer?.name ?? store.herdrServers[0].name }
     var historyDirectory: URL { store.grokHistory.directory }
 
-    func destination(for item: GrokFoundItem) -> String {
-        let refreshedName = PreparedGrokBundle.cleanIdentity(item.name)
-        if item.isGroup {
-            let group = store.groups.first { $0.grokSourceID == item.id }
-            let name = group.flatMap { refreshIdentity ? nil : $0.name } ?? refreshedName
-            let hidden = group?.isHidden ?? item.hiddenInGrok
-            let operation = group == nil ? "New group" : (refreshIdentity ? "Update group name and history" : "Update group history")
-            let members = (group.map { store.members(of: $0).map(\.name) } ?? item.memberNames).joined(separator: ", ")
-            return "\(operation) · “\(name)” · \(hidden ? "Hidden chats" : "sidebar")" + (members.isEmpty ? "" : " · \(members)")
-        }
-        let bot = store.bots.first { $0.grokSourceID == item.id }
-        let name = bot.flatMap { refreshIdentity ? nil : $0.name } ?? AppStore.importedGrokName(refreshedName)
-        let hidden = bot?.isHidden ?? item.hiddenInGrok
-        let location = hidden ? "Hidden chats" : "the sidebar"
-        let server = bot.map { store.herdrServer(for: $0).name } ?? serverName
-        if !hasServer { return "“\(name)” in \(location) · runs after server setup" }
-        if let bot {
-            let reading = store.herdrProgramName(for: bot) ?? store.herdrTemplate(for: bot) ?? "current program"
-            let action = refreshIdentity ? "Update history and bot identity" : "Update history"
-            return "\(action) · “\(name)” · \(server) · \(reading) · \(location)"
-        }
-        let program = destinationPlan?.program(for: item.id)
-        let model = program.flatMap { HerdrModelChoice.suggested(program: $0.modelAgent ?? $0.name, offered: $0.models) }
-        let runtime = [program?.name, model.map(HerdrProgram.modelName)].compactMap { $0 }.joined(separator: " · ")
-        return "New bot · “\(name)” · \(server) · \(runtime.isEmpty ? "Herdr agent" : runtime) · \(location)"
-    }
-
     var selectedItems: [GrokFoundItem] { items.filter { selected.contains($0.id) } }
     /// "At least N read requests, about T s" for the Full mode line: one canary plus the pages, 0.5 s apart.
     var requestEstimate: (requests: Int, seconds: Int) {
@@ -130,7 +107,8 @@ import Foundation
         items = found.cache.map(makeItems) ?? []
         planNewBotIDs()
         selected = Set(items.map(\.id))
-        mode = availability == .ready ? .full : .recent
+        lastRefusal = GrokRefusalNote.load(store.defaults)
+        mode = availability == .ready && lastRefusal == nil ? .full : .recent
         signInMayBeStale = secretsOlderThanADay() && !isGrokRunning()
         watchKeychain()
         step = .found
@@ -254,7 +232,8 @@ import Foundation
     private func options() -> GrokImportOptions {
         let ids = items.map(\.id).filter(selected.contains)
         return GrokImportOptions(mode: mode, selection: ids.count == items.count ? nil : ids, refreshIdentity: refreshIdentity, destination: destinationPlan,
-            excludedSourceIDs: keepCommittedRows ? Set(committedRows.filter { $0.status == .done }.map(\.sourceID)) : [])
+            excludedSourceIDs: keepCommittedRows ? Set(committedRows.filter { $0.status == .done }.map(\.sourceID)) : [],
+            fallsBackToRecent: true)
     }
 
     /// `fresh`: a new run (Start, Try again, Recent only) rather than a continuation of the paused or cancelled one.
@@ -262,6 +241,7 @@ import Foundation
         guard driver == nil else { return }
         let run = currentRun(), options = options()
         if fresh {
+            fallback = nil
             resetProgress(options)
             if !keepCommittedRows { committedRows = []; outcomes = [] }
             keepCommittedRows = false
@@ -290,6 +270,7 @@ import Foundation
         case .finished:
             await refreshOutcomes()
             selectImportedMainBotIfNeeded()
+            if mode == .full, fallback == nil, exportBundles == nil { forgetRefusal() }
             step = .finished
             stopTicker()
         case .paused(let pause):
@@ -319,7 +300,7 @@ import Foundation
         case .conversation(_, _, _, let id):
             current = id
             step = .running
-            mark(id, mode == .full ? .fetching : .readingCache)
+            mark(id, mode == .full && fallback == nil ? .fetching : .readingCache)
         case .page(let pages, let oldest):
             guard let current, let index = progress.firstIndex(where: { $0.id == current }),
                   progress[index].status == .fetching else { return }
@@ -327,6 +308,8 @@ import Foundation
             progress[index].oldestSeq = oldest
         case .saving(let id):
             mark(id, .saving)
+        case .fellBack(let error):
+            remember(error)
         case .committed(let row):
             if let index = committedRows.firstIndex(where: { $0.sourceID == row.sourceID }) { committedRows[index] = row }
             else { committedRows.append(row) }

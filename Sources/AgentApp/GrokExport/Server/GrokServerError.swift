@@ -52,6 +52,11 @@ struct GrokServerError: Error, Sendable, Equatable, CustomStringConvertible, Loc
 
     /// "HTTP 401, unauthenticated": the status and the Connect code, for a message that says what Grok answered.
     var statusDetail: String? { httpStatus.map { "HTTP \($0)" + (connectCode.map { ", \($0)" } ?? "") } }
+    /// One sentence for the user: what Grok said when it said something readable, else what happened.
+    var userSummary: String {
+        guard let serverMessage else { return errorDescription ?? "Grok's service did not answer as expected." }
+        return "Grok said: “\(serverMessage)”" + (httpStatus.map { " (HTTP \($0))" } ?? "") + "."
+    }
     /// " Grok said: “…”." for a message shown to the user; empty when Grok said nothing readable.
     var saidSentence: String { serverMessage.map { " Grok said: “\($0)”." } ?? "" }
 

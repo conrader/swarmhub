@@ -25,35 +25,41 @@ struct GrokPermissionStep: View {
 
     private static let name = AppConstants.name
 
+    /// Three numbered steps on one card; the rest is footnotes.
     private var explanation: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Grok Bot keeps its sign-in locked with a Keychain item called “Grok Bot Safe Storage”.")
-            Text("When you press Continue, macOS shows its own window: “\(Self.name) wants to use your confidential information " +
-                 "stored in “Grok Bot Safe Storage” in your keychain.” It may ask for your Mac login password.")
-            Text("Choose **Allow**, not Always Allow.").font(.headline)
-            Text("\(Self.name) then unlocks the sign-in in memory, lists your own history from api2.cursor.sh, and forgets the " +
-                 "sign-in when this window closes.")
-            Text("If you choose Deny, nothing is read; you can import the recent messages kept on this Mac instead.")
-            Text("Chose Always Allow before? Undo it in Keychain Access: open “Grok Bot Safe Storage”, then Access Control, and " +
-                 "remove \(Self.name).").font(.caption).foregroundStyle(.secondary)
-            if coordinator.signInMayBeStale {
-                Label("If the import says your sign-in expired, open Grok Bot once and choose Check again.", systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
+                GrokNumberedStep(number: 1, title: "Press Continue.",
+                                 detail: "macOS shows its own window: “\(Self.name) wants to use your confidential information stored in " +
+                                     "“Grok Bot Safe Storage” in your keychain.” It may ask for your Mac login password.")
+                GrokNumberedStep(number: 2, title: "Choose Allow, not Always Allow.",
+                                 detail: "Allow covers this one import. Deny reads nothing; the recent messages kept on this Mac " +
+                                     "can still be imported.")
+                GrokNumberedStep(number: 3, title: "\(Self.name) imports, then forgets.",
+                                 detail: "It unlocks Grok Bot's sign-in in memory, lists your own history from api2.cursor.sh, and " +
+                                     "forgets the sign-in when this window closes.")
+            }.grokCard(padding: 14)
             if coordinator.keychainBusy {
-                Text("macOS is still waiting for an answer to an earlier Keychain request. Answer or close that window first.")
-                    .font(.caption).foregroundStyle(.orange)
+                GrokNotice(text: "macOS is still waiting for an answer to an earlier Keychain request. Answer or close that window first.",
+                           symbol: "exclamationmark.triangle", tone: .caution)
             }
-        }.font(.callout)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Chose Always Allow before? Undo it in Keychain Access: open “Grok Bot Safe Storage”, then Access Control, and " +
+                     "remove \(Self.name).")
+                if coordinator.signInMayBeStale {
+                    Text("If the import says your sign-in expired, open Grok Bot once and choose Check again.")
+                }
+            }.font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private var waiting: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Waiting for macOS… \(coordinator.elapsedSeconds) s").font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Waiting for macOS… \(coordinator.elapsedSeconds) s", systemImage: "lock.shield").font(.headline)
             Text("Its window may be behind this one. Choose Allow, not Always Allow.").font(.callout)
             Text("Cancel stops waiting here; the macOS window stays until you answer or close it, and its answer is then ignored.")
                 .font(.caption).foregroundStyle(.secondary)
-        }
+        }.grokCard(padding: 14)
     }
 
     private var expired: some View {
@@ -68,7 +74,7 @@ struct GrokPermissionStep: View {
             if !coordinator.holdsSignIn {
                 Text("The sign-in was forgotten: Check again will make macOS ask once more.").font(.caption).foregroundStyle(.secondary)
             }
-        }
+        }.grokCard(padding: 14)
     }
 
     @ViewBuilder private func outcome(_ error: GrokImportRunError) -> some View {
@@ -77,7 +83,7 @@ struct GrokPermissionStep: View {
                 .font(.headline)
             Text(advice(error)).font(.callout)
             if error == .keychainItemMissing || error == .signedOut { Button("Open Grok Bot") { GrokImportActions.openGrokBot() } }
-        }
+        }.grokCard(padding: 14)
     }
 
     private func advice(_ error: GrokImportRunError) -> String {

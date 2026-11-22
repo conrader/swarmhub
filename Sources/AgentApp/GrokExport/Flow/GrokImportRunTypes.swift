@@ -90,6 +90,9 @@ struct GrokImportOptions: Sendable, Equatable {
     var refreshIdentity = false
     var destination: GrokDestination? = nil
     var excludedSourceIDs: Set<String> = []
+    /// The sheet's choice: when Grok's service stops All history (a refusal, an answer this app cannot read), the run goes
+    /// on with the recent messages kept on this Mac instead of stopping. The commands leave it off and report the stop.
+    var fallsBackToRecent = false
 }
 
 /// One conversation's result, read back from what was committed. Counts only, plus the bot's display name.

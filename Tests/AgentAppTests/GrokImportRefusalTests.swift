@@ -37,6 +37,25 @@ import Testing
     #expect(await run.requestCount() == 4)
 }
 
+@MainActor @Test func aStopByGroksServiceGoesOnFromTheCacheWhenTheRunMayFallBack() async throws {
+    let world = try GrokWorld()
+    // The canary and Jarvis's page are answered; from Finance on Grok refuses.
+    world.fake.intercept = { index, _ in index >= 2 ? .http(403, []) : nil }
+    var events: [String] = []
+    let run = GrokImportRun(store: world.store(), environment: world.environment(),
+                            options: GrokImportOptions(mode: .full, fallsBackToRecent: true))
+    run.onEvent = { if case .fellBack(let error) = $0 { events.append(error.description) } }
+    #expect(await run.start() == .finished)
+    #expect(run.fallback == GrokServerError(.rejected, kind: .list, httpStatus: 403) && events == ["list rejected HTTP 403"])
+    #expect(run.rows.count == 4 && run.rows[0].coverage != .cacheOnly && run.rows.dropFirst().allSatisfy { $0.coverage == .cacheOnly })
+    #expect(await run.holder.lifetime == .none)
+    #expect(await run.requestCount() == 3)
+    // Without the option the same stop ends the run, as the commands expect.
+    let plain = GrokImportRun(store: world.store(), environment: world.environment(), options: GrokImportOptions(mode: .full))
+    #expect(await plain.start() == .stopped(.server(GrokServerError(.rejected, kind: .list, httpStatus: 403))))
+    #expect(plain.fallback == nil)
+}
+
 @MainActor @Test func anAnswerWithNoRowForACachedConversationIsAnUnknownFormatNotAnEmptyHistory() async throws {
     let world = try GrokWorld()
     world.fake.intercept = { index, _ in index == 0 ? .http(200, []) : nil }
