@@ -125,6 +125,10 @@ struct GrokFoundStep: View {
                     Text("The latest 28–200 entries of each chat, from Grok Bot's cache on this Mac: no prompt, no network.")
                 }
             }.font(.caption).foregroundStyle(.secondary)
+            if coordinator.mode == .full, let drift = coordinator.versionDriftNote {
+                Label("\(drift) If Grok refuses All history, Recent messages still works.", systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if case .cacheOnly(let reason) = coordinator.availability {
                 Label("All history is not available: \(reason.errorDescription ?? "")", systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)

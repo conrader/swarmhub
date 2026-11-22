@@ -2,6 +2,13 @@ import Foundation
 
 /// The Done step: what was imported. Counts are read back from the store and the archive files.
 extension GrokImportCoordinator {
+    /// The installed Grok Bot is newer than the one this import was checked against: its private interface may have moved.
+    var versionDriftNote: String? {
+        guard let installed = grokVersion,
+              installed.compare(GrokProtocol.capturedVersion, options: .numeric) == .orderedDescending else { return nil }
+        return "Grok Bot is \(installed); this import was last checked against \(GrokProtocol.capturedVersion)."
+    }
+
     /// Rebuilds the outcome rows from what the store holds now.
     func refreshOutcomes() async {
         outcomes = committedRows.map { row in

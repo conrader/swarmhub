@@ -65,7 +65,11 @@ extension AppStore {
                 let count = try await grokHistory.mergeInBackground(prepared.lines, sourceID: sourceID, for: target.id,
                                                                     settledFetchedSequences: settledFetchedSequences[sourceID] ?? [])
                 stretch = timing?.start()
-                try validateGrokDestination(destination)
+                do { try validateGrokDestination(destination) } catch {
+                    // The archive of a bot that is never added would stay behind under an id nothing owns.
+                    if case .bot(_, .new) = target { grokHistory.remove(target.id) }
+                    throw error
+                }
                 rows.append(apply(prepared, to: target, historyCount: count, policy: policy, destination: destination))
                 timing?.end(&stretch)
                 await Task.yield()

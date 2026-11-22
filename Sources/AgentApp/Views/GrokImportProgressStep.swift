@@ -22,12 +22,25 @@ struct GrokProgressStep: View {
             return AnyView(note("Grok's service could not be reached (\(error.description)). Retry remaining continues where it " +
                                 "stopped; nothing is asked again and bots already imported stay.", symbol: "wifi.exclamationmark"))
         case .paused(.signInInvalid):
-            return AnyView(note("Grok no longer accepted the sign-in. Continue makes macOS ask once more; bots already imported stay.",
-                                symbol: "person.crop.circle.badge.exclamationmark"))
+            return AnyView(note("Grok stopped accepting the sign-in part-way. Continue reads Grok Bot's renewed sign-in, so macOS " +
+                                "asks once more; bots already imported stay.", symbol: "person.crop.circle.badge.exclamationmark"))
+        case .failed(.server(let error)) where error.reason == .signInInvalid:
+            let answer = error.statusDetail.map { " (\($0))" } ?? ""
+            let drift = coordinator.versionDriftNote.map { " \($0)" } ?? ""
+            let refusal = "Grok's service refused Grok Bot's sign-in on the first request\(answer).\(error.saidSentence) Asking " +
+                "macOS again would send the same sign-in, so the import stopped; bots already imported stay."
+            let text = refusal + drift + " Recent messages from this Mac can still be imported."
+            return AnyView(note(text, symbol: "person.crop.circle.badge.exclamationmark"))
         case .failed(let error):
             let more = error.recentStillAvailable ? " Recent messages from this Mac can still be imported." : ""
-            return AnyView(note((error.errorDescription ?? "The import stopped.") + " Nothing more was written; bots already " +
-                                "imported stay. Back lets you untick a bot and run again." + more, symbol: "exclamationmark.triangle"))
+            var drift = "", said = ""
+            if case .server(let refusal) = error {
+                said = refusal.saidSentence
+                drift = coordinator.versionDriftNote.map { " \($0)" } ?? ""
+            }
+            let stopped = (error.errorDescription ?? "The import stopped.") + said + " Nothing more was written; bots already " +
+                "imported stay. Back lets you untick a bot and run again."
+            return AnyView(note(stopped + drift + more, symbol: "exclamationmark.triangle"))
         default:
             return nil
         }

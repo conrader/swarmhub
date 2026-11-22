@@ -101,7 +101,7 @@ struct GrokHistoryFetcher: Sendable {
             let body = row.body ?? row.blobHash.flatMap { blobs[$0] }
             if body == nil, row.bodyOmitted, refetchOmitted {
                 try Task.checkCancellation()
-                let again = try await client.listEntries(agentID: agentID, limit: 1, beforeSeq: row.seq + 1).filter { $0.seq == row.seq }
+                let again = try await client.listEntries(agentID: agentID, limit: 1, beforeSeq: row.seq == .max ? .max : row.seq + 1).filter { $0.seq == row.seq }
                 stats.omittedRefetched += 1
                 if var single = again.first {
                     // The single row comes back inline or as a blob; never re-list it a second time.

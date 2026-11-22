@@ -78,8 +78,9 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
 
     private func read(_ botID: UUID) -> GrokHistoryFile? { Self.read(fileURL(for: botID)) }
 
-    nonisolated private static func read(_ url: URL) -> GrokHistoryFile? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+    nonisolated private static func read(_ url: URL) -> GrokHistoryFile? { (try? Data(contentsOf: url)).flatMap(decode) }
+
+    nonisolated private static func decode(_ data: Data) -> GrokHistoryFile? {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(GrokHistoryFile.self, from: data)
     }
@@ -88,9 +89,12 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
                                         directory: URL, settledFetchedSequences: Set<Int64> = []) throws -> [ArchivedMessage] {
         var existing: [ArchivedMessage] = []
         if FileManager.default.fileExists(atPath: url.path) {
-            guard let file = read(url) else { throw GrokHistoryError.archiveUnreadable(keptAs: try setAside(url)) }
+            // A file that cannot be opened right now may be a good archive: only one that opens and does not decode is set aside.
+            guard let data = try? Data(contentsOf: url) else { throw GrokHistoryError.archiveUnavailable(url.lastPathComponent) }
+            guard let file = decode(data) else { throw GrokHistoryError.archiveUnreadable(keptAs: try setAside(url)) }
             guard file.sourceID == sourceID else { throw GrokHistoryError.sourceMismatch }
-            existing = file.messages
+            // Lines saved under an older secret filter go through today's, so a better filter also cleans what is on disk.
+            existing = file.messages.map(\.refiltered)
         }
         var byKey: [String: ArchivedMessage] = [:]
         for message in existing + incoming {
@@ -132,6 +136,8 @@ enum GrokHistoryError: LocalizedError, Equatable {
     /// The existing archive could not be decoded; it was renamed, nothing deleted, nothing merged.
     case archiveUnreadable(keptAs: String)
     case archiveUnmovable(String)
+    /// The existing archive could not be opened (an I/O error, not a bad file): nothing was moved, merged or changed.
+    case archiveUnavailable(String)
     case sourceMismatch
 
     var errorDescription: String? {
@@ -139,6 +145,7 @@ enum GrokHistoryError: LocalizedError, Equatable {
         case .sourceMismatch: "The saved archive belongs to another conversation."
         case .archiveUnreadable(let name): "A history archive could not be read; it was kept as \(name), nothing deleted."
         case .archiveUnmovable(let name): "The history archive \(name) could not be read or set aside; nothing was changed."
+        case .archiveUnavailable(let name): "The history archive \(name) could not be opened just now; nothing was changed. Try again."
         }
     }
 }
@@ -148,6 +155,14 @@ extension ArchivedMessage {
     nonisolated(unsafe) private static let plain = ISO8601DateFormatter()
 
     static func date(_ value: String?) -> Date? { value.flatMap { fractional.date(from: $0) ?? plain.date(from: $0) } }
+
+    /// The same line with every text field through the secret filter again (a line already filtered comes back unchanged).
+    var refiltered: ArchivedMessage {
+        let clean = { (text: String) in SecretFilter.redacted(text, replacement: GrokRedactor.marker) }
+        var line = self
+        line.text = clean(text); line.author = author.map(clean); line.to = to.map(clean)
+        return line
+    }
 
     /// Bundle messages and rename events → archive lines, every text field through the secret filter.
     static func from(_ bundle: GrokBotBundle) -> [ArchivedMessage] {

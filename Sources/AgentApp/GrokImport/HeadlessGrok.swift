@@ -4,7 +4,7 @@ import Foundation
 /// `SecKeychainSetUserInteractionAllowed(false)` (it is process-wide, and `--grok-fetch --mode full` / `--grok-probe --live`
 /// need the one macOS dialog). Output is counts, booleans and states only: no names, ids, text or anything secret.
 ///   AgentApp --grok-fetch --mode recent|full [--bots "<name>,<name>"] [--store <store.json>] [--report <file>]
-///   AgentApp --grok-probe [--live] [--report <file>]
+///   AgentApp --grok-probe [--live [--diagnose]] [--report <file>]
 ///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
 @MainActor enum HeadlessGrok {
     nonisolated static let keychainNotice =
@@ -30,7 +30,8 @@ import Foundation
                       output: @escaping @Sendable (String) -> Void) async -> Int32 {
         let live = arguments.contains("--live")
         let notice = keychainNotice
-        let report = await GrokProbe.run(environment: environment ?? .live(appVersion: appVersion), live: live) { output(notice) }
+        let report = await GrokProbe.run(environment: environment ?? .live(appVersion: appVersion), live: live,
+                                         diagnose: live && arguments.contains("--diagnose")) { output(notice) }
         for line in lines(for: report) { output(line) }
         if let path = value(after: "--report", in: arguments) { write(probeJSON(report), to: path) }
         return report.ok ? 0 : 1
@@ -52,10 +53,22 @@ import Foundation
                          "machineIDPresent=\(live.machineIDPresent) teamIDPresent=\(live.teamIDPresent) " +
                          "canaryOK=\(live.canaryOK) canaryRows=\(live.canaryRows)" +
                          (live.failure.map { " failure=\($0)" } ?? ""))
+            if let token = live.token {
+                lines.append("token expPresent=\(token.expPresent) secondsToExpiry=\(text(token.secondsToExpiry)) " +
+                             "issuedSecondsAgo=\(text(token.issuedSecondsAgo)) alg=\(token.algorithm ?? "-") kid=\(token.keyID ?? "-") " +
+                             "issuer=\(token.issuerHost ?? "-") type=\(token.tokenType ?? "-")")
+            }
+            for attempt in live.attempts ?? [] {
+                lines.append("attempt \(attempt.variant) status=\(text(attempt.status)) code=\(attempt.connectCode ?? "-") " +
+                             "rows=\(text(attempt.rows))" + (attempt.message.map { " message=\"\($0)\"" } ?? "") +
+                             (attempt.failure.map { " failure=\($0)" } ?? ""))
+            }
         }
         lines.append("probe \(report.ok ? "OK" : "NOT OK")")
         return lines
     }
+
+    private static func text(_ value: Int?) -> String { value.map(String.init) ?? "-" }
 
     // MARK: --grok-fetch
 
@@ -89,7 +102,11 @@ import Foundation
         output("state=\(describe(state)) conversations=\(rows.count) done=\(done) incomplete=\(incomplete) " +
                "skipped=\(rows.filter { $0.status == .skipped }.count) messages=\(rows.map(\.messages).reduce(0, +)) " +
                "added=\(rows.map(\.addedLines).reduce(0, +)) requests=\(requests) keychainReads=\(run.keychainReads)")
-        if case .stopped(let error) = state { output("stopped: \(error.errorDescription ?? "unknown")") }
+        if case .stopped(let error) = state {
+            var said = ""
+            if case .server(let refusal) = error { said = (refusal.statusDetail.map { " (\($0))" } ?? "") + refusal.saidSentence }
+            output("stopped: \(error.errorDescription ?? "unknown")" + said)
+        }
         if case .paused(let pause) = state {
             output("paused: \(describe(pause)); run the command again to continue (nothing is duplicated).")
         }

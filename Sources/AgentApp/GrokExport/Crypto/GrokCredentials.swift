@@ -146,3 +146,49 @@ struct GrokCredentials: Sendable {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
+
+/// What a sign-in token says about itself, with nothing that identifies the account or could be replayed: its
+/// lifetime, signing algorithm and key name, issuer host and type. For `--grok-probe --live --diagnose`.
+struct GrokTokenFacts: Codable, Sendable, Equatable {
+    var expPresent = false
+    var secondsToExpiry: Int?
+    var issuedSecondsAgo: Int?
+    var algorithm: String?
+    var keyID: String?
+    var issuerHost: String?
+    var tokenType: String?
+}
+
+extension GrokCredentials {
+    static func tokenFacts(_ token: String, now: Date) -> GrokTokenFacts {
+        var facts = GrokTokenFacts()
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        func object(_ index: Int) -> [String: Any]? {
+            guard parts.indices.contains(index), let data = base64URLDecode(String(parts[index])) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        }
+        if let header = object(0) {
+            facts.algorithm = plainWord(header["alg"])
+            facts.keyID = plainWord(header["kid"])
+        }
+        guard let claims = object(1) else { return facts }
+        let nowSeconds = now.timeIntervalSince1970
+        if let exp = claims["exp"] as? Double, exp.isFinite {
+            facts.expPresent = true
+            facts.secondsToExpiry = Int(max(-1e9, min(1e9, exp - nowSeconds)))
+        }
+        if let issued = claims["iat"] as? Double, issued.isFinite {
+            facts.issuedSecondsAgo = Int(max(-1e9, min(1e9, nowSeconds - issued)))
+        }
+        if let issuer = claims["iss"] as? String { facts.issuerHost = plainWord(URL(string: issuer)?.host ?? issuer) }
+        facts.tokenType = plainWord(claims["type"])
+        return facts
+    }
+
+    /// A short ASCII name (letters, digits, `.`, `_`, `-`); anything else is dropped unread.
+    private static func plainWord(_ value: Any?) -> String? {
+        guard let text = value as? String, (1...64).contains(text.count),
+              text.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-") }) else { return nil }
+        return text
+    }
+}

@@ -53,7 +53,9 @@ import Foundation
     private var keychainWatch: Task<Void, Never>?
     /// "Retry remaining" on the Done step: the next fresh run adds to this session's committed rows.
     private var keepCommittedRows = false
-    private var startedAt = ContinuousClock.now
+    /// Elapsed counts running time only: a pause freezes it, a resume continues it, a fresh run starts it at zero.
+    private var elapsedBefore: Duration = .zero
+    private var runningSince: ContinuousClock.Instant?
 
     init(store: AppStore, environment: GrokImportEnvironment, destination: GrokDestination? = nil, requiresTestedHost: Bool = false,
          isGrokRunning: @escaping @Sendable () -> Bool = { GrokImportCoordinator.grokBotIsRunning() }) {
@@ -265,7 +267,7 @@ import Foundation
             keepCommittedRows = false
         }
         step = .running
-        startTicker()
+        startTicker(fresh: fresh)
         driver = Task { [weak self] in
             let state = await action(run, options)
             await self?.settle(state)
@@ -292,6 +294,7 @@ import Foundation
             stopTicker()
         case .paused(let pause):
             mark(current, .paused)
+            freezeElapsed()
             step = .paused(pause)
         case .stopped(let error):
             if let current, progress.first(where: { $0.id == current })?.status.isActive == true {
@@ -342,9 +345,9 @@ import Foundation
 
     // MARK: Ticker (elapsed, requests, the app-wide Keychain flag, the pause hold)
 
-    private func startTicker() {
-        startedAt = ContinuousClock.now
-        elapsedSeconds = 0
+    private func startTicker(fresh: Bool = true) {
+        if fresh { elapsedBefore = .zero; elapsedSeconds = 0 }
+        runningSince = ContinuousClock.now
         guard ticker == nil else { return }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -354,7 +357,13 @@ import Foundation
         }
     }
 
+    private func freezeElapsed() {
+        if let runningSince { elapsedBefore += ContinuousClock.now - runningSince }
+        runningSince = nil
+    }
+
     private func stopTicker() {
+        freezeElapsed()
         ticker?.cancel()
         ticker = nil
         watchKeychain()
@@ -375,7 +384,8 @@ import Foundation
     }
 
     private func tick() async {
-        elapsedSeconds = Int((ContinuousClock.now - startedAt).components.seconds)
+        let running = runningSince.map { ContinuousClock.now - $0 } ?? .zero
+        elapsedSeconds = Int((elapsedBefore + running).components.seconds)
         keychainBusy = environment.gate.isReading
         guard let run else { return }
         requests = await run.requestCount()

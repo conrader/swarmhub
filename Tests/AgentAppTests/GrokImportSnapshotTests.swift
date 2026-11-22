@@ -38,3 +38,26 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     try await render(found, store, name: "1-found")
 }
 
+
+/// A refusal with a reason: Grok answers the first request with 401 and says why. The sheet stops, says what Grok
+/// said and that Grok Bot is newer than the checked version, and asks macOS only once.
+@MainActor @Test func aRefusalOnTheFirstRequestStopsTheSheetWithWhatGrokSaid() async throws {
+    let world = try GrokWorld()
+    let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "1.2.3"], format: .xml, options: 0)
+    try plist.write(to: world.location.app.appending(path: "Contents/Info.plist"))
+    let said = "Grok Bot requires an Ultra subscription or a Premium self-serve team seat"
+    world.fake.intercept = { _, _ in .http(401, Array(#"{"code":"unauthenticated","message":"\#(said)"}"#.utf8)) }
+    let store = world.store(server: "https://box.test/v1")
+    let coordinator = makeCoordinator(world, store)
+    await coordinator.scan()
+    #expect(coordinator.versionDriftNote == "Grok Bot is 1.2.3; this import was last checked against 0.70.2.")
+    await runFull(coordinator)
+    guard case .failed(.server(let refusal)) = coordinator.step else {
+        Issue.record("the sheet is at \(coordinator.step)")
+        return
+    }
+    #expect(refusal.reason == .signInInvalid && refusal.serverMessage == said)
+    #expect(coordinator.requests == 1 && world.passwords.reads == 1)
+    #expect(coordinator.progress.allSatisfy { $0.status == .queued })
+    try await render(coordinator, store, name: "refused")
+}

@@ -23,6 +23,8 @@ actor GrokRPCClient {
 
     /// Every request started so far, retries and blob GETs included.
     var requestCount: Int { pacer.requests }
+    /// RPCs answered with HTTP 200: above zero, Grok's service has accepted this sign-in at least once.
+    private(set) var successfulRPCs = 0
 
     init(session: GrokSession, credentials: GrokCredentials, clientVersion: String, appVersion: String,
          baseURL: URL = GrokProtocol.baseURL, clock: any GrokClock, limits: Limits = Limits()) {
@@ -69,20 +71,50 @@ actor GrokRPCClient {
 
     private func rpc(_ method: GrokProtocol.Method, kind: GrokServerError.Kind, body: [UInt8]) async throws -> [UInt8] {
         let url = GrokProtocol.url(for: method, base: baseURL)
-        let (status, data) = try await send(kind: kind, maxBytes: limits.rpcMaxBytes) {
-            var request = URLRequest(url: url, timeoutInterval: GrokProtocol.requestTimeout)
-            request.httpMethod = "POST"
-            request.httpBody = Data(body)
-            request.httpShouldHandleCookies = false
-            // Built per attempt: a fresh checksum and x-request-id every time.
-            let headers = GrokRequestHeaders.rpcHeaders(
-                token: credentials.token.reveal(), machineID: credentials.machineID.reveal(), teamID: credentials.teamID,
-                clientVersion: clientVersion, appVersion: appVersion, nowMs: clock.wallMs()) + GrokRequestHeaders.connectHeaders()
-            for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-            return request
-        }
+        let (status, data) = try await send(kind: kind, maxBytes: limits.rpcMaxBytes) { rpcRequest(url: url, body: body) }
         guard status == 200 else { throw Self.failure(kind: kind, status: status, body: data, authenticated: true) }
+        successfulRPCs += 1
         return data
+    }
+
+    /// Built per attempt: a fresh checksum and x-request-id every time. The two overrides are for `diagnoseList` only.
+    private func rpcRequest(url: URL, body: [UInt8], userAgent: String? = nil, clientVersion override: String? = nil) -> URLRequest {
+        var request = URLRequest(url: url, timeoutInterval: GrokProtocol.requestTimeout)
+        request.httpMethod = "POST"
+        request.httpBody = Data(body)
+        request.httpShouldHandleCookies = false
+        let headers = GrokRequestHeaders.rpcHeaders(
+            token: credentials.token.reveal(), machineID: credentials.machineID.reveal(), teamID: credentials.teamID,
+            clientVersion: override ?? clientVersion, appVersion: appVersion, nowMs: clock.wallMs()) + GrokRequestHeaders.connectHeaders()
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        if let userAgent { request.setValue(userAgent, forHTTPHeaderField: "user-agent") }
+        return request
+    }
+
+    // MARK: Diagnosis (`--grok-probe --live --diagnose`)
+
+    /// One list request's outcome, whatever the status: the Connect code and a word-filtered message, never the body.
+    struct Diagnosis: Sendable, Equatable {
+        var status: Int
+        var connectCode: String?
+        var message: String?
+        /// Rows decoded from a 200 answer; nil when it did not decode.
+        var rows: Int?
+    }
+
+    /// The newest row of one conversation, optionally under another user-agent or client version, to tell a refused
+    /// sign-in from a refused client. Paced like every request; nothing is retried on a 4xx.
+    func diagnoseList(agentID: String, userAgent: String? = nil, clientVersion: String? = nil) async throws -> Diagnosis {
+        let url = GrokProtocol.url(for: .listTranscriptEntries, base: baseURL)
+        let body = GrokProtobuf.encodeListRequest(agentID: agentID, limit: 1, beforeSeq: nil)
+        let (status, data) = try await send(kind: .list, maxBytes: limits.rpcMaxBytes) {
+            rpcRequest(url: url, body: body, userAgent: userAgent, clientVersion: clientVersion)
+        }
+        guard status == 200 else {
+            return Diagnosis(status: status, connectCode: GrokServerError.connectCode(fromBody: data),
+                             message: GrokServerError.diagnosticMessage(fromBody: data))
+        }
+        return Diagnosis(status: status, rows: (try? GrokProtobuf.decodeListResponse(data))?.count)
     }
 
     /// One logical request: paced, retried on network errors and 502/503/504 only (D2), each retry paced again.
@@ -156,11 +188,13 @@ actor GrokRPCClient {
         if let code, GrokProtocol.protocolChangedCodes.contains(code) {
             return GrokServerError(.protocolChanged, kind: kind, httpStatus: status, connectCode: code)
         }
-        if status == 401, authenticated { return GrokServerError(.signInInvalid, kind: kind, httpStatus: status, connectCode: code) }
         if GrokProtocol.retriedStatuses.contains(status) {
             return GrokServerError(.unavailable, kind: kind, httpStatus: status, connectCode: code)
         }
-        return GrokServerError(.rejected, kind: kind, httpStatus: status, connectCode: code)
+        var refusal = GrokServerError(status == 401 && authenticated ? .signInInvalid : .rejected, kind: kind, httpStatus: status,
+                                      connectCode: code)
+        if authenticated { refusal.serverMessage = GrokServerError.diagnosticMessage(fromBody: body) }
+        return refusal
     }
 
     private func decoded<T>(_ kind: GrokServerError.Kind, _ decode: () throws -> T) throws -> T {
