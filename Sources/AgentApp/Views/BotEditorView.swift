@@ -37,6 +37,7 @@ struct BotEditorView: View {
                             ForEach(programs) { Text($0.name).tag($0.template) }
                         }
                         .onChange(of: template) { _, _ in model = HerdrModelChoice.recommended }
+                        HerdrProgramNote(note: programs.first(where: { $0.template == template })?.note)
                         if let program = programs.first(where: { $0.template == template }), program.takesModel {
                             SettingBlock(title: "Model") {
                                 HerdrModelPicker(model: $model, program: program.modelAgent ?? program.name, models: program.models)

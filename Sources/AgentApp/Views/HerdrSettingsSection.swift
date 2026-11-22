@@ -513,6 +513,8 @@ struct HerdrTemplatePicker: View {
         if !choices.isEmpty {
             TileGallery(items: choices, minimum: 150, isSelected: { selection.isEmpty ? $0.id == defaultName : $0.id == selection }, name: \.name,
                         select: { selection = $0.id == defaultName ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
+            // The chosen program's own sentence when it is in beta.
+            HerdrProgramNote(note: templates.first(where: { $0.name == (selection.isEmpty ? defaultName : selection) })?.note)
         }
     }
 }

@@ -133,7 +133,7 @@ extension AppStore {
             for other in herdrBots(on: server) where other.id != mainBot.id { other.canManageBots = false }
             mainBot.canManageBots = true
             for program in more where offer.program(program.template) != nil {
-                add(Bot(name: program.name, title: first ? "" : Self.starterTitle("", on: server), persona: Bot.defaultPersona, backend: .herdr), program.template, HerdrModelChoice.recommended, nil)
+                add(Bot(name: HerdrProgramName.botName(program.name), title: first ? "" : Self.starterTitle("", on: server), persona: Bot.defaultPersona, backend: .herdr), program.template, HerdrModelChoice.recommended, nil)
             }
             removeSampleBots()
             selectedBot = mainBot; selectedGroup = nil; rememberSelection(bot: mainBot)
