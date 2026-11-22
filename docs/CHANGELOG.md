@@ -3,12 +3,19 @@
 ## Unreleased
 
 - **Gemini (beta)**: Google's Gemini CLI is a third program a bot can run on, next to Claude Code and Codex. It is listed last, is never chosen by default while another AI is installed, and says where you choose it what it cannot do yet: its reply arrives all at once, it asks for permission in its terminal, and a model change applies at the next start. Sign in by running `gemini` in Terminal first. Details and limits are in the [bridge manual](../HerdrWorkspace/README.md#run-gemini-cli-beta).
-- The bot list can be divided into named sections that fold and unfold (**+ → New Section…**, or **Move to Section** in a chat's menu); a section can be renamed, moved up or down and deleted, and deleting one only moves its chats to Unsectioned. **Pin** puts up to nine bots or groups at the top as big marks with their names under them. Folds, sections and pins are remembered; with none of them the list looks and behaves as before.
 - Skills is a library. **Settings → Servers → Skills** and a bot's **Skills** tab say where the server's skillshare library stands and sync it with one button; **Open library** shows everything in it (skills, agents, MCP servers, plugins and hooks) grouped by what needs a sync, has an update, is in sync or is off, with a preview of each.
 - Skills are installed from a repository address after a security check: the server downloads the repository, skillshare audits it, and only what passes is installed. A blocked skill shows what was found, can be handed to a bot to review, and is installed only after **Install anyway**. Skills and agents are updated and removed from the library too.
 - The library's Git repository is pulled, pushed and synced both ways from the app, with a choice per file when both sides changed the same one. **Servers** shows skillshare on each server and updates it.
 - A bot whose project holds a skillshare project of its own can show that project's library.
 - The bridge's API is at level 2 for this (`/api/skillshare/library` and the routes beside it, in the [bridge manual](../HerdrWorkspace/README.md#manage-the-servers-skillshare-library)). An MCP server's secret values never leave the server. A server still at level 1 keeps the list of skill switches until it is updated.
+
+## 0.8.8 (build 42)
+
+- Bots imported from Grok Bot carry on: before a bot's next reply its agent reads the imported conversation (a summary of the older part, the recent part word for word, the full transcript to search). Long conversations are summarised once by the bot's own program. It applies to bots imported earlier, can be switched off per bot under the chat's Grok history header, and never holds a message back: if it cannot be handed over, the message is delivered and the chat says so.
+- The bot list can be divided into named sections that fold and unfold (**+ → New Section…**, or **Move to Section** in a chat's menu); a section can be renamed, moved up or down and deleted, and deleting one only moves its chats to Unsectioned. **Pin** puts up to nine bots or groups at the top as big marks with their names under them. Folds, sections and pins are remembered; with none of them the list looks and behaves as before.
+- Import from Grok Bot: a refusal or an unreadable answer from Grok no longer stops the import. It says what Grok said, imports the recent messages kept on this Mac, and remembers the stop for the next time. A stop inside one chat affects that chat only; too many requests pause instead of stopping; chats that only got recent messages are partial and stay under **Retry remaining**.
+- The import sheet's steps are redrawn: the history choice as two large cards, the macOS prompt as three numbered steps, one line per chat while importing.
+- The secret filter takes quoted, escaped and bold labels and whole quoted values, and no longer takes ordinary code such as `PWD=/path`. Saved history lines go through the current filter on every import.
 
 ## 0.8.7 (build 41)
 

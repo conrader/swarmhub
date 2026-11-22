@@ -15,8 +15,8 @@ struct GrokDoneStep: View {
                                fallback.userSummary, symbol: "exclamationmark.triangle", tone: .caution)
                 }
                 VStack(spacing: 6) { ForEach(coordinator.outcomes) { outcome in botRow(outcome) } }
-                Text("Bots keep their name, avatar and instructions and run on your Herdr server. Imported chats are a read-only " +
-                     "archive on this Mac; the bots start a fresh conversation.")
+                Text("Bots keep their name, avatar and instructions and run on your Herdr server. Each bot reads its imported " +
+                     "conversation before its first reply; long conversations are summarised first. Group chats stay a read-only archive on this Mac.")
                     .font(.callout).foregroundStyle(.secondary)
                 DisclosureGroup("Details", isExpanded: $showingDetails) { details }.font(.callout)
             }.padding(20)

@@ -53,6 +53,7 @@ extension AppStore {
         var stretch = timing?.start()
         try beginGrokImport()
         var rows: [GrokImportRow] = []
+        var imported: [UUID] = []
         do {
             for bundle in Self.ordered(bundles) {
                 timing?.end(&stretch)
@@ -71,12 +72,15 @@ extension AppStore {
                     throw error
                 }
                 rows.append(apply(prepared, to: target, historyCount: count, policy: policy, destination: destination))
+                imported.append(target.id)
                 timing?.end(&stretch)
                 await Task.yield()
                 stretch = timing?.start()
             }
         } catch { try? finishGrokImport(rows); throw error }
         try finishGrokImport(rows)
+        // Each imported bot's agent is handed its conversation at its next message; a long one is summarised ahead of that.
+        grokImported(imported)
         timing?.end(&stretch)
         return rows
     }

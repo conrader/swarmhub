@@ -1,6 +1,7 @@
 import Foundation
 
-/// One read-only line of imported Grok Bot history. Never sent to an agent as a turn.
+/// One read-only line of imported Grok Bot history. It is never a row of the live chat; a bot's lines are handed to
+/// its agent as files, once per agent session, so that the bot can carry on (`GrokHandoff`).
 struct ArchivedMessage: Codable, Equatable, Identifiable, Sendable {
     var id: String; var seq: Int64; var role: String; var author: String?; var text: String
     var timestamp: Date?; var hidden: Bool; var channel: String; var to: String?
@@ -15,7 +16,9 @@ struct ArchivedMessage: Codable, Equatable, Identifiable, Sendable {
 struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: [ArchivedMessage] }
 
 /// Per-bot archive files in `<store dir>/grok-history/<bot id>.json` (dir 0700, files 0600).
-/// Files are read only when a bot's archive is first opened.
+/// Files are read only when a bot's archive is first opened. Beside an archive there may be the summary of its
+/// older part, `<bot id>.handoff.json` (`GrokHandoffCache`), and what the Mac remembers about handing it over,
+/// `<bot id>.handoff-state.json` (`GrokHandoffState`); both go when the archive goes.
 @MainActor final class GrokHistoryStore: ObservableObject {
     let directory: URL
     @Published private(set) var loaded: [UUID: [ArchivedMessage]] = [:]
@@ -25,6 +28,8 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
     init(directory: URL) { self.directory = directory }
 
     func fileURL(for botID: UUID) -> URL { directory.appending(path: "\(botID.uuidString.lowercased()).json") }
+    func handoffURL(for botID: UUID) -> URL { GrokHandoffCache.url(in: directory, for: botID) }
+    func handoffStateURL(for botID: UUID) -> URL { GrokHandoffState.url(in: directory, for: botID) }
     func isLoaded(_ botID: UUID) -> Bool { loaded[botID] != nil }
 
     /// The newest visible archived line (P20 sidebar fragment); reads the file at most once per merge.
@@ -74,11 +79,21 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
     /// Lines in the archive file as it is on disk now (the Done step reads counts back from the files); nil = no file.
     func lineCountOnDisk(for botID: UUID) -> Int? { read(botID)?.messages.count }
 
-    func remove(_ botID: UUID) { try? FileManager.default.removeItem(at: fileURL(for: botID)); loaded[botID] = nil; newestCache[botID] = nil }
+    /// Removes the archive, and what is kept beside it about handing it over: the summary and the state.
+    func remove(_ botID: UUID) {
+        try? FileManager.default.removeItem(at: fileURL(for: botID))
+        try? FileManager.default.removeItem(at: handoffURL(for: botID))
+        try? FileManager.default.removeItem(at: handoffStateURL(for: botID))
+        loaded[botID] = nil; newestCache[botID] = nil
+    }
 
     private func read(_ botID: UUID) -> GrokHistoryFile? { Self.read(fileURL(for: botID)) }
 
     nonisolated private static func read(_ url: URL) -> GrokHistoryFile? { (try? Data(contentsOf: url)).flatMap(decode) }
+
+    /// The lines of an archive file as they are on disk, for work off the main actor (`GrokHandoff.draft`); nil = no
+    /// file, or one that cannot be read.
+    nonisolated static func linesOnDisk(_ url: URL) -> [ArchivedMessage]? { read(url)?.messages }
 
     nonisolated private static func decode(_ data: Data) -> GrokHistoryFile? {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601

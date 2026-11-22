@@ -15,7 +15,7 @@ On a fresh launch of this checkout, choose **Try a sample**. Patch opens with th
 
 ### Switching from Grok Bot
 
-Choose **Bring my Grok bot**, select a bot, and review the available history. You can import recent messages from the local cache. The archive stays readable on your Mac. Your agent starts a fresh conversation with the imported bot’s instructions.
+Choose **Bring my Grok bot**, select a bot, and review the available history. You can import recent messages from the local cache. The archive stays readable on your Mac. The bot’s new agent gets the imported bot’s instructions and reads the imported conversation before its first reply, so it can carry on; a long conversation is summarised first.
 
 ## How it works
 

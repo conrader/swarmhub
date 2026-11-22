@@ -4,7 +4,9 @@ import Foundation
 /// An agent that Herdr Core runs in a terminal (Claude Code, Codex, or any other template), reached through the
 /// SwarmHub bridge (`HerdrClient`). The agent program keeps its own conversation, model, tools and permissions, so
 /// only the newest user message is sent (after the bot's own instructions, once, when an agent starts):
-/// The bridge receives the newest user message and its attachments. The reply is saved by the agent's Stop hook when its
+/// The bridge receives the newest user message and its attachments. A bot that came with an earlier conversation is
+/// the one exception: each agent it starts reads that conversation first, in a turn of its own (`HerdrHandoff`).
+/// The reply is saved by the agent's Stop hook when its
 /// turn ends. Until then the reply so far is shown as it is written: Claude Code, Codex and OpenCode all publish it
 /// through the bridge, and both report their tool calls through hooks, which become the reply's activity steps.
 /// A turn is followed on the bridge's event stream (`HerdrEvents.swift`), and by polling where there is none.
@@ -31,11 +33,16 @@ struct HerdrBackend: AgentBackend {
     let agentName: String
     let botID: UUID
     private let accepted = LockedValue<HerdrClient.Turn?>(nil)
+    /// True from the start of a turn that may hand the bot's earlier conversation over until that step has ended:
+    /// meanwhile the turn takes no steer (`features`), so a message the person sends then waits its turn instead of
+    /// being typed into the handoff.
+    private let handingOver = LockedValue(false)
     /// nil: the first template the bridge can start.
     let template: String?
     /// nil: the agent program's own default model. Used when the bot next starts an agent.
     let model: String?
-    /// The bot's own instructions, given once to each agent it starts; nothing else of the app's is sent.
+    /// The bot's own instructions, given once to each agent it starts. Beside them the app sends only its notes
+    /// below and, for an imported bot, the earlier conversation (`handoff`).
     let instructions: String?
     /// A message sent while the agent answers is typed into the running agent (steer), which reads it as soon as it
     /// can. Off: the app holds the message until the answer ends.
@@ -77,6 +84,10 @@ struct HerdrBackend: AgentBackend {
     /// another; meanwhile the chat says that `program` is starting.
     struct Starting: Sendable { let program: String?; let settled: @Sendable () async -> Void }
     var starting: Starting? = nil
+    /// Set for a bot that came with an earlier conversation (one imported from Grok Bot, `AppStore+GrokHandoff.swift`):
+    /// before a message, the bot's own agent is handed that conversation as files, unless its session has read it.
+    /// Never for the agent a bot has in a group. nil: nothing but the message is sent.
+    var handoff: HerdrHandoffSource? = nil
 
     static let teamNote = """
     SwarmHub team commands: use swarmhub-herdr bot list to find peers, bot ask NAME "QUESTION" for a reply, or bot handoff NAME "TASK" to delegate. Use checkin ci PUBLIC_PR_URL "WHAT" for a GitHub CI failure watch, checkin list for plans and promise list for commitments. Use the command path in your SwarmHub instructions when provided. Report the result to the person in this chat.
@@ -156,6 +167,7 @@ struct HerdrBackend: AgentBackend {
         }
         let backend = configured
         _ = accepted.swap(nil)
+        _ = handingOver.swap(name == agentName && handoff != nil)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 let started = ContinuousClock.now
@@ -167,6 +179,20 @@ struct HerdrBackend: AgentBackend {
                         await starting.settled()
                     }
                     continuation.yield(.status(HerdrTurnStatus.sending.code))
+                    // The agent reads the bot's earlier conversation first, once per agent session (`HerdrHandoff.swift`).
+                    // A handoff that fails does not hold the message back: it goes as it always did, and the source hears why.
+                    var notHandedOver: String? = nil
+                    if name == backend.agentName, let handoff = backend.handoff {
+                        do {
+                            notHandedOver = try await backend.handOver(handoff, status: { status in _ = continuation.yield(.status(status.code)) })
+                        } catch {
+                            _ = backend.handingOver.swap(false)
+                            throw error
+                        }
+                        _ = backend.handingOver.swap(false)
+                        // The store reads `features` again at a status, so the turn takes steers from here on.
+                        continuation.yield(.status(HerdrTurnStatus.sending.code))
+                    }
                     let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : nil,
                                                                 once: backend.notes, changing: backend.rosters,
@@ -174,6 +200,7 @@ struct HerdrBackend: AgentBackend {
                                                                 status: { continuation.yield(.status($0.code)) })
                     delivered = true
                     _ = backend.accepted.swap(turn)
+                    if let why = notHandedOver { backend.handoff?.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     // Read the launch model from this exact session. Following the answer proceeds concurrently.
@@ -243,7 +270,8 @@ struct HerdrBackend: AgentBackend {
         }
     }
 
-    func features() async throws -> Set<String> { steers ? ["run_steer"] : [] }
+    /// Nothing while the bot's earlier conversation is being handed over: that turn is not the person's to steer.
+    func features() async throws -> Set<String> { steers && !handingOver.current ? ["run_steer"] : [] }
 
     /// Types the message into the running agent. Claude Code and Codex keep their own queue for input that arrives
     /// mid-turn, so nothing is handed back; with no agent running there is nothing to steer.

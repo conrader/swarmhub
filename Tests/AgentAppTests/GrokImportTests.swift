@@ -30,7 +30,7 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     #expect(history.filter { $0.matches("ledger") }.count == 2)
     let attributes = try FileManager.default.attributesOfItem(atPath: reopened.grokHistory.fileURL(for: jarvis.id).path)
     #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
-    #expect(jarvis.messages.isEmpty) // never part of the live conversation sent to the agent
+    #expect(jarvis.messages.isEmpty) // never rows of the live chat; the agent is handed them as files (GrokHandoff)
 }
 
 @MainActor @Test func grokReimportIsIdempotentAndMergesNewLines() throws {
