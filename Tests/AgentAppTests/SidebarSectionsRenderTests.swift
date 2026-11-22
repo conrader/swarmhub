@@ -44,7 +44,8 @@ import Testing
     store.setPinned(crew.id, true)
     store.setPinned(bots[7].id, true)
     let layout = store.sidebarLayout
-    #expect(layout.pinned.count == 4 && layout.sections.count == 3)
+    // Every chat is pinned or in a section, so no empty "Unsectioned" is listed.
+    #expect(layout.pinned.count == 4 && layout.sections.map(\.name) == ["Work", "Side projects"])
     try await render("1-sections-and-pins")
 
     store.setSidebarSectionCollapsed(side.id, true)

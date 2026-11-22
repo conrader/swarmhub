@@ -55,10 +55,14 @@ struct SidebarLayout {
             buckets.append(Bucket(id: section.id, name: section.name, showsHeader: true, isCollapsed: section.collapsed,
                                   chats: members[index], hasUnread: members[index].contains { $0.isUnread }))
         }
+        // "Unsectioned" is listed only while something is in it (or there is no section at all): an empty one under the
+        // user's sections would be a header about nothing.
         let showsUnsectionedHeader = !organisation.sections.isEmpty
-        buckets.append(Bucket(id: nil, name: "Unsectioned", showsHeader: showsUnsectionedHeader,
-                              isCollapsed: showsUnsectionedHeader && organisation.unsectionedCollapsed,
-                              chats: loose, hasUnread: loose.contains { $0.isUnread }))
+        if !loose.isEmpty || organisation.sections.isEmpty {
+            buckets.append(Bucket(id: nil, name: "Unsectioned", showsHeader: showsUnsectionedHeader,
+                                  isCollapsed: showsUnsectionedHeader && organisation.unsectionedCollapsed,
+                                  chats: loose, hasUnread: loose.contains { $0.isUnread }))
+        }
         var order = pinned
         for bucket in buckets where !bucket.isCollapsed { order += bucket.chats }
         return SidebarLayout(pinned: pinned, sections: buckets, navigationOrder: order)
