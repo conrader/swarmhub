@@ -133,7 +133,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     Err(command().arg("--standalone").args(args).exec().into())
 }
 
-fn terminal_path() -> Option<OsString> {
+pub(crate) fn terminal_path() -> Option<OsString> {
     for fd in [libc::STDOUT_FILENO, libc::STDIN_FILENO, libc::STDERR_FILENO] {
         let mut path = [0 as libc::c_char; 512];
         // ttyname_r fills a caller-owned, NUL-terminated buffer on success.

@@ -255,17 +255,17 @@ struct HerdrBackend: AgentBackend {
         return call.finished ? started + [ToolEvent(phase: call.failed ? .failed : .completed, name: name, callID: id)] : started
     }
 
-    /// Claude Code's and Codex's tool names in the words `ActivityCopy.label` already knows ("Running a command",
+    /// Claude Code's, Codex's and Gemini CLI's tool names in the words `ActivityCopy.label` already knows ("Running a command",
     /// "Reading a file", "Editing a file"); any other tool keeps its own name.
     static func toolName(_ tool: String) -> String {
         switch tool.lowercased() {
-        case "bash", "shell", "exec", "exec_command", "local_shell", "bashoutput", "killshell": "bash"
-        case "read", "grep", "glob", "ls", "notebookread", "view_image": "read_file"
-        case "edit", "write", "multiedit", "notebookedit", "apply_patch": "edit_file"
-        case "websearch", "web_search": "web_search"
+        case "bash", "shell", "exec", "exec_command", "local_shell", "bashoutput", "killshell", "run_shell_command": "bash"
+        case "read", "grep", "glob", "ls", "notebookread", "view_image", "read_many_files", "list_directory", "grep_search", "search_file_content": "read_file"
+        case "edit", "write", "multiedit", "notebookedit", "apply_patch", "write_file", "replace": "edit_file"
+        case "websearch", "web_search", "google_web_search": "web_search"
         case "webfetch", "web_fetch": "fetch"
         case "task", "agent": "delegate_task"
-        case "todowrite", "update_plan": "todo"
+        case "todowrite", "update_plan", "write_todos": "todo"
         default: tool
         }
     }

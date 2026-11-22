@@ -1363,6 +1363,37 @@ In a running API-backed OpenCode session, open **Details → Change OpenCode mod
 
 Plain `run-opencode mini` keeps the existing Herdr template behavior. The Mini client [does not report when its composer is ready](https://github.com/anomalyco/opencode/issues/61191), so Herdr's quiet readiness can type the first task too early on a slow startup. If no reply appears, open the terminal. Submit the task there if it is still in the composer. Enter it again only after confirming it is missing from both the composer and the conversation. SwarmHub does not resend a task automatically when delivery is uncertain.
 
+## Run Gemini CLI (beta)
+
+Gemini CLI is the third agent program the workspace has a wrapper for. It is in beta: people see it as **Gemini (beta)**, it is listed after the other programs, and it is never the program chosen by default while another one is installed. This was checked against Gemini CLI 0.70.0; the workspace does not check the version.
+
+Install [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`npm install -g @google/gemini-cli`, Node 20 or later) under the account running Herdr, run `gemini` once in a terminal and sign in. Then add a Herdr template such as `gemini-cli.md` (not `gemini.md`: Herdr resolves a template name before a program):
+
+```markdown
+---
+description: Gemini CLI (beta) with saved replies
+command: /absolute/path/to/swarmhub-herdr run-gemini
+---
+```
+
+On a Mac, `service install` writes this template as `swarmhub-gemini` when it finds `gemini`, with the model names `auto`, `pro`, `flash` and `flash-lite` in `runtime-catalog.json`. Leave out `ready: quiet`, and leave the stop key alone: Core presses Escape for a program that reports its status, which is the key that ends a Gemini CLI turn. A chosen model is passed as `--model`, to a template without arguments of its own.
+
+Gemini CLI does not report its status to Herdr by itself, so `run-gemini` gives it hooks that do. Each hook runs `swarmhub-herdr gemini-hook`, which writes the status to the terminal, reports each tool call's name and one line about it to the running workspace, and saves the text of a finished turn (up to 128 KiB) as the reply. A hook only reports: it always answers `{}`, so it cannot refuse a prompt, allow or block a tool, or make Gemini CLI try a turn again. It does not read Gemini CLI's transcript files.
+
+**Where the hooks live.** In a file in the bot's own folder, `.gemini/settings.json`, together with `general.enableAutoUpdate: false`. Gemini CLI reads settings from three places: a file for the whole computer, which it skips unless the file and every folder above it belong to root; your own `~/.gemini/settings.json`, which the workspace never writes; and the folder it runs in. So `run-gemini` starts only in a private workspace folder the workspace made for a bot (one that carries its `.swarmhub-workspace` marker) and says so in the terminal anywhere else. It sets `GEMINI_CLI_TRUST_WORKSPACE=true` for that session, because Gemini CLI runs no hooks in a folder it does not trust; nothing about trust is saved. The settings file is the workspace's: it is written again at every start, so what an agent adds to it is not in force the next time, and a file someone else put there is kept once as `settings.json.before-swarmhub`. Put your own Gemini settings in `~/.gemini/settings.json`. The first time in each folder, Gemini CLI prints that it found project hooks named `swarmhub` and notes them in its own `~/.gemini/trusted_hooks.json`.
+
+**Signing in.** Gemini CLI starts its session while its sign-in question is still on the screen. The start hook therefore looks, reading only, for a chosen way to sign in (`security.auth.selectedType` in your or the computer's Gemini settings; for Vertex AI also its project and location, or `GOOGLE_API_KEY`). Without one it reports `blocked` and the first message is not typed. Use **Take over** to sign in, or sign in by running `gemini` in a terminal of your own. If the bot still reads as waiting afterwards, end it and start it again: nothing tells the workspace that the question was answered. A bot's terminal does not get your shell's exports, so keep an API key in `~/.gemini/.env`. A sign-in that has run out is not detected: the terminal shows what Gemini CLI asks.
+
+What does not work yet for Gemini:
+
+- **Allow and Deny in the chat.** No Gemini CLI hook can answer a permission question, so `run-gemini` refuses `--workspace-approvals`. The bot reads as waiting for you; answer in its terminal (**Open terminal**). The workspace passes no approval mode: Gemini CLI asks as its own settings say. `general.defaultApprovalMode: "auto_edit"` in your own settings lets it edit files without asking.
+- **After you refuse a step, or press Escape in its terminal,** Gemini CLI runs no hook, so the bot keeps reading as waiting for you (or as working) until its next turn starts. **Stop** in the app clears that: the workspace tells the terminal `idle` itself after the stop key. While it reads as waiting for you, a new task from the app is refused; typing the next message in the terminal also works.
+- **The reply as it is written.** The reply appears whole when the turn ends, and it is everything the turn wrote, not only its last message.
+- **Changing the model in a running conversation, and asking Gemini CLI for its models.** A model change applies at the next start.
+- **Helpers** started by a Gemini bot: each `swarmhub-herdr helper …` command asks for permission in the terminal. Gemini as a helper's own program is untested.
+- **Files added after the first message** are untested: Gemini CLI's file tools only read inside the bot's folder.
+- If your Gemini settings turn hooks off (`hooksConfig.enabled: false`) or strip secrets from the environment of the commands it runs, the hooks cannot report and the bot never becomes ready.
+
 ## Start an agent before the first message
 
 An agent's program takes a while to start: on a busy server Claude Code needs 6 to 20 seconds and Codex longer. A launch with a task makes the person wait that long for the first answer. A client can start the agent when the person opens the chat instead, and send the first message to an agent that already runs.

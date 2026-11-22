@@ -146,6 +146,7 @@ struct GrokFoundStep: View {
                     set: { coordinator.destinationPlan?.template = $0 })) {
                         ForEach(plan.offer.programs) { Text(plan.offer.label($0)).tag($0.template) }
                     }
+                HerdrProgramNote(note: plan.offer.program(coordinator.destinationPlan?.template ?? plan.offer.programs[0].template)?.note)
             }
         }
     }

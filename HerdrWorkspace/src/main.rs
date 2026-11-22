@@ -18,6 +18,7 @@ mod fleet_policy;
 mod fleet_tests;
 mod file_preview;
 mod first_time;
+mod gemini_agent;
 mod github_project;
 mod grok_import;
 mod group_forms;
@@ -675,10 +676,12 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
     let hello = w.core.identify().await?;
     let (agents, templates) = tokio::try_join!(w.core.agents(), w.core.templates())?;
     let catalog = runtimes::Catalog::load(w.history.file());
-    let templates: Vec<_> = templates
-        .into_iter()
-        .map(|template| catalog.choice(template))
-        .collect();
+    let templates = runtimes::beta_last(
+        templates
+            .into_iter()
+            .map(|template| catalog.choice(template))
+            .collect(),
+    );
     for agent in &agents {
         w.history.recover_launch(&hello.core.id, agent)?;
         w.history.link_profile(&hello.core.id, agent)?;
@@ -1684,12 +1687,50 @@ async fn snapshot(
     Ok(Json(item))
 }
 
+/// Gemini CLI runs no hook when a turn is cancelled or a permission refused, so nothing would report that it
+/// stopped and it would read as working, or as waiting for an answer, until its next turn. For a Gemini CLI
+/// session that is working or asking, this tells its terminal `idle` shortly after the stop key
+/// (`gemini_agent::status`). Never while it waits for a sign-in: the stop key does not answer that question, and
+/// a program that still asks it must not look ready.
+fn gemini_stop(w: &Workspace, agent: &core::Terminal) -> Option<tokio::task::JoinHandle<bool>> {
+    let status = agent.status.as_ref()?;
+    let stops = match status.state.as_str() {
+        "working" => true,
+        "blocked" => status.kind.as_deref() != Some("auth"),
+        _ => false,
+    };
+    let key = agent.launch_key()?.to_owned();
+    let journal = w.history.file().to_owned();
+    if !stops || !gemini_agent::status::known(&journal, &key) {
+        return None;
+    }
+    Some(tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        tokio::task::spawn_blocking(move || gemini_agent::status::after_stop(&journal, &key))
+            .await
+            .unwrap_or(false)
+    }))
+}
+
 async fn interrupt(
     State(w): State<Workspace>,
     Path((id, created)): Path<(String, u64)>,
 ) -> Result<impl IntoResponse, Failure> {
     let agent = w.core.agent(&id, created).await?;
+    let gemini = gemini_stop(&w, &agent);
     let outcome = w.core.interrupt(&agent).await?;
+    if let Some(told) = gemini {
+        let _ = told.await;
+        if outcome == "still_working" {
+            // A hook reported after the first `idle`, or the key came later than it. The key is pressed now.
+            let journal = w.history.file().to_owned();
+            let key = agent.launch_key().unwrap_or_default().to_owned();
+            let _ = tokio::task::spawn_blocking(move || {
+                gemini_agent::status::after_stop(&journal, &key)
+            })
+            .await;
+        }
+    }
     // The person's Stop also ends the exchanges this bot is part of with other bots (`bots`).
     bots::stopped_agent(&w, &agent);
     Ok(Json(json!({"outcome": outcome})))

@@ -111,7 +111,7 @@ struct Program {
     first_time: &'static str,
 }
 
-const PROGRAMS: [Program; 3] = [
+const PROGRAMS: [Program; 4] = [
     Program {
         id: "claude",
         name: "Claude",
@@ -145,10 +145,23 @@ const PROGRAMS: [Program; 3] = [
         how: "Install OpenCode V2.3 or later, connect your provider in OpenCode, then run opencode models to see its model IDs.",
         first_time: "Configure and try your provider in OpenCode on this computer first.",
     },
+    // In beta, and last: a program earlier in this list is the one chosen by default.
+    Program {
+        id: "gemini",
+        name: "Gemini (beta)",
+        full: "Gemini CLI",
+        bin: "gemini",
+        template: "swarmhub-gemini",
+        wrapper: "run-gemini",
+        description: "Gemini CLI (beta) with replies saved to SwarmHub",
+        how: "Install Gemini CLI with npm install -g @google/gemini-cli, then open Terminal, type gemini, and sign in.",
+        first_time: "Sign in to Gemini CLI in Terminal before its first chat; a bot cannot answer the sign-in question. SwarmHub keeps a small settings file, .gemini/settings.json, in each private workspace it creates, so the app can show Gemini’s steps and save its replies. Gemini CLI mentions these hooks once in its terminal and runs them; they only report what Gemini does.",
+    },
 ];
 
 /// The model list a fresh install starts with (`runtime-catalog.json`, which the person may edit): Codex is asked
-/// for its own models; Claude Code has no way to ask, so its model names are listed.
+/// for its own models; Claude Code has no way to ask, so its model names are listed. Gemini CLI's are its own
+/// short names for "the current one of this kind", so the list does not go stale with each model.
 const STARTER_CATALOG: &str = r#"{
   "swarmhub-claude": {
     "harness": "Claude Code",
@@ -168,6 +181,16 @@ const STARTER_CATALOG: &str = r#"{
     "harness": "Codex",
     "provider": "OpenAI",
     "discover_models": true
+  },
+  "swarmhub-gemini": {
+    "harness": "Gemini CLI",
+    "provider": "Google",
+    "models": [
+      {"id": "auto", "label": "Auto", "provider": "Google"},
+      {"id": "pro", "label": "Pro", "provider": "Google"},
+      {"id": "flash", "label": "Flash", "provider": "Google"},
+      {"id": "flash-lite", "label": "Flash-Lite", "provider": "Google"}
+    ]
   }
 }
 "#;
@@ -720,28 +743,34 @@ fn write_private(path: &Path, text: &str, mode: u32) -> std::io::Result<()> {
     fs::rename(draft, path)
 }
 
-/// Add discovery when OpenCode is installed after the original starter catalog was written.
-fn install_catalog(file: &Path, has_opencode: bool) -> std::io::Result<bool> {
+/// The starter model list, and in a list written earlier the entries of the programs that came later
+/// (`added`, by template name) when it has none for them. What the person wrote is kept.
+fn install_catalog(file: &Path, added: &[&str]) -> std::io::Result<bool> {
     if !file.exists() {
         write_private(file, STARTER_CATALOG, 0o600)?;
         return Ok(true);
     }
-    if !has_opencode || !file.symlink_metadata()?.is_file() {
+    if added.is_empty() || !file.symlink_metadata()?.is_file() {
         return Ok(false);
     }
     let mut catalog: Value = serde_json::from_slice(&fs::read(file)?)?;
     let Some(entries) = catalog.as_object_mut() else {
         return Ok(false);
     };
-    if entries.contains_key("swarmhub-opencode") {
-        return Ok(false);
+    let starter: Value = serde_json::from_str(STARTER_CATALOG)?;
+    let mut changed = false;
+    for template in added {
+        if !entries.contains_key(*template)
+            && let Some(entry) = starter.get(*template)
+        {
+            entries.insert((*template).to_owned(), entry.clone());
+            changed = true;
+        }
     }
-    entries.insert(
-        "swarmhub-opencode".into(),
-        json!({"harness":"OpenCode", "discover_models":true}),
-    );
-    write_private(file, &serde_json::to_string_pretty(&catalog)?, 0o600)?;
-    Ok(true)
+    if changed {
+        write_private(file, &serde_json::to_string_pretty(&catalog)?, 0o600)?;
+    }
+    Ok(changed)
 }
 
 /// The access key in its file; made when the file is missing or does not hold one. True when it was made now.
@@ -1127,7 +1156,13 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
         did.push(format!("Wrote the starter template {template}."));
     }
     let catalog = places.data.join("runtime-catalog.json");
-    match install_catalog(&catalog, found.iter().any(|(program, _)| program.id == "opencode")) {
+    // The programs that came after the first starter list.
+    let later: Vec<&str> = found
+        .iter()
+        .filter(|(program, _)| matches!(program.id, "opencode" | "gemini"))
+        .map(|(program, _)| program.template)
+        .collect();
+    match install_catalog(&catalog, &later) {
         Ok(true) => did.push("Wrote the starter model list.".into()),
         Ok(false) => {}
         Err(_) => did.push("Could not update runtime-catalog.json. Check its JSON and permissions to enable model discovery.".into()),
@@ -1629,16 +1664,26 @@ mod tests {
         let file = scratch.path().join("runtime-catalog.json");
         let old = r#"{"custom":{"harness":"My CLI","provider":"Local"}}"#;
         fs::write(&file, old).unwrap();
-        assert!(!install_catalog(&file, false).unwrap());
-        assert!(install_catalog(&file, true).unwrap());
+        assert!(!install_catalog(&file, &[]).unwrap());
+        assert!(install_catalog(&file, &["swarmhub-opencode"]).unwrap());
         let upgraded: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
         assert_eq!(upgraded["custom"]["provider"], "Local");
         assert_eq!(upgraded["swarmhub-opencode"]["discover_models"], true);
-        assert!(!install_catalog(&file, true).unwrap());
+        assert!(upgraded.get("swarmhub-gemini").is_none());
+        assert!(!install_catalog(&file, &["swarmhub-opencode"]).unwrap());
+        // Gemini CLI installed later gets its short model names, and the rest stays.
+        assert!(install_catalog(&file, &["swarmhub-opencode", "swarmhub-gemini"]).unwrap());
+        let upgraded: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(upgraded["custom"]["provider"], "Local");
+        assert_eq!(upgraded["swarmhub-gemini"]["harness"], "Gemini CLI");
+        assert_eq!(upgraded["swarmhub-gemini"]["models"][0]["id"], "auto");
+        assert!(crate::runtimes::Catalog::load(&scratch.path().join("workspace.sqlite3"))
+            .warning
+            .is_none());
         let override_json =
             r#"{"swarmhub-opencode":{"harness":"OpenCode","discover_models":false}}"#;
         fs::write(&file, override_json).unwrap();
-        assert!(!install_catalog(&file, true).unwrap());
+        assert!(!install_catalog(&file, &["swarmhub-opencode"]).unwrap());
         assert_eq!(fs::read_to_string(file).unwrap(), override_json);
     }
 

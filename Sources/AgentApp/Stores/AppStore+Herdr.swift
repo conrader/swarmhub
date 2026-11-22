@@ -244,7 +244,8 @@ extension AppStore {
         var starters: [HerdrStarter] = []
         for template in usable {
             // Two templates of one program make one starter, the first.
-            guard let name = template.programName, !starters.contains(where: { $0.name == name }) else { continue }
+            // A bot is named after its program without the server's "(beta)".
+            guard let name = template.programName.map(HerdrProgramName.botName), !starters.contains(where: { $0.name == name }) else { continue }
             let offered = (try? await client.models(for: template)) ?? template.models ?? []
             starters.append(HerdrStarter(template: template.name, name: name, title: "", model: Self.starterModel(offered: offered)))
         }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Gemini (beta)**: Google's Gemini CLI is a third program a bot can run on, next to Claude Code and Codex. It is listed last, is never chosen by default while another AI is installed, and says where you choose it what it cannot do yet: its reply arrives all at once, it asks for permission in its terminal, and a model change applies at the next start. Sign in by running `gemini` in Terminal first. Details and limits are in the [bridge manual](../HerdrWorkspace/README.md#run-gemini-cli-beta).
 - Skills is a library. **Settings → Servers → Skills** and a bot's **Skills** tab say where the server's skillshare library stands and sync it with one button; **Open library** shows everything in it (skills, agents, MCP servers, plugins and hooks) grouped by what needs a sync, has an update, is in sync or is off, with a preview of each.
 - Skills are installed from a repository address after a security check: the server downloads the repository, skillshare audits it, and only what passes is installed. A blocked skill shows what was found, can be handed to a bot to review, and is installed only after **Install anyway**. Skills and agents are updated and removed from the library too.
 - The library's Git repository is pulled, pushed and synced both ways from the app, with a choice per file when both sides changed the same one. **Servers** shows skillshare on each server and updates it.

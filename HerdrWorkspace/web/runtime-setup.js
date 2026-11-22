@@ -5,6 +5,8 @@
     codex: { name:"codex.md", label:"Codex with saved replies", command:"swarmhub-herdr run-codex", quiet:true },
     claude: { name:"claude-code.md", label:"Claude Code with saved replies", command:"swarmhub-herdr run-claude", quiet:true },
     opencode: { name:"opencode.md", label:"OpenCode V2.3 session", command:"swarmhub-herdr run-opencode --api-first-task mini" },
+    // No quiet readiness: Gemini CLI's hooks say when it is ready, and it may be showing its sign-in question.
+    gemini: { name:"gemini-cli.md", label:"Gemini CLI (beta) with saved replies", command:"swarmhub-herdr run-gemini" },
     custom: { name:"custom-agent.md", label:"Replace your-agent with an installed interactive agent", command:"your-agent", quiet:true },
   });
   let signature;

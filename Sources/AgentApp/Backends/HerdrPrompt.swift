@@ -37,7 +37,8 @@ struct HerdrPrompt: Equatable, Sendable {
         }
         if text.contains("esc to cancel") && text.contains("yes") && text.contains("no") { return true }
         guard let kind else { return false }
-        return ["permission", "permission_request", "trust", "trust_dialog", "input_request", "user_input", "approval"].contains(kind.lowercased())
+        // "auth": a program that asks how to sign in. "question": one that asks the person something itself.
+        return ["permission", "permission_request", "trust", "trust_dialog", "input_request", "user_input", "approval", "auth", "question"].contains(kind.lowercased())
     }
 
     static func question(from screen: String) -> String { HerdrAICheck.question(from: screen, lines: lines) }

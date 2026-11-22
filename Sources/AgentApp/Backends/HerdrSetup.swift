@@ -18,6 +18,14 @@ enum HerdrProgramName {
         return words.joined(separator: " ")
     }
 
+    /// The name of a bot that is named after its program: the program's name without the server's "(beta)", so
+    /// a bot on "Gemini (beta)" is called "Gemini" and keeps that name when the program is no longer in beta.
+    static func botName(_ program: String) -> String {
+        let mark = " (beta)"
+        guard program.count > mark.count, program.lowercased().hasSuffix(mark) else { return program }
+        return String(program.dropLast(mark.count))
+    }
+
     /// One label per template, in order: its friendly name, with the template's own name added only where two of
     /// them would otherwise read the same.
     static func labels(for templates: [HerdrClient.Template]) -> [String: String] {
@@ -54,6 +62,9 @@ struct HerdrProgram: Equatable, Identifiable, Sendable {
     let takesModel: Bool
     let models: [HerdrClient.Template.Model]
     var modelAgent: String? = nil
+    /// The server says the program is in beta, and in `note` what it cannot do yet (`HerdrClient.Template`).
+    var beta = false
+    var note: String? = nil
     var id: String { template }
 
     /// The model a bot on this program starts on unless its person chooses another: the first the server offers.
@@ -107,6 +118,12 @@ struct HerdrOffer: Equatable, Sendable {
 
     func program(_ template: String) -> HerdrProgram? { programs.first { $0.template == template } }
 
+    /// The programs with those in beta last, each group in the server's order. "The first program" is the default
+    /// in several places, so a beta program is the default only when the server offers no other.
+    static func betaLast(_ programs: [HerdrProgram]) -> [HerdrProgram] {
+        programs.filter { !$0.beta } + programs.filter { $0.beta }
+    }
+
     /// The program's name, with its template while two of the server's programs share that name.
     func label(_ program: HerdrProgram) -> String {
         programs.filter { $0.name == program.name }.count > 1 ? "\(program.name) · \(program.template)" : program.name
@@ -134,7 +151,7 @@ struct HerdrOffer: Equatable, Sendable {
         var found: [HerdrProgram] = []
         for program in programs where program.name != main && !found.contains(where: { $0.name == program.name }) {
             let covered = programs.contains { $0.name == program.name && taken.contains($0.template) }
-            if !covered, !names.contains(program.name.lowercased()) { found.append(program) }
+            if !covered, !names.contains(HerdrProgramName.botName(program.name).lowercased()) { found.append(program) }
         }
         return found
     }
@@ -227,8 +244,10 @@ extension HerdrClient {
         var programs: [HerdrProgram] = []
         for template in current.templates where template.error == nil {
             let models = template.takesModel ? ((try? await models(for: template)) ?? template.models ?? []) : []
-            programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: models, modelAgent: template.modelAgent))
+            programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: models, modelAgent: template.modelAgent,
+                                         beta: template.beta ?? false, note: template.note))
         }
+        programs = HerdrOffer.betaLast(programs)
         // Asked once here, so the wizard knows whether to offer the step; a workspace without the route answers 404.
         let projectServers = (try? await machines()) != nil
         return HerdrOffer(programs: programs, running: current.agents.filter { $0.isLive && $0.parent == nil }.map(\.name), projectServers: projectServers, workspaceRoot: current.workspaceRoot)

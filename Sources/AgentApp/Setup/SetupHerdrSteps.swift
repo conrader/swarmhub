@@ -279,6 +279,7 @@ struct SetupMainBotStep: View {
             TileGallery(items: offer.programs, isSelected: { $0.template == flow.mainBot.template }, name: { offer.label($0) },
                         select: { if flow.mainBot.template != $0.template { flow.selectMainProgram($0) } }) { NameTile(name: offer.label($0)) }
         }
+        HerdrProgramNote(note: offer.program(flow.mainBot.template)?.note)
         if let program = offer.program(flow.mainBot.template), program.takesModel {
             SettingBlock(title: WizardCopy.model) {
                 HerdrModelPicker(model: $flow.mainBot.model, program: program.modelAgent ?? program.name, models: program.models)
@@ -301,8 +302,10 @@ struct SetupMoreBotsStep: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(flow.moreChoices) { program in
                     let chosen = flow.moreBots.contains(program.template)
+                    // A program in beta adds the server's sentence on what it cannot do yet.
+                    let detail = WizardCopy.moreDetail(program.name, model: HerdrModelChoice.suggested(program: program.modelAgent ?? program.name, offered: program.models).map(HerdrProgram.modelName))
                     OptionCard(symbol: "plus.bubble.fill", colour: AppColor.plum, title: flow.herdrOffer?.label(program) ?? program.name,
-                               detail: WizardCopy.moreDetail(program.name, model: HerdrModelChoice.suggested(program: program.modelAgent ?? program.name, offered: program.models).map(HerdrProgram.modelName)), selected: chosen, multiple: true,
+                               detail: program.note.map { detail + " " + $0 } ?? detail, selected: chosen, multiple: true,
                                select: { if chosen { flow.moreBots.remove(program.template) } else { flow.moreBots.insert(program.template) } })
                 }
             }.frame(maxWidth: AppleMetrics.column)

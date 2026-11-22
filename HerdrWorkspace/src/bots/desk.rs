@@ -532,7 +532,12 @@ async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result
         template.error.is_none() && crate::core::valid_name(&template.name)
     };
     let template = if bot.template.is_empty() {
-        templates.iter().find(usable)
+        // The first program Core lists, and a beta one only when there is no other.
+        let catalog = crate::runtimes::Catalog::load(w.history.file());
+        templates
+            .iter()
+            .filter(usable)
+            .min_by_key(|template| catalog.beta(template))
     } else {
         templates
             .iter()

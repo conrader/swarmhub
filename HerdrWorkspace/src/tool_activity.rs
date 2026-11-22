@@ -1,7 +1,8 @@
 //! Which tools a running agent has started and finished, for the reply that is still being written.
 //!
 //! Claude Code and Codex both run `swarmhub-herdr tool-activity` from their PreToolUse and PostToolUse hooks and
-//! describe the call on standard input (`tool_name`, `tool_input`, `tool_use_id`). The hook sends one line to the
+//! describe the call on standard input (`tool_name`, `tool_input`, `tool_use_id`); Gemini CLI's hook
+//! (`gemini_agent`) reports its BeforeTool and AfterTool the same way. The hook sends one line to the
 //! workspace's live socket; the workspace keeps the newest calls of each launch in memory only. Nothing here can
 //! allow, deny or delay a tool: the hook always answers `{}` and gives up at once when the workspace is not running.
 
@@ -34,7 +35,7 @@ struct Hook {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Phase {
+pub(crate) enum Phase {
     Started,
     Finished,
     Failed,
@@ -202,10 +203,28 @@ fn report() {
     let Some(tool) = hook.tool_name.filter(|tool| !tool.is_empty()) else {
         return;
     };
+    send(
+        &journal,
+        key,
+        phase,
+        &tool,
+        hook.tool_input.as_ref(),
+        hook.tool_use_id,
+    );
+}
+
+/// Tells the running workspace that a tool call of launch `key` started or ended. Gives up at once when the
+/// workspace is not running. A program whose hooks have other names (Gemini CLI) reports through this too.
+pub(crate) fn send(
+    journal: &std::path::Path,
+    key: String,
+    phase: Phase,
+    tool: &str,
+    input: Option<&Value>,
+    call: Option<String>,
+) {
     let detail = if phase == Phase::Started {
-        hook.tool_input
-            .as_ref()
-            .and_then(|input| detail(&tool, input))
+        input.and_then(|input| detail(tool, input))
     } else {
         None
     };
@@ -213,9 +232,9 @@ fn report() {
         key,
         activity: Event {
             phase,
-            tool: clean(&tool, NAME_LIMIT),
+            tool: clean(tool, NAME_LIMIT),
             detail,
-            call: hook.tool_use_id.filter(|id| id.len() <= CALL_LIMIT),
+            call: call.filter(|id| id.len() <= CALL_LIMIT),
         },
     };
     if !frame.valid() {
@@ -246,6 +265,7 @@ fn detail(tool: &str, input: &Value) -> Option<String> {
         _ => [
             "file_path",
             "path",
+            "dir_path",
             "notebook_path",
             "pattern",
             "query",

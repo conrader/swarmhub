@@ -24,6 +24,10 @@ struct HerdrClient: Sendable {
         let name: String; let description: String?; let error: String?; let runtime: Runtime?
         /// Set when the template can start its agent on a chosen model; `discoverModels` when the agent program can list them.
         var modelAgent: String? = nil; var models: [Model]? = nil; var discoverModels: Bool? = nil
+        /// The program is in beta on this server, which then lists it after the others, so it is "the server's
+        /// first" only when it is the only one. `note` is the server's one sentence on what it cannot do yet,
+        /// shown where a program is chosen (`HerdrProgramNote`). A server from before betas sends neither.
+        var beta: Bool? = nil; var note: String? = nil
         var takesModel: Bool { modelAgent != nil }
         /// The agent program by the name people use for it ("Claude"): the server's `display_name`, else the program's
         /// own name without a word that only says what kind of program it is (`HerdrProgramName`). nil when the
