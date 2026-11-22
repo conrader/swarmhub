@@ -29,6 +29,12 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     try data.write(to: snapshotFolder.appending(path: "\(name).png"))
 }
 
+/// Scan is done; Continue through the Permission step and return while the run is in flight.
+@MainActor private func runWithoutWaiting(_ coordinator: GrokImportCoordinator) async {
+    await coordinator.proceed()
+    coordinator.continueToMacOS()
+}
+
 /// Default suite: the first step only.
 @MainActor @Test func theImportSheetsFirstStepRenders() async throws {
     let world = try GrokWorld()
@@ -39,9 +45,9 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
 }
 
 
-/// A refusal with a reason: Grok answers the first request with 401 and says why. The sheet stops, says what Grok
-/// said and that Grok Bot is newer than the checked version, and asks macOS only once.
-@MainActor @Test func aRefusalOnTheFirstRequestStopsTheSheetWithWhatGrokSaid() async throws {
+/// A refusal with a reason: Grok answers the first request with 401 and says why. The sheet asks macOS once, imports
+/// the recent messages kept on this Mac instead, says what Grok said, and opens on Recent messages the next time.
+@MainActor @Test func aRefusalOnTheFirstRequestFallsBackToRecentMessagesAndIsRemembered() async throws {
     let world = try GrokWorld()
     let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "1.2.3"], format: .xml, options: 0)
     try plist.write(to: world.location.app.appending(path: "Contents/Info.plist"))
@@ -50,14 +56,76 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     let store = world.store(server: "https://box.test/v1")
     let coordinator = makeCoordinator(world, store)
     await coordinator.scan()
-    #expect(coordinator.versionDriftNote == "Grok Bot is 1.2.3; this import was last checked against 0.70.2.")
+    #expect(coordinator.mode == .full && coordinator.versionDriftNote == "Grok Bot is 1.2.3; this import was last checked against 0.70.2.")
     await runFull(coordinator)
-    guard case .failed(.server(let refusal)) = coordinator.step else {
-        Issue.record("the sheet is at \(coordinator.step)")
-        return
-    }
+    #expect(coordinator.step == .finished)
+    let refusal = try #require(coordinator.fallback)
     #expect(refusal.reason == .signInInvalid && refusal.serverMessage == said)
     #expect(coordinator.requests == 1 && world.passwords.reads == 1)
-    #expect(coordinator.progress.allSatisfy { $0.status == .queued })
-    try await render(coordinator, store, name: "refused")
+    #expect(coordinator.outcomes.count == 4 && coordinator.outcomes.allSatisfy { $0.row.coverage == .cacheOnly })
+    #expect(coordinator.lastRefusal?.summary == "Grok said: “\(said)” (HTTP 401).")
+    try await render(coordinator, store, name: "4-done-after-refusal")
+
+    // The next sheet session opens on Recent messages and says why, so macOS is not asked for nothing.
+    let next = makeCoordinator(world, store)
+    await next.scan()
+    #expect(next.mode == .recent && next.refusalNote?.contains(said) == true)
+    try await render(next, store, name: "1-found-after-refusal")
+
+    // All history working again forgets the stop. (A fresh coordinator: a rendered sheet going away dismisses its own.)
+    world.fake.intercept = nil
+    let again = makeCoordinator(world, store)
+    await again.scan()
+    again.mode = .full
+    await runFull(again)
+    #expect(again.step == .finished && again.fallback == nil && again.lastRefusal == nil)
+    #expect(GrokRefusalNote.load(store.defaults) == nil)
+}
+
+/// Every other step of the sheet, rendered for review: the macOS explanation, a run in flight, cancelled, a network
+/// pause, done. A rendered sheet going away dismisses its coordinator (as closing the real sheet does), so each state
+/// that is rendered and then used again has a coordinator of its own.
+@MainActor @Test func everyStepOfTheImportSheetRenders() async throws {
+    let world = try GrokWorld(history: [GrokRunIDs.jarvis: 30, GrokRunIDs.finance: 25, GrokRunIDs.plain: 3, GrokRunIDs.group: 4])
+    world.fake.pageCap = 10
+    let reached = GrokSwitch(), release = DispatchSemaphore(value: 0)
+    // Request 0 is the canary, 1-3 Jarvis's pages, 4 Finance's first page: it is held while the sheet is rendered.
+    world.fake.intercept = { index, _ in
+        if index == 4 { reached.isOn = true; release.wait() }
+        return nil
+    }
+    let store = world.store(server: "https://box.test/v1")
+    let asking = makeCoordinator(world, store)
+    await asking.scan()
+    await asking.proceed()
+    #expect(asking.step == .permission)
+    try await render(asking, store, name: "2-permission")
+
+    let coordinator = makeCoordinator(world, store)
+    await coordinator.scan()
+    await runWithoutWaiting(coordinator)
+    try await grokWait { reached.isOn }
+    try await render(coordinator, store, name: "3-importing")
+    coordinator.cancel()
+    release.signal()
+    await coordinator.settled()
+    #expect(coordinator.step == .cancelled)
+    try await render(coordinator, store, name: "4-cancelled")
+
+    let whole = try GrokWorld()
+    let third = whole.store(server: "https://box.test/v1")
+    let done = makeCoordinator(whole, third)
+    await done.scan()
+    await runFull(done)
+    #expect(done.step == .finished && done.fallback == nil)
+    try await render(done, third, name: "4-done")
+
+    let offline = try GrokWorld()
+    offline.fake.intercept = { index, _ in index >= 2 ? .fail(.timedOut) : nil }
+    let second = offline.store(server: "https://box.test/v1")
+    let paused = makeCoordinator(offline, second)
+    await paused.scan()
+    await runFull(paused)
+    #expect(paused.step.isPaused)
+    try await render(paused, second, name: "3-paused")
 }

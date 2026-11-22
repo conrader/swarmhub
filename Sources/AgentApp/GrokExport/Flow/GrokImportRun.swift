@@ -17,6 +17,8 @@ import Foundation
         /// Fetching is over for this conversation: merge, map, redact and commit.
         case saving(sourceID: String)
         case committed(GrokImportRunRow)
+        /// Grok's service stopped All history; the rest of the run reads the cache (`fallsBackToRecent`).
+        case fellBack(GrokServerError)
     }
 
     let store: AppStore
@@ -30,6 +32,8 @@ import Foundation
     var onEvent: ((Event) -> Void)?
     let holder: GrokSecretHolder
 
+    /// Why All history gave way to the recent messages on this Mac; nil while Grok answers, and always without the option.
+    private(set) var fallback: GrokServerError?
     private var queue: [String]?
     private var progress: GrokFetchProgress?
     private var canaryPassed = false
@@ -65,6 +69,7 @@ import Foundation
         if let options { self.options = options }
         await holder.forget()
         rows = []; queue = nil; progress = nil; canaryPassed = false; client = nil; requestsBefore = 0; preflight = nil
+        fallback = nil
         return await perform()
     }
 
@@ -140,9 +145,11 @@ import Foundation
                 return stop(error)
             } catch { return stop(.cache(.unrecognisedShape)) }
         }
-        if options.mode == .full {
+        if options.mode == .full, fallback == nil {
             if let reason = preflight?.cacheOnlyReason { return stop(reason) }
-            guard await ensureSignIn(), await passCanary() else { return }
+            var ready = await ensureSignIn()
+            if ready { ready = await passCanary() }
+            if !ready { guard await fellBack() else { return } }
         }
         state = .running
         let total = rows.count + (queue?.count ?? 0)
@@ -151,9 +158,14 @@ import Foundation
             let name = cache.roster.first { $0["id"]?.stringValue == id }?["name"]?.stringValue ?? "Grok bot"
             onEvent?(.conversation(index: rows.count + 1, total: total, name: name, sourceID: id))
             var fetched: GrokHistoryFetcher.Result?
-            if options.mode == .full {
-                guard let result = await fetch(id) else { return }
-                fetched = result
+            if options.mode == .full, fallback == nil {
+                if let result = await fetch(id) {
+                    fetched = result
+                } else if await fellBack() {
+                    // What was fetched of this conversation before Grok stopped is kept; it commits as incomplete.
+                    if let part = progress, part.sourceID == id, !part.result.entries.isEmpty { fetched = part.result }
+                    progress = nil
+                } else { return }
             }
             onEvent?(.saving(sourceID: id))
             guard await commit(id, cache: cache, fetched: fetched) else { return }
@@ -163,6 +175,18 @@ import Foundation
     }
 
     private func stop(_ error: GrokImportRunError) { state = .stopped(error) }
+
+    /// A stop that came from Grok's service does not end a run that may fall back: the sign-in is forgotten and every
+    /// conversation still queued is imported from the cache. Stops of this Mac's own making (Keychain, store) stay stops.
+    private func fellBack() async -> Bool {
+        guard options.fallsBackToRecent, case .stopped(.server(let error)) = state else { return false }
+        fallback = error
+        await holder.forget()
+        await dropClient()
+        onEvent?(.fellBack(error))
+        state = .running
+        return true
+    }
 
     // MARK: Sign-in
 

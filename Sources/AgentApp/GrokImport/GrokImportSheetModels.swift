@@ -100,3 +100,22 @@ struct GrokImportOutcome: Identifiable, Equatable, Sendable {
         return row.droppedByKind.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")
     }
 }
+
+/// The last time Grok's service stopped All history, kept in the app's defaults so the sheet opens on Recent messages
+/// instead of asking macOS for a sign-in Grok will refuse again. A date and plain words; forgotten when All history works.
+struct GrokRefusalNote: Codable, Equatable, Sendable {
+    var date: Date
+    var summary: String
+
+    static let key = "grokImportLastRefusal"
+
+    static func load(_ defaults: UserDefaults) -> GrokRefusalNote? {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(GrokRefusalNote.self, from: $0) }
+    }
+
+    func save(_ defaults: UserDefaults) {
+        if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.key) }
+    }
+
+    static func clear(_ defaults: UserDefaults) { defaults.removeObject(forKey: key) }
+}
