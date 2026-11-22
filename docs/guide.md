@@ -265,7 +265,7 @@ Drop or attach images, text files, PDF, RTF, DOC or DOCX files. Text and documen
 
 ### Import from Grok Bot
 
-When Grok Bot is on this Mac, **Settings → Servers** shows a **Grok Bot** card. **Import from Grok Bot…** there, or in the **+** menu at the top of the sidebar, reads Grok Bot's bots and history on this Mac. Each bot becomes a bot here with its old history as a read-only archive.
+When Grok Bot is on this Mac, **Settings → Servers** shows a **Grok Bot** card. **Import from Grok Bot…** there, or in the **+** menu at the top of the sidebar, reads Grok Bot's bots and history on this Mac. Each bot becomes a bot here with its old history as a read-only archive. The bot reads that history before its next reply, so it can carry on where it stopped; a long history is summarised first, which takes a moment once. To keep a bot from getting it, turn off the switch under **Grok history** at the top of its chat.
 
 ### More servers
 

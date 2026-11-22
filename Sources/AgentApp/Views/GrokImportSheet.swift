@@ -68,7 +68,7 @@ struct GrokImportSheet: View {
                     Text("Destination · \(server.name)" + (server.place == server.name ? "" : " · \(server.place)"))
                         .font(.callout.weight(.semibold))
                 }
-                Text("History stays on this Mac; bots start with a fresh conversation.").font(.caption).foregroundStyle(.secondary)
+                Text("Each bot gets its Grok history on its server, so it can carry on. A copy stays on this Mac.").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Show in Finder") {
