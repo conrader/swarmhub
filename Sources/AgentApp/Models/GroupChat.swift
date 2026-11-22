@@ -61,6 +61,8 @@ struct StoreFile: Codable {
     var version = StoreFile.currentVersion; var bots: [Bot]; var groups: [GroupChat]
     /// Each chat's top visible message (conversation id → message id); absent while empty.
     var scrollPositions: [String: String]?
+    /// Pins, sections and folds; absent while nothing is arranged.
+    var sidebar: SidebarOrganisation?
     var removedBots: [String: Set<String>]?
     /// Group IDs still needed to identify running agents after the group is deleted.
     var deletedGroupIDs: [UUID]?
@@ -70,7 +72,7 @@ struct StoreFile: Codable {
         self.bots = bots; self.groups = groups; self.scrollPositions = scrollPositions
     }
 
-    enum CodingKeys: CodingKey { case version, bots, groups, scrollPositions, removedBots, deletedGroupIDs, pendingHerdrEndings }
+    enum CodingKeys: CodingKey { case version, bots, groups, scrollPositions, sidebar, removedBots, deletedGroupIDs, pendingHerdrEndings }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -80,6 +82,7 @@ struct StoreFile: Codable {
         bots = try c.decodeIfPresent([Bot].self, forKey: .bots) ?? []
         groups = try c.decodeIfPresent([GroupChat].self, forKey: .groups) ?? []
         scrollPositions = (try? c.decodeIfPresent([String: String].self, forKey: .scrollPositions)) ?? nil
+        sidebar = (try? c.decodeIfPresent(SidebarOrganisation.self, forKey: .sidebar)) ?? nil
         removedBots = try c.decodeIfPresent([String: Set<String>].self, forKey: .removedBots)
         deletedGroupIDs = try c.decodeIfPresent([UUID].self, forKey: .deletedGroupIDs)
         pendingHerdrEndings = try c.decodeIfPresent([HerdrAgentEnding].self, forKey: .pendingHerdrEndings)

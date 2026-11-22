@@ -127,6 +127,8 @@ import UserNotifications
     private var writerLease: StoreWriterLease?
     var storeRevision: Data?
     var restoreUndoRevision: Data?
+    /// Pins, sections and folds of the sidebar (`AppStore+SidebarSections.swift`).
+    @Published var sidebar = SidebarOrganisation()
     var removedBots: [String: Set<String>] = [:]
     var deletedGroupIDs: [UUID] = []
     var pendingHerdrEndings: [HerdrAgentEnding] = []
@@ -223,6 +225,7 @@ import UserNotifications
         bots = file.bots; groups = file.groups; removedBots = file.removedBots ?? [:]; deletedGroupIDs = file.deletedGroupIDs ?? []
         pendingHerdrEndings = file.pendingHerdrEndings ?? []
         chatScroll.restore(file.scrollPositions)
+        sidebar = file.sidebar ?? SidebarOrganisation(); sidebar.prune(keeping: Set(bots.map(\.id) + groups.map(\.id)))
         turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
         migrateArchivedGroups()
     }
@@ -295,6 +298,7 @@ import UserNotifications
     /// Writes store.json; a failed write is reported once per streak instead of being swallowed.
     var storeFile: StoreFile {
         var file = StoreFile(bots: bots, groups: groups, scrollPositions: chatScroll.stored)
+        file.sidebar = sidebar.isEmpty ? nil : sidebar
         file.removedBots = removedBots.isEmpty ? nil : removedBots
         file.deletedGroupIDs = deletedGroupIDs.isEmpty ? nil : deletedGroupIDs
         file.pendingHerdrEndings = pendingHerdrEndings.isEmpty ? nil : pendingHerdrEndings

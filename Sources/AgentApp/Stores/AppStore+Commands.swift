@@ -1,11 +1,11 @@
 import Foundation
 
 extension AppStore {
-    var visibleChatCount: Int { sidebarChats.count }
+    var visibleChatCount: Int { sidebarLayout.navigationOrder.count }
 
-    /// Match sidebar order, skip hidden conversations, and wrap at either end.
+    /// Match sidebar order (pinned first, then open sections; folded rows are skipped), skip hidden conversations, and wrap at either end.
     func moveChatSelection(by offset: Int) {
-        let chats = sidebarChats
+        let chats = sidebarLayout.navigationOrder
         let count = chats.count
         guard count > 0 else { return }
         let current = chats.firstIndex { $0.id == (selectedGroup?.id ?? selectedBot?.id) }
