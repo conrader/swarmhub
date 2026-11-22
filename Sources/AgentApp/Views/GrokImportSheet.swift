@@ -110,7 +110,9 @@ struct GrokImportSheet: View {
     private var title: String {
         switch coordinator.step {
         case .permission, .awaitingMacOS: "One macOS prompt"
-        case .running, .paused: "Importing from Grok Bot"
+        case .running: "Importing from Grok Bot"
+        case .paused: "Import paused"
+        case .failed(let error) where !error.isSignInStep: "Import stopped"
         case .finished: "Imported from Grok Bot"
         case .cancelled: "Import cancelled"
         default: "Import from Grok Bot"

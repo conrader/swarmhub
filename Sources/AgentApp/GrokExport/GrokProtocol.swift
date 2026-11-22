@@ -4,7 +4,9 @@ import Foundation
 /// Captured from Grok Bot 0.70.2 on 2026-10-13. Each value says where it was found; when Grok Bot changes one of them,
 /// this file is the only place to update, and `--grok-probe` (P10c) is how the change is noticed.
 enum GrokProtocol {
-    static let capturedFrom = "Grok Bot 0.70.2 on 2026-10-13"
+    static let capturedFrom = "Grok Bot \(capturedVersion) on 2026-10-13"
+    /// The Grok Bot version these values were read from; a newer installed version may have moved any of them.
+    static let capturedVersion = "0.70.2"
 
     /// Turns the server half (Keychain read + private RPC) off; cache-only import keeps working. Decision D1.
     static let serverHistoryEnabled = true
@@ -13,7 +15,7 @@ enum GrokProtocol {
     static let bundleIdentifier = "com.anysphere.sand"
     static let appPath = "/Applications/Grok Bot.app"
     /// Sent as `x-cursor-client-version` when the installed app's version cannot be read (three numeric groups).
-    static let clientVersionFallback = "0.70.2"
+    static let clientVersionFallback = capturedVersion
 
     // MARK: Local data (`~/Library/Application Support/Grok Bot/`, read-only recon)
     static let dataFolderName = "Grok Bot"
@@ -89,6 +91,11 @@ enum GrokProtocol {
     /// (KHTML, like Gecko) Sand/<version> Safari/537.36`, from `o_e` in main-app.cjs). P10.0 step (g) showed the server
     /// accepts it (HTTP 200, docs/P10-spike-findings.md). Every other header below is still the one Grok Bot sends.
     static func userAgent(appVersion: String) -> String { AppConstants.userAgent(version: appVersion) }
+    /// Grok Bot's own user-agent (`o_e` in main-app.cjs; unchanged in 1.2.3). Sent only by `--grok-probe --live --diagnose`,
+    /// as the second attempt after a refusal, to tell a refused sign-in from a refused client.
+    static func grokBotUserAgent(clientVersion: String) -> String {
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Sand/\(clientVersion) Safari/537.36"
+    }
     /// The user-agent version when the app's own version is not a plain dotted version (a bare SwiftPM build).
     static let appVersionFallback = "dev"
     static let clientHeaders: [(String, String)] = [

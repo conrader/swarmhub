@@ -6,6 +6,7 @@ enum GrokProtobufError: Error, Equatable, CustomStringConvertible {
     case truncatedField
     case unsupportedWireType(Int)
     case lengthOverflow
+    case rowWithoutSeq
 
     var description: String {
         switch self {
@@ -14,6 +15,7 @@ enum GrokProtobufError: Error, Equatable, CustomStringConvertible {
         case .truncatedField: return "truncated protobuf field"
         case .unsupportedWireType(let w): return "unsupported protobuf wire type \(w)"
         case .lengthOverflow: return "protobuf length-delimited field overruns the message"
+        case .rowWithoutSeq: return "transcript row without a sequence number"
         }
     }
 }
@@ -79,8 +81,8 @@ enum GrokProtobuf {
             case 0:
                 value = .varint(try readVarint(data, &pos))
             case 2:
-                let size = Int(try readVarint(data, &pos))
-                guard size >= 0, pos + size <= data.count, size <= data.count else { throw GrokProtobufError.lengthOverflow }
+                let length = try readVarint(data, &pos)
+                guard let size = Int(exactly: length), size <= data.count - pos else { throw GrokProtobufError.lengthOverflow }
                 value = .bytes(Array(data[pos..<pos + size]))
                 pos += size
             case 1:
@@ -103,7 +105,7 @@ enum GrokProtobuf {
 
     static func encodeListRequest(agentID: String, limit: UInt32, beforeSeq: Int64? = nil, sessionID: String = "") -> [UInt8] {
         var out = bytesField(1, Array(agentID.utf8))
-        if let beforeSeq { out += varintField(3, UInt64(beforeSeq)) }
+        if let beforeSeq { out += varintField(3, UInt64(bitPattern: beforeSeq)) }
         out += varintField(4, UInt64(limit))
         if !sessionID.isEmpty { out += bytesField(5, Array(sessionID.utf8)) }
         return out
@@ -124,8 +126,10 @@ enum GrokProtobuf {
         var rows: [TranscriptRow] = []
         for case .bytes(let raw) in top[1] ?? [] {
             let f = try parse(raw)
+            // Sequence numbers start at 1: a row without one is a format this app does not know, not an empty history.
+            guard let seq = firstVarint(f, 1).map(Int64.init(bitPattern:)), seq > 0 else { throw GrokProtobufError.rowWithoutSeq }
             rows.append(TranscriptRow(
-                seq: Int64(bitPattern: firstVarint(f, 1) ?? 0),
+                seq: seq,
                 entryKind: firstBytes(f, 2).flatMap { String(bytes: $0, encoding: .utf8) } ?? "",
                 body: firstBytes(f, 3),
                 blobHash: firstBytes(f, 4).flatMap { String(bytes: $0, encoding: .utf8) },

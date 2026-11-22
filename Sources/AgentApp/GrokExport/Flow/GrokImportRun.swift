@@ -82,17 +82,23 @@ import Foundation
         if let task { task.cancel(); return }
         guard state.isPaused else { return }
         state = .cancelled
-        Task { await holder.forget() }
+        Task { await holder.forget(); await dropClient() }
     }
 
     /// "Forget sign-in": the key and the decrypted values go now; the next step announces a new macOS prompt.
     func forgetSignIn() async {
         await holder.forget()
-        client = nil
+        await dropClient()
     }
 
     /// Drops the held sign-in once a pause outlived its hold (the sheet calls this on a timer).
-    func expireHoldIfDue() async { await holder.expireIfDue() }
+    func expireHoldIfDue() async { if await holder.expireIfDue() { await dropClient() } }
+
+    /// The client holds its own copy of the sign-in, so it goes whenever the holder forgets; its requests stay counted.
+    private func dropClient() async {
+        requestsBefore += await client?.requestCount ?? 0
+        client = nil
+    }
 
     /// After Cancel: commit what was fetched for the interrupted conversation, marked incomplete.
     @discardableResult func importWhatWasFetched() async -> GrokImportRunState {
@@ -113,7 +119,9 @@ import Foundation
         task = nil
         ProcessInfo.processInfo.endActivity(activity)
         switch state {
-        case .finished, .stopped, .cancelled, .idle: await holder.forget()
+        case .finished, .stopped, .cancelled, .idle:
+            await holder.forget()
+            await dropClient()
         case .paused: await holder.pause()
         case .preflighting, .awaitingMacOS, .running: break
         }
@@ -162,7 +170,7 @@ import Foundation
     /// from the Keychain. Sets the pause or stop state and returns false when the run cannot go on.
     private func ensureSignIn() async -> Bool {
         if await holder.currentCredentials() != nil { await holder.resume(); return true }
-        client = nil
+        await dropClient()
         guard let data = GrokPreflight.readSecrets(environment.location.secretsFile),
               let encrypted = try? GrokSecretsFile.encryptedAccount(data: data) else {
             stop(.credentials(.noSignedInAccount)); return false
@@ -189,7 +197,11 @@ import Foundation
         }
         GrokSafeStorage.zero(&password)
         defer { GrokSafeStorage.zero(&key) }
-        return await settle(Result { try Self.decrypt(encrypted, key: key, now: now) }, key: key)
+        // The wait for macOS has no limit and Grok Bot renews its sign-in meanwhile: read the file and the clock again.
+        let current = GrokPreflight.readSecrets(environment.location.secretsFile)
+            .flatMap { try? GrokSecretsFile.encryptedAccount(data: $0) } ?? encrypted
+        let answered = environment.now()
+        return await settle(Result { try Self.decrypt(current, key: key, now: answered) }, key: key)
     }
 
     /// `key` is the freshly derived one (nil when the held key was used): kept only for an expired token.
@@ -230,7 +242,12 @@ import Foundation
         guard !canaryPassed, let first = queue?.first else { return true }
         guard let client = await currentClient() else { stop(.signInUnreadable); return false }
         do {
-            _ = try await client.listEntries(agentID: first, limit: 1, beforeSeq: nil)
+            let rows = try await client.listEntries(agentID: first, limit: 1, beforeSeq: nil)
+            // This Mac holds entries of that conversation, so an answer with no row in it is one this app cannot read.
+            if rows.isEmpty, preflight?.cache?.transcripts[first]?.isEmpty == false {
+                stop(.server(GrokServerError(.protocolChanged, kind: .list, errorType: "EmptyCanary")))
+                return false
+            }
             canaryPassed = true
             return true
         } catch let error as GrokServerError {
@@ -260,15 +277,16 @@ import Foundation
         }
     }
 
-    /// A 401 drops the sign-in and pauses (Continue asks macOS again); network trouble pauses with it held; anything
-    /// else stops the run.
+    /// A 401 drops the sign-in. One Grok had accepted earlier ran out mid-run, so the run pauses and Continue reads the
+    /// renewed one (macOS asks again). One refused on its first request would be refused again whatever macOS is asked,
+    /// so the run stops with the refusal. Network trouble pauses with the sign-in held; anything else stops the run.
     private func serverFailed(_ error: GrokServerError) async {
         switch error.reason {
         case .signInInvalid:
-            requestsBefore += await client?.requestCount ?? 0
-            client = nil
+            let accepted = (await client?.successfulRPCs ?? 0) > 0
+            await dropClient()
             await holder.forget()
-            state = .paused(.signInInvalid)
+            state = accepted ? .paused(.signInInvalid) : .stopped(.server(error))
         case .network, .unavailable:
             state = .paused(.network(error))
         default:

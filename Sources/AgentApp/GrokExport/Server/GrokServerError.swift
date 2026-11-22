@@ -30,6 +30,14 @@ struct GrokServerError: Error, Sendable, Equatable, CustomStringConvertible, Loc
     var httpStatus: Int?
     var connectCode: String?
     var errorType: String?
+    /// What Grok said about a refusal, as plain words (`diagnosticMessage`). Shown to the user; not part of `description`
+    /// or of equality, so reports, logs and comparisons keep the five fields above.
+    var serverMessage: String?
+
+    static func == (left: GrokServerError, right: GrokServerError) -> Bool {
+        left.kind == right.kind && left.reason == right.reason && left.httpStatus == right.httpStatus &&
+            left.connectCode == right.connectCode && left.errorType == right.errorType
+    }
 
     init(_ reason: Reason, kind: Kind?, httpStatus: Int? = nil, connectCode: String? = nil, errorType: String? = nil) {
         self.reason = reason
@@ -41,6 +49,11 @@ struct GrokServerError: Error, Sendable, Equatable, CustomStringConvertible, Loc
 
     /// Network trouble and server overload pause the run (resumable); everything else stops it.
     var pausesRun: Bool { reason == .network || reason == .unavailable || reason == .signInInvalid }
+
+    /// "HTTP 401, unauthenticated": the status and the Connect code, for a message that says what Grok answered.
+    var statusDetail: String? { httpStatus.map { "HTTP \($0)" + (connectCode.map { ", \($0)" } ?? "") } }
+    /// " Grok said: “…”." for a message shown to the user; empty when Grok said nothing readable.
+    var saidSentence: String { serverMessage.map { " Grok said: “\($0)”." } ?? "" }
 
     var description: String {
         var parts = [kind?.rawValue ?? "run", reason.rawValue]
@@ -74,5 +87,24 @@ struct GrokServerError: Error, Sendable, Equatable, CustomStringConvertible, Loc
         guard body.count <= 4096, let object = try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any],
               let code = object["code"] as? String else { return nil }
         return safeCode(code)
+    }
+
+    /// The `message` of a Connect JSON error body, reduced to plain words: what Grok said about a refusal ("… requires
+    /// a subscription"). A word survives only if it is at most 24 letters (inner `-` and `'` allowed) once the
+    /// punctuation around it is trimmed, so a token, an id, a number or a URL cannot pass; a message that mentions a
+    /// bearer credential is dropped whole. At most 30 words.
+    static func diagnosticMessage(fromBody body: [UInt8]) -> String? {
+        guard body.count <= 4096, let object = try? JSONSerialization.jsonObject(with: Data(body)) as? [String: Any],
+              let message = object["message"] as? String, !message.lowercased().contains("bearer") else { return nil }
+        let punctuation = CharacterSet(charactersIn: ".,:;!?()\"“”‘’")
+        var kept: [String] = []
+        for piece in String(message.prefix(600)).split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }) {
+            let word = String(piece).trimmingCharacters(in: punctuation)
+            guard (1...24).contains(word.count), word.first?.isLetter == true, word.last?.isLetter == true,
+                  word.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "-" || $0 == "'") }) else { continue }
+            kept.append(word)
+            if kept.count == 30 { break }
+        }
+        return kept.isEmpty ? nil : kept.joined(separator: " ")
     }
 }
