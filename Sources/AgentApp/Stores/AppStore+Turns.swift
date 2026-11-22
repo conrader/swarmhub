@@ -50,6 +50,8 @@ extension AppStore {
                 agentStatus = value; row.metadata[TurnKey.agent] = value
                 // An agent that waits in its terminal is raised to the person, with what it asks.
                 herdrTurnStatus(HerdrTurnStatus(code: value), for: bot, in: group)
+                // A bot's own turn takes no steer while its agent is handed an earlier conversation (`AppStore+GrokHandoff.swift`).
+                if group == nil { await steerFollowsBackend(of: bot, at: HerdrTurnStatus(code: value)) }
                 objectWillChange.send()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):

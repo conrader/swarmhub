@@ -119,6 +119,8 @@ import UserNotifications
     let keyStore: any KeyStore; let defaults: UserDefaults
     /// Turn bookkeeping, the token autosave interval and the connectivity events (injectable).
     let turns = TurnBook(); var autosaveInterval: Duration = .seconds(2); var connectivity: (any ConnectivitySource)?
+    /// The summaries being made for imported bots' handoffs (`AppStore+GrokHandoff.swift`).
+    let grokHandoffs = GrokHandoffBook()
     /// The execution ledger (`runtime.sqlite`, opened by `journal()`).
     var runtime: (any RuntimeStoring)?
     let fileURL: URL
@@ -289,7 +291,7 @@ import UserNotifications
                 return
             }
         }
-        grokHistory.remove(bot.id)
+        grokHistory.remove(bot.id); forgetGrokHandoff(bot.id)
         discardComposerAttachments(for: bot.id)
         if !endings.isEmpty { herdrAgentRemoved(bot, endings: endings) }
     }

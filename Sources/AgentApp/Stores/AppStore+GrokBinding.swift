@@ -42,8 +42,8 @@ extension AppStore {
 
     /// Applies a bundle whose history is already merged (`historyCount`) to its target and returns the report row.
     /// A new bot is a Herdr bot on the first server, with the name, avatar and instructions it had in Grok Bot; its
-    /// imported chats are a read-only archive beside it. A bot imported before gets history only, unless the import
-    /// refreshes identities.
+    /// imported chats are a read-only archive beside it, which its agent is handed so that it can carry on
+    /// (`AppStore+GrokHandoff.swift`). A bot imported before gets history only, unless the import refreshes identities.
     func apply(_ prepared: PreparedGrokBundle, to target: GrokImportTarget, historyCount: Int, policy: GrokImportPolicy, destination: GrokDestination? = nil) -> GrokImportRow {
         let bundle = prepared.bundle
         let mapped = GrokAvatarMap.map(shape: bundle.avatar?.shape, colour: bundle.avatar?.colour, sourceID: bundle.sourceId)

@@ -19,6 +19,11 @@ enum HerdrTurnStatus: Equatable, Sendable {
     /// The agent says it is done; its reply is being saved.
     case finishing
     case failing(program: String?)
+    /// Before the message of a bot that came with an earlier conversation (`HerdrHandoff`): the older part of that
+    /// conversation is being summarised. The summary is kept, so this is not repeated once it was made.
+    case summarising
+    /// The agent is reading that conversation; the person's message follows when it has.
+    case readingHistory
 
     private static let lead = "herdr."
 
@@ -32,6 +37,8 @@ enum HerdrTurnStatus: Equatable, Sendable {
         case .blocked(let program): ("blocked", program)
         case .finishing: ("finishing", nil)
         case .failing(let program): ("failing", program)
+        case .summarising: ("summarising", nil)
+        case .readingHistory: ("reading", nil)
         }
         return Self.lead + name + (program.map { "|" + $0 } ?? "")
     }
@@ -49,6 +56,8 @@ enum HerdrTurnStatus: Equatable, Sendable {
         case "blocked": self = .blocked(program: program)
         case "finishing": self = .finishing
         case "failing": self = .failing(program: program)
+        case "summarising": self = .summarising
+        case "reading": self = .readingHistory
         default: return nil
         }
     }
@@ -63,6 +72,8 @@ enum HerdrTurnStatus: Equatable, Sendable {
         case .blocked(let program): "\(program ?? "The agent") needs a terminal status check"
         case .finishing: "Finishing…"
         case .failing(let program): "\(program ?? "The agent") reported an error"
+        case .summarising: "Summarising your earlier conversation…"
+        case .readingHistory: "Reading your earlier conversation…"
         }
     }
 
@@ -73,6 +84,15 @@ enum HerdrTurnStatus: Equatable, Sendable {
     }
 
     static let firstReplyNote = "the first reply takes longer"
+
+    /// What the chat says while the agent reads its earlier conversation, a turn the chat does not show: that it is
+    /// reading, unless the agent program is still starting, waits at a prompt in its terminal, or reported an error.
+    static func duringHandoff(_ status: HerdrTurnStatus) -> HerdrTurnStatus {
+        switch status {
+        case .starting, .blocked, .failing: return status
+        case .sending, .delivered, .working, .finishing, .summarising, .readingHistory: return .readingHistory
+        }
+    }
 
     /// The agent is not moving and only the person can change that: the line says so whatever else the reply shows
     /// (a tool step that waits for a permission is still "running").
