@@ -52,6 +52,29 @@ struct GrokServerError: Error, Sendable, Equatable, CustomStringConvertible, Loc
 
     /// "HTTP 401, unauthenticated": the status and the Connect code, for a message that says what Grok answered.
     var statusDetail: String? { httpStatus.map { "HTTP \($0)" + (connectCode.map { ", \($0)" } ?? "") } }
+    /// All history cannot go on for any conversation: the sign-in was refused, an RPC was refused as not allowed, or
+    /// this app reached its own request ceiling. Other stops are about the conversation they happened in.
+    var endsFullHistory: Bool {
+        switch reason {
+        case .signInInvalid, .requestCeiling: true
+        case .rejected: kind != .blob && (httpStatus == 401 || httpStatus == 403)
+        default: false
+        }
+    }
+
+    /// A stop that will be there the next time too, so the sheet remembers it: a refusal of the sign-in or of the
+    /// request, or an answer this app cannot read. Not this app's own limits, and not one refused file download.
+    var isLastingRefusal: Bool {
+        switch reason {
+        case .signInInvalid, .protocolChanged: true
+        case .rejected: kind != .blob && (httpStatus == 401 || httpStatus == 403)
+        default: false
+        }
+    }
+
+    /// Too many requests, or a server error that is not retried: the run pauses instead of stopping.
+    var isTransientRefusal: Bool { reason == .rejected && (httpStatus == 429 || (httpStatus ?? 0) >= 500) }
+
     /// One sentence for the user: what Grok said when it said something readable, else what happened.
     var userSummary: String {
         guard let serverMessage else { return errorDescription ?? "Grok's service did not answer as expected." }

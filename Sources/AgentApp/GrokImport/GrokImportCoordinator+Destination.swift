@@ -31,12 +31,20 @@ extension GrokImportCoordinator {
 
     // MARK: A stop by Grok's service
 
-    /// All history gave way to the recent messages: shown in this run, and remembered for the next sheet session.
-    func remember(_ error: GrokServerError) {
+    /// All history gave way to the recent messages for the rest of this run: shown now, and remembered for the next
+    /// sheet session when it is a stop that will be there again (not this app's own limits).
+    func fallBack(_ error: GrokServerError) {
         fallback = error
-        let note = GrokRefusalNote(date: environment.now(), summary: error.userSummary)
+        guard error.isLastingRefusal else { return }
+        let note = GrokRefusalNote(date: environment.now(), summary: error.userSummary, account: accountID)
         note.save(store.defaults)
         lastRefusal = note
+    }
+
+    /// The seconds the macOS window has been up: its own count, not the run's (which may have run and paused before).
+    var waitingSeconds: Int {
+        guard case .awaitingMacOS(let since) = step else { return 0 }
+        return max(0, Int(Date().timeIntervalSince(since)))
     }
 
     /// All history worked again: the next sheet session opens on it.

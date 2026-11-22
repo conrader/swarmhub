@@ -37,34 +37,116 @@ import Testing
     #expect(await run.requestCount() == 4)
 }
 
-@MainActor @Test func aStopByGroksServiceGoesOnFromTheCacheWhenTheRunMayFallBack() async throws {
-    let world = try GrokWorld()
-    // The canary and Jarvis's page are answered; from Finance on Grok refuses.
-    world.fake.intercept = { index, _ in index >= 2 ? .http(403, []) : nil }
-    var events: [String] = []
-    let run = GrokImportRun(store: world.store(), environment: world.environment(),
-                            options: GrokImportOptions(mode: .full, fallsBackToRecent: true))
-    run.onEvent = { if case .fellBack(let error) = $0 { events.append(error.description) } }
-    #expect(await run.start() == .finished)
-    #expect(run.fallback == GrokServerError(.rejected, kind: .list, httpStatus: 403) && events == ["list rejected HTTP 403"])
-    #expect(run.rows.count == 4 && run.rows[0].coverage != .cacheOnly && run.rows.dropFirst().allSatisfy { $0.coverage == .cacheOnly })
-    #expect(await run.holder.lifetime == .none)
-    #expect(await run.requestCount() == 3)
-    // Without the option the same stop ends the run, as the commands expect.
-    let plain = GrokImportRun(store: world.store(), environment: world.environment(), options: GrokImportOptions(mode: .full))
-    #expect(await plain.start() == .stopped(.server(GrokServerError(.rejected, kind: .list, httpStatus: 403))))
-    #expect(plain.fallback == nil)
+@MainActor private func fallingBack(_ world: GrokWorld) -> GrokImportRun {
+    GrokImportRun(store: world.store(), environment: world.environment(),
+                  options: GrokImportOptions(mode: .full, fallsBackToRecent: true))
 }
 
-@MainActor @Test func anAnswerWithNoRowForACachedConversationIsAnUnknownFormatNotAnEmptyHistory() async throws {
+@MainActor @Test func aRefusedRequestSendsEveryChatStillQueuedToTheCacheWhenTheRunMayFallBack() async throws {
     let world = try GrokWorld()
-    world.fake.intercept = { index, _ in index == 0 ? .http(200, []) : nil }
+    // The canary and Jarvis's page are answered; from Finance on Grok says the request is not allowed.
+    world.fake.intercept = { index, _ in index >= 2 ? .http(403, []) : nil }
+    var events: [String] = []
+    let run = fallingBack(world)
+    run.onEvent = { if case .fellBack(let error, let wholeRun) = $0 { events.append("\(error.description) \(wholeRun)") } }
+    #expect(await run.start() == .finished)
+    #expect(run.fallback == GrokServerError(.rejected, kind: .list, httpStatus: 403) && events == ["list rejected HTTP 403 true"])
+    #expect(run.rows.count == 4 && run.rows[0].coverage != .cacheOnly && run.rows[0].status == .done)
+    // The cache's lines are saved, but All history was asked for: those chats are not done.
+    #expect(run.rows.dropFirst().allSatisfy { $0.coverage == .cacheOnly && $0.status == .incomplete })
+    #expect(await run.holder.lifetime == .none)
+    #expect(await run.requestCount() == 3)
+
+    // Without the option the same stop ends the run, as the commands expect.
+    let other = try GrokWorld()
+    other.fake.intercept = { index, _ in index >= 2 ? .http(403, []) : nil }
+    let plain = GrokImportRun(store: other.store(), environment: other.environment(), options: GrokImportOptions(mode: .full))
+    #expect(await plain.start() == .stopped(.server(GrokServerError(.rejected, kind: .list, httpStatus: 403))))
+    #expect(plain.fallback == nil && plain.rows.count == 1)
+}
+
+@MainActor @Test func aStopInsideOneChatSendsOnlyThatChatToTheCache() async throws {
+    let world = try GrokWorld()
+    // Only Finance's page is refused, and not as a matter of the sign-in.
+    world.fake.intercept = { index, _ in index == 2 ? .http(400, []) : nil }
+    let run = fallingBack(world)
+    #expect(await run.start() == .finished)
+    #expect(run.fallback == nil && run.rows.count == 4)
+    #expect(run.rows[1].coverage == .cacheOnly && run.rows[1].status == .incomplete)
+    #expect(run.rows[0].coverage != .cacheOnly && run.rows[2].coverage != .cacheOnly && run.rows[3].coverage != .cacheOnly)
+    #expect(await run.requestCount() == 5)
+}
+
+@MainActor @Test func twoChatsStoppedInARowSendTheRestToTheCacheToo() async throws {
+    let world = try GrokWorld()
+    world.fake.intercept = { index, _ in index >= 2 ? .http(400, []) : nil }
+    let run = fallingBack(world)
+    #expect(await run.start() == .finished)
+    #expect(run.fallback == GrokServerError(.rejected, kind: .list, httpStatus: 400))
+    #expect(run.rows.dropFirst().allSatisfy { $0.coverage == .cacheOnly && $0.status == .incomplete })
+    // Finance and Plain were asked for; the group was not.
+    #expect(await run.requestCount() == 4)
+}
+
+@MainActor @Test func tooManyRequestsPausesInsteadOfStoppingOrFallingBack() async throws {
+    let world = try GrokWorld()
+    let busy = GrokSwitch()
+    busy.isOn = true
+    world.fake.intercept = { index, _ in busy.isOn && index == 2 ? .http(429, []) : nil }
+    let run = fallingBack(world)
+    #expect(await run.start() == .paused(.network(GrokServerError(.rejected, kind: .list, httpStatus: 429))))
+    busy.isOn = false
+    #expect(await run.retryRemaining() == .finished)
+    #expect(run.fallback == nil && run.rows.allSatisfy { $0.status == .done })
+}
+
+@Test func onlyLastingRefusalsEndAllHistoryOrAreRemembered() {
+    let refused = GrokServerError(.signInInvalid, kind: .list, httpStatus: 401)
+    let forbidden = GrokServerError(.rejected, kind: .presign, httpStatus: 403)
+    let oneFile = GrokServerError(.rejected, kind: .blob, httpStatus: 403)
+    let ceiling = GrokServerError(.requestCeiling, kind: .list)
+    let busy = GrokServerError(.rejected, kind: .list, httpStatus: 429)
+    let unreadable = GrokServerError(.protocolChanged, kind: .list)
+    #expect(refused.endsFullHistory && refused.isLastingRefusal)
+    #expect(forbidden.endsFullHistory && forbidden.isLastingRefusal)
+    #expect(!oneFile.endsFullHistory && !oneFile.isLastingRefusal)
+    #expect(ceiling.endsFullHistory && !ceiling.isLastingRefusal)
+    #expect(!busy.endsFullHistory && !busy.isLastingRefusal && busy.isTransientRefusal)
+    #expect(!unreadable.endsFullHistory && unreadable.isLastingRefusal && !unreadable.isTransientRefusal)
+}
+
+@Test func theRememberedStopLapsesAfterAWeekOrWithAnotherAccount() {
+    let defaults = isolatedDefaults()
+    let then = Date(timeIntervalSince1970: 1_800_000_000), soon = then.addingTimeInterval(3600)
+    GrokRefusalNote(date: then, summary: "Grok said no.", account: "a").save(defaults)
+    #expect(GrokRefusalNote.load(defaults, now: soon, account: "a")?.summary == "Grok said no.")
+    #expect(GrokRefusalNote.load(defaults, now: soon, account: nil) != nil)
+    #expect(GrokRefusalNote.load(defaults, now: soon, account: "b") == nil)
+    #expect(defaults.data(forKey: GrokRefusalNote.key) == nil)
+    GrokRefusalNote(date: then, summary: "Grok said no.", account: "a").save(defaults)
+    #expect(GrokRefusalNote.load(defaults, now: then.addingTimeInterval(8 * 24 * 3600), account: "a") == nil)
+    #expect(defaults.data(forKey: GrokRefusalNote.key) == nil)
+}
+
+@MainActor @Test func twoCachedChatsAnsweringWithNoRowAreAnUnknownFormatOneIsNot() async throws {
+    // One chat this Mac holds entries of answers with no row: it may have been cleared on Grok's side. The next one
+    // answers normally, so the import goes on.
+    let cleared = try GrokWorld()
+    cleared.fake.intercept = { index, _ in index == 0 ? .http(200, []) : nil }
+    let first = makeRun(cleared, cleared.store())
+    #expect(await first.start() == .finished)
+    #expect(first.rows.count == 4)
+
+    // Two in a row: an answer this app cannot read, and nothing is written.
+    let world = try GrokWorld()
+    world.fake.intercept = { index, _ in index <= 1 ? .http(200, []) : nil }
     let run = makeRun(world, world.store())
     guard case .stopped(.server(let error)) = await run.start() else {
         Issue.record("the run did not stop")
         return
     }
     #expect(error.reason == .protocolChanged && run.rows.isEmpty)
+    #expect(await run.requestCount() == 2)
 }
 
 @Test func aGarbledAnswerThrowsInsteadOfCrashing() {
@@ -114,7 +196,17 @@ import Testing
         ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "AWS_[REDACTED]"),
         ("passwd=abc def", "[REDACTED] def"),
         ("key xai-ABCDEFGHIJKLMNOP1234 end", "key [REDACTED] end"),
-        // Unchanged on purpose: counts and plain words are not credentials.
+        ("**Password:** hunter2", "**[REDACTED]"),
+        ("password: `correct horse` ok", "[REDACTED] ok"),
+        ("password: “correct horse” ok", "[REDACTED] ok"),
+        (#"secret: "a\"b c" tail"#, "[REDACTED] tail"),
+        // The gap between two string literals in code is not a quoted value.
+        (#"print("Password: " + pw + " is wrong")"#, #"print("[REDACTED] + pw + " is wrong")"#),
+        // Unchanged on purpose: counts, paths and plain words are not credentials.
+        ("PWD=/home/user and pwd: /tmp", "PWD=/home/user and pwd: /tmp"),
+        ("passwd: files", "passwd: files"),
+        ("/etc/passwd: No such file", "/etc/passwd: No such file"),
+        ("XAI_MANAGEMENT_KEY and xai_shap_values_plot(x)", "XAI_MANAGEMENT_KEY and xai_shap_values_plot(x)"),
         (#""prompt_tokens": 12, "max_tokens": 4096"#, #""prompt_tokens": 12, "max_tokens": 4096"#),
         ("token_count: 5", "token_count: 5"),
         ("secretary: Ann", "secretary: Ann"),
@@ -134,4 +226,23 @@ import Testing
     try encoder.encode(GrokHistoryFile(sourceID: "source", messages: [saved])).write(to: url)
     let merged = try GrokHistoryStore.mergeOnDisk([], sourceID: "source", url: url, directory: directory)
     #expect(merged.count == 1 && merged[0].text == #"use {"[REDACTED]} here"#)
+}
+
+@Test func aCopyThatIsShorterOnlyBecauseMoreWasRedactedReplacesTheSavedLine() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "grok-residue-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "bot.json")
+    func line(_ id: String, _ seq: Int64, _ text: String) -> ArchivedMessage {
+        ArchivedMessage(id: id, seq: seq, role: "assistant", author: nil, text: text, timestamp: nil, hidden: false, channel: "chat", to: nil)
+    }
+    // What an older filter left: the first word of a quoted value gone, the rest still there.
+    let saved = [line("m1", 1, #"it is [REDACTED] horse battery staple" for now"#), line("m2", 2, "a long settled answer")]
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    try encoder.encode(GrokHistoryFile(sourceID: "source", messages: saved)).write(to: url)
+    let incoming = [line("m1", 1, "it is [REDACTED] for now"), line("m2", 2, "a long")]
+    let merged = try GrokHistoryStore.mergeOnDisk(incoming, sourceID: "source", url: url, directory: directory)
+    // The cleaner copy wins; an ordinary shorter copy still does not.
+    #expect(merged.map(\.text) == ["it is [REDACTED] for now", "a long settled answer"])
 }

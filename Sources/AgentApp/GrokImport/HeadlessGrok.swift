@@ -2,7 +2,8 @@ import Foundation
 
 /// The Grok Bot commands. Unlike the other headless commands they never call
 /// `SecKeychainSetUserInteractionAllowed(false)` (it is process-wide, and `--grok-fetch --mode full` / `--grok-probe --live`
-/// need the one macOS dialog). Output is counts, booleans and states only: no names, ids, text or anything secret.
+/// need the one macOS dialog). Output is counts, booleans and states, plus, on a stop by Grok's service, what Grok said
+/// reduced to plain words (`GrokServerError.diagnosticMessage`): no names, ids, message text or anything secret.
 ///   AgentApp --grok-fetch --mode recent|full [--bots "<name>,<name>"] [--store <store.json>] [--report <file>]
 ///   AgentApp --grok-probe [--live [--diagnose]] [--report <file>]
 ///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)

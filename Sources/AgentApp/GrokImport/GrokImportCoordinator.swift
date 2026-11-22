@@ -85,6 +85,8 @@ import Foundation
     var serverName: String { testedServer?.name ?? store.herdrServers[0].name }
     var historyDirectory: URL { store.grokHistory.directory }
 
+    /// Grok Bot's id of the signed-in account, as the last scan read it.
+    var accountID: String? { preflight?.secrets?.activeAccountID }
     var selectedItems: [GrokFoundItem] { items.filter { selected.contains($0.id) } }
     /// "At least N read requests, about T s" for the Full mode line: one canary plus the pages, 0.5 s apart.
     var requestEstimate: (requests: Int, seconds: Int) {
@@ -107,7 +109,7 @@ import Foundation
         items = found.cache.map(makeItems) ?? []
         planNewBotIDs()
         selected = Set(items.map(\.id))
-        lastRefusal = GrokRefusalNote.load(store.defaults)
+        lastRefusal = GrokRefusalNote.load(store.defaults, now: environment.now(), account: found.secrets?.activeAccountID)
         mode = availability == .ready && lastRefusal == nil ? .full : .recent
         signInMayBeStale = secretsOlderThanADay() && !isGrokRunning()
         watchKeychain()
@@ -199,6 +201,7 @@ import Foundation
     /// Back to the checklist (untick a failing bot and run again); never while something is running.
     func back() {
         guard driver == nil else { return }
+        keepCommittedRows = false
         step = .found
     }
 
@@ -241,7 +244,8 @@ import Foundation
         guard driver == nil else { return }
         let run = currentRun(), options = options()
         if fresh {
-            fallback = nil
+            // A retry of the unfinished chats keeps saying why the others came from the cache.
+            if !keepCommittedRows { fallback = nil }
             resetProgress(options)
             if !keepCommittedRows { committedRows = []; outcomes = [] }
             keepCommittedRows = false
@@ -270,7 +274,10 @@ import Foundation
         case .finished:
             await refreshOutcomes()
             selectImportedMainBotIfNeeded()
-            if mode == .full, fallback == nil, exportBundles == nil { forgetRefusal() }
+            // All history demonstrably worked: at least one chat of this run came from Grok.
+            if mode == .full, fallback == nil, exportBundles == nil, committedRows.contains(where: { $0.coverage != .cacheOnly }) {
+                forgetRefusal()
+            }
             step = .finished
             stopTicker()
         case .paused(let pause):
@@ -308,11 +315,13 @@ import Foundation
             progress[index].oldestSeq = oldest
         case .saving(let id):
             mark(id, .saving)
-        case .fellBack(let error):
-            remember(error)
+        case .fellBack(let error, let wholeRun):
+            if wholeRun { fallBack(error) }
         case .committed(let row):
-            if let index = committedRows.firstIndex(where: { $0.sourceID == row.sourceID }) { committedRows[index] = row }
-            else { committedRows.append(row) }
+            if let index = committedRows.firstIndex(where: { $0.sourceID == row.sourceID }) {
+                // A retry that got nothing from Grok does not replace the row of an earlier partial fetch.
+                if !(committedRows[index].coverage == .incomplete && row.coverage == .cacheOnly) { committedRows[index] = row }
+            } else { committedRows.append(row) }
             switch row.status {
             case .done: mark(row.sourceID, .done)
             case .incomplete: mark(row.sourceID, .incomplete)
@@ -414,6 +423,7 @@ import Foundation
     func useExportBundles(_ bundles: [GrokBotBundle]) {
         guard driver == nil else { return }
         exportBundles = bundles
+        fallback = nil
         run = nil
         availability = .recentExport
         mode = .recent
