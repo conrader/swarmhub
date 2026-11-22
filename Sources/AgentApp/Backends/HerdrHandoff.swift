@@ -184,17 +184,17 @@ extension HerdrBackend {
     func handOver(_ source: HerdrHandoffSource, status: @escaping @Sendable (HerdrTurnStatus) -> Void) async throws {
         let session = try await client.handoffSession(name: agentName)
         var sent: HerdrHandoff? = nil
-        let turn: HerdrClient.Turn?
+        let pending: HerdrClient.Turn?
         switch client.handoffStanding(lead: source.lead, in: session) {
         case .delivered: return
-        case .running(let running): turn = running
+        case .running(let running): pending = running
         case .needed:
             guard let handoff = await source.prepare(status) else { return }
             sent = handoff
-            turn = try await client.handOver(handoff, name: agentName, template: template, model: model, persona: instructions,
+            pending = try await client.handOver(handoff, name: agentName, template: template, model: model, persona: instructions,
                                              projects: projects, workspaceID: botID, status: status)
         }
-        guard let turn else { return }
+        guard let turn = pending else { return }
         status(.readingHistory)
         _ = try await client.reply(to: turn, status: { now in status(HerdrTurnStatus.duringHandoff(now)) })
         if let sent { source.delivered?(sent) }
