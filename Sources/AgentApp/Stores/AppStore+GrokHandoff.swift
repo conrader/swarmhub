@@ -160,14 +160,17 @@ extension AppStore {
     /// What the bot's running turn takes as a steer follows what its backend offers now. A turn that is handing the
     /// conversation over offers nothing (`HerdrBackend.features`), so a message sent meanwhile waits as the chat's
     /// next message and goes after the first one, in order; once the handoff has ended the turn takes steers again.
-    /// Asked only when the answer could change something: at a hidden step while steers are on, at any other status
-    /// while they are off.
+    /// Only for a bot that is handed a conversation, so every other bot's turn is left exactly as it was; never for
+    /// a turn the person stopped; and asked only when the answer could change something: at a hidden step while
+    /// steers are on, at any other status while they are off.
     func steerFollowsBackend(of bot: Bot, at status: HerdrTurnStatus?) async {
-        guard let running = turn(in: bot), let active = running.backend, let status else { return }
+        guard grokHandoffIsOn(for: bot), let running = turn(in: bot), !running.stopping, let active = running.backend, let status else { return }
         let hidden = status == .summarising || status == .readingHistory
         guard running.steerAvailable == hidden else { return }
         let token = running.token
         let flags = try? await active.features()
+        // The person may have pressed Stop meanwhile: a stopping turn takes no steer.
+        guard let still = turn(token: token), !still.stopping else { return }
         setSteerAvailable(flags?.contains("run_steer") == true, token: token)
     }
 

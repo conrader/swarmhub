@@ -132,6 +132,24 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     #expect(sent[0].text.utf8.count <= HerdrClient.taskBytes && sent[1].text.hasSuffix("Hello again"))
 }
 
+@Test @MainActor func theTurnTakesNoSteerUntilTheHandoffHasEnded() async throws {
+    let (handoff, id) = fixture()
+    let bridge = HandoffBridge(); bridge.holds = { $0.contains("[SwarmHub handoff") }
+    let made = backend(bridge, id: id, handoff: handoff)
+    let stream = try await made.send(AgentRequest(sessionID: id.uuidString, systemPrompt: "", messages: [(role: "user", content: "Hello")]))
+    #expect(try await made.features().isEmpty, "from the moment the turn starts")
+    let reading = Task { for try await _ in stream {} }
+    try await waitUntil { bridge.sent.count == 1 }
+    #expect(try await made.features().isEmpty, "while the agent reads the conversation")
+    bridge.release("It stood at question 120.")
+    try await reading.value
+    #expect(try await made.features() == ["run_steer"] && bridge.sent.map(\.route) == ["launch-with-files", "message"])
+    // A bot without a handoff takes steers from the start, as it always did.
+    let plain = backend(HandoffBridge(), id: id, handoff: nil)
+    _ = try await plain.send(AgentRequest(sessionID: id.uuidString, systemPrompt: "", messages: [(role: "user", content: "Hello")]))
+    #expect(try await plain.features() == ["run_steer"])
+}
+
 @Test func withoutAHandoffAndInAGroupTheMessageGoesAsItAlwaysDid() async throws {
     let (handoff, id) = fixture()
     // A bot that has none.
