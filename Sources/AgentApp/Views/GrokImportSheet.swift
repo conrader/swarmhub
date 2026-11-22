@@ -7,6 +7,7 @@ import SwiftUI
 struct GrokImportSheet: View {
     @EnvironmentObject private var store: AppStore
     @StateObject private var coordinator: GrokImportCoordinator
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
     @State private var historyFolderUnavailable = false
     @State private var exportError: String?
     @AccessibilityFocusState private var headingFocused: Bool
@@ -41,7 +42,9 @@ struct GrokImportSheet: View {
             Divider()
             GrokImportFooter(coordinator: coordinator, close: close, useExportFolder: useExportFolder).padding(16)
         }
+        // A sheet does not inherit the window's tint: without this the choice cards would wear the system accent.
         .frame(minWidth: 580, idealWidth: 680, minHeight: 540, idealHeight: 680).background(AppColor.panel)
+        .tint(AppTheme.accentColor(for: accent))
         .transaction { $0.animation = nil }
         .task {
             if coordinator.step == .idle {

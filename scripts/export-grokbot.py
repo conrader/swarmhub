@@ -36,7 +36,7 @@ MARKER = "[REDACTED]"
 SECRET_PATTERNS = [
     ("private_key", re.compile(r"(?si)-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----.*?(?:-----END \1-----[^\r\n]*(?:\r?\n|\Z)|\Z)")),
     ("bearer", re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}")),
-    ("vendor_token", re.compile(r"(?i)\b(sk|xai|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b")),
+    ("vendor_token", re.compile(r'''(?i)\b(?:(?:sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}|xai-[A-Za-z0-9]{20,})\b''')),
     ("github_pat", re.compile(r"(?i)github_pat_[A-Za-z0-9_-]{8,}")),
     # Starts only where a dot-separated part starts and commits to the first `eyJ` in it (the lookahead is atomic), so a
     # run of `eyJ`/`-eyJ` pieces is scanned once, yet any `eyJ` in the part counts: a header holding `-eyJ` still matches.
@@ -47,7 +47,7 @@ SECRET_PATTERNS = [
     ("slack_app_token", re.compile(r"(?i)\bxapp-[A-Za-z0-9_-]{8,}")),
     ("slack_webhook", re.compile(r"(?i)https?://hooks\.slack\.com/services/\S+")),
     ("url_credentials", re.compile(r"://[^/\s:@]+:[^/\s@]+@")),
-    ("credential_assignment", re.compile(r'''(?i)(?<![A-Za-z0-9])(api[_ -]?key|token|secret|password|passwd|pwd|passphrase|credential|auth[_-]?token|access[_-]?token|client[_-]?secret|secret[_-]?access[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?key|authorization)["'*`]{0,3}\s*[:=]\s*(?:"[^"\r\n]{0,400}"|'[^'\r\n]{0,400}'|\S+)''')),
+    ("credential_assignment", re.compile(r'''(?i)(?<![A-Za-z0-9])(?:(?:api[_ -]?key|token|secret|password|passphrase|credential|auth[_-]?token|access[_-]?token|client[_-]?secret|secret[_-]?access[_-]?key|secret[_-]?key|private[_-]?key|access[_-]?key|authorization)[\\"'*`]{0,4}\s*[:=][*`]{0,3}|passwd=)\s*(?:\\?"(?! )(?:[^"\\\r\n]|\\.){1,400}"|'(?! )[^'\r\n]{1,400}'|“[^”\r\n]{1,400}”|`[^`\r\n]{1,400}`|\S+)''')),
 ]
 JWT = dict(SECRET_PATTERNS)["jwt"]
 BASIC_AUTH = re.compile(r"(?i)\bBasic\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])")
