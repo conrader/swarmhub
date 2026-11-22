@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The bot list can be divided into named sections that fold and unfold (**+ → New Section…**, or **Move to Section** in a chat's menu); a section can be renamed, moved up or down and deleted, and deleting one only moves its chats to Unsectioned. **Pin** puts up to nine bots or groups at the top as big marks with their names under them. Folds, sections and pins are remembered; with none of them the list looks and behaves as before.
 - Skills is a library. **Settings → Servers → Skills** and a bot's **Skills** tab say where the server's skillshare library stands and sync it with one button; **Open library** shows everything in it (skills, agents, MCP servers, plugins and hooks) grouped by what needs a sync, has an update, is in sync or is off, with a preview of each.
 - Skills are installed from a repository address after a security check: the server downloads the repository, skillshare audits it, and only what passes is installed. A blocked skill shows what was found, can be handed to a bot to review, and is installed only after **Install anyway**. Skills and agents are updated and removed from the library too.
 - The library's Git repository is pulled, pushed and synced both ways from the app, with a choice per file when both sides changed the same one. **Servers** shows skillshare on each server and updates it.

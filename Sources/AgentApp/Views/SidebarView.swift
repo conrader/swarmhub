@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// The left column, like Grok Bot's (P20): round search and + at the top, one flat list (newest conversations first, a Herdr
-/// bot's helper agents nested under it, then a quiet "Hidden chats" disclosure), and a bottom bar with the user's initial and a Settings pill. P47: Connect apps sits on its
+/// The left column, like Grok Bot's (P20): round search and + at the top, one list: pinned chats as big marks first, then the chats in
+/// the user's named, foldable sections (newest conversations first inside each; with no sections and no pins it is one flat
+/// list), a Herdr bot's helper agents nested under it, then a quiet "Hidden chats" disclosure, and a bottom bar with the user's initial and a Settings pill. P47: Connect apps sits on its
 /// own row directly above that bar (beside it, the Settings pill would truncate in a 240 pt sidebar).
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.openWindow) private var openWindow
     @Binding var selection: Bot?
     @State private var botToDelete: Bot?; @State private var groupToDelete: GroupChat?
+    @State private var sectionPrompt: SidebarSectionPrompt?; @State private var sectionToDelete: UUID?
     @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
 
     var body: some View {
@@ -21,6 +23,7 @@ struct SidebarView: View {
                 Menu {
                     Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
                     Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }
+                    Button("New Section…", systemImage: "folder.badge.plus") { sectionPrompt = .new(nil) }
                     if store.grokBotPresent {
                         Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.openSetup(openWindow: openWindow, forGrok: true) }
                     }
@@ -28,12 +31,25 @@ struct SidebarView: View {
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                     .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
+            // Worked out once per pass: the body reruns on every streamed token.
+            let layout = store.sidebarLayout
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(store.sidebarChats) { chat in
-                        switch chat {
-                        case .bot(let bot): row(bot)
-                        case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete)
+                    if !layout.pinned.isEmpty {
+                        SidebarPinnedStrip(chats: layout.pinned, askNewSection: { sectionPrompt = .new($0) }, requestDelete: requestDelete)
+                    }
+                    ForEach(layout.sections) { bucket in
+                        if bucket.showsHeader {
+                            SidebarSectionHeader(bucket: bucket, askRename: { sectionPrompt = .rename($0) }, askDelete: askDeleteSection)
+                        }
+                        if !bucket.isCollapsed {
+                            if bucket.showsHeader && bucket.chats.isEmpty { SidebarEmptySectionLine() }
+                            ForEach(bucket.chats) { chat in
+                                switch chat {
+                                case .bot(let bot): row(bot)
+                                case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete, askNewSection: { sectionPrompt = .new($0) })
+                                }
+                            }
                         }
                     }
                     // Nothing hidden, nothing to unfold.
@@ -47,13 +63,14 @@ struct SidebarView: View {
                     }
                     if store.showingHiddenBots {
                         ForEach(store.hiddenChatBots) { bot in row(bot) }
-                        ForEach(store.groups.filter(\.isHidden)) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete) }
+                        ForEach(store.groups.filter(\.isHidden)) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete, askNewSection: { sectionPrompt = .new($0) }) }
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
             // The bottom bar floats over the list where the Mac has Liquid Glass: the rows pass beneath it.
             .floatingBar(edge: .bottom, backing: AppColor.sidebar) { bottomBar }
         }.background(AppColor.sidebar)
+        .modifier(SidebarSectionPrompts(prompt: $sectionPrompt, sectionToDelete: $sectionToDelete))
         .alert(BotRemovalCopy.title(botToDelete?.name ?? "bot"), isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
             Button("Cancel", role: .cancel) { botToDelete = nil }
             Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
@@ -62,6 +79,16 @@ struct SidebarView: View {
             Button("Cancel", role: .cancel) { groupToDelete = nil }
             Button("Delete", role: .destructive) { if let groupToDelete { store.deleteGroup(groupToDelete) }; groupToDelete = nil }
         } message: { Text("The group chat is removed from this Mac. Its bots and their own chats stay.") }
+    }
+
+    /// Opens the delete confirmation for a chat from a pinned tile.
+    private func requestDelete(_ chat: SidebarChat) {
+        switch chat { case .bot(let bot): botToDelete = bot; case .group(let group): groupToDelete = group }
+    }
+
+    /// An empty section goes at once; one with chats asks first (its chats only move to Unsectioned).
+    private func askDeleteSection(_ id: UUID) {
+        if store.sidebar.section(id)?.chats.isEmpty ?? true { store.deleteSidebarSection(id) } else { sectionToDelete = id }
     }
 
     /// The line about a waiting update, and the one button to Settings.
@@ -87,7 +114,7 @@ struct SidebarView: View {
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
     /// helper's row is the selected one.
     @ViewBuilder private func row(_ bot: Bot) -> some View {
-        BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete)
+        BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
         if bot.backend == .herdr { HerdrHelperRows(bot: bot) }
     }
 }

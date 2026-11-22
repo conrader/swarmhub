@@ -44,6 +44,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 - Replies render Markdown. A reply can contain cards: a question with options, a draft with Send and Copy, link pills and inline images ([card syntax](reference.md#card-syntax)).
 - A message can be answered with a reply to it or a tapback, and a finished reply can be copied.
 - Quick switcher (⌘K), hidden chats, previous and next chat, and a window that lists the keyboard shortcuts (⌘/).
+- The sidebar can be divided into named sections that fold and unfold, and up to nine bots or groups can be pinned at the top as big marks with their names under them (menus only; **+ → New Section…**, or a chat's **Pin** and **Move to Section**). Pins, sections and folds are saved with your chats.
 - Notifications for replies that arrive while the app is in the background (**Notify about new messages** in **Settings → General**; they need the app to run as an installed app), with a mute per bot.
 
 ## Main bot and creating bots

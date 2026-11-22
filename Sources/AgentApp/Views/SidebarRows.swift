@@ -10,6 +10,10 @@ enum SidebarMetrics {
     static let selectionWash = 0.22
     /// The top row holds the 32 pt round search and + buttons; it is taller than the 28 pt title zone it covers.
     static let topRow: CGFloat = 32, roundButton: CGFloat = 32, bottomBar: CGFloat = 56
+    /// Pinned strip: big marks, three to a line, the name under each. The tile's top inset leaves room for the mark's
+    /// canvas, which is drawn larger than the mark and raised.
+    static let pinnedMark: CGFloat = 56, pinnedColumns = 3, pinnedNameSize: CGFloat = 12, maxPinned = 9, pinnedTopInset: CGFloat = 20
+    static let sectionHeader: CGFloat = 32
     static let width: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 280, 320)
     /// Settings → Your name (simple page); its first letter is the bottom round button.
     static let accountNameKey = "accountName"
@@ -59,6 +63,7 @@ struct BotRow: View {
     @Environment(\.activityNow) private var fixedNow
     @ObservedObject var bot: Bot; @ObservedObject var drafts: ComposerDrafts
     let selected: Bool; @Binding var botToDelete: Bot?
+    var askNewSection: (UUID?) -> Void = { _ in }
     @State private var hovering = false
     var body: some View {
         let working = store.isWorking(bot), attention = store.needsAttention(bot)
@@ -88,11 +93,7 @@ struct BotRow: View {
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         }.buttonStyle(.plain).contextMenu {
-            Button("Edit", systemImage: "pencil") { store.editingBot = bot }
-            if !bot.isUnread { Button("Mark as Unread", systemImage: "circle.fill") { store.markUnread(bot) } }
-            Button(bot.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: bot.isHidden ? "eye" : "eye.slash") { store.setHidden(bot, !bot.isHidden) }
-            Button(bot.notificationsEnabled ? "Mute Notifications" : "Enable Notifications", systemImage: bot.notificationsEnabled ? "bell.slash" : "bell") { bot.notificationsEnabled.toggle(); store.save() }
-            Divider(); Button("Delete", systemImage: "trash", role: .destructive) { botToDelete = bot }
+            SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection) { botToDelete = bot }
         }
     }
 }
@@ -102,6 +103,7 @@ struct GroupRow: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.activityNow) private var fixedNow
     @ObservedObject var group: GroupChat; @ObservedObject var drafts: ComposerDrafts; @Binding var botToDelete: GroupChat?
+    var askNewSection: (UUID?) -> Void = { _ in }
     @State private var hovering = false
     var body: some View {
         let selected = store.selectedGroup?.id == group.id
@@ -125,10 +127,7 @@ struct GroupRow: View {
                 if group.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         }.buttonStyle(.plain).contextMenu {
-            if !group.isUnread { Button("Mark as Unread", systemImage: "circle.fill") { store.markUnread(group) } }
-            Button(group.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: group.isHidden ? "eye" : "eye.slash") { store.setHidden(group, !group.isHidden) }
-            Button(group.isMuted ? "Enable Notifications" : "Mute Notifications", systemImage: group.isMuted ? "bell" : "bell.slash") { group.isMuted.toggle(); store.save() }
-            Divider(); Button("Delete Group", systemImage: "trash", role: .destructive) { botToDelete = group }
+            SidebarChatMenu(chat: .group(group), askNewSection: askNewSection) { botToDelete = group }
         }
     }
 }
