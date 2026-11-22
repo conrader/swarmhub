@@ -37,6 +37,11 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("run-claude") => launch_claude(),
         Some("run-codex") => crate::codex_agent::launch(),
         Some("run-opencode") => crate::opencode_agent::launch(),
+        Some("run-gemini") => crate::gemini_agent::launch(),
+        Some("gemini-hook") => {
+            crate::gemini_agent::hook();
+            Ok(())
+        }
         Some("opencode-models") => crate::opencode_agent::models(),
         Some("codex-models") => crate::codex_agent::models(),
         Some("run-desktop") => crate::desktop::run(),
@@ -93,6 +98,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
                 "swarmhub-herdr [(run-claude|run-codex) [--workspace-approvals] [AGENT_ARGS...] | capture-reply | publish-file PATH | group-reply TOKEN [--draft | --question | --form] [--file PATH]...]"
             );
             println!("OpenCode V2: run-opencode [OPENCODE_ARGS...]");
+            println!("Gemini CLI (beta): run-gemini [GEMINI_ARGS...]");
             println!("This program: version [--json]");
             println!("Direct threads: thread-reply TOKEN (answer on standard input)");
             println!("Groups: group-handoff TOKEN (to and task JSON on standard input)");

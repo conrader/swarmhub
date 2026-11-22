@@ -1083,7 +1083,7 @@ function drawRuntimeOptions(selected, model = $("launch-model").value, manual = 
     if (!query.split(/\s+/).every((word) => text.includes(word))) continue;
     if (!groups.has(harness)) {
       const group = document.createElement("optgroup");
-      group.label = harness;
+      group.label = item.beta ? harness + " (beta)" : harness;
       groups.set(harness, group);
     }
     const title = [model, item.name, item.error ? "Unavailable" : null].filter(Boolean).join(" · ");
@@ -1172,8 +1172,9 @@ function showRuntimeLabels() {
   show("runtime-labels", info ? model ? [item.model_agent, model.provider, model.label].join(" · ")
     : discovered ? [item.model_agent, discovered.id].join(" · ")
     : manual ? `${item.model_agent} · Custom model ID`
-    : [info.harness, info.provider, info.model || "Model set by the agent"].filter(Boolean).join(" · ") : "");
-  show("description", item?.description || "");
+    : [item.beta ? info.harness + " (beta)" : info.harness, info.provider, info.model || "Model set by the agent"].filter(Boolean).join(" · ") : "");
+  // A beta program says where it is chosen what it cannot do yet.
+  show("description", [item?.description, item?.note].filter(Boolean).join(". "));
 }
 
 function closeLaunch() {

@@ -68,6 +68,9 @@ More detail on the ways to connect: [Use the Mac app](../HerdrWorkspace/README.m
 | Claude Code | Sonnet when offered, then the first listed model. Sign in to Claude Code with the account whose plan you want to use. |
 | Both | Start with a single main bot. Choose Codex or Claude Code for it and for each additional bot you need. |
 | API provider | OpenCode’s configured default. Pick an explicit provider/model entry to use another model, such as DeepSeek or Qwen. |
+| Gemini (beta) | Auto, Gemini CLI's own choice. Sign in by running `gemini` in Terminal first. |
+
+**Gemini (beta)** is Google's Gemini CLI. It is listed last and is never chosen for you while another AI is installed. Where you choose it, the app says what it cannot do yet: its reply arrives all at once, it asks for permission in its terminal (**Open terminal**) and not in the chat, and a model change applies the next time it starts. If you refuse a step there, press **Stop** in the chat before the next message. More in [Run Gemini CLI (beta)](../HerdrWorkspace/README.md#run-gemini-cli-beta).
 
 For subscription billing, check the account in Claude Code. An `ANTHROPIC_API_KEY` in its environment can take precedence over the subscription. [Claude Code subscription sign-in](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-max-or-ultra-plan)
 
@@ -102,13 +105,15 @@ Choose **This Mac** in the setup window and your bots work on the Mac you are si
 1. **Fetches the SwarmHub service** for this Mac's processor (Apple silicon or Intel) from the SwarmHub release, and checks it against the release key the app carries before it is used. A download that is not the signed release is thrown away. The program goes to `~/.local/bin/swarmhub-herdr`.
 2. **Installs Herdr Core** when it is not on the Mac yet: from Herdr's own releases, and only a build that Herdr signed with its Apple developer identity. A Herdr Core that is already there is used as it is.
 3. **Makes an access key** for the app (`~/.config/swarmhub-herdr/token`, readable by you only) and a folder for your bots' work, `swarmhub-agents` in your home folder.
-4. **Writes a starter template** for each supported AI program it finds on the Mac (Claude Code, Codex or OpenCode), in Herdr Core's templates folder (`~/.config/herdr-core/templates/swarmhub-claude.md`, `swarmhub-codex.md`, `swarmhub-opencode.md`), and a starter list of models. It installs no AI program and signs in to none.
+4. **Writes a starter template** for each supported AI program it finds on the Mac (Claude Code, Codex, OpenCode or Gemini CLI), in Herdr Core's templates folder (`~/.config/herdr-core/templates/swarmhub-claude.md`, `swarmhub-codex.md`, `swarmhub-opencode.md`, `swarmhub-gemini.md`), and a starter list of models. It installs no AI program and signs in to none.
 5. **Starts the service and keeps it running**: a background item of your account (`~/Library/LaunchAgents/com.konrad.agentapp.service.plist`) starts it now, at every login, and again if it stops. macOS shows a "Background Items Added" notice. Your bots keep working while the app is closed.
 
 **Answer my AIs' first questions for me** is a switch in the same window, on unless you turn it off. An AI program asks a person two things the first time, in a window no chat shows, so a bot's first message would wait forever:
 
 - Claude Code asks whether it may work in a new folder. With the switch on, SwarmHub tells Claude Code to trust the bots' folder, and only that folder: one entry in Claude Code's own settings file, `projects["<your home>/swarmhub-agents"].hasTrustDialogAccepted` in `~/.claude.json`, which is the entry Claude Code's documentation names for doing this by hand. Everything else in that file stays exactly as it was, and a copy of the file as it was is kept beside it (`~/.claude.json.before-swarmhub`). In a folder it trusts, Claude Code also uses settings files it finds there.
 - Codex asks to review the three commands SwarmHub gives it to show its steps and save its replies. With the switch on, the service tells Codex at each start that exactly those three commands are trusted. Nothing is written into Codex's settings.
+
+Gemini CLI (beta) needs neither answer. Its hooks are a small settings file SwarmHub keeps in each bot's own folder, and that folder is trusted only for the session SwarmHub starts, whatever the switch says. Its sign-in question is yours: run `gemini` in Terminal and sign in before the first chat.
 
 Nothing else is answered for you: an AI's questions about running a command or changing a file stay yours, and no permission or sandbox setting is changed. If a program's settings are not in a form SwarmHub knows, it changes nothing and the program may ask you to review its settings when it starts.
 

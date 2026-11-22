@@ -1,6 +1,6 @@
 # SwarmHub
 
-**Bring your Grok bot to your Mac and choose the model it runs on.** Start with one assistant on your Mac or your server, then add a bot when you have a job for it. Use Codex, Claude Code, both, or your own API provider through OpenCode. Each bot can use **Recommended** or a model you pick.
+**Bring your Grok bot to your Mac and choose the model it runs on.** Start with one assistant on your Mac or your server, then add a bot when you have a job for it. Use Codex, Claude Code, both, or your own API provider through OpenCode. Google's Gemini CLI can run a bot too, in beta. Each bot can use **Recommended** or a model you pick.
 
 [Mac releases](https://github.com/conrader/swarmhub/releases) · [Try the sample](#try-the-sample) · [Set up a real bot](#quick-start)
 

@@ -326,6 +326,102 @@ for turn, line in enumerate(sys.stdin, start=1):
 '''
 
 
+GEMINI_FIXTURE = r"""#!/usr/bin/python3
+# Stands in for Gemini CLI: reads the hooks from the settings file in the bot's folder and runs them in the
+# order Gemini CLI 0.70.0 does. It reports no status itself; the hooks do.
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import termios
+import time
+import tty
+
+args = sys.argv[1:]
+assert args in ([], ["--model", "flash"]), args
+assert os.environ["GEMINI_CLI_TRUST_WORKSPACE"] == "true"
+assert "SWARMHUB_LAUNCH_MODEL" not in os.environ
+folder = Path.cwd()
+assert (folder / ".swarmhub-workspace").is_file()
+settings = json.loads((folder / ".gemini/settings.json").read_text())
+assert settings["general"] == {"enableAutoUpdate": False}
+hooks = settings["hooks"]
+assert sorted(hooks) == ["AfterAgent", "AfterTool", "BeforeAgent", "BeforeTool", "Notification",
+                         "SessionEnd", "SessionStart"]
+
+def note(text):
+    with Path(__file__).with_suffix(".log").open("a") as log:
+        log.write(folder.name + ": " + text + "\n")
+
+def fire(event, **fields):
+    hook = hooks[event][0]["hooks"][0]
+    assert hook["type"] == "command" and hook["timeout"] >= 5000
+    result = subprocess.run(["sh", "-c", hook["command"]], capture_output=True, input=json.dumps({
+        "session_id": "fixture", "transcript_path": "/file-must-not-be-read.jsonl", "cwd": str(folder),
+        "hook_event_name": event, "timestamp": "2026-01-01T00:00:00.000Z", **fields}).encode())
+    # A hook that fails, or says anything but {}, would stop Gemini CLI or change what it does.
+    assert result.returncode == 0 and json.loads(result.stdout) == {}, (event, result)
+
+def line():
+    text = b""
+    while not text.endswith(b"\n"):
+        byte = os.read(0, 1)
+        if not byte:
+            sys.exit(0)
+        text += byte
+    return text.decode().strip().lstrip("\x1b")
+
+def answer():
+    file = folder / "permission-answer"
+    for _ in range(300):
+        if file.exists():
+            text = file.read_text().strip()
+            file.unlink()
+            return text
+        time.sleep(.1)
+    return "refuse"
+
+note("args " + json.dumps(args))
+fire("SessionStart", source="startup")
+while True:
+    task = line()
+    if not task:
+        continue
+    note("received " + task)
+    fire("BeforeAgent", prompt=task)
+    if task in ("use a tool", "ask permission"):
+        tool = {"tool_name": "run_shell_command",
+                "tool_input": {"command": "printf fixture", "description": "Print a word"}}
+        fire("BeforeTool", **tool)
+        if task == "ask permission":
+            fire("Notification", notification_type="ToolPermission",
+                 message="Tool Confirm Shell Command requires execution",
+                 details={"type": "exec", "title": "Confirm Shell Command", "command": "printf fixture",
+                          "rootCommand": "printf"})
+            if answer() != "allow":
+                # Gemini CLI runs no hook when a permission is refused: the turn just ends.
+                note("refused")
+                continue
+        fire("AfterTool", **tool, tool_response={"llmContent": "fixture", "returnDisplay": "fixture"})
+        fire("AfterAgent", prompt=task, prompt_response="I will run a command.\nThe command finished.",
+             stop_hook_active=False)
+    elif task == "wait here":
+        # A turn that runs until Escape. Gemini CLI runs no hook when a turn is cancelled either.
+        was = termios.tcgetattr(0)
+        tty.setcbreak(0)
+        try:
+            while os.read(0, 1) != b"\x1b":
+                pass
+        finally:
+            termios.tcsetattr(0, termios.TCSADRAIN, was)
+        note("cancelled")
+    elif task == "say nothing":
+        fire("AfterAgent", prompt=task, prompt_response="[no response text]", stop_hook_active=False)
+    else:
+        fire("AfterAgent", prompt=task, prompt_response="Gemini reply for " + task, stop_hook_active=False)
+"""
+
 def seed_legacy_database(directory, version):
     directory.mkdir(mode=0o700)
     path = directory / "workspace.sqlite3"
@@ -1119,6 +1215,19 @@ def smoke(hc, bridge, chrome=None):
             f"command: SWARMHUB_CODEX_BIN={shlex.quote(str(claude))} "
             f"{shlex.quote(bridge)} run-codex --workspace-approvals --model fixture-model\n---\n"
         )
+        gemini = root / "fake-gemini"
+        gemini.write_text(GEMINI_FIXTURE)
+        gemini.chmod(0o700)
+        # Gemini CLI keeps the chosen way to sign in in its own settings; the hook only reads it.
+        for home, chosen in (("gemini-home", {"security": {"auth": {"selectedType": "oauth-personal"}}}),
+                             ("gemini-new-home", {})):
+            (root / home / ".gemini").mkdir(parents=True)
+            (root / home / ".gemini/settings.json").write_text(json.dumps(chosen))
+            (templates / ("gemini-fixture.md" if chosen else "gemini-unsigned.md")).write_text(
+                f"---\ndescription: Gemini CLI hooks test\n"
+                f"command: GEMINI_CLI_HOME={shlex.quote(str(root / home))} "
+                f"SWARMHUB_GEMINI_BIN={shlex.quote(str(gemini))} {shlex.quote(bridge)} run-gemini\n---\n"
+            )
         legacy_version = os.environ.get("SWARMHUB_TEST_SCHEMA", "1")
         seed_legacy_database(root / "workspace", legacy_version)
         (root / "config/herdr-core/config.toml").write_text("notes_quiet = 0\ndraft_wait = 0\n")
@@ -1141,8 +1250,10 @@ def smoke(hc, bridge, chrome=None):
             assert result.returncode == 0, result.stderr
             return result.stdout
 
-        def start_bridge(port="0"):
+        def start_bridge(port="0", agents=None):
             process = subprocess.Popen([bridge], env={
+                # The folder bots get their private workspace folders in; without one they start in Core's.
+                **({"SWARMHUB_AGENT_CWD": str(agents)} if agents else {}),
                 "HC_SOCKET": str(socket), "SWARMHUB_ACCESS_TOKEN": token, "SWARMHUB_PORT": port,
                 "SWARMHUB_DATA_DIR": str(root / "workspace"),
                 **(dav[0] if dav else {}),
@@ -1267,6 +1378,149 @@ def smoke(hc, bridge, chrome=None):
                 assert any(row["id"] == review["id"] and row["provider"] == "Codex" and row["state"] == "denied"
                            for row in request("/api/approvals")["history"])
 
+            def test_gemini(core):
+                # Gemini CLI only starts in a bot's own folder, so this part runs with a place for those.
+                nonlocal process, base
+                port = base.rsplit(":", 1)[1]
+                agents = root / "gemini-agents"
+                agents.mkdir(mode=0o700)
+                stop(process)
+                process = None
+                process, base = start_bridge(port, agents)
+                shown = request("/api/workspace")["templates"]
+                choice = next(t for t in shown if t["name"] == "gemini-fixture")
+                assert choice["runtime"] == {"harness": "Gemini CLI", "provider": None, "model": None,
+                                             "display_name": "Gemini (beta)"}
+                assert choice["beta"] is True and "beta" in choice["note"] and choice["model_agent"] == "Gemini CLI"
+                # Beta programs are listed last, so none of them is "the first one" while another program is there.
+                assert {t["name"] for t in shown[-2:]} == {"gemini-fixture", "gemini-unsigned"}
+                assert all("beta" not in t and "note" not in t for t in shown[:-2])
+                log = root / "fake-gemini.log"
+                journal = root / "workspace/workspace.sqlite3"
+
+                def status(agent):
+                    return next(a for a in request("/api/workspace")["agents"]
+                                if a["address"] == agent["address"])["status"]
+
+                # Not signed in: Gemini CLI shows its sign-in question. The bot must never look ready, and
+                # its first message must not be typed into that question.
+                fresh = request("/api/agents", {"name": "gemini-new", "template": "gemini-unsigned",
+                                                 "task": "Gemini unsigned task"}, status=201)
+                assert not fresh["first_message"]["sent"], fresh
+                until(lambda: status(fresh) == {"state": "blocked", "kind": "auth"})
+                fresh_url = f"/api/agents/{fresh['address']}/{fresh['created_ms']}"
+                request(fresh_url + "/messages", {"text": "Gemini typed anyway"}, status=409)
+                # Stop does not make a program that waits for a sign-in look ready either.
+                request(fresh_url + "/interrupt", {})
+                time.sleep(1.5)
+                assert status(fresh) == {"state": "blocked", "kind": "auth"}
+                assert "agent-gemini-new: received" not in log.read_text()
+                request(fresh_url + "/end", {})
+
+                launched = request("/api/agents", {"name": "gemini-agent", "template": "gemini-fixture",
+                                                    "task": "Gemini first task"}, status=201)
+                assert launched["first_message"]["sent"], launched
+                key = f"{launched['address']}/{launched['created_ms']}"
+                path = f"/api/agents/{key}"
+                history_path = f"/api/history/{core}/{key}"
+
+                def rows(count):
+                    def read():
+                        items = request(history_path)["items"]
+                        return items if len(items) >= count else None
+                    return until(read)
+
+                events = rows(2)
+                assert [event["kind"] for event in events] == ["task", "reply"]
+                assert events[1]["detail"] == "Gemini CLI"
+                assert events[1]["text"] == "Gemini reply for Gemini first task"
+                until(lambda: status(launched) == {"state": "done"})
+                folder = agents / "agent-gemini-agent"
+                assert (folder / ".gemini/settings.json").is_file()
+
+                # A tool call shows as activity, and the reply is all the turn wrote.
+                request(path + "/messages", {"text": "use a tool"})
+                events = rows(4)
+                assert events[3]["text"] == "I will run a command.\nThe command finished."
+                stream = urllib.request.urlopen(urllib.request.Request(
+                    base + path + "/events", headers={"Authorization": f"Bearer {token}"}), timeout=8)
+                with stream:
+                    while not (data := stream.readline()).startswith(b"data:"):
+                        assert data, "the event stream ended"
+                tools = json.loads(data[5:])["tools"]
+                assert [(t["tool"], t["detail"], t["finished"], t["failed"]) for t in tools] == [
+                    ("run_shell_command", "printf fixture", True, False)], tools
+
+                # A turn without text saves no reply.
+                request(path + "/messages", {"text": "say nothing"})
+                until(lambda: "agent-gemini-agent: received say nothing" in log.read_text())
+                until(lambda: status(launched) == {"state": "done"})
+                assert len(request(history_path)["items"]) == 5
+
+                # A permission question blocks; another task is not typed into it.
+                request(path + "/messages", {"text": "ask permission"})
+                until(lambda: status(launched) == {"state": "blocked", "kind": "permission"})
+                request(path + "/messages", {"text": "typed into the question"}, status=409)
+                (folder / "permission-answer").write_text("allow")
+                events = rows(8)
+                assert events[7]["kind"] == "reply"
+                until(lambda: status(launched) == {"state": "done"})
+
+                # Refused in the terminal: Gemini CLI says nothing more, so the bot still reads as asking.
+                # The app's Stop is the way out, and the next task goes through.
+                request(path + "/messages", {"text": "ask permission"})
+                until(lambda: status(launched) == {"state": "blocked", "kind": "permission"})
+                (folder / "permission-answer").write_text("refuse")
+                until(lambda: "agent-gemini-agent: refused" in log.read_text())
+                assert status(launched) == {"state": "blocked", "kind": "permission"}
+                request(path + "/interrupt", {})
+                until(lambda: status(launched) == {"state": "idle"})
+                request(path + "/messages", {"text": "after the refusal"})
+                until(lambda: any(e["text"] == "Gemini reply for after the refusal"
+                                  for e in request(history_path)["items"]))
+
+                # A cancelled turn ends without a hook too. Stop leaves the bot idle, not working for ever.
+                request(path + "/messages", {"text": "wait here"})
+                until(lambda: status(launched) == {"state": "working"})
+                assert request(path + "/interrupt", {})["outcome"] == "stopped"
+                until(lambda: "agent-gemini-agent: cancelled" in log.read_text())
+                until(lambda: status(launched) == {"state": "idle"})
+                request(path + "/messages", {"text": "after the stop"})
+                until(lambda: any(e["text"] == "Gemini reply for after the stop"
+                                  for e in request(history_path)["items"]))
+                assert not any("typed" in e["text"] for e in request(history_path)["items"] if e["kind"] == "reply")
+
+                # A chosen model reaches Gemini CLI as its own option.
+                picked = request("/api/agents", {"name": "gemini-flash", "template": "gemini-fixture",
+                                                  "task": "Gemini model task", "model_id": "flash"}, status=201)
+                assert picked["first_message"]["sent"], picked
+                until(lambda: 'agent-gemini-flash: args ["--model", "flash"]' in log.read_text())
+
+                # What run-gemini refuses, it refuses in a sentence; a hook outside a session does nothing.
+                env = {"PATH": "/usr/bin:/bin", "SWARMHUB_JOURNAL": str(journal), "SWARMHUB_LAUNCH_KEY": "0" * 32,
+                       "SWARMHUB_GEMINI_BIN": "/bin/true"}
+                refused = subprocess.run([bridge, "run-gemini", "--workspace-approvals"], env=env, cwd=folder,
+                                         capture_output=True, text=True)
+                assert refused.returncode != 0 and "Remove --workspace-approvals" in refused.stderr, refused
+                outside = subprocess.run([bridge, "run-gemini"], env=env, cwd=root, capture_output=True, text=True)
+                assert outside.returncode != 0 and "only starts in a bot" in outside.stderr, outside
+                assert not (root / ".gemini").exists()
+                for stdin, hook_env in ((b'{"hook_event_name":"SessionStart"}', {"PATH": "/usr/bin:/bin"}),
+                                        (b"not json", env)):
+                    quiet = subprocess.run([bridge, "gemini-hook"], input=stdin, env=hook_env, capture_output=True)
+                    assert quiet.returncode == 0 and json.loads(quiet.stdout) == {}, quiet
+                for agent in (launched, picked):
+                    request(f"/api/agents/{agent['address']}/{agent['created_ms']}/end", {})
+                # Without a place for bot folders, run-gemini says why it will not start instead of hanging.
+                stop(process)
+                process = None
+                process, base = start_bridge(port)
+                homeless = request("/api/agents", {"name": "gemini-homeless", "template": "gemini-fixture",
+                                                    "task": "Gemini nowhere"}, status=201)
+                assert not homeless["first_message"]["sent"]
+                homeless_url = f"/api/agents/{homeless['address']}/{homeless['created_ms']}"
+                until(lambda: "only starts in a bot" in request(homeless_url + "/output")["text"])
+
             def test_skills(core):
                 request("/api/skills", status=401, authorized=False)
                 request("/api/skills", {"name": "Oversized", "summary": "", "instructions": "x" * 10241}, status=422)
@@ -1312,6 +1566,7 @@ def smoke(hc, bridge, chrome=None):
                 core = state["core"]
                 expected_templates = {
                     "fixture": False, "invalid": True, "claude-fixture": False, "approval-fixture": False, "codex-fixture": False,
+                    "gemini-fixture": False, "gemini-unsigned": False,
                 }
                 if selected_focus == "desktop-teaching":
                     expected_templates["desktop-fixture"] = False
@@ -4843,9 +5098,11 @@ reply(second, {"data":[{"id":"other-alias","model":"provider/gpt-exact","hidden"
                         subprocess.run(browser, env={**os.environ, "SWARMHUB_TEST_FOCUS": "profiles-offline"},
                                        check=True, timeout=45)
                     return
-                if focus in ("approvals", "codex", "groups", "skills"):
+                if focus in ("approvals", "codex", "gemini", "groups", "skills"):
                     if focus == "codex":
                         test_codex(core)
+                    elif focus == "gemini":
+                        test_gemini(core)
                     elif focus == "groups":
                         linked = request("/api/agents", {"name": "claude-capture", "template": "claude-fixture",
                                                           "task": "first structured task"}, status=201)
@@ -4997,6 +5254,7 @@ reply(second, {"data":[{"id":"other-alias","model":"provider/gpt-exact","hidden"
                 request(routine_url + "/test", {}, status=404)
 
                 test_approvals()
+                test_gemini(core)
 
                 if chrome:
                     roster = {a["name"]: a for a in request("/api/workspace")["agents"]}

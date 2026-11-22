@@ -12,12 +12,17 @@ pub const MODEL_ENV: &str = "SWARMHUB_LAUNCH_MODEL";
 pub(crate) const INVALID_API_TEMPLATE: &str =
     "Use a literal swarmhub-herdr run-opencode --api-first-task mini command for this template.";
 pub const CUSTOM_MODEL_ENV: &str = "SWARMHUB_MODEL_ID";
+/// Gemini CLI's full name. It is in beta here: people see it as "Gemini (beta)", with `BETA_NOTE` where they
+/// choose a program, and it is never the program chosen for them while another one is installed.
+pub(crate) const GEMINI: &str = "Gemini CLI";
+const BETA_NOTE: &str = "Gemini is in beta: a reply arrives all at once, it asks for permission in its terminal and not in the chat, and a model change applies the next time it starts.";
 
 #[derive(Clone, Copy)]
 pub enum ModelAgent {
     Claude,
     Codex,
     OpenCode,
+    Gemini,
 }
 
 impl ModelAgent {
@@ -26,6 +31,7 @@ impl ModelAgent {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
+            Self::Gemini => GEMINI,
         }
     }
 
@@ -34,6 +40,7 @@ impl ModelAgent {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
+            Self::Gemini => "gemini",
         }
     }
 
@@ -52,7 +59,7 @@ impl ModelAgent {
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
                     && starts_alphanumeric(model)
             }),
-            Self::Claude | Self::Codex => true,
+            Self::Claude | Self::Codex | Self::Gemini => true,
         }
     }
 
@@ -68,7 +75,7 @@ impl ModelAgent {
             .ok_or("This model selection does not match the agent template.")?;
         let supported = match self {
             Self::OpenCode => args.len() == 1 && args[0] == "mini",
-            Self::Claude | Self::Codex => args.is_empty(),
+            Self::Claude | Self::Codex | Self::Gemini => args.is_empty(),
         };
         if !supported {
             return Err("The selected model requires a template without fixed agent arguments.");
@@ -154,6 +161,7 @@ fn short_name(harness: &str) -> Option<String> {
     match harness {
         "Claude Code" => Some("Claude".to_owned()),
         "Codex" | "OpenCode" => Some(harness.to_owned()),
+        GEMINI => Some("Gemini (beta)".to_owned()),
         _ => None,
     }
 }
@@ -199,6 +207,19 @@ pub struct Choice {
     model_agent: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     discover_models: bool,
+    /// The program is in beta here. Clients list it after the others and never choose it by default.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    beta: bool,
+    /// One sentence for the place where the program is chosen: what it cannot do yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<&'static str>,
+}
+
+/// The same choices with the beta programs last, each group in the order Core gave. "The first one" is the
+/// default everywhere, so a beta program is the default only when it is the only program.
+pub fn beta_last(mut choices: Vec<Choice>) -> Vec<Choice> {
+    choices.sort_by_key(|choice| choice.beta);
+    choices
 }
 
 impl Catalog {
@@ -282,6 +303,7 @@ impl Catalog {
         } else {
             None
         };
+        let beta = runtime.harness == GEMINI;
         Choice {
             name: template.name,
             description: template.description,
@@ -290,7 +312,14 @@ impl Catalog {
             models,
             model_agent,
             discover_models,
+            beta,
+            note: beta.then_some(BETA_NOTE),
         }
+    }
+
+    /// Whether the template starts a program that is in beta here.
+    pub(crate) fn beta(&self, template: &Template) -> bool {
+        self.runtime(template).harness == GEMINI
     }
 
     pub fn model_target(&self, template: &Template) -> Option<ModelTarget> {
@@ -470,6 +499,7 @@ fn model_agent(command: &str) -> Option<ModelAgent> {
         ("run-opencode", Some("mini")) => ModelAgent::OpenCode,
         ("run-claude", None) => ModelAgent::Claude,
         ("run-codex", None) => ModelAgent::Codex,
+        ("run-gemini", None) => ModelAgent::Gemini,
         _ => return None,
     };
     words.next().is_none().then_some(agent)
@@ -484,11 +514,13 @@ fn recognize(command: &str) -> &'static str {
         Some("claude") => "Claude Code",
         Some("codex") => "Codex",
         Some("opencode") => "OpenCode",
+        Some("gemini") => GEMINI,
         Some("pi") => "Pi",
         Some("swarmhub-herdr") => match words.next() {
             Some("run-claude") => "Claude Code",
             Some("run-codex") => "Codex",
             Some("run-opencode") => "OpenCode",
+            Some("run-gemini") => GEMINI,
             _ => GENERIC,
         },
         _ => GENERIC,
@@ -507,6 +539,11 @@ mod tests {
             "Claude Code"
         );
         assert_eq!(recognize("opencode --model test/local"), "OpenCode");
+        assert_eq!(recognize("/opt/bin/gemini"), "Gemini CLI");
+        assert_eq!(
+            recognize("/usr/bin/swarmhub-herdr run-gemini"),
+            "Gemini CLI"
+        );
         assert_eq!(recognize("echo claude"), "Custom agent");
         assert_eq!(recognize("codex && other-agent"), "Custom agent");
         assert_eq!(recognize("codex --model \"$MODEL\""), "Custom agent");
@@ -563,5 +600,56 @@ mod tests {
         );
         assert_eq!(catalog.model_label("claude-work", "opus"), None);
         assert_eq!(catalog.model_label("nowhere", "sonnet"), None);
+    }
+
+    #[test]
+    fn gemini_is_named_as_beta_carries_a_note_and_is_listed_last() {
+        use super::{Catalog, ModelAgent, beta_last, model_agent};
+        let catalog = Catalog::default();
+        let template = |name: &str, command: &str| -> crate::core::Template {
+            serde_json::from_value(
+                serde_json::json!({"name":name,"description":"","error":null,"command":command}),
+            )
+            .unwrap()
+        };
+        let gemini = || template("swarmhub-gemini", "/usr/bin/swarmhub-herdr run-gemini");
+        let codex = || template("swarmhub-codex", "/usr/bin/swarmhub-herdr run-codex");
+        assert!(catalog.beta(&gemini()) && !catalog.beta(&codex()));
+        let shown = serde_json::to_value(catalog.choice(gemini())).unwrap();
+        // The program keeps its real name; only the name people read says beta.
+        assert_eq!(shown["runtime"]["harness"], "Gemini CLI");
+        assert_eq!(shown["runtime"]["display_name"], "Gemini (beta)");
+        assert_eq!(shown["beta"], true);
+        assert!(shown["note"].as_str().unwrap().contains("beta"));
+        assert_eq!(shown["model_agent"], "Gemini CLI");
+        let plain = serde_json::to_value(catalog.choice(codex())).unwrap();
+        assert!(plain.get("beta").is_none() && plain.get("note").is_none());
+        // What a client echoes back as `expected_runtime` has no new field in it.
+        let sent: super::Runtime = serde_json::from_value(shown["runtime"].clone()).unwrap();
+        assert_eq!(sent, catalog.runtime(&gemini()));
+
+        // Beta programs go last, the rest keep Core's order; alone, the beta program is first.
+        let names = |choices: Vec<super::Choice>| -> Vec<String> {
+            beta_last(choices).into_iter().map(|choice| choice.name).collect()
+        };
+        let claude = template("swarmhub-claude", "/usr/bin/swarmhub-herdr run-claude");
+        assert_eq!(
+            names(vec![
+                catalog.choice(gemini()),
+                catalog.choice(codex()),
+                catalog.choice(claude)
+            ]),
+            ["swarmhub-codex", "swarmhub-claude", "swarmhub-gemini"]
+        );
+        assert_eq!(names(vec![catalog.choice(gemini())]), ["swarmhub-gemini"]);
+
+        // A plain template takes the chosen model; one with arguments of its own does not.
+        assert!(matches!(
+            model_agent("/usr/bin/swarmhub-herdr run-gemini"),
+            Some(ModelAgent::Gemini)
+        ));
+        assert!(model_agent("/usr/bin/swarmhub-herdr run-gemini --model pro").is_none());
+        assert_eq!(ModelAgent::Gemini.selection("flash"), "gemini:flash");
+        assert!(ModelAgent::Gemini.accepts("gemini-3-pro-preview"));
     }
 }

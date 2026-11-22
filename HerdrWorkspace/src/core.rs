@@ -323,7 +323,7 @@ impl Core {
         let command = match agent {
             crate::runtimes::ModelAgent::Codex => "codex-models",
             crate::runtimes::ModelAgent::OpenCode => "opencode-models",
-            crate::runtimes::ModelAgent::Claude => {
+            crate::runtimes::ModelAgent::Claude | crate::runtimes::ModelAgent::Gemini => {
                 return Err(Failure::Input(
                     "This runtime has no supported model listing.",
                 ));
