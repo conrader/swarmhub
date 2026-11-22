@@ -323,7 +323,7 @@ struct HerdrAgentControls: View {
             // What few people change: both are on for every bot.
             QuietFold(title: "Advanced", isOpen: Binding(get: { showAdvanced || renderOpen }, set: { showAdvanced = $0 })) {
                 VStack(alignment: .leading, spacing: 18) {
-                    SettingBlock(title: "New conversation", detail: "Start \(bot.name) with empty context. Earlier messages stay visible here.") {
+                    SettingBlock(title: "New conversation", detail: GrokHandoffCopy.newConversation(bot.name, readsHistory: store.grokHandoffIsOn(for: bot))) {
                         Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isWorking(bot))
                     }
                     if servers.count > 1 {

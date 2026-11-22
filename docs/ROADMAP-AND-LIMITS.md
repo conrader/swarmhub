@@ -58,7 +58,7 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 
 ## Import
 
-- A bot imported from Grok Bot gets its old history as a read-only archive, and its agent reads it before its next reply (summarised when it is long). Messages written in SwarmHub after the import are not part of what a newly started agent is handed. A running agent is not told about lines a later import adds; its next agent is. A group's imported history is not handed to its members.
+- A bot imported from Grok Bot gets its old history as a read-only archive, and its agent reads it before its next reply (summarised when it is long). Messages written in SwarmHub after the import are not part of what a newly started agent is handed. A running agent is not told about lines a later import adds; its next agent is. A group's imported history is not handed to its members. **New conversation** does not start an imported bot with nothing while its handover is on: the new agent reads the history again. The copies of the history that a handover leaves on the server (in the bot's workspace folder, and for a summary in a folder of its own) are not removed by the app.
 - A template import uses the name, title, description, instructions and avatar. The import report lists what else the template held and was left out.
 
 ## Other platforms

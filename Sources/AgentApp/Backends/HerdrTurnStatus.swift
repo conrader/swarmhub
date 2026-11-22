@@ -20,7 +20,7 @@ enum HerdrTurnStatus: Equatable, Sendable {
     case finishing
     case failing(program: String?)
     /// Before the message of a bot that came with an earlier conversation (`HerdrHandoff`): the older part of that
-    /// conversation is being summarised, which happens once.
+    /// conversation is being summarised. The summary is kept, so this is not repeated once it was made.
     case summarising
     /// The agent is reading that conversation; the person's message follows when it has.
     case readingHistory
@@ -72,7 +72,7 @@ enum HerdrTurnStatus: Equatable, Sendable {
         case .blocked(let program): "\(program ?? "The agent") needs a terminal status check"
         case .finishing: "Finishing…"
         case .failing(let program): "\(program ?? "The agent") reported an error"
-        case .summarising: "Summarising your earlier conversation (once)…"
+        case .summarising: "Summarising your earlier conversation…"
         case .readingHistory: "Reading your earlier conversation…"
         }
     }

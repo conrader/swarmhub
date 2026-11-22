@@ -20,8 +20,8 @@ enum GrokHandoff {
     /// Lines a saved summary does not stand for are simply added to the recent part while they are no more than this.
     static let gapBytes = 16_000
     /// The full transcript is at most this (the server takes 8 MiB of files per message); a longer one loses its
-    /// oldest lines, and says so.
-    static let fullBytes = 6 * 1024 * 1024
+    /// oldest lines, and says so. A single line in it is at most `fullLineBytes`.
+    static let fullBytes = 6 * 1024 * 1024, fullLineBytes = 1024 * 1024
     /// A message in the note's own excerpt (`HerdrHandoff.note`) is cut to this.
     static let excerptMessageBytes = 600
     static let handoffFile = "grok-handoff.md", fullFile = "grok-history-full.md"
@@ -90,13 +90,15 @@ enum GrokHandoff {
     }
 
     /// `text` whole when it fits `limit` bytes; otherwise its start and its end around one line that says how much is
-    /// missing and where the whole message is.
-    static func cut(_ text: String, to limit: Int, seq: Int64) -> String {
+    /// missing and, unless `whole` is false (the full transcript itself, and what a summary is made from), where the
+    /// whole message is.
+    static func cut(_ text: String, to limit: Int, seq: Int64, whole: Bool = true) -> String {
         guard text.utf8.count > limit else { return text }
         let half = max(limit / 2, 1)
         let head = prefix(text, bytes: half), tail = suffix(text, bytes: half)
         let missing = text.utf8.count - head.utf8.count - tail.utf8.count
-        return head + "\n[… \(missing) bytes left out here. The whole message is #\(seq) in \(fullFile) …]\n" + tail
+        let pointer = whole ? " The whole message is #\(seq) in \(fullFile)" : ""
+        return head + "\n[… \(missing) bytes left out here.\(pointer) …]\n" + tail
     }
 
     /// One message of the recent part: a heading with who, when and its number, then the text.
@@ -194,21 +196,25 @@ enum GrokHandoff {
         prefix(SecretFilter.redacted(text, replacement: GrokRedactor.marker).trimmingCharacters(in: .whitespacesAndNewlines), bytes: summaryBytes)
     }
 
-    /// `summary` stands for `plan.older`; without one the file says that the older part is in the full transcript.
-    static func render(_ transcript: Transcript, plan: Plan, summary: String?, botName: String) -> Rendered {
+    /// `summary` is the saved summary of the older part, with the messages it stands for: the file names that range,
+    /// and says so when the older part goes on after it (a summary made before lines were added, used until a new one
+    /// is there). Without one the file says that the older part is in the full transcript.
+    static func render(_ transcript: Transcript, plan: Plan, summary: GrokHandoffCache?, botName: String) -> Rendered {
         let name = oneLine(botName)
-        let cleaned: String = summary.map(cleanSummary) ?? ""
+        let cleaned: String = summary.map { cleanSummary($0.summary) } ?? ""
         let clean: String? = plan.older.isEmpty || cleaned.isEmpty ? nil : cleaned
         var text = "# Earlier conversation of \(name)\n\n"
         text += "This conversation took place in another app before it moved here. The complete transcript "
         text += "(\(transcript.lines.count) lines) is \(fullFile); each message there starts with [#number time speaker]. "
         text += "Secrets were replaced by \(GrokRedactor.marker).\n\n"
         if let first = plan.older.first, let last = plan.older.last {
-            let range = "\(plan.older.count) messages, #\(first.seq) to #\(last.seq)"
-            if let clean {
-                text += "## Summary of the older part (\(range))\n\n\(clean)\n\n"
+            if let clean, let covers = summary {
+                text += "## Summary of the older part (\(covers.messages) messages, #\(covers.from) to #\(covers.through))\n\n\(clean)\n\n"
+                if covers.from > first.seq || covers.through < last.seq {
+                    text += "The older part runs from #\(first.seq) to #\(last.seq). What this summary does not cover is in \(fullFile).\n\n"
+                }
             } else {
-                text += "## The older part (\(range))\n\n"
+                text += "## The older part (\(plan.older.count) messages, #\(first.seq) to #\(last.seq))\n\n"
                 text += "The older part is not summarised here. It is in \(fullFile): search that file when something from before the recent part matters.\n\n"
             }
         }
@@ -226,7 +232,10 @@ enum GrokHandoff {
         var kept: [String] = []
         var used = 0
         for line in transcript.lines.reversed() {
-            let text = entry(line, botName: botName)
+            // One line that would fill the file by itself is cut in the middle, so that it does not hide every line before it.
+            var shown = line
+            shown.text = cut(line.text, to: fullLineBytes, seq: line.seq, whole: false)
+            let text = entry(shown, botName: botName)
             if used + text.utf8.count > fullBytes { break }
             used += text.utf8.count
             kept.append(text)

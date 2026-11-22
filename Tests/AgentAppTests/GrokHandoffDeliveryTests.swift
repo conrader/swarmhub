@@ -13,7 +13,8 @@ private func fixture(summary: String? = nil) -> (handoff: HerdrHandoff, id: UUID
     let id = UUID()
     let transcript = GrokHandoff.Transcript(handoffConversation(exchanges: 120, bytes: 400))
     let plan = GrokHandoff.plan(transcript, botName: "Ada")
-    return (GrokHandoff.package(GrokHandoff.render(transcript, plan: plan, summary: summary, botName: "Ada"), archiveID: id), id)
+    let saved = summary.map { handoffSummary($0, of: plan) }
+    return (GrokHandoff.package(GrokHandoff.render(transcript, plan: plan, summary: saved, botName: "Ada"), archiveID: id), id)
 }
 
 /// The bot's backend on `bridge`, with instructions and one note of the app; `handoff` nil is a bot without one.

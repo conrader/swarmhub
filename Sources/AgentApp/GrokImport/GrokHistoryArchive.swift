@@ -17,7 +17,8 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
 
 /// Per-bot archive files in `<store dir>/grok-history/<bot id>.json` (dir 0700, files 0600).
 /// Files are read only when a bot's archive is first opened. Beside an archive there may be the summary of its
-/// older part, `<bot id>.handoff.json` (`GrokHandoffCache`), which goes when the archive goes.
+/// older part, `<bot id>.handoff.json` (`GrokHandoffCache`), and what the Mac remembers about handing it over,
+/// `<bot id>.handoff-state.json` (`GrokHandoffState`); both go when the archive goes.
 @MainActor final class GrokHistoryStore: ObservableObject {
     let directory: URL
     @Published private(set) var loaded: [UUID: [ArchivedMessage]] = [:]
@@ -28,6 +29,7 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
 
     func fileURL(for botID: UUID) -> URL { directory.appending(path: "\(botID.uuidString.lowercased()).json") }
     func handoffURL(for botID: UUID) -> URL { GrokHandoffCache.url(in: directory, for: botID) }
+    func handoffStateURL(for botID: UUID) -> URL { GrokHandoffState.url(in: directory, for: botID) }
     func isLoaded(_ botID: UUID) -> Bool { loaded[botID] != nil }
 
     /// The newest visible archived line (P20 sidebar fragment); reads the file at most once per merge.
@@ -77,10 +79,11 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
     /// Lines in the archive file as it is on disk now (the Done step reads counts back from the files); nil = no file.
     func lineCountOnDisk(for botID: UUID) -> Int? { read(botID)?.messages.count }
 
-    /// Removes the archive, and the summary kept beside it.
+    /// Removes the archive, and what is kept beside it about handing it over: the summary and the state.
     func remove(_ botID: UUID) {
         try? FileManager.default.removeItem(at: fileURL(for: botID))
         try? FileManager.default.removeItem(at: handoffURL(for: botID))
+        try? FileManager.default.removeItem(at: handoffStateURL(for: botID))
         loaded[botID] = nil; newestCache[botID] = nil
     }
 

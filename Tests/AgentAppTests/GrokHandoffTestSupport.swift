@@ -21,6 +21,12 @@ func handoffConversation(exchanges: Int, bytes: Int = 40) -> [ArchivedMessage] {
     return lines
 }
 
+/// A saved summary of `plan`'s older part, as a summary agent would have left it.
+func handoffSummary(_ text: String, of plan: GrokHandoff.Plan) -> GrokHandoffCache {
+    GrokHandoffCache(summary: text, from: plan.older.first?.seq ?? 0, through: plan.older.last?.seq ?? 0, messages: plan.older.count,
+                     template: "", model: "", madeAt: Date(timeIntervalSince1970: 1_700_000_000))
+}
+
 /// A bridge with any number of agents. A launch or a message that carries a task is saved as a `task` row of that
 /// agent's session and, unless `answers` returns nil for it, answered at once with a `reply` row.
 final class HandoffBridge: @unchecked Sendable {
@@ -36,6 +42,7 @@ final class HandoffBridge: @unchecked Sendable {
 
     private let lock = NSLock()
     private var agents: [[String: Any]] = [], rows: [String: [[String: Any]]] = [:], posts: [Sent] = [], started = 0, historyReads = 0
+    private var refusals: [String] = [], waiting: [String] = []
     /// What the server says it can do, the status every agent reports, and what an agent replies to a task.
     /// Set before the first request.
     var attachments = true, launchAttachments = true
@@ -46,8 +53,24 @@ final class HandoffBridge: @unchecked Sendable {
     /// A reply that is saved only at the third read of a session's rows: an agent that was still working when the
     /// first read was made.
     var lateReply: String? = nil
+    /// Like the real server, a read of a session's rows returns only its newest `pageSize`; nil returns them all.
+    var pageSize: Int? = nil
+    /// The server refuses every request that carries files (422).
+    var refusesFiles = false
+    /// The tasks an agent takes but does not answer until `release`.
+    var holds: @Sendable (String) -> Bool = { _ in false }
 
     var sent: [Sent] { lock.withLock { posts } }
+    /// What the server refused, in order: the agent's name for a launch, the route for a request with files.
+    var refused: [String] { lock.withLock { refusals } }
+
+    /// The agents that hold a task back answer it now.
+    func release(_ reply: String) {
+        lock.withLock {
+            for key in waiting { rows[key, default: []].append(row("reply", reply, in: key)) }
+            waiting = []
+        }
+    }
     var liveNames: [String] { lock.withLock { agents.compactMap { $0["name"] as? String } } }
 
     func client() -> HerdrClient {
@@ -113,7 +136,7 @@ final class HandoffBridge: @unchecked Sendable {
     /// A task reaches the agent: saved, answered, and the agent is no longer unused.
     private func take(_ task: String, in key: String) {
         rows[key, default: []].append(row("task", task, in: key))
-        if let reply = answers(task) { rows[key, default: []].append(row("reply", reply, in: key)) }
+        if holds(task) { waiting.append(key) } else if let reply = answers(task) { rows[key, default: []].append(row("reply", reply, in: key)) }
         if let index = agents.firstIndex(where: { Self.key($0) == key }) { agents[index]["warm"] = false }
     }
 
@@ -132,10 +155,14 @@ final class HandoffBridge: @unchecked Sendable {
                 return (200, workspace)
             }
             if method == "GET", path == "/api/profiles" { return (200, [Any]()) }
+            if method == "POST", refusesFiles, path.hasSuffix("/with-files") {
+                refusals.append(path.hasSuffix("/messages/with-files") ? "message-with-files" : "launch-with-files")
+                return (422, ["error": "This bot needs a workspace folder for attachments."])
+            }
             if method == "POST", path == "/api/agents" || path == "/api/agents/with-files" {
                 let (message, files) = Self.parts(request)
                 let name = message["name"] as? String ?? ""
-                if refusesLaunch(name) { return (500, ["error": "The agent could not be started."]) }
+                if refusesLaunch(name) { refusals.append(name); return (500, ["error": "The agent could not be started."]) }
                 let key = add(name: name, template: message["template"] ?? "", warm: message["warm"] as? Bool == true)
                 let task = message["task"] as? String
                 posts.append(Sent(route: files.isEmpty ? "launch" : "launch-with-files", agent: name, text: task ?? "", files: files, workspaceID: message["workspace_id"] as? String))
@@ -147,7 +174,8 @@ final class HandoffBridge: @unchecked Sendable {
                 let key = "\(pieces[3])/\(pieces[4])"
                 historyReads += 1
                 if historyReads == 3, let late = lateReply { rows[key, default: []].append(row("reply", late, in: key)) }
-                let saved: [[String: Any]] = rows[key] ?? []
+                let all: [[String: Any]] = rows[key] ?? []
+                let saved: [[String: Any]] = pageSize.map { Array(all.suffix($0)) } ?? all
                 return (200, ["items": saved])
             }
             if method == "POST", pieces.count >= 5, pieces[1] == "agents" {

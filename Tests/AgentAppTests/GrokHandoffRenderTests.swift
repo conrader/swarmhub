@@ -16,7 +16,7 @@ private func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self
     let transcript = GrokHandoff.Transcript(lines)
     let plan = GrokHandoff.plan(transcript, botName: "Ada")
     #expect(plan.older.isEmpty && plan.recent.count == 11 && !plan.needsSummary)
-    let rendered = GrokHandoff.render(transcript, plan: plan, summary: "a summary nobody needs", botName: "Ada")
+    let rendered = GrokHandoff.render(transcript, plan: plan, summary: handoffSummary("a summary nobody needs", of: plan), botName: "Ada")
     let handoff = text(rendered.handoff), full = text(rendered.full)
     for index in 1...5 { #expect(handoff.contains("question \(index) end") && handoff.contains("answer \(index) end"), "exchange \(index)") }
     #expect(handoff.contains("Ada → Bea") && handoff.contains("a line for another bot"), "what bots said to each other is part of it")
@@ -40,7 +40,7 @@ private func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self
     #expect(without.handoff.count <= GrokHandoff.fileBytes && without.summary == nil)
     // A summary longer than its room is cut to it, and the file still fits.
     let long = String(repeating: "They agreed to ship on Friday. ", count: 600)
-    let with = GrokHandoff.render(transcript, plan: plan, summary: long, botName: "Ada")
+    let with = GrokHandoff.render(transcript, plan: plan, summary: handoffSummary(long, of: plan), botName: "Ada")
     #expect(text(with.handoff).contains("## Summary of the older part (\(plan.older.count) messages, #1 to #\(first.seq - 1))"))
     #expect((with.summary?.utf8.count ?? 0) <= GrokHandoff.summaryBytes && with.summary?.hasPrefix("They agreed to ship on Friday.") == true)
     #expect(with.handoff.count <= GrokHandoff.fileBytes && with.olderCount == plan.older.count && with.recentCount == plan.recent.count)
@@ -81,7 +81,7 @@ private func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self
     let transcript = GrokHandoff.Transcript(lines)
     let plan = GrokHandoff.plan(transcript, botName: "Ada")
     #expect(plan.older.contains { $0.seq == lines[10].seq } && plan.recent.contains { $0.seq == 601 })
-    let rendered = GrokHandoff.render(transcript, plan: plan, summary: "The person gave a password: \(secret) for the box.", botName: "Ada")
+    let rendered = GrokHandoff.render(transcript, plan: plan, summary: handoffSummary("The person gave a password: \(secret) for the box.", of: plan), botName: "Ada")
     let parts = try #require(GrokHandoff.parts(of: plan.older, botName: "Ada"))
     let handoff = GrokHandoff.package(rendered, archiveID: UUID())
     var leaving: [String] = [text(rendered.handoff), text(rendered.full), rendered.summary ?? "",
@@ -99,7 +99,8 @@ private func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self
     let lines = handoffConversation(exchanges: 300, bytes: 400)
     func rendered(_ lines: [ArchivedMessage]) -> GrokHandoff.Rendered {
         let transcript = GrokHandoff.Transcript(lines)
-        return GrokHandoff.render(transcript, plan: GrokHandoff.plan(transcript, botName: "Ada"), summary: "A summary.", botName: "Ada")
+        let plan = GrokHandoff.plan(transcript, botName: "Ada")
+        return GrokHandoff.render(transcript, plan: plan, summary: handoffSummary("A summary.", of: plan), botName: "Ada")
     }
     let once = rendered(lines), again = rendered(lines)
     #expect(once == again && once.handoff == again.handoff && once.full == again.full && once.revision == again.revision)
@@ -134,12 +135,13 @@ private func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self
     let transcript = GrokHandoff.Transcript(handoffConversation(exchanges: 300, bytes: 400))
     let plan = GrokHandoff.plan(transcript, botName: "Ada")
     let summary = String(repeating: "They agreed to ship on Friday. ", count: 600)
-    let summarised = GrokHandoff.package(GrokHandoff.render(transcript, plan: plan, summary: summary, botName: "Ada"), archiveID: UUID())
+    let summarised = GrokHandoff.package(GrokHandoff.render(transcript, plan: plan, summary: handoffSummary(summary, of: plan), botName: "Ada"), archiveID: UUID())
     let plain = GrokHandoff.package(GrokHandoff.render(transcript, plan: plan, summary: nil, botName: "Ada"), archiveID: UUID())
     #expect(summarised.olderMessages == plan.older.count && summarised.recentMessages == plan.recent.count && summarised.summary != nil && plain.summary == nil)
     for bytes in [5_200, 8_000] {
         let note = summarised.note(bytes: bytes, withFiles: true)
-        #expect(note.utf8.count <= bytes && note.utf8.count > bytes - 200, "the excerpt uses the room it has: \(note.utf8.count) of \(bytes)")
+        #expect(note.utf8.count <= bytes && note.utf8.count > HerdrHandoff.excerptBytes && note.utf8.count < HerdrHandoff.excerptBytes + 1_500,
+                "beside the files the excerpt is short, to leave the server its room: \(note.utf8.count) of \(bytes)")
         #expect(note.hasPrefix(summarised.marker) && note.contains("grok-handoff.md") && note.contains("grok-history-full.md"))
         #expect(note.contains("A summary, in case you cannot open the files:") && note.contains("They agreed to ship on Friday."))
         let last = plain.note(bytes: bytes, withFiles: true)
@@ -147,7 +149,8 @@ private func text(_ data: Data) -> String { String(decoding: data, as: UTF8.self
         #expect(last.contains("question 300 end") && last.contains("answer 300 end") && last.contains("question 299 end"), "the last two exchanges")
     }
     let alone = summarised.note(bytes: 5_200, withFiles: false)
-    #expect(alone.utf8.count <= 5_200 && alone.contains("could not take the files") && !alone.contains("grok-handoff.md") && alone.contains("They agreed to ship on Friday."))
+    #expect(alone.utf8.count <= 5_200 && alone.utf8.count > 5_000, "without the files the excerpt takes all the room: \(alone.utf8.count)")
+    #expect(alone.contains("could not take the files") && !alone.contains("grok-handoff.md") && alone.contains("They agreed to ship on Friday."))
     // Whatever instructions a bot has, the note fits beside them in a first task that carries files.
     let persona = String(repeating: "Be kind. ", count: 2_000)
     let own = HerdrClient.plain(persona, bytes: HerdrClient.instructionsBytes)

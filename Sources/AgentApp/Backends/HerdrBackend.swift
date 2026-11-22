@@ -33,6 +33,10 @@ struct HerdrBackend: AgentBackend {
     let agentName: String
     let botID: UUID
     private let accepted = LockedValue<HerdrClient.Turn?>(nil)
+    /// True from the start of a turn that may hand the bot's earlier conversation over until that step has ended:
+    /// meanwhile the turn takes no steer (`features`), so a message the person sends then waits its turn instead of
+    /// being typed into the handoff.
+    private let handingOver = LockedValue(false)
     /// nil: the first template the bridge can start.
     let template: String?
     /// nil: the agent program's own default model. Used when the bot next starts an agent.
@@ -163,6 +167,7 @@ struct HerdrBackend: AgentBackend {
         }
         let backend = configured
         _ = accepted.swap(nil)
+        _ = handingOver.swap(name == agentName && handoff != nil)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 let started = ContinuousClock.now
@@ -175,8 +180,17 @@ struct HerdrBackend: AgentBackend {
                     }
                     continuation.yield(.status(HerdrTurnStatus.sending.code))
                     // The agent reads the bot's earlier conversation first, once per agent session (`HerdrHandoff.swift`).
+                    // A handoff that fails does not hold the message back: it goes as it always did, and the source hears why.
+                    var notHandedOver: String? = nil
                     if name == backend.agentName, let handoff = backend.handoff {
-                        try await backend.handOver(handoff, status: { status in _ = continuation.yield(.status(status.code)) })
+                        do {
+                            notHandedOver = try await backend.handOver(handoff, status: { status in _ = continuation.yield(.status(status.code)) })
+                        } catch {
+                            _ = backend.handingOver.swap(false)
+                            throw error
+                        }
+                        _ = backend.handingOver.swap(false)
+                        // The store reads `features` again at a status, so the turn takes steers from here on.
                         continuation.yield(.status(HerdrTurnStatus.sending.code))
                     }
                     let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
@@ -186,6 +200,7 @@ struct HerdrBackend: AgentBackend {
                                                                 status: { continuation.yield(.status($0.code)) })
                     delivered = true
                     _ = backend.accepted.swap(turn)
+                    if let why = notHandedOver { backend.handoff?.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     // Read the launch model from this exact session. Following the answer proceeds concurrently.
@@ -255,7 +270,8 @@ struct HerdrBackend: AgentBackend {
         }
     }
 
-    func features() async throws -> Set<String> { steers ? ["run_steer"] : [] }
+    /// Nothing while the bot's earlier conversation is being handed over: that turn is not the person's to steer.
+    func features() async throws -> Set<String> { steers && !handingOver.current ? ["run_steer"] : [] }
 
     /// Types the message into the running agent. Claude Code and Codex keep their own queue for input that arrives
     /// mid-turn, so nothing is handed back; with no agent running there is nothing to steer.

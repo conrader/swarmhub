@@ -38,13 +38,68 @@ struct GrokHandoffCache: Codable, Equatable, Sendable {
     }
 }
 
+/// What the Mac remembers about handing a bot its conversation, kept beside the archive as `<id>.handoff-state.json`
+/// (mode 0600): never in `store.json`, and gone with the archive. It holds no text of the conversation.
+struct GrokHandoffState: Codable, Equatable, Sendable {
+    /// The launch of the bot's agent that replied to the handoff. While that launch runs, nothing is sent again,
+    /// whatever the server still shows of the session's rows (`HerdrHandoffSource.read`). `readMarker` is the marker
+    /// of what it read (with the archive's revision), when this Mac sent it.
+    var read: HerdrAgentLaunch? = nil
+    var readMarker: String? = nil
+
+    /// The handoff failed and the person's message went without it: for which launch, how often in a row, why, when.
+    struct Failures: Codable, Equatable, Sendable {
+        var launch: HerdrAgentLaunch
+        var count: Int
+        var why: String
+        var at: Date
+    }
+    var failures: Failures? = nil
+
+    /// The summary of the older part is not made by itself for now: making it failed (`tooLong` false), which holds
+    /// for `GrokHandoffState.summaryPause` from `at`, or the older part is longer than is summarised unasked. Either
+    /// way only for the archive as it was then (`revision`): new lines lift it, and so does the person's own request.
+    struct SummaryHold: Codable, Equatable, Sendable {
+        var revision: String
+        var at: Date
+        var tooLong: Bool
+    }
+    var summaryHold: SummaryHold? = nil
+    static let summaryPause: TimeInterval = 24 * 60 * 60
+
+    /// The hold applies to this revision of the archive at this moment.
+    func holdsSummary(of revision: String, now: Date) -> Bool {
+        guard let hold = summaryHold, hold.revision == revision else { return false }
+        return hold.tooLong || now.timeIntervalSince(hold.at) < Self.summaryPause
+    }
+
+    static func url(in directory: URL, for id: UUID) -> URL { directory.appending(path: "\(id.uuidString.lowercased()).handoff-state.json") }
+
+    /// An empty state when there is no file or it cannot be read.
+    static func load(_ url: URL) -> GrokHandoffState {
+        guard let data = try? Data(contentsOf: url) else { return GrokHandoffState() }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(GrokHandoffState.self, from: data)) ?? GrokHandoffState()
+    }
+
+    func save(to url: URL, directory: URL) throws {
+        try GrokHistoryStore.prepareDirectory(directory)
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(self).write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+}
+
 extension GrokHandoff {
     /// An archive read from disk and laid out: what a handoff is rendered from.
     struct Draft: Sendable {
         let transcript: Transcript
         let plan: Plan
-        /// The saved summary, when it stands for the plan's older part.
+        /// The saved summary of the older part. It may stand for less than the whole of it (`plan.covered` false):
+        /// it is still used until a new one is there.
         let cache: GrokHandoffCache?
+        /// How many files the older part makes when it has to be summarised; 0 when it needs no summary.
+        var parts = 0
     }
 
     /// nil when there is no archive, or nothing was said in it. Reads files: call it off the main actor.
@@ -54,15 +109,20 @@ extension GrokHandoff {
         guard !transcript.spoken.isEmpty else { return nil }
         let cache = GrokHandoffCache.load(cacheURL)
         let layout = Self.plan(transcript, botName: botName, summarisedThrough: cache?.through)
-        return Draft(transcript: transcript, plan: layout, cache: layout.covered && !layout.older.isEmpty ? cache : nil)
+        // A saved summary that ends before the older part starts says nothing about it.
+        var usable: GrokHandoffCache? = nil
+        if let saved = cache, let oldest = layout.older.first, saved.through >= oldest.seq { usable = saved }
+        let count = layout.needsSummary ? (parts(of: layout.older, botName: botName)?.texts.count ?? 0) : 0
+        return Draft(transcript: transcript, plan: layout, cache: usable, parts: count)
     }
 
     // MARK: Making the summary
 
     /// A file of the older part is about this long, and at most `mostParts` of them are summarised (four go with one
     /// message to the agent). A longer older part loses its oldest messages from the summary; they stay in the full
-    /// transcript.
-    static let partBytes = 120_000, mostParts = 24
+    /// transcript. By itself the app summarises an older part of at most `unaskedParts` files; a longer one waits for
+    /// the person to ask, because it takes the agent several rounds and may not fit what it can read.
+    static let partBytes = 120_000, mostParts = 24, unaskedParts = 8
 
     /// The older part as the texts a summary is made from, oldest first, and what they stand for.
     struct Parts: Sendable, Equatable {
@@ -85,7 +145,7 @@ extension GrokHandoff {
         var first = last.seq
         for line in older.reversed() {
             var shown = line
-            shown.text = cut(line.text, to: partBytes / 2, seq: line.seq)
+            shown.text = cut(line.text, to: partBytes / 2, seq: line.seq, whole: false)
             let text = entry(shown, botName: botName)
             if size > 0, size + text.utf8.count > partBytes {
                 if groups.count == mostParts { break }

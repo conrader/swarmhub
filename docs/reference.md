@@ -53,7 +53,7 @@ The app keeps its data in `~/Library/Application Support/AgentApp/`:
 | `runtime.sqlite` | The index of saved documents and the queue of messages waiting to be sent. |
 | `attachments/` | Attached images. |
 | `artifacts/` | Saved documents. |
-| `grok-history/` | Read-only history imported from Grok Bot, one file per bot or group. Beside a bot's file, `<id>.handoff.json` holds the summary of its older part once one was made; it is removed with the history. |
+| `grok-history/` | Read-only history imported from Grok Bot, one file per bot or group. Beside a bot's file, `<id>.handoff.json` holds the summary of its older part once one was made, and `<id>.handoff-state.json` what the app remembers about handing the history to the bot's agent (which agent has read it, a failure); both are removed with the history. |
 
 If SwarmHub cannot open `store.json`, it moves the complete file aside as `store.json.corrupt-<time>` and offers the newest readable backup, if one is available.
 

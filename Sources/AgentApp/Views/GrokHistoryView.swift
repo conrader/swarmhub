@@ -46,7 +46,8 @@ struct GrokHistoryView: View {
     }
 }
 
-/// How far the bot's agent has this history, and the switch that keeps it from the agent.
+/// How far the bot's agent has this history, a way to ask for it again after it failed, and the switch that keeps
+/// it from the agent.
 private struct GrokHandoffLine: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
@@ -56,6 +57,12 @@ private struct GrokHandoffLine: View {
             Image(systemName: "arrow.turn.down.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).frame(width: 12)
             Text(store.grokHandoffLine(for: bot)).font(.system(size: 11)).foregroundStyle(.secondary)
             Spacer()
+            // The person's own request, after the app stopped trying by itself.
+            if store.grokOffersRetry(for: bot) {
+                Button(GrokHandoffCopy.tryAgain) { store.retryGrokHandoff(for: bot) }.buttonStyle(.link).font(.system(size: 11))
+            } else if store.grokOffersSummary(for: bot) {
+                Button(GrokHandoffCopy.trySummary) { Task { _ = await store.retryGrokSummary(for: bot) } }.buttonStyle(.link).font(.system(size: 11))
+            }
             Toggle(GrokHandoffCopy.switchLabel(bot.name), isOn: Binding(get: { store.grokHandsOver(bot) }, set: { store.setGrokHandsOver($0, for: bot) }))
                 .labelsHidden().toggleStyle(.appleSwitch).controlSize(.small)
                 .help(GrokHandoffCopy.switchHelp(bot.name))

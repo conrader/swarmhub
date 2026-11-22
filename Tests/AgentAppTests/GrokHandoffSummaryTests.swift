@@ -87,7 +87,7 @@ private func permissions(_ url: URL) throws -> Int? {
     #expect(try permissions(url) == 0o600)
     #expect(!onDisk.contains(secret) && onDisk.contains("They planned the launch."))
     let record = try #require(store.grokHandoffRecord(for: bot))
-    #expect(record.summarised && record.older == 152 && record.recent == 88 && store.grokHandoffs.summaries.isEmpty && store.grokHandoffs.failed.isEmpty)
+    #expect(record.summarised && record.older == 152 && record.recent == 88 && store.grokHandoffs.summaries.isEmpty && store.grokHandoffState(for: bot.id).summaryHold == nil)
     #expect(store.grokHandoffLine(for: bot).hasPrefix("Handed over to Ada · summary of 152 + last 88 messages · "))
     // A new agent of the bot is handed the conversation again, with the summary that was kept: none is made twice.
     #expect(try await store.restartHerdrAgent(for: bot))
@@ -113,7 +113,8 @@ private func permissions(_ url: URL) throws -> Int? {
     #expect(handoff.contains("The older part is not summarised here") && !handoff.contains("## Summary of the older part") && handoff.contains("question 120 end") && !handoff.contains("question 1 end"))
     #expect(sent[0].files["grok-history-full.md"]?.contains("question 1 end") == true, "the older part is in the full transcript")
     #expect(sent[0].text.contains("The last messages, in case you cannot open the files:") && sent[1].text.hasSuffix("Where were we?"))
-    #expect(!FileManager.default.fileExists(atPath: store.grokHistory.handoffURL(for: bot.id).path) && store.grokHandoffs.failed.contains(bot.id) && store.grokHandoffs.summaries.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: store.grokHistory.handoffURL(for: bot.id).path) && store.grokHandoffs.summaries.isEmpty)
+    #expect(store.grokHandoffState(for: bot.id).summaryHold?.tooLong == false && store.grokOffersSummary(for: bot), "the failure is kept, and the header offers to try again")
     let record = try #require(store.grokHandoffRecord(for: bot))
     #expect(!record.summarised && record.older == 152 && store.grokHandoffLine(for: bot).contains("without a summary"))
 }
