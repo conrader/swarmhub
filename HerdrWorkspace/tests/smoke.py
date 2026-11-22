@@ -153,6 +153,8 @@ import time
 args = sys.argv[1:]
 codex = args[0] == "-c"
 if codex:
+    assert args[:2] == ["-c", "check_for_update_on_startup=false"]
+    args = args[2:]
     commands = {}
     while args[0] == "-c":
         match = re.fullmatch(r'hooks\.(\w+)=\[\{hooks=\[\{type="command",command=(.*),timeout=\d+\}\]\}\]', args[1])

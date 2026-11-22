@@ -110,9 +110,9 @@ Choose **This Mac** in the setup window and your bots work on the Mac you are si
 - Claude Code asks whether it may work in a new folder. With the switch on, SwarmHub tells Claude Code to trust the bots' folder, and only that folder: one entry in Claude Code's own settings file, `projects["<your home>/swarmhub-agents"].hasTrustDialogAccepted` in `~/.claude.json`, which is the entry Claude Code's documentation names for doing this by hand. Everything else in that file stays exactly as it was, and a copy of the file as it was is kept beside it (`~/.claude.json.before-swarmhub`). In a folder it trusts, Claude Code also uses settings files it finds there.
 - Codex asks to review the three commands SwarmHub gives it to show its steps and save its replies. With the switch on, the service tells Codex at each start that exactly those three commands are trusted. Nothing is written into Codex's settings.
 
-Nothing else is answered for you: an AI's questions about running a command or changing a file stay yours, and no permission or sandbox setting is changed. If a program's settings are not in a form SwarmHub knows, it changes nothing and the setup window shows the question under **Your AIs** with **Answer in Terminal**.
+Nothing else is answered for you: an AI's questions about running a command or changing a file stay yours, and no permission or sandbox setting is changed. If a program's settings are not in a form SwarmHub knows, it changes nothing and the program may ask you to review its settings when it starts.
 
-When the Mac is ready, **Your AIs** checks the selected Codex and Claude Code programs before sending a task. OpenCode’s API-backed template starts when you send its first task.
+When the Mac is ready, **Your AIs** shows **Installed** when the local service finds Codex. The scan does not start a Codex session. SwarmHub starts Codex bots with the optional startup update check disabled. For Claude Code, the wizard checks whether it can take a task and offers **Answer in Terminal** for first-run questions. OpenCode’s API-backed template starts when you send its first task.
 
 ### What you need
 

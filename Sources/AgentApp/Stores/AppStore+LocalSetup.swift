@@ -58,9 +58,14 @@ extension AppStore {
         return service.isPlaced ? try? await service.status(port: port) : nil
     }
 
-    /// Whether the AI of `program` can take a message on this Mac right now (`HerdrClient.firstRunCheck`).
-    func checkAI(_ program: HerdrProgram, on server: HerdrServer, key: String?, note: String?) async -> HerdrAICheck {
-        var check = HerdrAICheck(template: program.template, name: program.name, note: note)
+    /// Codex detection reads the executable inventory. Starting its terminal here can open an updater.
+    func checkAI(_ program: HerdrProgram, on server: HerdrServer, key: String?, report: HerdrLocalReport?) async -> HerdrAICheck {
+        let entry = report?.program(template: program.template)
+        var check = HerdrAICheck(template: program.template, name: program.name, note: entry?.firstTime)
+        if program.template == "swarmhub-codex" || program.starterName == "codex" {
+            check.state = .installation(found: entry?.installed)
+            return check
+        }
         do { check.state = try await herdrClient(for: server, token: key).firstRunCheck(template: program.template) }
         catch { check.state = .failed(error.localizedDescription) }
         return check

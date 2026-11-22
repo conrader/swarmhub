@@ -57,6 +57,8 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         hooks.push(trusted);
     }
     let mut cmd = executable();
+    // The terminal may be unattended. Leave optional upgrades to interactive launches outside SwarmHub.
+    cmd.args(["-c", "check_for_update_on_startup=false"]);
     cmd.env_remove(crate::runtimes::MODEL_ENV);
     // Codex reads its state databases as it starts. Have them in memory by then (`prefetch`).
     prefetch::start();

@@ -79,7 +79,7 @@ struct SetupAIChecks: View {
             HStack {
                 Text(WizardCopy.aiTitle).font(.headline).accessibilityAddTraits(.isHeader)
                 Spacer()
-                if checks.contains(where: { $0.state != .checking && $0.state != .ready }) { Button(WizardCopy.aiAgain, action: again).controlSize(.small) }
+                if checks.contains(where: { $0.state != .checking && $0.state != .ready && $0.state != .installation(found: true) }) { Button(WizardCopy.aiAgain, action: again).controlSize(.small) }
             }
             ForEach(checks) { check in row(check) }
             ForEach(missing) { program in
@@ -97,6 +97,12 @@ struct SetupAIChecks: View {
                 Text(WizardCopy.aiChecking).font(.callout).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }.padding(.horizontal, 14).padding(.vertical, 10).appleCard(padding: 0).accessibilityElement(children: .combine)
+        case .installation(found: true):
+            line(symbol: "checkmark.circle.fill", colour: AppColor.good, title: check.name, detail: "Installed", inline: true)
+        case .installation(found: false):
+            line(symbol: "minus.circle", colour: .secondary, title: check.name, detail: "Not installed", inline: true)
+        case .installation(found: nil):
+            line(symbol: "questionmark.circle", colour: .secondary, title: check.name, detail: "Installation could not be verified", inline: true)
         case .ready:
             line(symbol: "checkmark.circle.fill", colour: AppColor.good, title: check.name, detail: WizardCopy.aiReady, inline: true)
         case .failed(let why):

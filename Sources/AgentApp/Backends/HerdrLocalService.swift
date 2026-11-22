@@ -209,6 +209,8 @@ enum HerdrLocalSetup: Equatable, Sendable {
 struct HerdrAICheck: Equatable, Identifiable, Sendable {
     enum State: Equatable, Sendable {
         case checking
+        /// The local executable inventory, independent of sign-in and runtime readiness.
+        case installation(found: Bool?)
         case ready
         /// It waits at a question. `screen`: what its terminal shows; `agent`: the terminal to answer it in.
         case asks(screen: String, agent: HerdrClient.AgentRef)

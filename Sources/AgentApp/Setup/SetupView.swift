@@ -42,7 +42,7 @@ struct SetupView: View {
                     case .welcome:
                         SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace, saved: store.herdrConfigured ? store.herdrServers : [],
                                               savedHostID: $savedHostID)
-                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, checkAgain: checkAIs)
+                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, checkAgain: recheckThisMac)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
                     case .projects: if let model = presetProjects ?? projects { SetupProjectsStep(flow: $flow, model: model) }
@@ -276,20 +276,32 @@ struct SetupView: View {
     }
 
     /// This Mac answers: read what its service says is installed, then find out whether each AI can take a message.
-    private func lookAtThisMac(_ server: HerdrServer) async {
-        if flow.localReport == nil, let report = await store.localReport(port: server.port), !closed, flow.herdrServer == server { flow.apply(.localReport(report)) }
-        checkAIs()
+    private func lookAtThisMac(_ server: HerdrServer, refresh: Bool = false) async {
+        let report: HerdrLocalReport?
+        if refresh || flow.localReport == nil {
+            report = await store.localReport(port: server.port)
+        } else {
+            report = flow.localReport
+        }
+        guard !closed, flow.step == .herdr, flow.herdrServer == server else { return }
+        // Keep the install receipt (including what setup did) when refreshing the executable inventory.
+        if flow.localReport == nil, let report { flow.apply(.localReport(report)) }
+        checkAIs(report: report)
     }
 
-    /// Starts each AI of this Mac once, with no task, and shows whether it is ready or asks something first.
-    private func checkAIs() {
+    private func recheckThisMac() {
+        guard let server = flow.herdrServer, !flow.aiChecking else { return }
+        Task { await lookAtThisMac(server, refresh: true) }
+    }
+
+    private func checkAIs(report: HerdrLocalReport?) {
         guard flow.step == .herdr, let server = flow.herdrServer, server.kind == .local, let offer = flow.herdrOffer, !flow.aiChecking else { return }
-        let key = flow.herdrKey, report = flow.localReport
+        let key = flow.herdrKey
         for program in offer.programs where program.template != "swarmhub-opencode" && (flow.starter?.programs.contains(program.starterName) ?? true) {
             let note = report?.program(template: program.template)?.firstTime
             flow.apply(.aiCheck(HerdrAICheck(template: program.template, name: program.name, note: note)))
             Task {
-                let check = await store.checkAI(program, on: server, key: key, note: note)
+                let check = await store.checkAI(program, on: server, key: key, report: report)
                 if !closed, flow.herdrServer == server { flow.apply(.aiCheck(check)) }
             }
         }

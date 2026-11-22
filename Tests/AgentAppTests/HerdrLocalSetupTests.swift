@@ -149,6 +149,23 @@ private func checkClient(ready: [Bool], live: Bool = true, screen: String = " Tr
 }
 
 @Suite struct HerdrAICheckTests {
+    @MainActor @Test func codexDetectionUsesTheLocalInventoryWithoutStartingASession() async throws {
+        let store = SetupPreview.makeStore()
+        // No workspace is listening here. Even an unavailable inventory must not trigger an interactive check.
+        let server = HerdrServer(id: "test", name: "This Mac", kind: .local, address: HerdrServer.loopback(port: 1))
+        let program = HerdrProgram(template: "swarmhub-codex", name: "Codex", takesModel: true, models: [])
+        let json = statusJSON.replacingOccurrences(of: "starter-one", with: program.template)
+        for installed in [true, false] {
+            let source = json.replacingOccurrences(of: #""id":"one","installed":true"#,
+                                                   with: #""id":"one","installed":"# + String(installed))
+            let report: HerdrLocalReport = try HerdrLocalService.answer(Data(source.utf8))
+            let check = await store.checkAI(program, on: server, key: nil, report: report)
+            #expect(check.state == .installation(found: installed))
+        }
+        let unknown = await store.checkAI(program, on: server, key: nil, report: nil)
+        #expect(unknown.state == .installation(found: nil))
+    }
+
     @Test func anAIThatGetsReadyIsEndedAgainAndOneThatAsksIsLeftRunning() async {
         let (ready, readyTrace) = checkClient(ready: [false, true])
         let first = await ready.firstRunCheck(template: "starter-one", wait: .seconds(5), every: .milliseconds(10))
