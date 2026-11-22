@@ -61,8 +61,9 @@ struct GrokChoiceCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.5)
-        .accessibilityLabel("\(title). \(detail)")
+        .accessibilityLabel([title, detail, footnote].compactMap { $0 }.joined(separator: ". "))
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityHint(enabled ? "One of two choices" : "Not available")
     }
 }
 

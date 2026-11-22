@@ -97,8 +97,9 @@ struct GrokHistoryFetcher: Sendable {
                         stats.blobsMissing += 1
                     }
                 } catch let error as GrokServerError where error.kind == .blob && Self.isOneMissingFile(error) {
-                    // A refused, oversized or unusable download is one file: its line counts as unreadable (a later
-                    // run fetches it again) and the conversation goes on. Network trouble and the ceiling still stop.
+                    // A refused or oversized download is one file: its line counts as unreadable (a later run fetches
+                    // it again) and the conversation goes on. Network trouble, the request ceiling, and an address
+                    // this app refuses to contact (not public https, or a redirect) still stop the fetch.
                     stats.blobsMissing += 1
                 }
             }
@@ -128,7 +129,7 @@ struct GrokHistoryFetcher: Sendable {
 
     private static func isOneMissingFile(_ error: GrokServerError) -> Bool {
         switch error.reason {
-        case .rejected, .tooLarge, .blobURLRejected, .redirectRefused: true
+        case .rejected, .tooLarge: true
         default: false
         }
     }

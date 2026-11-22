@@ -113,7 +113,8 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
             if let saved = byKey[message.dedupeKey] {
                 if message.streaming == true, saved.streaming != true { continue }
                 if message.text.utf8.count < saved.text.utf8.count,
-                   message.streaming == true || !settledFetchedSequences.contains(message.seq) { continue }
+                   message.streaming == true || !settledFetchedSequences.contains(message.seq),
+                   !message.isMoreRedacted(than: saved) { continue }
             }
             byKey[message.dedupeKey] = message
         }
@@ -157,7 +158,7 @@ enum GrokHistoryError: LocalizedError, Equatable {
         case .sourceMismatch: "The saved archive belongs to another conversation."
         case .archiveUnreadable(let name): "A history archive could not be read; it was kept as \(name), nothing deleted."
         case .archiveUnmovable(let name): "The history archive \(name) could not be read or set aside; nothing was changed."
-        case .archiveUnavailable(let name): "The history archive \(name) could not be opened just now; nothing was changed. Try again."
+        case .archiveUnavailable(let name): "The history archive \(name) could not be opened; nothing was changed. If it keeps happening, check that the file can be read."
         }
     }
 }
@@ -167,6 +168,21 @@ extension ArchivedMessage {
     nonisolated(unsafe) private static let plain = ISO8601DateFormatter()
 
     static func date(_ value: String?) -> Date? { value.flatMap { fractional.date(from: $0) ?? plain.date(from: $0) } }
+
+    /// The same message as `saved` with more of it replaced by the marker: every stretch of this text between markers is
+    /// in `saved`, in order. A shorter copy is normally an older or half-written one and does not replace a saved line;
+    /// this one is shorter because today's filter took what an older filter left behind, so it does.
+    func isMoreRedacted(than saved: ArchivedMessage) -> Bool {
+        guard streaming != true else { return false }
+        let pieces = text.components(separatedBy: GrokRedactor.marker)
+        guard pieces.count > 1 else { return false }
+        var searchFrom = saved.text.startIndex
+        for piece in pieces where !piece.isEmpty {
+            guard let found = saved.text.range(of: piece, range: searchFrom..<saved.text.endIndex) else { return false }
+            searchFrom = found.upperBound
+        }
+        return true
+    }
 
     /// The same line with every text field through the secret filter again (a line already filtered comes back unchanged).
     var refiltered: ArchivedMessage {

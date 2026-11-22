@@ -196,7 +196,17 @@ import Testing
         ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "AWS_[REDACTED]"),
         ("passwd=abc def", "[REDACTED] def"),
         ("key xai-ABCDEFGHIJKLMNOP1234 end", "key [REDACTED] end"),
-        // Unchanged on purpose: counts and plain words are not credentials.
+        ("**Password:** hunter2", "**[REDACTED]"),
+        ("password: `correct horse` ok", "[REDACTED] ok"),
+        ("password: “correct horse” ok", "[REDACTED] ok"),
+        (#"secret: "a\"b c" tail"#, "[REDACTED] tail"),
+        // The gap between two string literals in code is not a quoted value.
+        (#"print("Password: " + pw + " is wrong")"#, #"print("[REDACTED] + pw + " is wrong")"#),
+        // Unchanged on purpose: counts, paths and plain words are not credentials.
+        ("PWD=/home/user and pwd: /tmp", "PWD=/home/user and pwd: /tmp"),
+        ("passwd: files", "passwd: files"),
+        ("/etc/passwd: No such file", "/etc/passwd: No such file"),
+        ("XAI_MANAGEMENT_KEY and xai_shap_values_plot(x)", "XAI_MANAGEMENT_KEY and xai_shap_values_plot(x)"),
         (#""prompt_tokens": 12, "max_tokens": 4096"#, #""prompt_tokens": 12, "max_tokens": 4096"#),
         ("token_count: 5", "token_count: 5"),
         ("secretary: Ann", "secretary: Ann"),
@@ -216,4 +226,23 @@ import Testing
     try encoder.encode(GrokHistoryFile(sourceID: "source", messages: [saved])).write(to: url)
     let merged = try GrokHistoryStore.mergeOnDisk([], sourceID: "source", url: url, directory: directory)
     #expect(merged.count == 1 && merged[0].text == #"use {"[REDACTED]} here"#)
+}
+
+@Test func aCopyThatIsShorterOnlyBecauseMoreWasRedactedReplacesTheSavedLine() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "grok-residue-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "bot.json")
+    func line(_ id: String, _ seq: Int64, _ text: String) -> ArchivedMessage {
+        ArchivedMessage(id: id, seq: seq, role: "assistant", author: nil, text: text, timestamp: nil, hidden: false, channel: "chat", to: nil)
+    }
+    // What an older filter left: the first word of a quoted value gone, the rest still there.
+    let saved = [line("m1", 1, #"it is [REDACTED] horse battery staple" for now"#), line("m2", 2, "a long settled answer")]
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    try encoder.encode(GrokHistoryFile(sourceID: "source", messages: saved)).write(to: url)
+    let incoming = [line("m1", 1, "it is [REDACTED] for now"), line("m2", 2, "a long")]
+    let merged = try GrokHistoryStore.mergeOnDisk(incoming, sourceID: "source", url: url, directory: directory)
+    // The cleaner copy wins; an ordinary shorter copy still does not.
+    #expect(merged.map(\.text) == ["it is [REDACTED] for now", "a long settled answer"])
 }
