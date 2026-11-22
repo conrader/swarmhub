@@ -45,18 +45,26 @@ import Testing
         #expect(org.validatedName("pinned") == nil && org.validatedName("UNSECTIONED") == nil)
         org.createSection(named: "Work")
         #expect(org.validatedName("work") == nil)
-        #expect(org.createSection(named: "WORK") == nil && org.sections.count == 1)
+        let duplicate = org.createSection(named: "WORK")
+        #expect(duplicate == nil && org.sections.count == 1)
         let id = org.sections[0].id
-        #expect(org.renameSection(id, to: "WORK") && org.sections[0].name == "WORK")
+        let renamed = org.renameSection(id, to: "WORK")
+        #expect(renamed && org.sections[0].name == "WORK")
     }
 
     @Test func pinsKeepOrderUnpinAndCap() {
         var org = SidebarOrganisation()
         let all = (0..<10).map { _ in UUID() }
-        for id in all.prefix(9) { #expect(org.pin(id)) }
-        #expect(!org.canPinMore && !org.pin(all[9]) && org.pinned == Array(all.prefix(9)))
+        for id in all.prefix(9) {
+            let pinned = org.pin(id)
+            #expect(pinned)
+        }
+        let overCap = org.pin(all[9])
+        #expect(!org.canPinMore && !overCap && org.pinned == Array(all.prefix(9)))
         org.unpin(all[0])
-        #expect(org.canPinMore && org.pin(all[9]) && org.pinned.last == all[9] && org.pinned.count == 9)
+        #expect(org.canPinMore)
+        let afterUnpin = org.pin(all[9])
+        #expect(afterUnpin && org.pinned.last == all[9] && org.pinned.count == 9)
     }
 
     @Test func pruneDropsUnknownAndDuplicateIds() {
