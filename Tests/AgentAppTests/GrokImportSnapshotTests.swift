@@ -29,6 +29,12 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     try data.write(to: snapshotFolder.appending(path: "\(name).png"))
 }
 
+/// Scan is done; Continue through the Permission step and return while the run is in flight.
+@MainActor private func runWithoutWaiting(_ coordinator: GrokImportCoordinator) async {
+    await coordinator.proceed()
+    coordinator.continueToMacOS()
+}
+
 /// Default suite: the first step only.
 @MainActor @Test func theImportSheetsFirstStepRenders() async throws {
     let world = try GrokWorld()
@@ -66,15 +72,19 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     #expect(next.mode == .recent && next.refusalNote?.contains(said) == true)
     try await render(next, store, name: "1-found-after-refusal")
 
-    // All history working again forgets the stop.
+    // All history working again forgets the stop. (A fresh coordinator: a rendered sheet going away dismisses its own.)
     world.fake.intercept = nil
-    next.mode = .full
-    await runFull(next)
-    #expect(next.step == .finished && next.fallback == nil && next.lastRefusal == nil)
+    let again = makeCoordinator(world, store)
+    await again.scan()
+    again.mode = .full
+    await runFull(again)
+    #expect(again.step == .finished && again.fallback == nil && again.lastRefusal == nil)
     #expect(GrokRefusalNote.load(store.defaults) == nil)
 }
 
-/// Every other step of the sheet, rendered for review: the macOS explanation, a run in flight, a network pause, done.
+/// Every other step of the sheet, rendered for review: the macOS explanation, a run in flight, cancelled, a network
+/// pause, done. A rendered sheet going away dismisses its coordinator (as closing the real sheet does), so each state
+/// that is rendered and then used again has a coordinator of its own.
 @MainActor @Test func everyStepOfTheImportSheetRenders() async throws {
     let world = try GrokWorld(history: [GrokRunIDs.jarvis: 30, GrokRunIDs.finance: 25, GrokRunIDs.plain: 3, GrokRunIDs.group: 4])
     world.fake.pageCap = 10
@@ -85,18 +95,30 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
         return nil
     }
     let store = world.store(server: "https://box.test/v1")
+    let asking = makeCoordinator(world, store)
+    await asking.scan()
+    await asking.proceed()
+    #expect(asking.step == .permission)
+    try await render(asking, store, name: "2-permission")
+
     let coordinator = makeCoordinator(world, store)
     await coordinator.scan()
-    await coordinator.proceed()
-    #expect(coordinator.step == .permission)
-    try await render(coordinator, store, name: "2-permission")
-    coordinator.continueToMacOS()
+    await runWithoutWaiting(coordinator)
     try await grokWait { reached.isOn }
     try await render(coordinator, store, name: "3-importing")
+    coordinator.cancel()
     release.signal()
     await coordinator.settled()
-    #expect(coordinator.step == .finished && coordinator.fallback == nil)
-    try await render(coordinator, store, name: "4-done")
+    #expect(coordinator.step == .cancelled)
+    try await render(coordinator, store, name: "4-cancelled")
+
+    let whole = try GrokWorld()
+    let third = whole.store(server: "https://box.test/v1")
+    let done = makeCoordinator(whole, third)
+    await done.scan()
+    await runFull(done)
+    #expect(done.step == .finished && done.fallback == nil)
+    try await render(done, third, name: "4-done")
 
     let offline = try GrokWorld()
     offline.fake.intercept = { index, _ in index >= 2 ? .fail(.timedOut) : nil }

@@ -33,8 +33,9 @@ struct GrokProgressStep: View {
     private var banner: GrokNotice? {
         switch coordinator.step {
         case .paused(.network(let error)):
-            return GrokNotice(text: "Grok's service could not be reached (\(error.description)). Retry remaining continues where it " +
-                              "stopped; nothing is asked again and bots already imported stay.", symbol: "wifi.exclamationmark", tone: .caution)
+            let what = error.errorDescription ?? "Grok's service could not be reached."
+            return GrokNotice(text: "\(what) Retry remaining continues where it stopped; nothing is asked again and bots " +
+                              "already imported stay.", symbol: "wifi.exclamationmark", tone: .caution)
         case .paused(.signInInvalid):
             return GrokNotice(text: "Grok stopped accepting the sign-in part-way. Continue reads Grok Bot's renewed sign-in, so macOS " +
                               "asks once more; bots already imported stay.", symbol: "person.crop.circle.badge.exclamationmark", tone: .caution)
