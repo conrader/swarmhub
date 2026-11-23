@@ -119,3 +119,25 @@ import Testing
     #expect(posts.last?.text.hasSuffix("Thanks") == true)
     #expect(bot.messages.contains { $0.content == "Friday." })
 }
+
+@Test @MainActor func startingFreshOrForgettingABotClearsPendingModelSwitchAndCarryOver() async throws {
+    let bridge = HandoffBridge()
+    let (store, bot) = try handoffStore(bridge)
+    bot.messages = [ChatMessage(role: .user, content: "Secret draft"), ChatMessage(role: .assistant, content: "Ready.")]
+    store.markModelSwitch(bot)
+    store.armHerdrCarryOver(for: [bot], running: [:])
+    #expect(store.modelSwitchPending(bot) && store.herdrCarryOver(for: bot) != nil)
+
+    // Details → New conversation → Start fresh clears both the carry-over and the pending switch flag.
+    store.setHerdrCarryOver(nil, for: bot)
+    store.clearModelSwitch(bot.id)
+    let server = store.herdrServer(for: bot)
+    let sources = try await store.prepareDirectModel(bot: bot, server: server, template: store.herdrTemplate(for: bot), model: store.herdrModel(for: bot))
+    #expect(sources.isEmpty && store.herdrCarryOver(for: bot) == nil && !store.modelSwitchPending(bot))
+
+    // Deleting/forgetting a bot removes its model-switch and confirmation defaults too.
+    store.markModelSwitch(bot)
+    store.defaults.set("confirmed", forKey: "herdr.confirmed.\(bot.id)")
+    store.forgetHerdrCarryOver(bot.id)
+    #expect(!store.modelSwitchPending(bot) && store.defaults.object(forKey: "herdr.confirmed.\(bot.id)") == nil)
+}

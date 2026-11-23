@@ -109,13 +109,14 @@ extension AppStore {
     private func importTeamHistory(_ client: HerdrClient, server: HerdrServer) async throws {
         let key = "herdrTeamCursor.\(server.id)"
         var cursor = defaults.integer(forKey: key)
+        var selectedRead = cursor
         repeat {
             let page: HerdrClient.TeamPage = try await client.get("/api/bots/history?after=\(cursor)&limit=200")
-            var changed = false
+            var changed = false, held = false
             let before = cursor
             for item in page.items {
                 if let bot = bots.first(where: { $0.id.uuidString.lowercased() == item.bot && $0.backend == .herdr && herdrServer(for: $0) == server }) {
-                    if item.kind == "said", isWorking(bot) { break }
+                    if item.kind == "said", !isIdle(bot) { held = true; continue }
                     let entry = "\(server.id):\(item.id)"
                     let journal = item.journal.map { "\(server.id):\($0)" }
                     let exists = bot.messages.contains { row in
@@ -137,19 +138,21 @@ extension AppStore {
                         if item.kind == "said", item.code != "direct_followup", createsHerdrBots(bot) { herdrReplyEnded(row, from: bot, finished: true) }
                         changed = true
                     }
+                    if selectedGroup == nil, selectedBot?.id == bot.id { selectedRead = max(selectedRead, item.id) }
                 }
-                cursor = item.id
+                if !held { cursor = item.id }
             }
             if changed || turns.saveFailing { save() }
             guard !turns.saveFailing else { return }
             if cursor != before { defaults.set(cursor, forKey: key) }
-            if !page.more || cursor != page.items.last?.id { break }
+            if held || !page.more || cursor != page.items.last?.id { break }
         } while !Task.isCancelled
-        if let bot = selectedBot, selectedGroup == nil, bot.backend == .herdr, herdrServer(for: bot) == server, cursor > 0 {
+        let readThrough = max(cursor, selectedRead)
+        if let bot = selectedBot, selectedGroup == nil, bot.backend == .herdr, herdrServer(for: bot) == server, isIdle(bot), readThrough > 0 {
             let readKey = "herdrTeamRead.\(server.id).\(bot.id)"
-            if cursor > defaults.integer(forKey: readKey) {
-                let _: HerdrClient.TeamOK = try await client.post("/api/bots/\(bot.id.uuidString.lowercased())/read", ["through": cursor])
-                defaults.set(cursor, forKey: readKey)
+            if readThrough > defaults.integer(forKey: readKey) {
+                let _: HerdrClient.TeamOK = try await client.post("/api/bots/\(bot.id.uuidString.lowercased())/read", ["through": readThrough])
+                defaults.set(readThrough, forKey: readKey)
             }
         }
     }

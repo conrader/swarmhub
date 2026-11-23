@@ -60,8 +60,9 @@ pub(crate) async fn answer(
         }
     })?;
     let said = match ask {
-        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } =>
-            completion_command(w, &core_id, key, ask).await,
+        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } => {
+            completion_command(w, &core_id, key, ask).await
+        }
         Ask::Job { command } => crate::jobs::answer(w, &core_id, key, *command).await,
         Ask::JobReview { command } => crate::job_reviews::answer(w, &core_id, key, *command).await,
         Ask::Park { command } => {
@@ -69,11 +70,15 @@ pub(crate) async fn answer(
             let key = key.to_owned();
             tokio::task::spawn_blocking(move || {
                 let mut db = crate::history::connection(w.history.file()).map_err(|_| STORAGE)?;
-                w.parks.command(&mut db, &w.fleet_policy, &key, *command)
+                w.parks
+                    .command(&mut db, &w.fleet_policy, &key, *command)
                     .map_err(|error| error.message())
-            }).await.map_err(|_| STORAGE.to_owned())?
+            })
+            .await
+            .map_err(|_| STORAGE.to_owned())?
         }
-        _ => super::write(&w.history, |ctx| perform(ctx, key, ask)).map_err(|_| STORAGE.to_owned())?,
+        _ => super::write(&w.history, |ctx| perform(ctx, key, ask))
+            .map_err(|_| STORAGE.to_owned())?,
     };
     kick();
     said
@@ -724,7 +729,12 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
             .unwrap_or_default();
         format!(
             "{}\n\n{}",
-            notes::standing(&bot, &others, &super::command(), w.fleet_authority().configured().is_ok()),
+            notes::standing(
+                &bot,
+                &others,
+                &super::command(),
+                w.fleet_authority().configured().is_ok()
+            ),
             item.text
         )
     } else {
@@ -1024,12 +1034,56 @@ mod tests {
         reply("First answer to the new task");
         sync_direct_followups(&db).unwrap();
         assert_eq!(chat().len(), 2);
-        testing::at(&history, 101, &Settings::default(), |ctx| {
+        // A side-thread question in between must not hide a later direct follow-up to the main chat task.
+        db.execute(
+            "INSERT INTO journal(core_id,address,created_ms,agent,kind,state,text,at_ms,in_reply_to,reply_excerpt,thread_reply_token)
+             SELECT core_id,address,created_ms,agent,'task','sent','Side question',105,1,'Waiting','tok1'
+             FROM journal WHERE launch_key=?1",
+            [&key],
+        )
+        .unwrap();
+        reply("Main task finished after thread question");
+        sync_direct_followups(&db).unwrap();
+        assert_eq!(
+            chat(),
+            [
+                "Download halfway done",
+                "Installation verified",
+                "Main task finished after thread question"
+            ]
+        );
+        testing::at(&history, 106, &Settings::default(), |ctx| {
             rules::floor(ctx, &key)
         });
         reply("Reply after Stop");
         sync_direct_followups(&db).unwrap();
-        assert_eq!(chat().len(), 2);
+        assert_eq!(chat().len(), 3);
+
+        // An unrecovered launch (address still NULL when hooks write directly to SQLite) still recovers follow-ups.
+        let agent_name = testing::bot(&history, "GameDev").agent_name;
+        let (_, unrecovered) = history
+            .start_launch("core", &agent_name, "Offline launch task", None, "{}", "")
+            .unwrap()
+            .unwrap();
+        assert!(
+            crate::history::publish_reply(history.file(), &unrecovered, "Agent", "Initial", None)
+                .unwrap()
+        );
+        assert!(
+            crate::history::publish_reply(
+                history.file(),
+                &unrecovered,
+                "Agent",
+                "Delayed while offline",
+                None
+            )
+            .unwrap()
+        );
+        sync_direct_followups(&db).unwrap();
+        assert_eq!(
+            chat().last().map(String::as_str),
+            Some("Delayed while offline")
+        );
     }
 
     #[test]

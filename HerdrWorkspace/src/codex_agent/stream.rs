@@ -394,7 +394,9 @@ pub async fn run() -> Result<(), Failed> {
                         // The UI may still be using the server: leave it running and try to listen again.
                         connection = None;
                         reconnect_at = Instant::now() + RECONNECT;
+                        flush_at = None;
                         follower = Follower::default();
+                        feed.show(None).await;
                         Vec::new()
                     }
                 };
@@ -537,7 +539,8 @@ struct Follower {
     listing: Option<u64>,
     // A completed final message can precede turn/completed, whose items are often empty.
     // Keep it separate from the preview, which can also contain partial text or commentary.
-    final_by_thread: HashMap<String, (String, String)>,
+    // Providers may omit `phase` (`null`), so track whether `final_answer` was explicit.
+    final_by_thread: HashMap<String, (String, String, bool)>,
     completed: Option<(String, String)>,
     reply: Option<Reply>,
     /// The reply changed since it was last shown.
@@ -558,13 +561,34 @@ fn other_conversation(thread: &Value) -> bool {
     thread["ephemeral"] == true || !thread["parentThreadId"].is_null()
 }
 
-fn final_text(item: &Value) -> Option<&str> {
-    if item["type"] != "agentMessage" || item["phase"] != "final_answer" {
+fn final_text(item: &Value) -> Option<(&str, bool)> {
+    if item["type"] != "agentMessage" {
         return None;
     }
-    item["text"]
+    let text = item["text"]
         .as_str()
-        .filter(|s| !s.trim().is_empty() && s.len() <= super::MAX_REPLY_BYTES)
+        .filter(|s| !s.trim().is_empty() && s.len() <= super::MAX_REPLY_BYTES)?;
+    match item.get("phase") {
+        Some(Value::String(phase)) if phase == "final_answer" => Some((text, true)),
+        None | Some(Value::Null) => Some((text, false)),
+        _ => None,
+    }
+}
+
+fn final_from_items(items: &[Value]) -> Option<&str> {
+    if let Some(explicit) = items
+        .iter()
+        .rev()
+        .find_map(|item| final_text(item).and_then(|(text, explicit)| explicit.then_some(text)))
+    {
+        return Some(explicit);
+    }
+    // Legacy models/providers leave `phase` null; accept an agentMessage only when no tool item followed it.
+    let terminal = items
+        .iter()
+        .rev()
+        .find(|item| !matches!(item["type"].as_str(), Some("reasoning" | "plan")))?;
+    final_text(terminal).map(|(text, _)| text)
 }
 
 impl Follower {
@@ -671,14 +695,28 @@ impl Follower {
                 {
                     self.completed = turn["items"]
                         .as_array()
-                        .and_then(|items| items.iter().rev().find_map(final_text))
+                        .and_then(|items| final_from_items(items.as_slice()))
                         .map(|text| (id.to_owned(), text.to_owned()))
-                        .or_else(|| candidate.filter(|(seen, _)| seen == id));
+                        .or_else(|| {
+                            candidate
+                                .filter(|(seen, _, _)| seen == id)
+                                .map(|(seen, text, _)| (seen, text))
+                        });
                 }
                 self.clear(thread);
             }
             "item/started" if self.joined.contains(thread) => {
                 let item = &params["item"];
+                if !matches!(
+                    item["type"].as_str(),
+                    Some("agentMessage" | "reasoning" | "plan")
+                ) && self
+                    .final_by_thread
+                    .get(thread)
+                    .is_some_and(|(_, _, explicit)| !*explicit)
+                {
+                    self.final_by_thread.remove(thread);
+                }
                 if item["type"] == "agentMessage"
                     && let Some(id) = item["id"].as_str()
                 {
@@ -717,11 +755,20 @@ impl Follower {
             }
             "item/completed" if self.joined.contains(thread) => {
                 let item = &params["item"];
-                if let Some(text) = final_text(item)
+                if let Some((text, explicit)) = final_text(item)
                     && let Some(id) = params["turnId"].as_str().filter(|id| super::valid_turn(id))
                 {
-                    self.final_by_thread
-                        .insert(thread.to_owned(), (id.to_owned(), text.to_owned()));
+                    let keep_existing = !explicit
+                        && self
+                            .final_by_thread
+                            .get(thread)
+                            .is_some_and(|(seen, _, was_explicit)| seen == id && *was_explicit);
+                    if !keep_existing {
+                        self.final_by_thread.insert(
+                            thread.to_owned(),
+                            (id.to_owned(), text.to_owned(), explicit),
+                        );
+                    }
                 }
                 if item["type"] == "agentMessage"
                     && let (Some(id), Some(text)) = (item["id"].as_str(), item["text"].as_str())
@@ -931,15 +978,19 @@ mod tests {
 
     #[test]
     fn only_a_successful_matching_turn_commits_its_final_message() {
-        let item =
-            |phase: &str| json!({"type":"agentMessage","id":"msg","text":"Answer","phase":phase});
+        let item = |phase: Option<&str>| match phase {
+            Some(phase) => json!({"type":"agentMessage","id":"msg","text":"Answer","phase":phase}),
+            None => json!({"type":"agentMessage","id":"msg","text":"Answer","phase":null}),
+        };
         for (thread, phase, turn, status, expected) in [
-            (THREAD, "final_answer", "t1", "completed", true),
-            (THREAD, "commentary", "t1", "completed", false),
-            (THREAD, "final_answer", "t1", "failed", false),
-            (THREAD, "final_answer", "t1", "interrupted", false),
-            (THREAD, "final_answer", "old", "completed", false),
-            ("child", "final_answer", "t1", "completed", false),
+            (THREAD, Some("final_answer"), "t1", "completed", true),
+            (THREAD, None, "t1", "completed", true),
+            (THREAD, Some("commentary"), "t1", "completed", false),
+            (THREAD, Some("partial_answer"), "t1", "completed", false),
+            (THREAD, Some("final_answer"), "t1", "failed", false),
+            (THREAD, Some("final_answer"), "t1", "interrupted", false),
+            (THREAD, Some("final_answer"), "old", "completed", false),
+            ("child", Some("final_answer"), "t1", "completed", false),
         ] {
             let mut follower = joined();
             follower.heard(&note(
@@ -956,11 +1007,35 @@ mod tests {
                 expected.then(|| ("t1".into(), "Answer".into()))
             );
         }
+        // A phaseless message followed by a tool call and no final answer is pre-tool commentary, not the final reply.
+        let mut tool_after = joined();
+        tool_after.heard(&note(
+            "item/completed",
+            json!({"threadId":THREAD,"turnId":"t1","item":item(None)}),
+        ));
+        tool_after.heard(&note(
+            "item/started",
+            json!({"threadId":THREAD,"turnId":"t1","item":{"type":"commandExecution","id":"exec-1","command":"ls"}}),
+        ));
+        tool_after.heard(&note(
+            "turn/completed",
+            json!({"threadId":THREAD,"turn":{"id":"t1","status":"completed","items":[]}}),
+        ));
+        assert!(tool_after.completed.is_none());
+
         let mut follower = joined();
-        follower.heard(&note("turn/completed", json!({"threadId":THREAD,"turn":{"id":"t2","status":"completed","items":[item("commentary"),item("final_answer")]}})));
+        follower.heard(&note("turn/completed", json!({"threadId":THREAD,"turn":{"id":"t2","status":"completed","items":[item(Some("commentary")),item(Some("final_answer"))]}})));
         assert_eq!(
             follower.completed.take(),
             Some(("t2".into(), "Answer".into()))
+        );
+        let mut legacy = joined();
+        legacy.heard(&note("turn/completed", json!({"threadId":THREAD,"turn":{"id":"t3","status":"completed","items":[item(None),{"type":"commandExecution","id":"e1"}]}})));
+        assert!(legacy.completed.is_none());
+        legacy.heard(&note("turn/completed", json!({"threadId":THREAD,"turn":{"id":"t4","status":"completed","items":[item(None),{"type":"reasoning","id":"r1"}]}})));
+        assert_eq!(
+            legacy.completed.take(),
+            Some(("t4".into(), "Answer".into()))
         );
     }
 
@@ -1067,5 +1142,33 @@ mod tests {
         assert!(crate::opencode_agent::valid_reply_id(&reply_id(
             &"é".repeat(300)
         )));
+    }
+
+    #[tokio::test]
+    async fn feed_closes_the_live_socket_when_cleared() {
+        use tokio::io::AsyncReadExt;
+
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("replies.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let mut feed = Feed {
+            path,
+            key: "00112233445566778899aabbccddeeff".into(),
+            socket: None,
+        };
+        let draft = Reply {
+            thread: THREAD.into(),
+            item: "msg_1".into(),
+            text: "Partial answer".into(),
+            whole: true,
+        };
+        feed.show(Some(&draft)).await;
+        assert!(feed.socket.is_some());
+        let (mut accepted, _) = listener.accept().await.unwrap();
+        feed.show(None).await;
+        assert!(feed.socket.is_none());
+        let mut received = String::new();
+        accepted.read_to_string(&mut received).await.unwrap();
+        assert!(received.contains("\"Partial answer\""));
     }
 }

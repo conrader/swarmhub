@@ -256,7 +256,7 @@ enum GrokHandoff {
     static func lead(for archiveID: UUID, origin: HerdrHandoff.Origin = .imported) -> String { "[SwarmHub \(origin == .ownChat ? "chat handoff" : "handoff") \(archiveID.uuidString.lowercased().prefix(8)) " }
     /// The marker of one revision of the archive. Only `lead` is looked for today; the revision is there for telling
     /// a running agent what was added since it read an older one.
-    static func marker(for archiveID: UUID, revision: String) -> String { lead(for: archiveID) + "r\(revision)]" }
+    static func marker(for archiveID: UUID, revision: String, origin: HerdrHandoff.Origin = .imported) -> String { lead(for: archiveID, origin: origin) + "r\(revision)]" }
 
     /// The rendered files as the backend carries them to the agent.
     static func package(_ rendered: Rendered, archiveID: UUID, origin: HerdrHandoff.Origin = .imported) -> HerdrHandoff {
@@ -265,7 +265,7 @@ enum GrokHandoff {
             HerdrClient.TaskFile(name: origin.fullFile, mime: "text/markdown", data: rendered.full),
         ]
         let prefix = lead(for: archiveID, origin: origin)
-        return HerdrHandoff(lead: prefix, marker: prefix + "r\(rendered.revision)]", files: files,
+        return HerdrHandoff(lead: prefix, marker: marker(for: archiveID, revision: rendered.revision, origin: origin), files: files,
                             summary: rendered.summary, recent: rendered.lastExchanges,
                             olderMessages: rendered.olderCount, recentMessages: rendered.recentCount, origin: origin)
     }

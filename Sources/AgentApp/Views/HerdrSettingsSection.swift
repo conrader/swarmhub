@@ -323,7 +323,7 @@ struct HerdrAgentControls: View {
                 SettingsPaneButton(title: "Manage AIs on this Mac…", pane: .ais)
             }
             HerdrHelperModelSection(bot: bot, server: store.herdrServer(for: bot), templates: templates)
-                .id(store.herdrServer(for: bot).id)
+                .id("\(bot.id)-\(store.herdrServer(for: bot).id)")
             // What few people change: both are on for every bot.
             QuietFold(title: "Advanced", isOpen: Binding(get: { showAdvanced || renderOpen }, set: { showAdvanced = $0 })) {
                 VStack(alignment: .leading, spacing: 18) {
@@ -368,7 +368,7 @@ struct HerdrAgentControls: View {
                 note = "Switched to \(target.record.label) in this conversation."
             }
         }
-        .task(id: store.localAIRevision) {
+        .task(id: "\(bot.id)-\(store.localAIRevision)") {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
             serverID = store.herdrServer(for: bot).id
             loaded = true
@@ -435,6 +435,7 @@ struct HerdrAgentControls: View {
             do {
                 // "Empty context" is what was asked for: a chat noted for the bot's next agent is not handed over.
                 store.setHerdrCarryOver(nil, for: bot)
+                store.clearModelSwitch(bot.id)
                 let closed = try await store.restartHerdrAgent(for: bot)
                 // With "Keep its agent ready" on, the fresh agent starts now instead of with the next message.
                 let starting = store.launchWorkEnabled && store.warmHerdrAgent(for: bot) != nil

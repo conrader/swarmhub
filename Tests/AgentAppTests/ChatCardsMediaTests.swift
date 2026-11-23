@@ -72,3 +72,15 @@ import Testing
 
 // MARK: Media
 
+@Test func mediaExtractorIncludesPublishedImagesFilesAndPages() throws {
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let rows = try decoder.decode([HerdrClient.Item].self, from: Data(#"[{"id":10,"kind":"artifact","detail":"render.png"},{"id":11,"kind":"artifact","detail":"clip.mp4"},{"id":12,"kind":"page","detail":"Design Spec","page_id":4,"page_revision":1}]"#.utf8))
+    let reply = ChatMessage(role: .assistant, content: "Published outputs.")
+    reply.publishedResults = HerdrReplyResults(serverID: "local", items: rows.compactMap(HerdrPublishedResult.init))
+    let media = MediaExtractor.items(in: [reply])
+    #expect(media.map(\.title) == ["render.png", "clip.mp4", "Design Spec"])
+    #expect(media.map(\.kind) == [.image, .file, .file])
+    #expect(media.allSatisfy { $0.messageID == reply.id && $0.attachment == nil })
+}
+

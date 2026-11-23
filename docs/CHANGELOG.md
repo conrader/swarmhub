@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.8.13 (build 47)
+
+- Long Gemini (Antigravity) replies are saved in full instead of being cut short, and reply capture works reliably when your home or workspace folder uses a symlink.
+- Codex chats save final answers even when the model omits a message phase, and clear unfinished drafts if the app server disconnects.
+- Direct chats recover delayed background replies after side-thread questions, and a busy bot no longer holds up messages arriving for your other bots.
+- Steering a reply mid-answer keeps earlier paragraphs from repeating below your note, and published images, videos, files and Pages now appear under **Details → Media**.
+- Starting a fresh conversation clears any pending model-switch carry-over so the new session starts with empty context. Requires workspace server 0.2.10 for the Antigravity, Codex and background-reply fixes.
+
 ## 0.8.12 (build 46)
 
 - Open **Settings → AIs** to scan this Mac and add an installed AI. Choose it for a bot under **Details → Model**. Workspace 0.2.9 adds support for Gemini through Google Antigravity CLI (`agy`). Adding an AI leaves running agents in their current sessions.

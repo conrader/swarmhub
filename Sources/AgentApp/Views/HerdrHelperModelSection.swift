@@ -27,7 +27,7 @@ struct HerdrHelperModelSection: View {
                 }.disabled(saving)
                 if let template = programs.first(where: { $0.name == program }) {
                     HelperModelPicker(server: server, template: template, model: $model)
-                        .id(program).disabled(saving)
+                        .id("\(server.id)-\(program)").disabled(saving)
                 }
                 if draft != saved.choice {
                     Button(saving ? "Saving…" : "Save coding model") { Task { await save() } }
@@ -40,7 +40,7 @@ struct HerdrHelperModelSection: View {
                 Text(problem).font(.callout).foregroundStyle(.secondary)
                 if saved == nil { Button("Try again") { Task { await load() } } }
             }
-        }.task { await load() }
+        }.task(id: "\(bot.id)-\(server.id)") { await load() }
         if let saved {
             SettingSwitch(title: "Auto mode", detail: "With the standard Claude and Codex setups, new agents and helpers can edit, build and test in their workspace. Broader access may still need approval.",
                           isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } }))
@@ -104,7 +104,7 @@ private struct HelperModelPicker: View {
             Text("Choose a model").tag("")
             if !model.isEmpty && !models.contains(where: { $0.id == model }) { Text(model).tag(model) }
             ForEach(models, id: \.id) { Text(HerdrAgentReading.name($0)).tag($0.id) }
-        }.task { await load() }
+        }.task(id: "\(server.id)-\(template.name)") { await load() }
         if !problem.isEmpty {
             Text(problem).font(.callout).foregroundStyle(.secondary)
             Button("Reload models") { Task { await load() } }

@@ -43,7 +43,7 @@ import SwiftUI
         }
         guard let flag = arguments.firstIndex(of: "--agent-qa"),
               let path = arguments.dropFirst(flag + 1).first, !path.hasPrefix("--") else {
-            print("Usage: AgentApp --agent-qa OUTPUT_DIRECTORY [--hunt]. Without --hunt, send JSON commands on stdin.")
+            print("Usage: \(CommandLine.arguments.first ?? AppConstants.name) --agent-qa OUTPUT_DIRECTORY [--hunt]. Without --hunt, send JSON commands on stdin.")
             return 64
         }
         return HeadlessRunLoop.wait {
@@ -122,7 +122,10 @@ import SwiftUI
             guard let value = command[key], !value.isEmpty else { throw QAError("Missing " + key) }
             return value
         }
-        guard let bot = store.selectedBot else { throw QAError("No chat selected.") }
+        func requireBot() throws -> Bot {
+            guard let bot = store.selectedBot else { throw QAError("No chat selected.") }
+            return bot
+        }
         switch try field("action") {
         case "inspect": break
         case "open":
@@ -141,11 +144,13 @@ import SwiftUI
             default: throw QAError("Choose show or hide.")
             }
         case "draft":
+            let bot = try requireBot()
             guard let text = command["text"] else { throw QAError("Missing text") }
             store.drafts.set(text, for: bot.id)
-        case "pin": store.setPinned(bot.id, true)
-        case "unpin": store.setPinned(bot.id, false)
+        case "pin": store.setPinned((try requireBot()).id, true)
+        case "unpin": store.setPinned((try requireBot()).id, false)
         case "send":
+            let bot = try requireBot()
             let text = command["text"] ?? store.drafts.text(for: bot.id)
             guard store.send(text: text) else { throw QAError(store.errorMessage ?? "Send was declined.") }
             store.drafts.set("", for: bot.id)
@@ -165,6 +170,7 @@ import SwiftUI
             size = NSSize(width: w, height: h)
         case "capture": return ["screenshot": try await capture()]
         case "expect":
+            let bot = try requireBot()
             guard let expected = command["value"] else { throw QAError("Missing value") }
             let actual: String
             switch try field("field") {

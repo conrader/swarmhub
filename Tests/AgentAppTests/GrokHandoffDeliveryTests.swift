@@ -58,6 +58,7 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     let (handoff, id) = fixture()
     let name = HerdrBackend.agentName(botName: "Ada", botID: id)
     // The same revision, and an older one: either way the session has had the conversation.
+    #expect(GrokHandoff.marker(for: id, revision: "1-1", origin: .ownChat).hasPrefix(GrokHandoff.lead(for: id, origin: .ownChat)))
     for marker in [handoff.marker, GrokHandoff.marker(for: id, revision: "1-1")] {
         let bridge = HandoffBridge(); bridge.answers = answering
         bridge.seed(agent: name, rows: [("task", marker + " You are continuing an existing conversation."), ("reply", "It stood at question 120."),

@@ -1,6 +1,9 @@
 use super::*;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use ring::{rand::SystemRandom, signature::{Ed25519KeyPair, KeyPair}};
+use ring::{
+    rand::SystemRandom,
+    signature::{Ed25519KeyPair, KeyPair},
+};
 use std::{fs, path::Path};
 
 pub(crate) const WORKSPACE: &str = "fixture-workspace";
@@ -14,7 +17,10 @@ fn key() -> Ed25519KeyPair {
 
 fn sign(key: &Ed25519KeyPair, envelope: Envelope) -> Signed {
     let signature = STANDARD.encode(key.sign(&envelope.canonical().unwrap()).as_ref());
-    Signed { envelope, signature }
+    Signed {
+        envelope,
+        signature,
+    }
 }
 
 pub(crate) struct Fixture {
@@ -26,20 +32,59 @@ pub(crate) struct Fixture {
 
 impl Fixture {
     pub(crate) fn new(root: &Path, workspace: &str, delegate_enrolled: bool) -> Self {
+        use std::{
+            io::Write,
+            os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+        };
+        let me = unsafe { libc::getuid() };
+        for ancestor in root.ancestors().take(3) {
+            if ancestor
+                .metadata()
+                .is_ok_and(|meta| meta.uid() == me && meta.mode() & 0o022 != 0)
+            {
+                let _ = fs::set_permissions(ancestor, fs::Permissions::from_mode(0o700));
+            }
+        }
         let directory = root.join(workspace);
-        fs::create_dir(&directory).unwrap();
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
         let operator = key();
         let delegate = key();
-        fs::write(directory.join("policy.lock"), []).unwrap();
-        fs::write(directory.join("trust.json"), serde_json::json!({
-            "workspace": workspace,
-            "operator_key": STANDARD.encode(operator.public_key()),
-            "delegate": delegate_enrolled.then(|| serde_json::json!({
-                "bot_id": JARVIS, "key": STANDARD.encode(delegate.public_key()),
-            })),
-        }).to_string()).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(directory.join("policy.lock"))
+            .unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(directory.join("trust.json"))
+            .unwrap()
+            .write_all(
+                serde_json::json!({
+                    "workspace": workspace,
+                    "operator_key": STANDARD.encode(operator.public_key()),
+                    "delegate": delegate_enrolled.then(|| serde_json::json!({
+                        "bot_id": JARVIS, "key": STANDARD.encode(delegate.public_key()),
+                    })),
+                })
+                .to_string()
+                .as_bytes(),
+            )
+            .unwrap();
         let authority = Authority::fixture(&directory, workspace);
-        Self { authority, operator, delegate, directory }
+        Self {
+            authority,
+            operator,
+            delegate,
+            directory,
+        }
     }
 
     pub(crate) fn restart(&self, workspace: &str) -> Authority {
@@ -47,28 +92,62 @@ impl Fixture {
     }
 
     pub(crate) fn peer(&self, root: &Path, workspace: &str) -> Authority {
+        use std::{
+            io::Write,
+            os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+        };
+        let me = unsafe { libc::getuid() };
+        for ancestor in root.ancestors().take(3) {
+            if ancestor
+                .metadata()
+                .is_ok_and(|meta| meta.uid() == me && meta.mode() & 0o022 != 0)
+            {
+                let _ = fs::set_permissions(ancestor, fs::Permissions::from_mode(0o700));
+            }
+        }
         let directory = root.join(workspace);
-        fs::create_dir(&directory).unwrap();
-        fs::write(directory.join("policy.lock"), []).unwrap();
-        let mut trust: serde_json::Value = serde_json::from_slice(
-            &fs::read(self.directory.join("trust.json")).unwrap(),
-        ).unwrap();
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(directory.join("policy.lock"))
+            .unwrap();
+        let mut trust: serde_json::Value =
+            serde_json::from_slice(&fs::read(self.directory.join("trust.json")).unwrap()).unwrap();
         trust["workspace"] = workspace.into();
-        fs::write(directory.join("trust.json"), trust.to_string()).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(directory.join("trust.json"))
+            .unwrap()
+            .write_all(trust.to_string().as_bytes())
+            .unwrap();
         let authority = Authority::fixture(&directory, workspace);
-        authority.import_policy(self.publication(policy(1, vec![]), workspace)).unwrap();
+        authority
+            .import_policy(self.publication(policy(1, vec![]), workspace))
+            .unwrap();
         authority
     }
 
     pub(crate) fn publication(&self, policy: Policy, workspace: &str) -> Publication {
         let reference = policy.reference().unwrap();
-        let signed = sign(&self.operator, envelope(
-            workspace,
-            Principal::Operator,
-            Purpose::PublishPolicy,
-            Target::Policy { policy: reference },
-            "policy-import",
-        ));
+        let signed = sign(
+            &self.operator,
+            envelope(
+                workspace,
+                Principal::Operator,
+                Purpose::PublishPolicy,
+                Target::Policy { policy: reference },
+                "policy-import",
+            ),
+        );
         Publication { policy, signed }
     }
 
@@ -89,7 +168,12 @@ impl Fixture {
 }
 
 pub(crate) fn policy(generation: i64, rules: Vec<Rule>) -> Policy {
-    Policy { generation, rules, revoked: BTreeSet::new(), workers: vec![] }
+    Policy {
+        generation,
+        rules,
+        revoked: BTreeSet::new(),
+        workers: vec![],
+    }
 }
 
 pub(crate) fn grant() -> Rule {
@@ -150,7 +234,10 @@ fn operator_envelope() -> Envelope {
         WORKSPACE,
         Principal::Operator,
         Purpose::Execute,
-        Target::Park { park: pin(), policy: policy(1, vec![]).reference().unwrap() },
+        Target::Park {
+            park: pin(),
+            policy: policy(1, vec![]).reference().unwrap(),
+        },
         "nonce-a",
     )
 }
@@ -162,7 +249,10 @@ fn gapplan_04_unit_signature_binds_all_envelope_fields() {
     let original = sign(&key, operator_envelope());
     let now = history::now();
     assert_eq!(original.verify(public, WORKSPACE, now), Ok(()));
-    assert_eq!(original.verify(&[0; 32], WORKSPACE, now), Err(Error::Signature));
+    assert_eq!(
+        original.verify(&[0; 32], WORKSPACE, now),
+        Err(Error::Signature)
+    );
 
     type Edit = fn(&mut Envelope);
     let edits: [Edit; 6] = [
@@ -171,12 +261,20 @@ fn gapplan_04_unit_signature_binds_all_envelope_fields() {
         |e| e.nonce = "nonce-b".into(),
         |e| e.issued_ms -= 1,
         |e| e.expires_ms += 1,
-        |e| e.principal = Principal::Bot { id: JARVIS.into(), launch: LAUNCH.into() },
+        |e| {
+            e.principal = Principal::Bot {
+                id: JARVIS.into(),
+                launch: LAUNCH.into(),
+            }
+        },
     ];
     for edit in edits {
         let mut tampered = original.clone();
         edit(&mut tampered.envelope);
-        assert_eq!(tampered.verify(public, &tampered.envelope.workspace, now), Err(Error::Signature));
+        assert_eq!(
+            tampered.verify(public, &tampered.envelope.workspace, now),
+            Err(Error::Signature)
+        );
     }
 
     type EditTarget = fn(&mut ParkPin, &mut PolicyRef);
@@ -189,15 +287,26 @@ fn gapplan_04_unit_signature_binds_all_envelope_fields() {
     ];
     for edit in edits {
         let mut tampered = original.clone();
-        let Target::Park { park, policy } = &mut tampered.envelope.target else { unreachable!() };
+        let Target::Park { park, policy } = &mut tampered.envelope.target else {
+            unreachable!()
+        };
         edit(park, policy);
-        assert_eq!(tampered.verify(public, WORKSPACE, now), Err(Error::Signature));
+        assert_eq!(
+            tampered.verify(public, WORKSPACE, now),
+            Err(Error::Signature)
+        );
     }
 
     let mut bot = operator_envelope();
-    bot.principal = Principal::Bot { id: JARVIS.into(), launch: LAUNCH.into() };
+    bot.principal = Principal::Bot {
+        id: JARVIS.into(),
+        launch: LAUNCH.into(),
+    };
     let mut signed = sign(&key, bot);
-    signed.envelope.principal = Principal::Bot { id: JARVIS.into(), launch: "f".repeat(32) };
+    signed.envelope.principal = Principal::Bot {
+        id: JARVIS.into(),
+        launch: "f".repeat(32),
+    };
     assert_eq!(signed.verify(public, WORKSPACE, now), Err(Error::Signature));
 }
 
@@ -218,11 +327,21 @@ fn gapplan_04_unit_expiry_and_effective_intervals_are_half_open() {
     let bot = Actor::Bot { id: JARVIS.into() };
     for time in [now - 1, 2 * now] {
         assert_eq!(signed.verify(public, WORKSPACE, time), Err(Error::Expired));
-        assert_eq!(policy.allows(&request, &bot, Purpose::Execute, time).unwrap_err(), Error::NoGrant);
+        assert_eq!(
+            policy
+                .allows(&request, &bot, Purpose::Execute, time)
+                .unwrap_err(),
+            Error::NoGrant
+        );
     }
     for time in [now, 2 * now - 1] {
         assert!(signed.verify(public, WORKSPACE, time).is_ok());
-        assert!(policy.allows(&request, &bot, Purpose::Execute, time).unwrap().is_some());
+        assert!(
+            policy
+                .allows(&request, &bot, Purpose::Execute, time)
+                .unwrap()
+                .is_some()
+        );
     }
 }
 
@@ -230,22 +349,61 @@ fn gapplan_04_unit_expiry_and_effective_intervals_are_half_open() {
 fn gapplan_04_unit_grant_requires_every_dimension_and_explicit_bot() {
     let bot = Actor::Bot { id: JARVIS.into() };
     let request = fixture_request();
-    assert_eq!(policy(1, vec![]).allows(&request, &bot, Purpose::Execute, 1).unwrap_err(), Error::NoGrant);
+    assert_eq!(
+        policy(1, vec![])
+            .allows(&request, &bot, Purpose::Execute, 1)
+            .unwrap_err(),
+        Error::NoGrant
+    );
     let allowed = policy(1, vec![grant()]);
-    assert_eq!(allowed.allows(&request, &bot, Purpose::Execute, 1).unwrap().unwrap().id, "fixture-grant");
+    assert_eq!(
+        allowed
+            .allows(&request, &bot, Purpose::Execute, 1)
+            .unwrap()
+            .unwrap()
+            .id,
+        "fixture-grant"
+    );
     for other in [
-        Request { action: "unknown", ..fixture_request() },
-        Request { project: "other-project", ..fixture_request() },
-        Request { owner: "someone-else", ..fixture_request() },
+        Request {
+            action: "unknown",
+            ..fixture_request()
+        },
+        Request {
+            project: "other-project",
+            ..fixture_request()
+        },
+        Request {
+            owner: "someone-else",
+            ..fixture_request()
+        },
     ] {
-        assert_eq!(allowed.allows(&other, &bot, Purpose::Execute, 1).unwrap_err(), Error::NoGrant);
+        assert_eq!(
+            allowed
+                .allows(&other, &bot, Purpose::Execute, 1)
+                .unwrap_err(),
+            Error::NoGrant
+        );
     }
     let unrelated = Actor::Bot { id: "other".into() };
-    assert_eq!(allowed.allows(&request, &unrelated, Purpose::Execute, 1).unwrap_err(), Error::NoGrant);
+    assert_eq!(
+        allowed
+            .allows(&request, &unrelated, Purpose::Execute, 1)
+            .unwrap_err(),
+        Error::NoGrant
+    );
     let mut self_grant = grant();
     self_grant.scope.owner = Some(JARVIS.into());
-    let owned = Request { owner: JARVIS, ..request };
-    assert_eq!(policy(1, vec![self_grant]).allows(&owned, &bot, Purpose::Execute, 1).unwrap_err(), Error::SelfApproval);
+    let owned = Request {
+        owner: JARVIS,
+        ..request
+    };
+    assert_eq!(
+        policy(1, vec![self_grant])
+            .allows(&owned, &bot, Purpose::Execute, 1)
+            .unwrap_err(),
+        Error::SelfApproval
+    );
 
     let mut wildcard = grant();
     wildcard.scope.principal = None;
@@ -263,30 +421,49 @@ fn gapplan_04_unit_stop_and_signoff_take_precedence_over_named_exception() {
     exception.id = "named-exception".into();
     exception.rule = RuleKind::Exception { park: pin() };
     let mut chosen = policy(1, vec![broad, exception, grant()]);
-    let allowed = |policy: &Policy| policy.allows(&request, &bot, Purpose::Execute, 1)
-        .map(|rule| rule.map(|rule| rule.id.clone()));
+    let allowed = |policy: &Policy| {
+        policy
+            .allows(&request, &bot, Purpose::Execute, 1)
+            .map(|rule| rule.map(|rule| rule.id.clone()))
+    };
     assert_eq!(allowed(&chosen), Ok(Some("named-exception".into())));
     let mut generic = grant();
     generic.scope.principal = None;
     generic.id = "owner-required".into();
-    generic.rule = RuleKind::RequireOwnerSignoff { signer: "named-partner".into() };
+    generic.rule = RuleKind::RequireOwnerSignoff {
+        signer: "named-partner".into(),
+    };
     chosen.rules.push(generic.clone());
     assert_eq!(allowed(&chosen), Err(Error::OwnerSignoff));
     generic.id = "approval".into();
     let mut another_park = pin();
     another_park.manifest_digest = "b".repeat(64);
-    generic.rule = RuleKind::OwnerSignoff { signer: "named-partner".into(), park: another_park };
+    generic.rule = RuleKind::OwnerSignoff {
+        signer: "named-partner".into(),
+        park: another_park,
+    };
     chosen.rules.push(generic.clone());
     assert_eq!(allowed(&chosen), Err(Error::OwnerSignoff));
-    generic.rule = RuleKind::OwnerSignoff { signer: "named-partner".into(), park: pin() };
+    generic.rule = RuleKind::OwnerSignoff {
+        signer: "named-partner".into(),
+        park: pin(),
+    };
     *chosen.rules.last_mut().unwrap() = generic.clone();
     assert_eq!(allowed(&chosen), Ok(Some("named-exception".into())));
     generic.id = "project-stop".into();
-    generic.scope = Scope { project: Some(request.project.into()), ..Scope::default() };
+    generic.scope = Scope {
+        project: Some(request.project.into()),
+        ..Scope::default()
+    };
     generic.rule = RuleKind::Stop;
     chosen.rules.push(generic);
     assert_eq!(allowed(&chosen), Err(Error::Stopped));
-    assert_eq!(chosen.allows(&request, &Actor::Operator, Purpose::Execute, 1).unwrap_err(), Error::Stopped);
+    assert_eq!(
+        chosen
+            .allows(&request, &Actor::Operator, Purpose::Execute, 1)
+            .unwrap_err(),
+        Error::Stopped
+    );
     chosen.revoked.insert("project-stop".into());
     chosen.revoked.insert("named-exception".into());
     assert_eq!(allowed(&chosen), Ok(Some("fixture-grant".into())));
@@ -312,32 +489,82 @@ fn gapplan_05_unit_staging_policy_matrix_stop_signoff_self_and_safe_class() {
     let bot = Actor::Bot { id: JARVIS.into() };
     let now = 1;
     let checked = policy(1, vec![grant.clone()]);
-    assert_eq!(checked.allows(&request, &bot, Purpose::Execute, now).unwrap().unwrap().id, grant.id);
-    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap_err(), Error::NoGrant);
+    assert_eq!(
+        checked
+            .allows(&request, &bot, Purpose::Execute, now)
+            .unwrap()
+            .unwrap()
+            .id,
+        grant.id
+    );
+    assert_eq!(
+        checked
+            .allows(&request, &bot, Purpose::AutoExecute, now)
+            .unwrap_err(),
+        Error::NoGrant
+    );
     let checked = policy(1, vec![grant.clone(), safe.clone(), project_stop]);
-    for (actor, purpose) in [(Actor::Operator, Purpose::Release), (bot.clone(), Purpose::AutoExecute), (bot.clone(), Purpose::Execute)] {
-        assert_eq!(checked.allows(&request, &actor, purpose, now).unwrap_err(), Error::Stopped);
+    for (actor, purpose) in [
+        (Actor::Operator, Purpose::Release),
+        (bot.clone(), Purpose::AutoExecute),
+        (bot.clone(), Purpose::Execute),
+    ] {
+        assert_eq!(
+            checked.allows(&request, &actor, purpose, now).unwrap_err(),
+            Error::Stopped
+        );
     }
-    assert!(checked.allows(&request, &Actor::Operator, Purpose::Hold, now).is_ok());
+    assert!(
+        checked
+            .allows(&request, &Actor::Operator, Purpose::Hold, now)
+            .is_ok()
+    );
 
     let mut consent = safe.clone();
     consent.id = "partner-required".into();
     consent.scope.principal = None;
-    consent.rule = RuleKind::RequireOwnerSignoff { signer: "fixture-partner".into() };
+    consent.rule = RuleKind::RequireOwnerSignoff {
+        signer: "fixture-partner".into(),
+    };
     let mut signed = consent.clone();
     signed.id = "partner-signed".into();
-    signed.rule = RuleKind::OwnerSignoff { signer: "fixture-partner".into(), park: request.park.clone() };
+    signed.rule = RuleKind::OwnerSignoff {
+        signer: "fixture-partner".into(),
+        park: request.park.clone(),
+    };
     let checked = policy(1, vec![safe.clone(), consent.clone()]);
-    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap_err(), Error::OwnerSignoff);
+    assert_eq!(
+        checked
+            .allows(&request, &bot, Purpose::AutoExecute, now)
+            .unwrap_err(),
+        Error::OwnerSignoff
+    );
     let checked = policy(1, vec![safe.clone(), consent, signed]);
-    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap().unwrap().id, safe.id);
+    assert_eq!(
+        checked
+            .allows(&request, &bot, Purpose::AutoExecute, now)
+            .unwrap()
+            .unwrap()
+            .id,
+        safe.id
+    );
 
     let mut broad = safe;
     broad.scope.owner = None;
     let checked = policy(1, vec![broad]);
     request.owner = JARVIS;
-    assert_eq!(checked.allows(&request, &bot, Purpose::AutoExecute, now).unwrap_err(), Error::SelfApproval);
+    assert_eq!(
+        checked
+            .allows(&request, &bot, Purpose::AutoExecute, now)
+            .unwrap_err(),
+        Error::SelfApproval
+    );
     let mut broad_manual = grant;
     broad_manual.scope.owner = None;
-    assert_eq!(policy(1, vec![broad_manual]).allows(&request, &bot, Purpose::Execute, now).unwrap_err(), Error::SelfApproval);
+    assert_eq!(
+        policy(1, vec![broad_manual])
+            .allows(&request, &bot, Purpose::Execute, now)
+            .unwrap_err(),
+        Error::SelfApproval
+    );
 }
