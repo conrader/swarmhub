@@ -37,6 +37,8 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("run-claude") => launch_claude(),
         Some("run-codex") => crate::codex_agent::launch(),
         Some("run-opencode") => crate::opencode_agent::launch(),
+        Some("run-antigravity") => crate::antigravity_agent::launch(),
+        Some("antigravity-reply") => crate::antigravity_agent::capture(),
         Some("run-gemini") => crate::gemini_agent::launch(),
         Some("gemini-hook") => {
             crate::gemini_agent::hook();
@@ -373,7 +375,7 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     }
     crate::runtimes::ModelAgent::Claude.add_model_arg(&mut args)?;
     let mut command =
-        Command::new(env::var_os("SWARMHUB_CLAUDE_BIN").unwrap_or_else(|| "claude".into()));
+        crate::service::agent_command("claude", "SWARMHUB_CLAUDE_BIN");
     claude_preview::configure(
         preview,
         executable,

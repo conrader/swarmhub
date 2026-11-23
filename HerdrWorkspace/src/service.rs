@@ -111,7 +111,7 @@ struct Program {
     first_time: &'static str,
 }
 
-const PROGRAMS: [Program; 4] = [
+const PROGRAMS: [Program; 5] = [
     Program {
         id: "claude",
         name: "Claude",
@@ -157,6 +157,17 @@ const PROGRAMS: [Program; 4] = [
         how: "Install Gemini CLI with npm install -g @google/gemini-cli, then open Terminal, type gemini, and sign in.",
         first_time: "Sign in to Gemini CLI in Terminal before its first chat; a bot cannot answer the sign-in question. SwarmHub keeps a small settings file, .gemini/settings.json, in each private workspace it creates, so the app can show Gemini’s steps and save its replies. Gemini CLI mentions these hooks once in its terminal and runs them; they only report what Gemini does.",
     },
+    Program {
+        id: "antigravity",
+        name: "Gemini (Antigravity)",
+        full: "Antigravity CLI",
+        bin: "agy",
+        template: "swarmhub-antigravity",
+        wrapper: "run-antigravity",
+        description: "Gemini through Google Antigravity CLI",
+        how: "Install Antigravity CLI from antigravity.google and sign in with agy in Terminal.",
+        first_time: "Sign in to Antigravity CLI on this Mac before starting a chat. Permissions appear in its terminal.",
+    },
 ];
 
 /// The model list a fresh install starts with (`runtime-catalog.json`, which the person may edit): Codex is asked
@@ -173,6 +184,7 @@ const STARTER_CATALOG: &str = r#"{
       {"id": "haiku", "label": "Haiku 5.5", "provider": "Anthropic"}
     ]
   },
+  "swarmhub-antigravity": {"harness":"Antigravity CLI","provider":"Google"},
   "swarmhub-opencode": {
     "harness": "OpenCode",
     "discover_models": true
@@ -422,6 +434,19 @@ fn search_folders(home: &Path) -> Vec<PathBuf> {
         return merged_path(Some(&chosen), &[]);
     }
     merged_path(shell_path().as_deref(), &usual_folders(home))
+}
+
+/// A program added after the service started may live in a newly installed shell PATH entry.
+pub(crate) fn agent_command(name: &str, setting_name: &str) -> std::process::Command {
+    if let Some(exe) = setting(setting_name) { return std::process::Command::new(exe); }
+    let mut command = std::process::Command::new(name);
+    if setting("SWARMHUB_LAUNCH_KEY").is_some() && let Some(path) = env::var_os("PATH")
+        && !env::split_paths(&path).any(|dir| executable(&dir.join(name)))
+        && let Some(home) = setting("HOME") {
+        let folders = search_folders(Path::new(&home));
+        if find(name, &folders).is_some() { command.env("PATH", joined(&folders)); }
+    }
+    command
 }
 
 fn joined(folders: &[PathBuf]) -> String {
@@ -819,6 +844,28 @@ fn write_templates(places: &Places, found: &[(&Program, PathBuf)]) -> Result<Vec
     Ok(written)
 }
 
+/// Register one installed program without reinstalling the service or touching any running terminal.
+fn add_ai(places: &Places, id: &str, folders: &[PathBuf]) -> Result<(), Stop> {
+    let program = PROGRAMS.iter().find(|p| p.id == id)
+        .ok_or_else(|| Stop::failed("Choose a supported AI program."))?;
+    find(program.bin, folders).ok_or_else(|| Stop::new("not_installed", program.how))?;
+    private_folder(&places.data).map_err(|e| Stop::failed(e.to_string()))?;
+    let lock = fs::OpenOptions::new().write(true).create(true).truncate(false).mode(0o600)
+        .open(places.data.join("add-ai.lock")).map_err(|e| Stop::failed(e.to_string()))?;
+    lock.lock().map_err(|e| Stop::failed(e.to_string()))?;
+    install_catalog(&places.data.join("runtime-catalog.json"), &[program.template])
+        .map_err(|e| Stop::failed(format!("Could not update the AI catalog: {e}")))?;
+    fs::create_dir_all(&places.templates).map_err(|e| Stop::failed(e.to_string()))?;
+    let dest = places.templates.join(format!("{}.md", program.template));
+    let mut draft = tempfile::NamedTempFile::new_in(&places.templates).map_err(|e| Stop::failed(e.to_string()))?;
+    draft.write_all(template_text(program, &places.exe).as_bytes()).map_err(|e| Stop::failed(e.to_string()))?;
+    match draft.persist_noclobber(&dest) {
+        Ok(_) => Ok(()),
+        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists && dest.is_file() => Ok(()),
+        Err(e) => Err(Stop::failed(format!("Could not add {}: {e}", program.name))),
+    }
+}
+
 /// Whether a template file is one `install` wrote and nobody changed since: only those are removed.
 fn own_template(file: &Path, program: &Program, exe: &Path) -> bool {
     let current = template_text(program, exe);
@@ -992,7 +1039,7 @@ struct Asked {
 }
 
 fn asked(arguments: impl Iterator<Item = OsString>) -> Result<Asked, Stop> {
-    const USAGE: &str = "Usage: swarmhub-herdr service status|install|run|remove|prepare [--port N] [--label NAME] [--answer-first-time] [--undo] [--json]";
+    const USAGE: &str = "Usage: swarmhub-herdr service status|install|run|remove|prepare|add-ai PROGRAM [--port N] [--label NAME] [--answer-first-time] [--undo] [--json]";
     let mut asked = Asked {
         json: false,
         answer: false,
@@ -1075,6 +1122,7 @@ fn look(places: &Places, asked: &Asked, folders: &[PathBuf]) -> Value {
     json!({
         "version": update::VERSION,
         "target": update::target(),
+        "can_add_ai": true,
         "can_install": env::consts::OS == "macos",
         "program": places.exe,
         "port": port,
@@ -1159,7 +1207,7 @@ async fn install(places: &Places, asked: &Asked) -> Result<Value, Stop> {
     // The programs that came after the first starter list.
     let later: Vec<&str> = found
         .iter()
-        .filter(|(program, _)| matches!(program.id, "opencode" | "gemini"))
+        .filter(|(program, _)| matches!(program.id, "opencode" | "gemini" | "antigravity"))
         .map(|(program, _)| program.template)
         .collect();
     match install_catalog(&catalog, &later) {
@@ -1418,6 +1466,7 @@ fn did_lines(said: &Value) -> Vec<String> {
 pub(crate) async fn cli() -> Result<(), Failed> {
     let mut arguments = env::args_os().skip(2);
     let verb = arguments.next().unwrap_or_default();
+    let program = (verb == "add-ai").then(|| arguments.next()).flatten();
     let json = env::args_os().any(|argument| argument == "--json");
     let asked = match asked(arguments) {
         Ok(asked) => asked,
@@ -1429,6 +1478,11 @@ pub(crate) async fn cli() -> Result<(), Failed> {
     };
     let result = match verb.to_str() {
         Some("status") => Ok(look(&places, &asked, &search_folders(&places.home))),
+        Some("add-ai") => {
+            let folders = search_folders(&places.home);
+            let id = program.as_deref().and_then(|id| id.to_str()).unwrap_or("");
+            add_ai(&places, id, &folders).map(|()| look(&places, &asked, &folders))
+        }
         Some("install") => install(&places, &asked).await,
         Some("remove") => remove(&places, &asked).await,
         Some("prepare") if asked.undo => Ok(json!({"did": crate::first_time::undo(&places.data)})),
@@ -1438,7 +1492,7 @@ pub(crate) async fn cli() -> Result<(), Failed> {
             Ok(json!({"first_time": said, "did": did_lines(&said)}))
         }
         _ => Err(Stop::failed(
-            "Usage: swarmhub-herdr service status|install|run|remove|prepare [--port N] [--label NAME] [--answer-first-time] [--undo] [--json]",
+            "Usage: swarmhub-herdr service status|install|run|remove|prepare|add-ai PROGRAM [--port N] [--label NAME] [--answer-first-time] [--undo] [--json]",
         )),
     };
     print(json, result)
@@ -1721,6 +1775,29 @@ mod tests {
             data: root.join("state"),
             agents: root.join("agents"),
         }
+    }
+
+    #[test]
+    fn adds_only_the_selected_installed_ai_and_keeps_custom_templates() {
+        let scratch = tempfile::tempdir().unwrap();
+        let places = places(scratch.path());
+        let bin = scratch.path().join("tools");
+        fs::create_dir_all(&bin).unwrap();
+        for tool in ["agy", "codex"] {
+            let file = bin.join(tool);
+            fs::write(&file, "#!/bin/sh\nexit 99").unwrap();
+            fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let folders = [bin];
+        assert!(add_ai(&places, "gemini", &folders).is_err());
+        add_ai(&places, "antigravity", &folders).unwrap();
+        let added = places.templates.join("swarmhub-antigravity.md");
+        assert!(fs::read_to_string(&added).unwrap().contains("run-antigravity"));
+        fs::write(&added, "my custom template").unwrap();
+        add_ai(&places, "antigravity", &folders).unwrap();
+        assert_eq!(fs::read_to_string(&added).unwrap(), "my custom template");
+        assert!(!places.templates.join("swarmhub-codex.md").exists());
+        assert!(!places.job(LABEL).exists());
     }
 
     #[test]

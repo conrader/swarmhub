@@ -23,6 +23,7 @@ pub enum ModelAgent {
     Codex,
     OpenCode,
     Gemini,
+    Antigravity,
 }
 
 impl ModelAgent {
@@ -32,6 +33,7 @@ impl ModelAgent {
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
             Self::Gemini => GEMINI,
+            Self::Antigravity => "Antigravity CLI",
         }
     }
 
@@ -41,6 +43,7 @@ impl ModelAgent {
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
             Self::Gemini => "gemini",
+            Self::Antigravity => "antigravity",
         }
     }
 
@@ -59,7 +62,7 @@ impl ModelAgent {
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
                     && starts_alphanumeric(model)
             }),
-            Self::Claude | Self::Codex | Self::Gemini => true,
+            Self::Claude | Self::Codex | Self::Gemini | Self::Antigravity => true,
         }
     }
 
@@ -75,7 +78,7 @@ impl ModelAgent {
             .ok_or("This model selection does not match the agent template.")?;
         let supported = match self {
             Self::OpenCode => args.len() == 1 && args[0] == "mini",
-            Self::Claude | Self::Codex | Self::Gemini => args.is_empty(),
+            Self::Claude | Self::Codex | Self::Gemini | Self::Antigravity => args.is_empty(),
         };
         if !supported {
             return Err("The selected model requires a template without fixed agent arguments.");
@@ -161,6 +164,7 @@ fn short_name(harness: &str) -> Option<String> {
     match harness {
         "Claude Code" => Some("Claude".to_owned()),
         "Codex" | "OpenCode" => Some(harness.to_owned()),
+        "Antigravity CLI" => Some("Gemini (Antigravity)".into()),
         GEMINI => Some("Gemini (beta)".to_owned()),
         _ => None,
     }
@@ -303,7 +307,7 @@ impl Catalog {
         } else {
             None
         };
-        let beta = runtime.harness == GEMINI;
+        let beta = matches!(runtime.harness.as_str(), GEMINI | "Antigravity CLI");
         Choice {
             name: template.name,
             description: template.description,
@@ -319,7 +323,7 @@ impl Catalog {
 
     /// Whether the template starts a program that is in beta here.
     pub(crate) fn beta(&self, template: &Template) -> bool {
-        self.runtime(template).harness == GEMINI
+        matches!(self.runtime(template).harness.as_str(), GEMINI | "Antigravity CLI")
     }
 
     pub fn model_target(&self, template: &Template) -> Option<ModelTarget> {
@@ -499,6 +503,7 @@ fn model_agent(command: &str) -> Option<ModelAgent> {
         ("run-opencode", Some("mini")) => ModelAgent::OpenCode,
         ("run-claude", None) => ModelAgent::Claude,
         ("run-codex", None) => ModelAgent::Codex,
+        ("run-antigravity", None) => ModelAgent::Antigravity,
         ("run-gemini", None) => ModelAgent::Gemini,
         _ => return None,
     };
@@ -520,6 +525,7 @@ fn recognize(command: &str) -> &'static str {
             Some("run-claude") => "Claude Code",
             Some("run-codex") => "Codex",
             Some("run-opencode") => "OpenCode",
+            Some("run-antigravity") => "Antigravity CLI",
             Some("run-gemini") => GEMINI,
             _ => GENERIC,
         },

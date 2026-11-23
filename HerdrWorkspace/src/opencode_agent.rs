@@ -24,7 +24,7 @@ const REPLY: &str = include_str!("opencode-reply.js");
 const APPROVALS: &str = include_str!("opencode-approvals.js");
 
 fn opencode() -> Command {
-    Command::new(env::var_os("SWARMHUB_OPENCODE_BIN").unwrap_or_else(|| "opencode".into()))
+    crate::service::agent_command("opencode", "SWARMHUB_OPENCODE_BIN")
 }
 
 pub fn models() -> Result<(), Box<dyn std::error::Error>> {

@@ -10,10 +10,12 @@ struct HerdrLocalReport: Decodable, Equatable, Sendable {
     /// `firstTime`: what it asks a person the first time it starts for the service, and what the answer allows.
     struct Program: Decodable, Equatable, Identifiable, Sendable {
         let id: String; let name: String; let installed: Bool; let template: String; let how: String
+        var templateWritten: Bool? = nil
         var firstTime: String? = nil
     }
     let version: String; let target: String; let canInstall: Bool; let program: String; let port: Int
     let service: Job; let core: Core; let programs: [Program]
+    var canAddAi: Bool? = nil
     var agentsFolder: String? = nil, dataFolder: String? = nil
     /// After an install: what it did, one sentence each.
     var did: [String]? = nil
@@ -110,6 +112,9 @@ struct HerdrLocalService: Sendable {
     }
 
     func status(port: Int? = nil) async throws -> HerdrLocalReport { try Self.answer(try await run("status", port: port, limit: 60)) }
+    func addAI(_ program: String, port: Int?) async throws -> HerdrLocalReport {
+        try Self.answer(try await run("add-ai", port: port, limit: 60, extra: [program]))
+    }
     /// Sets this Mac up: Herdr Core when it is missing, the access key, the starter templates, and the job that starts
     /// the service now and at every login. Returns once the service answers.
     /// `answerFirstTime`: the person agreed that the questions an AI asks the first time are answered for them, for
@@ -137,7 +142,8 @@ struct HerdrLocalService: Sendable {
     }
 
     func arguments(_ verb: String, port: Int?, extra: [String] = []) -> [String] {
-        ["service", verb] + (port.map { ["--port", String($0)] } ?? []) + (label.map { ["--label", $0] } ?? []) + extra + ["--json"]
+        let options = (port.map { ["--port", String($0)] } ?? []) + (label.map { ["--label", $0] } ?? [])
+        return ["service", verb] + (verb == "add-ai" ? extra + options : options + extra) + ["--json"]
     }
 
     /// Runs one `service` command and returns what it printed. It is ended when it takes longer than `limit` seconds.

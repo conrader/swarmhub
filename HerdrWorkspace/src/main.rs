@@ -20,6 +20,7 @@ mod fleet_tests;
 mod file_preview;
 mod first_time;
 mod gemini_agent;
+mod antigravity_agent;
 mod github_project;
 mod grok_import;
 mod group_forms;
