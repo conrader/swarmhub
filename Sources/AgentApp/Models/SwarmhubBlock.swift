@@ -42,6 +42,7 @@ enum SwarmhubSummary {
         var symbol: String {
             if summary.hasPrefix("Wrote to") { return "paperplane" }
             if summary.hasPrefix("Noted") { return "person.text.rectangle" }
+            if summary.hasPrefix("Asked to switch") { return "arrow.triangle.2.circlepath" }
             return summary.hasPrefix("Said no") ? "xmark.circle" : "person.crop.circle.badge.plus"
         }
     }
@@ -69,6 +70,7 @@ enum SwarmhubSummary {
         case "decline_bot": return "Said no to a new bot: \(name)"
         case "message_bot": return "Wrote to " + ((object["to"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "another bot")
         case "about_you": return "Noted something about you"
+        case HerdrModelRequest.op: return HerdrModelRequest(object).map { "Asked to switch \($0.all ? "all bots" : $0.who) to \($0.what)" } ?? ""
         default: return ""
         }
     }

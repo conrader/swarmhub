@@ -78,6 +78,8 @@ For API access, install OpenCode V2.3 or later on the machine running your bots.
 
 Tell the main bot what role you need, or choose **New bot** yourself. Use **Recommended** to follow the recommendation at each fresh agent launch. Pick a specific model to pin that bot to it. You can change either choice later in **Details → Model**.
 
+To put several bots on another AI or model at once, tell the main bot ("set all bots to sol 6.2", or name the bots), or open **Settings → Servers → All bots on …** and choose there. You can call the model what you like: the app matches it against the models your server offers, and changes nothing when it finds none or cannot tell two apart. A card above the main bot's composer says what was changed, with **Undo**. This changes the setting: a bot whose agent is running keeps its model until you press **Start fresh agents** on that card, which ends the running agents of those bots (never one that is answering).
+
 ### Release notes example
 
 Choose **Draft release notes** in a new bot’s chat. Edit the changes or send the example as written. The sample bot Patch shows this locally written reference answer for the three example changes.

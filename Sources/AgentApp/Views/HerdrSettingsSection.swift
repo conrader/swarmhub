@@ -56,6 +56,7 @@ struct HerdrSettingsSection: View {
                     HerdrTemplatePicker(selection: $template, templates: templates, defaultName: templates.first?.name, defaultNote: "Default")
                 }
             }
+            if let current { HerdrAllBotsModelBlock(server: current).id(current.id) }
         }
         .sheet(item: $loginServer) { server in
             SSHLoginSheet(server: server) { signedIn in

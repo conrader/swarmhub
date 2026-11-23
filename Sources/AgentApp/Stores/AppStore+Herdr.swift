@@ -171,6 +171,9 @@ extension AppStore {
         // Every bot reads "About you"; the main bot is also told how to propose an addition to it.
         if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.aboutYou = HerdrAboutYou.note(aboutYou) }
         if createsHerdrBots(bot) { backend.aboutHow = HerdrAboutYou.how }
+        // The main bot is told how to have the app change the bots' models; every other bot, who can.
+        if createsHerdrBots(bot) { backend.modelBrief = HerdrModelRequest.brief; backend.modelHow = HerdrModelRequest.how }
+        else if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.modelHow = HerdrModelRequest.elsewhere(main: herdrMainBot(on: herdrServer(for: bot))?.name) }
         // A turn on the event stream brings the agent's helpers with it (`herdrLive`).
         let botID = bot.id
         // A start ahead of time that is on its way: the message waits for it and then finds that agent.

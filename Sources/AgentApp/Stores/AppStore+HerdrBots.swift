@@ -215,6 +215,12 @@ extension AppStore {
                 if let asker = herdrAsker(of: request) { notice(AppOnlyLine.botAskUnanswered.render(bot.name, asker.name, asker.name), in: asker) }
                 return
             }
+            // A change of the bots' models it asks for is applied or left for the person (`AppStore+HerdrModels.swift`).
+            let models = herdrModelRequests(in: reply)
+            if !models.isEmpty {
+                herdrSettling.formUnion(models.map(\.id))
+                Task { await settleHerdrModels(models, main: bot, triggers: triggers) }
+            }
             let waiting = herdrRequests(in: reply, of: bot, askerID: herdrAsker(of: request)?.id)
             herdrSettling.formUnion(waiting.map(\.id))
             Task { await settleHerdrReply(reply, main: bot, waiting: waiting, request: request) }

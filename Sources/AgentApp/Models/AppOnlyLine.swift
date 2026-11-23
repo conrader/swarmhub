@@ -58,6 +58,11 @@ enum AppOnlyLine {
     static let botAskNotPassedOn = LineTemplate("", "’s request for a bot named “", "” could not be passed on to ", ".")
     static let botAskUnanswered = LineTemplate("", " did not finish its answer to ", "’s request for a bot. Ask ", " to try again.")
     static let botRemoved = LineTemplate("You removed ", ", which ", " had created.")
+    // A change of the agent program and model of several bots (`AppStore+HerdrModels.swift`).
+    static let modelsChanged = LineTemplate("", " switched ", " to ", ".")
+    static let modelsAlready = LineTemplate("Nothing to change: ", " already on ", ".")
+    static let modelsNotChanged = LineTemplate("", "’s model change was not applied. ", "")
+    static let modelsUndone = LineTemplate("You undid the switch to ", ": ", " went back to what they ran before.")
 
     static func line(_ text: String) -> ChatMessage { ChatMessage(role: .system, content: text, metadata: [key: "1"]) }
 
