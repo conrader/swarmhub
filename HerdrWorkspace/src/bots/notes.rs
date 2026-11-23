@@ -53,7 +53,7 @@ pub(super) fn completion(cmd: &str, event: &super::completions::Completion) -> S
 pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool) -> String {
     let mut note = format!(
         "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n\
-         - Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. Finishing and reporting work that was already started is not new work.\n\
+         - Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
          - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n",
         line(&bot.name)
     );
@@ -143,7 +143,7 @@ pub(crate) fn handoff(
     };
     format!(
         "{MESSAGE_LEAD} {from}, {PASSED_ON} hand-off #{id}\n{text}\n\
-         ({from} asks you to take this work over. {} Within {} run: {cmd} bot accept {id} (or: {cmd} bot decline {id} \"WHY\"). Once accepted the work is yours: do it, then report the result to {from} with: {cmd} bot reply {id} \"RESULT\".{person} If you must ask {from} something first, use: {cmd} bot ask \"{from}\" \"QUESTION\".)",
+         ({from} asks you to take this work over. {} Within {} run: {cmd} bot accept {id} (or: {cmd} bot decline {id} \"WHY\"). Accept work you can carry out. For a failed prerequisite, check the configured routes and attempt an in-scope fix. After a fix, retry the original task and verify it. Once accepted, report the result to {from} with: {cmd} bot reply {id} \"RESULT\".{person} If you must ask {from} something first, use: {cmd} bot ask \"{from}\" \"QUESTION\".)",
         unseen(),
         span(set.handoff_accept_seconds)
     )
@@ -311,6 +311,7 @@ mod tests {
         for said in [
             "Do what the person asks of you",
             "you only offer",
+            "resume the authorized task",
             "wait for the person's yes",
             "Before deleting anything, sending something out of this server",
             "it needs no yes from the person",

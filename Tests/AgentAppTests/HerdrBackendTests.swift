@@ -96,6 +96,11 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async
     let running = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: profiles)
     #expect(running.running == .model(id: "m-b", label: "Model B") && running.short == "Model B" && running.runningLine == "Started on Model B.")
     #expect(running.pendingLine == "Model A is selected for the next launch.", "another model is chosen than the one running: it says when it applies")
+    var changedProgram = running
+    changedProgram.activeTemplate = "old-program"
+    #expect(changedProgram.changesProgram && changedProgram.pendingLine == "Start a fresh conversation to use Agent One · Model A.")
+    changedProgram.model = nil
+    #expect(changedProgram.pendingLine == "Start a fresh conversation to use Agent One.")
     let same = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: "m-b", offered: offered, agent: agent, profiles: profiles)
     #expect(same.pendingLine == nil && same.summary == "AI: Agent One (default). Model: Model B. Started on Model B.")
     let unstated = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: older, profiles: profiles)

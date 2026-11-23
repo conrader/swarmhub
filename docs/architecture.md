@@ -95,7 +95,7 @@ Code: `Stores/AppStore+HerdrWarm.swift`, `HerdrWorkspace/src/warm.rs`.
 
 The main bot can propose or create a new bot with a `create_bot` block. The Mac app handles the creation decision and the **Ask me before creating bots** setting. **Remember** saves a proposed `about_you` addition. An older bridge without the bot directory uses the app’s original relay while the app is running.
 
-**Under a bot: the bridge starts helpers.** An agent hands a task to a helper by running `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"` in its own shell. The command only asks; the bridge decides. It takes the agent program and the model for that difficulty from the server's helper policy (`helper-policy.json`), starts the helper as one more terminal in Herdr Core, and stops it some time after its answer. The agent reads the answer with `helper wait`. The Mac app shows running helpers under the bot and opens one read-only; it never starts or stops one.
+**Under a bot: the bridge starts helpers.** An agent hands a task to a helper by running `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"` in its own shell. The command only asks; the bridge decides. For an allowed difficulty it uses the parent bot’s saved helper AI and model, falling back to the server's helper policy (`helper-policy.json`), starts the helper as one more terminal in Herdr Core, and stops it some time after its answer. The agent reads the answer with `helper wait`. The Mac app shows running helpers under the bot and opens one read-only; it never starts or stops one.
 
 The command reaches the bridge over a local socket (`helpers.sock`). Codex runs shell commands in a sandbox that refuses connections, so there the command leaves a signed request file in a folder inside the agents' working folder and the bridge answers with a file beside it.
 
@@ -151,7 +151,7 @@ An agent program is a model with a shell. Some rules are checked by code that th
 
 | Rule | How it holds |
 | --- | --- |
-| A helper's agent program and model come from the server's policy | **Code** (bridge). The command has no option for either. |
+| A helper uses the owner's per-bot override or the server's difficulty defaults | **Code** (bridge). The command has no option for either. |
 | A helper cannot start helpers; at most `max_running` helpers per agent; a helper is stopped after its answer or when it goes too long without one | **Code** (bridge) |
 | Limits on messages between bots (8, 4, 6 in 10 minutes); **Other bots can message it** | **Code** (Mac app). A message over a limit is not passed on. |
 | Only the main bot creates bots; **Ask me before creating bots**; a bot it asks about waits for **Create** | **Code** (Mac app). A `create_bot` block from another bot is not acted on. |

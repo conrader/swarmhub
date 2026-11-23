@@ -4,6 +4,7 @@ mod appearance;
 mod approval_rules;
 mod approvals;
 mod attention;
+mod bot_agent_settings;
 mod bots;
 mod codex_agent;
 mod core;
@@ -959,6 +960,11 @@ async fn launch_agent(
             return Err(ApiError::Conflict("The owner changed before the fixture launch."));
         }
     }
+    let owner = body.workspace_id.as_deref().or_else(|| bot_note.as_ref().map(|(id, _)| id.as_str())).map(str::to_ascii_lowercase);
+    let auto_mode = match owner.as_deref() {
+        Some(id) => bot_agent_settings::for_bot(&*w.history.db()?, id).map_err(StoreError::from)?.auto_mode,
+        None => false,
+    };
     let started = if body.warm {
         warm::start(
             &w.history,
@@ -982,6 +988,15 @@ async fn launch_agent(
     let (record, key) = started.ok_or(ApiError::Conflict(
         "A session for this profile is already starting.",
     ))?;
+    if let Some(id) = owner {
+        if let Err(error) = w.history.db().and_then(|db| {
+            db.execute("UPDATE journal SET parent_bot_id=?1 WHERE id=?2", rusqlite::params![id, record])
+                .map(|_| ()).map_err(StoreError::from)
+        }) {
+            w.history.finish(record, DeliveryState::NotSent, Some("The bot for this launch could not be saved."), None)?;
+            return Err(error.into());
+        }
+    }
     if !files.is_empty() {
         if let Err(error) = w.history.save_launch_files(record, &files) {
             w.history.finish(record, DeliveryState::NotSent, Some("The attachments could not be saved."), None)?;
@@ -1063,6 +1078,7 @@ async fn launch_agent(
                 },
                 core::LaunchEnv {
                     key: &key,
+                    auto_mode,
                     journal,
                     approval_socket: approval_socket.to_str().unwrap_or_default(),
                     vault_session: vault_session.as_deref(),

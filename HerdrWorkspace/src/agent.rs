@@ -366,6 +366,11 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     }) {
         return Err("run-claude reserves --settings for its reply hook. Use Claude's normal config files for other settings.".into());
     }
+    // Custom templates can supply their own launch and permission arguments.
+    if crate::bot_agent_settings::project_auto() && args.is_empty() {
+        settings["permissions"]["defaultMode"] = json!("acceptEdits");
+        settings["sandbox"] = json!({"enabled": true, "autoAllowBashIfSandboxed": true});
+    }
     crate::runtimes::ModelAgent::Claude.add_model_arg(&mut args)?;
     let mut command =
         Command::new(env::var_os("SWARMHUB_CLAUDE_BIN").unwrap_or_else(|| "claude".into()));

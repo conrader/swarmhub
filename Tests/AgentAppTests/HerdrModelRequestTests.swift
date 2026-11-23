@@ -112,6 +112,8 @@ private struct ScriptedBackend: AgentBackend {
 private final class ModelBridge: @unchecked Sendable {
     private let lock = NSLock()
     private var agents: [[String: Any]] = [], endedNames: [String] = []
+    private var helperModels: [String: [String: String]] = [:]
+    private var autoMode: [String: Bool] = [:]
     var ended: [String] { lock.withLock { endedNames } }
 
     func run(_ name: String) {
@@ -126,6 +128,14 @@ private final class ModelBridge: @unchecked Sendable {
     private func answer(_ request: URLRequest) -> (Int, Any) {
         let path = request.url?.path ?? ""
         return lock.withLock { () -> (Int, Any) in
+            if path.hasPrefix("/api/bot-agent-settings/") {
+                if request.httpMethod == "POST", let data = request.bodyData,
+                   let edit = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    if edit["choice"] != nil { helperModels[path] = edit["choice"] as? [String: String] }
+                    if let enabled = edit["auto_mode"] as? Bool { autoMode[path] = enabled }
+                }
+                return (200, ["choice": helperModels[path] as Any? ?? NSNull(), "auto_mode": autoMode[path] ?? false] as [String: Any])
+            }
             if request.httpMethod == "GET", path == "/api/workspace" {
                 return (200, ["core": "c", "version": "1", "agents": agents,
                               "templates": [templateJSON("tpl-claude", program: "Claude Code", models: claudeModels), templateJSON("tpl-codex", program: "Codex", models: codexModels)]])
@@ -261,11 +271,16 @@ private struct SelectedBotDetails: View {
     let (store, _, codex, claude, _) = modelStore()
     store.setHerdrTemplate("tpl-codex", for: codex)
     store.setHerdrModel("gpt-6.2-sol-mini", for: codex)
+    let client = try store.herdrClient(for: store.herdrServer(for: codex))
+    let helper = HerdrHelperPolicy.Tier(template: "tpl-claude", model: "claude-opus-5-5")
+    _ = try await client.setHelperModel(helper, for: codex.id, existingAgents: [])
+    let settings = try await client.setProjectAutoMode(true, for: codex.id, existingAgents: [])
+    #expect(settings.choice == helper && settings.autoMode)
     store.selectedBot = codex
     store.infoTab = .model
 
     _ = NSApplication.shared
-    let size = NSSize(width: 350, height: 600)
+    let size = NSSize(width: 350, height: 810)
     let host = NSHostingView(rootView: SelectedBotDetails(store: store).frame(width: size.width, height: size.height))
     let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: true)
     window.isReleasedWhenClosed = false
@@ -280,6 +295,8 @@ private struct SelectedBotDetails: View {
         }
         let visible = try await mountedText(host)
         #expect(visible.contains(label))
+        #expect(visible.contains("Coding model") && visible.contains("Auto mode"))
+        #expect(visible.contains(bot == codex ? "Opus 5.5" : "Server settings by difficulty"))
     }
     #expect(choice(store, codex) == "tpl-codex|gpt-6.2-sol-mini")
     #expect(choice(store, claude) == "tpl-claude|claude-opus-5-5")

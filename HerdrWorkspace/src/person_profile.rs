@@ -671,7 +671,7 @@ mod tests {
                 let version: usize = db
                     .pragma_query_value(None, "user_version", |row| row.get(0))
                     .unwrap();
-                assert_eq!(version, 63);
+                assert_eq!(version, crate::history::migrations().len());
                 for (table, next_column) in [("routines", "next_at"), ("bot_checkins", "next_ms")] {
                     let sql = format!(
                         "SELECT json_extract(schedule,'$.timezone'),{next_column} FROM {table} WHERE id=?1"

@@ -111,6 +111,7 @@ pub struct Template {
 }
 
 pub struct LaunchEnv<'a> {
+    pub auto_mode: bool,
     pub key: &'a str,
     pub journal: &'a str,
     pub approval_socket: &'a str,
@@ -573,6 +574,7 @@ impl Core {
             "labels":labels,"size":{"cols":100,"rows":30},
             "env":{"SWARMHUB_JOURNAL":env.journal,"SWARMHUB_LAUNCH_KEY":env.key,
                    "SWARMHUB_APPROVAL_SOCKET":env.approval_socket,
+                   (crate::bot_agent_settings::AUTO_ENV):if env.auto_mode { "1" } else { "" },
                    (crate::runtimes::MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::builtin).unwrap_or_default(),
                    (crate::runtimes::CUSTOM_MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::environment).unwrap_or_default(),
                    (crate::opencode_agent::first_task::ENV):env.opencode_first_task.unwrap_or_default(),

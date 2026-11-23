@@ -195,9 +195,16 @@ extension AppStore {
     /// Reads what the bot's agent runs on (agent program, model, and what the running agent was started on) and keeps
     /// it for the Details panel and the chat header. A server that cannot be read leaves the last reading in place.
     @discardableResult func refreshHerdrAgentReading(for bot: Bot, requireFresh: Bool = false) async -> HerdrAgentReading? {
-        guard bot.backend == .herdr, !bot.isReadOnlyArchive, let client = try? herdrClient(for: herdrServer(for: bot)) else { return requireFresh ? nil : herdrAgentReadings[bot.id] }
-        var reading = try? await client.agentReading(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id), ownTemplate: defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)),
-                                                     sharedTemplate: defaults.string(forKey: HerdrBackend.templateKey), ownModel: herdrModel(for: bot))
+        let server = herdrServer(for: bot)
+        guard bot.backend == .herdr, !bot.isReadOnlyArchive, let client = try? herdrClient(for: server) else { return requireFresh ? nil : herdrAgentReadings[bot.id] }
+        let template = defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id))
+        let shared = defaults.string(forKey: HerdrBackend.templateKey)
+        let model = herdrModel(for: bot)
+        var reading = try? await client.agentReading(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id), ownTemplate: template,
+                                                     sharedTemplate: shared, ownModel: model)
+        guard server == herdrServer(for: bot), model == herdrModel(for: bot),
+              template == defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)),
+              shared == defaults.string(forKey: HerdrBackend.templateKey) else { return nil }
         if let record = modelConfirmation(bot), record.matches(server: herdrServer(for: bot).id, core: reading?.core, agent: reading?.session), reading?.confirmed == false {
             reading?.running = .model(id: record.id, label: record.label)
             reading?.confirmed = true

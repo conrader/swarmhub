@@ -171,7 +171,7 @@ A bot can write to another bot on its server by name. The app puts the message i
 
 ### Helpers
 
-A bot can hand parts of its work to helpers. They show under the bot in the sidebar while they run; select one to read its task, steps, replies and terminal. To choose what each difficulty runs on, open **Settings → Servers**, choose the server, then **Helpers**. To stop one bot from using helpers, turn off **Can use helpers** in its settings, under **Advanced**.
+A bot can hand parts of its work to helpers. In **Details → Model**, **Bot model** selects the bot’s chat model. **Coding model** selects the AI and model used by new helpers this bot spawns. Choose **Server settings by difficulty** to use the server defaults again. A running helper keeps its model. **Auto mode** lets new agents using the standard Claude and Codex templates handle routine workspace edits, builds and tests automatically. It applies separately to each bot and its helpers. Helpers show under the bot in the sidebar while they run; select one to read its task, steps, replies and terminal. To choose what each difficulty runs on, open **Settings → Servers**, choose the server, then **Helpers**. To stop one bot from using helpers, turn off **Can use helpers** in its settings, under **Advanced**.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="screenshots/dark/helpers-sidebar.png">
