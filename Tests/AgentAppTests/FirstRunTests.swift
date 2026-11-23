@@ -40,12 +40,14 @@ import Testing
 
 @MainActor @Test func everyFlagIsListedAndRecognised() {
     let all = ["--render-snapshot", "--probe-attachment", "--migrate-store", "--grok-fetch", "--grok-probe", "--grok-parity", "--import-grok",
-               "--ui-smoke", "--setup-preview", "--render-setup"]
+               "--ui-smoke", "--setup-preview", "--render-setup", "--agent-qa"]
     #expect(Set(HeadlessCommands.flags) == Set(all) && HeadlessCommands.flags.count == all.count)
     #expect(!HeadlessCommands.headless.contains("--ui-smoke") && !HeadlessCommands.headless.contains("--setup-preview"))
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--setup-preview"]) == nil, "a launch argument, not a headless command")
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp"]) == nil)
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--render-setup"]) == 64)
+    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--agent-qa"]) == 64)
+    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--agent-qa", "--help"]) == 0)
     #expect(SetupPreview.isRequested(["AgentApp", "--setup-preview"]) && UISmoke.reportPath(arguments: ["AgentApp", "--ui-smoke", "/tmp/r.json"]) != nil)
     #expect(UpdateConfiguration.unavailableReason(bundleURL: URL(fileURLWithPath: "/Applications/X.app"), info: [:], environment: [:], arguments: ["--setup-preview"]) != nil)
 }

@@ -52,3 +52,21 @@ import Testing
     #expect(store.sidebarLayout.sections.first { $0.id == side.id }?.isCollapsed == true)
     try await render("2-one-section-folded")
 }
+
+@MainActor @Test func updateNoticeFitsTheNarrowSidebarInBothAppearances() async throws {
+    let notice = UpdateNotice()
+    notice.appVersion = "0.8.10"
+    notice.serversBehind = 2
+    let folder = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-sidebar", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    for scheme in [ColorScheme.light, .dark] {
+        let view = SidebarUpdateButton(notice: notice)
+            .frame(width: SidebarMetrics.width.min).background(AppColor.sidebar)
+            .tint(AppTheme.accentColor(for: AppTheme.defaultAccent))
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        #expect(size.width == SidebarMetrics.width.min && size.height >= 44 && size.height < 90)
+        let data = try #require(await SnapshotRenderer.png(view, size: size, scheme: scheme))
+        try data.write(to: folder.appending(path: "update-\(scheme == .dark ? "dark" : "light").png"))
+    }
+}

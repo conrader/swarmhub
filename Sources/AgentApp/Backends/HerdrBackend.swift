@@ -92,6 +92,7 @@ struct HerdrBackend: AgentBackend {
     /// before a message, the bot's own agent is handed that conversation as files, unless its session has read it.
     /// Never for the agent a bot has in a group. nil: nothing but the message is sent.
     var handoff: HerdrHandoffSource? = nil
+    var prepareDirect: (@MainActor @Sendable () async throws -> [HerdrHandoffSource])?
 
     static let teamNote = """
     SwarmHub team commands: use swarmhub-herdr bot list to find peers, bot ask NAME "QUESTION" for a reply, or bot handoff NAME "TASK" to delegate. Use checkin ci PUBLIC_PR_URL "WHAT" for a GitHub CI failure watch, checkin list for plans and promise list for commitments. Use the command path in your SwarmHub instructions when provided. After fixing a blocker, resume the authorized task and verify the requested outcome. For a previously declined handoff, check whether the sender reassigned or canceled it before retrying, then report the result to the sender and the person.
@@ -171,7 +172,7 @@ struct HerdrBackend: AgentBackend {
         }
         let backend = configured
         _ = accepted.swap(nil)
-        _ = handingOver.swap(name == agentName && handoff != nil)
+        _ = handingOver.swap(name == agentName && (handoff != nil || prepareDirect != nil))
         return AsyncThrowingStream { continuation in
             let task = Task {
                 let started = ContinuousClock.now
@@ -185,17 +186,18 @@ struct HerdrBackend: AgentBackend {
                     continuation.yield(.status(HerdrTurnStatus.sending.code))
                     // The agent reads the bot's earlier conversation first, once per agent session (`HerdrHandoff.swift`).
                     // A handoff that fails does not hold the message back: it goes as it always did, and the source hears why.
-                    var notHandedOver: String? = nil
-                    if name == backend.agentName, let handoff = backend.handoff {
-                        do {
-                            notHandedOver = try await backend.handOver(handoff, status: { status in _ = continuation.yield(.status(status.code)) })
-                        } catch {
-                            _ = backend.handingOver.swap(false)
-                            throw error
+                    var missed: [(HerdrHandoffSource, String)] = []
+                    if name == backend.agentName {
+                        let sources: [HerdrHandoffSource]
+                        if let prepare = backend.prepareDirect { sources = try await prepare() }
+                        else { sources = [backend.handoff].compactMap { $0 } }
+                        for source in sources {
+                            if let why = try await backend.handOver(source, status: { _ = continuation.yield(.status($0.code)) }) {
+                                missed.append((source, why))
+                            }
                         }
                         _ = backend.handingOver.swap(false)
-                        // The store reads `features` again at a status, so the turn takes steers from here on.
-                        continuation.yield(.status(HerdrTurnStatus.sending.code))
+                        if !sources.isEmpty { continuation.yield(.status(HerdrTurnStatus.sending.code)) }
                     }
                     let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : ManagementIntent.changesModel(text) ? backend.modelHow : nil,
@@ -204,7 +206,7 @@ struct HerdrBackend: AgentBackend {
                                                                 status: { continuation.yield(.status($0.code)) })
                     delivered = true
                     _ = backend.accepted.swap(turn)
-                    if let why = notHandedOver { backend.handoff?.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
+                    for (source, why) in missed { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     // Read the launch model from this exact session. Following the answer proceeds concurrently.

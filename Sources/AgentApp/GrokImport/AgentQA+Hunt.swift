@@ -1,0 +1,38 @@
+extension AgentQA {
+    /// A replayable first exploration: switch away from a chat with a reply, check unread and pin state,
+    /// and capture both appearances at the supported minimum window size.
+    static var sampleHunt: [Command] {
+        let message = "QA delivery check"
+        return [
+            ["action": "open", "bot": "Mira"],
+            ["action": "expect", "field": "unread", "value": "0"],
+            ["action": "draft", "text": message],
+            ["action": "open", "bot": "Patch"],
+            ["action": "expect", "field": "draft", "value": ""],
+            ["action": "open", "bot": "Mira"],
+            ["action": "expect", "field": "draft", "value": message],
+            ["action": "send"],
+            ["action": "expect", "field": "draft", "value": ""],
+            ["action": "expect", "field": "lastRole", "value": "assistant"],
+            ["action": "expect", "field": "contains", "text": message, "value": "true"],
+            ["action": "pin"],
+            ["action": "open", "bot": "Patch"],
+            ["action": "expect", "field": "pinned", "value": "false"],
+            ["action": "expect", "field": "contains", "text": message, "value": "false"],
+            ["action": "open", "bot": "Mira"],
+            ["action": "expect", "field": "selected", "value": "Mira"],
+            ["action": "expect", "field": "pinned", "value": "true"],
+            ["action": "viewport", "width": "980", "height": "620"],
+            ["action": "capture"],
+            ["action": "appearance", "value": "light"],
+            ["action": "capture"],
+            ["action": "details", "value": "hide"],
+            ["action": "capture"],
+            ["action": "screen", "value": "whatsNew"],
+            ["action": "capture"],
+            ["action": "screen", "value": "workspace"],
+            ["action": "unpin"],
+            ["action": "expect", "field": "pinned", "value": "false"]
+        ]
+    }
+}

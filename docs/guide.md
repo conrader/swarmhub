@@ -78,7 +78,7 @@ For API access, install OpenCode V2.3 or later on the machine running your bots.
 
 Tell the main bot what role you need, or choose **New bot** yourself. Use **Recommended** to follow the recommendation at each fresh agent launch. Pick a specific model to pin that bot to it. You can change either choice later in **Details → Model**.
 
-To put several bots on another AI or model at once, tell the main bot ("set all bots to sol 6.2", or name the bots), or open **Settings → Servers → All bots on …** and choose there. You can call the model what you like: the app matches it against the models your server offers, and changes nothing when it finds none or cannot tell two apart. A card above the main bot's composer says what was changed, with **Undo**. This changes the setting: a bot whose agent is running keeps its model until you press **Start fresh agents** on that card, which ends the running agents of those bots (never one that is answering). A bot that starts fresh after such a change reads its chat so far before your next message (a bot imported from Grok Bot reads its Grok history instead), and a line in the chat says so: the recent part word for word, a summary of the older part when the chat is long, and the whole chat as a file it can search. Secrets in the chat are blanked in what it reads. If the chat cannot be handed over, your message still goes, and the chat says why.
+To put several bots on another AI or model at once, tell the main bot ("set all bots to sol 6.2", or name the bots), or open **Settings → Servers → All bots on …** and choose there. You can call the model what you like: the app matches it against the models your server offers, and changes nothing when it finds none or cannot tell two apart. A card above the main bot's composer says what was changed, with **Undo**. The new choice answers the next direct message in the same chat. A reply in progress finishes on its original model. When the new AI needs another session, SwarmHub hands over the earlier conversation before the next message. Secrets in the chat are blanked in what it reads. If the chat cannot be handed over, your message still goes, and the chat says why.
 
 ### Release notes example
 
@@ -151,7 +151,7 @@ Opening a chat starts that bot if it is not running, so the first reply does not
 
 ### Change what a bot runs on
 
-Open the bot's Details (⇧⌘I) and choose **Model** (⌘6). Pick the **AI** and the **Model**; both lists come from the server. Changing the model within the same agent program keeps the conversation. OpenCode applies the change in the session. Claude Code and Codex open their model picker in the app. In Claude, use the session-only shortcut. In Codex, confirm the model and reasoning effort. Changing agent programs takes effect on the next launch. **Advanced → Start fresh** clears the agent’s context when you want a new conversation.
+Open the bot's Details (⇧⌘I) and choose **Model** (⌘6). Pick the **AI** and the **Model**; both lists come from the server. The next direct message uses your choice automatically. A reply already in progress finishes first. When the switch needs a different provider session, the new agent reads the chat so far. **Advanced → Start fresh** clears the agent’s context when you want a new conversation.
 
 **New bots run on**, in **Settings → Servers**, chooses the AI that new bots start on.
 
@@ -280,7 +280,7 @@ When Grok Bot is on this Mac, **Settings → Servers** shows a **Grok Bot** card
 
 ### Updates
 
-**Settings → Software Update** answers whether everything is up to date: the app, and for each server its workspace (the bridge) and Herdr Core. When something is behind, a line appears at the bottom of the sidebar, and the page has one button, **Update Now** or **Update All**, that installs what is ready: the servers first, then the app.
+**Settings → Software Update** answers whether everything is up to date: the app, and for each server its workspace (the bridge) and Herdr Core. When something is behind, **Review updates** appears above the chat list, and the page has one button, **Update Now** or **Update All**, that installs what is ready: the servers first, then the app.
 
 - The app updates through Sparkle. It checks once a day in the background; **Install updates automatically** is off unless you turn it on. An app run from source does not update itself.
 - A server installs a new workspace itself, from a signed release. Only the workspace restarts; your bots keep running.

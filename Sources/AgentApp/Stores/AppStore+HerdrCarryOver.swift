@@ -108,7 +108,7 @@ extension AppStore {
     func herdrCarrySource(for bot: Bot) -> HerdrHandoffSource? {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo, let state = herdrCarryOver(for: bot) else { return nil }
         let id = bot.id
-        var source = HerdrHandoffSource(lead: GrokHandoff.lead(for: id), prepare: { [weak self] status in await self?.herdrCarryHandoff(for: id, status: status) })
+        var source = HerdrHandoffSource(lead: GrokHandoff.lead(for: id, origin: .ownChat), prepare: { [weak self] status in await self?.herdrCarryHandoff(for: id, status: status) })
         // The agent that ran before the change holds the conversation itself.
         source.read = state.old
         source.failedFor = state.failedFor
@@ -174,13 +174,13 @@ extension AppStore {
 /// The lines in a bot's chat about its fresh agent reading the chat so far.
 enum HerdrCarryCopy {
     static func read(_ bot: String, summarised: Bool, older: Int, recent: Int, withFiles: Bool) -> String {
-        guard withFiles else { return "\(bot) started fresh and was given the last part of this conversation: its server takes no files" }
+        guard withFiles else { return "\(bot) received the last part of this conversation: its server takes no files" }
         let what = summarised && older > 0 ? "a summary of \(older) older messages and the last \(recent)" : (older > 0 ? "the last \(recent) messages, with the older ones to search" : "all \(recent) messages")
-        return "\(bot) started fresh and read this conversation first: \(what)"
+        return "\(bot) read the earlier messages in this chat: \(what)"
     }
 
     static func failed(_ bot: String, why: String, again: Bool) -> String {
         let next = again ? "It is tried once more with your next message." : "It is not tried again for this agent."
-        return "\(bot) started fresh and could not be given this conversation. \(why) Your message was sent without it. \(next)"
+        return "\(bot) could not read the earlier messages in this chat. \(why) Your message was sent without it. \(next)"
     }
 }

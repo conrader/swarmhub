@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.10 (build 44)
+
+- Changing a bot’s AI or model carries the conversation into its next direct reply automatically. A reply in progress finishes on its original model.
+- Available updates now appear just below the sidebar search controls. Choose **Review updates** to open Software Update. When both the app and servers have updates, the card shows the app version and the number of servers.
+
+- Agents can exercise sample chats on a Mac using a headless session with state inspection, screenshots and replayable findings. See the [agent QA guide](agent-qa.md).
+
 ## 0.8.9 (build 43)
 
 - In a bot’s Model tab, choose the AI and model for its chat and a separate coding model for the helpers it starts. Switching chats shows the selected bot’s settings. The panel distinguishes the model selected for the next start from the one running now.

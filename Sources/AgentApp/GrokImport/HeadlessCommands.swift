@@ -14,13 +14,14 @@ import Foundation
 @MainActor enum HeadlessCommands {
     /// Every flag the app recognises; the dispatcher below and the launch arguments read this list.
     static let flags = ["--render-snapshot", "--probe-attachment", "--migrate-store", "--grok-fetch", "--grok-probe",
-                        "--grok-parity", "--import-grok", "--ui-smoke", "--setup-preview", "--render-setup"]
+                        "--grok-parity", "--import-grok", "--ui-smoke", "--setup-preview", "--render-setup", "--agent-qa"]
     /// The flags that run without a window and exit.
     static let headless = flags.filter { $0 != "--ui-smoke" && $0 != "--setup-preview" }
 
     /// Returns an exit code when a headless command was requested, otherwise nil.
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {
         guard arguments.contains(where: headless.contains) else { return nil }
+        if arguments.contains("--agent-qa") { return AgentQA.run(arguments: arguments) }
         if arguments.contains("--render-setup") { return HeadlessSetup.run(arguments: arguments) }
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
         if arguments.contains("--probe-attachment") { return HeadlessProbeAttachment.run(arguments: arguments) }

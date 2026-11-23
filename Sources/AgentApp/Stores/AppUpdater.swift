@@ -12,6 +12,14 @@ import Sparkle
     /// How many servers have a workspace update ready, or need one by hand.
     @Published var serversBehind = 0
 
+    var sidebarDetail: String? {
+        if manualCheckQueued { return "Open Software Update" }
+        var parts: [String] = []
+        if let appVersion { parts.append("\(AppConstants.name) \(appVersion)") }
+        if serversBehind > 0 { parts.append(serversBehind == 1 ? "1 server" : "\(serversBehind) servers") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     /// "SwarmHub 0.7.1 is available", "2 server updates", or nil when there is nothing to say.
     var line: String? {
         if manualCheckQueued { return "Update check queued" }

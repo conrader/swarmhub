@@ -229,23 +229,48 @@ private struct ServerUpdateCard: View {
     }
 }
 
-/// The sidebar's line when something is behind: one quiet button that opens Software Update.
-struct UpdateNoticeLine: View {
-    @ObservedObject private var notice = UpdateNotice.shared
+/// Sits between the toolbar and the scrolling chats so the whole button stays visible.
+struct SidebarUpdateButton: View {
+    @ObservedObject var notice: UpdateNotice = .shared
     @EnvironmentObject private var store: AppStore
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        if let line = notice.line {
-            Button { store.settingsPane = .updates; openSettings() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down.circle.fill").font(.system(size: 13)).foregroundStyle(.tint)
-                    Text(line).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.tail)
+        if let detail = notice.sidebarDetail {
+            let queued = notice.manualCheckQueued
+            let title = queued ? "Update check queued" : "Review updates"
+            Button {
+                store.settingsPane = .updates
+                openSettings()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: queued ? "clock" : "arrow.down.to.line")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 30, height: 30)
+                        .background(.tint.opacity(0.28), in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(.headline)
+                        Text(detail).font(.subheadline)
+                    }
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 10).frame(height: 30).background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous)).contentShape(Rectangle())
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.tint.opacity(0.16), in: .rect(cornerRadius: 12))
+                .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.tint.opacity(0.55)) }
+                .contentShape(.rect(cornerRadius: 12))
             }
-            .buttonStyle(.plain).help("Open Software Update").accessibilityLabel(line)
+            .buttonStyle(.plain)
+            .help("Open Software Update")
+            .accessibilityLabel("\(title), \(detail)")
+            .accessibilityHint("Opens Software Update in Settings")
+            .padding(.horizontal, SidebarMetrics.listInset)
+            .padding(.vertical, 6)
         }
     }
 }

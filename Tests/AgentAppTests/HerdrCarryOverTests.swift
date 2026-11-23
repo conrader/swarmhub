@@ -30,7 +30,7 @@ import Testing
     let old = HerdrAgentLaunch(server: HerdrServer.defaultID, core: "c", address: "t9", createdMs: 9)
     store.armHerdrCarryOver(for: [bot], running: [bot.id: old])
     let source = try #require(try store.herdrBackend(for: bot).handoff)
-    #expect(source.lead == GrokHandoff.lead(for: bot.id) && source.read == old && source.failures == 0, "the agent that ran before holds the conversation itself")
+    #expect(source.lead == GrokHandoff.lead(for: bot.id, origin: .ownChat) && source.read == old && source.failures == 0, "the agent that ran before holds the conversation itself")
 
     let handoff = try #require(await store.herdrCarryHandoff(for: bot.id, status: { _ in }))
     #expect(handoff.origin == .ownChat && handoff.files.map(\.name) == ["conversation-so-far.md", "conversation-full.md"] && handoff.summary == nil && handoff.recentMessages == 4)
@@ -43,9 +43,9 @@ import Testing
     let fresh = HerdrAgentLaunch(server: HerdrServer.defaultID, core: "c", address: "t10", createdMs: 10)
     store.herdrCarryFailed(HerdrHandoffFailure(launch: fresh, why: "Its agent finished without a reply."), botID: bot.id)
     #expect(store.herdrCarryOver(for: bot)?.failures == 1 && store.herdrCarryOver(for: bot)?.failedFor == fresh)
-    #expect(systemLines(bot).last == "Ada started fresh and could not be given this conversation. Its agent finished without a reply. Your message was sent without it. It is tried once more with your next message.")
+    #expect(systemLines(bot).last == "Ada could not read the earlier messages in this chat. Its agent finished without a reply. Your message was sent without it. It is tried once more with your next message.")
     store.herdrCarriedOver(HerdrHandoffReceipt(launch: fresh, handoff: handoff), botID: bot.id)
-    #expect(store.herdrCarryOver(for: bot) == nil && systemLines(bot).last == "Ada started fresh and read this conversation first: all 4 messages")
+    #expect(store.herdrCarryOver(for: bot) == nil && systemLines(bot).last == "Ada read the earlier messages in this chat: all 4 messages")
     #expect(try store.herdrBackend(for: bot).handoff == nil, "nothing more is handed over until the next change")
 }
 
@@ -70,12 +70,12 @@ import Testing
     let sent = bridge.sent.filter { $0.route != "end" }
     try #require(sent.map(\.route) == ["launch", "message", "launch-with-files", "message"])
     let handed = sent[2]
-    #expect(handed.text.contains(GrokHandoff.lead(for: bot.id)) && handed.text.contains("this bot already had with the person in this chat") && !handed.text.contains("Where were we?"))
+    #expect(handed.text.contains(GrokHandoff.lead(for: bot.id, origin: .ownChat)) && handed.text.contains("this bot already had with the person in this chat") && !handed.text.contains("Where were we?"))
     #expect(handed.files.keys.sorted() == ["conversation-full.md", "conversation-so-far.md"])
     let file = try #require(handed.files["conversation-so-far.md"])
     #expect(file.contains("Plan the launch for Friday") && file.contains("Still you?") && !file.contains("Where were we?"))
-    #expect(sent[3].text.hasSuffix("Where were we?") && !sent[3].text.contains(GrokHandoff.lead(for: bot.id)))
-    #expect(systemLines(bot).contains("Ada started fresh and read this conversation first: all 4 messages"))
+    #expect(sent[3].text.hasSuffix("Where were we?") && !sent[3].text.contains(GrokHandoff.lead(for: bot.id, origin: .ownChat)))
+    #expect(systemLines(bot).contains("Ada read the earlier messages in this chat: all 4 messages"))
     // Once: the next message is the person's alone, and so is the first one of an agent started after that.
     #expect(store.send(text: "Good."))
     try await waitUntil { store.runningTurns.isEmpty && replies(bot) == 4 }
@@ -92,5 +92,30 @@ import Testing
     #expect(store.send(text: "Second"))
     try await waitUntil { store.runningTurns.isEmpty && replies(bot) == 2 && store.herdrCarryOver(for: bot)?.failures == 1 }
     #expect(bridge.sent.last?.text.hasSuffix("Second") == true && bridge.sent.last?.files.isEmpty == true, "the message goes as it always did")
-    #expect(systemLines(bot).contains { $0.hasPrefix("Ada started fresh and could not be given this conversation.") && $0.hasSuffix("It is tried once more with your next message.") })
+    #expect(systemLines(bot).contains { $0.hasPrefix("Ada could not read the earlier messages in this chat.") && $0.hasSuffix("It is tried once more with your next message.") })
+}
+
+@Test @MainActor func aPreviouslySavedProviderChoiceCarriesTheDirectChatOnItsNextSend() async throws {
+    let bridge = HandoffBridge()
+    bridge.agentState = "idle"
+    let (store, bot) = try handoffStore(bridge, lines: handoffConversation(exchanges: 1))
+    bot.messages = [ChatMessage(role: .user, content: "The ship date?"), ChatMessage(role: .assistant, content: "Friday.")]
+    // A pre-upgrade bot: it has a saved choice and a live agent from another provider, with no pending-switch flag.
+    store.defaults.set("tpl-one", forKey: HerdrBackend.botTemplateKey(bot.id))
+    store.launchWorkEnabled = true
+    var backend = try store.herdrBackend(for: bot)
+    backend.coordinate = nil
+    bridge.seed(agent: backend.agentName, template: "old-provider")
+    for prompt in ["When was it?", "Thanks"] {
+        let stream = try await backend.send(.init(sessionID: bot.id.uuidString, systemPrompt: "", messages: [(role: "user", content: prompt)], images: []))
+        for try await _ in stream {}
+    }
+    let posts = bridge.sent
+    #expect(posts.filter { $0.route == "end" }.count == 1)
+    let handoffs = posts.filter { !$0.files.isEmpty }
+    #expect(handoffs.count == 2, "both the imported archive and the current conversation travel once")
+    #expect(handoffs.contains { $0.files["conversation-full.md"]?.contains("Friday.") == true })
+    #expect(posts.filter { $0.text.hasSuffix("When was it?") }.count == 1)
+    #expect(posts.last?.text.hasSuffix("Thanks") == true)
+    #expect(bot.messages.contains { $0.content == "Friday." })
 }

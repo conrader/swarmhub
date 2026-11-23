@@ -29,7 +29,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 - A bot has a name, an avatar and instructions, and under **Advanced** in its settings an optional role. A bot that already has a description (from an import, or an older version) keeps it editable. The instructions are given to each agent the bot starts, once, with its first message.
 - Set the agent and model at creation or in **Details → Model**. Use **Recommended** for Sol or Terra on Codex, Sonnet on Claude Code, or the configured default on OpenCode. **Gemini (beta)** is listed last, is never the default while another AI is installed, and says under the picker what it cannot do yet. A pinned model uses its exact provider ID. With more than one server, **Advanced** in the same tab chooses the bot's **Server**.
 - **Start fresh** ends the running agent and, with **Keep _name_ ready** on, starts the next one at once. The chat stays; the bot's own memory of it does not.
-- An agent that was started ahead of time and has not been written to is replaced when you change the bot's AI, model or projects, so the change applies at once. An agent that holds a conversation keeps running until **Start fresh**.
+- An agent that was started ahead of time and has not been written to is replaced when you change the bot's AI, model or projects, so the change applies at once. For a model change, the next direct message uses the selected AI and carries the conversation forward.
 - **Add a bot for each AI** (**Settings → Servers → Connection**) adds one bot for each AI the server has that no bot uses yet.
 
 ## Chat
@@ -130,7 +130,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 
 ## Updates
 
-- **Settings → Software Update** shows in one place whether everything is up to date, and has one button (**Update Now** or **Update All**) when something is behind: the servers first, then the app. **Check Now** asks again. While an update waits, a line at the bottom of the sidebar opens the page.
+- **Settings → Software Update** shows in one place whether everything is up to date, and has one button (**Update Now** or **Update All**) when something is behind: the servers first, then the app. **Check Now** asks again. While an update waits, **Review updates** above the chat list opens the page.
 - **The app** updates through Sparkle. Two switches: **Check for updates automatically** (once a day, in the background, without a window over your work) and **Install updates automatically** (downloads in the background and installs when you quit). **Update Now…** opens Sparkle's window with the release notes. **Check for Updates…** in the SwarmHub menu does the same for the app alone. An app that is run as a bare executable does not update itself.
 - **Each server** has a card with its workspace version (the bridge's) and its Herdr Core version. **Update** has the server install the newest signed workspace release itself; the workspace restarts and the agents keep running. A server that cannot reach the releases is handed the release by the app. The ••• menu has **Check Again**, **Update Herdr Core** and, after an update, **Go Back from Workspace …**.
 - A server whose workspace is from before it could update itself is reported as needing an update by hand, once.
