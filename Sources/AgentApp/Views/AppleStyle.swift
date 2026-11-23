@@ -426,7 +426,7 @@ enum AppGlass {
     static let byDefault: Bool = {
         let environment = ProcessInfo.processInfo.environment
         if environment["SWARMHUB_NO_GLASS"] == "1" || environment["AGENTAPP_SNAPSHOT"] != nil || TestRunGuard.isTestRun { return false }
-        return !CommandLine.arguments.contains { $0 == "--render-setup" || $0 == "--render-snapshot" }
+        return !CommandLine.arguments.contains { $0 == "--render-setup" || $0 == "--render-snapshot" || $0 == "--agent-qa" }
     }()
 
     /// The Mac has the material and nothing asks for the plain surface instead.

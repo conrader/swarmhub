@@ -109,6 +109,7 @@ Rendered by the app (`AgentApp --render-setup`) with sample content. No real ser
 
 | | |
 | --- | --- |
+| [Agent QA on Mac](docs/agent-qa.md) | Drive a sample workspace, explore UI behavior, and replay findings with screenshots. |
 | [Guide](docs/guide.md) | Setup and everyday use. |
 | [Architecture](docs/architecture.md) | The pieces, how a message travels, what is enforced in code, the security boundaries, where the code is. |
 | [The bridge's manual](HerdrWorkspace/README.md) | Running the bridge, its HTTP API, agent templates, helpers, projects, the browser workspace. |
