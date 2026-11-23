@@ -20,6 +20,7 @@ struct SettingsView: View {
                     Group {
                         switch pane {
                         case .general: SettingsSimplePane()
+                        case .ais: SettingsAIsPane()
                         case .servers: ScrollView { SettingsAccountPane().padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }
                         case .vault: HerdrVaultSettings()
                         case .updates: ScrollView { SoftwareUpdatePane().padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }

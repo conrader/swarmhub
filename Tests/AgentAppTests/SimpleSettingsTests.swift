@@ -6,7 +6,7 @@ import Testing
 
 @Test func everySettingHasOneHomeInOnePane() {
     // One Settings: General is what most people open it for, and each other pane is one thing. No "Advanced" behind it.
-    #expect(SettingsLayout.Pane.allCases == [.general, .servers, .vault, .updates, .whatsNew, .about])
+    #expect(SettingsLayout.Pane.allCases == [.general, .ais, .servers, .vault, .updates, .whatsNew, .about])
     #expect(SettingsLayout.ids(in: .general) == ["you.name", "you.about", "you.timeZone", "you.location", "appearance.theme", "appearance.accent", "appearance.appIcon", "appearance.avatarMotion", "notifications.master"])
     for pane in SettingsLayout.Pane.allCases { #expect(!SettingsLayout.ids(in: pane).isEmpty, "\(pane.rawValue) is reachable and not empty") }
     #expect(SettingsLayout.home(of: "servers.herdr") == .servers && SettingsLayout.home(of: "servers.projects") == .servers && SettingsLayout.home(of: "servers.grokBot") == .servers)

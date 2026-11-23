@@ -56,7 +56,7 @@ const NOT_A_BOT_FOLDER: &str = "Gemini (beta) only starts in a bot's own workspa
 const SETTINGS_IN_THE_WAY: &str = "This bot's folder has a .gemini/settings.json that SwarmHub cannot replace. Move it away, then start the bot again.";
 
 fn gemini() -> Command {
-    Command::new(env::var_os("SWARMHUB_GEMINI_BIN").unwrap_or_else(|| "gemini".into()))
+    crate::service::agent_command("gemini", "SWARMHUB_GEMINI_BIN")
 }
 
 /// `swarmhub-herdr run-gemini`: starts Gemini CLI in this terminal with the hooks that report to SwarmHub.
@@ -93,7 +93,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Whether SwarmHub made this folder for a bot: it carries the empty marker file (`core::bot_workspace`).
-fn bridge_made(folder: &Path) -> bool {
+pub(crate) fn bridge_made(folder: &Path) -> bool {
     fs::symlink_metadata(folder.join(".swarmhub-workspace"))
         .is_ok_and(|meta| meta.is_file() && meta.len() == 0)
 }

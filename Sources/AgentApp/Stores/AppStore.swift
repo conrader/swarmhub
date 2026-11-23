@@ -46,6 +46,7 @@ import UserNotifications
     @Published var herdrPrompts: [UUID: HerdrPrompt] = [:]
     var herdrPromptBook = HerdrPromptBook()
     var herdrWarming: [UUID: Task<Void, Never>] = [:]
+    @Published var localAIRevision = 0
     var localServiceSetupInProgress = false
     @Published var herdrNoWarmStarts: Set<String> = []
     /// Applied to every Herdr client the store makes; tests point it at a scripted server.

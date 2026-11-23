@@ -35,7 +35,7 @@ impl<'a> Probe<'a> {
         if !valid_name(&template.name) || !catalog.entries.get(&template.name)?.discover_models {
             return None;
         }
-        let Some(ModelTarget::Builtin(agent @ (ModelAgent::OpenCode | ModelAgent::Codex))) =
+        let Some(ModelTarget::Builtin(agent @ (ModelAgent::OpenCode | ModelAgent::Codex | ModelAgent::Antigravity))) =
             catalog.model_target(template)
         else {
             return None;
@@ -70,6 +70,8 @@ struct Model {
     id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
 }
 
 struct Cached {
@@ -81,6 +83,7 @@ struct Cached {
 
 fn failed(agent: ModelAgent) -> ApiError {
     ApiError::Conflict(match agent {
+        ModelAgent::Antigravity => "Antigravity could not list models. Open agy on this Mac and check that you are signed in.",
         ModelAgent::Codex => {
             "Codex couldn't list models. Check its configuration on Herdr, or enter a model ID."
         }
@@ -204,7 +207,7 @@ fn parse(agent: ModelAgent, output: &str, truncated: bool) -> Option<Models> {
             if !launchable_model(agent, &id) || !seen.insert(id.clone()) {
                 return None;
             }
-            models.push(Model { id, provider: None });
+            models.push(Model { id, provider: None, label: None });
         }
         return Some(Models {
             models,
@@ -212,6 +215,18 @@ fn parse(agent: ModelAgent, output: &str, truncated: bool) -> Option<Models> {
         });
     }
     let stdout = std::str::from_utf8(&bytes).ok()?;
+    if let ModelAgent::Antigravity = agent {
+        let mut seen = BTreeSet::new();
+        let mut models = Vec::new();
+        for line in stdout.lines().filter(|line| !line.is_empty()) {
+            let (id,label) = line.split_once('\t')?;
+            if !agent.accepts(id) || label.is_empty() || label.len() > 160 || label.chars().any(char::is_control) { return None; }
+            if seen.insert(id) && models.len() < MAX_MODELS {
+                models.push(Model { id: id.to_owned(), label: Some(label.to_owned()), provider: None });
+            }
+        }
+        return Some(Models { models, truncated: seen.len() > MAX_MODELS });
+    }
     let mut ids = BTreeSet::new();
     for id in stdout.lines().filter(|line| !line.is_empty()) {
         if !launchable_model(ModelAgent::OpenCode, id) {
@@ -229,6 +244,7 @@ fn parse(agent: ModelAgent, output: &str, truncated: bool) -> Option<Models> {
                 Some(Model {
                     id: id.to_owned(),
                     provider: Some(provider.to_owned()),
+                    label: None,
                 })
             })
             .collect(),
@@ -239,6 +255,16 @@ fn parse(agent: ModelAgent, output: &str, truncated: bool) -> Option<Models> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn reads_antigravity_model_picker_labels_in_provider_order() {
+        let stdout = STANDARD.encode("gemini-high\tGemini (High)\ngemini-low\tGemini (Low)\n");
+        let found = parse(ModelAgent::Antigravity,&stdout,false).unwrap();
+        assert_eq!(found.models.len(),2);
+        assert_eq!(found.models[0].id,"gemini-high");
+        assert_eq!(found.models[0].label.as_deref(),Some("Gemini (High)"));
+        assert!(parse(ModelAgent::Antigravity,&STANDARD.encode("Please sign in"),false).is_none());
+    }
 
     #[test]
     fn requires_an_opted_in_compatible_literal_template() {

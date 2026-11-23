@@ -13,7 +13,7 @@ pub(crate) mod trust;
 pub(crate) use models::Catalog as ModelCatalog;
 
 fn executable() -> Command {
-    Command::new(env::var_os("SWARMHUB_CODEX_BIN").unwrap_or_else(|| "codex".into()))
+    crate::service::agent_command("codex", "SWARMHUB_CODEX_BIN")
 }
 
 pub fn models() -> Result<(), Box<dyn std::error::Error>> {

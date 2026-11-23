@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.12 (build 46)
+
+- Open **Settings → AIs** to scan this Mac and add an installed AI. Choose it for a bot under **Details → Model**. Workspace 0.2.9 adds support for Gemini through Google Antigravity CLI (`agy`). Adding an AI leaves running agents in their current sessions.
+
 ## 0.8.11 (build 45)
 
 - Codex chats now save the final answer when the workspace receives the completed turn, even when the Codex Stop hook is unavailable. This fixes replies getting stuck on “Finishing” and then appearing incomplete. Requires workspace server 0.2.8.

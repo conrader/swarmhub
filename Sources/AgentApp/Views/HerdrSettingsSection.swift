@@ -319,6 +319,9 @@ struct HerdrAgentControls: View {
                 StatusCard(kind: .info, title: running, detail: reading?.pendingLine)
             }
             if !note.isEmpty { Text(note).font(.callout).textSelection(.enabled) }
+            if store.herdrServer(for: bot).kind == .local {
+                SettingsPaneButton(title: "Manage AIs on this Mac…", pane: .ais)
+            }
             HerdrHelperModelSection(bot: bot, server: store.herdrServer(for: bot), templates: templates)
                 .id(store.herdrServer(for: bot).id)
             // What few people change: both are on for every bot.
@@ -365,7 +368,7 @@ struct HerdrAgentControls: View {
                 note = "Switched to \(target.record.label) in this conversation."
             }
         }
-        .task {
+        .task(id: store.localAIRevision) {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
             serverID = store.herdrServer(for: bot).id
             loaded = true
