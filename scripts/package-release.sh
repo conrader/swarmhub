@@ -62,6 +62,7 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Conte
 cp "$BUILD_DIR/AgentApp" "$APP_DIR/Contents/MacOS/AgentApp"
 /usr/bin/ditto "$BUILD_DIR/Sparkle.framework" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
 rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources/Avatars" "$APP_DIR/Contents/Resources/ThemeIcons"
+cp -R "$ROOT_DIR/docs/releases" "$APP_DIR/Contents/Resources/releases"
 cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
 # The Icon Composer icon, as Assets.car (CFBundleIconName = AppIcon): macOS 26 and later draw the app's icon from it in
 # the Default, Dark, Clear and Tinted icon styles. Without it macOS darkens the icns itself on a Mac with dark icons.

@@ -23,6 +23,7 @@ struct SettingsView: View {
                         case .servers: ScrollView { SettingsAccountPane().padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }
                         case .vault: HerdrVaultSettings()
                         case .updates: ScrollView { SoftwareUpdatePane().padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: .infinity, alignment: .leading) }
+                        case .whatsNew: WhatsNewPane()
                         case .about: Form { Section { UpdateCheckRow() }; SettingsAboutPane() }.formStyle(.grouped)
                         }
                     }.navigationTitle(pane.rawValue)

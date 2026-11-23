@@ -1,5 +1,9 @@
 // swift-tools-version: 6.0
+import Foundation
 import PackageDescription
+
+let docs = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("docs")
+let otherDocs = (try? FileManager.default.contentsOfDirectory(atPath: docs.path))?.filter { $0 != "releases" }.map { "docs/" + $0 } ?? []
 
 let package = Package(
     name: "AgentApp",
@@ -21,9 +25,9 @@ let package = Package(
             path: ".",
             // Output folders too: dist/ holds packaged .app bundles whose Sparkle nibs/lproj SwiftPM would treat as resources
             // (hidden .build* folders, incl. .build-release, are skipped by SwiftPM anyway). Guarded by PackageManifestTests.
-            exclude: ["Tests", "scripts", "docs", "Vendor", "dist", "Apps", "HerdrWorkspace", "README.md"],
+            exclude: ["Tests", "scripts", "Vendor", "dist", "Apps", "HerdrWorkspace", "README.md"] + otherDocs,
             sources: ["Sources/AgentApp"],
-            resources: [.copy("Resources/Avatars"), .copy("Resources/AppIcon/ThemeIcons")],
+            resources: [.copy("Resources/Avatars"), .copy("Resources/AppIcon/ThemeIcons"), .copy("docs/releases")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
                                           "-Xlinker", "-rpath", "-Xlinker", "@executable_path"])]
         ),
