@@ -40,7 +40,10 @@ extension AppStore {
 
     /// The bot is gone: nothing of this is kept.
     func forgetHerdrCarryOver(_ botID: UUID) {
-        defaults.removeObject(forKey: Self.herdrCarryOverKey(botID)); grokHandoffs.carrySummaries[botID] = nil; grokHandoffs.carried.remove(botID)
+        defaults.removeObject(forKey: Self.herdrCarryOverKey(botID))
+        defaults.removeObject(forKey: "herdr.confirmed.\(botID)")
+        clearModelSwitch(botID)
+        grokHandoffs.carrySummaries[botID] = nil; grokHandoffs.carried.remove(botID)
     }
 
     /// The bot's next agent can be handed its chat: it runs on a server, and no imported conversation is handed

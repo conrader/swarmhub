@@ -31,11 +31,14 @@ extension AppStore {
         var activitySummary: (seconds: Int, tools: Int)?
         // A delivered steer moves the rest of the reply into a new row below its bubble.
         var row = assistant
+        var lastFullReplace = ""
+        var committedReplacePrefix = ""
         // What the agent's server says the turn is waiting for; it goes with the reply into each new part.
         var agentStatus: String?
         for try await event in stream {
             guard !Task.isCancelled else { break }
-            row = steerRow(for: event, origin: assistant, row: row)
+            let nextRow = steerRow(for: event, origin: assistant, row: row)
+            if nextRow !== row { committedReplacePrefix = lastFullReplace; row = nextRow }
             if row.metadata[TurnKey.agent] != agentStatus { row.metadata[TurnKey.agent] = agentStatus }
             // Anything the server sends again ends a reconnect.
             if case .status = event {} else if row.metadata[TurnKey.reconnecting] != nil { row.metadata[TurnKey.reconnecting] = nil; objectWillChange.send() }
@@ -44,7 +47,18 @@ extension AppStore {
                 row.content += token
                 if !token.isEmpty { row.lastTextAt = now() }
                 objectWillChange.send(); autosaveIfDue()
-            case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
+            case .replace(let text):
+                lastFullReplace = text
+                let remainder: String
+                if !committedReplacePrefix.isEmpty, text.hasPrefix(committedReplacePrefix) {
+                    let tail = String(text.dropFirst(committedReplacePrefix.count))
+                    remainder = tail.hasPrefix("\n\n") ? String(tail.dropFirst(2)) : tail
+                } else {
+                    remainder = text
+                }
+                row.content = remainder
+                row.lastTextAt = remainder.isEmpty ? nil : now()
+                objectWillChange.send(); autosaveIfDue()
             case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
             case .status(let value) where HerdrTurnStatus(code: value) != nil:
                 agentStatus = value; row.metadata[TurnKey.agent] = value
@@ -64,9 +78,11 @@ extension AppStore {
             case .launchModel(let model): launchModel = model
             case .published(let server, let result):
                 var saved = row.publishedResults ?? HerdrReplyResults(serverID: server, items: [])
-                saved.items.append(result)
-                row.publishedResults = saved
-                autosaveIfDue()
+                if !saved.items.contains(where: { $0.id == result.id }) {
+                    saved.items.append(result)
+                    row.publishedResults = saved
+                    autosaveIfDue()
+                }
             case .runActivity(let seconds, let tools): activitySummary = (seconds, tools)
             case .completed: completed = true
             case .failed(let value): failure = value
@@ -208,7 +224,7 @@ extension AppStore {
 
     /// The reply row as it was before anything arrived, with `status` under it.
     func resetForResend(_ assistant: ChatMessage, status: String) {
-        assistant.content = ""; assistant.activity = nil; assistant.lastTextAt = nil
+        assistant.content = ""; assistant.activity = nil; assistant.publishedResults = nil; assistant.lastTextAt = nil
         assistant.turnState = .incomplete; assistant.isStreaming = true
         [TurnKey.why, TurnKey.ambiguous, TurnKey.agent].forEach { assistant.metadata[$0] = nil }
         assistant.metadata["status"] = status

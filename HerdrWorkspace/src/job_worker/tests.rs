@@ -1,8 +1,14 @@
 use super::{ProcessIdentity, Worker, cancel_group, subprocess};
 use crate::{
-    fleet_policy::{PolicyRef, Rule, WorkerHeartbeat, tests::{Fixture, WORKSPACE, policy}},
+    fleet_policy::{
+        PolicyRef, Rule, WorkerHeartbeat,
+        tests::{Fixture, WORKSPACE, policy},
+    },
     history,
-    machines::probe::{Enrollment, Provider, Report, tests::{enrolled, key, report, signed}},
+    machines::probe::{
+        Enrollment, Provider, Report,
+        tests::{enrolled, key, report, signed},
+    },
 };
 use ring::signature::Ed25519KeyPair;
 use serde_json::{Value, json};
@@ -28,38 +34,76 @@ pub(crate) struct Inputs {
 // The worker journal may use a RAM-backed TMPDIR on CI. Its actual
 // workdir still needs a disk so the admission checks run as shipped.
 pub(super) fn disk_scratch(base: &Path) -> Option<tempfile::TempDir> {
+    use std::os::unix::fs::PermissionsExt;
     super::admission::ram_backed(&File::open(base).unwrap())
         .unwrap_or(false)
-        .then(|| tempfile::Builder::new().prefix("swarmhub-worker-").tempdir_in("/var/tmp").unwrap())
+        .then(|| {
+            let dir = tempfile::Builder::new()
+                .prefix("swarmhub-worker-")
+                .tempdir_in("/var/tmp")
+                .unwrap();
+            fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+            dir
+        })
 }
 
 impl Inputs {
     pub(crate) fn new(root: &Path, machine: &str, rules: Vec<Rule>) -> Self {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
         let key = key();
         let mut enrollment = enrolled(machine, 1, &key);
         let disk_project = disk_scratch(root);
-        let project = disk_project.as_ref().map_or(root, |dir| dir.path()).join("project");
-        fs::create_dir(&project).unwrap();
-        let project = project.canonicalize().unwrap().into_os_string().into_string().unwrap();
-        enrollment.accounts.insert(Provider::Claude, "fixture-claude-account".into());
-        enrollment.thresholds.provider_slots.insert(Provider::Claude, 1);
+        let project = disk_project
+            .as_ref()
+            .map_or(root, |dir| dir.path())
+            .join("project");
+        fs::DirBuilder::new().mode(0o700).create(&project).unwrap();
+        let project = project
+            .canonicalize()
+            .unwrap()
+            .into_os_string()
+            .into_string()
+            .unwrap();
+        enrollment
+            .accounts
+            .insert(Provider::Claude, "fixture-claude-account".into());
+        enrollment
+            .thresholds
+            .provider_slots
+            .insert(Provider::Claude, 1);
         enrollment.roots = vec![project.clone()];
         enrollment.projects[0].folder = project;
-        let worker = Worker { id: enrollment.id.clone(), host_fingerprint: enrollment.fingerprint() };
+        let worker = Worker {
+            id: enrollment.id.clone(),
+            host_fingerprint: enrollment.fingerprint(),
+        };
         let identity = serde_json::to_value(worker).unwrap();
         let policy_root = root.join(WORKSPACE);
         let fixture = Fixture::new(root, WORKSPACE, true);
         let mut policy = policy(1, rules);
         policy.workers.push(enrollment.clone());
-        let reference = fixture.publish(fixture.publication(policy, WORKSPACE)).unwrap();
+        let reference = fixture
+            .publish(fixture.publication(policy, WORKSPACE))
+            .unwrap();
         write_local(root, "identity.json", &identity);
-        write_local(root, "admission.json", &json!({
-            "policy_dir": policy_root,
-            "workspace": WORKSPACE,
-            "operator_uid": unsafe { libc::getuid() },
-        }));
+        write_local(
+            root,
+            "admission.json",
+            &json!({
+                "policy_dir": policy_root,
+                "workspace": WORKSPACE,
+                "operator_uid": unsafe { libc::getuid() },
+            }),
+        );
         let inputs = Self {
-            enrollment, reference, identity, key, root: root.into(), policy_root, authority: fixture,
+            enrollment,
+            reference,
+            identity,
+            key,
+            root: root.into(),
+            policy_root,
+            authority: fixture,
             _disk_project: disk_project,
         };
         inputs.heartbeat(history::now() + 55_000);
@@ -75,13 +119,20 @@ impl Inputs {
         self.publish_revocations(rules, Default::default());
     }
 
-    pub(crate) fn publish_revocations(&mut self, rules: Vec<Rule>, revoked: std::collections::BTreeSet<String>) {
+    pub(crate) fn publish_revocations(
+        &mut self,
+        rules: Vec<Rule>,
+        revoked: std::collections::BTreeSet<String>,
+    ) {
         let mut policy = policy(self.reference.generation + 1, rules);
         policy.workers.push(self.enrollment.clone());
         policy.revoked = revoked;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         self.reference = loop {
-            match self.authority.publish(self.authority.publication(policy.clone(), WORKSPACE)) {
+            match self
+                .authority
+                .publish(self.authority.publication(policy.clone(), WORKSPACE))
+            {
                 Ok(reference) => break reference,
                 Err(crate::fleet_policy::Error::Busy) if std::time::Instant::now() < deadline => {
                     std::thread::yield_now();
@@ -96,7 +147,9 @@ impl Inputs {
     pub(crate) fn report(&self) -> Report {
         let mut report = report(&self.enrollment, &self.reference, history::now());
         let project = &self.enrollment.projects[0].folder;
-        report.runtimes.insert(Provider::Claude, report.runtimes[&Provider::Codex].clone());
+        report
+            .runtimes
+            .insert(Provider::Claude, report.runtimes[&Provider::Codex].clone());
         report.provider_running.insert(Provider::Claude, 0);
         report.work_disks = [(project.clone(), report.root_disk.clone().unwrap())].into();
         report
@@ -108,7 +161,9 @@ impl Inputs {
 
     pub(crate) fn heartbeat(&self, expires_ms: i64) {
         let heartbeat = WorkerHeartbeat {
-            policy: self.reference.clone(), issued_ms: history::now() - 1000, expires_ms,
+            policy: self.reference.clone(),
+            issued_ms: history::now() - 1000,
+            expires_ms,
         };
         write_local(&self.policy_root, "worker-heartbeat.json", &heartbeat);
     }
@@ -132,10 +187,19 @@ pub(crate) fn write_local(root: &Path, name: &str, value: &impl serde::Serialize
 }
 
 pub(crate) fn init(root: &Path) -> Value {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
     let enrollment = enrolled("mini-m4", 1, &key());
-    let worker = Worker { id: enrollment.id.clone(), host_fingerprint: enrollment.fingerprint() };
-    let identity = OpenOptions::new().write(true).create_new(true).mode(0o600)
-        .open(root.join("identity.json")).unwrap();
+    let worker = Worker {
+        id: enrollment.id.clone(),
+        host_fingerprint: enrollment.fingerprint(),
+    };
+    let identity = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(root.join("identity.json"))
+        .unwrap();
     serde_json::to_writer(identity, &worker).unwrap();
     serde_json::to_value(worker).unwrap()
 }
@@ -154,9 +218,11 @@ pub(crate) fn command(root: &Path, verb: &str) -> Command {
 
 pub(crate) fn rpc_command(root: &Path, verb: &str) -> Command {
     subprocess([
-        std::ffi::OsStr::new("rpc"), root.as_os_str(),
+        std::ffi::OsStr::new("rpc"),
+        root.as_os_str(),
         std::ffi::OsStr::new(verb),
-    ]).unwrap()
+    ])
+    .unwrap()
 }
 
 pub(crate) fn authority(inputs: &Inputs) -> crate::fleet_policy::Authority {
@@ -164,7 +230,9 @@ pub(crate) fn authority(inputs: &Inputs) -> crate::fleet_policy::Authority {
 }
 
 pub(crate) fn live(identity: &Value) -> bool {
-    serde_json::from_value::<ProcessIdentity>(identity.clone()).unwrap().live()
+    serde_json::from_value::<ProcessIdentity>(identity.clone())
+        .unwrap()
+        .live()
 }
 
 pub(crate) fn subprocess_entry() -> bool {
@@ -182,7 +250,10 @@ pub(crate) fn subprocess_entry() -> bool {
 fn gapplan_07_unit_process_group_signal_requires_birth_identity() -> io::Result<()> {
     let mut child = subprocess(["_fixture-member"])?.process_group(0).spawn()?;
     let actual = ProcessIdentity::read(child.id() as i32).unwrap();
-    let wrong = ProcessIdentity { birth: "previous process".into(), ..actual };
+    let wrong = ProcessIdentity {
+        birth: "previous process".into(),
+        ..actual
+    };
     let signalled = cancel_group(&child, &wrong);
     let survived = child.try_wait()?.is_none();
     if survived {
@@ -199,7 +270,11 @@ fn gapplan_09_unit_capture_drains_a_socket_without_waiting_for_the_inherited_wri
     use std::{io::Write, os::unix::net::UnixStream};
     let (socket, mut writer) = UnixStream::pair().unwrap();
     socket.set_nonblocking(true).unwrap();
-    let mut capture = super::Capture { socket, bytes: vec![], limit: 5 };
+    let mut capture = super::Capture {
+        socket,
+        bytes: vec![],
+        limit: 5,
+    };
     writer.write_all(b"abcdef").unwrap();
     capture.drain();
     assert_eq!(capture.bytes, b"abcde");
@@ -209,16 +284,26 @@ fn gapplan_09_unit_capture_drains_a_socket_without_waiting_for_the_inherited_wri
 }
 
 pub(crate) fn workload_child(
-    root: &Path, verb: &str, input: std::os::unix::net::UnixStream,
+    root: &Path,
+    verb: &str,
+    input: std::os::unix::net::UnixStream,
     auxiliary: std::os::unix::net::UnixStream,
 ) -> io::Result<std::process::Child> {
-    use std::{os::fd::{AsRawFd, OwnedFd}, process::Stdio};
+    use std::{
+        os::fd::{AsRawFd, OwnedFd},
+        process::Stdio,
+    };
     let fd = auxiliary.as_raw_fd().to_string();
     let mut command = subprocess([
-        std::ffi::OsStr::new(verb), root.as_os_str(), std::ffi::OsStr::new(&fd),
+        std::ffi::OsStr::new(verb),
+        root.as_os_str(),
+        std::ffi::OsStr::new(&fd),
     ])?;
     command.stdin(Stdio::from(OwnedFd::from(input)));
-    let log = OpenOptions::new().create(true).append(true).mode(0o600)
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
         .open(root.join("workload-fixture.log"))?;
     command.stdout(log.try_clone()?).stderr(log);
     // SAFETY: fcntl changes the descriptor only in the fresh child. Holding
@@ -229,7 +314,11 @@ pub(crate) fn workload_child(
     command.spawn()
 }
 
-pub(crate) fn outbound_child(input: std::os::unix::net::UnixStream) -> io::Result<std::process::Child> {
+pub(crate) fn outbound_child(
+    input: std::os::unix::net::UnixStream,
+) -> io::Result<std::process::Child> {
     use std::{os::fd::OwnedFd, process::Stdio};
-    subprocess(["_outbound-executor"])?.stdin(Stdio::from(OwnedFd::from(input))).spawn()
+    subprocess(["_outbound-executor"])?
+        .stdin(Stdio::from(OwnedFd::from(input)))
+        .spawn()
 }

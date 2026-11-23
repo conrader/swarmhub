@@ -23,6 +23,12 @@ enum MediaExtractor {
         messages.flatMap { message -> [MediaItem] in
             var found: [(MediaItem.Kind, String, String?, ChatAttachment?)] = []
             for attachment in message.attachments { found.append((attachment.kind == .image ? .image : .file, attachment.name, nil, attachment)) }
+            if let published = message.publishedResults?.items {
+                for item in published {
+                    let kind: MediaItem.Kind = item.kind == .file && ChatMediaKind(filename: item.title) == .image ? .image : .file
+                    found.append((kind, item.title, nil, nil))
+                }
+            }
             switch message.presentation {
             case .text where message.role != .system:
                 for image in ChatCardParser.markdownImages(in: message.content) {

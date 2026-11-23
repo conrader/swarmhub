@@ -502,3 +502,44 @@ private final class SlowClock: @unchecked Sendable {
     let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(body["replace"] as? Bool != true)
 }
+
+@MainActor @Test func syncTeamImportsOtherBotsWhileOneBotStreamsAndHoldsCursorOnlyForWorkingDirectTurn() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let jarvis = Bot(name: "Jarvis", backend: .herdr)
+    let legal = Bot(name: "Legal", backend: .herdr)
+    let jarvisID = jarvis.id.uuidString.lowercased()
+    let legalID = legal.id.uuidString.lowercased()
+    let serverID = HerdrServer.defaultID
+    let http = MockHTTPProtocol.serve { request in
+        switch request.url?.path {
+        case "/api/workspace": return (200, ["core": "c", "agents": [], "templates": []])
+        case "/api/bots": return (200, ["bots": []])
+        case "/api/bots/history":
+            let all: [[String: Any]] = [
+                ["id": 1, "bot": jarvisID, "kind": "said", "journal": 70, "text": "Jarvis answer in flight.", "at_ms": 1000, "unread": true, "notify": false],
+                ["id": 2, "bot": legalID, "kind": "said", "journal": 71, "text": "Legal finished background check.", "at_ms": 1100, "unread": true, "notify": false]
+            ]
+            let after = request.url?.query?.hasPrefix("after=0&") == true ? 0 : 2
+            return (200, ["items": all.filter { ($0["id"] as? Int ?? 0) > after }, "more": false])
+        default: return (404, [:])
+        }
+    }
+    let server = HerdrServer(id: serverID, name: "Test", kind: .address, address: "http://\(http.host)")
+    store.saveHerdrServer(server, token: "fixture")
+    store.herdrClientSetup = { $0.session = http.session }
+    store.bots = [jarvis, legal]
+    store.selectedBot = nil
+
+    let streaming = ChatMessage(role: .assistant, content: "Writing…", isStreaming: true, turnState: .incomplete)
+    let turn = store.beginTurn(in: jarvis, bot: jarvis, assistant: streaming)
+
+    await store.syncTeam(server)
+    #expect(legal.messages.map(\.content) == ["Legal finished background check."], "another bot's history is not blocked by Jarvis's active turn")
+    #expect(jarvis.messages.isEmpty && store.defaults.integer(forKey: "herdrTeamCursor.\(serverID)") == 0, "cursor holds before Jarvis's unsettled reply")
+
+    store.endTurn(turn.token)
+    await store.syncTeam(server)
+    #expect(jarvis.messages.map(\.content) == ["Jarvis answer in flight."])
+    #expect(legal.messages.map(\.content) == ["Legal finished background check."], "re-scanning from held cursor does not duplicate Legal's row")
+    #expect(store.defaults.integer(forKey: "herdrTeamCursor.\(serverID)") == 2)
+}

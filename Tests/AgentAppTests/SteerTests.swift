@@ -142,3 +142,31 @@ import Testing
     #expect(reloaded.messages.map(\.content) == ["go", "Before. still before. ", "use metric", "After."])
     #expect(reloaded.messages.map { $0.metadata[TurnKey.part] } == [nil, "1", nil, "2"])
 }
+
+@MainActor @Test func aSteerDeliveredMidReplyStripsCumulativeReplacesFromEarlierParts() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    #expect(store.send(text: "go"))
+    try await backend.calls.wait { $0.contains("send:go") }
+    await backend.emit(.replace("First paragraph."), step(.started))
+    try await waitUntil { store.soleTurn?.steerAvailable == true && store.soleTurn?.assistant?.content == "First paragraph." }
+
+    #expect(store.send(text: "use metric"))
+    try await backend.calls.wait { $0.contains("steer:use metric") }
+    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
+
+    await backend.emit(step(.completed), .replace("First paragraph.\n\nSecond paragraph in metric."), step(.started, id: "c2"))
+    try await waitUntil { bot.messages.count == 4 && bot.messages[3].content == "Second paragraph in metric." }
+
+    #expect(store.send(text: "just the number"))
+    try await backend.calls.wait { $0.contains("steer:just the number") }
+    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
+
+    // A final replace that does not repeat earlier prefixes still lands whole in the new part.
+    await backend.emit(step(.completed, id: "c2"), .replace("42"), .completed)
+    await backend.end()
+    try await waitUntil { !store.anyTurnRunning }
+
+    #expect(bot.messages.map(\.content) == ["go", "First paragraph.", "use metric", "Second paragraph in metric.", "just the number", "42"])
+    #expect(bot.messages.map { $0.metadata[TurnKey.part] } == [nil, "1", nil, "2", nil, "3"])
+}

@@ -5,6 +5,8 @@ extension AppStore {
 
     func markModelSwitch(_ bot: Bot) { defaults.set(true, forKey: "herdr.changeOnSend.\(bot.id)") }
 
+    func clearModelSwitch(_ botID: UUID) { defaults.removeObject(forKey: "herdr.changeOnSend.\(botID)") }
+
     /// Called inside the direct turn, after an outstanding warm start and before either history or user input.
     /// Reconcile the live session as well as newly changed choices: older app versions only saved the preference.
     func prepareDirectModel(bot: Bot, server: HerdrServer, template: String?, model: String) async throws -> [HerdrHandoffSource] {
@@ -56,7 +58,7 @@ extension AppStore {
                         try checkChoice()
                         rememberModel(.init(server: server.id, core: core, address: agent.address, created: agent.createdMs,
                                             id: liveModel.id, label: HerdrAgentReading.name(liveModel)), for: bot)
-                        defaults.removeObject(forKey: "herdr.changeOnSend.\(bot.id)")
+                        clearModelSwitch(bot.id)
                         return [grokHandoffSource(for: bot), herdrCarrySource(for: bot)].compactMap { $0 }
                     }
                     // Save the handoff before ending the old launch, so an interrupted start can resume it.
@@ -77,7 +79,7 @@ extension AppStore {
                 setHerdrCarryOver(HerdrCarryOver(old: nil, at: now()), for: bot)
             }
             try checkChoice()
-            defaults.removeObject(forKey: "herdr.changeOnSend.\(bot.id)")
+            clearModelSwitch(bot.id)
         }
         return [grokHandoffSource(for: bot), herdrCarrySource(for: bot)].compactMap { $0 }
     }
