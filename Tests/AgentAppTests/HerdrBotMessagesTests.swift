@@ -477,7 +477,8 @@ private final class SlowClock: @unchecked Sendable {
         case "/api/bots/history":
             let entries: [[String: Any]] = [
                 ["id":1, "bot":id, "kind":"said", "journal":50, "text":"Read live.", "at_ms":1000, "unread":true, "notify":false],
-                ["id":2, "bot":id, "kind":"said", "journal":51, "text":"Reviewer confirmed the failure.", "at_ms":2000, "unread":true, "notify":false]]
+                ["id":2, "bot":id, "kind":"said", "journal":51, "text":"Reviewer confirmed the failure.", "at_ms":2000, "unread":true, "notify":false],
+                ["id":3, "bot":id, "kind":"said", "code":"direct_followup", "journal":52, "text":"Background task finished.", "at_ms":1500, "unread":true, "notify":false]]
             return (200, ["items":request.url?.query?.hasPrefix("after=0&") == true ? entries : [], "more":false])
         default: return (404, [:])
         }
@@ -487,14 +488,14 @@ private final class SlowClock: @unchecked Sendable {
     store.herdrClientSetup = { $0.session = http.session }
     store.bots = [bot]
     store.selectedBot = nil
-    bot.messages = [ChatMessage(role: .assistant, content: "Read live.", metadata:["herdrJournal":"\(serverID):50"])]
+    bot.messages = [ChatMessage(role: .assistant, content: "Read live.", createdAt: Date(timeIntervalSince1970: 1), metadata:["herdrJournal":"\(serverID):50"])]
     await store.syncTeam(server)
     #expect(store.bridgeCoordinates(bot))
-    #expect(bot.messages.map(\.content) == ["Read live.", "Reviewer confirmed the failure."])
-    #expect(bot.unreadCount == 1)
+    #expect(bot.messages.map(\.content) == ["Read live.", "Background task finished.", "Reviewer confirmed the failure."])
+    #expect(bot.unreadCount == 2)
     store.defaults.removeObject(forKey: "herdrTeamCursor.\(serverID)")
     await store.syncTeam(server)
-    #expect(bot.messages.count == 2 && bot.unreadCount == 1)
+    #expect(bot.messages.count == 3 && bot.unreadCount == 2)
     let registrations = MockHTTPProtocol.recorded(http.host).filter { $0.url?.path == "/api/bots" }
     #expect(registrations.count == 1)
     let data = try #require(registrations.first?.bodyData)

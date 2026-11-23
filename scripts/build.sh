@@ -47,6 +47,8 @@ else
     -o "$BUILD_DIR/AgentApp" $(find Sources/AgentApp -name '*.swift' -print)
   mkdir -p "$BUILD_DIR/AgentApp.resources"
   rm -rf "$BUILD_DIR/AgentApp.resources/Avatars"
+  rm -rf "$BUILD_DIR/AgentApp.resources/releases"
+  cp -R docs/releases "$BUILD_DIR/AgentApp.resources/releases"
   cp -R Resources/Avatars "$BUILD_DIR/AgentApp.resources/Avatars"
   rm -rf "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp -R Resources/AppIcon/ThemeIcons "$BUILD_DIR/AgentApp.resources/ThemeIcons"

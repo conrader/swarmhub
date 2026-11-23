@@ -22,6 +22,7 @@ extension HerdrClient {
             let bot, kind, text: String
             let atMs: Int64
             let unread, notify: Bool
+            var code: String? = nil
             let journal: Int?
             let message: Exchange?
         }

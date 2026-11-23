@@ -305,6 +305,7 @@ struct HerdrClient: Sendable {
     static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 6_200, taskBytes = 16_000
 
     struct TaskFile: Sendable {
+        static let maxBytes = 8 * 1024 * 1024
         let name: String
         let mime: String
         let data: Data
@@ -317,7 +318,7 @@ struct HerdrClient: Sendable {
         }
 
         static func validate(_ files: [Self]) throws {
-            guard files.count <= 4, files.reduce(0, { $0 + $1.data.count }) <= 8 * 1024 * 1024 else {
+            guard files.count <= 4, files.reduce(0, { $0 + $1.data.count }) <= maxBytes else {
                 throw BackendError.unavailable("Attach up to four files totaling 8 MB per message.")
             }
         }

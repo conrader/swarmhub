@@ -131,8 +131,8 @@ enum HerdrHelperNote {
         The helper knows nothing of this conversation: put everything it needs into TASK. It starts in the server's \
         agent folder, or with --here in the folder you run the command in. \
         Choose the difficulty honestly: easy for small mechanical edits, medium for normal features and fixes, hard for \
-        design-heavy or risky work. The server picks the helper's model from the difficulty; you cannot choose it, and \
-        a higher difficulty than the task needs only costs more. The server limits how many helpers you may have at \
+        design-heavy or risky work. The server uses the person's helper model choice for this bot or its default for the difficulty. \
+        The server limits how many helpers you may have at \
         once and tells you when a start is refused. It stops a helper a short while after it has answered, unless you \
         send it a follow-up first; its answer stays readable with `helper read NAME`. Check a helper's answer before you \
         rely on it, and do small things yourself.
@@ -246,4 +246,21 @@ struct HerdrHelperPolicyDraft: Equatable, Sendable {
         if seconds >= 60, seconds % 60 == 0 { return count(seconds / 60, "minute") }
         return count(seconds, "second")
     }
+}
+
+extension HerdrClient {
+    struct BotAgentSettings: Decodable { let choice: HerdrHelperPolicy.Tier?; let autoMode: Bool }
+
+    func botAgentSettings(for bot: UUID) async throws -> BotAgentSettings {
+        try await get("/api/bot-agent-settings/\(bot.uuidString.lowercased())")
+    }
+
+    func setHelperModel(_ tier: HerdrHelperPolicy.Tier?, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
+        let choice: Any = tier.map { ["template": $0.template, "model": $0.model] as Any } ?? NSNull()
+        return try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["choice": choice, "existing_agents": existingAgents])
+    }
+    func setProjectAutoMode(_ enabled: Bool, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
+        try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["auto_mode": enabled, "existing_agents": existingAgents])
+    }
+
 }

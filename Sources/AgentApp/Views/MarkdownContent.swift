@@ -20,7 +20,10 @@ struct MarkdownContent: View {
                 case .code(_, let body): CodeBlock(code: body)
                 case .choices(let prompt, let options): ChoicesCard(message: message, target: actionTarget, index: index, prompt: prompt, options: options)
                 case .draft(let draft): DraftCardView(message: message, target: actionTarget, index: index, draft: draft)
-                case .image(let alt, let url): InlineImage(alt: alt, url: url)
+                case .image(let alt, let url):
+                    if let video = URL(string: url), ["http", "https"].contains(video.scheme?.lowercased() ?? ""), ChatMediaKind(filename: video.lastPathComponent) == .video {
+                        ChatVideo(url: video).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(alt)
+                    } else { InlineImage(alt: alt, url: url) }
                 }
             }
             // What the reply asked the app for, each as one plain line; the block itself is never drawn.
@@ -36,6 +39,15 @@ struct ProseBlock: View {
             ForEach(Array(text.components(separatedBy: "\n\n").enumerated()), id: \.offset) { _, paragraph in markdownParagraph(paragraph) }
             let urls = ChatCardParser.bareURLs(in: text)
             if !urls.isEmpty { LinkPillRow(urls: urls) }
+            ForEach(ChatCardParser.links(in: text), id: \.self) { link in
+                if let url = URL(string: link), ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
+                    switch ChatMediaKind(filename: url.lastPathComponent) {
+                    case .image: InlineImage(alt: url.lastPathComponent, url: link)
+                    case .video: ChatVideo(url: url).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(url.lastPathComponent)
+                    case nil: EmptyView()
+                    }
+                }
+            }
         }
     }
     @ViewBuilder private func markdownParagraph(_ paragraph: String) -> some View {

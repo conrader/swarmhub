@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.8.9 (build 43)
+
+- In a bot’s Model tab, choose the AI and model for its chat and a separate coding model for the helpers it starts. Switching chats shows the selected bot’s settings. The panel distinguishes the model selected for the next start from the one running now.
+- Turn on Auto mode for an individual bot to let newly started Claude and Codex agents handle routine project work without repeated permission prompts. Bots also receive instructions to follow through on assigned work when a blocker clears.
+- Direct chats now pick up later replies from background work, including replies that arrive while the app is closed.
+- View published images and play videos directly in bot conversations.
+- Open Settings → What’s New to read the changes in this and earlier versions, even offline.
+
 - **One AI and model for many bots at once.** Tell the main bot ("set all bots to sol 6.2", or name the bots) or use **Settings → Servers → All bots on …**. The app matches what you called the model against the models the server offers, changes the setting of each bot, and says what it did with **Undo**. A bot whose agent is running keeps its model until **Start fresh agents**. A bot that starts fresh after such a change reads its chat so far before your next message (the recent part word for word, a summary of the older part when the chat is long, the whole chat to search), so it carries on where the other AI stopped; a bot imported from Grok Bot reads its Grok history instead. A model the server does not have changes nothing: the main bot is told which models there are. With **Ask me before creating bots** on, the change waits for **Apply**.
 - **Gemini (beta)**: Google's Gemini CLI is a third program a bot can run on, next to Claude Code and Codex. It is listed last, is never chosen by default while another AI is installed, and says where you choose it what it cannot do yet: its reply arrives all at once, it asks for permission in its terminal, and a model change applies at the next start. Sign in by running `gemini` in Terminal first. Details and limits are in the [bridge manual](../HerdrWorkspace/README.md#run-gemini-cli-beta).
 - Skills is a library. **Settings → Servers → Skills** and a bot's **Skills** tab say where the server's skillshare library stands and sync it with one button; **Open library** shows everything in it (skills, agents, MCP servers, plugins and hooks) grouped by what needs a sync, has an update, is in sync or is off, with a preview of each.

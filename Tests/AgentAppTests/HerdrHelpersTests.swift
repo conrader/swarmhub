@@ -68,7 +68,7 @@ private let listingJSON = """
     let note = HerdrHelperNote.text
     #expect(note.contains("swarmhub-herdr helper start --difficulty easy|medium|hard") && note.contains("helper wait NAME") && note.utf8.count < 1_500)
     #expect(note.contains("easy for small mechanical edits, medium for normal features and fixes, hard for design-heavy or risky work"))
-    #expect(note.contains("The server picks the helper's model from the difficulty; you cannot choose it") && note.contains("stops a helper a short while after it has answered"))
+    #expect(note.contains("the person's helper model choice for this bot or its default for the difficulty") && note.contains("stops a helper a short while after it has answered"))
     let once = (marker: HerdrHelperNote.marker, note: note)
     #expect(HerdrClient.notes(reminder: nil, once: [once], tasks: ["hello"]) == [note], "a running agent that never read it is told")
     #expect(HerdrClient.notes(reminder: "r", once: [once], tasks: ["Standing instructions…\n" + note, "hello"]) == ["r"], "one that read it is not told again")

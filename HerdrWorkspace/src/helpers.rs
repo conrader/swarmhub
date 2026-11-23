@@ -3,7 +3,7 @@
 //! The agent runs `swarmhub-herdr helper start --difficulty easy|medium|hard TASK` in its terminal (`cli`). That
 //! command only asks: it sends one line to `helpers.sock`, next to the journal, or leaves a file where a sandboxed
 //! command may write (`spool`), and the workspace decides. The template and the model come from
-//! `helper-policy.json` (`policy`, `settings`), never from the request; a helper cannot start helpers; and one
+//! the parent bot’s saved preference or `helper-policy.json` (`policy`, `settings`), never from the request; a helper cannot start helpers; and one
 //! agent can have only so many running. A helper is an ordinary managed launch, so its replies, tool activity,
 //! output and history work like any other agent's. The `helpers` table adds who started it and why (`record`).
 //! A helper that has answered and stays idle is stopped after the policy's delay, and one that has ended is no
@@ -168,13 +168,13 @@ impl Deferred {
 }
 
 /// Why a policy's choice for a difficulty cannot be started.
-enum Unfit {
+pub(crate) enum Unfit {
     Template,
     Model,
 }
 
 /// The installed template a policy names and how it takes the policy's model.
-fn fit<'a>(
+pub(crate) fn fit<'a>(
     templates: &'a [core::Template],
     catalog: &crate::runtimes::Catalog,
     tier: &Tier,
@@ -526,7 +526,10 @@ async fn start(
     }
     let difficulty = Difficulty::parse(difficulty)?;
     let policy = Policy::load(w.history.file()).map_err(Unusable::for_agent)?;
-    let tier = policy.tier(difficulty)?;
+    let default = policy.tier(difficulty)?;
+    let settings = crate::bot_agent_settings::for_launch(&*stored(w.history.db())?, &key).map_err(|_| STORAGE)?;
+    let auto_mode = settings.auto_mode;
+    let tier = settings.choice.as_ref().unwrap_or(default);
     let task = task.trim().to_owned();
     if task.len() > TASK_LIMIT || core::validate_task(&task).is_err() {
         return Err("Give the helper a task of up to 12 KB of plain text.".into());
@@ -555,7 +558,7 @@ async fn start(
             ),
         };
         format!(
-            "The workspace's helper policy names {what} for {} helpers, and {why}. Do the task yourself and tell the user.",
+            "The helper settings name {what} for {} helpers, and {why}. Do the task yourself and tell the user.",
             difficulty.name()
         )
     })?;
@@ -633,6 +636,7 @@ async fn start(
                 core::LaunchSource::Template(template_name, message),
                 core::LaunchEnv {
                     key: &helper_key,
+                    auto_mode,
                     journal,
                     approval_socket: approval_socket.to_str().unwrap_or_default(),
                     vault_session: vault_session.as_deref(),
@@ -714,6 +718,7 @@ pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/api/agents/{id}/{created}/helpers", get(list))
         .merge(settings::routes())
+        .merge(crate::bot_agent_settings::routes())
 }
 
 async fn list(

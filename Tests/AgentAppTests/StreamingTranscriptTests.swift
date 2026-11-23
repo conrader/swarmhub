@@ -44,7 +44,7 @@ import Vision
     #expect(!assistant.isStreaming && bot.messages.last?.id == assistant.id)
 }
 
-@MainActor private func mountedText(_ host: NSView) async throws -> String {
+@MainActor func mountedText(_ host: NSView) async throws -> String {
     for _ in 0..<3 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(80)) }
     let size = host.bounds.size
     let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),

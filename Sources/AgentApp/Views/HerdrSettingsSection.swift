@@ -290,16 +290,20 @@ struct HerdrAgentControls: View {
         let servers = store.herdrServers, reading = store.herdrAgentReadings[bot.id]
         VStack(alignment: .leading, spacing: 22) {
             SettingBlock(title: "AI", detail: listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…") {
-                HerdrTemplatePicker(selection: $template, templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default")
-            }
-            .onChange(of: template) { _, value in
-                guard loaded, value != (store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? "") else { return }
-                store.setHerdrTemplate(value, for: bot); model = HerdrModelChoice.recommended; store.setHerdrModel(model, for: bot)
-                Task { await loadModels(); await applyChoice() }
+                HerdrTemplatePicker(selection: Binding(get: { template }, set: { value in
+                    guard loaded, template != value else { return }
+                    template = value
+                    models = []
+                    model = HerdrModelChoice.recommended
+                    store.setHerdrTemplate(value, for: bot)
+                    store.setHerdrModel(model, for: bot)
+                    Task { await loadModels(); await applyChoice() }
+                }), templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default")
+                .disabled(!loaded)
             }
             if effective?.takesModel == true {
                 // No choice of its own: the first model the server offers, which the bot's next agent is started on.
-                SettingBlock(title: "Model", detail: listed ? nil : "Checking…") {
+                SettingBlock(title: "Bot model", detail: listed ? nil : "Checking…") {
                     HerdrModelPicker(model: Binding(get: { model }, set: { value in
                         guard loaded, value != model else { return }
                         model = value
@@ -309,10 +313,14 @@ struct HerdrAgentControls: View {
                 }
                 .disabled(switching || store.isWorking(bot))
             } else if listed, effective != nil {
-                SettingBlock(title: "Model", detail: HerdrAgentReading.programPicks) { EmptyView() }
+                SettingBlock(title: "Bot model", detail: HerdrAgentReading.programPicks) { EmptyView() }
             }
             if let running = reading?.runningLine {
                 StatusCard(kind: reading?.pendingLine == nil ? .info : .warning, title: running, detail: reading?.pendingLine)
+            }
+            if let reading, reading.changesProgram, let next = reading.runtime {
+                Button("Start fresh with \(next.label)…") { confirmFresh = true }
+                    .disabled(restarting || switching || store.isWorking(bot))
             }
             if !note.isEmpty { Text(note).font(.callout).textSelection(.enabled) }
             if reading?.session != nil, reading?.activeTemplate == effective?.name,
@@ -321,6 +329,8 @@ struct HerdrAgentControls: View {
                 Button("Switch in this conversation") { Task { await switchCurrentModel() } }
                     .disabled(switching || store.isWorking(bot))
             }
+            HerdrHelperModelSection(bot: bot, server: store.herdrServer(for: bot), templates: templates)
+                .id(store.herdrServer(for: bot).id)
             // What few people change: both are on for every bot.
             QuietFold(title: "Advanced", isOpen: Binding(get: { showAdvanced || renderOpen }, set: { showAdvanced = $0 })) {
                 VStack(alignment: .leading, spacing: 18) {
@@ -362,8 +372,8 @@ struct HerdrAgentControls: View {
         .task {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
             serverID = store.herdrServer(for: bot).id
-            if !preset { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
             loaded = true
+            if !preset { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
         }
     }
 
@@ -372,8 +382,11 @@ struct HerdrAgentControls: View {
     }
 
     private func loadModels() async {
-        guard let effective, effective.takesModel else { models = []; return }
-        do { models = try await store.herdrClient(for: store.herdrServer(for: bot)).models(for: effective) } catch { models = effective.models ?? [] }
+        guard let selected = effective, selected.takesModel else { models = []; return }
+        let server = store.herdrServer(for: bot)
+        let offered = (try? await store.herdrClient(for: server).models(for: selected)) ?? selected.models ?? []
+        guard selected.name == effective?.name, server == store.herdrServer(for: bot) else { return }
+        models = offered
     }
 
     /// The agent program or model was changed. An agent that was started ahead of time and has not been written to

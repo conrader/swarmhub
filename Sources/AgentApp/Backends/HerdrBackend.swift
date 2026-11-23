@@ -94,16 +94,16 @@ struct HerdrBackend: AgentBackend {
     var handoff: HerdrHandoffSource? = nil
 
     static let teamNote = """
-    SwarmHub team commands: use swarmhub-herdr bot list to find peers, bot ask NAME "QUESTION" for a reply, or bot handoff NAME "TASK" to delegate. Use checkin ci PUBLIC_PR_URL "WHAT" for a GitHub CI failure watch, checkin list for plans and promise list for commitments. Use the command path in your SwarmHub instructions when provided. Report the result to the person in this chat.
+    SwarmHub team commands: use swarmhub-herdr bot list to find peers, bot ask NAME "QUESTION" for a reply, or bot handoff NAME "TASK" to delegate. Use checkin ci PUBLIC_PR_URL "WHAT" for a GitHub CI failure watch, checkin list for plans and promise list for commitments. Use the command path in your SwarmHub instructions when provided. After fixing a blocker, resume the authorized task and verify the requested outcome. For a previously declined handoff, check whether the sender reassigned or canceled it before retrying, then report the result to the sender and the person.
     """
     static let publishMarker = "Publishing a requested deliverable"
     static let publishNote = """
-    Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. The user can open a successful publication from the reply.
+    Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. Publish images and videos with their file extensions so the person can view them in chat.
     """
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "SwarmHub team commands:" : HerdrBotMessage.marker, messageNote),
+        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : HerdrBotMessage.marker, messageNote),
          (HerdrAboutYou.marker, aboutHow), (HerdrModelRequest.marker, modelBrief), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }

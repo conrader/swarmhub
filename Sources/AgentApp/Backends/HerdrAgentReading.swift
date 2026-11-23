@@ -95,8 +95,17 @@ struct HerdrAgentReading: Equatable, Sendable {
         }
     }
 
+    var changesProgram: Bool {
+        guard session != nil, let activeTemplate, let runtime else { return false }
+        return activeTemplate != runtime.name
+    }
+
     /// Set when the next agent would start on another model than the running one: what the person has to do for it.
     var pendingLine: String? {
+        if changesProgram, let runtime {
+            let next = [runtime.label, model.map(Self.name)].compactMap { $0 }.joined(separator: " · ")
+            return "Start a fresh conversation to use \(next)."
+        }
         guard let model else { return nil }
         switch running {
         case .model(let id, _) where id != model.id: return "\(Self.name(model)) is selected for the next launch."

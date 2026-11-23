@@ -1199,6 +1199,9 @@ def smoke(hc, bridge, chrome=None):
             desktop_fixture.write_text(Path(__file__).with_name("desktop-click-fixture.py").read_text())
             command = shlex.join([bridge, "run-desktop", "--", "/usr/bin/python3", str(desktop_fixture), str(root / "desktop-clicks.log")])
             (templates / "desktop-fixture.md").write_text(f"---\ndescription: Scratch X11 test agent\ncommand: {command}\n---\n")
+        if selected_focus == "bot-helper-model":
+            (templates / "coding-fixture.md").write_text((templates / "fixture.md").read_text())
+            fixture.write_text(FIXTURE.replace('status("idle")', 'print("Launch model=" + os.environ.get("SWARMHUB_MODEL_ID", "") + " auto=" + os.environ.get("SWARMHUB_PROJECT_AUTO", ""), flush=True)\nstatus("idle")', 1))
         (templates / "invalid.md").write_text("missing frontmatter\n")
         (templates / "claude-fixture.md").write_text(
             f"---\ndescription: Claude Stop hook test\n"
@@ -1546,6 +1549,77 @@ def smoke(hc, bridge, chrome=None):
                 assert not request(url + "/archive", False)["archived"]
 
             try:
+                if selected_focus == "bot-helper-model":
+                    catalog = {"harness": "Fixture", "model_transport": "environment"}
+                    (root / "workspace/runtime-catalog.json").write_text(json.dumps({"fixture": catalog, "coding-fixture": catalog}))
+                    default = {"template": "fixture", "model": "by-difficulty"}
+                    chosen = {"template": "coding-fixture", "model": "coding-model"}
+                    request("/api/helper-policy", {"max_running": 4, "stop_after_seconds": 60, "difficulties": {"easy": default}})
+                    owner = "10000000-0000-4000-8000-000000000001"
+                    other = "20000000-0000-4000-8000-000000000002"
+                    def parent(name, bot=None):
+                        args = {"name": name, "template": "fixture", "task": "Initialize", "model_id": "chat-model"}
+                        if bot:
+                            args["workspace_id"] = bot
+                        return request("/api/agents", args, status=201)
+                    direct = parent("direct", owner)
+                    group = parent("group-legacy")
+                    second = parent("other", other)
+                    url = "/api/bot-agent-settings/" + owner
+                    assert request(url) == {"choice": None, "auto_mode": False}
+                    assert request(url, {"choice": chosen, "existing_agents": ["group-legacy"]})["choice"] == chosen
+                    request(url, {"choice": {"template": "missing", "model": "x"}}, status=422)
+                    assert request(url)["choice"] == chosen
+                    assert request(url, {"auto_mode": True}) == {"choice": chosen, "auto_mode": True}
+                    fresh = parent("fresh", owner)
+                    assert "Launch model=chat-model auto=1" in request(f"/api/agents/{fresh['address']}/{fresh['created_ms']}/output")["text"]
+                    def spawn(agent, name, expected, difficulty="easy", auto=True):
+                        journal = root / "workspace/workspace.sqlite3"
+                        with sqlite3.connect(journal) as db:
+                            key, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
+                                              (agent["address"], agent["created_ms"])).fetchone()
+                        cmd = [bridge, "helper", "start", "--name", name, "--difficulty", difficulty, "Read the task."]
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                                                env={**core_env, "SWARMHUB_JOURNAL": str(journal), "SWARMHUB_LAUNCH_KEY": key})
+                        if expected is None:
+                            assert result.returncode != 0, result.stdout
+                            return
+                        assert result.returncode == 0, result.stderr
+                        route = f"/api/agents/{agent['address']}/{agent['created_ms']}/helpers"
+                        helper = until(lambda: next((h for h in request(route)["helpers"] if h["name"] == name), None))
+                        assert (helper["template"], helper["model"]) == (expected["template"], expected["model"])
+                        output = f"/api/agents/{helper['address']}/{helper['created_ms']}/output"
+                        stamp = "Launch model=" + expected["model"] + " auto=" + ("1" if auto else "")
+                        assert until(lambda: stamp in request(output)["text"])
+                    # Run the production wrappers against an argument recorder, without contacting a provider.
+                    probe = root / "probe-agent"
+                    probe.write_text("#!/usr/bin/python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n")
+                    probe.chmod(0o700)
+                    journal = root / "workspace/workspace.sqlite3"
+                    with sqlite3.connect(journal) as db:
+                        key, = db.execute("SELECT launch_key FROM journal WHERE agent='direct' AND launch_key IS NOT NULL").fetchone()
+                    for auto in ("", "1"):
+                        env = {**core_env, "SWARMHUB_JOURNAL": str(journal), "SWARMHUB_LAUNCH_KEY": key,
+                               "SWARMHUB_CODEX_STREAM": "off", "SWARMHUB_CODEX_BIN": str(probe),
+                               "SWARMHUB_CLAUDE_BIN": str(probe), "SWARMHUB_PROJECT_AUTO": auto}
+                        def wrapper(cmd):
+                            return json.loads(subprocess.check_output([bridge, cmd, "--workspace-approvals"], env=env, timeout=15))
+                        args = wrapper("run-codex")
+                        assert ('sandbox_mode="workspace-write"' in args) == bool(auto)
+                        args = wrapper("run-claude")
+                        settings = json.loads(args[args.index("--settings") + 1])
+                        assert (settings.get("permissions", {}).get("defaultMode") == "acceptEdits") == bool(auto)
+                        assert settings.get("sandbox", {}).get("autoAllowBashIfSandboxed", False) == bool(auto)
+                        assert "PermissionRequest" in settings["hooks"]
+                    spawn(direct, "custom", chosen)
+                    spawn(group, "legacy", chosen)
+                    spawn(second, "other", default, auto=False)
+                    spawn(direct, "blocked", None, difficulty="hard")
+                    assert request(url, {"choice": None})["choice"] is None
+                    assert request(url, {"auto_mode": False}) == {"choice": None, "auto_mode": False}
+                    spawn(direct, "reset", default, auto=False)
+                    assert "Launch model=chat-model" in request(f"/api/agents/{direct['address']}/{direct['created_ms']}/output")["text"]
+                    return
                 assert b"SwarmHub" in request("/", authorized=False)
                 request("/api/workspace", status=401, authorized=False)
                 request("/api/attention", status=401, authorized=False)

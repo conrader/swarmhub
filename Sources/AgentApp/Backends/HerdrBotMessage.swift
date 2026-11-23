@@ -30,8 +30,8 @@ struct HerdrBotMessage: Equatable, Sendable {
     /// What every Herdr bot is told, after its standing instructions and once to a running agent. Who can be written
     /// to is not in it: that is `roster`, which changes.
     static let note = """
-        You can write to the other bots on this server through SwarmHub, the app the person is chatting from. To send \
-        one a message, end your reply with a fenced block like this:
+        To message another bot on this server, use SwarmHub. Send \
+        a fenced block at the end of your reply:
 
         ```swarmhub
         {"op":"\(op)","to":"Name of the bot","message":"What you ask or tell it, with everything it needs to know."}
@@ -41,7 +41,7 @@ struct HerdrBotMessage: Equatable, Sendable {
         that starts with "\(HerdrBotRelay.replyLead)". The other bot knows nothing of this conversation, and the person \
         can read both chats. Write to a bot when its job is needed, not to chat, and wait for its answer. After its \
         answer you may write to it again to follow up, at most \(HerdrBotRelay.roundLimit) times about one matter. \
-        A message that starts with "\(HerdrBotRelay.messageLead)" comes from another bot: just answer it. \
+        A message that starts with "\(HerdrBotRelay.messageLead)" comes from another bot. Carry out an authorized request, retry it after fixing a blocker, and verify the result. \
         Your whole reply goes back to that bot by itself, so never address it with a block; if you must ask one other \
         bot first, write to that one only, and answer when its answer has come.
         """

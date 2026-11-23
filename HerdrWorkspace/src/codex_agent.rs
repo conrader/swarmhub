@@ -56,6 +56,9 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(trusted) = trust::flag(&journal, executable(), &hooks, &commands) {
         hooks.push(trusted);
     }
+    if plain && crate::bot_agent_settings::project_auto() {
+        hooks.extend([r#"sandbox_mode="workspace-write""#.into(), r#"approval_policy="on-request""#.into()]);
+    }
     let mut cmd = executable();
     // The terminal may be unattended. Leave optional upgrades to interactive launches outside SwarmHub.
     cmd.args(["-c", "check_for_update_on_startup=false"]);
@@ -77,7 +80,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         Some(server) => cmd.args(["--remote", &server]),
         None => cmd.args(hooks.iter().flat_map(|hook| ["-c", hook])),
     };
-    // Leave hook trust, authentication, sandboxing and approval policy to Codex.
+    // Codex enforces its sandbox and handles requests for broader access.
     Err(cmd.args(args).exec().into())
 }
 

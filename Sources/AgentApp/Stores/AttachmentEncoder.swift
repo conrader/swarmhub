@@ -9,7 +9,7 @@ enum AttachmentError: LocalizedError, Equatable {
     case locked(String), noText(String), copyRestricted(String)
     var errorDescription: String? {
         switch self {
-        case .unsupported(let name): "Can’t attach “\(name)”: only PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files (text up to 200 KB) can be sent."
+        case .unsupported(let name): "Can’t attach “\(name)”: only PNG, JPEG, GIF, WebP, movies, PDF, RTF, DOC, DOCX and text files (text up to 200 KB) can be sent."
         case .tooLarge(let name, let limit): "Can’t attach “\(name)”: it is larger than \(limit)."
         case .unreadable(let name): "Can’t read “\(name)”."
         case .locked(let name): "“\(name)” is password-protected. Remove the password and attach it again."
@@ -38,6 +38,17 @@ struct AttachmentEncoder {
         if type?.conforms(to: .image) == true {
             guard (values?.fileSize ?? 0) <= 64 * 1024 * 1024, let data = try? Data(contentsOf: fileURL) else { throw AttachmentError.unreadable(name) }
             return try prepare(imageData: data, name: name)
+        }
+        if let type, type.conforms(to: .movie) {
+            let limit = HerdrClient.TaskFile.maxBytes
+            guard let size = values?.fileSize, size <= limit else { throw AttachmentError.tooLarge(name, "8 MB") }
+            let handle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: limit + 1) ?? Data()
+            guard !data.isEmpty else { throw AttachmentError.unreadable(name) }
+            guard data.count <= limit else { throw AttachmentError.tooLarge(name, "8 MB") }
+            return try store(data, kind: .video, mime: type.preferredMIMEType ?? "application/octet-stream", name: name,
+                             ext: fileURL.pathExtension.lowercased())
         }
         // Documents need the asynchronous reader (`prepareAll`).
         if DocumentKind.detect(fileURL) != nil { throw AttachmentError.unsupported(name) }
@@ -84,10 +95,15 @@ struct AttachmentEncoder {
 
     func prepare(imageData: Data, name: String) throws -> ChatAttachment {
         let encoded = try Self.encodeImage(imageData, name: name)
-        let id = UUID(); let fileName = "\(id.uuidString.lowercased()).\(encoded.mime.split(separator: "/").last ?? "img")"
+        return try store(encoded.data, kind: .image, mime: encoded.mime, name: name, ext: String(encoded.mime.split(separator: "/").last ?? "img"))
+    }
+
+    private func store(_ data: Data, kind: ChatAttachment.Kind, mime: String, name: String, ext: String) throws -> ChatAttachment {
+        let id = UUID()
+        let fileName = "\(id.uuidString.lowercased()).\(ext)"
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try encoded.data.write(to: directory.appending(path: fileName), options: .atomic)
-        return ChatAttachment(id: id, kind: .image, name: name, mimeType: encoded.mime, byteCount: encoded.data.count, fileName: fileName)
+        try data.write(to: directory.appending(path: fileName), options: .atomic)
+        return ChatAttachment(id: id, kind: kind, name: name, mimeType: mime, byteCount: data.count, fileName: fileName)
     }
 
     func fileURL(for attachment: ChatAttachment) -> URL? { attachment.fileName.map { directory.appending(path: $0) } }
