@@ -137,14 +137,15 @@ struct HerdrModelRequest: Equatable, Sendable {
         answering: SwarmHub applies it and shows them Undo. With "\(HerdrBotRequest.askWord)", or when they have chosen to confirm \
         what you do, they get Apply and Not now first. If SwarmHub cannot match the program or the model, it tells you which \
         ones the server has. A bot whose agent is running keeps its current model until that agent is started fresh, \
-        which the person does from the card SwarmHub shows them, so say that the setting is changed, not that every bot \
-        has switched. The app hides the block. Do not edit files or restart agents yourself to change a model.
+        which the person does from the card SwarmHub shows them. So say that you asked SwarmHub to change the setting \
+        and that they will see it above the message box, not that every bot has switched. The app hides the block. \
+        Do not edit files or restart agents yourself to change a model.
         """
 
     /// What every other bot is reminded of when its person asks it for a model change.
     static func elsewhere(main: String?) -> String {
-        let who = main.map { "the main bot, \($0), can have SwarmHub do it" } ?? "this server has no main bot that could have SwarmHub do it"
-        return "You cannot change which agent program or model a bot runs on: \(who), and the person can do it themselves in SwarmHub under Settings → Servers (“All bots on this server”) or in one bot's Details. Say so in a sentence."
+        let who = main.map { "The main bot, \($0), can have SwarmHub do it" } ?? "This server has no main bot that could have SwarmHub do it"
+        return "Only if the person is asking you to change which agent program or model a bot runs on (yours or another bot's): you cannot. \(who), and the person can do it themselves in SwarmHub under Settings → Servers (“All bots on this server”) or in one bot's Details; say that in a sentence. If they are asking for anything else, ignore this note."
     }
 
     /// What the main bot is told when its request could not be applied.
@@ -189,8 +190,10 @@ struct HerdrModelPlan: Equatable, Sendable {
             guard let template = HerdrBotRequest.template(for: runtime, in: templates) else { return .failure(.noProgram(runtime, offered: programs)) }
             fixed = template
         }
-        /// The model `template` would run: the recommended one, the one the request names, or why not.
-        func model(on template: HerdrClient.Template) -> Result<(id: String, label: String), HerdrModelRefusal> {
+        /// The model `template` would run: the recommended one, the one the request names, or why not. `typed`: an
+        /// ID the server does not list is taken as written where the program takes one (OpenCode's provider/model).
+        /// Only for a program the request names: an unlisted ID alone must not move bots to that program.
+        func model(on template: HerdrClient.Template, typed: Bool = false) -> Result<(id: String, label: String), HerdrModelRefusal> {
             guard let wanted = request.model else { return .success((HerdrModelChoice.recommended, recommendedLabel)) }
             guard template.takesModel else { return .failure(.picksOwnModel(template.label)) }
             let listed = offered[template.name] ?? template.models ?? []
@@ -198,7 +201,7 @@ struct HerdrModelPlan: Equatable, Sendable {
             case .one(let found): return .success((found.id, found.label ?? found.id))
             case .several(let found): return .failure(.severalModels(wanted, candidates: found.map(\.id)))
             case .none:
-                if template.modelAgent == "OpenCode", let id = HerdrModelChoice.apiModelID(wanted) { return .success((id, id)) }
+                if typed, template.modelAgent == "OpenCode", let id = HerdrModelChoice.apiModelID(wanted) { return .success((id, id)) }
                 return .failure(.noModel(wanted, program: template.label, offered: listed.map(\.id)))
             }
         }
@@ -206,7 +209,7 @@ struct HerdrModelPlan: Equatable, Sendable {
         var chosen: [(template: HerdrClient.Template, model: String)] = []
         let label: String
         if let fixed {
-            switch model(on: fixed) {
+            switch model(on: fixed, typed: true) {
             case .failure(let refusal): return .failure(refusal)
             case .success(let found): chosen = targets.map { _ in (fixed, found.id) }; label = "\(fixed.label) · \(found.label)"
             }

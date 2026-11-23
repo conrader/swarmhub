@@ -7,7 +7,8 @@ import Foundation
 /// person's message it reads the bot's chat so far, once: the recent part word for word, a summary of the older
 /// part when the chat is long, and the whole of it as a file to search. It travels the way an imported
 /// conversation does (`HerdrHandoff`, `HerdrBackend.handOver`), so it never holds a message back.
-/// A bot that is handed an imported conversation keeps that handoff instead.
+/// A bot that is handed an imported conversation keeps that handoff instead. Details → New conversation starts a
+/// bot with empty context as it always did, and takes the note away.
 extension AppStore {
     /// What the Mac remembers while a bot's next agent is to read its chat.
     struct HerdrCarryOver: Codable, Equatable {
@@ -30,14 +31,23 @@ extension AppStore {
         else { defaults.removeObject(forKey: Self.herdrCarryOverKey(bot.id)); grokHandoffs.carrySummaries[bot.id] = nil }
     }
 
-    /// The bot is gone: nothing of this is kept.
-    func forgetHerdrCarryOver(_ botID: UUID) {
-        defaults.removeObject(forKey: Self.herdrCarryOverKey(botID)); grokHandoffs.carrySummaries[botID] = nil
+    /// The handoff has ended in the turn that is running (read, or nothing to read): the note goes, and the turn
+    /// is followed until it takes steers again.
+    private func endHerdrCarryOver(for bot: Bot) {
+        setHerdrCarryOver(nil, for: bot)
+        if turn(in: bot) != nil { grokHandoffs.carried.insert(bot.id) }
     }
 
-    /// The bot has a chat a fresh agent would not know, and no imported conversation that is handed over instead.
+    /// The bot is gone: nothing of this is kept.
+    func forgetHerdrCarryOver(_ botID: UUID) {
+        defaults.removeObject(forKey: Self.herdrCarryOverKey(botID)); grokHandoffs.carrySummaries[botID] = nil; grokHandoffs.carried.remove(botID)
+    }
+
+    /// The bot's next agent can be handed its chat: it runs on a server, and no imported conversation is handed
+    /// over instead. Whether anything was said is looked at when the agent starts, not now: a bot in its first
+    /// answer has a chat by then.
     func herdrCarryApplies(to bot: Bot) -> Bool {
-        bot.backend == .herdr && !bot.isReadOnlyArchive && !bot.isDemo && !grokHandoffIsOn(for: bot) && !herdrCarryLines(of: bot).isEmpty
+        bot.backend == .herdr && !bot.isReadOnlyArchive && !bot.isDemo && !grokHandoffIsOn(for: bot)
     }
 
     /// The agents running for the server's bots right now, by bot; nil when the server could not be read.
@@ -58,6 +68,14 @@ extension AppStore {
             grokHandoffs.carrySummaries[bot.id] = nil
             setHerdrCarryOver(HerdrCarryOver(old: running[bot.id], at: now()), for: bot)
         }
+    }
+
+    /// The app has just ended `bot`'s agent because its program or model was changed: the next one reads the chat,
+    /// also when nothing was noted at the change (its server could not be read then). The agent that held the
+    /// conversation is gone, so there is none to leave out.
+    func herdrAgentEndedForChange(_ bot: Bot) {
+        guard herdrCarryApplies(to: bot), herdrCarryOver(for: bot) == nil else { return }
+        setHerdrCarryOver(HerdrCarryOver(old: nil, at: now()), for: bot)
     }
 
     // MARK: The chat as a conversation to hand over
@@ -107,10 +125,13 @@ extension AppStore {
     func herdrCarryHandoff(for botID: UUID, status: @escaping @Sendable (HerdrTurnStatus) -> Void) async -> HerdrHandoff? {
         guard let bot = bots.first(where: { $0.id == botID }), herdrCarryOver(for: bot) != nil else { return nil }
         let lines = herdrCarryLines(of: bot), name = bot.name
-        guard !lines.isEmpty else { setHerdrCarryOver(nil, for: bot); return nil }
-        let transcript = GrokHandoff.Transcript(lines)
+        guard !lines.isEmpty else { endHerdrCarryOver(for: bot); return nil }
         let kept = grokHandoffs.carrySummaries[botID]
-        let plan = GrokHandoff.plan(transcript, botName: name, summarisedThrough: kept?.through)
+        // The secret filter reads every message: off the main actor, like an imported conversation's.
+        let (transcript, plan) = await Task.detached(priority: .userInitiated) { () -> (GrokHandoff.Transcript, GrokHandoff.Plan) in
+            let transcript = GrokHandoff.Transcript(lines)
+            return (transcript, GrokHandoff.plan(transcript, botName: name, summarisedThrough: kept?.through))
+        }.value
         var summary: GrokHandoffCache? = nil
         if let kept, let oldest = plan.older.first, kept.through >= oldest.seq { summary = kept }
         if plan.needsSummary, let pieces = GrokHandoff.parts(of: plan.older, botName: name), pieces.texts.count <= GrokHandoff.unaskedParts,
@@ -134,7 +155,7 @@ extension AppStore {
     /// program or model changes again. When this turn sent it, the chat says so.
     func herdrCarriedOver(_ receipt: HerdrHandoffReceipt, botID: UUID) {
         guard let bot = bots.first(where: { $0.id == botID }), herdrCarryOver(for: bot) != nil else { return }
-        setHerdrCarryOver(nil, for: bot)
+        endHerdrCarryOver(for: bot)
         guard let handoff = receipt.handoff else { return }
         grokChatLine(HerdrCarryCopy.read(bot.name, summarised: handoff.summary != nil, older: handoff.olderMessages, recent: handoff.recentMessages, withFiles: receipt.withFiles), in: bot)
     }

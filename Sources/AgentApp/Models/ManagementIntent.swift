@@ -18,10 +18,19 @@ enum ManagementIntent {
     private static let modelNouns = ["model", "models", "modelu", "modele", "modeli", "sol", "terra", "sonnet", "opus", "haiku", "fable",
                                      "codex", "claude", "gemini", "opencode", "gpt"]
 
-    /// The message asks for another model or agent program ("set all bots to sol 6.2", "ustaw boty na sonnet").
+    private static let towards = ["to", "on", "onto", "na", "do"]
+    private static let everyone = ["all", "every", "everyone", "everybody", "wszystkie", "wszystkich", "wszyscy", "każdy", "kazdy"]
+
+    /// The message may ask for another model or agent program ("set all bots to sol 6.2", "ustaw boty na sonnet").
+    /// A word for changing and a word for a model are not enough ("run the codex review", "change the User model
+    /// to add a field"): it also names bots, or says "to"/"on" a model, or is a few words about "the model".
     static func changesModel(_ text: String) -> Bool {
         let words = tokens(text)
-        return changeVerbs.contains { words.contains($0) } && modelNouns.contains { noun in words.contains { $0 == noun || $0.hasPrefix(noun + "-") } }
+        func names(_ word: String) -> Bool { modelNouns.contains { word == $0 || word.hasPrefix($0 + "-") } }
+        guard changeVerbs.contains(where: { words.contains($0) }), words.contains(where: names) else { return false }
+        if words.contains(where: { botNouns.contains($0) || everyone.contains($0) }) { return true }
+        if zip(words, words.dropFirst()).contains(where: { towards.contains($0.0) && names($0.1) }) { return true }
+        return words.count <= 5 && words.contains { $0.hasPrefix("model") }
     }
 
     /// Lowercased words; letters, digits, `.`, `-` and `'` stay inside a word, everything else separates.

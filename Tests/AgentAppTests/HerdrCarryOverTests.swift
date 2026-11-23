@@ -9,7 +9,9 @@ import Testing
 
 @Test @MainActor func theChatSoFarIsWhatThePersonAndTheBotSaid() async throws {
     let (store, bot) = try handoffStore(HandoffBridge())
-    #expect(!store.herdrCarryApplies(to: bot) && store.herdrCarryLines(of: bot).isEmpty, "a bot nobody has talked to has nothing to carry over")
+    #expect(store.herdrCarryLines(of: bot).isEmpty, "a bot nobody has talked to has nothing to carry over")
+    store.armHerdrCarryOver(for: [bot], running: [:])
+    #expect(await store.herdrCarryHandoff(for: bot.id, status: { _ in }) == nil && store.herdrCarryOver(for: bot) == nil, "noted for nothing: the first message goes as it always did")
     bot.messages = [
         ChatMessage(role: .user, content: "Plan the launch"),
         ChatMessage(role: .assistant, content: "Here is the plan.\n\n```swarmhub\n{\"op\":\"about_you\",\"add\":\"Likes plans.\"}\n```"),

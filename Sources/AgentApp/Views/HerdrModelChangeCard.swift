@@ -11,16 +11,16 @@ struct HerdrModelChangeCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let pending = store.pendingHerdrModels(for: manager), record = store.herdrModelRecord(by: manager, on: store.herdrServer(for: manager))
+        let pending = store.pendingHerdrModels(for: manager), records = store.herdrModelRecords(by: manager, on: store.herdrServer(for: manager))
         // A card that arrives or leaves does so gently, so the message box does not jump.
-        Group { card(pending, record) }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: pending.count + (record == nil ? 0 : 1))
+        Group { card(pending, records) }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: pending.count + records.count)
     }
 
-    @ViewBuilder private func card(_ pending: [AppStore.PendingHerdrModel], _ record: AppStore.HerdrModelRecord?) -> some View {
-        if !pending.isEmpty || record != nil {
+    @ViewBuilder private func card(_ pending: [AppStore.PendingHerdrModel], _ records: [AppStore.HerdrModelRecord]) -> some View {
+        if !pending.isEmpty || !records.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                if let record {
-                    HerdrModelRecordRow(record: record, title: "\(manager.name) switched \(AppStore.botCount(record.changes.count)) to \(record.label)")
+                ForEach(records) { record in
+                    HerdrModelRecordRow(record: record, title: HerdrModelRecordRow.title(record, by: manager.name))
                 }
                 if !pending.isEmpty {
                     Text("\(manager.name) suggests a change of what bots run on").font(.caption.weight(.semibold)).foregroundStyle(manager.tintInk)
@@ -59,25 +59,34 @@ struct HerdrModelChangeCard: View {
 
 /// A change that was applied, in the main bot's chat and in Settings: what it was, and Undo, "Start fresh agents"
 /// and Done. A bot that was answering when fresh agents were started is offered again as "Start the rest fresh".
+/// A change that was undone after bots had started fresh on it leaves those bots here, without Undo.
 struct HerdrModelRecordRow: View {
     @EnvironmentObject private var store: AppStore
     let record: AppStore.HerdrModelRecord; let title: String
     @State private var starting = false
 
     static let caption = "This changes the setting. A bot whose agent is running keeps its model until that agent is started fresh."
-    static let freshHelp = "Ends the running agents of these bots, except one that is answering. Each starts on the new model with its next message, and reads its conversation so far first."
+    static let undoCaption = "These bots had started fresh on the change you undid. Each keeps running on it until its agent is started fresh again."
+
+    /// "Jarvis switched 23 bots to Codex · GPT-6.2 Sol"; `asker` nil for a change made in Settings.
+    static func title(_ record: AppStore.HerdrModelRecord, by asker: String?) -> String {
+        let count = AppStore.botCount(record.changes.count)
+        if record.undo { return "\(count) \(record.changes.count == 1 ? "is" : "are") back on what \(record.changes.count == 1 ? "it" : "they") ran before" }
+        return asker.map { "\($0) switched \(count) to \(record.label)" } ?? "Switched \(count) to \(record.label)"
+    }
+    static let freshHelp = "Ends the running agents of these bots, except one that is answering. Each starts on the new model with its next message, and reads its conversation so far first (a bot imported from Grok Bot reads its Grok history)."
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(.secondary).frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
-                Text(record.note.isEmpty ? Self.caption : record.note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(record.note.isEmpty ? (record.undo ? Self.undoCaption : Self.caption) : record.note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if starting { ProgressView().controlSize(.small) }
             else {
-                Button("Undo") { store.undoHerdrModels(record) }.help("Puts these bots back on what they ran before")
+                if !record.undo { Button("Undo") { undo() }.help("Puts these bots back on what they ran before") }
                 if record.notFresh > 0 {
                     Button(record.fresh.isEmpty ? "Start fresh agents" : "Start the rest fresh") { fresh() }.help(Self.freshHelp)
                 }
@@ -89,5 +98,16 @@ struct HerdrModelRecordRow: View {
     private func fresh() {
         starting = true
         Task { await store.startFreshHerdrAgents(record); starting = false }
+    }
+
+    private func undo() {
+        starting = true
+        Task {
+            // The agents that run now hold their conversations; each bot's next agent is handed its chat.
+            var running: [UUID: HerdrAgentLaunch]? = nil
+            if let server = store.herdrServers.first(where: { $0.id == record.server }) { running = await store.herdrRunningLaunches(on: server) }
+            store.undoHerdrModels(record, running: running)
+            starting = false
+        }
     }
 }

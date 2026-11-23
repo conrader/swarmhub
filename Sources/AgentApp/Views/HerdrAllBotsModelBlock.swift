@@ -17,12 +17,12 @@ struct HerdrAllBotsModelBlock: View {
     private var effective: HerdrClient.Template? { templates.first { $0.name == template } ?? templates.first }
 
     var body: some View {
-        let count = store.herdrModelTargets(on: server, templates: templates).count, record = store.herdrModelRecord(by: nil, on: server)
+        let count = store.herdrModelTargets(on: server, templates: templates).count, records = store.herdrModelRecords(by: nil, on: server)
         Group {
             if count > 1, !templates.isEmpty {
                 SettingBlock(title: "All bots on \(server.name)", detail: "Put every bot on this server on one AI and model at once.") {
                     VStack(alignment: .leading, spacing: 10) {
-                        if let record { HerdrModelRecordRow(record: record, title: "Switched \(AppStore.botCount(record.changes.count)) to \(record.label)") }
+                        ForEach(records) { record in HerdrModelRecordRow(record: record, title: HerdrModelRecordRow.title(record, by: nil)) }
                         DisclosureGroup("Choose an AI and model", isExpanded: $open) {
                             VStack(alignment: .leading, spacing: 10) {
                                 HerdrTemplatePicker(selection: $template, templates: templates, defaultName: nil, defaultNote: "")

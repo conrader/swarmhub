@@ -10,6 +10,9 @@ import Foundation
 extension AppStore {
     /// `UserDefaults`: the changes that were applied, as JSON, newest last.
     static let herdrModelRecordsKey = "herdrModelChanges", herdrModelRecordsKept = 6
+    /// A change takes the place of the same asker's earlier one once that is this old. Younger ones stay beside it:
+    /// one reply may change some bots to one model and the rest to another.
+    static let herdrModelRecordStays: TimeInterval = 600
 
     /// One request waiting for the person's answer.
     struct PendingHerdrModel: Identifiable, Equatable { let id: String; let request: HerdrModelRequest }
@@ -29,6 +32,9 @@ extension AppStore {
         var note = ""
         /// The person is done with it (Done or Undo), or a newer change took its place: its card is gone.
         var settled = false
+        /// The person undid a change after bots had started fresh on it: these bots are back on what they ran
+        /// before, and are offered a fresh start on that. It has no Undo of its own.
+        var undo = false
 
         /// The bots that may still run an agent that was started before the change.
         var notFresh: Int { changes.filter { !fresh.contains($0.bot) }.count }
@@ -54,6 +60,10 @@ extension AppStore {
             let id = "\(reply.id.uuidString.lowercased())#\(HerdrModelRequest.op)#\(index)"
             return handled.contains(id) ? nil : PendingHerdrModel(id: id, request: request)
         }
+    }
+
+    func herdrModelRequestWaits(_ pending: PendingHerdrModel) -> Bool {
+        !(defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? []).contains(pending.id)
     }
 
     /// The request is settled (applied, refused or dismissed): it is not offered again.
@@ -85,7 +95,12 @@ extension AppStore {
             if request.model != nil {
                 let named = HerdrBotRequest.template(for: request.runtime, in: templates)
                 for template in named.map({ [$0] }) ?? templates where template.takesModel {
-                    offered[template.name] = (try? await client.models(for: template)) ?? template.models ?? []
+                    do { offered[template.name] = try await client.models(for: template) }
+                    catch {
+                        // A list that could not be read is not "no such model": the request waits, unless the template names its models itself.
+                        guard let own = template.models, !own.isEmpty else { throw error }
+                        offered[template.name] = own
+                    }
                 }
             }
             return HerdrModelPlan.make(request, bots: herdrModelTargets(on: server, templates: templates), templates: templates, offered: offered)
@@ -102,10 +117,13 @@ extension AppStore {
         }
     }
 
-    /// The change still on its card: the newest one `manager` asked for (nil: made in Settings) on `server`.
-    func herdrModelRecord(by manager: Bot?, on server: HerdrServer) -> HerdrModelRecord? {
-        herdrModelRecords.last { !$0.settled && $0.manager == manager?.id && $0.server == server.id }
+    /// The changes still on their card, oldest first: those `manager` asked for (nil: made in Settings) on `server`.
+    func herdrModelRecords(by manager: Bot?, on server: HerdrServer) -> [HerdrModelRecord] {
+        herdrModelRecords.filter { !$0.settled && $0.manager == manager?.id && $0.server == server.id }
     }
+
+    /// The newest of them.
+    func herdrModelRecord(by manager: Bot?, on server: HerdrServer) -> HerdrModelRecord? { herdrModelRecords(by: manager, on: server).last }
 
     /// Changes each bot's setting as planned. Returns what was changed, for its card; nil when nothing was.
     /// An agent that was started ahead of time and has not been written to is ended, so the bot's first message
@@ -122,9 +140,10 @@ extension AppStore {
         guard !changed.isEmpty else { return nil }
         let record = HerdrModelRecord(manager: manager?.id, server: server.id, label: plan.label,
                                       changes: plan.changes.filter { change in changed.contains { $0.id == change.bot } }, at: now())
-        // One card per asker and server: this change takes the place of the one before it.
+        // This change takes the place of the same asker's earlier ones, except those just made (`herdrModelRecordStays`).
         var records = herdrModelRecords
-        for index in records.indices where records[index].manager == record.manager && records[index].server == record.server { records[index].settled = true }
+        for index in records.indices where records[index].manager == record.manager && records[index].server == record.server
+            && record.at.timeIntervalSince(records[index].at) >= Self.herdrModelRecordStays { records[index].settled = true }
         herdrModelRecords = records + [record]
         if let running { armHerdrCarryOver(for: changed, running: running) }
         endUnusedHerdrAgents(of: changed)
@@ -146,10 +165,13 @@ extension AppStore {
     /// could be applied: the request then stays as it was.
     @discardableResult func acceptHerdrModel(_ pending: PendingHerdrModel, manager: Bot) async -> HerdrModelRefusal? {
         let server = herdrServer(for: manager)
-        let running = await herdrRunningLaunches(on: server)
         switch await herdrModelPlan(pending.request, on: server) {
         case .failure(let refusal): return refusal
         case .success(let plan):
+            // The agents that run now hold their conversations; each changed bot's next agent is handed its chat.
+            let running = await herdrRunningLaunches(on: server)
+            // Apply pressed twice, or the reply settled meanwhile: the request was handled.
+            guard herdrModelRequestWaits(pending) else { return nil }
             dismissHerdrModel(pending)
             guard createsHerdrBots(manager) else { return nil }
             if applyHerdrModels(plan, on: server, by: manager, running: running) != nil {
@@ -209,17 +231,27 @@ extension AppStore {
     func doneWithHerdrModels(_ record: HerdrModelRecord) { updateHerdrModelRecord(record.id) { $0.settled = true } }
 
     /// Puts each bot back on what it ran before. A bot whose choice was changed again since keeps that choice.
-    /// Returns how many went back.
-    @discardableResult func undoHerdrModels(_ record: HerdrModelRecord) -> Int {
-        var back: [Bot] = []
+    /// Returns how many went back. Going back is a change too: a bot that had started fresh on the new choice
+    /// runs that until it is started fresh again, so those bots stay on a card that offers it, and each bot's
+    /// next agent is handed its chat (`running`: the agents that run now; nil when not known).
+    @discardableResult func undoHerdrModels(_ record: HerdrModelRecord, running: [UUID: HerdrAgentLaunch]? = nil) -> Int {
+        guard !record.undo, herdrModelRecords.contains(where: { $0.id == record.id && !$0.settled }) else { return 0 }
+        var back: [Bot] = [], again: [HerdrModelPlan.Change] = []
         for change in record.changes {
             guard let bot = bots.first(where: { $0.id == change.bot }) else { continue }
             let own = defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""
             guard own == change.template, herdrModel(for: bot) == change.model else { continue }
             setHerdrTemplate(change.beforeTemplate, for: bot); setHerdrModel(change.beforeModel, for: bot)
             back.append(bot)
+            if record.fresh.contains(bot.id) {
+                again.append(HerdrModelPlan.Change(bot: bot.id, name: bot.name, template: change.beforeTemplate, model: change.beforeModel, beforeTemplate: change.template, beforeModel: change.model))
+            }
         }
         doneWithHerdrModels(record)
+        if !again.isEmpty {
+            herdrModelRecords = herdrModelRecords + [HerdrModelRecord(manager: record.manager, server: record.server, label: record.label, changes: again, at: now(), undo: true)]
+        }
+        if let running { armHerdrCarryOver(for: back, running: running) }
         endUnusedHerdrAgents(of: back)
         if let manager = record.manager.flatMap({ id in bots.first { $0.id == id } }) {
             notice(AppOnlyLine.modelsUndone.render(record.label, Self.botCount(back.count)), in: manager)
@@ -238,6 +270,7 @@ extension AppStore {
             guard isIdle(bot) else { busy += 1; continue }
             do {
                 _ = try await restartHerdrAgent(for: bot)
+                herdrAgentEndedForChange(bot)
                 fresh.append(bot.id); started += 1
             } catch { failed += 1 }
         }

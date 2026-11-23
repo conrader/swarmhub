@@ -16,8 +16,9 @@ private func templateJSON(_ name: String, program: String, models: [Model]) -> [
      "models": models.map { ["id": $0.id, "label": $0.label.map { $0 as Any } ?? NSNull()] as [String: Any] }, "model_agent": program]
 }
 
-private func templates() throws -> [HerdrClient.Template] {
+private func templates(openCode: Bool = false) throws -> [HerdrClient.Template] {
     let json = [templateJSON("tpl-claude", program: "Claude Code", models: claudeModels), templateJSON("tpl-codex", program: "Codex", models: codexModels)]
+        + (openCode ? [templateJSON("tpl-open", program: "OpenCode", models: [])] : [])
     let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
     return try decoder.decode([HerdrClient.Template].self, from: JSONSerialization.data(withJSONObject: json))
 }
@@ -74,15 +75,21 @@ private func target(_ name: String, on template: String = "tpl-claude", own: Str
     #expect(kept.changes.map(\.template) == ["tpl-claude", "tpl-codex"] && kept.label == "shared-1")
     #expect(HerdrModelPlan.make(HerdrModelRequest(all: true, model: "shared-1"), bots: [jarvis, target("Lost", on: "tpl-gone")], templates: all, offered: shared) == .failure(.whichProgram("shared-1", programs: ["Claude", "Codex"])))
     #expect(HerdrModelRefusal.noModel("sol 7", program: "Codex", offered: ["gpt-6.2-sol"]).text == "Codex has no model matching “sol 7”. Models: gpt-6.2-sol.")
+    // An ID the server does not list is taken as written only for a program the request names: alone it moves nobody.
+    let wider = try templates(openCode: true)
+    #expect(HerdrModelPlan.make(HerdrModelRequest(all: true, model: "acme/fast-1"), bots: [jarvis], templates: wider, offered: offered) == .failure(.noModel("acme/fast-1", program: nil, offered: (claudeModels + codexModels).map(\.id))))
+    let typed = try HerdrModelPlan.make(HerdrModelRequest(all: true, runtime: "OpenCode", model: "acme/fast-1"), bots: [jarvis], templates: wider, offered: offered).get()
+    #expect(typed.changes.map(\.template) == ["tpl-open"] && typed.changes.map(\.model) == ["acme/fast-1"] && typed.label == "OpenCode · acme/fast-1")
 }
 
 @Test func aMessageThatAsksForAnotherModelIsRecognised() {
     for text in ["Ustaw boty na sol 6.2 - wszystkie", "set all bots to Sonnet", "Switch Legal to gpt-6.2-sol please", "zmień model Infry", "Przełącz wszystkie na Codex"] {
         #expect(ManagementIntent.changesModel(text), "\(text)")
     }
-    for text in ["What is the weather?", "Tell me about the sonnet form", "Set a reminder"] { #expect(!ManagementIntent.changesModel(text), "\(text)") }
+    for text in ["What is the weather?", "Tell me about the sonnet form", "Set a reminder", "Run the codex review", "Use the Gemini API here",
+                 "Change the User model to add an email field"] { #expect(!ManagementIntent.changesModel(text), "\(text)") }
     #expect(HerdrModelRequest.brief.contains(HerdrModelRequest.marker) && HerdrModelRequest.brief.utf8.count < 520, "the standing note is short: the notes share a small room")
-    #expect(HerdrModelRequest.elsewhere(main: "Jarvis").contains("the main bot, Jarvis"))
+    #expect(HerdrModelRequest.elsewhere(main: "Jarvis").contains("The main bot, Jarvis, can have SwarmHub do it") && HerdrModelRequest.elsewhere(main: nil).contains("ignore this note"))
 }
 
 // MARK: In the app
@@ -167,7 +174,7 @@ private final class ModelBridge: @unchecked Sendable {
     try await waitUntil { store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)) != nil && store.isIdle(jarvis) }
     #expect([jarvis, legal, infra].map { choice(store, $0) } == Array(repeating: "tpl-codex|gpt-6.2-sol", count: 3))
     #expect(lines(jarvis).contains("Jarvis switched 3 bots to Codex · GPT-6.2 Sol.") && store.pendingHerdrModels(for: jarvis).isEmpty)
-    #expect(store.herdrCarryOver(for: jarvis) != nil && store.herdrCarryOver(for: legal) == nil, "a changed bot that has a chat is noted: its next agent reads that chat first")
+    #expect([jarvis, legal, infra].allSatisfy { store.herdrCarryOver(for: $0) != nil }, "each changed bot is noted: its next agent reads the bot's chat first")
     let record = try #require(store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)))
     #expect(record.changes.count == 3 && record.notFresh == 3)
     // A bot the person has moved on since keeps that choice; the others go back to exactly what they had.
@@ -222,4 +229,22 @@ private final class ModelBridge: @unchecked Sendable {
     #expect(bridge.ended.count == 2, "an agent that already started fresh is not ended again")
     store.doneWithHerdrModels(after)
     #expect(store.herdrModelRecord(by: nil, on: server) == nil)
+}
+
+@MainActor @Test func twoChangesStandSideBySideAndUndoAfterAFreshStartKeepsThoseBotsOnACard() async throws {
+    let (store, jarvis, legal, _, _) = modelStore()
+    let server = store.herdrServer(for: jarvis)
+    let all = try await store.herdrTemplates(on: server), codex = try #require(all.first { $0.name == "tpl-codex" })
+    let first = try #require(store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol", label: "Codex · GPT-6.2 Sol", templates: all))
+    let again = HerdrModelPlan(changes: [.init(bot: legal.id, name: "Legal", template: "tpl-claude", model: "claude-opus-5-5", beforeTemplate: "tpl-codex", beforeModel: "gpt-6.2-sol")], unchanged: 0, label: "Claude · Opus 5.5")
+    let second = try #require(store.applyHerdrModels(again, on: server, by: nil))
+    #expect(store.herdrModelRecords(by: nil, on: server).map(\.id) == [first.id, second.id], "a change just made stays beside the next one")
+    await store.startFreshHerdrAgents(first)
+    let started = try #require(store.herdrModelRecords(by: nil, on: server).first)
+    #expect(started.notFresh == 0 && store.undoHerdrModels(started, running: [:]) == 2, "Legal was changed again since and keeps that")
+    let left = store.herdrModelRecords(by: nil, on: server)
+    #expect(left.map(\.undo) == [false, true] && left.last?.changes.map(\.name) == ["Jarvis", "Infra"] && left.last?.changes.first?.template == "")
+    let back = try #require(left.last)
+    #expect(HerdrModelRecordRow.title(back, by: nil) == "2 bots are back on what they ran before" && store.undoHerdrModels(back) == 0, "going back has no Undo of its own")
+    #expect(HerdrModelRecordRow.title(second, by: "Jarvis") == "Jarvis switched 1 bot to Claude · Opus 5.5")
 }
