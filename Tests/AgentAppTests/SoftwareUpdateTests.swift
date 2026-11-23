@@ -223,15 +223,18 @@ private let restarting: [HerdrServerUpdate.Event] = [answered, .checked(check("0
 
 @MainActor @Test func theSidebarsLineSaysWhatIsWaiting() {
     let notice = UpdateNotice()
-    #expect(notice.line == nil)
+    #expect(notice.line == nil && notice.sidebarDetail == nil)
     notice.serversBehind = 1
     #expect(notice.line == "A server update is available")
     notice.serversBehind = 3
     #expect(notice.line == "3 server updates are available")
     notice.appVersion = "0.7.1"
     #expect(notice.line == "Updates are available")
+    #expect(notice.sidebarDetail == "SwarmHub 0.7.1 · 3 servers")
     notice.serversBehind = 0
-    #expect(notice.line == "SwarmHub 0.7.1 is available")
+    #expect(notice.line == "SwarmHub 0.7.1 is available" && notice.sidebarDetail == "SwarmHub 0.7.1")
+    notice.manualCheckQueued = true
+    #expect(notice.sidebarDetail == "Open Software Update")
 }
 
 // MARK: A workspace release, as the app reads it

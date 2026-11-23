@@ -31,6 +31,7 @@ struct SidebarView: View {
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                     .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
+            SidebarUpdateButton()
             // Worked out once per pass: the body reruns on every streamed token.
             let layout = store.sidebarLayout
             ScrollView {
@@ -91,24 +92,20 @@ struct SidebarView: View {
         if store.sidebar.section(id)?.chats.isEmpty ?? true { store.deleteSidebarSection(id) } else { sectionToDelete = id }
     }
 
-    /// The line about a waiting update, and the one button to Settings.
+    /// The account and Settings button.
     private var bottomBar: some View {
-        VStack(spacing: 0) {
-            // Only while an update is waiting: the app's own, or a server's workspace (`UpdateNotice`).
-            UpdateNoticeLine().padding(.horizontal, SidebarMetrics.listInset + 4).padding(.bottom, 4)
-            HStack(spacing: 10) {
-                // One button: the person's initial and "Settings" (two buttons that opened the same window read as two things).
-                SettingsLink {
-                    HStack(spacing: 8) {
-                        Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(AppColor.onAccent)
-                            .frame(width: 22, height: 22).background(Circle().fill(.tint))
-                        Text("Settings").font(.system(size: 13, weight: .medium))
-                    }.padding(.leading, 5).padding(.trailing, 14)
-                        .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
-                }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
-                Spacer()
-            }.padding(.horizontal, SidebarMetrics.listInset + 4).frame(height: SidebarMetrics.bottomBar)
-        }.frame(maxWidth: .infinity)
+        HStack(spacing: 10) {
+            // One button: the person's initial and "Settings" (two buttons that opened the same window read as two things).
+            SettingsLink {
+                HStack(spacing: 8) {
+                    Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(AppColor.onAccent)
+                        .frame(width: 22, height: 22).background(Circle().fill(.tint))
+                    Text("Settings").font(.system(size: 13, weight: .medium))
+                }.padding(.leading, 5).padding(.trailing, 14)
+                    .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
+            }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
+            Spacer()
+        }.padding(.horizontal, SidebarMetrics.listInset + 4).frame(height: SidebarMetrics.bottomBar)
     }
 
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
