@@ -79,8 +79,14 @@ extension AppStore {
         }
         let name = group.map { backend.runtimeName(sessionID: turnSessionID(in: $0, bot: bot)) } ?? backend.agentName
         guard let workspace = try? await backend.client.workspace(), stillWaiting() else { return }
-        guard let agent = backend.client.liveAgent(named: name, in: workspace),
-              agent.status?.state == "blocked" else { herdrPrompts[id] = nil; return }
+        let live = backend.client.liveAgent(named: name, in: workspace)
+        guard let agent = live, agent.status?.state == "blocked" else {
+            herdrPrompts[id] = nil
+            if group == nil, herdrReadiness[id]?.isBlocked == true {
+                herdrReadiness[id] = HerdrAgentReadiness(live, in: workspace)
+            }
+            return
+        }
         let screen = (try? await backend.client.screen(of: agent.ref)) ?? ""
         guard !Task.isCancelled, stillWaiting() else { return }
         guard HerdrPrompt.actionable(kind: agent.status?.kind, screen: screen) else { herdrPrompts[id] = nil; return }

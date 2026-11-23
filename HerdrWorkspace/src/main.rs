@@ -961,10 +961,22 @@ async fn launch_agent(
             return Err(ApiError::Conflict("The owner changed before the fixture launch."));
         }
     }
-    let owner = body.workspace_id.as_deref().or_else(|| bot_note.as_ref().map(|(id, _)| id.as_str())).map(str::to_ascii_lowercase);
-    let auto_mode = match owner.as_deref() {
-        Some(id) => bot_agent_settings::for_bot(&*w.history.db()?, id).map_err(StoreError::from)?.auto_mode,
-        None => false,
+    let (owner, auto_mode) = {
+        let db = w.history.db()?;
+        let owner = resolve_launch_owner(
+            &db,
+            body.workspace_id.as_deref(),
+            bot_note.as_ref().map(|(id, _)| id.as_str()),
+            &body.name,
+        )
+        .map_err(StoreError::from)?;
+        let auto_mode = match owner.as_deref() {
+            Some(id) => bot_agent_settings::for_bot(&db, id)
+                .map_err(StoreError::from)?
+                .auto_mode,
+            None => false,
+        };
+        (owner, auto_mode)
     };
     let started = if body.warm {
         warm::start(
@@ -1761,4 +1773,80 @@ async fn end(
     let ended = w.core.end(&agent).await?;
     bots::stopped_agent(&w, &agent);
     Ok(Json(ended))
+}
+
+fn resolve_launch_owner(
+    db: &rusqlite::Connection,
+    workspace_id: Option<&str>,
+    bot_note_id: Option<&str>,
+    agent_name: &str,
+) -> rusqlite::Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    if let Some(id) = workspace_id.or(bot_note_id) {
+        return Ok(Some(id.to_ascii_lowercase()));
+    }
+    if let Some(bot) = bots::of_agent(db, agent_name)? {
+        return Ok(Some(bot.id));
+    }
+    db.query_row(
+        "SELECT parent_bot_id FROM journal WHERE agent=?1 AND parent_bot_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+        [agent_name],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+}
+
+#[cfg(test)]
+mod launch_owner_tests {
+    use super::resolve_launch_owner;
+    use crate::{bots, history::History};
+
+    #[test]
+    fn resolve_launch_owner_covers_registered_and_group_agents_without_workspace_id() {
+        let scratch = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(scratch.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+        }
+        let history = History::open_at(&scratch.path().join("data")).unwrap();
+        {
+            let db = history.db().unwrap();
+            bots::register(
+                &db,
+                &bots::Registration {
+                    id: "11111111-2222-3333-4444-555555555555".into(),
+                    name: Some("Builder".into()),
+                    may_message: Some(false),
+                    ..Default::default()
+                },
+                1_000,
+            )
+            .unwrap()
+            .unwrap();
+
+            // Direct/renamed bot launch with no workspace_id or bot_note still resolves to the bot.
+            assert_eq!(
+                resolve_launch_owner(&db, None, None, "builder-111111").unwrap(),
+                Some("11111111-2222-3333-4444-555555555555".into())
+            );
+        }
+
+        // Group runtime previously associated via existing_agents keeps its owner on relaunch.
+        let (record, _) = history
+            .start_launch("core", "group-abcdef123456", "hi", None, "{}", "")
+            .unwrap()
+            .unwrap();
+        let db = history.db().unwrap();
+        db.execute(
+            "UPDATE journal SET parent_bot_id=?1 WHERE id=?2",
+            rusqlite::params!["11111111-2222-3333-4444-555555555555", record],
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_launch_owner(&db, None, None, "group-abcdef123456").unwrap(),
+            Some("11111111-2222-3333-4444-555555555555".into())
+        );
+    }
 }

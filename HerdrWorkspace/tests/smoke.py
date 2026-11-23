@@ -1593,24 +1593,55 @@ def smoke(hc, bridge, chrome=None):
                         assert until(lambda: stamp in request(output)["text"])
                     # Run the production wrappers against an argument recorder, without contacting a provider.
                     probe = root / "probe-agent"
-                    probe.write_text("#!/usr/bin/python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n")
+                    server_log = root / "codex-server-args.json"
+                    probe.write_text(f"#!/usr/bin/python3\nimport json,os,pathlib,socket,sys,time\nif 'app-server' in sys.argv and '--listen' in sys.argv:\n    pathlib.Path({str(server_log)!r}).write_text(json.dumps(sys.argv[1:]))\n    sock_path = sys.argv[sys.argv.index('--listen') + 1].removeprefix('unix://')\n    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n    srv.bind(sock_path)\n    srv.listen(4)\n    time.sleep(2)\n    sys.exit(0)\nprint(json.dumps(sys.argv[1:]))\n")
                     probe.chmod(0o700)
+                    agy_ws = root / "agy-bot-ws"
+                    agy_ws.mkdir(mode=0o700, exist_ok=True)
+                    (agy_ws / ".swarmhub-workspace").write_bytes(b"")
                     journal = root / "workspace/workspace.sqlite3"
                     with sqlite3.connect(journal) as db:
                         key, = db.execute("SELECT launch_key FROM journal WHERE agent='direct' AND launch_key IS NOT NULL").fetchone()
                     for auto in ("", "1"):
                         env = {**core_env, "SWARMHUB_JOURNAL": str(journal), "SWARMHUB_LAUNCH_KEY": key,
                                "SWARMHUB_CODEX_STREAM": "off", "SWARMHUB_CODEX_BIN": str(probe),
-                               "SWARMHUB_CLAUDE_BIN": str(probe), "SWARMHUB_PROJECT_AUTO": auto}
-                        def wrapper(cmd):
-                            return json.loads(subprocess.check_output([bridge, cmd, "--workspace-approvals"], env=env, timeout=15))
+                               "SWARMHUB_CLAUDE_BIN": str(probe), "SWARMHUB_ANTIGRAVITY_BIN": str(probe),
+                               "SWARMHUB_PROJECT_AUTO": auto}
+                        def wrapper(cmd, extra_env=None, cwd=None):
+                            merged = {**env, **(extra_env or {})}
+                            return json.loads(subprocess.check_output([bridge, cmd, "--workspace-approvals"] if cmd != "run-antigravity" else [bridge, cmd], env=merged, cwd=cwd, timeout=15))
                         args = wrapper("run-codex")
                         assert ('sandbox_mode="workspace-write"' in args) == bool(auto)
+                        # Remote streaming mode must pass Auto mode overrides to both app-server and TUI client,
+                        # while keeping writable_roots on the server only (Codex --remote rejects writable_roots).
+                        remote_args = wrapper("run-codex", {"SWARMHUB_CODEX_STREAM": "on", "SWARMHUB_HELPER_SPOOL": str(agy_ws)})
+                        server_args = json.loads(server_log.read_text())
+                        assert "--remote" in remote_args
+                        assert ('sandbox_mode="workspace-write"' in remote_args) == bool(auto)
+                        assert ('approvals_reviewer="auto_review"' in remote_args) == bool(auto)
+                        assert ('computer_use.default_app_access="allow"' in remote_args) == bool(auto)
+                        assert any("mcp_elicitations=false" in arg for arg in remote_args) == bool(auto)
+                        assert not any("writable_roots" in arg for arg in remote_args)
+                        assert ('sandbox_mode="workspace-write"' in server_args) == bool(auto)
+                        assert ('approvals_reviewer="auto_review"' in server_args) == bool(auto)
+                        assert ('computer_use.default_app_access="allow"' in server_args) == bool(auto)
+                        assert any("PermissionRequest" in arg for arg in server_args) == (not bool(auto))
+                        assert any("writable_roots" in arg for arg in server_args) == bool(auto)
                         args = wrapper("run-claude")
+                        assert ("--permission-mode" in args) == bool(auto)
+                        if auto:
+                            assert args[args.index("--permission-mode") + 1] == "auto"
                         settings = json.loads(args[args.index("--settings") + 1])
                         assert (settings.get("permissions", {}).get("defaultMode") == "acceptEdits") == bool(auto)
                         assert settings.get("sandbox", {}).get("autoAllowBashIfSandboxed", False) == bool(auto)
-                        assert "PermissionRequest" in settings["hooks"]
+                        assert ("PermissionRequest" in settings["hooks"]) == (not bool(auto))
+                        agy_args = wrapper("run-antigravity", {"SWARMHUB_LAUNCH_MODEL": "antigravity:gemini-4-neon-high"}, cwd=agy_ws)
+                        assert agy_args[:3] == ["--model", "gemini-4-neon-high", "--settings"]
+                        agy_settings = json.loads(agy_args[3])
+                        assert str(agy_ws) in agy_settings["trustedWorkspaces"]
+                        assert (agy_settings.get("allowNonWorkspaceAccess") is True) == bool(auto)
+                        assert (agy_settings.get("artifactReviewPolicy") == "always-proceed") == bool(auto)
+                        assert (agy_args[4:] == ["--mode", "auto", "--dangerously-skip-permissions"]) == bool(auto)
                     spawn(direct, "custom", chosen)
                     spawn(group, "legacy", chosen)
                     spawn(second, "other", default, auto=False)

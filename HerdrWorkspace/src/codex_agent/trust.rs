@@ -160,7 +160,7 @@ pub(super) fn flag(
     commands: &[String],
 ) -> Option<String> {
     let data = journal.parent()?;
-    if !crate::first_time::codex_hooks_agreed(data) {
+    if !crate::first_time::codex_hooks_agreed(data) && !crate::bot_agent_settings::project_auto() {
         return None;
     }
     let made_for = made_for(hooks);

@@ -49,16 +49,24 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     // Only a launch without arguments of its own gets the reply as it is written (`stream`): anything else
     // (a resumed session, a fixed sandbox) starts exactly as the template says.
     let plain = args.is_empty();
+    let auto_enabled = plain && crate::bot_agent_settings::project_auto();
     crate::runtimes::ModelAgent::Codex.add_model_arg(&mut args)?;
-    let (mut hooks, commands) = hook_values(path, approvals);
+    // In Auto mode, Codex's own `auto_review` guardian reviews escalated requests; registering
+    // `PermissionRequest` here would intercept them first and stall for 45 s waiting in chat.
+    let (mut hooks, commands) = hook_values(path, approvals && !auto_enabled);
     // Where the person agreed to it at setup, Codex is told at launch that these hooks, and no others, are
     // trusted, so it does not stop to ask in a terminal nobody is looking at (`trust`).
     if let Some(trusted) = trust::flag(&journal, executable(), &hooks, &commands) {
         hooks.push(trusted);
     }
-    if plain && crate::bot_agent_settings::project_auto() {
-        hooks.extend([r#"sandbox_mode="workspace-write""#.into(), r#"approval_policy="on-request""#.into()]);
-    }
+    let (remote_auto, server_only_auto) = if auto_enabled {
+        auto_configs(true, &crate::bot_agent_settings::auto_writable_dirs())
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let mut server_configs = hooks;
+    server_configs.extend(remote_auto.iter().cloned());
+    server_configs.extend(server_only_auto);
     let mut cmd = executable();
     // The terminal may be unattended. Leave optional upgrades to interactive launches outside SwarmHub.
     cmd.args(["-c", "check_for_update_on_startup=false"]);
@@ -73,15 +81,41 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     match plain
-        .then(|| stream::start(&journal, &key, path, &hooks))
+        .then(|| stream::start(&journal, &key, path, &server_configs))
         .flatten()
     {
-        // The hooks run in the session's app server, which was given them; the terminal UI only shows it.
-        Some(server) => cmd.args(["--remote", &server]),
-        None => cmd.args(hooks.iter().flat_map(|hook| ["-c", hook])),
+        // The hooks and writable roots run in the session's app server (`--remote` rejects
+        // `writable_roots` on the client); policy and reviewer overrides go to both.
+        Some(server) => cmd
+            .args(remote_auto.iter().flat_map(|cfg| ["-c", cfg.as_str()]))
+            .args(["--remote", &server]),
+        None => cmd.args(server_configs.iter().flat_map(|hook| ["-c", hook.as_str()])),
     };
     // Codex enforces its sandbox and handles requests for broader access.
     Err(cmd.args(args).exec().into())
+}
+
+pub(crate) fn auto_configs(
+    auto: bool,
+    writable: &[std::path::PathBuf],
+) -> (Vec<String>, Vec<String>) {
+    if !auto {
+        return (Vec::new(), Vec::new());
+    }
+    let remote = vec![
+        r#"sandbox_mode="workspace-write""#.to_owned(),
+        "approval_policy={granular={sandbox_approval=true,rules=true,skill_approval=false,request_permissions=false,mcp_elicitations=false}}".to_owned(),
+        r#"approvals_reviewer="auto_review""#.to_owned(),
+        r#"computer_use.default_app_access="allow""#.to_owned(),
+    ];
+    let mut server_only = Vec::new();
+    let roots: Vec<&str> = writable.iter().filter_map(|p| p.to_str()).collect();
+    if !roots.is_empty()
+        && let Ok(encoded) = serde_json::to_string(&roots)
+    {
+        server_only.push(format!("sandbox_workspace_write.writable_roots={encoded}"));
+    }
+    (remote, server_only)
 }
 
 /// The hooks `run-codex` gives Codex, as `-c` values, and the command of each.
@@ -184,4 +218,42 @@ fn save_reply(
         return Err("Unknown launch or unavailable history.".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::auto_configs;
+
+    #[test]
+    fn auto_configs_keep_writable_roots_server_only_for_remote_sessions() {
+        assert_eq!(auto_configs(false, &[]), (Vec::new(), Vec::new()));
+        assert_eq!(
+            auto_configs(true, &[]),
+            (
+                vec![
+                    r#"sandbox_mode="workspace-write""#.to_owned(),
+                    "approval_policy={granular={sandbox_approval=true,rules=true,skill_approval=false,request_permissions=false,mcp_elicitations=false}}".to_owned(),
+                    r#"approvals_reviewer="auto_review""#.to_owned(),
+                    r#"computer_use.default_app_access="allow""#.to_owned(),
+                ],
+                Vec::new(),
+            )
+        );
+        let scratch = tempfile::tempdir().unwrap();
+        let spool = scratch.path().join(".swarmhub-helpers");
+        let results = scratch.path().join("results");
+        std::fs::create_dir_all(&spool).unwrap();
+        std::fs::create_dir_all(&results).unwrap();
+        let writable = crate::bot_agent_settings::auto_writable_dirs_from(
+            Some(spool.clone().into_os_string()),
+            Some(results.clone().into_os_string()),
+        );
+        let (remote, server_only) = auto_configs(true, &writable);
+        assert_eq!(remote.len(), 4);
+        assert!(remote.iter().all(|c| !c.contains("writable_roots")));
+        assert_eq!(server_only.len(), 1);
+        assert!(server_only[0].starts_with("sandbox_workspace_write.writable_roots=["));
+        assert!(server_only[0].contains(spool.to_str().unwrap()));
+        assert!(server_only[0].contains(results.to_str().unwrap()));
+    }
 }

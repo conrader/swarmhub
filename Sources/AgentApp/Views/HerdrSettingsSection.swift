@@ -436,6 +436,7 @@ struct HerdrAgentControls: View {
                 // "Empty context" is what was asked for: a chat noted for the bot's next agent is not handed over.
                 store.setHerdrCarryOver(nil, for: bot)
                 store.clearModelSwitch(bot.id)
+                store.clearAutoSwitch(bot.id)
                 let closed = try await store.restartHerdrAgent(for: bot)
                 // With "Keep its agent ready" on, the fresh agent starts now instead of with the next message.
                 let starting = store.launchWorkEnabled && store.warmHerdrAgent(for: bot) != nil

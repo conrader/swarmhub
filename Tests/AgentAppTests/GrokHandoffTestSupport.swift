@@ -43,6 +43,7 @@ final class HandoffBridge: @unchecked Sendable {
     private let lock = NSLock()
     private var agents: [[String: Any]] = [], rows: [String: [[String: Any]]] = [:], posts: [Sent] = [], started = 0, historyReads = 0
     private var refusals: [String] = [], waiting: [String] = []
+    private var autoModes: [String: Bool] = [:]
     /// What the server says it can do, the status every agent reports, and what an agent replies to a task.
     /// Set before the first request.
     var attachments = true, launchAttachments = true
@@ -155,6 +156,14 @@ final class HandoffBridge: @unchecked Sendable {
                 return (200, workspace)
             }
             if method == "GET", path == "/api/profiles" { return (200, [Any]()) }
+            if path.hasPrefix("/api/bot-agent-settings/") {
+                if method == "POST", let data = request.bodyData,
+                   let edit = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let enabled = edit["auto_mode"] as? Bool {
+                    autoModes[path] = enabled
+                }
+                return (200, ["choice": NSNull(), "auto_mode": autoModes[path] ?? false] as [String: Any])
+            }
             if method == "POST", refusesFiles, path.hasSuffix("/with-files") {
                 refusals.append(path.hasSuffix("/messages/with-files") ? "message-with-files" : "launch-with-files")
                 return (422, ["error": "This bot needs a workspace folder for attachments."])

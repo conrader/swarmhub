@@ -137,7 +137,45 @@ import Testing
 
     // Deleting/forgetting a bot removes its model-switch and confirmation defaults too.
     store.markModelSwitch(bot)
+    store.markAutoSwitch(bot)
     store.defaults.set("confirmed", forKey: "herdr.confirmed.\(bot.id)")
     store.forgetHerdrCarryOver(bot.id)
-    #expect(!store.modelSwitchPending(bot) && store.defaults.object(forKey: "herdr.confirmed.\(bot.id)") == nil)
+    #expect(!store.modelSwitchPending(bot) && !store.autoSwitchPending(bot) && store.defaults.object(forKey: "herdr.confirmed.\(bot.id)") == nil)
+}
+
+@Test @MainActor func togglingAutoModeReplacesWarmAgentsImmediatelyAndActiveSessionsOnNextSend() async throws {
+    let bridge = HandoffBridge()
+    bridge.agentState = "idle"
+    let (store, bot) = try handoffStore(bridge)
+    let server = store.herdrServer(for: bot)
+    store.launchWorkEnabled = true
+    let agentName = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+
+    // 1. An unused warm-started agent is ended immediately and replaced with a fresh warm agent.
+    bridge.seed(agent: agentName, warm: true)
+    let savedWarm = try await store.applyProjectAutoMode(true, for: bot, on: server)
+    #expect(savedWarm.autoMode)
+    #expect(!store.autoSwitchPending(bot), "fresh warm replacement already carries Auto mode")
+    #expect(bridge.sent.map(\.route) == ["end", "launch"])
+
+    // 2. An active conversation session stays until the next message, which restarts it with carry-over.
+    bot.messages = [ChatMessage(role: .user, content: "Check the build"), ChatMessage(role: .assistant, content: "Ready to run.")]
+    // Mark the running launch as used by seeding a conversation launch.
+    _ = try await store.restartHerdrAgent(for: bot)
+    bridge.seed(agent: agentName, warm: false, rows: [(kind: "task", text: "Check the build"), (kind: "reply", text: "Ready to run.")])
+    let beforeCount = bridge.sent.count
+    let savedUsed = try await store.applyProjectAutoMode(true, for: bot, on: server)
+    #expect(savedUsed.autoMode && store.autoSwitchPending(bot))
+    #expect(bridge.sent.count == beforeCount, "an active conversation is not killed before the next message")
+
+    var backend = try store.herdrBackend(for: bot)
+    backend.coordinate = nil
+    let stream = try await backend.send(.init(sessionID: bot.id.uuidString, systemPrompt: "", messages: [(role: "user", content: "Run the tests")], images: []))
+    for try await _ in stream {}
+
+    let delta = Array(bridge.sent.dropFirst(beforeCount))
+    #expect(delta.map(\.route) == ["end", "launch-with-files", "message"])
+    #expect(delta[1].files["conversation-so-far.md"]?.contains("Ready to run.") == true)
+    #expect(delta[2].text.hasSuffix("Run the tests"))
+    #expect(!store.autoSwitchPending(bot))
 }

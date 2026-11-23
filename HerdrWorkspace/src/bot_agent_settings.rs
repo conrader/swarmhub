@@ -144,3 +144,28 @@ pub(crate) const AUTO_ENV: &str = "SWARMHUB_PROJECT_AUTO";
 pub(crate) fn project_auto() -> bool {
     std::env::var(AUTO_ENV).as_deref() == Ok("1")
 }
+
+pub(crate) fn auto_writable_dirs() -> Vec<std::path::PathBuf> {
+    auto_writable_dirs_from(
+        std::env::var_os(crate::helpers::SPOOL_ENV),
+        std::env::var_os("SWARMHUB_RESULTS"),
+    )
+}
+
+pub(crate) fn auto_writable_dirs_from(
+    spool: Option<std::ffi::OsString>,
+    results: Option<std::ffi::OsString>,
+) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    for value in [spool, results].into_iter().flatten() {
+        let path = std::path::PathBuf::from(value);
+        if path.is_absolute()
+            && path.to_str().is_some_and(|s| !s.chars().any(char::is_control))
+            && std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir())
+            && !dirs.contains(&path)
+        {
+            dirs.push(path);
+        }
+    }
+    dirs
+}

@@ -860,10 +860,14 @@ fn add_ai(places: &Places, id: &str, folders: &[PathBuf]) -> Result<(), Stop> {
     let mut draft = tempfile::NamedTempFile::new_in(&places.templates).map_err(|e| Stop::failed(e.to_string()))?;
     draft.write_all(template_text(program, &places.exe).as_bytes()).map_err(|e| Stop::failed(e.to_string()))?;
     match draft.persist_noclobber(&dest) {
-        Ok(_) => Ok(()),
-        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists && dest.is_file() => Ok(()),
-        Err(e) => Err(Stop::failed(format!("Could not add {}: {e}", program.name))),
+        Ok(_) => {}
+        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists && dest.is_file() => {}
+        Err(e) => return Err(Stop::failed(format!("Could not add {}: {e}", program.name))),
     }
+    if id == "codex" {
+        let _ = first_time(places, folders);
+    }
+    Ok(())
 }
 
 /// Whether a template file is one `install` wrote and nobody changed since: only those are removed.
