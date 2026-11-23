@@ -65,7 +65,7 @@ struct HerdrModelRecordRow: View {
     @State private var starting = false
 
     static let caption = "This changes the setting. A bot whose agent is running keeps its model until that agent is started fresh."
-    static let freshHelp = "Ends the running agents of these bots, except one that is answering. Each starts on the new model with its next message, and does not remember the conversation so far."
+    static let freshHelp = "Ends the running agents of these bots, except one that is answering. Each starts on the new model with its next message, and reads its conversation so far first."
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {

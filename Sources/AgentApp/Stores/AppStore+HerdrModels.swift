@@ -5,7 +5,8 @@ import Foundation
 /// what the server offers and changes the setting of each bot. A change the main bot marked "decided", in answer to
 /// what the person wrote, is applied at once; any other waits above the composer for Apply or Not now, and so does
 /// every change while the main bot's "Ask me before creating bots" is on. What was applied stays on a card with Undo
-/// and "Start fresh agents": a bot whose agent is running keeps its model until that agent is started fresh.
+/// and "Start fresh agents": a bot whose agent is running keeps its model until that agent is started fresh, and
+/// the fresh agent reads the bot's chat so far before its first message (`AppStore+HerdrCarryOver.swift`).
 extension AppStore {
     /// `UserDefaults`: the changes that were applied, as JSON, newest last.
     static let herdrModelRecordsKey = "herdrModelChanges", herdrModelRecordsKept = 6
@@ -109,7 +110,9 @@ extension AppStore {
     /// Changes each bot's setting as planned. Returns what was changed, for its card; nil when nothing was.
     /// An agent that was started ahead of time and has not been written to is ended, so the bot's first message
     /// starts one as now chosen. Nothing is started here: a change to many bots must not start an agent for each.
-    @discardableResult func applyHerdrModels(_ plan: HerdrModelPlan, on server: HerdrServer, by manager: Bot?) -> HerdrModelRecord? {
+    /// `running`: the agents that run for the server's bots now (nil: not known), so that each changed bot's next
+    /// agent is handed the bot's chat.
+    @discardableResult func applyHerdrModels(_ plan: HerdrModelPlan, on server: HerdrServer, by manager: Bot?, running: [UUID: HerdrAgentLaunch]? = nil) -> HerdrModelRecord? {
         var changed: [Bot] = []
         for change in plan.changes {
             guard let bot = bots.first(where: { $0.id == change.bot }) else { continue }
@@ -123,6 +126,7 @@ extension AppStore {
         var records = herdrModelRecords
         for index in records.indices where records[index].manager == record.manager && records[index].server == record.server { records[index].settled = true }
         herdrModelRecords = records + [record]
+        if let running { armHerdrCarryOver(for: changed, running: running) }
         endUnusedHerdrAgents(of: changed)
         return record
     }
@@ -142,12 +146,13 @@ extension AppStore {
     /// could be applied: the request then stays as it was.
     @discardableResult func acceptHerdrModel(_ pending: PendingHerdrModel, manager: Bot) async -> HerdrModelRefusal? {
         let server = herdrServer(for: manager)
+        let running = await herdrRunningLaunches(on: server)
         switch await herdrModelPlan(pending.request, on: server) {
         case .failure(let refusal): return refusal
         case .success(let plan):
             dismissHerdrModel(pending)
             guard createsHerdrBots(manager) else { return nil }
-            if applyHerdrModels(plan, on: server, by: manager) != nil {
+            if applyHerdrModels(plan, on: server, by: manager, running: running) != nil {
                 notice(AppOnlyLine.modelsChanged.render(manager.name, Self.botCount(plan.changes.count), plan.label), in: manager)
             } else {
                 notice(AppOnlyLine.modelsAlready.render(Self.botCount(plan.unchanged), plan.label), in: manager)
@@ -181,12 +186,14 @@ extension AppStore {
     // MARK: Settings
 
     /// Settings → Servers: every bot on `server` runs `template` on `model` (a model ID, or `HerdrModelChoice.recommended`).
-    /// `templates` are the server's. Returns what was changed; nil when every bot already ran that way.
-    @discardableResult func setHerdrModelForAll(on server: HerdrServer, template: HerdrClient.Template, model: String, label: String, templates: [HerdrClient.Template]) -> HerdrModelRecord? {
+    /// `templates` are the server's, `running` its bots' agents (`applyHerdrModels`). Returns what was changed; nil
+    /// when every bot already ran that way.
+    @discardableResult func setHerdrModelForAll(on server: HerdrServer, template: HerdrClient.Template, model: String, label: String, templates: [HerdrClient.Template],
+                                                running: [UUID: HerdrAgentLaunch]? = nil) -> HerdrModelRecord? {
         let changes = herdrModelTargets(on: server, templates: templates).filter { $0.template != template.name || $0.model != model }.map { target in
             HerdrModelPlan.Change(bot: target.id, name: target.name, template: template.name, model: model, beforeTemplate: target.ownTemplate, beforeModel: target.model)
         }
-        return applyHerdrModels(HerdrModelPlan(changes: changes, unchanged: 0, label: label), on: server, by: nil)
+        return applyHerdrModels(HerdrModelPlan(changes: changes, unchanged: 0, label: label), on: server, by: nil, running: running)
     }
 
     // MARK: The card of a change
@@ -220,8 +227,9 @@ extension AppStore {
         return back.count
     }
 
-    /// Ends the running agents of the bots a change moved, so each starts as now chosen with its next message. A bot
-    /// that is answering is left alone and can be started fresh later; a bot already started fresh is not ended again.
+    /// Ends the running agents of the bots a change moved, so each starts as now chosen with its next message, and
+    /// reads the bot's chat so far first (it was noted for that when the change was applied). A bot that is
+    /// answering is left alone and can be started fresh later; a bot already started fresh is not ended again.
     /// Returns what it came to, in a sentence, which the card keeps.
     @discardableResult func startFreshHerdrAgents(_ record: HerdrModelRecord) async -> String {
         var fresh = record.fresh, started = 0, busy = 0, failed = 0

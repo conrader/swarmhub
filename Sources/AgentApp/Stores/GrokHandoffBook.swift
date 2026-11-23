@@ -22,6 +22,9 @@ struct GrokHandoffRecord: Codable, Equatable, Sendable {
     var queue: [String: Task<Void, Never>] = [:]
     /// Each bot's `GrokHandoffState` as last read from or written to its file.
     var states: [UUID: GrokHandoffState] = [:]
+    /// The summary made of the older part of a bot's own chat, kept until its fresh agent has read the chat
+    /// (`AppStore+HerdrCarryOver.swift`), so that a second try does not make it again.
+    var carrySummaries: [UUID: GrokHandoffCache] = [:]
     /// How long a turn waits for a summary before the handoff goes without one; how long making one may take when
     /// the app starts it by itself, and when the person asked for it.
     var turnWait: Duration = .seconds(180)

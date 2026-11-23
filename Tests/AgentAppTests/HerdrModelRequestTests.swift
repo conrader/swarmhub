@@ -167,6 +167,7 @@ private final class ModelBridge: @unchecked Sendable {
     try await waitUntil { store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)) != nil && store.isIdle(jarvis) }
     #expect([jarvis, legal, infra].map { choice(store, $0) } == Array(repeating: "tpl-codex|gpt-6.2-sol", count: 3))
     #expect(lines(jarvis).contains("Jarvis switched 3 bots to Codex · GPT-6.2 Sol.") && store.pendingHerdrModels(for: jarvis).isEmpty)
+    #expect(store.herdrCarryOver(for: jarvis) != nil && store.herdrCarryOver(for: legal) == nil, "a changed bot that has a chat is noted: its next agent reads that chat first")
     let record = try #require(store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)))
     #expect(record.changes.count == 3 && record.notFresh == 3)
     // A bot the person has moved on since keeps that choice; the others go back to exactly what they had.

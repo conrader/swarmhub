@@ -160,7 +160,8 @@ extension AppStore {
         backend.confirmation = modelConfirmation(bot)
         backend.serverID = herdrServer(for: bot).id
         // A bot imported from Grok Bot: its agent reads the imported conversation before a message, once per agent session.
-        backend.handoff = grokHandoffSource(for: bot)
+        // And a bot whose program or model was changed: its fresh agent reads the bot's chat so far (`AppStore+HerdrCarryOver.swift`).
+        backend.handoff = grokHandoffSource(for: bot) ?? herdrCarrySource(for: bot)
         backend.steers = herdrSteers(bot)
         // The main bot is told how to create bots; every other bot how to ask it for one.
         if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }

@@ -12,6 +12,7 @@ struct HerdrAllBotsModelBlock: View {
     @State private var models: [HerdrClient.Template.Model] = []
     @State private var open = false
     @State private var note = ""
+    @State private var applying = false
 
     private var effective: HerdrClient.Template? { templates.first { $0.name == template } ?? templates.first }
 
@@ -29,7 +30,7 @@ struct HerdrAllBotsModelBlock: View {
                                     HerdrModelPicker(model: $model, program: effective.modelAgent ?? effective.programName, models: models)
                                 }
                                 HStack(spacing: 10) {
-                                    Button("Set for all \(count) bots") { apply() }.buttonStyle(.appleProminent).disabled(effective == nil)
+                                    Button("Set for all \(count) bots") { Task { await apply() } }.buttonStyle(.appleProminent).disabled(effective == nil || applying)
                                     if !note.isEmpty { Text(note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                                 }
                             }.padding(.top, 6)
@@ -49,12 +50,16 @@ struct HerdrAllBotsModelBlock: View {
         }
     }
 
-    private func apply() {
-        guard let effective else { return }
+    private func apply() async {
+        guard let effective, !applying else { return }
+        applying = true
+        defer { applying = false }
+        // The agents that run now hold their conversations; each bot's next agent is handed its chat.
+        let running = await store.herdrRunningLaunches(on: server)
         let chosen = effective.takesModel ? model : HerdrModelChoice.recommended
         let named = chosen == HerdrModelChoice.recommended ? HerdrModelPlan.recommendedLabel : models.first(where: { $0.id == chosen }).map { HerdrAgentReading.name($0) } ?? chosen
         let label = "\(effective.label) · \(named)"
-        if store.setHerdrModelForAll(on: server, template: effective, model: chosen, label: label, templates: templates) == nil {
+        if store.setHerdrModelForAll(on: server, template: effective, model: chosen, label: label, templates: templates, running: running) == nil {
             note = "Every bot here already runs on \(label)."
         } else { note = ""; open = false }
     }
