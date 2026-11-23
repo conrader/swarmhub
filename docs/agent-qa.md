@@ -7,6 +7,8 @@ app=/Applications/SwarmHub.app/Contents/MacOS/AgentApp
 "$app" --agent-qa /tmp/swarmhub-qa --hunt
 ```
 
+For command help from the installed binary, run `"$app" --agent-qa --help`.
+
 The built-in exploration checks per-chat drafts, delivery, unread counts and pins, then captures the workspace and release notes in a set of window states. Read the final JSON event for the report path. A failed expectation produces an observed value, a screenshot and a nonzero process exit. The report distinguishes failed checks from observations recorded by the agent.
 
 ## Drive a session

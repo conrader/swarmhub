@@ -28,6 +28,19 @@ import SwiftUI
     }
 
     static func run(arguments: [String]) -> Int32 {
+        if arguments.contains("--help") {
+            print("""
+            AgentApp --agent-qa OUTPUT_DIRECTORY [--hunt]
+            Run --hunt for built-in checks, or send JSON objects on stdin. Each result is one JSON line.
+            Example: {"action":"open","bot":"Mira"}
+            Actions: inspect, open(bot), draft(text), send(optional text), pin, unpin,
+              appearance(value: dark/light), viewport(width,height), details(value: show/hide),
+              screen(value: workspace/whatsNew), capture, expect(field,value), finding(kind,text).
+            Fields are strings. Expect supports selected, draft, pinned, unread, lastRole, and contains (with text).
+            Findings take the kind bug or improvement. Close stdin to save report.json beside replay.jsonl.
+            """)
+            return 0
+        }
         guard let flag = arguments.firstIndex(of: "--agent-qa"),
               let path = arguments.dropFirst(flag + 1).first, !path.hasPrefix("--") else {
             print("Usage: AgentApp --agent-qa OUTPUT_DIRECTORY [--hunt]. Without --hunt, send JSON commands on stdin.")

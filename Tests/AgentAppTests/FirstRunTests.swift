@@ -46,6 +46,8 @@ import Testing
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--setup-preview"]) == nil, "a launch argument, not a headless command")
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp"]) == nil)
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--render-setup"]) == 64)
+    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--agent-qa"]) == 64)
+    #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--agent-qa", "--help"]) == 0)
     #expect(SetupPreview.isRequested(["AgentApp", "--setup-preview"]) && UISmoke.reportPath(arguments: ["AgentApp", "--ui-smoke", "/tmp/r.json"]) != nil)
     #expect(UpdateConfiguration.unavailableReason(bundleURL: URL(fileURLWithPath: "/Applications/X.app"), info: [:], environment: [:], arguments: ["--setup-preview"]) != nil)
 }
