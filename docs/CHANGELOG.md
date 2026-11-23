@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.11 (build 45)
+
+- Codex chats now save the final answer when the workspace receives the completed turn, even when the Codex Stop hook is unavailable. This fixes replies getting stuck on “Finishing” and then appearing incomplete. Requires workspace server 0.2.8.
+
 ## 0.8.10 (build 44)
 
 - Changing a bot’s AI or model carries the conversation into its next direct reply automatically. A reply in progress finishes on its original model.

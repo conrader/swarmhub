@@ -4,7 +4,7 @@ use crate::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::{env, os::unix::process::CommandExt, process::Command};
+use std::{env, os::unix::process::CommandExt, path::Path, process::Command};
 
 mod models;
 mod prefetch;
@@ -157,14 +157,28 @@ fn record_reply() -> Result<(), Box<dyn std::error::Error>> {
     else {
         return Ok(());
     };
-    if text.len() > 128 * 1024 {
+    save_reply(&journal, &launch, event.turn_id.as_deref(), &text)
+}
+
+fn valid_turn(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 128 && !id.chars().any(char::is_control)
+}
+
+const MAX_REPLY_BYTES: usize = 128 * 1024;
+
+fn save_reply(
+    journal: &Path,
+    launch: &str,
+    turn: Option<&str>,
+    text: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if text.len() > MAX_REPLY_BYTES {
         return Err("The reply exceeds 128 KiB.".into());
     }
-    let turn = event
-        .turn_id
-        .filter(|id| !id.is_empty() && id.len() <= 128 && !id.chars().any(char::is_control))
+    let turn = turn
+        .filter(|id| valid_turn(id))
         .map(|id| format!("codex:{id}"));
-    if !history::publish_reply(&journal, &launch, "Codex", &text, turn.as_deref())
+    if !history::publish_reply(journal, launch, "Codex", text, turn.as_deref())
         .map_err(|_| "Could not save the reply.")?
     {
         return Err("Unknown launch or unavailable history.".into());

@@ -381,7 +381,15 @@ pub async fn run() -> Result<(), Failed> {
             _ = alive.tick() => if orphaned() { return Ok(()) },
             message = next(&mut connection) => {
                 let requests = match message {
-                    Some(text) => follower.heard(&text),
+                    Some(text) => {
+                        let requests = follower.heard(&text);
+                        if let Some((turn, answer)) = follower.completed.take()
+                            && let Err(error) = super::save_reply(&journal, &feed.key, Some(&turn), &answer)
+                        {
+                            note(&format!("Could not save completed Codex turn: {error}"));
+                        }
+                        requests
+                    }
                     None => {
                         // The UI may still be using the server: leave it running and try to listen again.
                         connection = None;
@@ -527,6 +535,10 @@ struct Follower {
     skipped: HashSet<String>,
     retries: Vec<(Instant, String, u8)>,
     listing: Option<u64>,
+    // A completed final message can precede turn/completed, whose items are often empty.
+    // Keep it separate from the preview, which can also contain partial text or commentary.
+    final_by_thread: HashMap<String, (String, String)>,
+    completed: Option<(String, String)>,
     reply: Option<Reply>,
     /// The reply changed since it was last shown.
     changed: bool,
@@ -544,6 +556,15 @@ struct Heard {
 
 fn other_conversation(thread: &Value) -> bool {
     thread["ephemeral"] == true || !thread["parentThreadId"].is_null()
+}
+
+fn final_text(item: &Value) -> Option<&str> {
+    if item["type"] != "agentMessage" || item["phase"] != "final_answer" {
+        return None;
+    }
+    item["text"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty() && s.len() <= super::MAX_REPLY_BYTES)
 }
 
 impl Follower {
@@ -635,9 +656,27 @@ impl Follower {
             }
             "thread/closed" => {
                 self.joined.remove(thread);
+                self.final_by_thread.remove(thread);
                 self.clear(thread);
             }
-            "turn/started" | "turn/completed" if self.joined.contains(thread) => self.clear(thread),
+            "turn/started" if self.joined.contains(thread) => {
+                self.final_by_thread.remove(thread);
+                self.clear(thread);
+            }
+            "turn/completed" if self.joined.contains(thread) => {
+                let candidate = self.final_by_thread.remove(thread);
+                let turn = &params["turn"];
+                if turn["status"] == "completed"
+                    && let Some(id) = turn["id"].as_str().filter(|id| super::valid_turn(id))
+                {
+                    self.completed = turn["items"]
+                        .as_array()
+                        .and_then(|items| items.iter().rev().find_map(final_text))
+                        .map(|text| (id.to_owned(), text.to_owned()))
+                        .or_else(|| candidate.filter(|(seen, _)| seen == id));
+                }
+                self.clear(thread);
+            }
             "item/started" if self.joined.contains(thread) => {
                 let item = &params["item"];
                 if item["type"] == "agentMessage"
@@ -678,6 +717,12 @@ impl Follower {
             }
             "item/completed" if self.joined.contains(thread) => {
                 let item = &params["item"];
+                if let Some(text) = final_text(item)
+                    && let Some(id) = params["turnId"].as_str().filter(|id| super::valid_turn(id))
+                {
+                    self.final_by_thread
+                        .insert(thread.to_owned(), (id.to_owned(), text.to_owned()));
+                }
                 if item["type"] == "agentMessage"
                     && let (Some(id), Some(text)) = (item["id"].as_str(), item["text"].as_str())
                     && self.reply.as_ref().is_none_or(|reply| reply.item == id)
@@ -732,6 +777,7 @@ impl Follower {
             Some(_) => {
                 if self.joined.len() >= REMEMBERED {
                     self.joined.clear();
+                    self.final_by_thread.clear();
                 }
                 self.joined.insert(thread);
                 Vec::new()
@@ -881,6 +927,41 @@ mod tests {
             json!({"threadId":THREAD,"turn":{"id":"t1"}}),
         ));
         assert!(follower.reply.is_none() && follower.changed);
+    }
+
+    #[test]
+    fn only_a_successful_matching_turn_commits_its_final_message() {
+        let item =
+            |phase: &str| json!({"type":"agentMessage","id":"msg","text":"Answer","phase":phase});
+        for (thread, phase, turn, status, expected) in [
+            (THREAD, "final_answer", "t1", "completed", true),
+            (THREAD, "commentary", "t1", "completed", false),
+            (THREAD, "final_answer", "t1", "failed", false),
+            (THREAD, "final_answer", "t1", "interrupted", false),
+            (THREAD, "final_answer", "old", "completed", false),
+            ("child", "final_answer", "t1", "completed", false),
+        ] {
+            let mut follower = joined();
+            follower.heard(&note(
+                "item/completed",
+                json!({"threadId":thread,"turnId":turn,"item":item(phase)}),
+            ));
+            assert!(follower.completed.is_none());
+            follower.heard(&note(
+                "turn/completed",
+                json!({"threadId":THREAD,"turn":{"id":"t1","status":status,"items":[]}}),
+            ));
+            assert_eq!(
+                follower.completed.take(),
+                expected.then(|| ("t1".into(), "Answer".into()))
+            );
+        }
+        let mut follower = joined();
+        follower.heard(&note("turn/completed", json!({"threadId":THREAD,"turn":{"id":"t2","status":"completed","items":[item("commentary"),item("final_answer")]}})));
+        assert_eq!(
+            follower.completed.take(),
+            Some(("t2".into(), "Answer".into()))
+        );
     }
 
     #[test]
