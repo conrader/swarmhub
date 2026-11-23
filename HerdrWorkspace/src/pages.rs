@@ -546,11 +546,56 @@ fn validate_body(body: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn can_access_page(db: &rusqlite::Connection, id: i64, launch: &str) -> rusqlite::Result<bool> {
+    let owner_launch: Option<Option<String>> = db
+        .query_row(
+            "SELECT owner_launch FROM workspace_pages WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(Some(owner_key)) = owner_launch else {
+        return Ok(false);
+    };
+    if owner_key == launch {
+        return Ok(true);
+    }
+    match (
+        crate::bots::of_launch(db, &owner_key)?,
+        crate::bots::of_launch(db, launch)?,
+    ) {
+        (crate::bots::Who::Bot(owner), crate::bots::Who::Bot(caller)) => {
+            return Ok(owner.id == caller.id);
+        }
+        (crate::bots::Who::Helper, _) | (_, crate::bots::Who::Helper) => return Ok(false),
+        _ => {}
+    }
+    db.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM journal o, journal c
+            WHERE o.launch_key=?1 AND c.launch_key=?2
+              AND o.parent_bot_id != '' AND o.parent_bot_id = c.parent_bot_id
+        )",
+        params![owner_key, launch],
+        |row| row.get(0),
+    )
+}
+
 pub fn run(command: &str) -> Result<(), Box<dyn std::error::Error>> {
     let (journal, launch) = crate::agent::session()?;
     let mut args = std::env::args_os().skip(2);
     let first = args.next().and_then(|arg| arg.into_string().ok());
     let mut db = connection(&journal)?;
+    run_with_db(command, first, &mut args, &mut db, &launch)
+}
+
+fn run_with_db(
+    command: &str,
+    first: Option<String>,
+    args: &mut impl Iterator<Item = std::ffi::OsString>,
+    db: &mut rusqlite::Connection,
+    launch: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     match command {
         "publish-page" => {
             let name = first
@@ -595,10 +640,13 @@ pub fn run(command: &str) -> Result<(), Box<dyn std::error::Error>> {
             if args.next().is_some() {
                 return Err("Usage: swarmhub-herdr read-page PAGE_ID [REVISION]".into());
             }
+            if !can_access_page(db, id, launch)? {
+                return Err("This page is not available to this agent session or its revision changed.".into());
+            }
             let (revision, text): (i64, String) = db
                 .query_row(
-                    "SELECT revision,markdown FROM workspace_pages WHERE id=?1 AND owner_launch=?2 AND (?3 IS NULL OR revision=?3)",
-                    params![id, launch, expected],
+                    "SELECT revision,markdown FROM workspace_pages WHERE id=?1 AND (?2 IS NULL OR revision=?2)",
+                    params![id, expected],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()?
@@ -617,18 +665,74 @@ pub fn run(command: &str) -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or("Usage: swarmhub-herdr update-page PAGE_ID REVISION < document.md")?;
             let body = crate::agent::read_input(MAX_MARKDOWN)?;
             validate_body(&body)?;
-            let revision: i64 = db
+            let txn = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            if !can_access_page(&txn, id, launch)? {
+                return Err("The page is unavailable to this session or its revision changed.".into());
+            }
+            let revision: i64 = txn
                 .query_row(
-                    "UPDATE workspace_pages SET markdown=?4,updated_ms=?5,revision=revision+1
-                 WHERE id=?1 AND owner_launch=?2 AND revision=?3 RETURNING revision",
-                    params![id, launch, revision, body, now()],
+                    "UPDATE workspace_pages SET owner_launch=?3,markdown=?4,updated_ms=?5,revision=revision+1
+                 WHERE id=?1 AND revision=?2 RETURNING revision",
+                    params![id, revision, launch, body, now()],
                     |row| row.get(0),
                 )
                 .optional()?
                 .ok_or("The page is unavailable to this session or its revision changed.")?;
+            txn.commit()?;
             println!("Updated page {id} to revision {revision}.");
         }
         _ => return Err("Unknown page command.".into()),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bot_keeps_access_to_its_own_pages_across_restarted_sessions_while_other_bots_cannot_read_them() {
+        let scratch = tempfile::tempdir().unwrap();
+        let history = crate::history::History::open_at(&scratch.path().join("data")).unwrap();
+        let (_, old_launch) = history
+            .start_launch("core", "gamedev-d68a68", "First", None, "{}", "")
+            .unwrap()
+            .unwrap();
+        let (_, new_launch) = history
+            .start_launch("core", "gamedev-d68a68", "Switched", None, "{}", "")
+            .unwrap()
+            .unwrap();
+        let (_, other_bot) = history
+            .start_launch("core", "jarvis-96d41f", "Other", None, "{}", "")
+            .unwrap()
+            .unwrap();
+        let (_, unowned) = history
+            .start_launch("core", "plain", "Plain", None, "{}", "")
+            .unwrap()
+            .unwrap();
+
+        let mut db = connection(history.file()).unwrap();
+        db.execute(
+            "INSERT INTO bots (id,name,agent_name,main,template,model,instructions,projects,may_message,takes_messages,takes_initiative,notifications,created_ms,updated_ms)
+             VALUES ('d68a68f9-532e-4154-9f7e-344413a57490','GameDev','gamedev-d68a68',0,'','','','[]',1,1,1,1,1,1),
+                    ('96d41fba-b64c-4bbb-b242-43cfe48767c6','Jarvis','jarvis-96d41f',1,'','','','[]',1,1,1,1,1,1)",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO workspace_pages (id, owner_launch, title, markdown, revision, updated_ms)
+             VALUES (1, ?1, 'Servo Release', '# v0.1.1', 1, 100)",
+            params![old_launch],
+        )
+        .unwrap();
+
+        let mut empty = std::iter::empty();
+        run_with_db("read-page", Some("1".into()), &mut empty, &mut db, &new_launch).unwrap();
+
+        let mut empty = std::iter::empty();
+        assert!(run_with_db("read-page", Some("1".into()), &mut empty, &mut db, &other_bot).is_err());
+
+        let mut empty = std::iter::empty();
+        assert!(run_with_db("read-page", Some("1".into()), &mut empty, &mut db, &unowned).is_err());
+    }
 }

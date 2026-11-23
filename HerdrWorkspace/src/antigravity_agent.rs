@@ -7,7 +7,7 @@ use std::{
     env, fs,
     io::{Read, Seek, SeekFrom, Write},
     os::unix::{
-        fs::{DirBuilderExt, OpenOptionsExt},
+        fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
         process::CommandExt,
     },
     path::{Path, PathBuf},
@@ -18,12 +18,34 @@ const WORKSPACE: &str = "SWARMHUB_ANTIGRAVITY_WORKSPACE";
 const HOOK: &str = "swarmhub-chat-reply";
 const LOGS: &str = ".system_generated/logs";
 
+fn resolve_agy_binary(explicit: Option<std::ffi::OsString>, home: Option<&Path>) -> Option<PathBuf> {
+    if let Some(bin) = explicit.filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(bin));
+    }
+    let candidate = home?.join(".local/bin/agy");
+    fs::metadata(&candidate)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        .then_some(candidate)
+}
+
+fn agy_command(home: Option<&Path>) -> std::process::Command {
+    let mut cmd = match resolve_agy_binary(env::var_os("SWARMHUB_ANTIGRAVITY_BIN"), home) {
+        Some(bin) => std::process::Command::new(bin),
+        None => crate::service::agent_command("agy", "SWARMHUB_ANTIGRAVITY_BIN"),
+    };
+    // Bypass interactive user shell wrappers (e.g. ~/bin/agy injecting --continue), because agy --continue resumes
+    // the latest conversation globally across workspaces and would collide concurrent SwarmHub bots.
+    cmd.env("AGY_RAW", "1");
+    cmd
+}
+
 pub fn models() -> Result<(), Error> {
     if env::args_os().nth(2).is_some() {
         return Err("Model discovery does not take arguments.".into());
     }
+    let home = env::var_os("HOME").map(PathBuf::from);
     Err(
-        crate::service::agent_command("agy", "SWARMHUB_ANTIGRAVITY_BIN")
+        agy_command(home.as_deref())
             .arg("models")
             .stdin(std::process::Stdio::null())
             .exec()
@@ -55,7 +77,7 @@ pub fn launch() -> Result<(), Error> {
         crate::bot_agent_settings::project_auto(),
     );
     Err(
-        crate::service::agent_command("agy", "SWARMHUB_ANTIGRAVITY_BIN")
+        agy_command(home.as_deref())
             .args(args)
             .env(WORKSPACE, folder)
             .env_remove(crate::runtimes::MODEL_ENV)
@@ -510,6 +532,20 @@ mod tests {
         assert_eq!(
             &auto[4..],
             &["--mode", "auto", "--dangerously-skip-permissions"]
+        );
+
+        let local_bin = home.join(".local/bin");
+        fs::create_dir_all(&local_bin).unwrap();
+        let installed = local_bin.join("agy");
+        fs::write(&installed, b"#!/bin/sh\n").unwrap();
+        fs::set_permissions(&installed, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            super::resolve_agy_binary(None, Some(&home)),
+            Some(installed)
+        );
+        assert_eq!(
+            super::resolve_agy_binary(Some("/custom/agy".into()), Some(&home)),
+            Some(PathBuf::from("/custom/agy"))
         );
     }
 }
