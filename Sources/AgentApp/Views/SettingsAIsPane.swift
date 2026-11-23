@@ -40,7 +40,11 @@ struct SettingsAIsPane: View {
                                     Text("Not detected").foregroundStyle(.secondary)
                                 }
                             }
-                            if !program.installed { Text(program.how).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+                            if !program.installed {
+                                Text(program.how).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                            } else if let note = program.firstTime, program.id == "antigravity" {
+                                Text(note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                            }
                         }.appleCard(padding: 12)
                     }
                 }

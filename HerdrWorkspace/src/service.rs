@@ -184,7 +184,7 @@ const STARTER_CATALOG: &str = r#"{
       {"id": "haiku", "label": "Haiku 5.5", "provider": "Anthropic"}
     ]
   },
-  "swarmhub-antigravity": {"harness":"Antigravity CLI","provider":"Google"},
+  "swarmhub-antigravity": {"harness":"Antigravity CLI","provider":"Google","discover_models":true},
   "swarmhub-opencode": {
     "harness": "OpenCode",
     "discover_models": true

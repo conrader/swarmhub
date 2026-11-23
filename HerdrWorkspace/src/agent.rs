@@ -13,7 +13,6 @@ use std::{
     os::unix::fs::OpenOptionsExt,
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 pub(crate) mod claude_preview;
@@ -44,6 +43,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
             crate::gemini_agent::hook();
             Ok(())
         }
+        Some("antigravity-models") => crate::antigravity_agent::models(),
         Some("opencode-models") => crate::opencode_agent::models(),
         Some("codex-models") => crate::codex_agent::models(),
         Some("run-desktop") => crate::desktop::run(),

@@ -16,7 +16,20 @@ use std::{
 type Error = Box<dyn std::error::Error>;
 const WORKSPACE: &str = "SWARMHUB_ANTIGRAVITY_WORKSPACE";
 const HOOK: &str = "swarmhub-chat-reply";
-const TRANSCRIPT: &str = ".system_generated/logs/transcript.jsonl";
+const LOGS: &str = ".system_generated/logs";
+
+pub fn models() -> Result<(), Error> {
+    if env::args_os().nth(2).is_some() {
+        return Err("Model discovery does not take arguments.".into());
+    }
+    Err(
+        crate::service::agent_command("agy", "SWARMHUB_ANTIGRAVITY_BIN")
+            .arg("models")
+            .stdin(std::process::Stdio::null())
+            .exec()
+            .into(),
+    )
+}
 
 pub fn launch() -> Result<(), Error> {
     agent::session()?;
@@ -95,8 +108,10 @@ pub fn capture() -> Result<(), Error> {
         return Ok(());
     };
     let stop: Stop = serde_json::from_str(&agent::read_input(1024 * 1024)?)?;
-    if stop.termination_reason != "model_stop"
-        || !stop.workspace_paths.contains(&folder)
+    if !matches!(
+        stop.termination_reason.as_str(),
+        "model_stop" | "NO_TOOL_CALL"
+    ) || !stop.workspace_paths.contains(&folder)
         || !crate::gemini_agent::bridge_made(&folder)
     {
         return Ok(());
@@ -106,15 +121,22 @@ pub fn capture() -> Result<(), Error> {
         return Ok(());
     }
     let home = PathBuf::from(env::var_os("HOME").ok_or("Missing home directory.")?);
-    let expected = home
-        .join(".gemini/antigravity-cli/brain")
-        .join(&id)
-        .join(TRANSCRIPT);
     let reported = stop
         .transcript_path
         .strip_prefix("~")
         .map(|p| home.join(p))
         .unwrap_or(stop.transcript_path);
+    let Some(name) = reported.file_name().and_then(|s| s.to_str()) else {
+        return Ok(());
+    };
+    if !matches!(name, "transcript.jsonl" | "transcript_full.jsonl") {
+        return Ok(());
+    }
+    let expected = home
+        .join(".gemini/antigravity-cli/brain")
+        .join(&id)
+        .join(LOGS)
+        .join(name);
     if reported != expected || expected.canonicalize()? != expected {
         return Ok(());
     }
