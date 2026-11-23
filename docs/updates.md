@@ -21,7 +21,7 @@ The top of the page answers the question in one line: *Everything is up to date*
 
 **This Mac** shows the app's version and two switches:
 
-- **Check for updates automatically.** Once a day, in the background. No window opens over your work. When an update is found, a line appears at the bottom of the sidebar and here.
+- **Check for updates automatically.** Once a day, in the background. No window opens over your work. When an update is found, choose **Review updates** just below the sidebar search controls to open this page.
 - **Install updates automatically.** Off unless you turn it on. A new version then downloads in the background and installs when you quit SwarmHub.
 
 **Update Now…** opens the update window with the release notes. From there you install at once, or later.
