@@ -98,7 +98,7 @@ struct HerdrBackend: AgentBackend {
     """
     static let publishMarker = "Publishing a requested deliverable"
     static let publishNote = """
-    Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. The user can open a successful publication from the reply.
+    Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. Publish images and videos with their file extensions so the person can view them in chat.
     """
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.

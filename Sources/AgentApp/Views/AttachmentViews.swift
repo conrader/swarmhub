@@ -15,7 +15,18 @@ import UniformTypeIdentifiers
 /// Thumbnails in a sent bubble; click to preview.
 struct AttachmentThumbnails: View {
     let attachments: [ChatAttachment]
-    var body: some View { HStack(spacing: 6) { ForEach(attachments) { AttachmentTile(attachment: $0, size: 120) } } }
+    @EnvironmentObject private var store: AppStore
+    var body: some View {
+        let layout = attachments.contains { $0.kind == .video }
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+        layout {
+            ForEach(attachments) { item in
+                if item.kind == .video, let url = store.attachmentURL(item) {
+                    ChatVideo(url: url).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(item.name)
+                } else { AttachmentTile(attachment: item, size: 120) }
+            }
+        }
+    }
 }
 
 struct AttachmentTile: View {
@@ -49,6 +60,8 @@ struct AttachmentTile: View {
     @ViewBuilder private var preview: some View {
         if attachment.kind == .image, let url = store.attachmentURL(attachment), let image = ThumbnailCache.image(at: url) {
             Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 1000, maxHeight: 760)
+        } else if attachment.kind == .video, let url = store.attachmentURL(attachment) {
+            ChatVideo(url: url).frame(width: 640, height: 360)
         } else {
             let shown = AttachmentPreview.capped(attachment.text ?? "")
             VStack(alignment: .leading, spacing: 8) {
@@ -63,7 +76,8 @@ struct AttachmentTile: View {
 enum AttachmentPreview {
     static let maxPreviewCharacters = 20_000
     static func symbol(for attachment: ChatAttachment) -> String {
-        attachment.kind == .image || attachment.mimeType.hasPrefix("image/") ? "photo" : DocumentKind(mimeType: attachment.mimeType) != nil ? "doc.richtext" : "doc.text"
+        if attachment.kind == .video { return "film" }
+        return attachment.kind == .image || attachment.mimeType.hasPrefix("image/") ? "photo" : DocumentKind(mimeType: attachment.mimeType) != nil ? "doc.richtext" : "doc.text"
     }
     static func capped(_ text: String) -> (text: String, note: String?) {
         let count = text.count

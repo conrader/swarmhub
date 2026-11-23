@@ -162,6 +162,6 @@ private func attachmentFiles(_ folder: URL) -> [String] {
         #expect(viaAll.count == 1 && viaAll[0].kind == .text && viaAll[0].text == "line one\n" && viaAll[0].pageCount == nil && viaAll[0].summary == nil)
         let big = folder.appending(path: "big.txt"); try Data(repeating: 65, count: AttachmentEncoder.maxTextBytes + 1).write(to: big)
         await #expect(throws: AttachmentError.tooLarge("big.txt", "200 KB")) { try await encoder.prepareAll(fileURL: big) }
-        #expect(AttachmentError.unsupported("x").localizedDescription.contains("PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files (text up to 200 KB)"))
+        #expect(AttachmentError.unsupported("x").localizedDescription.contains("PNG, JPEG, GIF, WebP, movies, PDF, RTF, DOC, DOCX and text files (text up to 200 KB)"))
     }
 }

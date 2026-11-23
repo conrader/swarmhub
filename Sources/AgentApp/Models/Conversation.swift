@@ -17,7 +17,7 @@ extension Bot: Conversation {
 /// or DOCX is a `.text` attachment with its document MIME type, the text read on the Mac, its page count
 /// and a one-line summary (no new `Kind`, so older builds still decode it).
 struct ChatAttachment: Identifiable, Codable, Equatable, Sendable {
-    enum Kind: String, Codable, Sendable { case image, text }
+    enum Kind: String, Codable, Sendable { case image, text, video }
     let id: UUID; let kind: Kind; let name: String; let mimeType: String; let byteCount: Int
     var fileName: String? = nil; var text: String? = nil
     var pageCount: Int? = nil; var summary: String? = nil

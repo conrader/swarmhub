@@ -3,16 +3,75 @@ import Quartz
 
 struct HerdrReplyFiles: View {
     let results: HerdrReplyResults
-    @State private var selected: HerdrPublishedResult?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(results.items) { item in
+                PublishedResultRow(serverID: results.serverID, item: item)
+            }
+        }.id(results.serverID)
+    }
+}
+
+private final class PublishedLocalFile {
+    let url: URL
+
+    init(data: Data, title: String) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let name = (title as NSString).lastPathComponent
+        url = directory.appendingPathComponent(name.isEmpty || name.hasPrefix(".") || name == "/" ? "Published file" : name)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        do { try data.write(to: url, options: .atomic) }
+        catch { try? FileManager.default.removeItem(at: directory); throw error }
+    }
+
+    deinit { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+}
+
+private struct PublishedResultRow: View {
+    @EnvironmentObject private var store: AppStore
+    let serverID: String
+    let item: HerdrPublishedResult
+    @State private var file: PublishedLocalFile?
+    @State private var error: String?
+    @State private var showing = false
+    @State private var retry = 0
+
+    private var kind: ChatMediaKind? { item.kind == .file ? ChatMediaKind(filename: item.title) : nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            ForEach(results.items) { item in
-                Button { selected = item } label: {
-                    Label("Open \(item.title)", systemImage: item.kind == .page ? "doc.richtext" : "paperclip")
-                }
+            if let kind {
+                if let file {
+                    switch kind {
+                    case .image:
+                        if let image = ThumbnailCache.image(at: file.url) {
+                            Button { showing = true } label: {
+                                Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 420, maxHeight: 300)
+                            }.buttonStyle(.plain).accessibilityLabel(item.title)
+                        } else { Text("Image preview unavailable.").font(.caption) }
+                    case .video:
+                        ChatVideo(url: file.url).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(item.title)
+                    }
+                } else if let error {
+                    Text(error).font(.caption)
+                    Button("Retry preview") { retry += 1 }
+                } else { ProgressView("Loading preview…").controlSize(.small) }
             }
-        }.sheet(item: $selected) { item in HerdrResultSheet(serverID: results.serverID, item: item) }
+            Button { showing = true } label: {
+                Label("Open \(item.title)", systemImage: item.kind == .page ? "doc.richtext" : kind == .video ? "film" : kind == .image ? "photo" : "paperclip")
+            }
+        }
+        .task(id: retry) {
+            guard kind != nil, file == nil else { return }
+            error = nil
+            do {
+                guard let server = store.herdrServer(id: serverID) else { throw BackendError.unavailable("The server that published this result is no longer configured.") }
+                let data = try await store.herdrClient(for: server).publishedFile(id: item.id)
+                try Task.checkCancellation()
+                file = try PublishedLocalFile(data: data, title: item.title)
+            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        }
+        .sheet(isPresented: $showing) { HerdrResultSheet(serverID: serverID, item: item, preview: file) }
     }
 }
 
@@ -21,7 +80,9 @@ private struct HerdrResultSheet: View {
     @Environment(\.dismiss) private var dismiss
     let serverID: String
     let item: HerdrPublishedResult
-    @State private var file: URL?
+    let preview: PublishedLocalFile?
+    @State private var downloaded: PublishedLocalFile?
+    private var file: URL? { (preview ?? downloaded)?.url }
     @State private var page: HerdrClient.PublishedPage?
     @State private var error: String?
 
@@ -41,10 +102,11 @@ private struct HerdrResultSheet: View {
             Spacer(minLength: 0)
         }.padding().frame(minWidth: 480, idealWidth: 640, minHeight: 360, idealHeight: 480)
         .task { await load() }
-        .onDisappear { if let file { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) } }
+
     }
 
     private func load() async {
+        guard file == nil else { return }
         do {
             guard let server = store.herdrServer(id: serverID) else { throw BackendError.unavailable("The server that published this result is no longer configured.") }
             let client = try store.herdrClient(for: server)
@@ -53,14 +115,7 @@ private struct HerdrResultSheet: View {
             } else {
                 let data = try await client.publishedFile(id: item.id)
                 try Task.checkCancellation()
-                let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-                let name = (item.title as NSString).lastPathComponent
-                let safe = name.isEmpty || name.hasPrefix(".") || name == "/" ? "Published file" : name
-                let url = directory.appendingPathComponent(safe)
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-                do { try data.write(to: url, options: .atomic) }
-                catch { try? FileManager.default.removeItem(at: directory); throw error }
-                file = url
+                downloaded = try PublishedLocalFile(data: data, title: item.title)
             }
         } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }

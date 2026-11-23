@@ -268,7 +268,7 @@ Then open a bot's settings, **Advanced**, or the **Overview** tab of its Details
 
 ### Files
 
-Drop or attach images, text files, PDF, RTF, DOC or DOCX files. Text and document contents reach the bot as text. Images are kept in the chat and are not sent to the bot.
+Drop or attach images, movies, text files, PDF, RTF, DOC or DOCX files. Published images appear in the reply, and movies have playback controls inside the chat. Video attachments share the existing 8 MB total upload limit per message.
 
 ### Import from Grok Bot
 
@@ -323,6 +323,10 @@ How this works, what is trusted, and the one-time install by hand on a server wh
 - **"This server needs an update."** Open **Settings → Software Update**. A server whose workspace cannot update itself yet needs one install by hand: [First install on a server](updates.md#first-install-on-a-server).
 
 <a id="build--contribute"></a>
+
+## Release history
+
+Open **Settings → What’s New** and expand a version to read its release notes. The notes are included in the app and are available offline.
 
 ## Build and contribute
 
