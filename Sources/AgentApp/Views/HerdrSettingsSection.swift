@@ -56,6 +56,7 @@ struct HerdrSettingsSection: View {
                     HerdrTemplatePicker(selection: $template, templates: templates, defaultName: templates.first?.name, defaultNote: "Default")
                 }
             }
+            if let current { HerdrAllBotsModelBlock(server: current).id(current.id) }
         }
         .sheet(item: $loginServer) { server in
             SSHLoginSheet(server: server) { signedIn in
@@ -420,6 +421,8 @@ struct HerdrAgentControls: View {
         restarting = true; note = ""
         Task {
             do {
+                // "Empty context" is what was asked for: a chat noted for the bot's next agent is not handed over.
+                store.setHerdrCarryOver(nil, for: bot)
                 let closed = try await store.restartHerdrAgent(for: bot)
                 // With "Keep its agent ready" on, the fresh agent starts now instead of with the next message.
                 let starting = store.launchWorkEnabled && store.warmHerdrAgent(for: bot) != nil

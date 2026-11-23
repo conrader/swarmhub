@@ -291,7 +291,7 @@ import UserNotifications
                 return
             }
         }
-        grokHistory.remove(bot.id); forgetGrokHandoff(bot.id)
+        grokHistory.remove(bot.id); forgetGrokHandoff(bot.id); forgetHerdrCarryOver(bot.id)
         discardComposerAttachments(for: bot.id)
         if !endings.isEmpty { herdrAgentRemoved(bot, endings: endings) }
     }

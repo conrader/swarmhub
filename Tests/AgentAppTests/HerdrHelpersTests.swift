@@ -88,7 +88,7 @@ private let listingJSON = """
     let main = try store.herdrBackend(for: jarvis)
     #expect(main.helperNote == HerdrHelperNote.text && main.creationNote == AppStore.herdrCreationNote && main.askNote == nil)
     let launch = try #require(main.launchInstructions)
-    #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrAboutYou.how + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Plain"])) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
+    #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrAboutYou.how + "\n\n" + HerdrModelRequest.brief + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Plain"])) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
     let budget = HerdrClient.firstMessageBudget(instructions: launch, hasFiles: false)
     let text = String(repeating: "m", count: budget)
     let first = HerdrClient.firstTask(text, instructions: launch)
@@ -97,7 +97,7 @@ private let listingJSON = """
     store.setStartsHerdrHelpers(false, for: jarvis)
     let off = try store.herdrBackend(for: jarvis)
     #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil && store.startsHerdrHelpers(plain), "its own switch turns it off for that bot only")
-    #expect(off.notes.map(\.marker) == [HerdrBotRequest.marker, HerdrBotMessage.marker, HerdrAboutYou.marker, HerdrBackend.publishMarker] && told.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
+    #expect(off.notes.map(\.marker) == [HerdrBotRequest.marker, HerdrBotMessage.marker, HerdrAboutYou.marker, HerdrModelRequest.marker, HerdrBackend.publishMarker] && told.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
 }
 
 @MainActor @Test func aHelperOpensInPlaceOfItsBotsChat() async throws {

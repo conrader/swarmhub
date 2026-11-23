@@ -107,7 +107,7 @@ A reply can use these Markdown conventions. The app draws them as cards; elsewhe
 | Link pills | A bare `http(s)://` URL in prose. | A pill per link under the paragraph. |
 | Image | `![alt](https://…)` or `![alt](data:image/…)`. | Shown inline. |
 
-A fenced block with info string `swarmhub` is how a bot's agent asks the app for something: a new bot (`create_bot`, `request_bot`, `decline_bot`), a message to another bot (`message_bot`), or an addition to "About you" (`about_you`). The chat never draws the block. It shows one plain line under the reply, such as "Suggested a new bot: Legal"; **Copy original** in that line's context menu copies the block. The blocks are described in [Architecture](architecture.md#bots-the-main-bot-and-helpers).
+A fenced block with info string `swarmhub` is how a bot's agent asks the app for something: a new bot (`create_bot`, `request_bot`, `decline_bot`), a message to another bot (`message_bot`), an addition to "About you" (`about_you`), or another AI and model for several bots (`set_model`, from the main bot only). The chat never draws the block. It shows one plain line under the reply, such as "Suggested a new bot: Legal"; **Copy original** in that line's context menu copies the block. The blocks are described in [Architecture](architecture.md#bots-the-main-bot-and-helpers).
 
 ## Other code in this repository
 

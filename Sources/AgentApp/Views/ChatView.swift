@@ -123,6 +123,7 @@ struct ChatView: View {
                         if !bot.messages.isEmpty { HerdrIntroOffer(bot: bot) }
                         HerdrAboutYouCard(bot: bot)
                         HerdrBotRequestCard(manager: bot)
+                        HerdrModelChangeCard(manager: bot)
                     }
                 }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil ? 8 : 0).frame(maxWidth: .infinity)
                 composer

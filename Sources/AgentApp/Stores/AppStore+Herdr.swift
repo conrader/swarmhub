@@ -160,7 +160,8 @@ extension AppStore {
         backend.confirmation = modelConfirmation(bot)
         backend.serverID = herdrServer(for: bot).id
         // A bot imported from Grok Bot: its agent reads the imported conversation before a message, once per agent session.
-        backend.handoff = grokHandoffSource(for: bot)
+        // And a bot whose program or model was changed: its fresh agent reads the bot's chat so far (`AppStore+HerdrCarryOver.swift`).
+        backend.handoff = grokHandoffSource(for: bot) ?? herdrCarrySource(for: bot)
         backend.steers = herdrSteers(bot)
         // The main bot is told how to create bots; every other bot how to ask it for one.
         if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }
@@ -171,6 +172,9 @@ extension AppStore {
         // Every bot reads "About you"; the main bot is also told how to propose an addition to it.
         if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.aboutYou = HerdrAboutYou.note(aboutYou) }
         if createsHerdrBots(bot) { backend.aboutHow = HerdrAboutYou.how }
+        // The main bot is told how to have the app change the bots' models; every other bot, who can.
+        if createsHerdrBots(bot) { backend.modelBrief = HerdrModelRequest.brief; backend.modelHow = HerdrModelRequest.how }
+        else if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.modelHow = HerdrModelRequest.elsewhere(main: herdrMainBot(on: herdrServer(for: bot))?.name) }
         // A turn on the event stream brings the agent's helpers with it (`herdrLive`).
         let botID = bot.id
         // A start ahead of time that is on its way: the message waits for it and then finds that agent.

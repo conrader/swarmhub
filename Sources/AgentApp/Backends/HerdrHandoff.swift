@@ -31,13 +31,33 @@ struct HerdrHandoff: Sendable {
     let summary: String?, recent: [String]
     /// How many messages the summary stands for and how many are there word for word: what the app says afterwards.
     var olderMessages = 0, recentMessages = 0
+    var origin: Origin = .imported
+
+    /// Where the conversation comes from, which decides how the agent is told about it and what its files are called.
+    enum Origin: Sendable, Equatable {
+        /// A conversation that was imported from another app (`GrokHandoff`).
+        case imported
+        /// The bot's own chat so far, for an agent that starts fresh after the bot's agent program or model was
+        /// changed (`AppStore+HerdrCarryOver.swift`).
+        case ownChat
+
+        var handoffFile: String { self == .imported ? "grok-handoff.md" : "conversation-so-far.md" }
+        var fullFile: String { self == .imported ? "grok-history-full.md" : "conversation-full.md" }
+        /// What the note says first, after the marker.
+        var opening: String {
+            switch self {
+            case .imported: "You are continuing an existing conversation that moved here from another app. It is older than anything already said in this chat; messages written here since the move are not in it."
+            case .ownChat: "You are continuing a conversation this bot already had with the person in this chat. The agent that held it was replaced by you, because another agent program or model was chosen, so you start without it: this is the conversation up to now."
+            }
+        }
+    }
 
     /// The note the handoff travels in, at most `bytes` long: the marker, what to do with the files, and an excerpt
     /// (the summary, else the last exchanges, as much as still fits). `withFiles` false: the server takes no files,
     /// so the excerpt is all the agent gets.
     func note(bytes: Int, withFiles: Bool) -> String {
         var lines: [String] = []
-        lines.append("\(marker) You are continuing an existing conversation that moved here from another app. It is older than anything already said in this chat; messages written here since the move are not in it.")
+        lines.append("\(marker) \(origin.opening)")
         if withFiles {
             let first = files.first?.name ?? "the first attached file"
             let second = files.count > 1 ? files[1].name : "the other attached file"

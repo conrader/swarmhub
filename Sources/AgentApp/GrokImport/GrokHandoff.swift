@@ -92,7 +92,7 @@ enum GrokHandoff {
     /// `text` whole when it fits `limit` bytes; otherwise its start and its end around one line that says how much is
     /// missing and, unless `whole` is false (the full transcript itself, and what a summary is made from), where the
     /// whole message is.
-    static func cut(_ text: String, to limit: Int, seq: Int64, whole: Bool = true) -> String {
+    static func cut(_ text: String, to limit: Int, seq: Int64, whole: Bool = true, fullFile: String = GrokHandoff.fullFile) -> String {
         guard text.utf8.count > limit else { return text }
         let half = max(limit / 2, 1)
         let head = prefix(text, bytes: half), tail = suffix(text, bytes: half)
@@ -102,11 +102,11 @@ enum GrokHandoff {
     }
 
     /// One message of the recent part: a heading with who, when and its number, then the text.
-    static func block(_ line: ArchivedMessage, botName: String, limit: Int) -> String {
+    static func block(_ line: ArchivedMessage, botName: String, limit: Int, fullFile: String = GrokHandoff.fullFile) -> String {
         var heading = "### \(speaker(line, botName: botName))"
         if let date = line.timestamp { heading += " · \(date.ISO8601Format())" }
         heading += " · #\(line.seq)"
-        return heading + "\n" + cut(line.text, to: limit, seq: line.seq) + "\n\n"
+        return heading + "\n" + cut(line.text, to: limit, seq: line.seq, fullFile: fullFile) + "\n\n"
     }
 
     /// One message of the full transcript: `[#12 2026-01-02T03:04:05Z The person] text`. Hidden prompts, lines
@@ -199,12 +199,13 @@ enum GrokHandoff {
     /// `summary` is the saved summary of the older part, with the messages it stands for: the file names that range,
     /// and says so when the older part goes on after it (a summary made before lines were added, used until a new one
     /// is there). Without one the file says that the older part is in the full transcript.
-    static func render(_ transcript: Transcript, plan: Plan, summary: GrokHandoffCache?, botName: String) -> Rendered {
-        let name = oneLine(botName)
+    static func render(_ transcript: Transcript, plan: Plan, summary: GrokHandoffCache?, botName: String, origin: HerdrHandoff.Origin = .imported) -> Rendered {
+        let name = oneLine(botName), fullFile = origin.fullFile
         let cleaned: String = summary.map { cleanSummary($0.summary) } ?? ""
         let clean: String? = plan.older.isEmpty || cleaned.isEmpty ? nil : cleaned
         var text = "# Earlier conversation of \(name)\n\n"
-        text += "This conversation took place in another app before it moved here. The complete transcript "
+        text += origin == .imported ? "This conversation took place in another app before it moved here. " : "This is what the person and \(name) have said in this chat so far. "
+        text += "The complete transcript "
         text += "(\(transcript.lines.count) lines) is \(fullFile); each message there starts with [#number time speaker]. "
         text += "Secrets were replaced by \(GrokRedactor.marker).\n\n"
         if let first = plan.older.first, let last = plan.older.last {
@@ -219,10 +220,10 @@ enum GrokHandoff {
             }
         }
         text += "## The most recent part, word for word (\(plan.recent.count) messages)\n\n"
-        text += plan.recent.map { block($0, botName: botName, limit: plan.messageLimit) }.joined()
+        text += plan.recent.map { block($0, botName: botName, limit: plan.messageLimit, fullFile: fullFile) }.joined()
         let persons = plan.recent.indices.filter { isPerson(plan.recent[$0]) }
         let from = persons.suffix(2).first ?? max(0, plan.recent.count - 4)
-        let exchanges: [String] = plan.recent[from...].suffix(8).map { block($0, botName: botName, limit: excerptMessageBytes) }
+        let exchanges: [String] = plan.recent[from...].suffix(8).map { block($0, botName: botName, limit: excerptMessageBytes, fullFile: fullFile) }
         return Rendered(handoff: Data(text.utf8), full: full(transcript, botName: botName), revision: transcript.revision,
                         summary: clean, lastExchanges: exchanges, olderCount: plan.older.count, recentCount: plan.recent.count)
     }
@@ -258,13 +259,13 @@ enum GrokHandoff {
     static func marker(for archiveID: UUID, revision: String) -> String { lead(for: archiveID) + "r\(revision)]" }
 
     /// The rendered files as the backend carries them to the agent.
-    static func package(_ rendered: Rendered, archiveID: UUID) -> HerdrHandoff {
+    static func package(_ rendered: Rendered, archiveID: UUID, origin: HerdrHandoff.Origin = .imported) -> HerdrHandoff {
         let files: [HerdrClient.TaskFile] = [
-            HerdrClient.TaskFile(name: handoffFile, mime: "text/markdown", data: rendered.handoff),
-            HerdrClient.TaskFile(name: fullFile, mime: "text/markdown", data: rendered.full),
+            HerdrClient.TaskFile(name: origin.handoffFile, mime: "text/markdown", data: rendered.handoff),
+            HerdrClient.TaskFile(name: origin.fullFile, mime: "text/markdown", data: rendered.full),
         ]
         return HerdrHandoff(lead: lead(for: archiveID), marker: marker(for: archiveID, revision: rendered.revision), files: files,
                             summary: rendered.summary, recent: rendered.lastExchanges,
-                            olderMessages: rendered.olderCount, recentMessages: rendered.recentCount)
+                            olderMessages: rendered.olderCount, recentMessages: rendered.recentCount, origin: origin)
     }
 }

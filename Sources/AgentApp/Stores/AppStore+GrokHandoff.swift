@@ -164,7 +164,7 @@ extension AppStore {
     /// a turn the person stopped; and asked only when the answer could change something: at a hidden step while
     /// steers are on, at any other status while they are off.
     func steerFollowsBackend(of bot: Bot, at status: HerdrTurnStatus?) async {
-        guard grokHandoffIsOn(for: bot), let running = turn(in: bot), !running.stopping, let active = running.backend, let status else { return }
+        guard grokHandoffIsOn(for: bot) || herdrCarryOver(for: bot) != nil || grokHandoffs.carried.contains(bot.id), let running = turn(in: bot), !running.stopping, let active = running.backend, let status else { return }
         let hidden = status == .summarising || status == .readingHistory
         guard running.steerAvailable == hidden else { return }
         let token = running.token
@@ -172,6 +172,8 @@ extension AppStore {
         // The person may have pressed Stop meanwhile: a stopping turn takes no steer.
         guard let still = turn(token: token), !still.stopping else { return }
         setSteerAvailable(flags?.contains("run_steer") == true, token: token)
+        // The turn that handed the bot's own chat over is back to taking steers: nothing more to follow for it.
+        if !hidden { grokHandoffs.carried.remove(bot.id) }
     }
 
     // MARK: What the header says

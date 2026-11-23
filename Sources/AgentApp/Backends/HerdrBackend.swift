@@ -55,6 +55,10 @@ struct HerdrBackend: AgentBackend {
     /// another bot's request for one. A new agent reads it after its instructions; a running agent reads it once, and
     /// again in front of a message that asks for a bot.
     var creationNote: String? = nil
+    /// How to have the app change which agent program and model bots run on (`HerdrModelRequest`). `modelBrief` is
+    /// set for a server's main bot and delivered like `helperNote`; `modelHow` is the fuller text, or for every other
+    /// bot who can do it instead, and is read only in front of a message that asks for such a change.
+    var modelBrief: String? = nil, modelHow: String? = nil
     /// Set for every other bot (`HerdrBotAsk.note`): how to ask the main bot for a bot. Delivered like `creationNote`.
     var askNote: String? = nil
     /// Set for a bot that may start helper agents (`HerdrHelperNote.text`): how to start one and how to choose its
@@ -100,7 +104,7 @@ struct HerdrBackend: AgentBackend {
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
         [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "SwarmHub team commands:" : HerdrBotMessage.marker, messageNote),
-         (HerdrAboutYou.marker, aboutHow), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
+         (HerdrAboutYou.marker, aboutHow), (HerdrModelRequest.marker, modelBrief), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }
     }
@@ -194,7 +198,7 @@ struct HerdrBackend: AgentBackend {
                         continuation.yield(.status(HerdrTurnStatus.sending.code))
                     }
                     let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
-                                                                reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : nil,
+                                                                reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : ManagementIntent.changesModel(text) ? backend.modelHow : nil,
                                                                 once: backend.notes, changing: backend.rosters,
                                                                 projects: backend.projects, files: files, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
                                                                 status: { continuation.yield(.status($0.code)) })
