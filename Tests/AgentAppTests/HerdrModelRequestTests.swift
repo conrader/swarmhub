@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 import Testing
 @testable import AgentApp
 
@@ -247,4 +247,40 @@ private final class ModelBridge: @unchecked Sendable {
     let back = try #require(left.last)
     #expect(HerdrModelRecordRow.title(back, by: nil) == "2 bots are back on what they ran before" && store.undoHerdrModels(back) == 0, "going back has no Undo of its own")
     #expect(HerdrModelRecordRow.title(second, by: "Jarvis") == "Jarvis switched 1 bot to Claude · Opus 5.5")
+}
+
+/// Follow the selected chat while keeping the same Details panel mounted, as the sidebar does.
+private struct SelectedBotDetails: View {
+    @ObservedObject var store: AppStore
+    var body: some View {
+        if let bot = store.selectedBot { InfoPanel(bot: bot).environmentObject(store) }
+    }
+}
+
+@MainActor @Test func openModelPanelShowsEachBotsOwnSelection() async throws {
+    let (store, _, codex, claude, _) = modelStore()
+    store.setHerdrTemplate("tpl-codex", for: codex)
+    store.setHerdrModel("gpt-6.2-sol-mini", for: codex)
+    store.selectedBot = codex
+    store.infoTab = .model
+
+    _ = NSApplication.shared
+    let size = NSSize(width: 350, height: 600)
+    let host = NSHostingView(rootView: SelectedBotDetails(store: store).frame(width: size.width, height: size.height))
+    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.contentView = nil; window.close() }
+
+    for (bot, label) in [(codex, "GPT-6.2 Sol Mini"), (claude, "Opus 5.5"), (codex, "GPT-6.2 Sol Mini")] {
+        store.selectedBot = bot
+        try await waitUntil {
+            host.layoutSubtreeIfNeeded()
+            return store.herdrAgentReadings[bot.id] != nil
+        }
+        let visible = try await mountedText(host)
+        #expect(visible.contains(label))
+    }
+    #expect(choice(store, codex) == "tpl-codex|gpt-6.2-sol-mini")
+    #expect(choice(store, claude) == "tpl-claude|claude-opus-5-5")
 }

@@ -23,7 +23,7 @@ struct InfoPanel: View {
     @ViewBuilder private var panelContent: some View {
         switch store.visibleInfoTab(for: bot) {
         case .overview: overview
-        case .model: HerdrAgentControls(bot: bot)
+        case .model: HerdrAgentControls(bot: bot).id(bot.id)
         case .skills: HerdrSkillsPanel(bot: bot)
         case .media: MediaTabView(bot: bot)
         }
