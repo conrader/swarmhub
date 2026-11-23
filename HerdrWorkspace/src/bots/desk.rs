@@ -230,7 +230,8 @@ async fn tick(w: &Workspace) {
 fn read_replies(w: &Workspace) -> Result<(), crate::history::StoreError> {
     let behind: bool = w.history.db()?.query_row(
         "SELECT coalesce((SELECT max(id) FROM journal),0) >
-                coalesce((SELECT CAST(value AS INTEGER) FROM bot_state WHERE key='reply_cursor'),0)",
+                min(coalesce((SELECT CAST(value AS INTEGER) FROM bot_state WHERE key='reply_cursor'),0),
+                    coalesce((SELECT CAST(value AS INTEGER) FROM bot_state WHERE key='direct_followup_cursor'),0))",
         [],
         |row| row.get(0),
     )?;
@@ -238,6 +239,7 @@ fn read_replies(w: &Workspace) -> Result<(), crate::history::StoreError> {
         return Ok(());
     }
     super::write(&w.history, |ctx| {
+        sync_direct_followups(ctx.db)?;
         let cursor: i64 = ctx
             .db
             .query_row(
@@ -277,6 +279,43 @@ fn read_replies(w: &Workspace) -> Result<(), crate::history::StoreError> {
         )?;
         Ok(())
     })
+}
+
+/// Independently catch up old and new follow-ups without replaying bot commands or outbox actions.
+fn sync_direct_followups(db: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let cursor: i64 = db.query_row(
+        "SELECT coalesce((SELECT CAST(value AS INTEGER) FROM bot_state WHERE key='direct_followup_cursor'),0)",
+        [], |row| row.get(0),
+    )?;
+    let end: Option<i64> = db.query_row(
+        "SELECT max(id) FROM (SELECT id FROM journal WHERE id>?1 ORDER BY id LIMIT 200)",
+        [cursor],
+        |row| row.get(0),
+    )?;
+    if let Some(end) = end {
+        let candidates = db
+            .prepare_cached(include_str!("direct-followups.sql"))?
+            .query_map(params![cursor, end], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (reply, key) in candidates {
+            // Use the same ownership check as live replies, including renamed bots and helper exclusion.
+            if let Who::Bot(bot) = super::of_launch(db, &key)? {
+                db.execute(
+                    "INSERT INTO bot_history (bot,kind,text,at_ms,unread,notify,code,journal)
+                     SELECT ?1,'said',text,at_ms,1,0,'direct_followup',id FROM journal WHERE id=?2",
+                    params![bot.id, reply],
+                )?;
+            }
+        }
+        db.execute(
+            "INSERT INTO bot_state (key,value) VALUES ('direct_followup_cursor',?1)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [end.to_string()],
+        )?;
+    }
+    Ok(())
 }
 
 struct Waiting {
@@ -939,6 +978,82 @@ async fn watch(w: &Workspace, seen: &mut Seen) {
 mod tests {
     use super::*;
     use crate::bots::{Settings, plans::When, testing};
+
+    #[test]
+    fn delayed_direct_replies_reach_chat_once_without_replaying_the_task() {
+        let (_scratch, history) = testing::journal(&["GameDev"]);
+        let key = testing::session(&history, "GameDev", "t7");
+        let db = crate::history::connection(history.file()).unwrap();
+        let reply = |text| {
+            assert!(
+                crate::history::publish_reply(history.file(), &key, "Agent", text, None).unwrap()
+            );
+        };
+        let chat = || {
+            db.prepare("SELECT text FROM bot_history ORDER BY id")
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        reply("Waiting for the download");
+        reply("Download halfway done");
+        // An older service already saw the replies and advanced its regular cursor.
+        db.execute(
+            "UPDATE bot_state SET value=(SELECT max(id) FROM journal) WHERE key='reply_cursor'",
+            [],
+        )
+        .unwrap();
+        sync_direct_followups(&db).unwrap();
+        assert_eq!(chat(), ["Download halfway done"]);
+        reply("Installation verified");
+        sync_direct_followups(&db).unwrap();
+        // Replaying the catch-up scan must not duplicate either reply.
+        db.execute(
+            "DELETE FROM bot_state WHERE key='direct_followup_cursor'",
+            [],
+        )
+        .unwrap();
+        sync_direct_followups(&db).unwrap();
+        assert_eq!(chat(), ["Download halfway done", "Installation verified"]);
+        // A new direct task is once again answered by the live turn.
+        db.execute("INSERT INTO journal(core_id,address,created_ms,agent,kind,state,text,at_ms)
+                    SELECT core_id,address,created_ms,agent,'task','sent','New task',100 FROM journal WHERE launch_key=?1",
+                   [&key]).unwrap();
+        reply("First answer to the new task");
+        sync_direct_followups(&db).unwrap();
+        assert_eq!(chat().len(), 2);
+        testing::at(&history, 101, &Settings::default(), |ctx| {
+            rules::floor(ctx, &key)
+        });
+        reply("Reply after Stop");
+        sync_direct_followups(&db).unwrap();
+        assert_eq!(chat().len(), 2);
+    }
+
+    #[test]
+    fn a_background_reply_to_a_team_task_stays_in_its_own_workflow() {
+        let (_scratch, history) = testing::journal(&["GameDev"]);
+        let key = testing::session(&history, "GameDev", "t7");
+        let db = crate::history::connection(history.file()).unwrap();
+        db.execute(
+            "INSERT INTO bot_outbox(bot,text,cause,created_ms,give_up_ms,task)
+             SELECT 'gamedev-id','Check in','checkin',1,2,id FROM journal WHERE launch_key=?1",
+            [&key],
+        )
+        .unwrap();
+        for text in ["Checking", "Done"] {
+            assert!(
+                crate::history::publish_reply(history.file(), &key, "Agent", text, None).unwrap()
+            );
+        }
+        sync_direct_followups(&db).unwrap();
+        let count: i64 = db
+            .query_row("SELECT count(*) FROM bot_history", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
 
     #[test]
     fn only_an_agent_that_has_read_nothing_yet_is_sent_its_bots_instructions() {
