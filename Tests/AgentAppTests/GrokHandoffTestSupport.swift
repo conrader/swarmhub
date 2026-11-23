@@ -82,9 +82,9 @@ final class HandoffBridge: @unchecked Sendable {
 
     /// A running agent with these saved rows, oldest first, as (`task` or `reply`, text). `warm`: started ahead of
     /// time and not written to yet.
-    func seed(agent name: String, warm: Bool = false, rows seeded: [(kind: String, text: String)] = []) {
+    func seed(agent name: String, template: String = "tpl-one", warm: Bool = false, rows seeded: [(kind: String, text: String)] = []) {
         lock.withLock {
-            let key = add(name: name, template: "tpl-one", warm: warm)
+            let key = add(name: name, template: template, warm: warm)
             for entry in seeded { rows[key, default: []].append(row(entry.kind, entry.text, in: key)) }
         }
     }

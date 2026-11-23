@@ -136,9 +136,8 @@ struct HerdrModelRequest: Equatable, Sendable {
         "decision" is "\(HerdrBotRequest.decidedWord)" when the person asked for exactly this change in the message you are \
         answering: SwarmHub applies it and shows them Undo. With "\(HerdrBotRequest.askWord)", or when they have chosen to confirm \
         what you do, they get Apply and Not now first. If SwarmHub cannot match the program or the model, it tells you which \
-        ones the server has. A bot whose agent is running keeps its current model until that agent is started fresh, \
-        which the person does from the card SwarmHub shows them. So say that you asked SwarmHub to change the setting \
-        and that they will see it above the message box, not that every bot has switched. The app hides the block. \
+        ones the server has. The next direct reply uses the selected model in the same chat. An answer already running finishes on its current model.
+        Tell the person which choice you requested. The app hides the block. \
         Do not edit files or restart agents yourself to change a model.
         """
 

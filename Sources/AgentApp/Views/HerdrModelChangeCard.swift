@@ -65,8 +65,8 @@ struct HerdrModelRecordRow: View {
     let record: AppStore.HerdrModelRecord; let title: String
     @State private var starting = false
 
-    static let caption = "This changes the setting. A bot whose agent is running keeps its model until that agent is started fresh."
-    static let undoCaption = "These bots had started fresh on the change you undid. Each keeps running on it until its agent is started fresh again."
+    static let caption = "Each bot uses this choice for its next direct reply and keeps its chat history."
+    static let undoCaption = "These bots use their previous model choices for their next direct replies."
 
     /// "Jarvis switched 23 bots to Codex · GPT-6.2 Sol"; `asker` nil for a change made in Settings.
     static func title(_ record: AppStore.HerdrModelRecord, by asker: String?) -> String {
@@ -74,30 +74,21 @@ struct HerdrModelRecordRow: View {
         if record.undo { return "\(count) \(record.changes.count == 1 ? "is" : "are") back on what \(record.changes.count == 1 ? "it" : "they") ran before" }
         return asker.map { "\($0) switched \(count) to \(record.label)" } ?? "Switched \(count) to \(record.label)"
     }
-    static let freshHelp = "Ends the running agents of these bots, except one that is answering. Each starts on the new model with its next message, and reads its conversation so far first (a bot imported from Grok Bot reads its Grok history)."
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(.secondary).frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
-                Text(record.note.isEmpty ? (record.undo ? Self.undoCaption : Self.caption) : record.note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(record.undo ? Self.undoCaption : Self.caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if starting { ProgressView().controlSize(.small) }
             else {
                 if !record.undo { Button("Undo") { undo() }.help("Puts these bots back on what they ran before") }
-                if record.notFresh > 0 {
-                    Button(record.fresh.isEmpty ? "Start fresh agents" : "Start the rest fresh") { fresh() }.help(Self.freshHelp)
-                }
                 Button("Done") { store.doneWithHerdrModels(record) }
             }
         }
-    }
-
-    private func fresh() {
-        starting = true
-        Task { await store.startFreshHerdrAgents(record); starting = false }
     }
 
     private func undo() {

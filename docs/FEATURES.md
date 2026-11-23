@@ -29,7 +29,7 @@ The app says **bot** everywhere. The agent program a bot runs on is its **AI** a
 - A bot has a name, an avatar and instructions, and under **Advanced** in its settings an optional role. A bot that already has a description (from an import, or an older version) keeps it editable. The instructions are given to each agent the bot starts, once, with its first message.
 - Set the agent and model at creation or in **Details → Model**. Use **Recommended** for Sol or Terra on Codex, Sonnet on Claude Code, or the configured default on OpenCode. **Gemini (beta)** is listed last, is never the default while another AI is installed, and says under the picker what it cannot do yet. A pinned model uses its exact provider ID. With more than one server, **Advanced** in the same tab chooses the bot's **Server**.
 - **Start fresh** ends the running agent and, with **Keep _name_ ready** on, starts the next one at once. The chat stays; the bot's own memory of it does not.
-- An agent that was started ahead of time and has not been written to is replaced when you change the bot's AI, model or projects, so the change applies at once. An agent that holds a conversation keeps running until **Start fresh**.
+- An agent that was started ahead of time and has not been written to is replaced when you change the bot's AI, model or projects, so the change applies at once. For a model change, the next direct message uses the selected AI and carries the conversation forward.
 - **Add a bot for each AI** (**Settings → Servers → Connection**) adds one bot for each AI the server has that no bot uses yet.
 
 ## Chat

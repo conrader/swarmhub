@@ -134,6 +134,7 @@ extension AppStore {
     }
 
     func setHerdrTemplate(_ template: String, for bot: Bot) {
+        if (defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? "") != template { markModelSwitch(bot) }
         if template.isEmpty { defaults.removeObject(forKey: HerdrBackend.botTemplateKey(bot.id)) } else { defaults.set(template, forKey: HerdrBackend.botTemplateKey(bot.id)) }
     }
 
@@ -141,6 +142,7 @@ extension AppStore {
     func herdrModel(for bot: Bot) -> String { defaults.string(forKey: HerdrBackend.botModelKey(bot.id)) ?? "" }
 
     func setHerdrModel(_ model: String, for bot: Bot) {
+        if herdrModel(for: bot) != model { markModelSwitch(bot) }
         if model.isEmpty { defaults.removeObject(forKey: HerdrBackend.botModelKey(bot.id)) } else { defaults.set(model, forKey: HerdrBackend.botModelKey(bot.id)) }
     }
 
@@ -162,6 +164,13 @@ extension AppStore {
         // A bot imported from Grok Bot: its agent reads the imported conversation before a message, once per agent session.
         // And a bot whose program or model was changed: its fresh agent reads the bot's chat so far (`AppStore+HerdrCarryOver.swift`).
         backend.handoff = grokHandoffSource(for: bot) ?? herdrCarrySource(for: bot)
+        if launchWorkEnabled && !bot.isDemo && !bot.isReadOnlyArchive {
+            let server = herdrServer(for: bot), template = herdrTemplate(for: bot), model = herdrModel(for: bot)
+            backend.prepareDirect = { [weak self, weak bot] in
+                guard let self, let bot else { throw CancellationError() }
+                return try await self.prepareDirectModel(bot: bot, server: server, template: template, model: model)
+            }
+        }
         backend.steers = herdrSteers(bot)
         // The main bot is told how to create bots; every other bot how to ask it for one.
         if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }

@@ -308,32 +308,28 @@ struct HerdrAgentControls: View {
                         guard loaded, value != model else { return }
                         model = value
                         store.setHerdrModel(value, for: bot)
-                        Task { await switchCurrentModel() }
+                        Task { await applyChoice() }
                     }), program: effective?.modelAgent ?? effective?.programName, models: models)
                 }
-                .disabled(switching || store.isWorking(bot))
+                .disabled(switching)
             } else if listed, effective != nil {
                 SettingBlock(title: "Bot model", detail: HerdrAgentReading.programPicks) { EmptyView() }
             }
             if let running = reading?.runningLine {
-                StatusCard(kind: reading?.pendingLine == nil ? .info : .warning, title: running, detail: reading?.pendingLine)
-            }
-            if let reading, reading.changesProgram, let next = reading.runtime {
-                Button("Start fresh with \(next.label)…") { confirmFresh = true }
-                    .disabled(restarting || switching || store.isWorking(bot))
+                StatusCard(kind: .info, title: running, detail: reading?.pendingLine)
             }
             if !note.isEmpty { Text(note).font(.callout).textSelection(.enabled) }
-            if reading?.session != nil, reading?.activeTemplate == effective?.name,
-               let program = effective?.modelAgent, ["OpenCode", "Claude Code", "Codex"].contains(program),
-               reading?.pendingLine != nil || reading?.running == .unknown || !note.isEmpty && reading?.confirmed != true {
-                Button("Switch in this conversation") { Task { await switchCurrentModel() } }
-                    .disabled(switching || store.isWorking(bot))
-            }
             HerdrHelperModelSection(bot: bot, server: store.herdrServer(for: bot), templates: templates)
                 .id(store.herdrServer(for: bot).id)
             // What few people change: both are on for every bot.
             QuietFold(title: "Advanced", isOpen: Binding(get: { showAdvanced || renderOpen }, set: { showAdvanced = $0 })) {
                 VStack(alignment: .leading, spacing: 18) {
+                    if reading?.session != nil, reading?.activeTemplate == effective?.name,
+                       let program = effective?.modelAgent, ["OpenCode", "Claude Code", "Codex"].contains(program),
+                       reading?.pendingLine != nil || reading?.running == .unknown || !note.isEmpty && reading?.confirmed != true {
+                        Button("Switch the running session now…") { Task { await switchCurrentModel() } }
+                            .disabled(switching || store.isWorking(bot))
+                    }
                     SettingBlock(title: "New conversation", detail: GrokHandoffCopy.newConversation(bot.name, readsHistory: store.grokHandoffIsOn(for: bot))) {
                         Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isWorking(bot))
                     }
@@ -410,7 +406,7 @@ struct HerdrAgentControls: View {
         guard choice == store.herdrModel(for: bot), server == store.herdrServer(for: bot) else { return }
         guard let session = reading.session, let core = reading.core else { await applyChoice(); return }
         guard let runtime = reading.runtime, reading.activeTemplate == runtime.name else {
-            note = "The selected agent program will be used for a new conversation."
+            note = "The selected AI will answer your next message."
             return
         }
         do {
@@ -488,7 +484,7 @@ struct HerdrOverviewSection: View {
                     }
                 }.buttonStyle(.plain).help("Change them under Model").accessibilityLabel(reading.summary).accessibilityHint("Opens Model")
                 if let running = reading.runningLine, reading.pendingLine != nil || reading.running == .unstated || reading.running == .unknown {
-                    StatusCard(kind: reading.pendingLine == nil ? .info : .warning, title: running, detail: reading.pendingLine)
+                    StatusCard(kind: .info, title: running, detail: reading.pendingLine)
                 } else if case .model(_, let label) = reading.running {
                     Text("Running on \(label) now.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }

@@ -104,12 +104,12 @@ struct HerdrAgentReading: Equatable, Sendable {
     var pendingLine: String? {
         if changesProgram, let runtime {
             let next = [runtime.label, model.map(Self.name)].compactMap { $0 }.joined(separator: " · ")
-            return "Start a fresh conversation to use \(next)."
+            return "Next reply: \(next). Your chat stays here."
         }
         guard let model else { return nil }
         switch running {
-        case .model(let id, _) where id != model.id: return "\(Self.name(model)) is selected for the next launch."
-        case .unstated: return "\(Self.name(model)) is selected for the next launch."
+        case .model(let id, _) where id != model.id: return "\(Self.name(model)) will answer your next message."
+        case .unstated: return "\(Self.name(model)) will answer your next message."
         default: return nil
         }
     }
