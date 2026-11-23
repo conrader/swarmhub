@@ -30,7 +30,7 @@ import SwiftUI
     static func run(arguments: [String]) -> Int32 {
         if arguments.contains("--help") {
             print("""
-            Usage: AgentApp --agent-qa OUTPUT_DIRECTORY [--hunt]
+            Usage: \(CommandLine.arguments.first ?? AppConstants.name) --agent-qa OUTPUT_DIRECTORY [--hunt]
             Run --hunt for built-in checks, or send JSON objects on stdin. Each result is one JSON line.
             Example: {"action":"open","bot":"Mira"}
             Actions: inspect, open(bot), draft(text), send(optional text), pin, unpin,
