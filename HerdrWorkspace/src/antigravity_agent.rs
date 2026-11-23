@@ -43,8 +43,17 @@ pub fn launch() -> Result<(), Error> {
         .filter(|s| !s.chars().any(char::is_control))
         .ok_or("Invalid workspace program path.")?;
     install_hook(&folder, path)?;
-    let mut args = env::args_os().skip(2).collect();
+    let mut args: Vec<_> = env::args_os().skip(2).collect();
+    let plain = args.is_empty();
     crate::runtimes::ModelAgent::Antigravity.add_model_arg(&mut args)?;
+    let home = env::var_os("HOME").map(PathBuf::from);
+    apply_session_args(
+        &mut args,
+        &folder,
+        home.as_deref(),
+        plain,
+        crate::bot_agent_settings::project_auto(),
+    );
     Err(
         crate::service::agent_command("agy", "SWARMHUB_ANTIGRAVITY_BIN")
             .args(args)
@@ -53,6 +62,91 @@ pub fn launch() -> Result<(), Error> {
             .exec()
             .into(),
     )
+}
+
+fn has_settings_arg(args: &[std::ffi::OsString]) -> bool {
+    args.iter().any(|arg| {
+        arg == "--settings"
+            || arg
+                .to_str()
+                .is_some_and(|text| text.starts_with("--settings="))
+    })
+}
+
+fn existing_trusted_workspaces(home: Option<&Path>) -> Vec<String> {
+    let Some(path) = home.map(|h| h.join(".gemini/antigravity-cli/settings.json")) else {
+        return Vec::new();
+    };
+    let Ok(file) = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+    else {
+        return Vec::new();
+    };
+    let Ok(meta) = file.metadata() else {
+        return Vec::new();
+    };
+    if !meta.is_file() || meta.len() > 1024 * 1024 {
+        return Vec::new();
+    }
+    let Ok(settings) = serde_json::from_reader::<_, Value>(file) else {
+        return Vec::new();
+    };
+    settings["trustedWorkspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.as_str().map(str::to_owned))
+        .collect()
+}
+
+fn push_unique_path(paths: &mut Vec<String>, path: &Path) {
+    if let Some(text) = path.to_str()
+        && !text.is_empty()
+        && !paths.iter().any(|existing| existing == text)
+    {
+        paths.push(text.to_owned());
+    }
+}
+
+fn session_settings(folder: &Path, home: Option<&Path>, auto_mode: bool) -> Option<String> {
+    let mut trusted = existing_trusted_workspaces(home);
+    push_unique_path(&mut trusted, folder);
+    if let Ok(real) = folder.canonicalize() {
+        push_unique_path(&mut trusted, &real);
+    }
+    if trusted.is_empty() && !auto_mode {
+        return None;
+    }
+    let mut settings = json!({ "trustedWorkspaces": trusted });
+    if auto_mode {
+        settings["allowNonWorkspaceAccess"] = json!(true);
+        settings["artifactReviewPolicy"] = json!("always-proceed");
+    }
+    Some(settings.to_string())
+}
+
+fn apply_session_args(
+    args: &mut Vec<std::ffi::OsString>,
+    folder: &Path,
+    home: Option<&Path>,
+    plain: bool,
+    auto: bool,
+) {
+    let auto_mode = plain && auto;
+    if !has_settings_arg(args)
+        && let Some(settings) = session_settings(folder, home, auto_mode)
+    {
+        args.extend(["--settings".into(), settings.into()]);
+    }
+    if auto_mode {
+        args.extend([
+            "--mode".into(),
+            "auto".into(),
+            "--dangerously-skip-permissions".into(),
+        ]);
+    }
 }
 
 fn install_hook(folder: &Path, exe: &str) -> Result<(), Error> {
@@ -368,5 +462,54 @@ mod tests {
             })
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn session_args_trust_bot_workspace_and_enable_auto_permissions_only_for_plain_launches() {
+        let scratch = tempfile::tempdir().unwrap();
+        let home = scratch.path().join("home");
+        let cfg = home.join(".gemini/antigravity-cli");
+        fs::create_dir_all(&cfg).unwrap();
+        fs::write(
+            cfg.join("settings.json"),
+            r#"{"trustedWorkspaces":["/existing/path"]}"#,
+        )
+        .unwrap();
+        let bot_ws = scratch.path().join("bot-ws");
+        fs::create_dir_all(&bot_ws).unwrap();
+
+        let mut normal = Vec::new();
+        super::apply_session_args(&mut normal, &bot_ws, Some(&home), true, false);
+        assert_eq!(normal.len(), 2);
+        assert_eq!(normal[0], "--settings");
+        let normal_cfg: Value = serde_json::from_str(normal[1].to_str().unwrap()).unwrap();
+        let trusted = normal_cfg["trustedWorkspaces"].as_array().unwrap();
+        assert!(trusted.iter().any(|v| v == "/existing/path"));
+        assert!(trusted.iter().any(|v| v == bot_ws.to_str().unwrap()));
+        assert!(normal_cfg.get("allowNonWorkspaceAccess").is_none());
+
+        let mut custom = vec!["--mode".into(), "plan".into(), "--settings".into(), "{}".into()];
+        super::apply_session_args(&mut custom, &bot_ws, Some(&home), false, true);
+        assert_eq!(custom, vec!["--mode", "plan", "--settings", "{}"]);
+
+        let mut auto = vec!["--model".into(), "gemini-4-neon-high".into()];
+        super::apply_session_args(&mut auto, &bot_ws, Some(&home), true, true);
+        assert_eq!(auto[0], "--model");
+        assert_eq!(auto[1], "gemini-4-neon-high");
+        assert_eq!(auto[2], "--settings");
+        let auto_cfg: Value = serde_json::from_str(auto[3].to_str().unwrap()).unwrap();
+        assert_eq!(auto_cfg["allowNonWorkspaceAccess"], true);
+        assert_eq!(auto_cfg["artifactReviewPolicy"], "always-proceed");
+        assert!(
+            auto_cfg["trustedWorkspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == bot_ws.to_str().unwrap())
+        );
+        assert_eq!(
+            &auto[4..],
+            &["--mode", "auto", "--dangerously-skip-permissions"]
+        );
     }
 }

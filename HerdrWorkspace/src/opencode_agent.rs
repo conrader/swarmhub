@@ -121,7 +121,11 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
             )
             .env(
                 "SWARMHUB_OPENCODE_APPROVALS",
-                if approvals { "1" } else { "" },
+                if approvals && !crate::bot_agent_settings::project_auto() {
+                    "1"
+                } else {
+                    ""
+                },
             );
         cmd
     };

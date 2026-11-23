@@ -269,7 +269,14 @@ pub(crate) fn directory() -> Option<PathBuf> {
     crate::core::agent_cwd()
         .ok()
         .flatten()
-        .map(|folder| Path::new(&folder).join(DIR))
+        .map(PathBuf::from)
+        .or_else(|| {
+            crate::core::bot_workspace_root()
+                .ok()
+                .flatten()
+                .filter(|root| root.is_dir())
+        })
+        .map(|folder| folder.join(DIR))
 }
 
 /// The helper folder, made if it is missing. A symbolic link or a folder of another user in its place is refused.

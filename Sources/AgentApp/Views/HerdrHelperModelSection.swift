@@ -42,7 +42,7 @@ struct HerdrHelperModelSection: View {
             }
         }.task(id: "\(bot.id)-\(server.id)") { await load() }
         if let saved {
-            SettingSwitch(title: "Auto mode", detail: "With the standard Claude and Codex setups, new agents and helpers can edit, build and test in their workspace. Broader access may still need approval.",
+            SettingSwitch(title: "Auto mode", detail: "With the standard Claude, Codex and Antigravity setups, agents and helpers can edit, build and test in their workspace. Broader access may still need approval.",
                           isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } }))
                 .disabled(saving)
         }
@@ -65,19 +65,9 @@ struct HerdrHelperModelSection: View {
         saving = true
         defer { saving = false }
         do {
-            saved = try await store.herdrClient(for: server).setHelperModel(draft, for: bot.id, existingAgents: existingAgents)
+            saved = try await store.herdrClient(for: server).setHelperModel(draft, for: bot.id, existingAgents: store.herdrExistingAgentNames(for: bot))
             problem = ""
         } catch { problem = error.localizedDescription }
-    }
-
-    private var existingAgents: [String] {
-        // Older workspace launches have no stored bot ID. Include their direct and group names.
-        let direct = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
-        let groups = store.groups.filter { $0.memberIDs.contains(bot.id) }.compactMap { group in
-            let session = group.session(for: bot.id) ?? store.sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
-            return HerdrBackend.groupRuntimeName(sessionID: session, botID: bot.id)
-        }
-        return [direct] + groups
     }
 
     private func setAuto(_ enabled: Bool) async {
@@ -85,7 +75,7 @@ struct HerdrHelperModelSection: View {
         saving = true
         defer { saving = false }
         do {
-            saved = try await store.herdrClient(for: server).setProjectAutoMode(enabled, for: bot.id, existingAgents: existingAgents)
+            saved = try await store.applyProjectAutoMode(enabled, for: bot, on: server)
             problem = ""
         } catch { problem = error.localizedDescription }
     }

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.14 (build 48)
+
+- Turning on **Auto mode** for a bot now replaces unused warm sessions immediately and carries active conversations into a fresh Auto mode session on your next reply.
+- In Auto mode, Codex, Claude Code, Gemini (Antigravity) and OpenCode run without blocking on terminal permission prompts, Computer Use app prompts, hook review prompts or staged handoff files.
+- Gemini (Antigravity) bots automatically trust the private workspace folder SwarmHub created for them so newly created bots start without hanging on a terminal trust prompt.
+- Clearing a terminal prompt updates the chat header immediately instead of leaving “Check terminal” showing after the agent resumes. Requires workspace server 0.2.11 for the Auto mode and Antigravity fixes.
+
 ## 0.8.13 (build 47)
 
 - Long Gemini (Antigravity) replies are saved in full instead of being cut short, and reply capture works reliably when your home or workspace folder uses a symlink.

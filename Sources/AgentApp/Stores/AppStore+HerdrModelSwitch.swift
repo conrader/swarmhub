@@ -7,6 +7,39 @@ extension AppStore {
 
     func clearModelSwitch(_ botID: UUID) { defaults.removeObject(forKey: "herdr.changeOnSend.\(botID)") }
 
+    func autoSwitchPending(_ bot: Bot) -> Bool { defaults.bool(forKey: "herdr.autoChangeOnSend.\(bot.id)") }
+
+    func markAutoSwitch(_ bot: Bot) { defaults.set(true, forKey: "herdr.autoChangeOnSend.\(bot.id)") }
+
+    func clearAutoSwitch(_ botID: UUID) { defaults.removeObject(forKey: "herdr.autoChangeOnSend.\(botID)") }
+
+    func herdrExistingAgentNames(for bot: Bot) -> [String] {
+        // Older workspace launches have no stored bot ID. Include their direct and group names.
+        let direct = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+        let groups = groups.filter { $0.memberIDs.contains(bot.id) }.compactMap { group in
+            let session = group.session(for: bot.id) ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
+            return HerdrBackend.groupRuntimeName(sessionID: session, botID: bot.id)
+        }
+        return [direct] + groups
+    }
+
+    /// Saves this bot's Auto mode setting, replaces any unused warm-started agent immediately, and marks an active
+    /// conversation session so the next direct message restarts it with Auto mode and carries the chat over.
+    @discardableResult func applyProjectAutoMode(_ enabled: Bool, for bot: Bot, on server: HerdrServer, existingAgents: [String]? = nil) async throws -> HerdrClient.BotAgentSettings {
+        let names = existingAgents ?? herdrExistingAgentNames(for: bot)
+        let client = try herdrClient(for: server)
+        let saved = try await client.setProjectAutoMode(enabled, for: bot.id, existingAgents: names)
+        markAutoSwitch(bot)
+        if launchWorkEnabled {
+            await herdrChoiceChanged(for: bot)
+            for groupName in names.dropFirst() {
+                _ = try? await client.endUnused(name: groupName)
+            }
+            await refreshHerdrAgentReading(for: bot)
+        }
+        return saved
+    }
+
     /// Called inside the direct turn, after an outstanding warm start and before either history or user input.
     /// Reconcile the live session as well as newly changed choices: older app versions only saved the preference.
     func prepareDirectModel(bot: Bot, server: HerdrServer, template: String?, model: String) async throws -> [HerdrHandoffSource] {
@@ -17,7 +50,9 @@ extension AppStore {
             }
         }
         try checkChoice()
-        let pending = modelSwitchPending(bot)
+        let modelPending = modelSwitchPending(bot)
+        let autoPending = autoSwitchPending(bot)
+        let pending = modelPending || autoPending
         let client = try herdrClient(for: server)
         let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
         if pending || template != nil || !model.isEmpty {
@@ -26,15 +61,15 @@ extension AppStore {
                 guard let target = HerdrAgentReading.template(own: template, shared: nil, in: current.templates.filter { $0.error == nil }).template else {
                     throw HerdrClient.Failure.noTemplate
                 }
-                var replace = target.name != agent.template && (agent.template != nil || pending)
+                var replace = autoPending || (target.name != agent.template && (agent.template != nil || modelPending))
                 var liveModel: HerdrClient.Template.Model?
-                if !replace, target.takesModel, pending || !model.isEmpty {
+                if !replace, target.takesModel, modelPending || !model.isEmpty {
                     guard let reading = await refreshHerdrAgentReading(for: bot, requireFresh: true), reading.session == agent.ref, reading.core == current.core else {
                         throw BackendError.unavailable("The running agent changed while checking its model. Please retry the message.")
                     }
                     liveModel = reading.model
-                    if case .model(let active, _) = reading.running { replace = reading.model.map { $0.id != active } ?? pending }
-                    else { replace = pending || (reading.running == .unstated && reading.model != nil) }
+                    if case .model(let active, _) = reading.running { replace = reading.model.map { $0.id != active } ?? modelPending }
+                    else { replace = modelPending || (reading.running == .unstated && reading.model != nil) }
                 }
                 if replace {
                     // Use the exact launch, never an agent found again by name after an asynchronous read.
@@ -53,7 +88,8 @@ extension AppStore {
                         guard clock.now < deadline else { throw BackendError.unavailable("The previous agent is still busy. Your model choice is saved. Retry when it finishes.") }
                         try await Task.sleep(for: .milliseconds(500))
                     }
-                    if stillRunning, target.name == agent.template, target.modelAgent == "OpenCode", let core = current.core, let liveModel {
+                    // Auto mode is set in the process environment at launch, so OpenCode cannot apply it in place.
+                    if !autoPending, stillRunning, target.name == agent.template, target.modelAgent == "OpenCode", let core = current.core, let liveModel {
                         _ = try await client.selectModel(liveModel.id, for: agent.ref, core: core)
                         try checkChoice()
                         rememberModel(.init(server: server.id, core: core, address: agent.address, created: agent.createdMs,
@@ -80,6 +116,7 @@ extension AppStore {
             }
             try checkChoice()
             clearModelSwitch(bot.id)
+            clearAutoSwitch(bot.id)
         }
         return [grokHandoffSource(for: bot), herdrCarrySource(for: bot)].compactMap { $0 }
     }

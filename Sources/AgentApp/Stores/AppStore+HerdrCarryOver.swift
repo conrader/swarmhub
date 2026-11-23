@@ -43,6 +43,7 @@ extension AppStore {
         defaults.removeObject(forKey: Self.herdrCarryOverKey(botID))
         defaults.removeObject(forKey: "herdr.confirmed.\(botID)")
         clearModelSwitch(botID)
+        clearAutoSwitch(botID)
         grokHandoffs.carrySummaries[botID] = nil; grokHandoffs.carried.remove(botID)
     }
 

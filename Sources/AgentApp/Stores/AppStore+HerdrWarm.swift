@@ -106,13 +106,17 @@ extension AppStore {
         guard starts || replacingUnused else { return nil }
         let id = bot.id, refused = herdrWarmKey(for: bot)
         let task = Task { [weak self] in
-            if replacingUnused, (try? await backend.client.endUnused(name: backend.agentName)) == true { self?.herdrReadiness[id] = nil }
+            if replacingUnused, (try? await backend.client.endUnused(name: backend.agentName)) == true {
+                self?.herdrReadiness[id] = nil
+                self?.clearAutoSwitch(id)
+            }
             let outcome = starts ? try? await backend.client.warm(name: backend.agentName, template: backend.template, model: backend.model, projects: backend.projects, workspaceID: backend.botID) : nil
             guard let self else { return }
             self.herdrWarming[id] = nil
             switch outcome {
             case .started(let agent, let program)?:
-                // A new agent has the bot's projects as they are now.
+                // A new agent has the bot's projects and Auto mode as they are now.
+                self.clearAutoSwitch(id)
                 if backend.projectsChanged { backend.onProjectsSynced?() }
                 self.herdrReadiness[id] = HerdrAgentReadiness(agent, program: program)
                 // What the running agent was started on, for Details; a message that waits for this start does not wait for that.

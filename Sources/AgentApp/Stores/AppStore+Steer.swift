@@ -55,7 +55,7 @@ extension AppStore {
     func steer(text: String, attachments: [ChatAttachment], bot: Bot) -> Bool {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let turn = turn(in: bot), turn.botID == bot.id else { return false }
-        if !(bot.backend == .herdr && modelSwitchPending(bot)), turn.steerAvailable, attachments.isEmpty, !value.isEmpty, turn.assistant != nil, let activeBackend = try? backend(for: bot) {
+        if !(bot.backend == .herdr && (modelSwitchPending(bot) || autoSwitchPending(bot))), turn.steerAvailable, attachments.isEmpty, !value.isEmpty, turn.assistant != nil, let activeBackend = try? backend(for: bot) {
             noteFirstSteer()
             deliverSteer(value, into: bot, sessionID: turnSessionID(in: bot, bot: bot), backend: activeBackend)
             return true

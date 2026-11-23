@@ -183,7 +183,9 @@ pub fn stage_launch_files(
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     const ERROR: ApiError = ApiError::Conflict("A file could not be attached. The task was not sent.");
-    let directory = tempfile::Builder::new().prefix(".swarmhub-files-").tempdir_in(workspace).map_err(|_| ERROR)?;
+    // Use a non-hidden directory name inside the private bot workspace so Claude Code and other
+    // runtimes do not treat staged attachments or handoffs as sensitive dotfile reads.
+    let directory = tempfile::Builder::new().prefix("swarmhub-files-").tempdir_in(workspace).map_err(|_| ERROR)?;
     let mut paths = Vec::new();
     for (index, file) in files.iter().enumerate() {
         if !valid_filename(&file.name) { return Err(ERROR); }

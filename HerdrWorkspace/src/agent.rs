@@ -347,14 +347,11 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         }]);
     }
     let mut args: Vec<_> = env::args_os().skip(2).collect();
-    if args
+    let approvals = args
         .first()
-        .is_some_and(|arg| arg == "--workspace-approvals")
-    {
+        .is_some_and(|arg| arg == "--workspace-approvals");
+    if approvals {
         args.remove(0);
-        let command = format!("{} review-claude-permission", shell_quote(executable));
-        settings["hooks"]["PermissionRequest"] =
-            json!([{"hooks":[{"type":"command","command":command,"timeout":55}]}]);
     }
     let preview = args.first().is_some_and(|arg| arg == claude_preview::FLAG);
     if preview {
@@ -369,9 +366,16 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         return Err("run-claude reserves --settings for its reply hook. Use Claude's normal config files for other settings.".into());
     }
     // Custom templates can supply their own launch and permission arguments.
-    if crate::bot_agent_settings::project_auto() && args.is_empty() {
-        settings["permissions"]["defaultMode"] = json!("acceptEdits");
-        settings["sandbox"] = json!({"enabled": true, "autoAllowBashIfSandboxed": true});
+    let auto_mode = configure_claude_auto(
+        &mut settings,
+        crate::bot_agent_settings::project_auto(),
+        args.is_empty(),
+        &crate::bot_agent_settings::auto_writable_dirs(),
+    );
+    if approvals && !auto_mode {
+        let command = format!("{} review-claude-permission", shell_quote(executable));
+        settings["hooks"]["PermissionRequest"] =
+            json!([{"hooks":[{"type":"command","command":command,"timeout":55}]}]);
     }
     crate::runtimes::ModelAgent::Claude.add_model_arg(&mut args)?;
     let mut command =
@@ -384,12 +388,34 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         &mut args,
         &mut command,
     );
+    if auto_mode {
+        command.args(["--permission-mode", "auto"]);
+    }
     Err(command
         .env_remove(crate::runtimes::MODEL_ENV)
         .args(["--settings", &settings.to_string()])
         .args(args)
         .exec()
         .into())
+}
+
+fn configure_claude_auto(
+    settings: &mut serde_json::Value,
+    auto: bool,
+    plain: bool,
+    writable: &[PathBuf],
+) -> bool {
+    if !auto || !plain {
+        return false;
+    }
+    settings["permissions"]["defaultMode"] = json!("acceptEdits");
+    let mut sandbox = json!({"enabled": true, "autoAllowBashIfSandboxed": true});
+    let allow_write: Vec<&str> = writable.iter().filter_map(|p| p.to_str()).collect();
+    if !allow_write.is_empty() {
+        sandbox["filesystem"] = json!({"allowWrite": allow_write});
+    }
+    settings["sandbox"] = sandbox;
+    true
 }
 
 fn capture_claude() -> Result<(), Box<dyn std::error::Error>> {
@@ -449,4 +475,39 @@ pub(crate) fn read_input(limit: usize) -> Result<String, Box<dyn std::error::Err
 
 pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(test)]
+mod auto_tests {
+    use super::configure_claude_auto;
+    use serde_json::json;
+
+    #[test]
+    fn claude_auto_mode_sets_accept_edits_and_writable_sandbox_dirs() {
+        let mut off = json!({});
+        assert!(!configure_claude_auto(&mut off, false, true, &[]));
+        assert_eq!(off, json!({}));
+
+        let mut custom = json!({});
+        assert!(!configure_claude_auto(&mut custom, true, false, &[]));
+        assert_eq!(custom, json!({}));
+
+        let scratch = tempfile::tempdir().unwrap();
+        let spool = scratch.path().join(".swarmhub-helpers");
+        std::fs::create_dir_all(&spool).unwrap();
+        let mut settings = json!({});
+        assert!(configure_claude_auto(
+            &mut settings,
+            true,
+            true,
+            std::slice::from_ref(&spool),
+        ));
+        assert_eq!(settings["permissions"]["defaultMode"], "acceptEdits");
+        assert_eq!(settings["sandbox"]["enabled"], true);
+        assert_eq!(settings["sandbox"]["autoAllowBashIfSandboxed"], true);
+        assert_eq!(
+            settings["sandbox"]["filesystem"]["allowWrite"],
+            json!([spool.to_str().unwrap()])
+        );
+    }
 }

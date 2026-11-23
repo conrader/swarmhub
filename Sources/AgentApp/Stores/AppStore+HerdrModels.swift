@@ -270,6 +270,8 @@ extension AppStore {
             guard isIdle(bot) else { busy += 1; continue }
             do {
                 _ = try await restartHerdrAgent(for: bot)
+                clearModelSwitch(bot.id)
+                clearAutoSwitch(bot.id)
                 herdrAgentEndedForChange(bot)
                 fresh.append(bot.id); started += 1
             } catch { failed += 1 }
