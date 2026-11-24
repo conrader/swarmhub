@@ -7,7 +7,22 @@ extension HerdrClient {
         struct Filter: Codable, Equatable, Sendable {
             let field: String
             let equals: String
+
+            fileprivate var isValid: Bool {
+                let segments = field.split(separator: ".", omittingEmptySubsequences: false)
+                return !field.isEmpty && field.utf8.count <= 128 && segments.count <= 8
+                    && segments.allSatisfy { segment in
+                        !segment.isEmpty && segment.allSatisfy {
+                            $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-")
+                        }
+                    }
+                    && equals.unicodeScalars.count <= 160
+                    && equals.unicodeScalars.contains { !$0.properties.isWhitespace }
+                    && !equals.unicodeScalars.contains { $0.properties.generalCategory == .control }
+            }
         }
+
+        static let maximumWebhookFilters = 4
 
         case interval(minutes: UInt32)
         case daily(hour: UInt8, minute: UInt8, timezone: String?, weekdays: Bool)
@@ -55,6 +70,29 @@ extension HerdrClient {
             }
         }
 
+        var webhookValidationMessage: String? {
+            guard case .webhook(let source, let filters, _) = self else { return nil }
+            if filters.count > Self.maximumWebhookFilters { return "Use up to four JSON field filters." }
+            if source == .slack {
+                if !filters.contains(where: { $0.field == "team_id" && Self.validSlackID($0.equals, prefixes: "T") }) {
+                    return "Enter a Slack workspace ID starting with T in team_id."
+                }
+                if !filters.contains(where: { $0.field == "channel" && Self.validSlackID($0.equals, prefixes: "CG") }) {
+                    return "Enter a Slack channel ID starting with C or G in channel."
+                }
+            }
+            if filters.contains(where: { !$0.isValid }) {
+                return "Use dot-separated JSON paths with up to 8 segments and 128 characters. Each segment can contain letters A–Z, digits, underscores, or hyphens. Enter nonempty plain text up to 160 characters for each value."
+            }
+            if Set(filters.map(\.field)).count != filters.count { return "Use each JSON field path only once." }
+            return nil
+        }
+
+        private static func validSlackID(_ value: String, prefixes: String) -> Bool {
+            guard (2...32).contains(value.utf8.count), let first = value.first, prefixes.contains(first) else { return false }
+            return value.allSatisfy { $0.isASCII && ($0.isUppercase || $0.isNumber) }
+        }
+
         func summary(in displayZone: TimeZone) -> String {
             switch self {
             case .interval(let minutes):
@@ -88,7 +126,7 @@ extension HerdrClient {
         let schedule: RoutineSchedule
         let state: State
         let nextAt: Int64?
-        let webhookReady: Bool
+        var webhookReady: Bool
         let profileId: Int?
     }
 
@@ -121,6 +159,27 @@ extension HerdrClient {
     struct RoutineDetail: Decodable, Sendable {
         let routine: Routine
         let runs: [RoutineRun]
+        let reviews: [RoutineReview]?
+        let slackReady: Bool?
+    }
+
+    struct RoutineWebhookKey: Decodable, Sendable {
+        let key: String
+        let path: String
+    }
+
+    struct RoutineReview: Decodable, Identifiable, Sendable {
+        let id: Int64
+        let atMs: Int64
+        let payload: JSONValue?
+        let stale: Bool
+    }
+
+    enum RoutineReviewDecision: String, Encodable, Sendable { case approve, dismiss }
+
+    struct RoutineReviewResolution: Decodable, Sendable {
+        let id: Int64?
+        let dismissed: Bool?
     }
 
     enum RoutineControl: String, Encodable, Sendable { case pause, resume, archive }
@@ -172,6 +231,28 @@ extension HerdrClient {
 
     func testRoutine(_ id: Int64) async throws -> RoutineTest {
         try await send(request("/api/routines/\(id)/test", method: "POST", body: nil))
+    }
+
+    func rotateRoutineWebhookKey(id: Int64) async throws -> RoutineWebhookKey {
+        try await postRoutine("/api/routines/\(id)/webhook-key", [String: String]())
+    }
+
+    func resolveRoutineReview(routineID: Int64, reviewID: Int64, decision: RoutineReviewDecision) async throws -> RoutineReviewResolution {
+        try await postRoutine("/api/routines/\(routineID)/reviews/\(reviewID)", decision)
+    }
+
+    static func routineWebhookURL(serverAddress: String, id: Int64, source: RoutineSchedule.Source?) -> URL? {
+        guard let base = validatedBaseURL(serverAddress),
+              var endpoint = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
+        endpoint.user = nil
+        endpoint.password = nil
+        endpoint.fragment = nil
+        switch source {
+        case .slack: endpoint.path = "/hooks/slack"
+        case .github: endpoint.path = "/hooks/routines/\(id)/github"
+        case nil: endpoint.path = "/hooks/routines/\(id)"
+        }
+        return endpoint.url
     }
 
     func botCheckins(_ id: UUID) async throws -> [BotCheckin] {
