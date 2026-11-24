@@ -122,7 +122,7 @@ struct ReplyLayoutTests {
         let place = try #require(whole.firstIndex { if case .choices = $0 { true } else { false } })
         #expect(indexes.flatMap { $0 }.filter { $0 >= 0 } == [place], "the card has the place it has in the whole reply")
         // The pick the card sends is accepted and remembered under that place, where the card looks for it.
-        #expect(store.performCardAction(target: .bot(botID: bot.id), sourceID: reply.id, index: place, expected: whole[place], choice: "Once a night"))
+        #expect(store.performCardAction(target: .bot(botID: bot.id), sourceID: reply.id, index: place, expected: whole[place], choice: .option("Once a night")))
         #expect(reply.metadata["picked.\(place)"] == "Once a night" && store.errorMessage == nil)
         // A second card keeps its own place, also behind another row of steps.
         let two = text + "\n\n```choices\nAnd when?\n- Now\n- Tonight\n```"

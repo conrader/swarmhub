@@ -16,15 +16,16 @@ struct DraftCard: Equatable { var to: String?; var subject: String?; var body: S
 enum ChatCardParser {
     static let choicesMarker = "<!-- choices -->"
 
-    static func parse(_ text: String) -> [ChatBlock] {
+    /// Optionally recognize tilde fences when inspecting prose without changing saved card indexes.
+    static func parse(_ text: String, includingTildeFences: Bool = false) -> [ChatBlock] {
         var blocks: [ChatBlock] = []; var prose: [String] = []
         let lines = text.components(separatedBy: "\n"); var index = 0
         func flush() { if !prose.isEmpty { blocks += proseBlocks(prose.joined(separator: "\n")); prose = [] } }
         while index < lines.count {
-            guard let fence = fenceOpening(lines[index]) else { prose.append(lines[index]); index += 1; continue }
+            guard let fence = fenceOpening(lines[index], includingTildeFences: includingTildeFences) else { prose.append(lines[index]); index += 1; continue }
             flush()
             var body: [String] = []; index += 1
-            while index < lines.count, !closesFence(lines[index], length: fence.length) { body.append(lines[index]); index += 1 }
+            while index < lines.count, !closesFence(lines[index], mark: fence.mark, length: fence.length) { body.append(lines[index]); index += 1 }
             let closed = index < lines.count
             index += 1
             blocks.append(fencedBlock(language: fence.info, body: body, closed: closed))
@@ -33,19 +34,19 @@ enum ChatCardParser {
         return markTrailingChoices(blocks)
     }
 
-    private static func fenceOpening(_ line: String) -> (length: Int, info: String)? {
+    private static func fenceOpening(_ line: String, includingTildeFences: Bool) -> (mark: Character, length: Int, info: String)? {
         let trimmed = line.drop { $0 == " " }
-        guard line.count - trimmed.count <= 3 else { return nil }
-        let length = trimmed.prefix { $0 == "`" }.count
+        guard line.count - trimmed.count <= 3, let mark = trimmed.first, mark == "`" || (includingTildeFences && mark == "~") else { return nil }
+        let length = trimmed.prefix { $0 == mark }.count
         guard length >= 3 else { return nil }
         let info = trimmed.dropFirst(length).trimmingCharacters(in: .whitespaces)
-        guard !info.contains("`") else { return nil }
-        return (length, info.split(separator: " ").first.map(String.init) ?? "")
+        guard mark != "`" || !info.contains("`") else { return nil }
+        return (mark, length, info.split(separator: " ").first.map(String.init) ?? "")
     }
 
-    private static func closesFence(_ line: String, length: Int) -> Bool {
+    private static func closesFence(_ line: String, mark: Character, length: Int) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return trimmed.count >= length && trimmed.allSatisfy { $0 == "`" }
+        return trimmed.count >= length && trimmed.allSatisfy { $0 == mark }
     }
 
     private static func fencedBlock(language: String, body: [String], closed: Bool) -> ChatBlock {

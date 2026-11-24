@@ -18,7 +18,14 @@ struct MarkdownContent: View {
                 switch block {
                 case .markdown(let text): ProseBlock(text: text)
                 case .code(_, let body): CodeBlock(code: body)
-                case .choices(let prompt, let options): ChoicesCard(message: message, target: actionTarget, index: index, prompt: prompt, options: options)
+                case .choices(let prompt, let options):
+                    let picked = message.metadata["picked.\(index)"]
+                    ChoicesCard(prompt: prompt, options: options.map { ChatChoiceOption(label: $0, reply: $0) }, picked: picked,
+                                enabled: index >= 0 && picked == nil && actionTarget.map { store.canAnswerChoice(message, target: $0) } == true) { answer in
+                        guard let actionTarget else { return }
+                        store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
+                                                expected: .choices(prompt: prompt, options: options), choice: answer)
+                    }
                 case .draft(let draft): DraftCardView(message: message, target: actionTarget, index: index, draft: draft)
                 case .image(let alt, let url):
                     if let video = URL(string: url), ["http", "https"].contains(video.scheme?.lowercased() ?? ""), ChatMediaKind(filename: video.lastPathComponent) == .video {
@@ -87,27 +94,49 @@ struct LinkPillRow: View {
     }
 }
 
-/// Picking an option sends it as the user's reply to the card's own chat (P38: to its author in a group); the pick is
-/// remembered on the message.
-private struct ChoicesCard: View {
-    @EnvironmentObject private var store: AppStore
-    @ObservedObject var message: ChatMessage; let target: ConversationActionTarget?; let index: Int; let prompt: String; let options: [String]
-    private var picked: String? { message.metadata["picked.\(index)"] }
+struct ChoicesCard: View {
+    let prompt: String
+    let options: [ChatChoiceOption]
+    let picked: String?
+    let enabled: Bool
+    let answer: (ChatChoiceAnswer) -> Void
+    @State private var writingOther = false
+    @State private var other = ""
+    @FocusState private var otherFocused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
-            ForEach(options, id: \.self) { option in
-                Button { pick(option) } label: {
-                    HStack { Text(option).multilineTextAlignment(.leading); Spacer(); if picked == option { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).accessibilityHidden(true) } }
-                }.buttonStyle(ChoiceOptionStyle(picked: picked == option, answered: picked != nil))
-                    .accessibilityAddTraits(picked == option ? .isSelected : []).disabled(target == nil || picked != nil || message.isStreaming || target.map(store.isStreaming(for:)) == true)
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                optionButton(option.label, selected: picked == option.reply) {
+                    if isOther(option) { openOther() } else { answer(.option(option.reply)) }
+                }
+            }
+            if enabled && !options.contains(where: isOther) { optionButton("Other", action: openOther) }
+            if enabled && writingOther {
+                HStack {
+                    TextField("Write your reply", text: $other)
+                        .focused($otherFocused).onSubmit(sendOther)
+                    Button("Send", action: sendOther).disabled(other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
         }.padding(12).frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
-    private func pick(_ option: String) {
-        guard let target, picked == nil, !store.isStreaming(for: target) else { return }
-        store.performCardAction(target: target, sourceID: message.id, index: index, expected: .choices(prompt: prompt, options: options), choice: option)
+
+    private func optionButton(_ title: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).multilineTextAlignment(.leading)
+                Spacer()
+                if selected { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).accessibilityHidden(true) }
+            }
+        }.buttonStyle(ChoiceOptionStyle(picked: selected, answered: picked != nil))
+            .accessibilityAddTraits(selected ? .isSelected : []).disabled(!enabled)
     }
+
+    private func isOther(_ option: ChatChoiceOption) -> Bool { option.label.caseInsensitiveCompare("Other") == .orderedSame }
+    private func openOther() { writingOther = true; otherFocused = true }
+    private func sendOther() { answer(.other(other)) }
 }
 
 /// Draft card: "Send" posts "Send it" to the bot that wrote it (P38: in the card's own chat), "Copy" copies the draft text.

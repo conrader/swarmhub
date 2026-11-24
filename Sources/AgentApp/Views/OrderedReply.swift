@@ -3,6 +3,7 @@ import SwiftUI
 /// P43: an assistant reply drawn in the order it happened — text, the steps it ran, the text after them. A reply without
 /// ordered steps (no steps, or saved before P43) is its text with one Steps row below, as before.
 struct OrderedReply: View {
+    @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
     var actionTarget: ConversationActionTarget?
     var stepsExpanded = false
@@ -23,6 +24,12 @@ struct OrderedReply: View {
             MarkdownContent(message: message, actionTarget: actionTarget)
             // P29: one row while streaming and after, so an open row stays open when the turn ends.
             ActivityRow(message: message, expanded: stepsExpanded)
+        }
+        if let actionTarget, message.metadata[ChatChoiceInference.answerKey] == nil,
+           store.canAnswerChoice(message, target: actionTarget), let options = ChatChoiceInference.options(in: message.content) {
+            ChoicesCard(prompt: "", options: options, picked: nil, enabled: true) { answer in
+                store.answerInferredChoice(target: actionTarget, source: message, expected: options, answer: answer)
+            }
         }
     }
 }

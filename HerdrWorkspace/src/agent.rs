@@ -372,6 +372,18 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         args.is_empty(),
         &crate::bot_agent_settings::auto_writable_dirs(),
     );
+    // Both deny settings interpret glob characters. Skip paths that can't be used literally in both.
+    if let Some(files) = crate::service::core_files_directory()
+        && let Some(path) = files.to_str()
+        && !path.chars().any(|c| c.is_control() || r"\*?[]{}".contains(c))
+    {
+        // The outside-read prompt checks working directories. Keep this one read-only for
+        // both Claude's file tools and its sandboxed shell, even in acceptEdits mode.
+        settings["permissions"]["additionalDirectories"] = json!([path]);
+        // Claude permission rules use two leading slashes for absolute paths.
+        settings["permissions"]["deny"] = json!([format!("Edit(/{path}/**)")]);
+        settings["sandbox"]["filesystem"]["denyWrite"] = json!([path]);
+    }
     if approvals && !auto_mode {
         let command = format!("{} review-claude-permission", shell_quote(executable));
         settings["hooks"]["PermissionRequest"] =
