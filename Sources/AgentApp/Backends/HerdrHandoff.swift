@@ -110,7 +110,7 @@ struct HerdrHandoff: Sendable {
             case .silent: return "Its agent finished without a reply."
             case .ended: return "Its agent stopped while reading it."
             case .waitingAtPrompt, .notDelivered: return "Its agent was waiting at a prompt in its terminal."
-            case .unconfirmedDelivery: return "The server could not confirm that it arrived."
+            case .unconfirmedDelivery, .startNotObserved: return "The server could not confirm that it arrived."
             case .noTemplate: return "This server has no AI the bot can run on."
             case .http(_, let message): return "The server said: \(message)"
             }

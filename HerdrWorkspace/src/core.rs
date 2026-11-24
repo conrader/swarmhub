@@ -721,9 +721,6 @@ impl Core {
         let Some(current) = self.still_waiting(agent, turn, &mut delivery).await else {
             return Ok(delivery);
         };
-        let Some(probe) = prompt_probe(probe) else {
-            return Ok(delivery);
-        };
         let Ok(Ok(screen)) = timeout(Duration::from_millis(400), self.read_screen(&current)).await
         else {
             return Ok(delivery);
@@ -731,8 +728,13 @@ impl Core {
         if screen.complete == Some(false) {
             return Ok(delivery);
         }
-        let visible = screen_shows_probe(&screen.text, &probe);
-        if visible
+        let Some(has_input) = composer_input(&screen.text, probe) else {
+            return Ok(delivery);
+        };
+        if !has_input && !current.is_idle() {
+            return Ok(delivery);
+        }
+        if has_input
             && !matches!(
                 timeout(Duration::from_millis(400), self.identify()).await,
                 Ok(Ok(hello)) if hello.supports("terminal.keys")
@@ -744,7 +746,7 @@ impl Core {
         let Some(current) = self.still_waiting(agent, turn, &mut delivery).await else {
             return Ok(delivery);
         };
-        if visible {
+        if has_input {
             let enter = self.rpc::<serde::de::IgnoredAny>(
                 "terminal.keys",
                 json!({"terminal":current.address,"keys":["enter"]}),
@@ -765,22 +767,18 @@ impl Core {
             return Ok(delivery);
         }
 
-        // Core can guard an idle retry at the write boundary. Its `if` accepts idle or working.
-        let idle = current
-            .status
-            .as_ref()
-            .is_some_and(|status| status.state == "idle");
-        match timeout_at(until, self.send_terminal(&current, prompt, idle)).await {
-            Ok(Ok(retry)) => Ok(retry.delivery),
+        if !current.is_idle() {
+            return Ok(delivery);
+        }
+        // Core guards the retry at the write boundary. The send keeps its own RPC deadline.
+        match self.send_terminal(&current, prompt, true).await {
+            Ok(retry) => Ok(retry.delivery),
             // A status change can refuse the retry after the first send went through.
-            Ok(Err(Failure::Rejected(kind, _)))
-                if matches!(kind.as_str(), "blocked" | "status_mismatch") =>
-            {
-                let _ = timeout_at(until, self.still_waiting(agent, turn, &mut delivery)).await;
+            Err(Failure::Rejected(kind, _)) if matches!(kind.as_str(), "blocked" | "status_mismatch") => {
+                self.still_waiting(agent, turn, &mut delivery).await;
                 Ok(delivery)
             }
-            Ok(Err(error)) => Err(error),
-            Err(_) => Err(Failure::Uncertain),
+            Err(error) => Err(error),
         }
     }
 
@@ -874,25 +872,53 @@ impl Core {
     }
 }
 
-fn prompt_probe(prompt: &str) -> Option<String> {
-    let first = prompt.lines().map(str::trim).find(|line| !line.is_empty())?;
-    let normalized = first.split_whitespace().collect::<Vec<_>>().join(" ");
+fn prompt_probe(line: &str) -> String {
+    let normalized = line.split_whitespace().collect::<Vec<_>>().join(" ");
     let probe: String = normalized.chars().take(48).collect();
-    Some(probe.trim_end().to_owned())
+    probe.trim_end().to_owned()
 }
 
-fn screen_shows_probe(screen: &str, probe: &str) -> bool {
-    let mut tail: Vec<_> = screen.trim_end().lines().rev().take(12).collect();
+/// `Some(true)` means the composer shows input, `Some(false)` means a bare prompt, and `None` means unknown.
+fn composer_input(screen: &str, prompt: &str) -> Option<bool> {
+    let mut tail: Vec<_> = screen.trim_end().lines().rev().take(30).collect();
     tail.reverse();
+    let mut lines = prompt.lines().filter(|line| !line.trim().is_empty());
+    let first = lines.next()?;
+    let last = lines.next_back().unwrap_or(first);
     let words: Vec<_> = tail
         .iter()
         .flat_map(|line| line.split_whitespace())
         .collect();
+    let spaced = words.join(" ");
+    let compact = words.concat();
     // A full-width terminal line can wrap in the middle of a word.
-    words.join(" ").contains(probe) || words.concat().contains(&probe.replace(' ', ""))
+    if [first, last].into_iter().map(prompt_probe).any(|probe| {
+        spaced.contains(&probe) || compact.contains(&probe.replace(' ', ""))
+    }) || spaced.to_ascii_lowercase().contains("[pasted")
+    {
+        return Some(true);
+    }
+
+    for (index, line) in tail.iter().rev().enumerate() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix(['>', '❯', '$']) {
+            if rest.starts_with(char::is_whitespace) {
+                return Some(true);
+            }
+            if rest.is_empty() {
+                // Require the bare composer to be the last nonblank line before retrying a paste.
+                return (index == 0).then_some(false);
+            }
+        }
+    }
+    None
 }
 
 impl Terminal {
+    fn is_idle(&self) -> bool {
+        self.status.as_ref().is_some_and(|status| status.state == "idle")
+    }
+
     pub(crate) fn uses_opencode_api(&self) -> bool {
         self.launch_key().is_some()
             && self
@@ -1114,7 +1140,7 @@ mod tests {
             .ok()
     }
 
-    const PROMPT: &str = "\n  Compare   the two receipts and summarize the differences.\nThanks.";
+    const PROMPT: &str = "\n  Compare   the two receipts and summarize the differences.\nThanks.\n \n";
 
     fn terminal(state: &str, turn: u64) -> Value {
         json!({"address":"t7","state":"live","status":{"state":state},"created_ms":42,
@@ -1134,6 +1160,14 @@ mod tests {
         started: Option<bool>,
         steps: Vec<(&'static str, Value)>,
     ) -> (Delivery, Vec<Value>) {
+        terminal_send_with_delay(started, steps, Duration::ZERO).await
+    }
+
+    async fn terminal_send_with_delay(
+        started: Option<bool>,
+        steps: Vec<(&'static str, Value)>,
+        retry_delay: Duration,
+    ) -> (Delivery, Vec<Value>) {
         let (connect, mut connections) = mpsc::unbounded_channel::<UnixStream>();
         let mut script = vec![(
             "terminal.send",
@@ -1149,6 +1183,9 @@ mod tests {
                 let mut line = String::new();
                 stream.read_line(&mut line).await.unwrap();
                 let request: Value = serde_json::from_str(&line).unwrap();
+                if request["method"] == "terminal.send" && request["params"]["if"] == "idle" {
+                    sleep(retry_delay).await;
+                }
                 let result = script.next().map_or(Value::Null, |(_, reply)| reply);
                 let reply = json!({"jsonrpc":"2.0","id":request["id"],"result":result});
                 stream
@@ -1190,17 +1227,30 @@ mod tests {
 
     #[tokio::test]
     async fn a_swallowed_paste_is_retried_once_and_returns_the_second_delivery() {
-        for (state, started, write_guard) in [("idle", false, Some("idle")), ("done", true, None)] {
-            let (delivery, calls) = terminal_send(Some(false), vec![
+        let (delivery, calls) = terminal_send_with_delay(Some(false), vec![
+            ("terminal.get", terminal("idle", 3)),
+            ("terminal.read", json!({"text":"Antigravity\n> \n\n"})),
+            ("terminal.get", terminal("idle", 3)),
+            ("terminal.send", json!({"status":"working","started":true,"turn":3})),
+        ], Duration::from_secs(3)).await;
+        assert_eq!(calls[2]["params"]["lines"], 0);
+        assert_eq!(calls[4]["params"]["if"], "idle");
+        assert_eq!(delivery.started, Some(true));
+        assert_eq!(delivery.status.as_deref(), Some("working"));
+    }
+
+    #[tokio::test]
+    async fn an_empty_composer_is_only_retried_when_the_agent_stays_idle() {
+        for state in ["idle", "done"] {
+            let mut steps = vec![
                 ("terminal.get", terminal(state, 3)),
-                ("terminal.read", json!({"text":"Antigravity\n> \n\n"})),
-                ("terminal.get", terminal(state, 3)),
-                ("terminal.send", json!({"status":state,"started":started,"turn":3})),
-            ]).await;
-            assert_eq!(calls[2]["params"]["lines"], 0);
-            assert_eq!(calls[4]["params"]["if"].as_str(), write_guard);
-            assert_eq!(delivery.started, Some(started));
-            assert_eq!(delivery.status.as_deref(), Some(state));
+                ("terminal.read", json!({"text":"❯"})),
+            ];
+            if state == "idle" {
+                steps.push(("terminal.get", terminal("done", 3)));
+            }
+            let (delivery, _) = terminal_send(Some(false), steps).await;
+            assert_eq!(delivery.started, Some(false));
         }
     }
 
@@ -1218,11 +1268,10 @@ mod tests {
         assert_eq!(delivery.started, Some(true));
     }
 
-    #[tokio::test]
-    async fn a_visible_prompt_gets_one_enter_and_no_second_paste() {
+    async fn assert_one_enter(screen: &str) {
         let (delivery, calls) = terminal_send(Some(false), vec![
             ("terminal.get", terminal("idle", 3)),
-            ("terminal.read", json!({"text":"> Compare the two re\nceipts and summarize the differences.\nThanks.\n\n"})),
+            ("terminal.read", json!({"text":screen})),
             ("hello", hello(true)),
             ("terminal.get", terminal("idle", 3)),
             ("terminal.keys", json!({"status":"idle","turn":3})),
@@ -1230,6 +1279,20 @@ mod tests {
         ]).await;
         assert_eq!(calls[5]["params"]["keys"], json!(["enter"]));
         assert_eq!(delivery.started, Some(true));
+    }
+
+    #[tokio::test]
+    async fn a_visible_first_or_last_prompt_line_gets_one_enter_and_no_second_paste() {
+        assert_one_enter("Compare the two re\nceipts and summarize the differences.\n\n").await;
+        let screen = format!("Thanks.\n{}", "Terminal footer\n".repeat(16));
+        assert_one_enter(&screen).await;
+    }
+
+    #[tokio::test]
+    async fn a_collapsed_paste_or_nonempty_composer_gets_one_enter_and_no_second_paste() {
+        for screen in ["[Pasted text +10 lines]\n", "❯ [pasted text]\n", "> Visible text\n\n"] {
+            assert_one_enter(screen).await;
+        }
     }
 
     #[tokio::test]
@@ -1244,7 +1307,13 @@ mod tests {
 
     #[tokio::test]
     async fn an_unreadable_screen_does_not_justify_a_second_write() {
-        for screen in [Value::Null, json!({"text":">","complete":false})] {
+        for screen in [
+            Value::Null,
+            json!({"text":">","complete":false}),
+            json!({"text":"\n  \n"}),
+            json!({"text":"No composer visible\n"}),
+            json!({"text":">\nUnrecognized content below the prompt\n"}),
+        ] {
             let (delivery, _) = terminal_send(Some(false), vec![
                 ("terminal.get", terminal("idle", 3)),
                 ("terminal.read", screen),

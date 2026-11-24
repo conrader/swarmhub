@@ -102,28 +102,44 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
         return try decoder.decode(HerdrClient.Agent.self, from: Data(#"{"address":"t1","name":"bot","created_ms":5,"state":"live","status":{"state":"\#(state)"}}"#.utf8))
     }
 
-    @Test func unobservedStartUsesTheDeliveryFailureAfterTwelveSeconds() throws {
+    @Test(arguments: [false, true]) func unobservedStartIsAmbiguousAfterTwentySeconds(starting: Bool) throws {
         let start = ContinuousClock.now
-        var follower = HerdrTurnFollower(after: 10)
+        var follower = HerdrTurnFollower(after: 10, starting: starting)
         follower.take(rows: [task])
         follower.take(agent: try agent("idle"))
         #expect(follower.judgeSaved(now: start) == .waiting)
         #expect(follower.judgeAgent(now: start) == .waiting)
-        #expect(follower.judgeAgent(now: start + .seconds(11)) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(19)) == .waiting)
         follower.take(agent: try agent("done"))
-        let failure = HerdrClient.Failure.notDelivered("The bot’s terminal did not pick up your message.")
-        #expect(follower.judgeAgent(now: start + .seconds(12)) == .failed(failure))
-        #expect(failure.localizedDescription.contains("Choose Retry"))
+        let verdict = follower.judgeAgent(now: start + .seconds(20))
+        guard case .failed(let failure) = verdict else { Issue.record("Expected an ambiguous delivery failure"); return }
+        #expect(failure == .startNotObserved)
+        // The backend wraps errors it receives after delivery in a StreamBreak.
+        for error: Error in [failure, StreamBreak(delivered: true, underlying: failure)] {
+            let outcome = TurnOutcome.classify(.error(error))
+            #expect(outcome.state == .notSent && outcome.ambiguous)
+            #expect(outcome.reason == "The bot may not have received your message. Check its terminal or chat before retrying.")
+        }
+    }
+
+    @Test func unobservedStartRespectsAShorterQuietLimit() throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10, quietLimit: .seconds(5))
+        follower.take(rows: [task])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(4)) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(5)) == .failed(.startNotObserved))
     }
 
     @Test func anAgentStillStartingKeepsItsLongerGracePeriod() throws {
         let start = ContinuousClock.now
         var follower = HerdrTurnFollower(after: 10, starting: true)
-        follower.take(rows: [task])
+        follower.take(rows: [row(11, "task", "do it")])
         follower.take(agent: try agent("idle"))
         #expect(follower.judgeAgent(now: start) == .waiting)
         #expect(follower.judgeAgent(now: start + .seconds(149)) == .waiting)
-        #expect(follower.judgeAgent(now: start + .seconds(150)) == .failed(.notDelivered("The bot’s terminal did not pick up your message.")))
+        #expect(follower.judgeAgent(now: start + .seconds(150)) == .failed(.silent))
     }
 
     @Test(arguments: [false, true]) func aReplyCanArriveWithOrWithoutObservedWork(worked: Bool) throws {

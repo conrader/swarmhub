@@ -127,7 +127,7 @@ struct HerdrClient: Sendable {
     }
 
     enum Failure: LocalizedError, Equatable {
-        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, unconfirmedDelivery, notDelivered(String?)
+        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, unconfirmedDelivery, startNotObserved, notDelivered(String?)
         var errorDescription: String? {
             switch self {
             case .invalidURL: "The server address is not valid. Use http://127.0.0.1:8787, or the port you forwarded."
@@ -140,6 +140,7 @@ struct HerdrClient: Sendable {
             // The server's own sentence says why and what to look at; without one, the same in the app's words.
             case .notDelivered(let why): why.map { "\($0) Choose Retry in chat once the bot is ready." } ?? "The bot did not get ready. Answer any terminal prompt in this chat, then choose Retry."
             case .unconfirmedDelivery: "OpenCode could not confirm delivery. Check the conversation before sending the message again."
+            case .startNotObserved: "The bot may not have received your message. Check its terminal or chat before retrying."
             case .waitingAtPrompt: "The first message did not start. If the bot is asking a question, choose Answer here in chat. Once the bot is ready, choose Retry."
             }
         }

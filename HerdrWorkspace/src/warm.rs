@@ -367,8 +367,9 @@ async fn send_prompt(
         match w.core.send(agent, &typed).await {
             Ok(sent) => {
                 let outcome = w.core.recover_send(agent, &typed, &prompt, sent).await;
-                // Core accepted the original write, even if recovery could not confirm a start.
-                if let Some(launch) = warm_launch {
+                if let Some(launch) = warm_launch
+                    && outcome.as_ref().is_ok_and(|delivery| delivery.started != Some(false))
+                {
                     let _ = mark(&w.history, launch, "delivered_ms");
                 }
                 return outcome;
@@ -411,7 +412,9 @@ pub(crate) async fn send_completion(
     };
     let prompt = crate::person_profile::prompt(&w.history, agent.display_name(), prompt)?;
     let delivery = w.core.send_completion(core, agent, prompt).await?;
-    if let Some(waiting) = waiting {
+    if let Some(waiting) = waiting
+        && delivery.started != Some(false)
+    {
         let _ = mark(&w.history, waiting.launch, "delivered_ms");
     }
     Ok(delivery)

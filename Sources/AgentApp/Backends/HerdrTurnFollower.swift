@@ -123,11 +123,11 @@ struct HerdrTurnFollower: Sendable {
         quietSince = since
         let startNotObserved = !began && replies.isEmpty && rows.values.contains(where: \.startNotObserved)
         // A starting agent may report idle before it can take its first message.
-        let limit = if starting && !began { max(quietLimit, startQuietLimit) }
-                    else if startNotObserved { min(quietLimit, .seconds(12)) }
+        let limit = if startNotObserved { min(quietLimit, .seconds(20)) }
+                    else if starting && !began { max(quietLimit, startQuietLimit) }
                     else { quietLimit }
         guard now - since >= limit else { return .waiting }
-        return .failed(startNotObserved ? .notDelivered("The bot’s terminal did not pick up your message.") : .silent)
+        return .failed(startNotObserved ? .startNotObserved : .silent)
     }
 
     /// The session is over: the turn's replies if its hook saved any as it closed, else the turn ended unanswered.
