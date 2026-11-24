@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// The running turn of one conversation (a bot's chat or a group). Chats never share a slot, so a long reply blocks
@@ -20,7 +21,37 @@ import Foundation
 
 /// How many turns may run at once, app-wide and per server (`connection(of:)`).
 struct TurnLimits: Equatable, Sendable {
-    var total = 6, perConnection = 4
+    static let range = 1...32
+    private static let totalKey = "turnLimits.total"
+    private static let perConnectionKey = "turnLimits.perConnection"
+
+    var total: Int
+    var perConnection: Int
+
+    init(total: Int = 6, perConnection: Int = 4) {
+        self.perConnection = Self.clamp(perConnection)
+        self.total = max(Self.clamp(total), self.perConnection)
+    }
+
+    init(defaults: UserDefaults) {
+        let fallback = Self()
+        self.init(total: Self.integer(forKey: Self.totalKey, in: defaults) ?? fallback.total,
+                  perConnection: Self.integer(forKey: Self.perConnectionKey, in: defaults) ?? fallback.perConnection)
+    }
+
+    func save(to defaults: UserDefaults) {
+        defaults.set(total, forKey: Self.totalKey)
+        defaults.set(perConnection, forKey: Self.perConnectionKey)
+    }
+
+    private static func clamp(_ limit: Int) -> Int {
+        min(max(limit, range.lowerBound), range.upperBound)
+    }
+
+    private static func integer(forKey key: String, in defaults: UserDefaults) -> Int? {
+        guard let number = defaults.object(forKey: key) as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        return number as? Int
+    }
 }
 
 extension AppStore {
@@ -68,17 +99,38 @@ extension AppStore {
 
     // MARK: Limits
 
+    func setPerConnectionTurnLimit(_ limit: Int) {
+        updateTurnLimits(TurnLimits(total: turnLimits.total, perConnection: limit))
+    }
+
+    func setTotalTurnLimit(_ limit: Int) {
+        updateTurnLimits(TurnLimits(total: limit, perConnection: min(limit, turnLimits.perConnection)))
+    }
+
+    private func updateTurnLimits(_ limits: TurnLimits) {
+        objectWillChange.send()
+        turnLimits = limits
+        limits.save(to: defaults)
+        sendQueuedNextMessage()
+    }
+
     /// What a bot's turns count against: its Herdr server; a sample agent runs here.
     func connection(of bot: Bot) -> String { bot.backend == .herdr ? "herdr:\(herdrServer(for: bot).id)" : "local" }
 
     /// Why a new turn for `bots` must wait (nil when it may start): the app-wide limit, then each bot's connection.
     func turnCapacityProblem(for bots: [Bot]) -> String? {
-        if runningTurns.count >= turnLimits.total { return "Waiting: \(turnLimits.total) replies are already running." }
+        if runningTurns.count >= turnLimits.total { return turnWaitMessage(limit: turnLimits.total) }
         let running = runningTurns.values.compactMap { turn in turn.botID.flatMap { id in self.bots.first { $0.id == id } }.map(connection(of:)) }
         for target in Set(bots.map(connection(of:))) where running.filter({ $0 == target }).count >= turnLimits.perConnection {
-            return "Waiting: \(turnLimits.perConnection) replies are already running on this server."
+            return turnWaitMessage(limit: turnLimits.perConnection, onServer: true)
         }
         return nil
+    }
+
+    private func turnWaitMessage(limit: Int, onServer: Bool = false) -> String {
+        let replies = limit == 1 ? "1 reply is" : "\(limit) replies are"
+        let location = onServer ? " on this server" : ""
+        return "Waiting: \(replies) already running\(location)."
     }
 
     // MARK: Stop

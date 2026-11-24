@@ -6,8 +6,9 @@ import UserNotifications
 @MainActor final class AppStore: ObservableObject {
     @Published var bots: [Bot] = []
     @Published var selectedBot: Bot?
-    /// The running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`), and how many may run at once.
-    @Published var runningTurns: [UUID: ConversationTurn] = [:]; var turnLimits = TurnLimits()
+    /// The running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`).
+    @Published var runningTurns: [UUID: ConversationTurn] = [:]
+    var turnLimits: TurnLimits
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
     /// The pane the Settings window shows when it next opens or is already open; it clears it.
@@ -158,6 +159,7 @@ import UserNotifications
         }
         if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = TestRunGuard.scratchDefaults("unguarded-\(UUID().uuidString)") }
         self.keyStore = keyStore; self.defaults = defaults; self.connectivity = connectivity
+        turnLimits = TurnLimits(defaults: defaults)
         self.backendFactory = backendFactory
         self.didCancelLocalStream = didCancelLocalStream
         let directory = storeURL?.deletingLastPathComponent() ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appending(path: "AgentApp", directoryHint: .isDirectory)

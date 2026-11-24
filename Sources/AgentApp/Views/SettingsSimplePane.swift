@@ -1,10 +1,7 @@
 import SwiftUI
 import UserNotifications
 
-/// Settings → General: you (your name, and what your bots should know about you), how the app looks, and
-/// notifications. Laid out the way Apple lays out a person and an appearance: your initial with your name typed
-/// beside it, choices as galleries of tiles and swatches, a switch beside its heading. Nothing here is a row of a
-/// table.
+/// Settings → General holds your profile, appearance, concurrent replies, and notifications.
 struct SettingsSimplePane: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference; @AppStorage("accent") private var accent = AppTheme.defaultAccent
@@ -20,6 +17,7 @@ struct SettingsSimplePane: View {
                 you
                 SettingsPersonSection()
                 appearanceGroup
+                concurrentReplies
                 SettingSwitch(title: SimpleCopy.notifyMaster, detail: Bundle.main.bundleIdentifier == nil ? SimpleCopy.notifyNeedsApp : SimpleCopy.notifyCaption,
                               symbol: "bell.badge.fill", colour: AppColor.clay, isOn: $notifications)
                     .onChange(of: notifications) { _, enabled in
@@ -28,6 +26,29 @@ struct SettingsSimplePane: View {
                     }
             }.padding(.horizontal, 32).padding(.vertical, 24).frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var concurrentReplies: some View {
+        let defaults = TurnLimits()
+        return SettingBlock(title: "Concurrent replies",
+                            detail: "By default, up to \(defaults.perConnection) replies run per server and \(defaults.total) across all servers, with extra messages waiting in the queue.") {
+            VStack(spacing: 8) {
+                replyLimitStepper("Per server", limit: Binding(get: { store.turnLimits.perConnection }, set: store.setPerConnectionTurnLimit))
+                replyLimitStepper("All servers combined", limit: Binding(get: { store.turnLimits.total }, set: store.setTotalTurnLimit))
+            }.frame(maxWidth: 360)
+        }
+    }
+
+    private func replyLimitStepper(_ title: String, limit: Binding<Int>) -> some View {
+        Stepper(value: limit, in: TurnLimits.range) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(limit.wrappedValue)").monospacedDigit()
+            }
+        }
+        .accessibilityLabel(title)
+        .accessibilityValue("\(limit.wrappedValue)")
     }
 
     /// Your initial as the sidebar shows it, your name typed beside it, and "About you" beneath.
