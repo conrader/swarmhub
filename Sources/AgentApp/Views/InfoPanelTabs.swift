@@ -7,6 +7,7 @@ extension AgentInfoTab {
         switch self {
         case .overview: "info.circle"
         case .model: "cpu"
+        case .routines: "clock.arrow.2.circlepath"
         case .skills: "puzzlepiece.extension"
         case .media: "photo.on.rectangle"
         }
@@ -16,9 +17,7 @@ extension AgentInfoTab {
 }
 
 extension AppStore {
-    /// The tabs this agent shows: a Herdr agent has Overview, its Model tab, its server's skill library and Media; a
-    /// sample agent has no model or skills to show.
-    func infoTabs(for bot: Bot) -> [AgentInfoTab] { bot.backend == .herdr ? [.overview, .model, .skills, .media] : [.overview, .media] }
+    func infoTabs(for bot: Bot) -> [AgentInfoTab] { bot.backend == .herdr ? AgentInfoTab.allCases : [.overview, .media] }
 
     /// The tab the panel shows: the chosen one when this agent has it, else Overview (`infoTab` itself is left alone so
     /// the choice comes back on an agent that has the tab).

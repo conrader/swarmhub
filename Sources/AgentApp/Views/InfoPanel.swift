@@ -25,6 +25,10 @@ struct InfoPanel: View {
         switch store.visibleInfoTab(for: bot) {
         case .overview: overview
         case .model: HerdrAgentControls(bot: bot).id(bot.id)
+        case .routines:
+            let server = store.herdrServer(for: bot)
+            HerdrRoutinesPanel(bot: bot, server: server)
+                .id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
         case .skills: HerdrSkillsPanel(bot: bot)
         case .media: MediaTabView(bot: bot)
         }

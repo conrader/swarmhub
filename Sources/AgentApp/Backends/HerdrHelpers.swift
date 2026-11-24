@@ -6,7 +6,7 @@ import Foundation
 /// and terminal. Foundation only, like the rest of `HerdrClient`.
 extension HerdrClient {
     /// An agent as the bridge names one in a path: its terminal's address and creation time.
-    struct AgentRef: Decodable, Sendable, Hashable { let address: String; let createdMs: UInt64 }
+    struct AgentRef: Codable, Sendable, Hashable { let address: String; let createdMs: UInt64 }
 
     /// One helper in `GET /api/agents/{address}/{created_ms}/helpers`.
     struct Helper: Decodable, Sendable, Equatable, Identifiable {

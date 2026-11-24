@@ -45,6 +45,7 @@ struct HerdrClient: Sendable {
         let address: String; let name: String; let state: String; let createdMs: UInt64; let template: String?; let status: Status?
         var firstMessage: FirstMessage? = nil
         var openCodeFirstTask: String? = nil
+        var reason: String? = nil
         /// Set for a helper: the agent that started it (`HerdrHelpers.swift`). A bot's own agent has none.
         var parent: AgentRef? = nil
         /// From a bridge that starts agents ahead of their first message (`warm`). `ready` is false only while such an
@@ -73,7 +74,11 @@ struct HerdrClient: Sendable {
 
     /// A bot's saved profile on the bridge, with its newest sessions and what each was launched with.
     struct Profile: Decodable, Sendable {
-        struct Session: Decodable, Sendable, Equatable { let address: String; let createdMs: UInt64; var runtime: Template.Runtime? = nil }
+        struct Session: Decodable, Sendable, Equatable {
+            let address: String; let createdMs: UInt64
+            var runtime: Template.Runtime? = nil
+            var core: String? = nil
+        }
         let id: Int; let runtimeName: String
         var sessions: [Session]? = nil
     }
