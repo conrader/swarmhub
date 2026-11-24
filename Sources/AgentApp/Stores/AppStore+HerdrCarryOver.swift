@@ -74,14 +74,6 @@ extension AppStore {
         }
     }
 
-    /// The app has just ended `bot`'s agent because its program or model was changed: the next one reads the chat,
-    /// also when nothing was noted at the change (its server could not be read then). The agent that held the
-    /// conversation is gone, so there is none to leave out.
-    func herdrAgentEndedForChange(_ bot: Bot) {
-        guard herdrCarryApplies(to: bot), herdrCarryOver(for: bot) == nil else { return }
-        setHerdrCarryOver(HerdrCarryOver(old: nil, at: now()), for: bot)
-    }
-
     // MARK: The chat as a conversation to hand over
 
     /// What the person and the bot said in the bot's chat, oldest first, numbered from 1. Left out: the app's own

@@ -32,16 +32,17 @@ import Testing
     #expect(store.pendingHerdrModels(for: jarvis).count == 1 && SwarmhubSummary.lines(in: jarvis.messages[1].content).map(\.summary) == ["Asked to switch all bots to Codex · sol 6.2"])
     try await render("0-asked", height: 150)
 
-    // Applied: what was changed, with Undo, Start fresh agents and Done.
+    // Applied: what was changed while the sessions are being checked.
     store.dismissHerdrModel(try #require(store.pendingHerdrModels(for: jarvis).first))
     let changes = store.bots.map { HerdrModelPlan.Change(bot: $0.id, name: $0.name, template: "tpl-codex", model: "gpt-6.2-sol", beforeTemplate: "", beforeModel: "") }
-    let record = try #require(store.applyHerdrModels(HerdrModelPlan(changes: changes, unchanged: 0, label: "Codex · GPT-6.2 Sol"), on: server, by: jarvis))
-    #expect(store.herdrModelRecord(by: jarvis, on: server)?.id == record.id && record.notFresh == 23)
+    let record = AppStore.HerdrModelRecord(manager: jarvis.id, server: server.id, label: "Codex · GPT-6.2 Sol", changes: changes, at: Date())
+    store.herdrModelRecords = [record]
     try await render("1-applied", height: 150)
 
-    // After fresh agents: three bots were answering and are offered again.
+    // After automatic rollover: three bots will switch on their next direct message.
     var after = record
-    after.fresh = Array(changes.prefix(20).map(\.bot)); after.note = "20 bots start fresh with their next message. 3 bots are answering and keep their model until started fresh."
+    after.fresh = Array(changes.prefix(20).map(\.bot))
+    after.rolloverSummary = "20 bots are ready to use the selected model now. 3 bots will switch on the next direct message after the current turn."
     store.herdrModelRecords = [after]
     #expect(store.herdrModelRecord(by: jarvis, on: server)?.notFresh == 3)
     try await render("2-some-still-answering", height: 150)

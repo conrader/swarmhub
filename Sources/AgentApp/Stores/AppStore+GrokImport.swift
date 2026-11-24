@@ -54,6 +54,7 @@ extension AppStore {
         try beginGrokImport()
         var rows: [GrokImportRow] = []
         var imported: [UUID] = []
+        var fallbackMain: Bot?
         do {
             for bundle in Self.ordered(bundles) {
                 timing?.end(&stretch)
@@ -72,13 +73,14 @@ extension AppStore {
                     throw error
                 }
                 rows.append(apply(prepared, to: target, historyCount: count, policy: policy, destination: destination))
+                if destination != nil, fallbackMain == nil, case .bot(let bot, .new) = target { fallbackMain = bot }
                 imported.append(target.id)
                 timing?.end(&stretch)
                 await Task.yield()
                 stretch = timing?.start()
             }
-        } catch { try? finishGrokImport(rows); throw error }
-        try finishGrokImport(rows)
+        } catch { try? finishGrokImport(rows, fallbackMain: fallbackMain); throw error }
+        try finishGrokImport(rows, fallbackMain: fallbackMain)
         // Each imported bot's agent is handed its conversation at its next message; a long one is summarised ahead of that.
         grokImported(imported)
         timing?.end(&stretch)
@@ -121,7 +123,18 @@ extension AppStore {
         migrateArchivedGroups()
     }
 
-    private func finishGrokImport(_ rows: [GrokImportRow]) throws {
+    /// Gives a server without a main bot its imported Jarvis. Linked bots keep their own server.
+    func assignImportedJarvis(_ bot: Bot, named name: String) {
+        guard name.caseInsensitiveCompare("Jarvis") == .orderedSame, bot.backend == .herdr, !bot.isReadOnlyArchive,
+              herdrMainBot(on: herdrServer(for: bot)) == nil else { return }
+        bot.canManageBots = true
+    }
+
+    private func finishGrokImport(_ rows: [GrokImportRow], fallbackMain: Bot? = nil) throws {
+        // Destination setup has always picked the first new bot when it needs a main bot. Give Jarvis first choice.
+        if let fallbackMain, bots.contains(fallbackMain), herdrMainBot(on: herdrServer(for: fallbackMain)) == nil {
+            fallbackMain.canManageBots = true
+        }
         // The sample bots go once real bots exist (P35 D6); any left (no real bot yet) step aside under Hidden chats.
         if !rows.isEmpty { removeSampleBots(); bots.filter(\.isDemo).forEach { $0.isHidden = true } }
         if (selectedBot == nil && selectedGroup == nil) || selectedBot?.isHidden == true { selectVisibleChat() }

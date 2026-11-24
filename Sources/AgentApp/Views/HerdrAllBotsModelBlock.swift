@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings → Servers: one agent program and model for every bot on the chosen server at once, which a bot's own
-/// Details otherwise sets one bot at a time. What was changed stays here with Undo and "Start fresh agents"
+/// Details otherwise sets one bot at a time. What was changed stays here with Undo
 /// (`HerdrModelRecordRow`), as it does in the main bot's chat when the main bot was asked for the same.
 struct HerdrAllBotsModelBlock: View {
     @EnvironmentObject private var store: AppStore
@@ -54,12 +54,10 @@ struct HerdrAllBotsModelBlock: View {
         guard let effective, !applying else { return }
         applying = true
         defer { applying = false }
-        // The agents that run now hold their conversations; each bot's next agent is handed its chat.
-        let running = await store.herdrRunningLaunches(on: server)
         let chosen = effective.takesModel ? model : HerdrModelChoice.recommended
         let named = chosen == HerdrModelChoice.recommended ? HerdrModelPlan.recommendedLabel : models.first(where: { $0.id == chosen }).map { HerdrAgentReading.name($0) } ?? chosen
         let label = "\(effective.label) · \(named)"
-        if store.setHerdrModelForAll(on: server, template: effective, model: chosen, label: label, templates: templates, running: running) == nil {
+        if await store.setHerdrModelForAll(on: server, template: effective, model: chosen, label: label, templates: templates) == nil {
             note = "Every bot here already runs on \(label)."
         } else { note = ""; open = false }
     }

@@ -116,8 +116,8 @@ struct HerdrModelRequest: Equatable, Sendable {
         {"op":"\(op)","decision":"\(HerdrBotRequest.decidedWord)","bots":"\(allWord)","runtime":"Codex","model":"sol 6.2"}
         ```
 
-        "bots" is "\(allWord)" or a list of names; "model" is the model as the person called it. SwarmHub matches it against \
-        the server's models, applies it, and tells you when it cannot. Never change a model any other way.
+        "bots" is "\(allWord)" or a list of names. Use "decided" for an explicit request. SwarmHub matches the choice, \
+        applies it with Undo for the person, and tells you when it cannot.
         """
 
     /// What the main bot reads in front of a message that asks for a model change (`ManagementIntent.changesModel`).
@@ -134,8 +134,8 @@ struct HerdrModelRequest: Equatable, Sendable {
         or the model's name as the person said it: SwarmHub matches it against the models your server offers. \
         "recommended" is the program's recommended model. Give "runtime", "model" or both. \
         "decision" is "\(HerdrBotRequest.decidedWord)" when the person asked for exactly this change in the message you are \
-        answering: SwarmHub applies it and shows them Undo. With "\(HerdrBotRequest.askWord)", or when they have chosen to confirm \
-        what you do, they get Apply and Not now first. If SwarmHub cannot match the program or the model, it tells you which \
+        answering: SwarmHub applies it and shows them Undo. The confirmation setting for creating bots only affects bot creation. \
+        With "\(HerdrBotRequest.askWord)" they get Apply and Not now first. If SwarmHub cannot match the program or the model, it tells you which \
         ones the server has. The next direct reply uses the selected model in the same chat. An answer already running finishes on its current model.
         Tell the person which choice you requested. The app hides the block. \
         Do not edit files or restart agents yourself to change a model.

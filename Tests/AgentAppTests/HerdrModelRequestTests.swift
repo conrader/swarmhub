@@ -83,7 +83,10 @@ private func target(_ name: String, on template: String = "tpl-claude", own: Str
 }
 
 @Test func aMessageThatAsksForAnotherModelIsRecognised() {
-    for text in ["Ustaw boty na sol 6.2 - wszystkie", "set all bots to Sonnet", "Switch Legal to gpt-6.2-sol please", "zmień model Infry", "Przełącz wszystkie na Codex"] {
+    for text in ["Ustaw boty na sol 6.2 - wszystkie", "set all bots to Sonnet", "Switch Legal to gpt-6.2-sol please",
+                 "zmień model Infry", "Przełącz wszystkie na Codex", "zmień wszystkie boty na astra 6.2",
+                 "zmien silnik", "przestaw na neon", "ustaw Claude", "set every bot to astra 6.2",
+                 "all on sol", "Astra 6.2", "wszystkie boty na Gemini"] {
         #expect(ManagementIntent.changesModel(text), "\(text)")
     }
     for text in ["What is the weather?", "Tell me about the sonnet form", "Set a reminder", "Run the codex review", "Use the Gemini API here",
@@ -116,8 +119,18 @@ private final class ModelBridge: @unchecked Sendable {
     private var autoMode: [String: Bool] = [:]
     var ended: [String] { lock.withLock { endedNames } }
 
-    func run(_ name: String) {
-        lock.withLock { agents.append(["address": "a\(agents.count)", "created_ms": 10 + agents.count, "name": name, "state": "live", "template": "tpl-claude", "status": NSNull(), "first_message": NSNull()]) }
+    func run(_ name: String, state: String? = "idle", warm: Bool = false) {
+        lock.withLock {
+            let serial = agents.count + endedNames.count
+            agents.append(["address": "a\(serial)", "created_ms": 10 + serial, "name": name, "state": "live", "template": "tpl-claude",
+                           "status": state.map { ["state": $0] as Any } ?? NSNull(), "warm": warm])
+        }
+    }
+
+    func finish(_ name: String) {
+        lock.withLock {
+            if let index = agents.firstIndex(where: { $0["name"] as? String == name }) { agents[index]["status"] = ["state": "done"] }
+        }
     }
 
     func session() -> (address: String, session: URLSession) {
@@ -160,7 +173,11 @@ private final class ModelBridge: @unchecked Sendable {
             if text.contains("not applied") { return "Corrected.\n\n" + block(#"{"op":"set_model","decision":"decided","bots":"all","runtime":"Codex","model":"gpt-6.2-terra"}"#) }
             if text.contains("nova") { return "On it.\n\n" + block(#"{"op":"set_model","decision":"decided","bots":"all","runtime":"Codex","model":"nova 9"}"#) }
             if text.contains("opus") { return "Shall I?\n\n" + block(#"{"op":"set_model","decision":"ask","bots":["Legal"],"model":"opus 5.5"}"#) }
-            if text.contains("sol") { return "Done: the setting is changed.\n\n" + block(#"{"op":"set_model","decision":"decided","bots":"all","model":"sol 6.2"}"#) }
+            if text.contains("sol") {
+                let model = block(#"{"op":"set_model","decision":"decided","bots":"all","model":"sol 6.2"}"#)
+                let creation = text.localizedCaseInsensitiveContains("create") ? "\n\n" + block(#"{"op":"create_bot","decision":"decided","name":"QA","purpose":"Run tests."}"#) : ""
+                return "Done.\n\n" + model + creation
+            }
             return "Hello."
         }
     }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
@@ -179,19 +196,28 @@ private final class ModelBridge: @unchecked Sendable {
 
 @MainActor @Test func theMainBotSwitchesEveryBotAndThePersonCanUndoIt() async throws {
     let (store, jarvis, legal, infra, _) = modelStore()
-    #expect(try store.herdrBackend(for: jarvis).notes.contains { $0.marker == HerdrModelRequest.marker } && store.herdrBackend(for: legal).modelBrief == nil)
+    let server = store.herdrServer(for: jarvis)
+    let backend = try store.herdrBackend(for: jarvis)
+    #expect(backend.notes.first?.note == HerdrModelRequest.brief && backend.launchInstructions?.contains(HerdrModelRequest.brief) == true)
+    #expect(try store.herdrBackend(for: legal).modelBrief == nil)
+    for text in ["zmień wszystkie boty na astra 6.2", "set every bot to astra 6.2", "Astra 6.2"] {
+        #expect(backend.managementReminder(for: text) == HerdrModelRequest.how)
+    }
+    store.setHerdrAsksFirst(true, for: jarvis)
+    #expect(store.herdrAsksFirst(jarvis))
     #expect(store.send(text: "Ustaw boty na sol 6.2 - wszystkie", bot: jarvis, conversation: jarvis, replyToID: nil))
-    try await waitUntil { store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)) != nil && store.isIdle(jarvis) }
+    try await waitUntil(timeout: .seconds(5)) { lines(jarvis).contains { $0.hasPrefix("Jarvis switched 3 bots to Codex · GPT-6.2 Sol.") } }
     #expect([jarvis, legal, infra].map { choice(store, $0) } == Array(repeating: "tpl-codex|gpt-6.2-sol", count: 3))
-    #expect(lines(jarvis).contains("Jarvis switched 3 bots to Codex · GPT-6.2 Sol.") && store.pendingHerdrModels(for: jarvis).isEmpty)
+    #expect(store.pendingHerdrModels(for: jarvis).isEmpty)
     #expect([jarvis, legal, infra].allSatisfy { store.herdrCarryOver(for: $0) != nil }, "each changed bot is noted: its next agent reads the bot's chat first")
-    let record = try #require(store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)))
-    #expect(record.changes.count == 3 && record.notFresh == 3)
+    let record = try #require(store.herdrModelRecord(by: jarvis, on: server))
+    #expect(record.changes.count == 3 && record.notFresh == 0)
     // A bot the person has moved on since keeps that choice; the others go back to exactly what they had.
     store.setHerdrModel("gpt-6.2-terra", for: legal)
-    #expect(store.undoHerdrModels(record) == 2)
+    #expect(await store.undoHerdrModels(record) == 2)
     #expect(choice(store, jarvis) == "-|" && choice(store, infra) == "tpl-claude|claude-opus-5-5" && choice(store, legal) == "tpl-codex|gpt-6.2-terra")
-    #expect(store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)) == nil && lines(jarvis).contains("You undid the switch to Codex · GPT-6.2 Sol: 2 bots went back to what they ran before."))
+    #expect(store.herdrModelRecord(by: jarvis, on: server)?.undo == true)
+    #expect(lines(jarvis).contains { $0.hasPrefix("You undid the switch to Codex · GPT-6.2 Sol: 2 bots went back to what they ran before.") })
 }
 
 @MainActor @Test func aChangeLeftToThePersonWaitsForApply() async throws {
@@ -201,43 +227,49 @@ private final class ModelBridge: @unchecked Sendable {
     let pending = try #require(store.pendingHerdrModels(for: jarvis).first)
     #expect(pending.request.who == "Legal" && choice(store, legal) == "-|" && store.herdrModelRecords.isEmpty, "nothing changes before Apply")
     #expect(await store.acceptHerdrModel(pending, manager: jarvis) == nil)
-    #expect(choice(store, legal) == "tpl-claude|claude-opus-5-5" && store.pendingHerdrModels(for: jarvis).isEmpty && lines(jarvis).contains("Jarvis switched 1 bot to Claude · Opus 5.5."))
-    // With "Ask me before creating bots" on, a decided change waits too.
-    let asking = modelStore()
-    asking.store.setHerdrAsksFirst(true, for: asking.jarvis)
-    #expect(asking.store.send(text: "all on sol", bot: asking.jarvis, conversation: asking.jarvis, replyToID: nil))
-    try await waitUntil { asking.store.pendingHerdrModels(for: asking.jarvis).count == 1 }
-    #expect(asking.store.herdrModelRecords.isEmpty && choice(asking.store, asking.legal) == "-|")
-    asking.store.dismissHerdrModel(try #require(asking.store.pendingHerdrModels(for: asking.jarvis).first))
-    #expect(asking.store.pendingHerdrModels(for: asking.jarvis).isEmpty)
+    #expect(choice(store, legal) == "tpl-claude|claude-opus-5-5" && store.pendingHerdrModels(for: jarvis).isEmpty)
+    #expect(lines(jarvis).contains { $0.hasPrefix("Jarvis switched 1 bot to Claude · Opus 5.5.") })
 }
 
 @MainActor @Test func aModelNobodyHasGoesBackToTheMainBotOnce() async throws {
     let (store, jarvis, legal, _, _) = modelStore()
     #expect(store.send(text: "put everyone on nova", bot: jarvis, conversation: jarvis, replyToID: nil))
-    try await waitUntil { store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis)) != nil && store.isIdle(jarvis) }
+    try await waitUntil(timeout: .seconds(5)) { store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis))?.rolloverSummary != nil && store.isIdle(jarvis) }
     let told = try #require(jarvis.messages.first { $0.metadata[HerdrModelRequest.outcomeKey] != nil })
     #expect(told.role == .user && told.content.hasPrefix("[From SwarmHub]\nThe model change was not applied. Codex has no model matching “nova 9”. Models: gpt-6.2-sol, gpt-6.2-sol-mini, gpt-6.2-terra."))
     #expect(store.isAppWritten(told) && choice(store, legal) == "tpl-codex|gpt-6.2-terra", "its corrected request is applied without another question")
     #expect(jarvis.messages.filter { $0.metadata[HerdrModelRequest.outcomeKey] != nil }.count == 1)
 }
 
-@MainActor @Test func freshAgentsAreStartedOnceAndSettingsDoesTheSame() async throws {
+@MainActor @Test func settingsRollsOverIdleAndWarmAgentsAndDefersBusyAgents() async throws {
     let (store, jarvis, legal, infra, bridge) = modelStore()
     let server = store.herdrServer(for: jarvis)
     let all = try await store.herdrTemplates(on: server), codex = try #require(all.first { $0.name == "tpl-codex" })
-    let record = try #require(store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol", label: "Codex · GPT-6.2 Sol", templates: all))
-    #expect(record.manager == nil && record.changes.count == 3 && store.herdrModelRecord(by: nil, on: server)?.id == record.id && store.herdrModelRecord(by: jarvis, on: server) == nil)
-    #expect(store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol", label: "Codex · GPT-6.2 Sol", templates: all) == nil, "nothing to change the second time")
-    for bot in [legal, infra] { bridge.run(HerdrBackend.agentName(botName: bot.name, botID: bot.id)) }
-    let note = await store.startFreshHerdrAgents(record)
-    #expect(note == "3 bots start fresh with their next message." && bridge.ended.count == 2, "a bot with no agent running starts fresh anyway")
-    let after = try #require(store.herdrModelRecord(by: nil, on: server))
-    #expect(after.notFresh == 0 && after.note == note)
-    bridge.run(HerdrBackend.agentName(botName: legal.name, botID: legal.id))
-    await store.startFreshHerdrAgents(after)
-    #expect(bridge.ended.count == 2, "an agent that already started fresh is not ended again")
-    store.doneWithHerdrModels(after)
+    let remote = Bot(name: "Remote", backend: .herdr), offline = Bot(name: "Offline", backend: .herdr)
+    store.bots += [remote, offline]
+    func name(_ bot: Bot) -> String { HerdrBackend.agentName(botName: bot.name, botID: bot.id) }
+    bridge.run(name(jarvis), state: nil, warm: true)
+    bridge.run(name(legal))
+    bridge.run(name(infra), state: "done")
+    bridge.run(name(remote), state: "working")
+    let turn = store.beginTurn(in: infra, bot: infra, assistant: ChatMessage(role: .assistant, content: "Working…", isStreaming: true))
+
+    let record = try #require(await store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol", label: "Codex · GPT-6.2 Sol", templates: all))
+    #expect(store.herdrModelRecord(by: nil, on: server)?.id == record.id && store.herdrModelRecord(by: jarvis, on: server) == nil)
+    #expect(record.changes.count == 5 && Set(record.fresh) == Set([jarvis.id, legal.id, offline.id]))
+    #expect(record.rolloverSummary == "3 bots are ready to use the selected model now. 2 bots will switch on the next direct message after the current turn.")
+    #expect(bridge.ended == [name(jarvis), name(legal)])
+    #expect(store.isStreaming(in: infra) && store.modelSwitchPending(infra) && store.modelSwitchPending(remote))
+    #expect(store.herdrCarryOver(for: legal)?.old != nil && store.herdrCarryOver(for: infra)?.old != nil)
+    #expect(await store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol", label: "Codex · GPT-6.2 Sol", templates: all) == nil)
+
+    store.endTurn(turn.token)
+    bridge.finish(name(remote))
+    for bot in [infra, remote] {
+        let sources = try await store.prepareDirectModel(bot: bot, server: server, template: store.herdrTemplate(for: bot), model: store.herdrModel(for: bot))
+        #expect(sources.count == 1 && bridge.ended.contains(name(bot)) && !store.modelSwitchPending(bot))
+    }
+    store.doneWithHerdrModels(record)
     #expect(store.herdrModelRecord(by: nil, on: server) == nil)
 }
 
@@ -245,17 +277,17 @@ private final class ModelBridge: @unchecked Sendable {
     let (store, jarvis, legal, _, _) = modelStore()
     let server = store.herdrServer(for: jarvis)
     let all = try await store.herdrTemplates(on: server), codex = try #require(all.first { $0.name == "tpl-codex" })
-    let first = try #require(store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol", label: "Codex · GPT-6.2 Sol", templates: all))
+    let first = try #require(await store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol", label: "Codex · GPT-6.2 Sol", templates: all))
     let again = HerdrModelPlan(changes: [.init(bot: legal.id, name: "Legal", template: "tpl-claude", model: "claude-opus-5-5", beforeTemplate: "tpl-codex", beforeModel: "gpt-6.2-sol")], unchanged: 0, label: "Claude · Opus 5.5")
-    let second = try #require(store.applyHerdrModels(again, on: server, by: nil))
+    let second = try #require(await store.applyHerdrModels(again, on: server, by: nil))
     #expect(store.herdrModelRecords(by: nil, on: server).map(\.id) == [first.id, second.id], "a change just made stays beside the next one")
-    await store.startFreshHerdrAgents(first)
-    let started = try #require(store.herdrModelRecords(by: nil, on: server).first)
-    #expect(started.notFresh == 0 && store.undoHerdrModels(started, running: [:]) == 2, "Legal was changed again since and keeps that")
+    #expect(first.notFresh == 0)
+    #expect(await store.undoHerdrModels(first) == 2, "Legal was changed again since and keeps that")
     let left = store.herdrModelRecords(by: nil, on: server)
     #expect(left.map(\.undo) == [false, true] && left.last?.changes.map(\.name) == ["Jarvis", "Infra"] && left.last?.changes.first?.template == "")
     let back = try #require(left.last)
-    #expect(HerdrModelRecordRow.title(back, by: nil) == "2 bots are back on what they ran before" && store.undoHerdrModels(back) == 0, "going back has no Undo of its own")
+    #expect(HerdrModelRecordRow.title(back, by: nil) == "2 bots are back on what they ran before")
+    #expect(await store.undoHerdrModels(back) == 0, "going back has no Undo of its own")
     #expect(HerdrModelRecordRow.title(second, by: "Jarvis") == "Jarvis switched 1 bot to Claude · Opus 5.5")
 }
 
@@ -264,6 +296,24 @@ private struct SelectedBotDetails: View {
     @ObservedObject var store: AppStore
     var body: some View {
         if let bot = store.selectedBot { InfoPanel(bot: bot).environmentObject(store) }
+    }
+}
+
+@Suite struct HerdrBotRequestTests {
+    @MainActor @Test func confirmationStillAppliesToCreatingBotsInTheSameReply() async throws {
+        let (store, jarvis, legal, _, _) = modelStore()
+        store.setHerdrAsksFirst(true, for: jarvis)
+        let prompt = "Create a QA bot and set every bot to sol 6.2."
+        let backend = try store.herdrBackend(for: jarvis)
+        let reminder = try #require(backend.managementReminder(for: prompt))
+        #expect(reminder.contains(HerdrModelRequest.how) && reminder.contains(AppStore.herdrCreationNoteAsking))
+
+        #expect(store.send(text: prompt, bot: jarvis, conversation: jarvis, replyToID: nil))
+        try await waitUntil(timeout: .seconds(5)) {
+            !store.pendingHerdrBots(for: jarvis).isEmpty && store.herdrModelRecord(by: jarvis, on: store.herdrServer(for: jarvis))?.rolloverSummary != nil
+        }
+        #expect(store.pendingHerdrBots(for: jarvis).map(\.request.name) == ["QA"])
+        #expect(!store.bots.contains { $0.name == "QA" } && choice(store, legal) == "tpl-codex|gpt-6.2-sol")
     }
 }
 

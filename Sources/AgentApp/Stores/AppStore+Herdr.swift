@@ -254,10 +254,19 @@ extension AppStore {
     /// Ends the bot's running agent, so its next message starts a fresh one on the chosen runtime and model.
     /// Returns whether an agent was running. The chat stays; the agent's own memory of it does not.
     func restartHerdrAgent(for bot: Bot) async throws -> Bool {
+        try await restartHerdrAgent(for: bot) { _, _ in true } ?? false
+    }
+
+    /// The caller can validate the latest workspace and local turn state immediately before ending the agent.
+    /// Nil means the caller deferred the restart.
+    func restartHerdrAgent(for bot: Bot, if shouldRestart: (HerdrClient.Workspace, HerdrClient.Agent?) throws -> Bool) async throws -> Bool? {
         // A start ahead of time that is on its way is let through first, so the agent it starts is the one ended.
         await herdrWarming[bot.id]?.value
         let backend = try herdrBackend(for: bot)
-        guard let agent = backend.client.liveAgent(named: backend.agentName, in: try await backend.client.workspace()) else { return false }
+        let workspace = try await backend.client.workspace()
+        let agent = backend.client.liveAgent(named: backend.agentName, in: workspace)
+        guard try shouldRestart(workspace, agent) else { return nil }
+        guard let agent else { return false }
         try await backend.client.end(agent)
         herdrReadiness[bot.id] = nil
         return true

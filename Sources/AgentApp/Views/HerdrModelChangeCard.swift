@@ -57,9 +57,7 @@ struct HerdrModelChangeCard: View {
     }
 }
 
-/// A change that was applied, in the main bot's chat and in Settings: what it was, and Undo, "Start fresh agents"
-/// and Done. A bot that was answering when fresh agents were started is offered again as "Start the rest fresh".
-/// A change that was undone after bots had started fresh on it leaves those bots here, without Undo.
+/// A change that was applied, in the main bot's chat and in Settings, with its session status, Undo and Done.
 struct HerdrModelRecordRow: View {
     @EnvironmentObject private var store: AppStore
     let record: AppStore.HerdrModelRecord; let title: String
@@ -80,7 +78,8 @@ struct HerdrModelRecordRow: View {
             Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(.secondary).frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
-                Text(record.undo ? Self.undoCaption : Self.caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(record.rolloverSummary ?? (record.undo ? Self.undoCaption : Self.caption))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if starting { ProgressView().controlSize(.small) }
@@ -94,10 +93,7 @@ struct HerdrModelRecordRow: View {
     private func undo() {
         starting = true
         Task {
-            // The agents that run now hold their conversations; each bot's next agent is handed its chat.
-            var running: [UUID: HerdrAgentLaunch]? = nil
-            if let server = store.herdrServers.first(where: { $0.id == record.server }) { running = await store.herdrRunningLaunches(on: server) }
-            store.undoHerdrModels(record, running: running)
+            await store.undoHerdrModels(record)
             starting = false
         }
     }

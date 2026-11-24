@@ -126,11 +126,17 @@ struct HerdrBackend: AgentBackend {
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(Self.choiceMarker, Self.choiceNote), (Self.draftMarker, Self.draftNote),
+        [(HerdrModelRequest.marker, modelBrief), (Self.choiceMarker, Self.choiceNote), (Self.draftMarker, Self.draftNote),
          (HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : HerdrBotMessage.marker, messageNote),
-         (HerdrAboutYou.marker, aboutHow), (HerdrModelRequest.marker, modelBrief), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
+         (HerdrAboutYou.marker, aboutHow), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }
+    }
+
+    func managementReminder(for text: String) -> String? {
+        let notes = [ManagementIntent.changesModel(text) ? modelHow : nil,
+                     ManagementIntent.createsBot(text) ? creationNote ?? askNote : nil].compactMap { $0 }
+        return notes.isEmpty ? nil : notes.joined(separator: "\n\n")
     }
 
     /// The notes that change, each with the words every version of it starts with.
@@ -223,7 +229,7 @@ struct HerdrBackend: AgentBackend {
                         if !sources.isEmpty { continuation.yield(.status(HerdrTurnStatus.sending.code)) }
                     }
                     let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
-                                                                reminder: ManagementIntent.createsBot(text) ? backend.creationNote ?? backend.askNote : ManagementIntent.changesModel(text) ? backend.modelHow : nil,
+                                                                reminder: backend.managementReminder(for: text),
                                                                 once: backend.notes, changing: backend.rosters,
                                                                 projects: backend.projects, files: files, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
                                                                 status: { continuation.yield(.status($0.code)) })

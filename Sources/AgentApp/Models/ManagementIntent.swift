@@ -6,7 +6,7 @@ enum ManagementIntent {
     private static let createVerbs = ["create", "new", "make", "add", "build", "set up", "setup", "spin up",
                                       "stwórz", "stworz", "utwórz", "utworz", "nowy", "nowego", "nową", "dodaj", "zrób", "zrob"]
     private static let botNouns = ["bot", "bots", "agent", "agents", "assistant", "assistants", "subagent", "subagents",
-                                   "bota", "boty", "botów", "botow", "agenta", "agentów", "asystenta"]
+                                   "bota", "boty", "botów", "botow", "botom", "agenta", "agenty", "agentów", "agentow", "asystenta"]
 
     static func createsBot(_ text: String) -> Bool {
         let joined = " " + tokens(text).joined(separator: " ") + " "
@@ -14,23 +14,30 @@ enum ManagementIntent {
     }
 
     private static let changeVerbs = ["set", "switch", "change", "move", "put", "use", "run", "make",
-                                      "ustaw", "zmień", "zmien", "przełącz", "przelacz", "przestaw", "użyj", "uzyj", "daj"]
-    private static let modelNouns = ["model", "models", "modelu", "modele", "modeli", "sol", "terra", "sonnet", "opus", "haiku", "fable",
-                                     "codex", "claude", "gemini", "opencode", "gpt"]
+                                      "ustaw", "zmień", "zmien", "przełącz", "przelacz", "przestaw", "użyj", "uzyj", "daj", "zamień", "zamien"]
+    private static let modelNouns = ["model", "models", "modelu", "modele", "modeli", "engine", "engines",
+                                     "silnik", "silnika", "silniki", "silników", "silnikow", "runtime"]
+    private static let programsAndModels = ["codex", "claude", "gemini", "opencode", "gpt", "astra", "sol", "neon",
+                                            "terra", "sonnet", "opus", "haiku", "fable"]
 
     private static let towards = ["to", "on", "onto", "na", "do"]
-    private static let everyone = ["all", "every", "everyone", "everybody", "wszystkie", "wszystkich", "wszyscy", "każdy", "kazdy"]
+    private static let everyone = ["all", "every", "everyone", "everybody", "wszystkie", "wszystkich", "wszystkim",
+                                   "wszyscy", "każdy", "kazdy", "każdego", "kazdego"]
 
     /// The message may ask for another model or agent program ("set all bots to sol 6.2", "ustaw boty na sonnet").
-    /// A word for changing and a word for a model are not enough ("run the codex review", "change the User model
-    /// to add a field"): it also names bots, or says "to"/"on" a model, or is a few words about "the model".
     static func changesModel(_ text: String) -> Bool {
         let words = tokens(text)
-        func names(_ word: String) -> Bool { modelNouns.contains { word == $0 || word.hasPrefix($0 + "-") } }
-        guard changeVerbs.contains(where: { words.contains($0) }), words.contains(where: names) else { return false }
-        if words.contains(where: { botNouns.contains($0) || everyone.contains($0) }) { return true }
-        if zip(words, words.dropFirst()).contains(where: { towards.contains($0.0) && names($0.1) }) { return true }
-        return words.count <= 5 && words.contains { $0.hasPrefix("model") }
+        func names(_ word: String) -> Bool { programsAndModels.contains { word == $0 || word.hasPrefix($0 + "-") } }
+        let namesModel = words.contains(where: names), hasModelNoun = words.contains(where: modelNouns.contains)
+        guard namesModel || hasModelNoun else { return false }
+        let namesBots = words.contains { botNouns.contains($0) || everyone.contains($0) }
+        let namesDestination = zip(words, words.dropFirst()).contains { towards.contains($0.0) && names($0.1) }
+        if words.contains(where: changeVerbs.contains) {
+            return namesBots || namesDestination || (words.count <= 5 && (hasModelNoun || words.dropFirst().first.map(names) == true))
+        }
+        // Short follow-ups such as "Astra 6.2" or "wszystkie boty na Neon".
+        return namesDestination && namesBots || words.first.map(names) == true
+            && words.dropFirst().allSatisfy { $0.first?.isNumber == true || $0 == "mini" }
     }
 
     /// Lowercased words; letters, digits, `.`, `-` and `'` stay inside a word, everything else separates.

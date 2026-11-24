@@ -11,6 +11,41 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     return (AppStore(storeURL: url, autoStart: false, keyStore: keyStore, defaults: isolatedDefaults()), keyStore)
 }
 
+@Suite struct GrokImportTests {
+    @MainActor @Test func fileImportPromotesJarvisAndPersistsTheRole() throws {
+        let url = temporaryStore()
+        let (store, _) = grokStore(url)
+        var jarvis = try #require(try GrokBundleLoader.load(from: exportFolder).first { $0.sourceId == jarvisID })
+        jarvis.name = "jARVIS"
+        try store.importGrokBundles([jarvis])
+        #expect(store.herdrMainBot(on: store.herdrServers[0])?.grokSourceID == jarvisID)
+        let (reopened, _) = grokStore(url)
+        #expect(reopened.herdrMainBot(on: reopened.herdrServers[0])?.grokSourceID == jarvisID)
+    }
+
+    @MainActor @Test(arguments: [false, true])
+    func destinationImportPrefersJarvisAndKeepsAnExistingMainBot(hasMain: Bool) async throws {
+        let (store, _) = grokStore()
+        let local = store.herdrServers[0]
+        let remote = HerdrServer(id: "remote", name: "Studio", kind: .address, address: "http://127.0.0.1:8788")
+        store.saveHerdrServers([local, remote])
+        let localMain = Bot(name: "Local main", backend: .herdr), remoteMain = Bot(name: "Remote main", backend: .herdr)
+        store.bots = [localMain, remoteMain]
+        store.setHerdrServer(remote.id, for: remoteMain)
+        store.setCanManageBots(localMain, true)
+        store.setCanManageBots(remoteMain, hasMain)
+        let imported = try GrokBundleLoader.load(from: exportFolder)
+        let jarvis = try #require(imported.first { $0.sourceId == jarvisID })
+        let finance = try #require(imported.first { $0.name == "Finance Controller" })
+        let destination = GrokDestination(serverID: remote.id, offer: HerdrOffer(programs: []))
+
+        try await store.importGrokBundles([finance, jarvis], policy: .inApp(refreshIdentity: false), destination: destination)
+        #expect(store.herdrMainBot(on: local) === localMain)
+        #expect(store.herdrMainBot(on: remote)?.name == (hasMain ? remoteMain.name : jarvis.name))
+        #expect(store.herdrBots(on: remote).filter(\.canManageBots).count == 1)
+    }
+}
+
 @MainActor @Test func grokHistoryIsLazyAndOutsideStoreJSON() throws {
     let url = temporaryStore()
     let (store, _) = grokStore(url)

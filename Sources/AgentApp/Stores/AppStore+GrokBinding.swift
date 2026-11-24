@@ -74,15 +74,14 @@ extension AppStore {
             bot.grokHistoryCount = historyCount
             if kind == .new {
                 let server = herdrServer(id: destination?.serverID) ?? herdrServers[0]
-                let needsMain = destination != nil && herdrMainBot(on: server) == nil
                 bots.append(bot)
                 setHerdrServer(server.id, for: bot)
                 if let program = destination?.program(for: bundle.sourceId) {
                     setHerdrTemplate(program.template, for: bot)
                 }
                 setHerdrModel(HerdrModelChoice.recommended, for: bot)
-                if needsMain { bot.canManageBots = true }
             }
+            assignImportedJarvis(bot, named: prepared.name)
             return GrokImportRow(name: bot.name, historyCount: historyCount, mark: mapped,
                                  sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour,
                                  isGroup: false, created: kind == .new)

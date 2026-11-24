@@ -41,6 +41,7 @@ struct HerdrSettingsSection: View {
             }
             if let current {
                 VStack(alignment: .leading, spacing: 18) {
+                    mainBotPicker(on: current)
                     SegmentedChoice(title: "Part of \(current.name)", options: Part.allCases.map { ($0, $0.rawValue) }, selection: $part).frame(maxWidth: 480)
                     switch part {
                     case .connection: HerdrServerSection(server: current, canRemove: servers.count > 1) { templates = $0 }.id(current.id)
@@ -63,6 +64,28 @@ struct HerdrSettingsSection: View {
                 draft.sshDestination = signedIn.sshUser + "@" + signedIn.sshHost
                 add()
             }
+        }
+    }
+
+    private func mainBotPicker(on server: HerdrServer) -> some View {
+        let bots = store.herdrBots(on: server).filter { !$0.isReadOnlyArchive && !$0.isDemo }
+        let selection = Binding<UUID?>(get: {
+            bots.first(where: store.createsHerdrBots)?.id
+        }, set: { id in
+            if let bot = bots.first(where: { $0.id == id }) {
+                store.setCanManageBots(bot, true)
+            } else if id == nil {
+                for bot in bots where store.createsHerdrBots(bot) { store.setCanManageBots(bot, false) }
+            }
+        })
+        return SettingBlock(title: "Main bot") {
+            Picker("Main bot", selection: selection) {
+                Text("None").tag(nil as UUID?)
+                ForEach(bots) { bot in Text(bot.name).tag(Optional(bot.id)) }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .disabled(bots.isEmpty)
         }
     }
 
