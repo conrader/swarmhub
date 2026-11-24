@@ -6,12 +6,21 @@ enum ChatBlock: Equatable {
     case code(language: String, body: String)
     /// Question with options; picking one sends it as the user's reply.
     case choices(prompt: String, options: [String])
-    /// Draft with Send ("Send it" to the bot) and Copy.
+    /// Draft with inline Edit, Copy, and Send actions.
     case draft(DraftCard)
     case image(alt: String, url: String)
 }
 
-struct DraftCard: Equatable { var to: String?; var subject: String?; var body: String }
+struct DraftCard: Hashable, Encodable {
+    var to: String?
+    var subject: String?
+    var body: String
+    var channel: String? = nil
+
+    var isEmail: Bool {
+        channel?.caseInsensitiveCompare("Email") == .orderedSame || subject != nil
+    }
+}
 
 enum ChatCardParser {
     static let choicesMarker = "<!-- choices -->"
@@ -62,15 +71,23 @@ enum ChatCardParser {
                 if let option = listItem(line) { options.append(option) } else { prompt.append(line.trimmingCharacters(in: .whitespaces)) }
             }
             return options.count >= 2 ? .choices(prompt: prompt.joined(separator: " "), options: options) : .code(language: language, body: body.joined(separator: "\n"))
-        case "draft":
-            var draft = DraftCard(body: ""); var rest = body[...]
-            while let line = rest.first, let colon = line.firstIndex(of: ":") {
-                let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased(), value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-                if key == "to" { draft.to = value } else if key == "subject" { draft.subject = value } else { break }
+        case "draft", "email", "message":
+            var draft = DraftCard(body: "")
+            var rest = body[...]
+            headers: while let line = rest.first, let colon = line.firstIndex(of: ":") {
+                let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+                let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                switch key {
+                case "to": draft.to = value
+                case "subject": draft.subject = value
+                case "channel", "via": draft.channel = value.isEmpty ? nil : value
+                default: break headers
+                }
                 rest = rest.dropFirst()
             }
-            if draft.to != nil || draft.subject != nil, rest.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { rest = rest.dropFirst() }
-            draft.body = rest.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if rest.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { rest = rest.dropFirst() }
+            if draft.channel == nil, language.lowercased() == "email" { draft.channel = "Email" }
+            draft.body = rest.joined(separator: "\n")
             return .draft(draft)
         default:
             return .code(language: language, body: body.joined(separator: "\n"))

@@ -111,10 +111,23 @@ struct HerdrBackend: AgentBackend {
     - Wait for Infra
     ```
     """
+    static let draftMarker = "Drafts for approval"
+    static let draftNote = """
+    \(draftMarker): For an email or outbound message the user must approve before sending, use a `draft` fence. Put optional `channel:` (e.g. Email, WhatsApp, Slack), `to:`, and `subject:` (email) headers on separate lines, then a blank line and the exact body. SwarmHub shows a card with Edit, Copy, and Send. On “Send this edited draft”, send the JSON fields and body verbatim.
+
+    ```draft
+    channel: Email
+    to: maya@example.com
+    subject: Launch update
+
+    Hi Maya, we're ready to launch.
+    ```
+    """
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(Self.choiceMarker, Self.choiceNote), (HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : HerdrBotMessage.marker, messageNote),
+        [(Self.choiceMarker, Self.choiceNote), (Self.draftMarker, Self.draftNote),
+         (HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : HerdrBotMessage.marker, messageNote),
          (HerdrAboutYou.marker, aboutHow), (HerdrModelRequest.marker, modelBrief), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }

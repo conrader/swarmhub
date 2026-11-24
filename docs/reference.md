@@ -104,11 +104,13 @@ A reply can use these Markdown conventions. The app draws them as cards; elsewhe
 | Question with options | A fenced block with info string `choices`: non-list lines form the question, list lines (`- `, `* `, `+ `, `1. `, `1) `) are the options. It needs at least two options, else it stays a code block. | Choosing an option sends it as your reply. |
 | Trailing options | `<!-- choices -->` on its own line, followed by a numbered list that ends the message. | Choosing an option sends it as your reply. |
 | Plain-text choices | A direct choice cue followed by a trailing numbered or lettered option list, or a clear yes/no question at the end of a reply. | The text stays visible. The buttons send the option's number or letter, Yes or No, or Both when explicitly offered. |
-| Draft | A fenced block with info string `draft`; optional leading `to:` and `subject:` lines, one blank line, then the body. | **Send** sends "Send it" to the bot; the app itself sends nothing anywhere else. **Copy** copies the draft. |
+| Draft review | A fenced block with info string `draft`, `email`, or `message`. Start with optional `channel:` (also `via:`), `to:`, and `subject:` lines, followed by a blank line and the exact body. The `email` fence defaults to the Email channel. | **Edit** opens the recipient, email subject, and body inline. **Done editing** shows a preview, **Reset** restores the original, and **Copy** copies the current draft. **Send** tells the bot "Send it" for the original or gives it the exact revised draft to send. |
 | Link pills | A bare `http(s)://` URL in prose. | A pill per link under the paragraph. |
 | Image | `![alt](https://…)` or `![alt](data:image/…)`. | Shown inline. |
 
 Use **Other** to write your own answer. Choices are active only on the latest finished reply in Mac chat.
+
+When asking for approval before sending an email or outbound message, Herdr bots use a `draft` fence. The `channel:` line can name a service such as Email, WhatsApp, or Slack. The bot handles delivery after you click **Send**.
 
 A fenced block with info string `swarmhub` is how a bot's agent asks the app for something: a new bot (`create_bot`, `request_bot`, `decline_bot`), a message to another bot (`message_bot`), an addition to "About you" (`about_you`), or another AI and model for several bots (`set_model`, from the main bot only). The chat never draws the block. It shows one plain line under the reply, such as "Suggested a new bot: Legal"; **Copy original** in that line's context menu copies the block. The blocks are described in [Architecture](architecture.md#bots-the-main-bot-and-helpers).
 

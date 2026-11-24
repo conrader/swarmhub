@@ -45,8 +45,9 @@ extension AppStore {
     /// A pick on a choices card, or Send on a draft card, of message `sourceID` in `target`. Refused when the card is
     /// not a finished reply, has changed since it was shown (`expected`), was already answered, or (in a group) was
     /// written by another member. Choices also expire after a newer message. A group answer goes to the card's author
-    /// only, as a reply to the card. Send on a draft tells the bot "Send it": the bot does the sending.
-    @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock, choice: ChatChoiceAnswer? = nil) -> Bool {
+    /// only, as a reply to the card. Send tells the bot "Send it" or supplies the revised draft for the bot to send.
+    @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock,
+                                              choice: ChatChoiceAnswer? = nil, editedDraft: DraftCard? = nil) -> Bool {
         guard let (bot, conversation) = actionConversation(target),
               let source = conversation.messages.first(where: { $0.id == sourceID }),
               source.role == .assistant, !source.isStreaming else { return false }
@@ -60,8 +61,19 @@ extension AppStore {
         case .choices(_, let options):
             guard canAnswerChoice(source, bot: bot, in: conversation), let reply = choice?.text(options: options) else { return false }
             key = "picked.\(index)"; text = reply; value = reply
-        case .draft:
-            key = "draftSent.\(index)"; value = "1"; text = "Send it"
+        case .draft(let original):
+            key = "draftSent.\(index)"
+            if let editedDraft, editedDraft != original {
+                // JSON preserves the exact field values, including line breaks and whitespace in the body.
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                guard let data = try? encoder.encode(editedDraft) else { return false }
+                text = "Send this edited draft:\n" + String(decoding: data, as: UTF8.self)
+                value = "edited"
+            } else {
+                text = "Send it"
+                value = "1"
+            }
         default: return false
         }
         return sendCardReply(text, bot: bot, in: conversation, source: source, key: key, value: value)

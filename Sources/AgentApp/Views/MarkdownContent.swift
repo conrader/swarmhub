@@ -29,7 +29,8 @@ struct MarkdownContent: View {
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
                                                 expected: .choices(prompt: prompt, options: options), choice: answer)
                     }
-                case .draft(let draft): DraftCardView(message: message, target: actionTarget, index: index, draft: draft)
+                case .draft(let draft):
+                    DraftCardView(message: message, target: actionTarget, index: index, draft: draft).id(draft)
                 case .image(let alt, let url):
                     if let video = URL(string: url), ["http", "https"].contains(video.scheme?.lowercased() ?? ""), ChatMediaKind(filename: video.lastPathComponent) == .video {
                         ChatVideo(url: video).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(alt)
@@ -258,35 +259,110 @@ struct ChoicesCard: View {
     private func sendOther() { answer(.other(other)) }
 }
 
-/// Draft card: "Send" posts "Send it" to the bot that wrote it (P38: in the card's own chat), "Copy" copies the draft text.
+/// Inline review and editing for a draft sent back to its author.
 private struct DraftCardView: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var message: ChatMessage; let target: ConversationActionTarget?; let index: Int; let draft: DraftCard
-    private var sent: Bool { message.metadata["draftSent.\(index)"] != nil }
+    @ObservedObject var message: ChatMessage
+    let target: ConversationActionTarget?
+    let index: Int
+    let draft: DraftCard
+    @State private var current: DraftCard
+    @State private var isEditing = false
+
+    init(message: ChatMessage, target: ConversationActionTarget?, index: Int, draft: DraftCard) {
+        self.message = message
+        self.target = target
+        self.index = index
+        self.draft = draft
+        _current = State(initialValue: draft)
+    }
+
+    private var sentState: String? { message.metadata["draftSent.\(index)"] }
+    private var canEdit: Bool { target != nil && index >= 0 && sentState == nil && !message.isStreaming }
+    private var editing: Bool { isEditing && canEdit }
+    private var title: String {
+        if current.isEmail { return "Review email" }
+        if let channel = current.channel { return "Review \(channel)" }
+        return "Review message"
+    }
+    private var channelDetail: String? {
+        guard let channel = current.channel, current.isEmail, channel.caseInsensitiveCompare("Email") != .orderedSame else { return nil }
+        return channel
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Draft").font(.callout.weight(.semibold)).padding(12)
-            if draft.to != nil || draft.subject != nil {
+            HStack {
+                Label(title, systemImage: current.isEmail ? "envelope" : "bubble.left.and.text.bubble.right")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                if canEdit {
+                    if current != draft {
+                        Button("Reset") { current = draft }.buttonStyle(.link)
+                    }
+                    Button(isEditing ? "Done editing" : "Edit") { isEditing.toggle() }
+                }
+            }.padding(12)
+            if editing || current.to != nil || current.subject != nil || channelDetail != nil {
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
-                    if let to = draft.to { LabeledContent("To") { Text(to) } }
-                    if let subject = draft.subject { LabeledContent("Subject") { Text(subject).fontWeight(.medium) } }
+                    if let channelDetail { LabeledContent("Channel") { Text(channelDetail) } }
+                    if editing {
+                        LabeledContent("To") { TextField("To", text: field(\.to)).labelsHidden() }
+                        if current.isEmail {
+                            LabeledContent("Subject") { TextField("Subject", text: field(\.subject)).labelsHidden() }
+                        }
+                    } else {
+                        if let to = current.to { LabeledContent("To") { Text(to) } }
+                        if let subject = current.subject { LabeledContent("Subject") { Text(subject).fontWeight(.medium) } }
+                    }
                 }.font(.caption).padding(12)
             }
             Divider()
-            Text(draft.body).font(.callout).lineSpacing(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).padding(12)
+            if editing {
+                TextEditor(text: $current.body)
+                    .accessibilityLabel("Body")
+                    .font(.callout)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .frame(height: 140)
+                    .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(12)
+            } else {
+                Text(verbatim: current.body).font(.callout).lineSpacing(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).padding(12)
+            }
             Divider()
             HStack {
-                if sent { Text(message.metadata["draftSimulation.\(index)"] ?? "Sent “Send it”").font(.caption).foregroundStyle(.secondary) }
+                if let sentState {
+                    let status = sentState == "edited" ? "Sent edited draft" : message.metadata["draftSimulation.\(index)"] ?? "Sent “Send it”"
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Copy") { copyToPasteboard(draftText) }
-                Button("Send") { if let target { store.performCardAction(target: target, sourceID: message.id, index: index, expected: .draft(draft)) } }
-                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(target == nil || sent || message.isStreaming || target.map(store.isStreaming(for:)) == true)
+                Button("Send", action: send)
+                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(!canEdit || target.map(store.isStreaming(for:)) == true)
             }.padding(10)
         }.frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
+
+    private func field(_ keyPath: WritableKeyPath<DraftCard, String?>) -> Binding<String> {
+        Binding(
+            get: { current[keyPath: keyPath] ?? "" },
+            set: { current[keyPath: keyPath] = $0.isEmpty && draft[keyPath: keyPath] == nil ? nil : $0 }
+        )
+    }
+
     private var draftText: String {
-        ([draft.to.map { "To: \($0)" }, draft.subject.map { "Subject: \($0)" }].compactMap { $0 } + [draft.body]).joined(separator: "\n")
+        let headers = [current.channel.map { "Channel: \($0)" }, current.to.map { "To: \($0)" }, current.subject.map { "Subject: \($0)" }]
+        return (headers.compactMap { $0 } + [current.body]).joined(separator: "\n")
+    }
+
+    private func send() {
+        guard let target else { return }
+        if store.performCardAction(target: target, sourceID: message.id, index: index, expected: .draft(draft),
+                                   editedDraft: current == draft ? nil : current) {
+            isEditing = false
+        }
     }
 }
 
