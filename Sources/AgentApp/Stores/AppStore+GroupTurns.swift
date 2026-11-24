@@ -79,7 +79,7 @@ extension AppStore {
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
         } catch { end = .error(error) }
         if Task.isCancelled || run.stopped, case .completed = end {} else if Task.isCancelled || run.stopped { end = .stoppedByUser }
-        let reply = endTurnParts(assistant)
+        let reply = endTurnParts(assistant, end: end)
         if case .stoppedByUser = end, reply.turnState != .stopped { reply.turnState = .stopped; reply.metadata[TurnKey.why] = "stopped" }
         let outcome = finishTurn(end, assistant: reply, bot: bot, in: group, alertPrefix: "\(bot.name): ")
         group.activeMemberID = nil

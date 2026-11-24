@@ -162,7 +162,7 @@ extension AppStore {
             do { try await sendRetrySleep(delay) } catch { end = .stoppedByUser; break }
             if Task.isCancelled { end = .stoppedByUser; break }
         }
-        let assistant = endTurnParts(assistant)
+        let assistant = endTurnParts(assistant, end: end)
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation)

@@ -102,7 +102,10 @@ extension AppStore {
         Task {
             do {
                 try await activeBackend.steer(sessionID: sessionID, text: value)
-                if message.metadata[SteerKey.steer] == "sent" { message.metadata[SteerKey.steer] = "queued" }
+                if message.metadata[SteerKey.steer] == "sent" {
+                    // A successful turn may have ended while the steer request was still in flight.
+                    message.metadata[SteerKey.steer] = steerHeldByTurn(message) ? "queued" : "delivered"
+                }
             } catch {
                 guard ["sent", "queued"].contains(message.metadata[SteerKey.steer] ?? "") else { return }
                 // The agent says there is no run to steer any more: nothing was typed, so the text goes as the next message.
@@ -146,7 +149,7 @@ extension AppStore {
     /// Stream bookkeeping for queued steers (`consumeTurn`). Returns the row the event belongs in: after a step ended,
     /// the first text or step of a turn holding a queued steer starts a new reply row below the steer bubble (D5).
     func steerRow(for event: AgentEvent, origin: ChatMessage, row: ChatMessage) -> ChatMessage {
-        guard var pending = turns.steers[origin.id] else { return row }
+        guard row.turnState != .stopped, var pending = turns.steers[origin.id] else { return row }
         defer { turns.steers[origin.id] = pending.bubbles.isEmpty ? nil : pending }
         switch event {
         case .tool(let tool) where tool.phase == .completed || tool.phase == .failed:
@@ -180,9 +183,19 @@ extension AppStore {
         return next
     }
 
-    /// The row the turn that started at `assistant` ended in; clears the turn's steer bookkeeping.
-    func endTurnParts(_ assistant: ChatMessage) -> ChatMessage {
-        turns.steers[assistant.id] = nil
-        return turns.parts.removeValue(forKey: assistant.id) ?? assistant
+    /// Returns the final reply row and settles its steers before the caller saves the turn.
+    func endTurnParts(_ assistant: ChatMessage, end: TurnEnd) -> ChatMessage {
+        let reply = turns.parts.removeValue(forKey: assistant.id) ?? assistant
+        guard let pending = turns.steers.removeValue(forKey: assistant.id) else { return reply }
+        if case .completed = end, reply.turnState != .stopped {
+            for bubble in pending.bubbles where bubble.metadata[SteerKey.steer] == "queued" {
+                bubble.metadata[SteerKey.steer] = "delivered"
+            }
+        } else {
+            for bubble in pending.bubbles where ["sent", "queued"].contains(bubble.metadata[SteerKey.steer]) {
+                bubble.metadata[SteerKey.steer] = "failed"
+            }
+        }
+        return reply
     }
 }
