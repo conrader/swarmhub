@@ -36,6 +36,9 @@ import UserNotifications
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
     /// The bots whose running turn is on the bridge's event stream, which owns their helper lists during the turn.
     var herdrStreaming: Set<UUID> = []
+    /// A move can be undone while its record is still current and its source cleanup has finished.
+    var latestHerdrMoves: [UUID: UUID] = [:]
+    var herdrMovesCleaning: Set<UUID> = []
     @Published var herdrAgentPresence: [UUID: HerdrAgentPresence] = [:]
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
     /// panel and the chat header show it by name.

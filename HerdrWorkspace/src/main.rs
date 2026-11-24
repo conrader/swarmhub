@@ -452,21 +452,23 @@ async fn local_browser(State(state): State<Workspace>, request: Request, next: N
     let local_hook = (request.uri().path().starts_with("/hooks/routines/")
         || request.uri().path() == "/hooks/slack")
         && !request.headers().contains_key(header::ORIGIN);
-    if !local_host(request.headers(), state.port)
-        || (request.method() == axum::http::Method::POST
-            && !local_hook
-            && !same_origin(request.headers(), state.port))
+    let api = request.uri().path().starts_with("/api/");
+    let authorized = api && request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some_and(|value| token_matches(value, &state.token));
+    let forwarded = authorized && ssh_forward(request.headers(), state.port);
+    if !forwarded
+        && (!local_host(request.headers(), state.port)
+            || (request.method() == axum::http::Method::POST
+                && !local_hook
+                && !same_origin(request.headers(), state.port)))
     {
         return StatusCode::FORBIDDEN.into_response();
     }
-    if request.uri().path().starts_with("/api/")
-        && !request
-            .headers()
-            .get(header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .is_some_and(|value| token_matches(value, &state.token))
-    {
+    if api && !authorized {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error":"Enter the workspace access token to connect."})),
@@ -520,6 +522,37 @@ fn same_origin(headers: &HeaderMap, port: u16) -> bool {
     let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
     local_host(headers, port)
         && host.is_some_and(|host| origin == Some(format!("http://{host}").as_str()))
+}
+
+/// A token-authenticated desktop client can reach this API through a loopback SSH listener on
+/// another port. URLSession may substitute that listener’s authority in Host.
+fn ssh_forward(headers: &HeaderMap, port: u16) -> bool {
+    let loopback_listener = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|host| host.rsplit_once(':'))
+        .is_some_and(|(host, port)| {
+            matches!(host, "127.0.0.1" | "localhost") && port.parse::<u16>().is_ok_and(|p| p > 0)
+        });
+    loopback_listener
+        && headers.get("x-swarmhub-ssh-forward").is_some_and(|value| value == "1")
+        && headers.get(header::ORIGIN).is_some_and(|origin| {
+            origin == format!("http://127.0.0.1:{port}").as_str()
+        })
+}
+
+#[cfg(test)]
+#[test]
+fn ssh_forward_requires_a_loopback_listener_and_the_bridge_origin() {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::HOST, "127.0.0.1:49152".parse().unwrap());
+    headers.insert(header::ORIGIN, "http://127.0.0.1:8787".parse().unwrap());
+    assert!(!ssh_forward(&headers, 8787));
+    headers.insert("x-swarmhub-ssh-forward", "1".parse().unwrap());
+    assert!(ssh_forward(&headers, 8787));
+    assert!(!ssh_forward(&headers, 8788));
+    headers.insert(header::HOST, "external.test:49152".parse().unwrap());
+    assert!(!ssh_forward(&headers, 8787));
 }
 
 impl IntoResponse for Failure {

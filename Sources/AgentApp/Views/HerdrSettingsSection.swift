@@ -20,6 +20,7 @@ struct HerdrSettingsSection: View {
     /// The server whose parts show (nil: the first), or `addID` for the form that adds one.
     @State private var chosen: String?
     @State private var loginServer: HerdrServer?
+    @State private var moveSource: HerdrServer?
     @State private var part: Part
 
     /// `chosen` and `part` (renders) open the section on one server's part, or on adding (`"+"`).
@@ -41,6 +42,10 @@ struct HerdrSettingsSection: View {
             }
             if let current {
                 VStack(alignment: .leading, spacing: 18) {
+                    if !store.movableHerdrBots(on: current).isEmpty {
+                        Button("Move bots to another server…") { moveSource = current }
+                            .buttonStyle(.bordered).controlSize(.large)
+                    }
                     mainBotPicker(on: current)
                     SegmentedChoice(title: "Part of \(current.name)", options: Part.allCases.map { ($0, $0.rawValue) }, selection: $part).frame(maxWidth: 480)
                     switch part {
@@ -59,6 +64,7 @@ struct HerdrSettingsSection: View {
             }
             if let current { HerdrAllBotsModelBlock(server: current).id(current.id) }
         }
+        .sheet(item: $moveSource) { HerdrMoveBotsSheet(source: $0) }
         .sheet(item: $loginServer) { server in
             SSHLoginSheet(server: server) { signedIn in
                 draft.sshDestination = signedIn.sshUser + "@" + signedIn.sshHost
@@ -286,7 +292,7 @@ struct HerdrAgentControls: View {
     @State private var template = ""; @State private var model = ""
     @State private var templates: [HerdrClient.Template]; @State private var models: [HerdrClient.Template.Model]
     @State private var note = ""; @State private var loaded = false; @State private var restarting = false; @State private var steers = true
-    @State private var serverID = ""
+    @State private var moveSource: HerdrServer?
     @State private var showAdvanced = false
     @Environment(\.inspectorStartsAdvanced) private var renderOpen
     /// The server's lists were read (a render passes them in); until then the default entries cannot be named.
@@ -310,7 +316,7 @@ struct HerdrAgentControls: View {
     private var defaultTemplate: HerdrClient.Template? { HerdrAgentReading.template(own: nil, shared: shared, in: templates).template }
 
     var body: some View {
-        let servers = store.herdrServers, reading = store.herdrAgentReadings[bot.id]
+        let server = store.herdrServer(for: bot), reading = store.herdrAgentReadings[bot.id]
         VStack(alignment: .leading, spacing: 22) {
             SettingBlock(title: "AI", detail: listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…") {
                 HerdrTemplatePicker(selection: Binding(get: { template }, set: { value in
@@ -347,6 +353,11 @@ struct HerdrAgentControls: View {
             }
             HerdrHelperModelSection(bot: bot, server: store.herdrServer(for: bot), templates: templates)
                 .id("\(bot.id)-\(store.herdrServer(for: bot).id)")
+            if store.movableHerdrBots(on: server).contains(bot) {
+                SettingBlock(title: "Server", detail: server.name) {
+                    Button("Move to another server…") { moveSource = server }.buttonStyle(.bordered)
+                }
+            }
             // What few people change: both are on for every bot.
             QuietFold(title: "Advanced", isOpen: Binding(get: { showAdvanced || renderOpen }, set: { showAdvanced = $0 })) {
                 VStack(alignment: .leading, spacing: 18) {
@@ -358,20 +369,6 @@ struct HerdrAgentControls: View {
                     }
                     SettingBlock(title: "New conversation", detail: GrokHandoffCopy.newConversation(bot.name, readsHistory: store.grokHandoffIsOn(for: bot))) {
                         Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isAnswering(bot))
-                    }
-                    if servers.count > 1 {
-                        // Another server has its own agent programs and models, so both choices start over there.
-                        SettingBlock(title: "Server") {
-                            TileGallery(items: servers, minimum: 130, isSelected: { $0.id == serverID }, name: \.name, select: { serverID = $0.id }) { server in
-                                NameTile(name: server.name, symbol: server.kind.mark.symbol)
-                            }
-                        }
-                        .onChange(of: serverID) { _, value in
-                            guard loaded, value != store.herdrServer(for: bot).id else { return }
-                            // Projects belong to a Herdr server too: the ones chosen on the server it leaves do not go with it.
-                            store.setHerdrServer(value, for: bot); template = ""; model = ""; store.setHerdrTemplate("", for: bot); store.setHerdrModel("", for: bot); store.setHerdrProjects([], for: bot)
-                            Task { await loadTemplates(); await loadModels(); await applyChoice() }
-                        }
                     }
                     SettingSwitch(title: "Read new messages mid-answer", detail: "Off: a message you send while \(bot.name) is answering waits until the answer ends.",
                                   isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
@@ -391,9 +388,9 @@ struct HerdrAgentControls: View {
                 note = "Switched to \(target.record.label) in this conversation."
             }
         }
-        .task(id: "\(bot.id)-\(store.localAIRevision)") {
+        .sheet(item: $moveSource) { HerdrMoveBotsSheet(source: $0, initialBot: bot.id) }
+        .task(id: "\(bot.id)-\(server.id)-\(store.localAIRevision)") {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
-            serverID = store.herdrServer(for: bot).id
             loaded = true
             if !preset { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
         }

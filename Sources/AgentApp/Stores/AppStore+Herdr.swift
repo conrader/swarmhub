@@ -62,9 +62,19 @@ extension AppStore {
         guard let baseURL = HerdrClient.validatedBaseURL(server.address) else { throw HerdrClient.Failure.invalidURL }
         let token = typed.flatMap { $0.isEmpty ? nil : $0 } ?? herdrToken(for: server)
         if token.isEmpty { throw BackendError.unavailable(HerdrBackend.missingToken) }
-        var client = HerdrClient(baseURL: baseURL, token: token)
+        var client: HerdrClient
+        if server.kind == .ssh {
+            let tunnels = herdrTunnels
+            let reserved = Set(herdrServers.filter { $0.kind != .ssh }.map(\.port))
+            let port = try tunnels.forwardPort(for: server, avoiding: reserved)
+            guard let forwardedURL = URL(string: HerdrServer.loopback(port: port)) else { throw HerdrClient.Failure.invalidURL }
+            client = HerdrClient(baseURL: forwardedURL, token: token)
+            if port != server.port { client.forwardedHost = "127.0.0.1:\(server.port)" }
+            client.prepare = { try await tunnels.ensure(server, port: port) }
+        } else {
+            client = HerdrClient(baseURL: baseURL, token: token)
+        }
         herdrClientSetup?(&client)
-        if server.kind == .ssh { let tunnels = herdrTunnels; client.prepare = { try await tunnels.ensure(server) } }
         return client
     }
 
@@ -106,7 +116,7 @@ extension AppStore {
         }
         servers.removeAll { $0.id == server.id }
         herdrTunnels.forgetPassword(for: server)
-        herdrTunnels.close(server.id)
+        herdrTunnels.release(server.id)
         keyStore.setKey("", for: server.keyAccount)
         // Its bots move to another server, which has its own projects: the ones chosen on this server do not go with them.
         herdrProjectModels[server.id] = nil

@@ -23,7 +23,7 @@ Bots work on a computer that runs two programs: Herdr Core, which keeps each bot
 
 **This Mac.** You install nothing by hand. Choose **This Mac** in the setup window and press **Set Up This Mac**; [This Mac](#this-mac) says what that does. You need at least one AI program on the Mac that you have signed in to, such as Claude Code or Codex.
 
-**A server.** The app does not install anything on a server yet. Follow [Run locally](../HerdrWorkspace/README.md#run-locally) there: `swarmhub-herdr service run` starts an installed service, starts Herdr Core when it is not running, and keeps the access key in `~/.config/swarmhub-herdr/token`, which is where the app looks for it. Herdr Core needs at least one agent template, for example for Claude Code or Codex. An AI program asks a person a question the first time it works in a new folder; `swarmhub-herdr service prepare` on the server answers those for the bots' folder ([what it does](#what-setting-up-this-mac-does), under the switch), or open each program once in that folder and answer yourself.
+**A server.** To set up a VPS during a bot move, choose **Set up over SSH** when the connection check finds no running SwarmHub service. For manual setup, follow [Run locally](../HerdrWorkspace/README.md#run-locally) there: `swarmhub-herdr service run` starts an installed service, starts Herdr Core when it is not running, and keeps the access key in `~/.config/swarmhub-herdr/token`, which is where the app looks for it. Herdr Core needs at least one agent template, for example for Claude Code or Codex. An AI program asks a person a question the first time it works in a new folder; `swarmhub-herdr service prepare` on the server answers those for the bots' folder ([what it does](#what-setting-up-this-mac-does), under the switch), or open each program once in that folder and answer yourself.
 
 ### 2. Start the app
 
@@ -79,6 +79,8 @@ For API access, install OpenCode V2.3 or later on the machine running your bots.
 Tell the main bot what role you need, or choose **New bot** yourself. Use **Recommended** to follow the recommendation at each fresh agent launch. Pick a specific model to pin that bot to it. You can change either choice later in **Details → Model**.
 
 To put several bots on another AI or model at once, tell the main bot ("set all bots to sol 6.2", or name the bots), or open **Settings → Servers → All bots on …** and choose there. You can call the model what you like: the app matches it against the models your server offers, and changes nothing when it finds none or cannot tell two apart. A card above the main bot's composer says what was changed, with **Undo**. The new choice answers the next direct message in the same chat. A reply in progress finishes on its original model. When the new AI needs another session, SwarmHub hands over the earlier conversation before the next message. Secrets in the chat are blanked in what it reads. If the chat cannot be handed over, your message still goes, and the chat says why.
+
+To move bots between servers, open **Settings → Servers**, select their current server, and choose **Move bots to another server…**. Pick or connect a destination, then choose the bots and their AI and model. Busy bots stay on the source so they can finish. The move can carry over recent chat context and stop idle source agents. **Undo** restores the moved bots’ previous server, AI, model, and project access.
 
 ### Release notes example
 

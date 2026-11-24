@@ -105,7 +105,7 @@ struct HerdrServerDraft: Equatable, Sendable {
     var name = ""
     /// `.address` only.
     var address = ""
-    /// `.local` and `.ssh`: the bridge's port, the same on both ends of the forward because the bridge checks it.
+    /// `.local` and `.ssh`: the port on the bridge’s machine.
     var port = String(HerdrServer.defaultPort)
     var sshDestination = "", sshKeyPath = ""
     /// The access token; empty reads it from the bridge's own file (this Mac, or the server over ssh).
@@ -195,7 +195,7 @@ enum HerdrTunnel {
         return arguments
     }
 
-    /// `ssh -N -L …`: the same port on both ends, bound to loopback here, and ssh exits when it cannot bind it.
+    /// `ssh -N -L …` binds to loopback here and exits when it cannot bind the requested port.
     static func forwardArguments(for server: HerdrServer, localPort: Int? = nil, home: String = HerdrTunnel.realHome) -> [String]? {
         guard let options = options(for: server, home: home) else { return nil }
         let port = server.port
@@ -233,8 +233,9 @@ enum HerdrTunnel {
         return offered.contains("password") || offered.contains("keyboard-interactive")
     }
 
-    /// Runs `command` on the server and returns what it printed. Used once, to read the access token.
-    static func run(_ command: String, on server: HerdrServer, password: String? = nil, timeout: Duration = .seconds(30)) async throws -> String {
+    /// Runs a setup command on the server. A file on stdin can carry a verified service binary.
+    static func run(_ command: String, on server: HerdrServer, password: String? = nil, timeout: Duration = .seconds(30),
+                    standardInput: FileHandle = .nullDevice) async throws -> String {
         guard let arguments = commandArguments(for: server, command: command) else { throw Failure.notSSH }
         final class Running: @unchecked Sendable { let process = Process() }
         let running = Running(), out = Pipe(), err = Pipe()
@@ -242,7 +243,7 @@ enum HerdrTunnel {
         let input = try password.map(SSHPasswordInput.init(password:))
         input?.configure(running.process, arguments: arguments)
         defer { withExtendedLifetime(input) {} }
-        running.process.standardInput = FileHandle.nullDevice; running.process.standardOutput = out; running.process.standardError = err
+        running.process.standardInput = standardInput; running.process.standardOutput = out; running.process.standardError = err
         let limit = Task { try await Task.sleep(for: timeout); if running.process.isRunning { kill(running.process.processIdentifier, SIGKILL) } }
         defer { limit.cancel() }
         return try await withCheckedThrowingContinuation { continuation in
@@ -302,18 +303,34 @@ final class HerdrTunnels: @unchecked Sendable {
         catch { discardRejected(attempted, for: server, error: error); throw error }
     }
 
-    /// Checks forward to another local port; the app always uses the server's own.
-    var localPort: (@Sendable (HerdrServer) -> Int?)?
+    private var forwardPorts: [String: Int] = [:]
+
+    /// Each SSH server gets its own local listener, including when several bridges use 8787.
+    func forwardPort(for server: HerdrServer, avoiding configuredPorts: Set<Int>) throws -> Int {
+        try lock.withLock {
+            if let port = forwardPorts[server.id] { return port }
+            let used = configuredPorts.union(forwardPorts.values)
+            let candidates = (49152...65535).lazy.filter { !used.contains($0) }.prefix(20)
+            let preferred = used.contains(server.port) ? [] : [server.port]
+            let ports = preferred + candidates
+            // Client construction also works before networking is available. SSH claims the actual listener.
+            guard let port = ports.first(where: Self.isFree) ?? ports.first else {
+                throw HerdrTunnel.Failure.ended("No local port is available for the SSH connection.")
+            }
+            forwardPorts[server.id] = port
+            return port
+        }
+    }
 
     /// True while this server's forward is the app's own running ssh.
     func isOpen(_ id: String) -> Bool { lock.withLock { entries[id].map { $0.process.isRunning && $0.ready } ?? false } }
 
-    func ensure(_ server: HerdrServer) async throws {
-        guard let arguments = HerdrTunnel.forwardArguments(for: server, localPort: localPort?(server)) else { throw HerdrTunnel.Failure.notSSH }
+    func ensure(_ server: HerdrServer, port: Int) async throws {
+        guard let arguments = HerdrTunnel.forwardArguments(for: server, localPort: port) else { throw HerdrTunnel.Failure.notSSH }
         let pending: Task<Void, Error>? = lock.withLock {
             if let entry = entries[server.id], entry.process.isRunning, entry.ready, entry.arguments == arguments { return nil }
             if let running = opening[server.id] { return running }
-            let task = Task { try await self.open(server, arguments: arguments) }
+            let task = Task { try await self.open(server, port: port, arguments: arguments) }
             opening[server.id] = task
             return task
         }
@@ -329,16 +346,18 @@ final class HerdrTunnels: @unchecked Sendable {
         if let entry, entry.process.isRunning { kill(entry.process.processIdentifier, SIGKILL) }
     }
 
+    func release(_ id: String) {
+        close(id)
+        lock.withLock { forwardPorts[id] = nil }
+    }
+
     func closeAll() {
         lock.withLock { passwords.removeAll() }
         for id in lock.withLock({ Array(entries.keys) }) { close(id) }
     }
 
-    private func open(_ server: HerdrServer, arguments: [String]) async throws {
+    private func open(_ server: HerdrServer, port: Int, arguments: [String]) async throws {
         close(server.id)
-        let port = localPort?(server) ?? server.port
-        // A forward left by an earlier run of the app (or one the person opened) already carries the port: use it.
-        if await Self.answers(port: port) { return }
         let process = Process(), err = Pipe(), tail = Tail()
         process.executableURL = URL(fileURLWithPath: HerdrTunnel.program); process.arguments = arguments
         let attempted = password(for: server)

@@ -260,11 +260,7 @@ extension AppStore {
                     armHerdrCarryOver(for: [bot], running: running)
                     guard !runningTurns.values.contains(where: { $0.botID == bot.id }) else { return false }
                     guard let agent else { return true }
-                    switch agent.status?.state {
-                    case "idle", "done": return (!agent.isStarting || agent.warm == true) && agent.firstMessage?.sent != false
-                    case nil: return agent.warm == true && agent.firstMessage == nil
-                    default: return false
-                    }
+                    return agent.isIdleForRollover
                 }
                 guard stillApplies() else { continue }
                 if restarted != nil {

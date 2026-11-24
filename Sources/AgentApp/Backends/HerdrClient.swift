@@ -8,8 +8,8 @@ import FoundationNetworking
 /// and saves each finished reply through the agent's own Stop hook. This client only talks to the bridge.
 ///
 /// The bridge listens on loopback and refuses any request whose `Host` is not `127.0.0.1:<port>` or
-/// `localhost:<port>`; a `POST` must also carry the matching `Origin`. From another machine, forward the same port
-/// (`ssh -L 8787:127.0.0.1:8787 server`). Foundation only, so it also builds on Linux for the bridge's own checks.
+/// `localhost:<port>`; a `POST` must also carry the matching `Origin`. An app-managed SSH forward can listen on
+/// another local port while sending the bridge’s own Host and Origin. Foundation only for Linux checks.
 struct HerdrClient: Sendable {
     struct Template: Decodable, Sendable, Equatable {
         /// On a template: its agent program. On a saved session (`Profile.Session`): also the model the agent was
@@ -57,6 +57,14 @@ struct HerdrClient: Sendable {
         var ref: AgentRef { AgentRef(address: address, createdMs: createdMs) }
         /// Running, but its program is not ready for a task yet.
         var isStarting: Bool { isLive && ready == false }
+
+        var isIdleForRollover: Bool {
+            switch status?.state {
+            case "idle", "done": return (!isStarting || warm == true) && firstMessage?.sent != false
+            case nil: return warm == true && firstMessage == nil
+            default: return false
+            }
+        }
     }
 
     struct Workspace: Decodable, Sendable {
@@ -148,6 +156,7 @@ struct HerdrClient: Sendable {
 
     let baseURL: URL
     let token: String
+    var forwardedHost: String? = nil
     var session: URLSession = .shared
     /// Between two reads of a session while waiting for its reply, and between two looks at the agent's status.
     var pollInterval: Duration = .milliseconds(400)
@@ -611,7 +620,13 @@ struct HerdrClient: Sendable {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         // The bridge compares Origin with Host on every POST (its browser page sends both).
         let port = baseURL.port.map { ":\($0)" } ?? ""
-        request.setValue("\(baseURL.scheme ?? "http")://\(host)\(port)", forHTTPHeaderField: "Origin")
+        let authority = forwardedHost ?? host + port
+        if let forwardedHost {
+            // Older bridges expect this exact authority. Newer ones also handle URLSession rewriting Host.
+            request.setValue(forwardedHost, forHTTPHeaderField: "Host")
+            request.setValue("1", forHTTPHeaderField: "X-SwarmHub-SSH-Forward")
+        }
+        request.setValue("\(baseURL.scheme ?? "http")://\(authority)", forHTTPHeaderField: "Origin")
         // Which app asks, and the API level it is written for (`HerdrCompatibility`).
         request.setValue(Self.appIdentity, forHTTPHeaderField: HerdrCompatibility.appHeader)
         request.setValue(String(HerdrCompatibility.level), forHTTPHeaderField: HerdrCompatibility.levelHeader)

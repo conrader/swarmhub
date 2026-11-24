@@ -7,8 +7,14 @@ extension AppStore {
     /// The id the draft's server is tested and saved under: a server at the same place keeps its id (the last button
     /// then updates it), also the one that stands in while no list is saved; otherwise a new one (`newHerdrServerID`).
     func setupHerdrID(for draft: HerdrServerDraft) -> String {
-        guard let candidate = draft.server(id: "") else { return newHerdrServerID() }
-        return herdrServers.first { $0.kind == candidate.kind && $0.address == candidate.address && $0.sshHost == candidate.sshHost && $0.sshUser == candidate.sshUser }?.id ?? newHerdrServerID()
+        matchingHerdrServer(for: draft)?.id ?? newHerdrServerID()
+    }
+
+    func matchingHerdrServer(for draft: HerdrServerDraft) -> HerdrServer? {
+        guard let candidate = draft.server(id: "") else { return nil }
+        return herdrServers.first {
+            $0.kind == candidate.kind && $0.address == candidate.address && $0.sshHost == candidate.sshHost && $0.sshUser == candidate.sshUser
+        }
     }
 
     /// Connect's Test, and the reading of a server that is already set up. "This Mac" first looks whether anything
@@ -16,8 +22,8 @@ extension AppStore {
     /// Every other failure comes back as its own plain line (`HerdrSetupProblem`): a server that cannot be reached, an
     /// access key it does not accept, Herdr Core not running beside it. A server with no agent program is `connected`
     /// with an empty offer, which the wizard does not let through.
-    func testSetupHerdr(_ draft: HerdrServerDraft) async -> HerdrSetupOutcome {
-        guard let server = draft.server(id: setupHerdrID(for: draft)) else { return .failed(draft.problem ?? SetupCopy.failed) }
+    func testSetupHerdr(_ draft: HerdrServerDraft, serverID: String? = nil) async -> HerdrSetupOutcome {
+        guard let server = draft.server(id: serverID ?? setupHerdrID(for: draft)) else { return .failed(draft.problem ?? SetupCopy.failed) }
         if server.kind == .local, await !HerdrTunnels.answers(port: server.port) { return .nothingHere(port: server.port) }
         var found: String?
         if server.kind == .ssh, draft.typedKey.isEmpty, herdrToken(for: server).isEmpty {
@@ -57,7 +63,7 @@ extension AppStore {
     /// Cancel, Back to Welcome or closing the window: a forward Test opened for a server that was never saved is closed.
     func abandonSetupHerdr(_ server: HerdrServer?) {
         guard let server, server.kind == .ssh, herdrServers.first(where: { $0.id == server.id }) != server else { return }
-        herdrTunnels.close(server.id)
+        herdrTunnels.release(server.id)
     }
 
     /// How the wizard opens: on the main bot of a server that is set up and has none yet (Connect is skipped),

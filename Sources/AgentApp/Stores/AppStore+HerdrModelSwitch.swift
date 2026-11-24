@@ -3,7 +3,10 @@ import Foundation
 extension AppStore {
     func modelSwitchPending(_ bot: Bot) -> Bool { defaults.bool(forKey: "herdr.changeOnSend.\(bot.id)") }
 
-    func markModelSwitch(_ bot: Bot) { defaults.set(true, forKey: "herdr.changeOnSend.\(bot.id)") }
+    func markModelSwitch(_ bot: Bot) {
+        setHerdrMoveSkipsCarry(false, for: bot)
+        defaults.set(true, forKey: "herdr.changeOnSend.\(bot.id)")
+    }
 
     func clearModelSwitch(_ botID: UUID) { defaults.removeObject(forKey: "herdr.changeOnSend.\(botID)") }
 
@@ -50,6 +53,7 @@ extension AppStore {
             }
         }
         try checkChoice()
+        let skipsCarry = herdrMoveSkipsCarry(bot)
         let modelPending = modelSwitchPending(bot)
         let autoPending = autoSwitchPending(bot)
         let pending = modelPending || autoPending
@@ -95,11 +99,12 @@ extension AppStore {
                         rememberModel(.init(server: server.id, core: core, address: agent.address, created: agent.createdMs,
                                             id: liveModel.id, label: HerdrAgentReading.name(liveModel)), for: bot)
                         clearModelSwitch(bot.id)
+                        setHerdrMoveSkipsCarry(false, for: bot)
                         return [grokHandoffSource(for: bot), herdrCarrySource(for: bot)].compactMap { $0 }
                     }
                     // Save the handoff before ending the old launch, so an interrupted start can resume it.
                     let old = current.core.map { HerdrAgentLaunch(server: server.id, core: $0, address: agent.address, createdMs: agent.createdMs) }
-                    setHerdrCarryOver(HerdrCarryOver(old: old, at: now()), for: bot)
+                    if !skipsCarry { setHerdrCarryOver(HerdrCarryOver(old: old, at: now()), for: bot) }
                     try checkChoice()
                     if stillRunning {
                         do { try await client.end(agent) }
@@ -111,12 +116,13 @@ extension AppStore {
                     try checkChoice()
                     herdrReadiness[bot.id] = nil
                 }
-            } else if pending, herdrCarryOver(for: bot) == nil, !bot.messages.isEmpty {
+            } else if pending, !skipsCarry, herdrCarryOver(for: bot) == nil, !bot.messages.isEmpty {
                 setHerdrCarryOver(HerdrCarryOver(old: nil, at: now()), for: bot)
             }
             try checkChoice()
             clearModelSwitch(bot.id)
             clearAutoSwitch(bot.id)
+            setHerdrMoveSkipsCarry(false, for: bot)
         }
         return [grokHandoffSource(for: bot), herdrCarrySource(for: bot)].compactMap { $0 }
     }
