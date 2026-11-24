@@ -21,21 +21,21 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.8.14</string>
+	<string>0.8.15</string>
 	<key>CFBundleVersion</key>
-	<string>48</string>
+	<string>49</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SwarmHub connects to a Herdr server on your local network only when you add one in Settings.</string>
+	<key>NSLocationDefaultAccuracyReduced</key>
+	<true/>
 	<key>NSLocationUsageDescription</key>
 	<string>SwarmHub uses an approximate location to find the city and country you choose to share with your workspace’s bots.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>SwarmHub uses an approximate location to find the city and country you choose to share with your workspace’s bots.</string>
-	<key>NSLocationDefaultAccuracyReduced</key>
-	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>
