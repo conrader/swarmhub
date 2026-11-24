@@ -17,10 +17,15 @@ enum ChatCardParser {
     static let choicesMarker = "<!-- choices -->"
 
     /// Optionally recognize tilde fences when inspecting prose without changing saved card indexes.
-    static func parse(_ text: String, includingTildeFences: Bool = false) -> [ChatBlock] {
+    /// The renderer can keep prose whitespace for line structure and list indentation.
+    static func parse(_ text: String, includingTildeFences: Bool = false, preservingProseWhitespace: Bool = false) -> [ChatBlock] {
         var blocks: [ChatBlock] = []; var prose: [String] = []
         let lines = text.components(separatedBy: "\n"); var index = 0
-        func flush() { if !prose.isEmpty { blocks += proseBlocks(prose.joined(separator: "\n")); prose = [] } }
+        func flush() {
+            guard !prose.isEmpty else { return }
+            blocks += proseBlocks(prose.joined(separator: "\n"), preservingWhitespace: preservingProseWhitespace)
+            prose = []
+        }
         while index < lines.count {
             guard let fence = fenceOpening(lines[index], includingTildeFences: includingTildeFences) else { prose.append(lines[index]); index += 1; continue }
             flush()
@@ -31,7 +36,7 @@ enum ChatCardParser {
             blocks.append(fencedBlock(language: fence.info, body: body, closed: closed))
         }
         flush()
-        return markTrailingChoices(blocks)
+        return markTrailingChoices(blocks, preservingWhitespace: preservingProseWhitespace)
     }
 
     private static func fenceOpening(_ line: String, includingTildeFences: Bool) -> (mark: Character, length: Int, info: String)? {
@@ -94,13 +99,15 @@ enum ChatCardParser {
     }
 
     /// A numbered list that ends the message and is introduced by `<!-- choices -->` becomes a choices card.
-    private static func markTrailingChoices(_ blocks: [ChatBlock]) -> [ChatBlock] {
+    private static func markTrailingChoices(_ blocks: [ChatBlock], preservingWhitespace: Bool) -> [ChatBlock] {
         guard case .markdown(let text)? = blocks.last, let marker = text.range(of: choicesMarker, options: .backwards) else { return blocks }
         let tail = text[marker.upperBound...].components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let options = tail.compactMap(numberedItem)
         guard options.count >= 2, options.count == tail.count else { return blocks }
-        let before = String(text[..<marker.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return Array(blocks.dropLast()) + (before.isEmpty ? [] : [.markdown(before)]) + [.choices(prompt: "", options: options)]
+        var result = Array(blocks.dropLast())
+        appendMarkdown(String(text[..<marker.lowerBound]), preservingWhitespace: preservingWhitespace, to: &result)
+        result.append(.choices(prompt: "", options: options))
+        return result
     }
 
     // MARK: Images and links
@@ -116,21 +123,21 @@ enum ChatCardParser {
     }
 
     /// Splits prose around Markdown images with an http(s) or `data:image/` source.
-    private static func proseBlocks(_ text: String) -> [ChatBlock] {
+    private static func proseBlocks(_ text: String, preservingWhitespace: Bool) -> [ChatBlock] {
         var blocks: [ChatBlock] = []; var cursor = text.startIndex
         for match in imagePattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
             guard let range = Range(match.range, in: text), let alt = Range(match.range(at: 1), in: text), let url = Range(match.range(at: 2), in: text),
                   isDisplayableImageURL(String(text[url])) else { continue }
-            appendMarkdown(String(text[cursor..<range.lowerBound]), to: &blocks)
+            appendMarkdown(String(text[cursor..<range.lowerBound]), preservingWhitespace: preservingWhitespace, to: &blocks)
             blocks.append(.image(alt: String(text[alt]), url: String(text[url]))); cursor = range.upperBound
         }
-        appendMarkdown(String(text[cursor...]), to: &blocks)
+        appendMarkdown(String(text[cursor...]), preservingWhitespace: preservingWhitespace, to: &blocks)
         return blocks
     }
 
-    private static func appendMarkdown(_ text: String, to blocks: inout [ChatBlock]) {
+    private static func appendMarkdown(_ text: String, preservingWhitespace: Bool, to blocks: inout [ChatBlock]) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { blocks.append(.markdown(trimmed)) }
+        if !trimmed.isEmpty { blocks.append(.markdown(preservingWhitespace ? text : trimmed)) }
     }
 
     static func markdownImages(in text: String) -> [(alt: String, url: String)] {

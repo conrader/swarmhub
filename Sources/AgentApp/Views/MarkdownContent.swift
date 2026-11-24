@@ -12,8 +12,11 @@ struct MarkdownContent: View {
     /// has in the whole reply (`ReplyLayout.blockIndexes`), which is what a card's answer is stored and checked by.
     var text: String? = nil; var indexes: [Int]? = nil
     var body: some View {
+        let source = text ?? message.content
+        let visible = SwarmhubBlock.visibleText(source, preservingWhitespace: true)
+        let blocks = ChatCardParser.parse(visible, preservingProseWhitespace: true)
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(ChatCardParser.parse(SwarmhubBlock.visibleText(text ?? message.content)).enumerated()), id: \.offset) { offset, block in
+            ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
                 let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset
                 switch block {
                 case .markdown(let text): ProseBlock(text: text)
@@ -34,7 +37,7 @@ struct MarkdownContent: View {
                 }
             }
             // What the reply asked the app for, each as one plain line; the block itself is never drawn.
-            ForEach(Array(SwarmhubSummary.lines(in: text ?? message.content).enumerated()), id: \.offset) { _, line in FoldedBlockLine(line: line) }
+            ForEach(Array(SwarmhubSummary.lines(in: source).enumerated()), id: \.offset) { _, line in FoldedBlockLine(line: line) }
         }
     }
 }
@@ -43,7 +46,7 @@ struct ProseBlock: View {
     let text: String
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            ForEach(Array(text.components(separatedBy: "\n\n").enumerated()), id: \.offset) { _, paragraph in markdownParagraph(paragraph) }
+            MarkdownBlockContent(blocks: MarkdownBlockParser.parse(text))
             let urls = ChatCardParser.bareURLs(in: text)
             if !urls.isEmpty { LinkPillRow(urls: urls) }
             ForEach(ChatCardParser.links(in: text), id: \.self) { link in
@@ -57,20 +60,136 @@ struct ProseBlock: View {
             }
         }
     }
-    @ViewBuilder private func markdownParagraph(_ paragraph: String) -> some View {
-        if paragraph.hasPrefix("## ") {
-            Text(String(paragraph.dropFirst(3))).font(.title3.weight(.semibold))
-        } else if paragraph.hasPrefix("- ") {
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(paragraph.components(separatedBy: "\n"), id: \.self) { line in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) { Text("•").foregroundStyle(.tint); Text(inlineMarkdown(String(line.dropFirst(2)))).fixedSize(horizontal: false, vertical: true) }
-                }
+}
+
+private struct MarkdownBlockContent: View {
+    let blocks: [MarkdownBlock]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ForEach(blocks.indices, id: \.self) { index in
+                blockView(blocks[index])
             }
-        } else {
-            Text(inlineMarkdown(paragraph)).textSelection(.enabled).font(.body).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
         }
     }
-    private func inlineMarkdown(_ value: String) -> AttributedString { (try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value) }
+
+    @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
+        switch block {
+        case .paragraph(let text):
+            markdownText(text).font(.body)
+        case .heading(let level, let text):
+            markdownText(text).font(headingFont(level)).accessibilityAddTraits(.isHeader)
+        case .quote(let children):
+            if !children.isEmpty {
+                MarkdownBlockContent(blocks: children)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 5))
+                    .overlay(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 1.5).fill(.tint).opacity(0.7).frame(width: 3)
+                    }
+                    .padding(.leading, 4)
+            }
+        case .rule:
+            Divider().padding(.vertical, 3)
+        case .list(let items):
+            list(items)
+        case .table(let header, let rows):
+            table(header: header, rows: rows)
+        }
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: .title2.weight(.semibold)
+        case 2: .title3.weight(.semibold)
+        case 3: .headline
+        default: .subheadline.weight(.semibold)
+        }
+    }
+
+    private func list(_ items: [MarkdownListItem]) -> some View {
+        let widestNumber = items.reduce(into: [Int: String]()) { numbers, item in
+            guard let number = item.number, number.count > (numbers[item.depth]?.count ?? 0) else { return }
+            numbers[item.depth] = number
+        }
+        return VStack(alignment: .leading, spacing: 5) {
+            ForEach(items.indices, id: \.self) { index in
+                let item = items[index]
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let number = item.number, let widest = widestNumber[item.depth] {
+                        ZStack(alignment: Alignment(horizontal: .trailing, vertical: .firstTextBaseline)) {
+                            Text(widest + ".").hidden().accessibilityHidden(true)
+                            Text(number + ".")
+                        }.font(.body.monospacedDigit()).foregroundStyle(.tint).fixedSize()
+                    } else {
+                        Text(item.depth == 0 ? "•" : "◦").font(.body).foregroundStyle(.tint).accessibilityHidden(true)
+                    }
+                    markdownText(item.text).font(.body)
+                }
+                .padding(.leading, CGFloat(min(item.depth, 6)) * 16)
+            }
+        }
+    }
+
+    private func table(header: [String], rows: [[String]]) -> some View {
+        let border = RoundedRectangle(cornerRadius: 5)
+        return ScrollView(.horizontal) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+                tableRow(header, isHeader: true, hasNextRow: !rows.isEmpty)
+                ForEach(rows.indices, id: \.self) { index in
+                    tableRow(rows[index], isHeader: false, hasNextRow: index < rows.count - 1)
+                }
+            }
+            .fixedSize()
+            .clipShape(border)
+            .overlay { border.strokeBorder(AppColor.separator, lineWidth: 1).allowsHitTesting(false) }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func tableRow(_ cells: [String], isHeader: Bool, hasNextRow: Bool) -> some View {
+        GridRow {
+            ForEach(cells.indices, id: \.self) { index in
+                MarkdownTableCellLayout {
+                    markdownText(cells[index]).font(isHeader ? .body.bold() : .body)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(isHeader ? AppColor.raised : Color.clear)
+                .overlay(alignment: .trailing) {
+                    if index < cells.count - 1 { AppColor.separator.frame(width: 1).allowsHitTesting(false) }
+                }
+                .overlay(alignment: .bottom) {
+                    if hasNextRow { AppColor.separator.frame(height: 1).allowsHitTesting(false) }
+                }
+                .accessibilityAddTraits(isHeader ? .isHeader : [])
+            }
+        }
+    }
+
+    private func markdownText(_ value: String) -> some View {
+        let inline = try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        return Text(inline ?? AttributedString(value))
+            .textSelection(.enabled)
+            .lineSpacing(4)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Give wrapped text its final width during the grid's ideal-size pass so it reports the full row height.
+private struct MarkdownTableCellLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maximumWidth: CGFloat = 240
+        let width = min(proposal.width ?? maximumWidth, maximumWidth)
+        return subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+    }
 }
 
 private struct CodeBlock: View {
