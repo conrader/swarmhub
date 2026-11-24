@@ -45,7 +45,7 @@ enum SettingsLayout {
 
     static let entries: [(id: String, home: Pane)] = [
         ("you.name", .general), ("you.about", .general), ("you.timeZone", .general), ("you.location", .general), ("appearance.theme", .general), ("appearance.accent", .general), ("appearance.appIcon", .general),
-        ("appearance.avatarMotion", .general), ("notifications.master", .general),
+        ("appearance.avatarMotion", .general), ("turnLimits.perConnection", .general), ("turnLimits.total", .general), ("notifications.master", .general),
         ("ais.localPrograms", .ais), ("servers.herdr", .servers), ("servers.helpers", .servers), ("servers.skills", .servers), ("servers.projects", .servers), ("servers.grokBot", .servers),
         ("vault.entries", .vault), ("releases.history", .whatsNew),
         ("updates.app", .updates), ("updates.autoCheck", .updates), ("updates.autoInstall", .updates), ("updates.servers", .updates),

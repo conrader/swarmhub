@@ -4,14 +4,14 @@ import SwiftUI
 /// The agent panel's tabs in bar order. Members are at the bottom of Overview; `AppCommand.members` (⌘5) opens
 /// Overview so the old shortcut still lands on them.
 enum AgentInfoTab: String, CaseIterable {
-    case overview = "Overview", model = "Model", skills = "Skills", media = "Media"
+    case overview = "Overview", model = "Model", routines = "Routines", skills = "Skills", media = "Media"
 }
 
 /// Menu items, the quick switcher and the shortcut reference share the same actions and bindings.
 enum AppCommand: String, CaseIterable, Identifiable {
     case settings, newAgent, newGroup, importTemplate, quickSwitcher
     case toggleSidebar, toggleInfo, hiddenChats
-    case overview, media, members, model, skills
+    case overview, media, members, model, routines, skills
     case previousChat, nextChat, agentSettings, stopResponse, keyboardShortcuts
 
     var id: Self { self }
@@ -29,6 +29,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .media: "Media"
         case .members: "Members"
         case .model: "Model"
+        case .routines: "Routines"
         case .skills: "Skills"
         case .previousChat: "Previous Chat"
         case .nextChat: "Next Chat"
@@ -49,6 +50,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .hiddenChats: "eye.slash"
         case .media: "photo.on.rectangle"
         case .model: AgentInfoTab.model.symbol
+        case .routines: AgentInfoTab.routines.symbol
         case .skills: AgentInfoTab.skills.symbol
         case .previousChat: "arrow.up"
         case .nextChat: "arrow.down"
@@ -60,7 +62,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         switch self {
         case .settings, .keyboardShortcuts: "App"
         case .newAgent, .newGroup, .importTemplate: "File"
-        case .toggleSidebar, .toggleInfo, .hiddenChats, .overview, .media, .members, .model, .skills: "View"
+        case .toggleSidebar, .toggleInfo, .hiddenChats, .overview, .media, .members, .model, .routines, .skills: "View"
         case .quickSwitcher, .previousChat, .nextChat: "Navigate"
         case .agentSettings, .stopResponse: "Chat"
         }
@@ -78,6 +80,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .media: "3"
         case .members: "5"
         case .model: "6"
+        case .routines: "8"
         case .skills: "7"
         case .previousChat: .upArrow
         case .nextChat: .downArrow
@@ -109,6 +112,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .media: .media
         case .members: .overview
         case .model: .model
+        case .routines: .routines
         case .skills: .skills
         default: nil
         }
@@ -120,7 +124,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
               store.editingBot == nil, store.errorMessage == nil else { return false }
         switch self {
         case .agentSettings: return store.selectedGroup == nil && store.selectedBot != nil
-        case .overview, .media, .model, .skills:
+        case .overview, .media, .model, .routines, .skills:
             guard store.selectedGroup == nil, let bot = store.selectedBot, let tab = infoTab else { return false }
             return store.infoTabs(for: bot).contains(tab)
         // A group has members to show; a chat with one bot has only the two of you.
@@ -201,6 +205,7 @@ struct AppCommands: Commands {
             Menu("Details") {
                 command(.overview)
                 command(.model)
+                command(.routines)
                 command(.skills)
                 command(.media)
                 command(.members)

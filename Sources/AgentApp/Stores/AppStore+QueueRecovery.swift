@@ -83,6 +83,55 @@ extension AppStore {
         var copy = record; copy.state = state; return copy
     }
 
+    /// Older stores can retain steer bubbles after their turn disappears. The assistant row is inserted
+    /// before the steers, and a split reply can continue below them, so consider the final part of that turn.
+    func reconcileOrphanedSteers() {
+        var changed = false
+        let conversations: [any Conversation] = bots.map { $0 as any Conversation } + groups.map { $0 as any Conversation }
+        for conversation in conversations {
+            var reply: ChatMessage?
+            var hasReplyContent = false
+            var queued: [ChatMessage] = []
+
+            func settleQueued() {
+                guard !queued.isEmpty else { return }
+                let state = reply?.turnState == .finished && hasReplyContent ? "delivered" : "failed"
+                for bubble in queued { bubble.metadata[SteerKey.steer] = state }
+                changed = true
+                queued.removeAll()
+            }
+
+            for row in conversation.messages {
+                switch row.role {
+                case .assistant:
+                    let part = row.metadata[TurnKey.part].flatMap(Int.init)
+                    let previousPart = reply?.metadata[TurnKey.part].flatMap(Int.init)
+                    let continuesReply = part.map { $0 > 1 && previousPart == $0 - 1 } == true
+                        && reply?.authorID == row.authorID && reply?.metadata[TurnKey.forUser] == row.metadata[TurnKey.forUser]
+                    if !continuesReply { settleQueued(); hasReplyContent = false }
+                    reply = row
+                    hasReplyContent = hasReplyContent || !row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || row.publishedResults?.items.isEmpty == false
+                case .user:
+                    switch row.metadata[SteerKey.steer] {
+                    case "sent" where !turns.inFlightSteers.contains(row.id): row.metadata[SteerKey.steer] = "failed"; changed = true
+                    case "queued" where !steerHeldByTurn(row): queued.append(row)
+                    case nil where row.metadata[TurnWaitCopy.key] != "waiting":
+                        settleQueued(); reply = nil; hasReplyContent = false
+                    default: break
+                    }
+                case .system: break
+                }
+            }
+            settleQueued()
+        }
+        guard changed else { return }
+        let preserveRestoreUndo = restoreUndoRevision != nil && restoreUndoRevision == storeRevision
+        objectWillChange.send()
+        save()
+        if preserveRestoreUndo, !turns.saveFailing, let storeRevision { rememberRestoreUndo(storeRevision) }
+    }
+
     /// After the launch reconcile: restored entries whose chat has no unconfirmed reply are released in order; the others
     /// go back to the user with a line saying why. Then the queue is sent.
     func resumeRestoredNextMessages() {

@@ -121,10 +121,13 @@ struct HerdrTurnFollower: Sendable {
         guard state == "done" || state == "idle" else { quietSince = nil; return .waiting }
         let since = quietSince ?? now
         quietSince = since
-        // An agent program that has just started may report before it takes its first message (the message then
-        // waits in its own input), so a turn that began with a starting agent is given longer.
-        let limit = starting && !began ? max(quietLimit, startQuietLimit) : quietLimit
-        return now - since >= limit ? .failed(.silent) : .waiting
+        let startNotObserved = !began && replies.isEmpty && rows.values.contains(where: \.startNotObserved)
+        // A starting agent may report idle before it can take its first message.
+        let limit = if startNotObserved { min(quietLimit, .seconds(20)) }
+                    else if starting && !began { max(quietLimit, startQuietLimit) }
+                    else { quietLimit }
+        guard now - since >= limit else { return .waiting }
+        return .failed(startNotObserved ? .startNotObserved : .silent)
     }
 
     /// The session is over: the turn's replies if its hook saved any as it closed, else the turn ended unanswered.

@@ -29,33 +29,69 @@ extension AppStore {
         }
     }
 
+    /// Choices expire as soon as another visible message arrives or the chat starts another turn.
+    func canAnswerChoice(_ source: ChatMessage, target: ConversationActionTarget) -> Bool {
+        guard let (bot, conversation) = actionConversation(target) else { return false }
+        return canAnswerChoice(source, bot: bot, in: conversation)
+    }
+
+    private func canAnswerChoice(_ source: ChatMessage, bot: Bot, in conversation: any Conversation) -> Bool {
+        guard storeRestoreOffer == nil, !bot.isReadOnlyArchive, isIdle(conversation),
+              source.role == .assistant, !source.isStreaming, source.turnState == nil || source.turnState == .finished,
+              conversation.messages.last(where: { !$0.isSilent }) === source else { return false }
+        return !(conversation is GroupChat) || source.authorID == bot.id
+    }
+
     /// A pick on a choices card, or Send on a draft card, of message `sourceID` in `target`. Refused when the card is
     /// not a finished reply, has changed since it was shown (`expected`), was already answered, or (in a group) was
-    /// written by another member. A group answer goes to the card's author only, as a reply to the card. Send on a
-    /// draft tells the bot "Send it": the bot does the sending, the app sends nothing itself.
-    @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock, choice: String? = nil) -> Bool {
+    /// written by another member. Choices also expire after a newer message. A group answer goes to the card's author
+    /// only, as a reply to the card. Send tells the bot "Send it" or supplies the revised draft for the bot to send.
+    @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock,
+                                              choice: ChatChoiceAnswer? = nil, editedDraft: DraftCard? = nil) -> Bool {
         guard let (bot, conversation) = actionConversation(target),
               let source = conversation.messages.first(where: { $0.id == sourceID }),
               source.role == .assistant, !source.isStreaming else { return false }
         if case .group = target, source.authorID != bot.id { return false }
-        let blocks = ChatCardParser.parse(SwarmhubBlock.visibleText(source.content))
+        let blocks = ChatCardParser.parseVisibleReply(source.content)
         guard blocks.indices.contains(index), blocks[index] == expected else {
             errorMessage = "This card changed. Review the current version before answering it."; return false
         }
         let key: String, text: String, value: String
         switch expected {
         case .choices(_, let options):
-            guard let choice, options.contains(choice) else { return false }
-            key = "picked.\(index)"; text = choice; value = choice
-        case .draft:
-            key = "draftSent.\(index)"; value = "1"; text = "Send it"
+            guard canAnswerChoice(source, bot: bot, in: conversation), let reply = choice?.text(options: options) else { return false }
+            key = "picked.\(index)"; text = reply; value = reply
+        case .draft(let original):
+            key = "draftSent.\(index)"
+            if let editedDraft, editedDraft != original {
+                // JSON preserves the exact field values, including line breaks and whitespace in the body.
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                guard let data = try? encoder.encode(editedDraft) else { return false }
+                text = "Send this edited draft:\n" + String(decoding: data, as: UTF8.self)
+                value = "edited"
+            } else {
+                text = "Send it"
+                value = "1"
+            }
         default: return false
         }
+        return sendCardReply(text, bot: bot, in: conversation, source: source, key: key, value: value)
+    }
+
+    @discardableResult func answerInferredChoice(target: ConversationActionTarget, source: ChatMessage, expected: [ChatChoiceOption], answer: ChatChoiceAnswer) -> Bool {
+        guard let (bot, conversation) = actionConversation(target), canAnswerChoice(source, bot: bot, in: conversation),
+              ChatChoiceInference.options(in: source.content) == expected,
+              let reply = answer.text(options: expected.map(\.reply)) else { return false }
+        return sendCardReply(reply, bot: bot, in: conversation, source: source, key: ChatChoiceInference.answerKey, value: reply)
+    }
+
+    private func sendCardReply(_ text: String, bot: Bot, in conversation: any Conversation, source: ChatMessage, key: String, value: String) -> Bool {
         guard source.metadata[key] == nil else { return false }
         let accepted = if let group = conversation as? GroupChat {
-            send(text: text, to: group, recipientIDs: [bot.id], sourceMessageID: sourceID)
+            send(text: text, to: group, recipientIDs: [bot.id], sourceMessageID: source.id)
         } else {
-            send(text: text, bot: bot, conversation: conversation, replyToID: sourceID)
+            send(text: text, bot: bot, conversation: conversation, replyToID: source.id)
         }
         if accepted { source.metadata[key] = value; save() }
         return accepted

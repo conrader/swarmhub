@@ -9,6 +9,7 @@ struct BotAvatar: View {
     var isWorking = false; var isHovered = false; var probe: String? = nil
     var facing: AvatarFacing = .right; var isWaiting = false
     var isSelected = false
+    var hasActiveCodingAgent = false
     @ObservedObject private var settings = AvatarMotionSettings.shared
     @ObservedObject private var activity = AvatarActivity.shared
     @ObservedObject private var reactions = AvatarReactions.shared
@@ -17,7 +18,7 @@ struct BotAvatar: View {
 
     private var mode: AvatarMotionMode {
         if case .classic = bot.avatarLook { return .still }
-        let resolved = AvatarMotion.resolve(context: motion, isWorking: isWorking, isHovered: isHovered, reduceMotion: reduceMotion,
+        let resolved = AvatarMotion.resolve(context: motion, isWorking: isWorking || hasActiveCodingAgent, isHovered: isHovered, reduceMotion: reduceMotion,
                                             preference: settings.effective, isWaiting: isWaiting, isCelebrating: isCelebrating)
         return activity.canIdle ? resolved : .still
     }
@@ -37,8 +38,20 @@ struct BotAvatar: View {
                     .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            if hasActiveCodingAgent {
+                let badge = max(12, round(size * 0.35))
+                Image(systemName: "terminal")
+                    .font(.system(size: badge * 0.68, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: badge, height: badge)
+                    .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: badge * 0.27))
+                    .overlay(RoundedRectangle(cornerRadius: badge * 0.27).strokeBorder(.white.opacity(0.65), lineWidth: 1))
+                    .offset(x: -1, y: 1).allowsHitTesting(false)
+                    .accessibilityLabel("Coding agent active")
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
-            if reduceMotion && isWorking { Circle().fill(Color(nsColor: .systemGreen)).frame(width: 7, height: 7).offset(x: 1, y: 1) }
+            if reduceMotion && isWorking && !hasActiveCodingAgent { Circle().fill(Color(nsColor: .systemGreen)).frame(width: 7, height: 7).offset(x: 1, y: 1) }
         }
         .onAppear { report(look, mode) }
         .onChange(of: mode) { _, next in report(look, next) }
@@ -101,8 +114,10 @@ struct GroupAvatarStack: View {
 }
 
 extension AppStore {
-    /// The bot is answering right now (anywhere; P39: several bots at once). `UISmokeProbe.forcedWorking` is the smoke's 2 s override.
-    func isWorking(_ bot: Bot) -> Bool { UISmokeProbe.forcedWorking == bot.id || runningTurns.values.contains { $0.botID == bot.id && !$0.stopping } }
+    /// The bot is answering in chat or has ongoing coding work.
+    func isWorking(_ bot: Bot) -> Bool { isAnswering(bot) || hasActiveCodingAgent(bot) }
+    /// The bot is answering right now, in any conversation. The smoke runner can simulate an active reply.
+    func isAnswering(_ bot: Bot) -> Bool { UISmokeProbe.forcedWorking == bot.id || runningTurns.values.contains { $0.botID == bot.id && !$0.stopping } }
     /// The bot is answering in this group.
     func isWorking(_ bot: Bot, in group: GroupChat) -> Bool {
         UISmokeProbe.forcedWorking == bot.id || turn(in: group).map { $0.botID == bot.id && !$0.stopping } == true

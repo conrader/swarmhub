@@ -331,10 +331,10 @@ struct HerdrAgentControls: View {
                        let program = effective?.modelAgent, ["OpenCode", "Claude Code", "Codex"].contains(program),
                        reading?.pendingLine != nil || reading?.running == .unknown || !note.isEmpty && reading?.confirmed != true {
                         Button("Switch the running session now…") { Task { await switchCurrentModel() } }
-                            .disabled(switching || store.isWorking(bot))
+                            .disabled(switching || store.isAnswering(bot))
                     }
                     SettingBlock(title: "New conversation", detail: GrokHandoffCopy.newConversation(bot.name, readsHistory: store.grokHandoffIsOn(for: bot))) {
-                        Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isWorking(bot))
+                        Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isAnswering(bot))
                     }
                     if servers.count > 1 {
                         // Another server has its own agent programs and models, so both choices start over there.
@@ -528,7 +528,8 @@ struct HerdrTemplatePicker: View {
         let labels = HerdrProgramName.labels(for: templates)
         let choices = templates.map { NamedChoice(id: $0.name, name: labels[$0.name] ?? $0.label, note: $0.name == defaultName ? defaultNote : nil) } + unlisted
         if !choices.isEmpty {
-            TileGallery(items: choices, minimum: 150, isSelected: { selection.isEmpty ? $0.id == defaultName : $0.id == selection }, name: \.name,
+            TileGallery(items: choices, minimum: 150, isSelected: { selection.isEmpty ? $0.id == defaultName : $0.id == selection },
+                        name: { choice in [choice.name, choice.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ") },
                         select: { selection = $0.id == defaultName ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
             // The chosen program's own sentence when it is in beta.
             HerdrProgramNote(note: templates.first(where: { $0.name == (selection.isEmpty ? defaultName : selection) })?.note)

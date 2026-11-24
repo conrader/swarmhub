@@ -12,8 +12,8 @@ pub const MODEL_ENV: &str = "SWARMHUB_LAUNCH_MODEL";
 pub(crate) const INVALID_API_TEMPLATE: &str =
     "Use a literal swarmhub-herdr run-opencode --api-first-task mini command for this template.";
 pub const CUSTOM_MODEL_ENV: &str = "SWARMHUB_MODEL_ID";
-/// Gemini CLI's full name. It is in beta here: people see it as "Gemini (beta)", with `BETA_NOTE` where they
-/// choose a program, and it is never the program chosen for them while another one is installed.
+/// Gemini CLI's full name. It is in beta here, with `BETA_NOTE` where people choose a program, and it is never
+/// the program chosen for them while another one is installed.
 pub(crate) const GEMINI: &str = "Gemini CLI";
 const BETA_NOTE: &str = "Gemini is in beta: a reply arrives all at once, it asks for permission in its terminal and not in the chat, and a model change applies the next time it starts.";
 
@@ -164,8 +164,7 @@ fn short_name(harness: &str) -> Option<String> {
     match harness {
         "Claude Code" => Some("Claude".to_owned()),
         "Codex" | "OpenCode" => Some(harness.to_owned()),
-        "Antigravity CLI" => Some("Gemini (Antigravity)".into()),
-        GEMINI => Some("Gemini (beta)".to_owned()),
+        "Antigravity CLI" | GEMINI => Some("Gemini".to_owned()),
         _ => None,
     }
 }
@@ -609,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn gemini_is_named_as_beta_carries_a_note_and_is_listed_last() {
+    fn gemini_cli_and_antigravity_share_a_short_name_and_keep_their_beta_notes() {
         use super::{Catalog, ModelAgent, beta_last, model_agent};
         let catalog = Catalog::default();
         let template = |name: &str, command: &str| -> crate::core::Template {
@@ -622,14 +621,19 @@ mod tests {
         let codex = || template("swarmhub-codex", "/usr/bin/swarmhub-herdr run-codex");
         assert!(catalog.beta(&gemini()) && !catalog.beta(&codex()));
         let shown = serde_json::to_value(catalog.choice(gemini())).unwrap();
-        // The program keeps its real name; only the name people read says beta.
         assert_eq!(shown["runtime"]["harness"], "Gemini CLI");
-        assert_eq!(shown["runtime"]["display_name"], "Gemini (beta)");
+        assert_eq!(shown["runtime"]["display_name"], "Gemini");
         assert_eq!(shown["beta"], true);
         assert!(shown["note"].as_str().unwrap().contains("beta"));
         assert_eq!(shown["model_agent"], "Gemini CLI");
         let plain = serde_json::to_value(catalog.choice(codex())).unwrap();
         assert!(plain.get("beta").is_none() && plain.get("note").is_none());
+        let antigravity = template("swarmhub-antigravity", "/usr/bin/swarmhub-herdr run-antigravity");
+        let shown_antigravity = serde_json::to_value(catalog.choice(antigravity)).unwrap();
+        assert_eq!(shown_antigravity["runtime"]["harness"], "Antigravity CLI");
+        assert_eq!(shown_antigravity["runtime"]["display_name"], "Gemini");
+        assert_eq!(shown_antigravity["beta"], true);
+        assert_eq!(shown_antigravity["note"], shown["note"]);
         // What a client echoes back as `expected_runtime` has no new field in it.
         let sent: super::Runtime = serde_json::from_value(shown["runtime"].clone()).unwrap();
         assert_eq!(sent, catalog.runtime(&gemini()));

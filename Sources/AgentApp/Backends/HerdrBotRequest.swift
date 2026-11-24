@@ -73,7 +73,9 @@ struct HerdrBotRequest: Equatable, Sendable {
     /// name or contains it as a word ("claude" finds "Claude Code"). nil when nothing matches.
     static func template(for runtime: String?, in templates: [HerdrClient.Template]) -> HerdrClient.Template? {
         guard let wanted = runtime?.lowercased(), !wanted.isEmpty else { return nil }
-        if let exact = templates.first(where: { $0.name.lowercased() == wanted || $0.runtime?.harness?.lowercased() == wanted || $0.programName?.lowercased() == wanted }) { return exact }
+        if let exact = templates.first(where: { $0.name.lowercased() == wanted }) { return exact }
+        if let exact = templates.first(where: { $0.runtime?.harness?.lowercased() == wanted || $0.runtime?.displayName?.lowercased() == wanted }) { return exact }
+        if let friendly = templates.first(where: { $0.programName?.lowercased() == wanted }) { return friendly }
         return templates.first { template in
             (template.runtime?.harness ?? "").lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains { $0 == wanted }
         }

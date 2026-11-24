@@ -6,6 +6,7 @@ struct ChatView: View {
     @State private var verifyingAttachmentSupport = false
     @State private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
+    @State private var terminal: HerdrTerminalTarget?
     /// The messages between bots that are unfolded, while this chat is on screen.
     @StateObject private var folds: ChatFolds
     @Environment(\.grokHistoryExpanded) private var historyExpanded
@@ -16,11 +17,14 @@ struct ChatView: View {
         let _ = viewport.show(bot.id, order: shown.map(\.id))
         let appStore = store, botName = bot.name
         let _ = selection.show(rows: shown) { appStore.copiedMessage($0, botName: botName) }
+        let coding = store.hasActiveCodingAgent(bot)
+        let answering = store.isAnswering(bot)
+        let session = store.herdrTerminalSession(for: bot)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
-                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot), probe: "chat_header")
-                Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
+                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: answering, probe: "chat_header", hasActiveCodingAgent: coding)
+                Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 if let main = store.herdrMainBotLabel(bot) { HerdrMainBotStar(label: main, size: 11) }
                 // A Herdr bot's model by the server's name for it: the running agent's, else the one its next agent starts on.
                 if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model \(bot.name) runs on") }
@@ -28,12 +32,20 @@ struct ChatView: View {
                 if bot.backend == .herdr, !bot.isReadOnlyArchive {
                     let helpers = store.startsHerdrHelpers(bot)
                     Button(helpers ? "Helper instructions on" : "Helper instructions off") { store.editingBot = bot }
-                        .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+                        .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         .help("Edit this bot’s helper instructions in Advanced settings")
                 }
-                if bot.backend == .herdr, !store.isWorking(bot), let readiness = store.herdrReadiness[bot.id] { HerdrReadinessMark(readiness: readiness).transition(.opacity).id(readiness.word) }
+                if bot.backend == .herdr, !answering, let readiness = store.herdrReadiness[bot.id],
+                   readiness != .ready || store.herdrPresence(for: bot)?.isActive != true {
+                    HerdrReadinessMark(readiness: readiness).transition(.opacity).id(readiness.word)
+                }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
+                if let session {
+                    Button("Terminal", systemImage: "terminal") { terminal = HerdrTerminalTarget(agent: session) }
+                        .buttonStyle(.bordered).controlSize(.small).fixedSize()
+                        .accessibilityLabel("Open terminal for \(bot.name)").accessibilityIdentifier("chat.bot.terminal")
+                }
             }.animation(.easeInOut(duration: 0.2), value: store.herdrReadiness[bot.id]?.word)
             .padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header")
                 // The bot's own colour, as a soft wash behind its name: each chat is recognisably its bot's.
@@ -74,6 +86,8 @@ struct ChatView: View {
                 }
             }
         }.background(AppColor.chat)
+            .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
+            .onChange(of: bot.id) { _, _ in terminal = nil }
             .dropDestination(for: URL.self) { urls, _ in
                 let files = urls.filter(\.isFileURL)
                 guard !files.isEmpty, !bot.isReadOnlyArchive else { return false }
@@ -107,12 +121,13 @@ struct ChatView: View {
             if bot.isReadOnlyArchive {
                 Text(bot.retiredBackend.map { "Read-only chat from \($0)." } ?? "Read-only chat from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
             } else {
+                let helpers = store.herdrHelpers[bot.id]?.helpers.filter(\.isLive) ?? []
                 // What needs the person waits here, above the message box: an agent that asks something in its
                 // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
                 // (Remember or Don't save), and, once, the offer to get to know them.
                 VStack(spacing: 8) {
                     if bot.backend == .herdr {
-                        if store.herdrPrompts[bot.id] == nil, store.herdrReadiness[bot.id]?.isBlocked == true {
+                        if store.herdrTerminalSession(for: bot) == nil, store.herdrPrompts[bot.id] == nil, store.herdrReadiness[bot.id]?.isBlocked == true {
                             Button("View terminal") { Task { await store.viewHerdrTerminal(for: bot) } }
                                 .buttonStyle(.link).font(.caption)
                         }
@@ -125,7 +140,12 @@ struct ChatView: View {
                         HerdrBotRequestCard(manager: bot)
                         HerdrModelChangeCard(manager: bot)
                     }
-                }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil ? 8 : 0).frame(maxWidth: .infinity)
+                    if bot.backend == .herdr, !helpers.isEmpty {
+                        HerdrCodingAgentCard(helpers: helpers, tint: bot.colours, openTerminal: { helper in
+                            terminal = HerdrTerminalTarget(agent: helper.ref, title: "\(bot.name) · \(helper.name)")
+                        }, openDetails: { helper in store.open(helper, of: bot) })
+                    }
+                }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil || !helpers.isEmpty ? 8 : 0).frame(maxWidth: .infinity)
                 composer
             }
         }

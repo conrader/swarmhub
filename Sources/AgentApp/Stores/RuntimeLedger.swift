@@ -118,6 +118,7 @@ extension AppStore {
 
     /// Launch: what the ledger committed and store.json may have missed (a crash between the two saves).
     func restoreLedger() {
+        reconcileOrphanedSteers()
         restoreNextMessages()
     }
 }

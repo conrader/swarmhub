@@ -181,6 +181,100 @@ import Testing
         try await waitUntil { !store.anyTurnRunning }
     }
 
+    @Test func turnLimitsDefaultAndPersistAcrossStoreReloads() {
+        let url = temporaryStore()
+        let defaults = isolatedDefaults()
+        let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+        #expect(store.turnLimits.total == 6)
+        #expect(store.turnLimits.perConnection == 4)
+
+        store.setPerConnectionTurnLimit(8)
+        store.setTotalTurnLimit(12)
+        #expect(defaults.integer(forKey: "turnLimits.total") == 12)
+        #expect(defaults.integer(forKey: "turnLimits.perConnection") == 8)
+
+        let reopened = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+        #expect(reopened.turnLimits.total == 12)
+        #expect(reopened.turnLimits.perConnection == 8)
+    }
+
+    @Test(arguments: [(0, -5, 1, 1), (-5, 0, 1, 1), (999, 4, 32, 4), (6, 999, 32, 32), (2, 5, 5, 5)])
+    func persistedTurnLimitsAreClampedAndNormalized(values: (Int, Int, Int, Int)) {
+        let (total, perConnection, expectedTotal, expectedPerConnection) = values
+        let defaults = isolatedDefaults()
+        defaults.set(total, forKey: "turnLimits.total")
+        defaults.set(perConnection, forKey: "turnLimits.perConnection")
+
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+        #expect(store.turnLimits.total == expectedTotal)
+        #expect(store.turnLimits.perConnection == expectedPerConnection)
+    }
+
+    @Test func malformedTurnLimitsUseDefaults() {
+        let defaults = isolatedDefaults()
+        for invalid in ["invalid", 2.5, true] as [Any] {
+            defaults.set(invalid, forKey: "turnLimits.total")
+            defaults.set(invalid, forKey: "turnLimits.perConnection")
+
+            let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+            #expect(store.turnLimits.total == 6)
+            #expect(store.turnLimits.perConnection == 4)
+        }
+    }
+
+    @Test func editingEitherTurnLimitKeepsTheOtherInRange() {
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        store.setPerConnectionTurnLimit(9)
+        #expect(store.turnLimits.total == 9 && store.turnLimits.perConnection == 9)
+
+        store.setTotalTurnLimit(3)
+        #expect(store.turnLimits.total == 3 && store.turnLimits.perConnection == 3)
+
+        store.setPerConnectionTurnLimit(999)
+        #expect(store.turnLimits.total == 32 && store.turnLimits.perConnection == 32)
+
+        store.setTotalTurnLimit(-5)
+        #expect(store.turnLimits.total == 1 && store.turnLimits.perConnection == 1)
+    }
+
+    @Test func raisingEitherTurnLimitImmediatelyStartsEligibleQueuedReplies() async throws {
+        let (store, bots, backends) = concurrentStore(["Alpha", "Beta", "Gamma", "Delta"], boxes: 2)
+        store.setTotalTurnLimit(2)
+        store.setPerConnectionTurnLimit(1)
+        try await send("first", to: bots[0], in: store, backends[0])
+
+        store.selectedBot = bots[2]
+        #expect(store.send(text: "third"))
+        #expect(bots[2].messages.last?.content == "Waiting: 1 reply is already running on this server.")
+        try await send("second", to: bots[1], in: store, backends[1])
+
+        store.selectedBot = bots[3]
+        #expect(store.send(text: "fourth"))
+        #expect(bots[3].messages.last?.content == "Waiting: 2 replies are already running.")
+
+        store.setTotalTurnLimit(3)
+        #expect(store.turns.nextMessages.count == 2)
+        store.setPerConnectionTurnLimit(2)
+        try #require(store.isStreaming(in: bots[2]))
+        #expect(store.isIdle(bots[3]) && store.turns.nextMessages.count == 1)
+
+        store.setTotalTurnLimit(4)
+        try #require(store.isStreaming(in: bots[3]))
+        #expect(store.runningTurns.count == 4 && store.turns.nextMessages.isEmpty)
+        try await backends[2].calls.wait { $0.contains("send:third") }
+        try await backends[3].calls.wait { $0.contains("send:fourth") }
+        for backend in backends { await reply("done", backend) }
+        try await waitUntil { !store.anyTurnRunning }
+    }
+
+    @Test func aSingleGlobalSlotUsesSingularWaitingCopy() {
+        let (store, bots, _) = concurrentStore(["Alpha", "Beta"])
+        store.setTotalTurnLimit(1)
+        store.beginTurn(in: bots[0], bot: bots[0], assistant: nil)
+
+        #expect(store.turnCapacityProblem(for: [bots[1]]) == "Waiting: 1 reply is already running.")
+    }
+
     @Test func eachComposerReflectsOnlyItsOwnChat() async throws {
         let (store, bots, backends) = concurrentStore(["Alpha", "Beta"])
         try await send("one", to: bots[0], in: store, backends[0])

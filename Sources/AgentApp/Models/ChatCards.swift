@@ -6,46 +6,66 @@ enum ChatBlock: Equatable {
     case code(language: String, body: String)
     /// Question with options; picking one sends it as the user's reply.
     case choices(prompt: String, options: [String])
-    /// Draft with Send ("Send it" to the bot) and Copy.
+    /// Draft with inline Edit, Copy, and Send actions.
     case draft(DraftCard)
     case image(alt: String, url: String)
 }
 
-struct DraftCard: Equatable { var to: String?; var subject: String?; var body: String }
+struct DraftCard: Hashable, Encodable {
+    var to: String?
+    var subject: String?
+    var body: String
+    var channel: String? = nil
+
+    var isEmail: Bool {
+        channel?.caseInsensitiveCompare("Email") == .orderedSame || subject != nil
+    }
+}
 
 enum ChatCardParser {
     static let choicesMarker = "<!-- choices -->"
 
-    static func parse(_ text: String) -> [ChatBlock] {
+    /// Parse the visible reply consistently for rendering, card indexes, and action validation.
+    static func parseVisibleReply(_ text: String) -> [ChatBlock] {
+        parse(SwarmhubBlock.visibleText(text, preservingWhitespace: true), preservingProseWhitespace: true)
+    }
+
+    /// Optionally recognize tilde fences when inspecting prose without changing saved card indexes.
+    /// The renderer can keep prose whitespace for line structure and list indentation.
+    static func parse(_ text: String, includingTildeFences: Bool = false, preservingProseWhitespace: Bool = false) -> [ChatBlock] {
         var blocks: [ChatBlock] = []; var prose: [String] = []
         let lines = text.components(separatedBy: "\n"); var index = 0
-        func flush() { if !prose.isEmpty { blocks += proseBlocks(prose.joined(separator: "\n")); prose = [] } }
+        func flush() {
+            guard !prose.isEmpty else { return }
+            blocks += proseBlocks(prose.joined(separator: "\n"), preservingWhitespace: preservingProseWhitespace)
+            prose = []
+        }
         while index < lines.count {
-            guard let fence = fenceOpening(lines[index]) else { prose.append(lines[index]); index += 1; continue }
+            guard let fence = fenceOpening(lines[index], includingTildeFences: includingTildeFences) else { prose.append(lines[index]); index += 1; continue }
             flush()
             var body: [String] = []; index += 1
-            while index < lines.count, !closesFence(lines[index], length: fence.length) { body.append(lines[index]); index += 1 }
+            while index < lines.count, !closesFence(lines[index], mark: fence.mark, length: fence.length) { body.append(lines[index]); index += 1 }
             let closed = index < lines.count
             index += 1
             blocks.append(fencedBlock(language: fence.info, body: body, closed: closed))
         }
         flush()
-        return markTrailingChoices(blocks)
+        return markTrailingChoices(blocks, preservingWhitespace: preservingProseWhitespace)
     }
 
-    private static func fenceOpening(_ line: String) -> (length: Int, info: String)? {
+    private static func fenceOpening(_ line: String, includingTildeFences: Bool) -> (mark: Character, length: Int, info: String)? {
         let trimmed = line.drop { $0 == " " }
-        guard line.count - trimmed.count <= 3 else { return nil }
-        let length = trimmed.prefix { $0 == "`" }.count
+        guard line.count - trimmed.count <= 3, let mark = trimmed.first, mark == "`" || (includingTildeFences && mark == "~") else { return nil }
+        let length = trimmed.prefix { $0 == mark }.count
         guard length >= 3 else { return nil }
         let info = trimmed.dropFirst(length).trimmingCharacters(in: .whitespaces)
-        guard !info.contains("`") else { return nil }
-        return (length, info.split(separator: " ").first.map(String.init) ?? "")
+        guard mark != "`" || !info.contains("`") else { return nil }
+        return (mark, length, info.split(separator: " ").first.map(String.init) ?? "")
     }
 
-    private static func closesFence(_ line: String, length: Int) -> Bool {
+    private static func closesFence(_ line: String, mark: Character, length: Int) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return trimmed.count >= length && trimmed.allSatisfy { $0 == "`" }
+        return trimmed.count >= length && trimmed.allSatisfy { $0 == mark }
     }
 
     private static func fencedBlock(language: String, body: [String], closed: Bool) -> ChatBlock {
@@ -56,15 +76,23 @@ enum ChatCardParser {
                 if let option = listItem(line) { options.append(option) } else { prompt.append(line.trimmingCharacters(in: .whitespaces)) }
             }
             return options.count >= 2 ? .choices(prompt: prompt.joined(separator: " "), options: options) : .code(language: language, body: body.joined(separator: "\n"))
-        case "draft":
-            var draft = DraftCard(body: ""); var rest = body[...]
-            while let line = rest.first, let colon = line.firstIndex(of: ":") {
-                let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased(), value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-                if key == "to" { draft.to = value } else if key == "subject" { draft.subject = value } else { break }
+        case "draft", "email", "message":
+            var draft = DraftCard(body: "")
+            var rest = body[...]
+            headers: while let line = rest.first, let colon = line.firstIndex(of: ":") {
+                let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+                let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                switch key {
+                case "to": draft.to = value
+                case "subject": draft.subject = value
+                case "channel", "via": draft.channel = value.isEmpty ? nil : value
+                default: break headers
+                }
                 rest = rest.dropFirst()
             }
-            if draft.to != nil || draft.subject != nil, rest.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { rest = rest.dropFirst() }
-            draft.body = rest.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if rest.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { rest = rest.dropFirst() }
+            if draft.channel == nil, language.lowercased() == "email" { draft.channel = "Email" }
+            draft.body = rest.joined(separator: "\n")
             return .draft(draft)
         default:
             return .code(language: language, body: body.joined(separator: "\n"))
@@ -93,13 +121,15 @@ enum ChatCardParser {
     }
 
     /// A numbered list that ends the message and is introduced by `<!-- choices -->` becomes a choices card.
-    private static func markTrailingChoices(_ blocks: [ChatBlock]) -> [ChatBlock] {
+    private static func markTrailingChoices(_ blocks: [ChatBlock], preservingWhitespace: Bool) -> [ChatBlock] {
         guard case .markdown(let text)? = blocks.last, let marker = text.range(of: choicesMarker, options: .backwards) else { return blocks }
         let tail = text[marker.upperBound...].components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let options = tail.compactMap(numberedItem)
         guard options.count >= 2, options.count == tail.count else { return blocks }
-        let before = String(text[..<marker.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return Array(blocks.dropLast()) + (before.isEmpty ? [] : [.markdown(before)]) + [.choices(prompt: "", options: options)]
+        var result = Array(blocks.dropLast())
+        appendMarkdown(String(text[..<marker.lowerBound]), preservingWhitespace: preservingWhitespace, to: &result)
+        result.append(.choices(prompt: "", options: options))
+        return result
     }
 
     // MARK: Images and links
@@ -115,21 +145,21 @@ enum ChatCardParser {
     }
 
     /// Splits prose around Markdown images with an http(s) or `data:image/` source.
-    private static func proseBlocks(_ text: String) -> [ChatBlock] {
+    private static func proseBlocks(_ text: String, preservingWhitespace: Bool) -> [ChatBlock] {
         var blocks: [ChatBlock] = []; var cursor = text.startIndex
         for match in imagePattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
             guard let range = Range(match.range, in: text), let alt = Range(match.range(at: 1), in: text), let url = Range(match.range(at: 2), in: text),
                   isDisplayableImageURL(String(text[url])) else { continue }
-            appendMarkdown(String(text[cursor..<range.lowerBound]), to: &blocks)
+            appendMarkdown(String(text[cursor..<range.lowerBound]), preservingWhitespace: preservingWhitespace, to: &blocks)
             blocks.append(.image(alt: String(text[alt]), url: String(text[url]))); cursor = range.upperBound
         }
-        appendMarkdown(String(text[cursor...]), to: &blocks)
+        appendMarkdown(String(text[cursor...]), preservingWhitespace: preservingWhitespace, to: &blocks)
         return blocks
     }
 
-    private static func appendMarkdown(_ text: String, to blocks: inout [ChatBlock]) {
+    private static func appendMarkdown(_ text: String, preservingWhitespace: Bool, to blocks: inout [ChatBlock]) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { blocks.append(.markdown(trimmed)) }
+        if !trimmed.isEmpty { blocks.append(.markdown(preservingWhitespace ? text : trimmed)) }
     }
 
     static func markdownImages(in text: String) -> [(alt: String, url: String)] {

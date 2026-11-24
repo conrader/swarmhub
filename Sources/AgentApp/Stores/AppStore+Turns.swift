@@ -16,6 +16,8 @@ import Foundation
     var connectivityTask: Task<Void, Never>?; var terminateObserver: NSObjectProtocol?
     /// P28: queued steers per turn (keyed by the turn's first reply row) and the row a split turn now streams into.
     var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]
+    /// Requests still awaiting a delivery result, including after their turn ends.
+    var inFlightSteers: Set<UUID> = []
     /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
     var nextMessages: [QueuedNextMessage] = []
     /// uxfix3: steer bubbles of a turn the user stopped: offered as the next message, never sent by themselves.
@@ -162,7 +164,7 @@ extension AppStore {
             do { try await sendRetrySleep(delay) } catch { end = .stoppedByUser; break }
             if Task.isCancelled { end = .stoppedByUser; break }
         }
-        let assistant = endTurnParts(assistant)
+        let assistant = endTurnParts(assistant, end: end)
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation)

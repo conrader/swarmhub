@@ -48,7 +48,12 @@ struct TurnOutcome: Equatable {
 
     static func classify(error: Error) -> TurnOutcome {
         let reason = error.localizedDescription
-        if let streamBreak = error as? StreamBreak {
+        let streamBreak = error as? StreamBreak
+        if let failure = (streamBreak?.underlying ?? error) as? HerdrClient.Failure,
+           failure == .unconfirmedDelivery || failure == .startNotObserved {
+            return .init(state: .notSent, why: "error", ambiguous: true, reason: reason)
+        }
+        if let streamBreak {
             if streamBreak.delivered {
                 if streamBreak.isEndOfStream { return .init(state: .incomplete, reason: reason) }
                 return .init(state: .incomplete, why: "offline", round: .stopsRest(why: "offline"), reason: reason)
@@ -63,9 +68,6 @@ struct TurnOutcome: Equatable {
                 return .init(state: .notSent, why: why, ambiguous: true, round: .stopsRest(why: why), reason: reason)
             }
             return .init(state: .notSent, why: "error", reason: reason)
-        }
-        if let failure = error as? HerdrClient.Failure, failure == .unconfirmedDelivery {
-            return .init(state: .notSent, why: "error", ambiguous: true, reason: reason)
         }
         if case BackendError.http(let code, _) = error {
             if refusedStatuses.contains(code) { return .init(state: .notSent, why: "refused", reason: reason) }

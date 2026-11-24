@@ -7,19 +7,14 @@ struct HerdrTeamActivity: View {
     @ObservedObject var bot: Bot
     @State private var expanded = false
     @State private var exchanges: [HerdrClient.TeamPage.Exchange] = []
-    @State private var plans: [Plan] = []
+    @State private var plans: [HerdrClient.BotCheckin] = []
     @State private var promises: [Promise] = []
     @State private var error = ""
     @State private var loaded = false
     @State private var busy = false
 
-    private struct Plan: Decodable, Identifiable {
-        struct Schedule: Decodable { let url: String? }
-        let id: Int, what: String, paused: Bool, schedule: Schedule, nextMs: Int64?
-    }
     private struct Promise: Decodable, Identifiable { let id: Int, what: String, dueMs: Int64, state: String }
     private struct Exchanges: Decodable { let exchanges: [HerdrClient.TeamPage.Exchange] }
-    private struct Plans: Decodable { let checkins: [Plan] }
     private struct Promises: Decodable { let promises: [Promise] }
 
     private var path: String { "/api/bots/\(bot.id.uuidString.lowercased())" }
@@ -73,12 +68,13 @@ struct HerdrTeamActivity: View {
         do {
             let client = try store.herdrClient(for: store.herdrServer(for: bot))
             let base = path
+            let botID = bot.id
             async let a: Exchanges = client.get(base + "/exchanges")
-            async let b: Plans = client.get(base + "/checkins")
+            async let b = client.botCheckins(botID)
             async let c: Promises = client.get(base + "/promises")
             let results = try await (a, b, c)
             try Task.checkCancellation()
-            exchanges = results.0.exchanges; plans = results.1.checkins; promises = results.2.promises
+            exchanges = results.0.exchanges; plans = results.1; promises = results.2.promises
             loaded = true; error = ""
         } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }

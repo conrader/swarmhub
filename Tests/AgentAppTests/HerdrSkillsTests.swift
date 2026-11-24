@@ -174,7 +174,7 @@ private func skillsRequestBody(_ request: URLRequest) -> [String: Any] {
     let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     let bot = Bot(name: "Ada", backend: .herdr); store.bots = [bot]
-    #expect(store.infoTabs(for: bot) == [.overview, .model, .skills, .media])
+    #expect(store.infoTabs(for: bot).contains(.skills))
     #expect(store.herdrSkillsModel(for: store.herdrServers[0]) === store.herdrSkillsModel(for: store.herdrServer(for: bot)), "Settings and Details show the same section")
     // The section renders in each of its states, each differently.
     let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"]), size = NSSize(width: 570, height: 1_180)

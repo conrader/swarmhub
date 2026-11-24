@@ -5,12 +5,13 @@ import Foundation
 /// the reply shows without it, and each fence reads as one line that unfolds to the block (`FoldedBlockLine`).
 enum SwarmhubBlock {
     /// The reply as the chat shows it: every ```swarmhub fence removed (the stored message keeps it).
-    static func visibleText(_ text: String) -> String {
+    static func visibleText(_ text: String, preservingWhitespace: Bool = false) -> String {
         let found = fences(in: text)
         guard !found.isEmpty else { return text }
         var lines = text.components(separatedBy: "\n")
         for fence in found.reversed() { lines.removeSubrange(fence.lines) }
-        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let visible = lines.joined(separator: "\n")
+        return preservingWhitespace ? visible : visible.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// ```swarmhub fences: line range (an unclosed fence runs to the end, as while streaming) and body.

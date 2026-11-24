@@ -34,7 +34,7 @@ use std::{
     env,
     ffi::OsString,
     fs,
-    io::Write,
+    io::{self, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -148,7 +148,7 @@ const PROGRAMS: [Program; 5] = [
     // In beta, and last: a program earlier in this list is the one chosen by default.
     Program {
         id: "gemini",
-        name: "Gemini (beta)",
+        name: "Gemini",
         full: "Gemini CLI",
         bin: "gemini",
         template: "swarmhub-gemini",
@@ -159,7 +159,7 @@ const PROGRAMS: [Program; 5] = [
     },
     Program {
         id: "antigravity",
-        name: "Gemini (Antigravity)",
+        name: "Gemini",
         full: "Antigravity CLI",
         bin: "agy",
         template: "swarmhub-antigravity",
@@ -297,21 +297,50 @@ fn core_socket(
     if let Some(socket) = get("HC_SOCKET") {
         return socket.into();
     }
-    let session = get("HC_SESSION")
-        .and_then(|session| session.into_string().ok())
-        .map(|session| session.trim().to_owned())
-        .filter(|session| !session.is_empty())
-        .unwrap_or_else(|| "default".into());
+    let session = core_session(&get);
     let name = format!("{session}.sock");
     if let Some(run) = get("XDG_RUNTIME_DIR").map(PathBuf::from).or(run_user) {
         return run.join("herdr-core").join(name);
     }
+    core_state_directory(home, &get, &session).join(name)
+}
+
+fn core_session(get: &impl Fn(&str) -> Option<OsString>) -> String {
+    get("HC_SESSION")
+        .and_then(|session| session.into_string().ok())
+        .map(|session| session.trim().to_owned())
+        .filter(|session| !session.is_empty())
+        .unwrap_or_else(|| "default".into())
+}
+
+fn core_state_directory(home: &Path, get: &impl Fn(&str) -> Option<OsString>, session: &str) -> PathBuf {
     get("XDG_STATE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".local/state"))
         .join("herdr-core")
         .join(session)
-        .join(name)
+}
+
+/// Core stores attachments in its session's state directory, even with a custom socket path.
+pub(crate) fn core_files_directory() -> Option<PathBuf> {
+    let home = PathBuf::from(setting("HOME")?);
+    let session = core_session(&setting);
+    if session == "." || session == ".." || session.contains('/') {
+        return None;
+    }
+    let state = core_state_directory(&home, &setting, &session);
+    if !state.is_absolute() || !fs::symlink_metadata(&state).is_ok_and(|meta| meta.is_dir()) {
+        return None;
+    }
+    let files = state.join("files");
+    // A warm bot may start before the first upload, when Core hasn't created this directory yet.
+    match fs::DirBuilder::new().mode(0o700).create(&files) {
+        Ok(()) => Some(files),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            fs::symlink_metadata(&files).ok()?.is_dir().then_some(files)
+        }
+        Err(_) => None,
+    }
 }
 
 fn core_socket_here(home: &Path) -> PathBuf {
@@ -862,7 +891,7 @@ fn add_ai(places: &Places, id: &str, folders: &[PathBuf]) -> Result<(), Stop> {
     match draft.persist_noclobber(&dest) {
         Ok(_) => {}
         Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists && dest.is_file() => {}
-        Err(e) => return Err(Stop::failed(format!("Could not add {}: {e}", program.name))),
+        Err(e) => return Err(Stop::failed(format!("Could not add {}: {e}", program.full))),
     }
     if id == "codex" {
         let _ = first_time(places, folders);
@@ -1113,8 +1142,14 @@ fn look(places: &Places, asked: &Asked, folders: &[PathBuf]) -> Value {
         .iter()
         .map(|program| {
             let path = find(program.bin, folders);
+            // The local inventory lists both executables, even before either has a template.
+            let name = if PROGRAMS.iter().any(|p| p.id != program.id && p.name == program.name) {
+                program.full
+            } else {
+                program.name
+            };
             json!({
-                "id": program.id, "name": program.name, "full_name": program.full,
+                "id": program.id, "name": name, "full_name": program.full,
                 "installed": path.is_some(), "path": path,
                 "template": program.template,
                 "template_written": places.templates.join(format!("{}.md", program.template)).is_file(),

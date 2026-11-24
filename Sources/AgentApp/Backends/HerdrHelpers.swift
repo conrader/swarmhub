@@ -6,7 +6,7 @@ import Foundation
 /// and terminal. Foundation only, like the rest of `HerdrClient`.
 extension HerdrClient {
     /// An agent as the bridge names one in a path: its terminal's address and creation time.
-    struct AgentRef: Decodable, Sendable, Hashable { let address: String; let createdMs: UInt64 }
+    struct AgentRef: Codable, Sendable, Hashable { let address: String; let createdMs: UInt64 }
 
     /// One helper in `GET /api/agents/{address}/{created_ms}/helpers`.
     struct Helper: Decodable, Sendable, Equatable, Identifiable {
@@ -45,6 +45,7 @@ extension HerdrClient {
 
         /// The model the helper runs on, by its label: the server's, else the one the app saw for that id, else the id.
         var runLine: String { [modelLabel, HerdrModelNames.label(model), model].compactMap { $0 }.first { !$0.isEmpty } ?? "" }
+        var taskLine: String { (task ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ") }
         /// "Easy task": how hard the bot said the task is, for the helper's own view.
         var difficultyLine: String? { difficulty.flatMap { $0.isEmpty ? nil : "\($0.prefix(1).uppercased())\($0.dropFirst()) task" } }
     }

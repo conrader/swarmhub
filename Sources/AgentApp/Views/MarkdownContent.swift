@@ -12,14 +12,24 @@ struct MarkdownContent: View {
     /// has in the whole reply (`ReplyLayout.blockIndexes`), which is what a card's answer is stored and checked by.
     var text: String? = nil; var indexes: [Int]? = nil
     var body: some View {
+        let source = text ?? message.content
+        let blocks = ChatCardParser.parseVisibleReply(source)
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(ChatCardParser.parse(SwarmhubBlock.visibleText(text ?? message.content)).enumerated()), id: \.offset) { offset, block in
+            ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
                 let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset
                 switch block {
                 case .markdown(let text): ProseBlock(text: text)
                 case .code(_, let body): CodeBlock(code: body)
-                case .choices(let prompt, let options): ChoicesCard(message: message, target: actionTarget, index: index, prompt: prompt, options: options)
-                case .draft(let draft): DraftCardView(message: message, target: actionTarget, index: index, draft: draft)
+                case .choices(let prompt, let options):
+                    let picked = message.metadata["picked.\(index)"]
+                    ChoicesCard(prompt: prompt, options: options.map { ChatChoiceOption(label: $0, reply: $0) }, picked: picked,
+                                enabled: index >= 0 && picked == nil && actionTarget.map { store.canAnswerChoice(message, target: $0) } == true) { answer in
+                        guard let actionTarget else { return }
+                        store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
+                                                expected: .choices(prompt: prompt, options: options), choice: answer)
+                    }
+                case .draft(let draft):
+                    DraftCardView(message: message, target: actionTarget, index: index, draft: draft).id(draft)
                 case .image(let alt, let url):
                     if let video = URL(string: url), ["http", "https"].contains(video.scheme?.lowercased() ?? ""), ChatMediaKind(filename: video.lastPathComponent) == .video {
                         ChatVideo(url: video).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(alt)
@@ -27,7 +37,7 @@ struct MarkdownContent: View {
                 }
             }
             // What the reply asked the app for, each as one plain line; the block itself is never drawn.
-            ForEach(Array(SwarmhubSummary.lines(in: text ?? message.content).enumerated()), id: \.offset) { _, line in FoldedBlockLine(line: line) }
+            ForEach(Array(SwarmhubSummary.lines(in: source).enumerated()), id: \.offset) { _, line in FoldedBlockLine(line: line) }
         }
     }
 }
@@ -36,7 +46,7 @@ struct ProseBlock: View {
     let text: String
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            ForEach(Array(text.components(separatedBy: "\n\n").enumerated()), id: \.offset) { _, paragraph in markdownParagraph(paragraph) }
+            MarkdownBlockContent(blocks: MarkdownBlockParser.parse(text))
             let urls = ChatCardParser.bareURLs(in: text)
             if !urls.isEmpty { LinkPillRow(urls: urls) }
             ForEach(ChatCardParser.links(in: text), id: \.self) { link in
@@ -50,20 +60,136 @@ struct ProseBlock: View {
             }
         }
     }
-    @ViewBuilder private func markdownParagraph(_ paragraph: String) -> some View {
-        if paragraph.hasPrefix("## ") {
-            Text(String(paragraph.dropFirst(3))).font(.title3.weight(.semibold))
-        } else if paragraph.hasPrefix("- ") {
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(paragraph.components(separatedBy: "\n"), id: \.self) { line in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) { Text("•").foregroundStyle(.tint); Text(inlineMarkdown(String(line.dropFirst(2)))).fixedSize(horizontal: false, vertical: true) }
-                }
+}
+
+private struct MarkdownBlockContent: View {
+    let blocks: [MarkdownBlock]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ForEach(blocks.indices, id: \.self) { index in
+                blockView(blocks[index])
             }
-        } else {
-            Text(inlineMarkdown(paragraph)).textSelection(.enabled).font(.body).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
         }
     }
-    private func inlineMarkdown(_ value: String) -> AttributedString { (try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value) }
+
+    @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
+        switch block {
+        case .paragraph(let text):
+            markdownText(text).font(.body)
+        case .heading(let level, let text):
+            markdownText(text).font(headingFont(level)).accessibilityAddTraits(.isHeader)
+        case .quote(let children):
+            if !children.isEmpty {
+                MarkdownBlockContent(blocks: children)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 5))
+                    .overlay(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 1.5).fill(.tint).opacity(0.7).frame(width: 3)
+                    }
+                    .padding(.leading, 4)
+            }
+        case .rule:
+            Divider().padding(.vertical, 3)
+        case .list(let items):
+            list(items)
+        case .table(let header, let rows):
+            table(header: header, rows: rows)
+        }
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: .title2.weight(.semibold)
+        case 2: .title3.weight(.semibold)
+        case 3: .headline
+        default: .subheadline.weight(.semibold)
+        }
+    }
+
+    private func list(_ items: [MarkdownListItem]) -> some View {
+        let widestNumber = items.reduce(into: [Int: String]()) { numbers, item in
+            guard let number = item.number, number.count > (numbers[item.depth]?.count ?? 0) else { return }
+            numbers[item.depth] = number
+        }
+        return VStack(alignment: .leading, spacing: 5) {
+            ForEach(items.indices, id: \.self) { index in
+                let item = items[index]
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let number = item.number, let widest = widestNumber[item.depth] {
+                        ZStack(alignment: Alignment(horizontal: .trailing, vertical: .firstTextBaseline)) {
+                            Text(widest + ".").hidden().accessibilityHidden(true)
+                            Text(number + ".")
+                        }.font(.body.monospacedDigit()).foregroundStyle(.tint).fixedSize()
+                    } else {
+                        Text(item.depth == 0 ? "•" : "◦").font(.body).foregroundStyle(.tint).accessibilityHidden(true)
+                    }
+                    markdownText(item.text).font(.body)
+                }
+                .padding(.leading, CGFloat(min(item.depth, 6)) * 16)
+            }
+        }
+    }
+
+    private func table(header: [String], rows: [[String]]) -> some View {
+        let border = RoundedRectangle(cornerRadius: 5)
+        return ScrollView(.horizontal) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+                tableRow(header, isHeader: true, hasNextRow: !rows.isEmpty)
+                ForEach(rows.indices, id: \.self) { index in
+                    tableRow(rows[index], isHeader: false, hasNextRow: index < rows.count - 1)
+                }
+            }
+            .fixedSize()
+            .clipShape(border)
+            .overlay { border.strokeBorder(AppColor.separator, lineWidth: 1).allowsHitTesting(false) }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func tableRow(_ cells: [String], isHeader: Bool, hasNextRow: Bool) -> some View {
+        GridRow {
+            ForEach(cells.indices, id: \.self) { index in
+                MarkdownTableCellLayout {
+                    markdownText(cells[index]).font(isHeader ? .body.bold() : .body)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(isHeader ? AppColor.raised : Color.clear)
+                .overlay(alignment: .trailing) {
+                    if index < cells.count - 1 { AppColor.separator.frame(width: 1).allowsHitTesting(false) }
+                }
+                .overlay(alignment: .bottom) {
+                    if hasNextRow { AppColor.separator.frame(height: 1).allowsHitTesting(false) }
+                }
+                .accessibilityAddTraits(isHeader ? .isHeader : [])
+            }
+        }
+    }
+
+    private func markdownText(_ value: String) -> some View {
+        let inline = try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        return Text(inline ?? AttributedString(value))
+            .textSelection(.enabled)
+            .lineSpacing(4)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Give wrapped text its final width during the grid's ideal-size pass so it reports the full row height.
+private struct MarkdownTableCellLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maximumWidth: CGFloat = 240
+        let width = min(proposal.width ?? maximumWidth, maximumWidth)
+        return subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+    }
 }
 
 private struct CodeBlock: View {
@@ -87,58 +213,155 @@ struct LinkPillRow: View {
     }
 }
 
-/// Picking an option sends it as the user's reply to the card's own chat (P38: to its author in a group); the pick is
-/// remembered on the message.
-private struct ChoicesCard: View {
-    @EnvironmentObject private var store: AppStore
-    @ObservedObject var message: ChatMessage; let target: ConversationActionTarget?; let index: Int; let prompt: String; let options: [String]
-    private var picked: String? { message.metadata["picked.\(index)"] }
+struct ChoicesCard: View {
+    let prompt: String
+    let options: [ChatChoiceOption]
+    let picked: String?
+    let enabled: Bool
+    let answer: (ChatChoiceAnswer) -> Void
+    @State private var writingOther = false
+    @State private var other = ""
+    @FocusState private var otherFocused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
-            ForEach(options, id: \.self) { option in
-                Button { pick(option) } label: {
-                    HStack { Text(option).multilineTextAlignment(.leading); Spacer(); if picked == option { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).accessibilityHidden(true) } }
-                }.buttonStyle(ChoiceOptionStyle(picked: picked == option, answered: picked != nil))
-                    .accessibilityAddTraits(picked == option ? .isSelected : []).disabled(target == nil || picked != nil || message.isStreaming || target.map(store.isStreaming(for:)) == true)
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                optionButton(option.label, selected: picked == option.reply) {
+                    if isOther(option) { openOther() } else { answer(.option(option.reply)) }
+                }
+            }
+            if enabled && !options.contains(where: isOther) { optionButton("Other", action: openOther) }
+            if enabled && writingOther {
+                HStack {
+                    TextField("Write your reply", text: $other)
+                        .focused($otherFocused).onSubmit(sendOther)
+                    Button("Send", action: sendOther).disabled(other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
         }.padding(12).frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
-    private func pick(_ option: String) {
-        guard let target, picked == nil, !store.isStreaming(for: target) else { return }
-        store.performCardAction(target: target, sourceID: message.id, index: index, expected: .choices(prompt: prompt, options: options), choice: option)
+
+    private func optionButton(_ title: String, selected: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).multilineTextAlignment(.leading)
+                Spacer()
+                if selected { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).accessibilityHidden(true) }
+            }
+        }.buttonStyle(ChoiceOptionStyle(picked: selected, answered: picked != nil))
+            .accessibilityAddTraits(selected ? .isSelected : []).disabled(!enabled)
     }
+
+    private func isOther(_ option: ChatChoiceOption) -> Bool { option.label.caseInsensitiveCompare("Other") == .orderedSame }
+    private func openOther() { writingOther = true; otherFocused = true }
+    private func sendOther() { answer(.other(other)) }
 }
 
-/// Draft card: "Send" posts "Send it" to the bot that wrote it (P38: in the card's own chat), "Copy" copies the draft text.
+/// Inline review and editing for a draft sent back to its author.
 private struct DraftCardView: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var message: ChatMessage; let target: ConversationActionTarget?; let index: Int; let draft: DraftCard
-    private var sent: Bool { message.metadata["draftSent.\(index)"] != nil }
+    @ObservedObject var message: ChatMessage
+    let target: ConversationActionTarget?
+    let index: Int
+    let draft: DraftCard
+    @State private var current: DraftCard
+    @State private var isEditing = false
+
+    init(message: ChatMessage, target: ConversationActionTarget?, index: Int, draft: DraftCard) {
+        self.message = message
+        self.target = target
+        self.index = index
+        self.draft = draft
+        _current = State(initialValue: draft)
+    }
+
+    private var sentState: String? { message.metadata["draftSent.\(index)"] }
+    private var canEdit: Bool { target != nil && index >= 0 && sentState == nil && !message.isStreaming }
+    private var editing: Bool { isEditing && canEdit }
+    private var title: String {
+        if current.isEmail { return "Review email" }
+        if let channel = current.channel { return "Review \(channel)" }
+        return "Review message"
+    }
+    private var channelDetail: String? {
+        guard let channel = current.channel, current.isEmail, channel.caseInsensitiveCompare("Email") != .orderedSame else { return nil }
+        return channel
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Draft").font(.callout.weight(.semibold)).padding(12)
-            if draft.to != nil || draft.subject != nil {
+            HStack {
+                Label(title, systemImage: current.isEmail ? "envelope" : "bubble.left.and.text.bubble.right")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                if canEdit {
+                    if current != draft {
+                        Button("Reset") { current = draft }.buttonStyle(.link)
+                    }
+                    Button(isEditing ? "Done editing" : "Edit") { isEditing.toggle() }
+                }
+            }.padding(12)
+            if editing || current.to != nil || current.subject != nil || channelDetail != nil {
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
-                    if let to = draft.to { LabeledContent("To") { Text(to) } }
-                    if let subject = draft.subject { LabeledContent("Subject") { Text(subject).fontWeight(.medium) } }
+                    if let channelDetail { LabeledContent("Channel") { Text(channelDetail) } }
+                    if editing {
+                        LabeledContent("To") { TextField("To", text: field(\.to)).labelsHidden() }
+                        if current.isEmail {
+                            LabeledContent("Subject") { TextField("Subject", text: field(\.subject)).labelsHidden() }
+                        }
+                    } else {
+                        if let to = current.to { LabeledContent("To") { Text(to) } }
+                        if let subject = current.subject { LabeledContent("Subject") { Text(subject).fontWeight(.medium) } }
+                    }
                 }.font(.caption).padding(12)
             }
             Divider()
-            Text(draft.body).font(.callout).lineSpacing(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).padding(12)
+            if editing {
+                TextEditor(text: $current.body)
+                    .accessibilityLabel("Body")
+                    .font(.callout)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .frame(height: 140)
+                    .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 6))
+                    .padding(12)
+            } else {
+                Text(verbatim: current.body).font(.callout).lineSpacing(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).padding(12)
+            }
             Divider()
             HStack {
-                if sent { Text(message.metadata["draftSimulation.\(index)"] ?? "Sent “Send it”").font(.caption).foregroundStyle(.secondary) }
+                if let sentState {
+                    let status = sentState == "edited" ? "Sent edited draft" : message.metadata["draftSimulation.\(index)"] ?? "Sent “Send it”"
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Copy") { copyToPasteboard(draftText) }
-                Button("Send") { if let target { store.performCardAction(target: target, sourceID: message.id, index: index, expected: .draft(draft)) } }
-                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(target == nil || sent || message.isStreaming || target.map(store.isStreaming(for:)) == true)
+                Button("Send", action: send)
+                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(!canEdit || target.map(store.isStreaming(for:)) == true)
             }.padding(10)
         }.frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
+
+    private func field(_ keyPath: WritableKeyPath<DraftCard, String?>) -> Binding<String> {
+        Binding(
+            get: { current[keyPath: keyPath] ?? "" },
+            set: { current[keyPath: keyPath] = $0.isEmpty && draft[keyPath: keyPath] == nil ? nil : $0 }
+        )
+    }
+
     private var draftText: String {
-        ([draft.to.map { "To: \($0)" }, draft.subject.map { "Subject: \($0)" }].compactMap { $0 } + [draft.body]).joined(separator: "\n")
+        let headers = [current.channel.map { "Channel: \($0)" }, current.to.map { "To: \($0)" }, current.subject.map { "Subject: \($0)" }]
+        return (headers.compactMap { $0 } + [current.body]).joined(separator: "\n")
+    }
+
+    private func send() {
+        guard let target else { return }
+        if store.performCardAction(target: target, sourceID: message.id, index: index, expected: .draft(draft),
+                                   editedDraft: current == draft ? nil : current) {
+            isEditing = false
+        }
     }
 }
 

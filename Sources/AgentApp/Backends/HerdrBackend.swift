@@ -101,10 +101,33 @@ struct HerdrBackend: AgentBackend {
     static let publishNote = """
     Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. Publish images and videos with their file extensions so the person can view them in chat.
     """
+    static let choiceMarker = "Choices for the person"
+    static let choiceNote = """
+    \(choiceMarker): When you need the person to choose, end your reply with a `choices` fence. Put the question first and each short answer on a `- ` list line. Include Yes and No for a yes/no question, or Both when it is an option. SwarmHub sends the selected answer as the person's reply.
+
+    ```choices
+    Which way should I go?
+    - Start now
+    - Wait for Infra
+    ```
+    """
+    static let draftMarker = "Drafts for approval"
+    static let draftNote = """
+    \(draftMarker): For an email or outbound message the user must approve before sending, use a `draft` fence. Put optional `channel:` (e.g. Email, WhatsApp, Slack), `to:`, and `subject:` (email) headers on separate lines, then a blank line and the exact body. SwarmHub shows a card with Edit, Copy, and Send. On “Send this edited draft”, send the JSON fields and body verbatim.
+
+    ```draft
+    channel: Email
+    to: maya@example.com
+    subject: Launch update
+
+    Hi Maya, we're ready to launch.
+    ```
+    """
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : HerdrBotMessage.marker, messageNote),
+        [(Self.choiceMarker, Self.choiceNote), (Self.draftMarker, Self.draftNote),
+         (HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : HerdrBotMessage.marker, messageNote),
          (HerdrAboutYou.marker, aboutHow), (HerdrModelRequest.marker, modelBrief), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }

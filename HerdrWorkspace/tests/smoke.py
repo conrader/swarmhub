@@ -1393,7 +1393,7 @@ def smoke(hc, bridge, chrome=None):
                 shown = request("/api/workspace")["templates"]
                 choice = next(t for t in shown if t["name"] == "gemini-fixture")
                 assert choice["runtime"] == {"harness": "Gemini CLI", "provider": None, "model": None,
-                                             "display_name": "Gemini (beta)"}
+                                             "display_name": "Gemini"}
                 assert choice["beta"] is True and "beta" in choice["note"] and choice["model_agent"] == "Gemini CLI"
                 # Beta programs are listed last, so none of them is "the first one" while another program is there.
                 assert {t["name"] for t in shown[-2:]} == {"gemini-fixture", "gemini-unsigned"}

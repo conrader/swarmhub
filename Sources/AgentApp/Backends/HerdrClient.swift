@@ -45,6 +45,7 @@ struct HerdrClient: Sendable {
         let address: String; let name: String; let state: String; let createdMs: UInt64; let template: String?; let status: Status?
         var firstMessage: FirstMessage? = nil
         var openCodeFirstTask: String? = nil
+        var reason: String? = nil
         /// Set for a helper: the agent that started it (`HerdrHelpers.swift`). A bot's own agent has none.
         var parent: AgentRef? = nil
         /// From a bridge that starts agents ahead of their first message (`warm`). `ready` is false only while such an
@@ -73,7 +74,11 @@ struct HerdrClient: Sendable {
 
     /// A bot's saved profile on the bridge, with its newest sessions and what each was launched with.
     struct Profile: Decodable, Sendable {
-        struct Session: Decodable, Sendable, Equatable { let address: String; let createdMs: UInt64; var runtime: Template.Runtime? = nil }
+        struct Session: Decodable, Sendable, Equatable {
+            let address: String; let createdMs: UInt64
+            var runtime: Template.Runtime? = nil
+            var core: String? = nil
+        }
         let id: Int; let runtimeName: String
         var sessions: [Session]? = nil
     }
@@ -98,7 +103,9 @@ struct HerdrClient: Sendable {
         }
         /// A task that was never typed into the agent.
         var wasNotSent: Bool { kind == "task" && state == "not_sent" }
-        /// A task the agent has read or will read: one that was never typed into it taught it nothing.
+        /// The bridge tried to type the task and saw no turn start.
+        var startNotObserved: Bool { kind == "task" && state == "start_not_observed" }
+        /// Counts tasks that may still be answered, including those whose start the bridge could not observe.
         var reachedAgent: Bool { kind == "task" && !wasNotSent }
     }
 
@@ -120,7 +127,7 @@ struct HerdrClient: Sendable {
     }
 
     enum Failure: LocalizedError, Equatable {
-        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, unconfirmedDelivery, notDelivered(String?)
+        case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, unconfirmedDelivery, startNotObserved, notDelivered(String?)
         var errorDescription: String? {
             switch self {
             case .invalidURL: "The server address is not valid. Use http://127.0.0.1:8787, or the port you forwarded."
@@ -133,6 +140,7 @@ struct HerdrClient: Sendable {
             // The server's own sentence says why and what to look at; without one, the same in the app's words.
             case .notDelivered(let why): why.map { "\($0) Choose Retry in chat once the bot is ready." } ?? "The bot did not get ready. Answer any terminal prompt in this chat, then choose Retry."
             case .unconfirmedDelivery: "OpenCode could not confirm delivery. Check the conversation before sending the message again."
+            case .startNotObserved: "The bot may not have received your message. Check its terminal or chat before retrying."
             case .waitingAtPrompt: "The first message did not start. If the bot is asking a question, choose Answer here in chat. Once the bot is ready, choose Retry."
             }
         }
@@ -302,7 +310,7 @@ struct HerdrClient: Sendable {
 
     /// A first message must fit alongside the bot’s instructions and the app’s notes. Validate the byte budget
     /// before sending so the complete message reaches the agent.
-    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 6_200, taskBytes = 16_000
+    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 6_700, taskBytes = 16_000
 
     struct TaskFile: Sendable {
         static let maxBytes = 8 * 1024 * 1024

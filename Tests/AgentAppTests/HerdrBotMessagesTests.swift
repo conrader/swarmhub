@@ -146,7 +146,7 @@ private func pair(_ one: Bot, _ other: Bot) -> String { HerdrBotRelay.pair(id(on
     let (store, _, bots) = exchangeStore()
     let jarvis = try #require(bots["Jarvis"]), boppy = try #require(bots["Boppy"]), tax = try #require(bots["Tax"])
     var backend = try store.herdrBackend(for: boppy)
-    #expect(backend.messageNote == HerdrBotMessage.note && backend.roster == HerdrBotMessage.roster(["Jarvis", "Legal", "Tax"]) && backend.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
+    #expect(backend.messageNote == HerdrBotMessage.note && backend.roster == HerdrBotMessage.roster(["Jarvis", "Legal", "Tax"]) && backend.notes.map(\.marker) == [HerdrBackend.choiceMarker, HerdrBackend.draftMarker, HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
     #expect(backend.launchInstructions?.hasSuffix(HerdrBotMessage.note + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Jarvis", "Legal", "Tax"])) == true && backend.rosters.map(\.lead) == [HerdrBotMessage.rosterLead])
     let main = try store.herdrBackend(for: jarvis)
     #expect(main.creationNote == AppStore.herdrCreationNote && main.messageNote == HerdrBotMessage.note && main.roster == HerdrBotMessage.roster(["Boppy", "Legal", "Tax"]), "the main bot still creates bots, and writes to bots like any other")

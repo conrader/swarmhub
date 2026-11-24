@@ -93,6 +93,75 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     #expect(throws: HerdrClient.Failure.ended) { try quiet.ended() }
 }
 
+@Suite struct HerdrTurnFollowerTests {
+    private let task = HerdrClient.Item(id: 11, kind: "task", text: "do it", state: "start_not_observed")
+
+    private func agent(_ state: String) throws -> HerdrClient.Agent {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(HerdrClient.Agent.self, from: Data(#"{"address":"t1","name":"bot","created_ms":5,"state":"live","status":{"state":"\#(state)"}}"#.utf8))
+    }
+
+    @Test(arguments: [false, true]) func unobservedStartIsAmbiguousAfterTwentySeconds(starting: Bool) throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10, starting: starting)
+        follower.take(rows: [task])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeSaved(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(19)) == .waiting)
+        follower.take(agent: try agent("done"))
+        let verdict = follower.judgeAgent(now: start + .seconds(20))
+        guard case .failed(let failure) = verdict else { Issue.record("Expected an ambiguous delivery failure"); return }
+        #expect(failure == .startNotObserved)
+        // The backend wraps errors it receives after delivery in a StreamBreak.
+        for error: Error in [failure, StreamBreak(delivered: true, underlying: failure)] {
+            let outcome = TurnOutcome.classify(.error(error))
+            #expect(outcome.state == .notSent && outcome.ambiguous)
+            #expect(outcome.reason == "The bot may not have received your message. Check its terminal or chat before retrying.")
+        }
+    }
+
+    @Test func unobservedStartRespectsAShorterQuietLimit() throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10, quietLimit: .seconds(5))
+        follower.take(rows: [task])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(4)) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(5)) == .failed(.startNotObserved))
+    }
+
+    @Test func anAgentStillStartingKeepsItsLongerGracePeriod() throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10, starting: true)
+        follower.take(rows: [row(11, "task", "do it")])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(149)) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(150)) == .failed(.silent))
+    }
+
+    @Test(arguments: [false, true]) func aReplyCanArriveWithOrWithoutObservedWork(worked: Bool) throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10)
+        follower.take(rows: [task])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        if worked {
+            follower.take(agent: try agent("working"))
+            #expect(follower.judgeAgent(now: start + .seconds(11)) == .waiting)
+            follower.take(agent: try agent("done"))
+            #expect(follower.judgeAgent(now: start + .seconds(12)) == .waiting)
+            #expect(follower.judgeAgent(now: start + .seconds(24)) == .waiting)
+        }
+        let now = start + .seconds(worked ? 25 : 11)
+        follower.take(rows: [row(12, "reply", "Done.")])
+        #expect(follower.judgeSaved(now: now) == .reply("Done."))
+        #expect(follower.judgeAgent(now: now + .seconds(1)) == .waiting)
+    }
+}
+
 /// The whole of a turn on one connection: the reply as it grows, each tool step once, the saved reply at the end.
 @Test func aTurnIsFollowedOnTheStream() async throws {
     let requests = Heard<String>(), partials = Heard<String>(), tools = Heard<String>(), statuses = Heard<HerdrTurnStatus>(), notes = Heard<HerdrClient.LiveNote>()
@@ -185,20 +254,21 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     #expect(fromPlain == "Polled." && never.all.isEmpty)
 }
 
-/// A turn on the stream keeps its bot's helper rows current and takes the bot out of the helper poll meanwhile.
+/// A turn on the stream keeps its bot's helper rows current until polling takes over again.
 @MainActor @Test func aStreamedTurnBringsItsBotsHelpers() throws {
     let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     let bot = Bot(name: "Jarvis", backend: .herdr); store.bots = [bot]; store.selectedBot = bot
-    #expect(store.herdrHelperWatch().bots == [bot])
+    #expect(store.herdrHelperWatch()[store.herdrServer(for: bot).id] == false)
     let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
     let list = try decoder.decode(HerdrClient.Helpers.self, from: Data(#"{"core":"c","parent":{"address":"t1","created_ms":5},"limit":3,"helpers":[{"address":"t2","created_ms":6,"name":"probe","state":"live","status":{"state":"working"}}]}"#.utf8))
     store.herdrLive(.following(true), botID: bot.id); store.herdrLive(.helpers(list), botID: bot.id)
-    #expect(store.herdrHelpers[bot.id] == list && store.herdrHelperWatch().bots.isEmpty, "the stream brings them; the poll leaves the bot out")
+    #expect(store.herdrHelpers[bot.id] == list && store.herdrStreaming.contains(bot.id), "the stream owns the bot's helper list")
     store.herdrLive(.helpers(nil), botID: bot.id)
     #expect(store.herdrHelpers[bot.id] == nil, "helpers the stream no longer lists leave the screen")
     store.herdrLive(.helpers(list), botID: bot.id); store.herdrLive(.following(false), botID: bot.id)
-    #expect(store.herdrHelperWatch().bots == [bot] && store.herdrHelperWatch().often, "after the turn the poll looks after them again")
+    #expect(!store.herdrStreaming.contains(bot.id) && store.herdrHelperWatch()[store.herdrServer(for: bot).id] == true,
+            "after the turn the poll looks after them again")
 }
 
 @MainActor @Test func aCompletedRunKeepsItsObservedActivityWithTheReply() async throws {

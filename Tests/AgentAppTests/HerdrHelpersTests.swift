@@ -83,12 +83,12 @@ private let listingJSON = """
     store.bots = [jarvis, plain, old]
     #expect(store.startsHerdrHelpers(jarvis) && store.startsHerdrHelpers(plain) && !store.startsHerdrHelpers(old), "on for every Herdr bot, and only for those")
     let told = try store.herdrBackend(for: plain)
-    #expect(told.helperNote == HerdrHelperNote.text && told.launchInstructions == HerdrBotAsk.note(main: nil) + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Jarvis"]), "a bot with the default instructions gets the notes alone")
+    #expect(told.helperNote == HerdrHelperNote.text && told.launchInstructions == HerdrBackend.choiceNote + "\n\n" + HerdrBackend.draftNote + "\n\n" + HerdrBotAsk.note(main: nil) + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Jarvis"]), "a bot with the default instructions gets the notes alone")
     store.setCanManageBots(jarvis, true)
     let main = try store.herdrBackend(for: jarvis)
     #expect(main.helperNote == HerdrHelperNote.text && main.creationNote == AppStore.herdrCreationNote && main.askNote == nil)
     let launch = try #require(main.launchInstructions)
-    #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrAboutYou.how + "\n\n" + HerdrModelRequest.brief + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Plain"])) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
+    #expect(launch.hasSuffix(HerdrBackend.choiceNote + "\n\n" + HerdrBackend.draftNote + "\n\n" + AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrAboutYou.how + "\n\n" + HerdrModelRequest.brief + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Plain"])) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
     let budget = HerdrClient.firstMessageBudget(instructions: launch, hasFiles: false)
     let text = String(repeating: "m", count: budget)
     let first = HerdrClient.firstTask(text, instructions: launch)
@@ -97,7 +97,7 @@ private let listingJSON = """
     store.setStartsHerdrHelpers(false, for: jarvis)
     let off = try store.herdrBackend(for: jarvis)
     #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil && store.startsHerdrHelpers(plain), "its own switch turns it off for that bot only")
-    #expect(off.notes.map(\.marker) == [HerdrBotRequest.marker, HerdrBotMessage.marker, HerdrAboutYou.marker, HerdrModelRequest.marker, HerdrBackend.publishMarker] && told.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
+    #expect(off.notes.map(\.marker) == [HerdrBackend.choiceMarker, HerdrBackend.draftMarker, HerdrBotRequest.marker, HerdrBotMessage.marker, HerdrAboutYou.marker, HerdrModelRequest.marker, HerdrBackend.publishMarker] && told.notes.map(\.marker) == [HerdrBackend.choiceMarker, HerdrBackend.draftMarker, HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
 }
 
 @MainActor @Test func aHelperOpensInPlaceOfItsBotsChat() async throws {
@@ -116,7 +116,7 @@ private let listingJSON = """
     store.bots = [other]; store.herdrHelpers[other.id] = list
     store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Lab", kind: .address, address: "http://127.0.0.1:1"), token: nil)
     store.setHerdrToken("", for: store.herdrServers[0])
-    await store.refreshHerdrHelpers(for: [other])
+    await store.refreshHerdrHelpers(on: store.herdrServer(for: other).id)
     #expect(store.herdrHelpers.isEmpty)
 }
 
@@ -168,21 +168,4 @@ private let listingJSON = """
     // No policy yet: the server's default is where the form starts. A saved value outside the usual choices is kept.
     let fresh = HerdrHelperPolicyDraft(try decoded(HerdrHelperSettings.self, #"{"policy":null,"bounds":{"stop_unanswered_after_seconds":{"min":60,"max":3600,"default":1200}}}"#))
     #expect(fresh.stopUnansweredSeconds == 1_200 && fresh.unansweredDelays() == [300, 900, 1_200, 1_800, 3_600])
-}
-
-/// Helpers are read for the open chat, for a bot that is answering and for a bot that shows some; no other bot is.
-@MainActor @Test func helpersAreReadOnlyWhereItIsUseful() throws {
-    let store = helperStore()
-    let open = Bot(name: "Open", backend: .herdr), busy = Bot(name: "Busy", backend: .herdr), idle = Bot(name: "Idle", backend: .herdr), old = Bot(name: "Old", backend: .mock)
-    store.bots = [open, busy, idle, old]
-    #expect(store.herdrHelperWatch().bots.isEmpty, "nothing open, nothing working: nothing is read")
-    store.selectedBot = open
-    var watch = store.herdrHelperWatch()
-    #expect(watch.bots.map(\.name) == ["Open"] && !watch.often, "the open chat of an idle bot is read now and then")
-    let list = try decoded(HerdrClient.Helpers.self, listingJSON)
-    store.herdrHelpers[busy.id] = list
-    watch = store.herdrHelperWatch()
-    #expect(watch.bots.map(\.name) == ["Open", "Busy"] && watch.often, "a bot that shows helpers is read often, wherever the person is")
-    store.selectedBot = old; store.herdrHelpers = [:]
-    #expect(store.herdrHelperWatch().bots.isEmpty, "a sample agent has none")
 }

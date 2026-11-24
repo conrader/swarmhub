@@ -11,11 +11,16 @@ enum HerdrProgramName {
     static let kinds: Set<String> = ["code", "cli", "agent", "assistant", "app"]
 
     static func friendly(display: String?, program: String?) -> String? {
-        if let display = display?.trimmingCharacters(in: .whitespacesAndNewlines), !display.isEmpty { return display }
+        if let display = display?.trimmingCharacters(in: .whitespacesAndNewlines), !display.isEmpty { return baseName(display) }
         guard let program = program?.trimmingCharacters(in: .whitespacesAndNewlines), !program.isEmpty else { return nil }
-        var words = program.split(separator: " ").map(String.init)
+        var words = baseName(program).split(separator: " ")
         while words.count > 1, let last = words.last, kinds.contains(last.lowercased()) { words.removeLast() }
         return words.joined(separator: " ")
+    }
+
+    private static func baseName(_ name: String) -> String {
+        let base = name.replacingOccurrences(of: #"(?:\s*\([^()]*\))+$"#, with: "", options: .regularExpression)
+        return base.isEmpty ? name : base
     }
 
     /// The name of a bot that is named after its program: the program's name without the server's "(beta)", so
@@ -29,10 +34,14 @@ enum HerdrProgramName {
     /// One label per template, in order: its friendly name, with the template's own name added only where two of
     /// them would otherwise read the same.
     static func labels(for templates: [HerdrClient.Template]) -> [String: String] {
+        let byLabel = Dictionary(grouping: templates) { $0.label.lowercased() }
         var labels: [String: String] = [:]
-        for template in templates {
-            let same = templates.filter { $0.label == template.label }.count > 1
-            labels[template.name] = same && template.label != template.name ? "\(template.label) · \(template.name)" : template.label
+        for group in byLabel.values {
+            let ambiguous = Set(group.map(\.name)).count > 1
+            for template in group {
+                let label = template.label
+                labels[template.name] = ambiguous && label != template.name ? "\(label) · \(template.name)" : label
+            }
         }
         return labels
     }

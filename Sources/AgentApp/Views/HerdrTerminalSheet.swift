@@ -8,11 +8,18 @@ struct HerdrPickerTarget: Identifiable {
     let program: String
 }
 
+struct HerdrTerminalTarget: Identifiable {
+    let agent: HerdrClient.AgentRef
+    var title: String? = nil
+    var id: HerdrClient.AgentRef { agent }
+}
+
 struct HerdrTerminalSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     let bot: Bot
     let agent: HerdrClient.AgentRef
+    var title: String? = nil
     var group: GroupChat? = nil
     var target: HerdrPickerTarget? = nil
     var didConfirm: (() -> Void)? = nil
@@ -20,11 +27,13 @@ struct HerdrTerminalSheet: View {
     @State private var error: String?
 
     var body: some View {
+        let heading = title ?? bot.name
         VStack(alignment: .leading) {
             HStack {
-                Text(bot.name).font(.headline)
+                Text(heading).font(.headline)
                 Spacer()
-                if let fallback = store.herdrPromptAnswer(for: bot, in: group) {
+                if store.herdrPrompts[group?.id ?? bot.id]?.agent == agent,
+                   let fallback = store.herdrPromptAnswer(for: bot, in: group) {
                     Button(fallback.button) {
                         if !store.answerHerdrPrompt(for: bot, in: group) { error = "The external terminal could not be opened." }
                     }.help(fallback.help)
@@ -37,7 +46,7 @@ struct HerdrTerminalSheet: View {
             }
             if let error { Text(error).foregroundStyle(AppColor.caution).textSelection(.enabled) }
             if let client {
-                TerminalSurface(client: client, agent: agent, name: bot.name, target: target, confirmed: {
+                TerminalSurface(client: client, agent: agent, name: heading, target: target, confirmed: {
                     guard let target else { return }
                     store.rememberModel(target.record, for: bot)
                     didConfirm?()

@@ -2,12 +2,11 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// A program the server marks as beta ("Gemini (beta)"): its name and note as the server sends them, its place in
-// the lists, the name of a bot on it, and its tool calls and questions in the chat's own words.
+// Gemini CLI's beta note, its place in the lists, the name of a bot on it, and its tool calls and questions.
 
 private func model(_ id: String, _ label: String? = nil) -> HerdrClient.Template.Model { .init(id: id, label: label) }
 
-private let geminiProgram = HerdrProgram(template: "swarmhub-gemini", name: "Gemini (beta)", takesModel: true, models: [model("auto", "Auto"), model("pro", "Pro")],
+private let geminiProgram = HerdrProgram(template: "swarmhub-gemini", name: "Gemini", takesModel: true, models: [model("auto", "Auto"), model("pro", "Pro")],
                                   modelAgent: "Gemini CLI", beta: true, note: "Gemini is in beta: a reply arrives all at once.")
 private let codexProgram = HerdrProgram(template: "swarmhub-codex", name: "Codex", takesModel: true, models: [])
 private let claudeProgram = HerdrProgram(template: "swarmhub-claude", name: "Claude", takesModel: true, models: [])
@@ -16,7 +15,7 @@ private let claudeProgram = HerdrProgram(template: "swarmhub-claude", name: "Cla
     let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
     let sent = try decoder.decode(HerdrClient.Template.self, from: Data(#"{"name":"swarmhub-gemini","description":"Gemini CLI (beta)","error":null,"runtime":{"harness":"Gemini CLI","provider":"Google","model":null,"display_name":"Gemini (beta)"},"models":[{"id":"auto","label":"Auto","provider":"Google"}],"model_agent":"Gemini CLI","beta":true,"note":"Gemini is in beta: a reply arrives all at once."}"#.utf8))
     #expect(sent.beta == true && sent.note == "Gemini is in beta: a reply arrives all at once.")
-    #expect(sent.label == "Gemini (beta)" && sent.programName == "Gemini (beta)" && sent.takesModel, "every list shows the server's name")
+    #expect(sent.label == "Gemini" && sent.programName == "Gemini" && sent.takesModel)
     let plain = try decoder.decode(HerdrClient.Template.self, from: Data(#"{"name":"swarmhub-codex","description":null,"error":null,"runtime":{"harness":"Codex","provider":null,"model":null,"display_name":"Codex"}}"#.utf8))
     #expect(plain.beta == nil && plain.note == nil, "a server from before betas sends neither")
     // A main bot asked for a bot "on gemini" gets this program, by its real name or the one people read.
@@ -47,7 +46,7 @@ private let claudeProgram = HerdrProgram(template: "swarmhub-claude", name: "Cla
     let offer = HerdrOffer(programs: [codexProgram, geminiProgram])
     #expect(offer.others(than: "swarmhub-codex", taken: [], names: []).map(\.template) == ["swarmhub-gemini"])
     #expect(offer.others(than: "swarmhub-codex", taken: [], names: ["gemini"]).isEmpty)
-    #expect(offer.label(geminiProgram) == "Gemini (beta)" && offer.names == "Codex and Gemini (beta)")
+    #expect(offer.label(geminiProgram) == "Gemini" && offer.names == "Codex and Gemini")
 }
 
 @Test func geminiToolCallsAndQuestionsReadInTheChatsWords() {
