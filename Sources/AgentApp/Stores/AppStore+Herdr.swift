@@ -37,6 +37,7 @@ extension AppStore {
         let next = herdrServer(id: id) ?? herdrServers[0]
         if previous.id != next.id { setHerdrProjects([], for: bot) }
         defaults.set(next.id, forKey: HerdrServer.botKey(bot.id))
+        if previous.id != next.id { forgetHerdrAgentState(for: bot) }
         objectWillChange.send()
     }
 
@@ -78,7 +79,10 @@ extension AppStore {
             let old = servers[index]
             if old.kind != server.kind || old.address != server.address ||
                 old.sshHost != server.sshHost || old.sshUser != server.sshUser {
-                for bot in herdrBots(on: old) { setHerdrProjects([], for: bot) }
+                for bot in herdrBots(on: old) {
+                    setHerdrProjects([], for: bot)
+                    forgetHerdrAgentState(for: bot)
+                }
             }
             if old != server { herdrTunnels.close(server.id) }
             if old.sshHost != server.sshHost || old.sshUser != server.sshUser { herdrTunnels.forgetPassword(for: old) }
@@ -98,6 +102,7 @@ extension AppStore {
         for bot in moving {
             setHerdrProjects([], for: bot)
             defaults.removeObject(forKey: HerdrServer.botKey(bot.id))
+            forgetHerdrAgentState(for: bot)
         }
         servers.removeAll { $0.id == server.id }
         herdrTunnels.forgetPassword(for: server)
@@ -148,7 +153,8 @@ extension AppStore {
 
     /// The bot's instructions go out as `outboundPersona` (a bot imported from Grok has its secrets blanked).
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
-        var backend = HerdrBackend(client: try herdrClient(for: herdrServer(for: bot)), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
+        let liveServer = herdrServer(for: bot)
+        var backend = HerdrBackend(client: try herdrClient(for: liveServer), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
         if launchWorkEnabled {
             let server = herdrServer(for: bot), id = bot.id
             backend.coordinate = { [weak self] in
@@ -188,7 +194,12 @@ extension AppStore {
         let botID = bot.id
         // A start ahead of time that is on its way: the message waits for it and then finds that agent.
         if let warming = herdrWarming[botID] { backend.starting = .init(program: herdrProgramName(for: bot), settled: { await warming.value }) }
-        backend.onLive = { [weak self] note in Task { @MainActor in self?.herdrLive(note, botID: botID) } }
+        backend.onLive = { [weak self] note in
+            Task { @MainActor in
+                guard let self, let current = self.bots.first(where: { $0.id == botID }), self.herdrServer(for: current) == liveServer else { return }
+                self.herdrLive(note, botID: botID)
+            }
+        }
         // The projects on other servers it may use; a running agent that has an older list gets this one with the next message.
         let projects = herdrProjects(for: bot)
         backend.projects = projects; backend.projectsChanged = herdrProjectsChanged(bot)
@@ -209,6 +220,7 @@ extension AppStore {
         let template = defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id))
         let shared = defaults.string(forKey: HerdrBackend.templateKey)
         let model = herdrModel(for: bot)
+        let presence = herdrAgentPresence[bot.id]
         var reading = try? await client.agentReading(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id), ownTemplate: template,
                                                      sharedTemplate: shared, ownModel: model)
         guard server == herdrServer(for: bot), model == herdrModel(for: bot),
@@ -218,7 +230,12 @@ extension AppStore {
             reading?.running = .model(id: record.id, label: record.label)
             reading?.confirmed = true
         }
-        if let reading, herdrAgentReadings[bot.id] != reading { herdrAgentReadings[bot.id] = reading }
+        if let reading {
+            if herdrAgentReadings[bot.id] != reading { herdrAgentReadings[bot.id] = reading }
+            if let presence, presence.session != reading.session, herdrAgentPresence[bot.id] == presence {
+                herdrAgentPresence[bot.id] = nil
+            }
+        }
         return requireFresh ? reading : herdrAgentReadings[bot.id]
     }
 

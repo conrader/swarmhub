@@ -33,8 +33,9 @@ import UserNotifications
     var teamSynced: [String: ([HerdrClient.TeamMember], Date, Bool)] = [:]
     @Published var teamErrors: [String: String] = [:]
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
-    /// The bots whose running turn is on the bridge's event stream: the stream brings their helpers, so the poll leaves them out.
+    /// The bots whose running turn is on the bridge's event stream, which owns their helper lists during the turn.
     var herdrStreaming: Set<UUID> = []
+    @Published var herdrAgentPresence: [UUID: HerdrAgentPresence] = [:]
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
     /// panel and the chat header show it by name.
     @Published var herdrAgentReadings: [UUID: HerdrAgentReading] = [:]

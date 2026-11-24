@@ -42,7 +42,7 @@ struct HerdrHelperRow: View {
 
     /// "Working · Fix the failing test": the status, then the task on the same line.
     nonisolated static func fragment(_ helper: HerdrClient.Helper) -> String {
-        let task = (helper.task ?? "").components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let task = helper.taskLine
         return task.isEmpty ? helper.statusLine : "\(helper.statusLine) · \(task)"
     }
 }
@@ -61,6 +61,51 @@ struct HerdrHelperGlyph: View {
             }
         }()
         Image(systemName: look.symbol).foregroundStyle(look.colour).accessibilityHidden(true)
+    }
+}
+
+/// The live helper sessions available from chat, including answered helpers whose terminals are still open.
+struct HerdrCodingAgentCard: View {
+    let helpers: [HerdrClient.Helper]
+    let tint: BotTint
+    let openTerminal: (HerdrClient.Helper) -> Void
+    let openDetails: (HerdrClient.Helper) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Coding agents").font(.caption.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            if helpers.count > 3 {
+                ScrollView { rows }.frame(height: 144)
+            } else {
+                rows
+            }
+        }.chatCard(tint: tint).accessibilityElement(children: .contain).accessibilityIdentifier("chat.codingAgents")
+    }
+
+    private var rows: some View {
+        VStack(spacing: 6) {
+            ForEach(helpers) { helper in
+                HStack(spacing: 8) {
+                    HerdrHelperGlyph(helper: helper).font(.callout).frame(width: 16)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(helper.name).font(.callout.weight(.semibold)).lineLimit(1)
+                            if !helper.runLine.isEmpty {
+                                Text(helper.runLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        Text(helper.statusLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if !helper.taskLine.isEmpty {
+                            Text(helper.taskLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    Button("Terminal", systemImage: "terminal") { openTerminal(helper) }
+                        .accessibilityLabel("Open terminal for \(helper.name)").accessibilityIdentifier("chat.helper.terminal.\(helper.id)")
+                    Button("Details") { openDetails(helper) }.accessibilityLabel("Details for \(helper.name)")
+                }.buttonStyle(.bordered).controlSize(.small)
+            }
+        }
     }
 }
 
@@ -128,6 +173,7 @@ struct HerdrHelperView: View {
     @State private var helper: HerdrClient.Helper?; @State private var core: String?
     @State private var log: HerdrClient.HelperLog?; @State private var problem = ""
     @StateObject private var reply: ChatMessage
+    @State private var terminal: HerdrTerminalTarget?
 
     init(bot: Bot, selection: HerdrHelperSelection, helper: HerdrClient.Helper? = nil, core: String? = nil, log: HerdrClient.HelperLog? = nil) {
         self.bot = bot; self.selection = selection
@@ -155,6 +201,12 @@ struct HerdrHelperView: View {
                         FactChip(text: shown.runLine).help(shown.difficultyLine.map { "\(bot.name) called this an \($0.lowercased()), and helpers for those run on \(shown.runLine)." } ?? "The model this helper runs on")
                     }
                     FactChip(text: listed == nil ? "Finished" : shown.statusLine)
+                    if listed?.isLive == true {
+                        Button("Open terminal", systemImage: "terminal") {
+                            terminal = HerdrTerminalTarget(agent: shown.ref, title: "\(bot.name) · \(shown.name)")
+                        }.buttonStyle(.bordered).controlSize(.small).fixedSize()
+                            .accessibilityIdentifier("helper.terminal")
+                    }
                 }
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
@@ -189,10 +241,8 @@ struct HerdrHelperView: View {
                     if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(AppColor.caution).textSelection(.enabled) }
                 }.padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity)
             }
-            Rectangle().fill(AppColor.separator).frame(height: 0.5)
-            Text("You can only watch here. To change what this helper does, tell \(bot.name).")
-                .font(.system(size: 12)).foregroundStyle(.secondary).padding(12).frame(maxWidth: .infinity)
         }.background(AppColor.chat)
+            .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .task(id: selection) { await follow() }
             .onChange(of: listed) { _, now in if let now { helper = now } }
             .onChange(of: store.herdrHelpers[bot.id]?.core) { _, now in if let now { core = now } }

@@ -96,7 +96,7 @@ extension AppStore {
         let warming = herdrWarming[bot.id]
         let tasks = runningTurns.values.filter { $0.botID == bot.id }.compactMap(\.task)
         tasks.forEach { $0.cancel() }
-        herdrReadiness[bot.id] = nil; herdrAgentReadings[bot.id] = nil; herdrHelpers[bot.id] = nil
+        forgetHerdrAgentState(for: bot)
         Task { [weak self] in
             await warming?.value
             for task in tasks { await task.value }

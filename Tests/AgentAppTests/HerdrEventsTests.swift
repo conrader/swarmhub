@@ -185,20 +185,21 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     #expect(fromPlain == "Polled." && never.all.isEmpty)
 }
 
-/// A turn on the stream keeps its bot's helper rows current and takes the bot out of the helper poll meanwhile.
+/// A turn on the stream keeps its bot's helper rows current until polling takes over again.
 @MainActor @Test func aStreamedTurnBringsItsBotsHelpers() throws {
     let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     let bot = Bot(name: "Jarvis", backend: .herdr); store.bots = [bot]; store.selectedBot = bot
-    #expect(store.herdrHelperWatch().bots == [bot])
+    #expect(store.herdrHelperWatch()[store.herdrServer(for: bot).id] == false)
     let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
     let list = try decoder.decode(HerdrClient.Helpers.self, from: Data(#"{"core":"c","parent":{"address":"t1","created_ms":5},"limit":3,"helpers":[{"address":"t2","created_ms":6,"name":"probe","state":"live","status":{"state":"working"}}]}"#.utf8))
     store.herdrLive(.following(true), botID: bot.id); store.herdrLive(.helpers(list), botID: bot.id)
-    #expect(store.herdrHelpers[bot.id] == list && store.herdrHelperWatch().bots.isEmpty, "the stream brings them; the poll leaves the bot out")
+    #expect(store.herdrHelpers[bot.id] == list && store.herdrStreaming.contains(bot.id), "the stream owns the bot's helper list")
     store.herdrLive(.helpers(nil), botID: bot.id)
     #expect(store.herdrHelpers[bot.id] == nil, "helpers the stream no longer lists leave the screen")
     store.herdrLive(.helpers(list), botID: bot.id); store.herdrLive(.following(false), botID: bot.id)
-    #expect(store.herdrHelperWatch().bots == [bot] && store.herdrHelperWatch().often, "after the turn the poll looks after them again")
+    #expect(!store.herdrStreaming.contains(bot.id) && store.herdrHelperWatch()[store.herdrServer(for: bot).id] == true,
+            "after the turn the poll looks after them again")
 }
 
 @MainActor @Test func aCompletedRunKeepsItsObservedActivityWithTheReply() async throws {

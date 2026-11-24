@@ -116,7 +116,7 @@ private let listingJSON = """
     store.bots = [other]; store.herdrHelpers[other.id] = list
     store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Lab", kind: .address, address: "http://127.0.0.1:1"), token: nil)
     store.setHerdrToken("", for: store.herdrServers[0])
-    await store.refreshHerdrHelpers(for: [other])
+    await store.refreshHerdrHelpers(on: store.herdrServer(for: other).id)
     #expect(store.herdrHelpers.isEmpty)
 }
 
@@ -168,21 +168,4 @@ private let listingJSON = """
     // No policy yet: the server's default is where the form starts. A saved value outside the usual choices is kept.
     let fresh = HerdrHelperPolicyDraft(try decoded(HerdrHelperSettings.self, #"{"policy":null,"bounds":{"stop_unanswered_after_seconds":{"min":60,"max":3600,"default":1200}}}"#))
     #expect(fresh.stopUnansweredSeconds == 1_200 && fresh.unansweredDelays() == [300, 900, 1_200, 1_800, 3_600])
-}
-
-/// Helpers are read for the open chat, for a bot that is answering and for a bot that shows some; no other bot is.
-@MainActor @Test func helpersAreReadOnlyWhereItIsUseful() throws {
-    let store = helperStore()
-    let open = Bot(name: "Open", backend: .herdr), busy = Bot(name: "Busy", backend: .herdr), idle = Bot(name: "Idle", backend: .herdr), old = Bot(name: "Old", backend: .mock)
-    store.bots = [open, busy, idle, old]
-    #expect(store.herdrHelperWatch().bots.isEmpty, "nothing open, nothing working: nothing is read")
-    store.selectedBot = open
-    var watch = store.herdrHelperWatch()
-    #expect(watch.bots.map(\.name) == ["Open"] && !watch.often, "the open chat of an idle bot is read now and then")
-    let list = try decoded(HerdrClient.Helpers.self, listingJSON)
-    store.herdrHelpers[busy.id] = list
-    watch = store.herdrHelperWatch()
-    #expect(watch.bots.map(\.name) == ["Open", "Busy"] && watch.often, "a bot that shows helpers is read often, wherever the person is")
-    store.selectedBot = old; store.herdrHelpers = [:]
-    #expect(store.herdrHelperWatch().bots.isEmpty, "a sample agent has none")
 }

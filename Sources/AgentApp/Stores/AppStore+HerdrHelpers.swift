@@ -3,6 +3,19 @@ import Foundation
 /// A helper open in the detail column, in place of its bot's chat: `helperID` is `HerdrClient.Helper.id`.
 struct HerdrHelperSelection: Hashable, Sendable { let botID: UUID; let helperID: String }
 
+/// A workspace read can confirm that a bot has no session, even when a cached model reading still has one.
+struct HerdrAgentPresence: Equatable {
+    let server: HerdrServer
+    let session: HerdrClient.AgentRef?
+    let isActive: Bool
+
+    init(server: HerdrServer, agent: HerdrClient.Agent?) {
+        self.server = server
+        session = agent?.ref
+        isActive = agent?.isStarting == true || agent?.status?.state == "working" || agent?.status?.state == "blocked"
+    }
+}
+
 /// Helper agents of Herdr bots. A bot's agent starts them itself (`swarmhub-herdr helper start`, when the bot's
 /// "Can start helper agents" switch told it how); the app shows them under the bot while the server lists them and
 /// lets the person read one. Nothing here starts, steers or stops a helper.
@@ -22,21 +35,42 @@ extension AppStore {
 
     // MARK: Reading them
 
-    /// The Herdr bots whose helpers are worth reading now, and whether often: a bot that is answering, has helpers
-    /// listed or whose agent is starting is read every few seconds, the open chat of an idle bot only now and then (an agent starts helpers
-    /// while it works, so an idle one rarely has news). Every other bot is not read at all, and neither is a bot
-    /// whose running turn is on the event stream, which brings its helpers as they change (`herdrLive`).
-    func herdrHelperWatch() -> (bots: [Bot], often: Bool) {
-        let open = selectedGroup == nil ? selectedBot?.id : nil
-        var often = false
-        let watched = bots.filter { bot in
-            guard bot.backend == .herdr, !bot.isReadOnlyArchive, !herdrStreaming.contains(bot.id) else { return false }
-            // An agent that is starting is read often too, so the header says "Ready" soon after it is.
-            let busy = isWorking(bot) || herdrHelpers[bot.id]?.helpers.isEmpty == false || herdrReadiness[bot.id]?.isStarting == true
-            if busy { often = true }
-            return busy || bot.id == open
+    func hasActiveCodingAgent(_ bot: Bot) -> Bool {
+        guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return false }
+        return herdrHelpers[bot.id]?.helpers.contains { $0.isLive && $0.answered != true } == true
+            || herdrPresence(for: bot)?.isActive == true
+    }
+
+    func herdrTerminalSession(for bot: Bot) -> HerdrClient.AgentRef? {
+        guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return nil }
+        if let presence = herdrAgentPresence[bot.id] { return presence.server == herdrServer(for: bot) ? presence.session : nil }
+        return herdrAgentReadings[bot.id]?.session
+    }
+
+    func herdrPresence(for bot: Bot) -> HerdrAgentPresence? {
+        guard let presence = herdrAgentPresence[bot.id], presence.server == herdrServer(for: bot) else { return nil }
+        return presence
+    }
+
+    func forgetHerdrAgentState(for bot: Bot) {
+        herdrStreaming.remove(bot.id)
+        herdrHelpers[bot.id] = nil
+        herdrAgentPresence[bot.id] = nil
+        herdrAgentReadings[bot.id] = nil
+        herdrReadiness[bot.id] = nil
+    }
+
+    /// Every server with bots gets a discovery read, even when its chats are closed. Only a server with work gets
+    /// the faster cadence. An answered helper still live is read often so its terminal disappears when it stops.
+    func herdrHelperWatch() -> [String: Bool] {
+        var watch: [String: Bool] = [:]
+        for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
+            let server = herdrServer(for: bot)
+            guard watch[server.id] != true else { continue }
+            watch[server.id] = isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
+                || herdrPresence(for: bot)?.isActive == true || herdrHelpers[bot.id]?.helpers.contains(where: \.isLive) == true
         }
-        return (watched, often)
+        return watch
     }
 
     /// Reads the watched bots' helpers until the app quits. One request per server finds each bot's agent and whether
@@ -44,11 +78,15 @@ extension AppStore {
     func startHerdrHelperPolling(often: Duration = .seconds(3), seldom: Duration = .seconds(12)) {
         guard launchWorkEnabled, herdrHelperPoll == nil else { return }
         herdrHelperPoll = Task { [weak self] in
-            let clock = ContinuousClock(); var last = clock.now - seldom
+            let clock = ContinuousClock()
+            var last: [String: ContinuousClock.Instant] = [:]
             while !Task.isCancelled, let store = self {
                 let watch = store.herdrHelperWatch()
-                if !watch.bots.isEmpty, clock.now - last >= (watch.often ? often : seldom) {
-                    await store.refreshHerdrHelpers(for: watch.bots); last = clock.now
+                last = last.filter { watch[$0.key] != nil }
+                for (server, busy) in watch where last[server].map({ clock.now - $0 >= (busy ? often : seldom) }) ?? true {
+                    guard !Task.isCancelled else { return }
+                    await store.refreshHerdrHelpers(on: server)
+                    last[server] = clock.now
                 }
                 try? await Task.sleep(for: .seconds(1))
             }
@@ -58,31 +96,66 @@ extension AppStore {
     /// How many reads of a server may fail in a row before its bots' helpers are taken off the screen.
     static let herdrHelperFailureLimit = 5
 
-    /// One read of `watched`. A bot whose agent is not running, or has no helper left on the server's list, shows
-    /// none. A server that cannot be read keeps what it showed for a few tries, so a dropped request does not blink.
-    func refreshHerdrHelpers(for watched: [Bot]) async {
-        var found = herdrHelpers.filter { entry in bots.contains { $0.id == entry.key } }
-        // The same read says whether each bot's agent runs and is ready (`noteHerdrReadiness`).
+    /// Read every bot on this server from one workspace snapshot. An active turn's stream owns its helper list.
+    /// A failed read keeps what it showed for a few tries, so a dropped request does not blink.
+    func refreshHerdrHelpers(on serverID: String) async {
+        guard let server = herdrServer(id: serverID) else { return }
+        let previousPresence = herdrAgentPresence, previousHelpers = herdrHelpers
+        let client = try? herdrClient(for: server)
+        let workspace = try? await client?.workspace()
+        guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
+        let group = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
+        let botIDs = Set(bots.map(\.id))
+        var presence = herdrAgentPresence.filter { botIDs.contains($0.key) }
         var readiness: [UUID: HerdrAgentReadiness?] = [:]
-        for (serverID, group) in Dictionary(grouping: watched, by: { herdrServer(for: $0).id }) {
-            guard let server = herdrServer(id: serverID), let client = try? herdrClient(for: server) else { group.forEach { found[$0.id] = nil }; continue }
-            do {
-                let workspace = try await client.workspace()
-                for bot in group {
-                    let agent = client.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: workspace)
-                    readiness[bot.id] = .some(HerdrAgentReadiness(agent, in: workspace))
-                    var list: HerdrClient.Helpers?
-                    if let agent { list = try await client.helpers(of: agent, in: workspace) }
-                    found[bot.id] = list?.helpers.isEmpty == false ? list : nil
+        var helpers: [UUID: HerdrClient.Helpers?] = [:]
+        var failed: [UUID] = []
+        if let workspace, let client {
+            let agents = group.map { bot in
+                (bot, client.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: workspace))
+            }
+            for (bot, agent) in agents where previousPresence[bot.id] == herdrAgentPresence[bot.id] {
+                presence[bot.id] = HerdrAgentPresence(server: server, agent: agent)
+                readiness[bot.id] = .some(HerdrAgentReadiness(agent, in: workspace))
+            }
+            if presence != herdrAgentPresence { herdrAgentPresence = presence }
+            noteHerdrReadiness(readiness, watched: group, on: server)
+
+            for (bot, agent) in agents where !herdrStreaming.contains(bot.id) {
+                do {
+                    let list: HerdrClient.Helpers?
+                    if let agent { list = try await client.helpers(of: agent, in: workspace) } else { list = nil }
+                    helpers[bot.id] = .some(list?.helpers.isEmpty == false ? list : nil)
+                } catch {
+                    failed.append(bot.id)
                 }
-                herdrHelperFailures[serverID] = nil
-            } catch {
-                herdrHelperFailures[serverID, default: 0] += 1
-                if herdrHelperFailures[serverID, default: 0] >= Self.herdrHelperFailureLimit { group.forEach { found[$0.id] = nil } }
+            }
+        } else {
+            failed = group.map(\.id)
+        }
+        guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
+        if failed.isEmpty { herdrHelperFailures[serverID] = nil }
+        else { herdrHelperFailures[serverID, default: 0] += 1 }
+        let current = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
+        let currentIDs = Set(current.map(\.id))
+        if client == nil || herdrHelperFailures[serverID, default: 0] >= Self.herdrHelperFailureLimit {
+            for id in failed { helpers[id] = .some(nil) }
+            if workspace == nil {
+                for id in failed where previousPresence[id] == herdrAgentPresence[id] {
+                    presence[id] = HerdrAgentPresence(server: server, agent: nil)
+                    readiness[id] = .some(nil)
+                }
+                if presence != herdrAgentPresence { herdrAgentPresence = presence }
+                noteHerdrReadiness(readiness, watched: current, on: server)
             }
         }
+        let remaining = Set(bots.map(\.id))
+        var found = herdrHelpers.filter { remaining.contains($0.key) }
+        // A stream can publish or a bot can move servers while a helper request is in flight.
+        for (id, list) in helpers where currentIDs.contains(id) && !herdrStreaming.contains(id) && found[id] == previousHelpers[id] {
+            found[id] = list
+        }
         if found != herdrHelpers { herdrHelpers = found }
-        noteHerdrReadiness(readiness, watched: watched)
     }
 
     /// What a running turn on the event stream says beside its reply: whether the stream is delivering, and the

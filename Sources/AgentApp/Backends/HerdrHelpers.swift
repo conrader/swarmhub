@@ -45,6 +45,7 @@ extension HerdrClient {
 
         /// The model the helper runs on, by its label: the server's, else the one the app saw for that id, else the id.
         var runLine: String { [modelLabel, HerdrModelNames.label(model), model].compactMap { $0 }.first { !$0.isEmpty } ?? "" }
+        var taskLine: String { (task ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ") }
         /// "Easy task": how hard the bot said the task is, for the helper's own view.
         var difficultyLine: String? { difficulty.flatMap { $0.isEmpty ? nil : "\($0.prefix(1).uppercased())\($0.dropFirst()) task" } }
     }

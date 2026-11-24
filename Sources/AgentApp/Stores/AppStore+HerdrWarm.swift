@@ -104,7 +104,7 @@ extension AppStore {
               let backend = try? herdrBackend(for: bot) else { return nil }
         let starts = herdrKeepsReady(bot)
         guard starts || replacingUnused else { return nil }
-        let id = bot.id, refused = herdrWarmKey(for: bot)
+        let id = bot.id, refused = herdrWarmKey(for: bot), server = herdrServer(for: bot)
         let task = Task { [weak self] in
             if replacingUnused, (try? await backend.client.endUnused(name: backend.agentName)) == true {
                 self?.herdrReadiness[id] = nil
@@ -113,16 +113,19 @@ extension AppStore {
             let outcome = starts ? try? await backend.client.warm(name: backend.agentName, template: backend.template, model: backend.model, projects: backend.projects, workspaceID: backend.botID) : nil
             guard let self else { return }
             self.herdrWarming[id] = nil
+            guard self.bots.contains(bot), self.herdrServer(for: bot) == server else { return }
             switch outcome {
             case .started(let agent, let program)?:
                 // A new agent has the bot's projects and Auto mode as they are now.
                 self.clearAutoSwitch(id)
                 if backend.projectsChanged { backend.onProjectsSynced?() }
                 self.herdrReadiness[id] = HerdrAgentReadiness(agent, program: program)
+                self.herdrAgentPresence[id] = HerdrAgentPresence(server: server, agent: agent)
                 // What the running agent was started on, for Details; a message that waits for this start does not wait for that.
                 if let bot = self.bots.first(where: { $0.id == id }) { Task { await self.refreshHerdrAgentReading(for: bot) } }
             case .running(let agent, let program)?:
                 self.herdrReadiness[id] = HerdrAgentReadiness(agent, program: program)
+                self.herdrAgentPresence[id] = HerdrAgentPresence(server: server, agent: agent)
             case .unavailable?: self.herdrNoWarmStarts.insert(refused)
             // The server could not be read, or refused this start: the first message starts the agent as before.
             case nil: break
@@ -139,11 +142,13 @@ extension AppStore {
         await warmHerdrAgent(for: bot, replacingUnused: true)?.value
     }
 
-    /// What one read of a server's agents says about `watched` bots (`refreshHerdrHelpers` reads it anyway): which
-    /// have an agent, and whether it is ready. A bot that is no longer watched is forgotten, so the header never
-    /// repeats an old reading.
-    func noteHerdrReadiness(_ read: [UUID: HerdrAgentReadiness?], watched: [Bot]) {
-        var now = herdrReadiness.filter { entry in watched.contains { $0.id == entry.key } || herdrWarming[entry.key] != nil || runningTurns.values.contains { $0.botID == entry.key } }
+    /// What a workspace read says about the watched bots. Each server's poll prunes its own bots' readings.
+    func noteHerdrReadiness(_ read: [UUID: HerdrAgentReadiness?], watched: [Bot], on server: HerdrServer? = nil) {
+        var keeping = Set(watched.map(\.id)).union(herdrWarming.keys).union(runningTurns.values.compactMap(\.botID))
+        if let server {
+            for bot in bots where bot.backend == .herdr && herdrServer(for: bot).id != server.id { keeping.insert(bot.id) }
+        }
+        var now = herdrReadiness.filter { keeping.contains($0.key) }
         for (id, readiness) in read { now[id] = readiness }
         if now != herdrReadiness { herdrReadiness = now }
         else { for bot in watched where herdrWaits(bot).waits { herdrPromptCheck(bot) } }

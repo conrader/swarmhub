@@ -331,10 +331,10 @@ struct HerdrAgentControls: View {
                        let program = effective?.modelAgent, ["OpenCode", "Claude Code", "Codex"].contains(program),
                        reading?.pendingLine != nil || reading?.running == .unknown || !note.isEmpty && reading?.confirmed != true {
                         Button("Switch the running session now…") { Task { await switchCurrentModel() } }
-                            .disabled(switching || store.isWorking(bot))
+                            .disabled(switching || store.isAnswering(bot))
                     }
                     SettingBlock(title: "New conversation", detail: GrokHandoffCopy.newConversation(bot.name, readsHistory: store.grokHandoffIsOn(for: bot))) {
-                        Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isWorking(bot))
+                        Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isAnswering(bot))
                     }
                     if servers.count > 1 {
                         // Another server has its own agent programs and models, so both choices start over there.

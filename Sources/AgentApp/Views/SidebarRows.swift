@@ -66,16 +66,16 @@ struct BotRow: View {
     var askNewSection: (UUID?) -> Void = { _ in }
     @State private var hovering = false
     var body: some View {
-        let working = store.isWorking(bot), attention = store.needsAttention(bot)
+        let answering = store.isAnswering(bot), coding = store.hasActiveCodingAgent(bot), attention = store.needsAttention(bot)
         // Sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
             // An agent that waits at a question says so, whatever its last message was.
-            bot.isDemo ? SimpleCopy.sampleLabel : !working && store.herdrPrompts[bot.id] != nil ? HerdrPrompt.sidebar : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
+            bot.isDemo ? SimpleCopy.sampleLabel : !answering && store.herdrPrompts[bot.id] != nil ? HerdrPrompt.sidebar : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: answering,
                                                                        archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
         }
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
-                BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: working, isHovered: hovering, probe: "sidebar")
+                BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: answering, isHovered: hovering, probe: "sidebar", hasActiveCodingAgent: coding)
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
                             Circle().fill(AppColor.clay).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
@@ -84,7 +84,7 @@ struct BotRow: View {
                         }
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
-                if working {
+                if answering {
                     TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, main: store.herdrMainBotLabel(bot)) }
                 } else {
                     RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, main: store.herdrMainBotLabel(bot))
