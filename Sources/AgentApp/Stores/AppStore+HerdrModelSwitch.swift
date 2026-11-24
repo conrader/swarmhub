@@ -86,7 +86,9 @@ extension AppStore {
                         guard live.core == current.core else { throw BackendError.unavailable("The workspace restarted during the model switch. Retry the message.") }
                         guard let active = client.liveAgent(named: name, in: live) else { stillRunning = false; break }
                         guard active.ref == agent.ref else { throw BackendError.unavailable("Another session started during the model switch. Retry the message.") }
-                        if ["idle", "done"].contains(active.status?.state ?? "") || active.warm == true && active.status?.state == nil && active.ready != false {
+                        let ready = ["idle", "done"].contains(active.status?.state ?? "")
+                            || active.warm == true && active.status?.state == nil && active.ready != false
+                        if ready, !herdrAgentIsBusy(active, in: live.agents), !herdrHasUnansweredHelpers(bot, parent: active.ref) {
                             break
                         }
                         guard clock.now < deadline else { throw BackendError.unavailable("The previous agent is still busy. Your model choice is saved. Retry when it finishes.") }

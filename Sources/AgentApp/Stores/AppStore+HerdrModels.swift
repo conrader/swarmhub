@@ -243,33 +243,48 @@ extension AppStore {
     /// The next agent receives the bot's chat, including any reply that was still in progress.
     private func startFreshHerdrAgents(_ record: HerdrModelRecord) async -> HerdrModelRecord {
         var fresh = record.fresh, busy = 0, failed = 0
-        for change in record.changes where !fresh.contains(change.bot) {
-            guard let bot = bots.first(where: { $0.id == change.bot }) else { continue }
-            func stillApplies() -> Bool {
-                bots.contains(bot) && herdrServer(for: bot).id == record.server
+        if let server = herdrServer(id: record.server) {
+            let byID = Dictionary(uniqueKeysWithValues: herdrBots(on: server).map { ($0.id, $0) })
+            func stillApplies(_ bot: Bot, _ change: HerdrModelPlan.Change) -> Bool {
+                bots.contains(bot) && herdrServer(for: bot) == server
                     && hasHerdrModelChoice(bot, template: change.template, model: change.model)
             }
-            guard stillApplies() else { continue }
+            // Apply and Undo each record changes for one server. Let all of its pending warm starts finish
+            // before reading the workspace once for the whole batch.
+            let candidates = record.changes.compactMap { change -> (Bot, HerdrModelPlan.Change)? in
+                guard !fresh.contains(change.bot), let bot = byID[change.bot], stillApplies(bot, change) else { return nil }
+                return (bot, change)
+            }
+            for (bot, _) in candidates { await herdrWarming[bot.id]?.value }
+            let current = candidates.filter { stillApplies($0.0, $0.1) }
             do {
-                let restarted = try await restartHerdrAgent(for: bot) { workspace, agent in
-                    guard stillApplies(), modelSwitchPending(bot) else { return false }
+                if !current.isEmpty {
+                    let client = try herdrClient(for: server)
+                    let workspace = try await client.workspace()
                     guard let core = workspace.core else {
                         throw BackendError.unavailable("Herdr Core is not running on the server.")
                     }
-                    let running = agent.map { [bot.id: HerdrAgentLaunch(server: record.server, core: core, address: $0.address, createdMs: $0.createdMs)] } ?? [:]
-                    armHerdrCarryOver(for: [bot], running: running)
-                    guard !runningTurns.values.contains(where: { $0.botID == bot.id }) else { return false }
-                    guard let agent else { return true }
-                    return agent.isIdleForRollover
+                    for (bot, change) in current where stillApplies(bot, change) {
+                        guard modelSwitchPending(bot) else { fresh.append(bot.id); continue }
+                        let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+                        let agent = client.liveAgent(named: name, in: workspace)
+                        let running = agent.map { [bot.id: HerdrAgentLaunch(server: server.id, core: core, address: $0.address, createdMs: $0.createdMs)] } ?? [:]
+                        armHerdrCarryOver(for: [bot], running: running)
+                        if herdrBotIsBusy(bot) || agent.map({ !$0.isIdleForRollover || herdrAgentIsBusy($0, in: workspace.agents) }) == true {
+                            busy += 1
+                            continue
+                        }
+                        do {
+                            if let agent { try await client.end(agent) }
+                        } catch { failed += 1; continue }
+                        guard stillApplies(bot, change) else { continue }
+                        if !runningTurns.values.contains(where: { $0.botID == bot.id }) { forgetHerdrAgentState(for: bot) }
+                        clearModelSwitch(bot.id)
+                        clearAutoSwitch(bot.id)
+                        fresh.append(bot.id)
+                    }
                 }
-                guard stillApplies() else { continue }
-                if restarted != nil {
-                    if !runningTurns.values.contains(where: { $0.botID == bot.id }) { forgetHerdrAgentState(for: bot) }
-                    clearModelSwitch(bot.id)
-                    clearAutoSwitch(bot.id)
-                } else if modelSwitchPending(bot) { busy += 1; continue }
-                fresh.append(bot.id)
-            } catch { failed += 1 }
+            } catch { failed = current.filter { stillApplies($0.0, $0.1) }.count }
         }
         var parts = ["\(Self.botCount(fresh.count)) \(fresh.count == 1 ? "is" : "are") ready to use the selected model now."]
         if busy > 0 { parts.append("\(Self.botCount(busy)) will switch on the next direct message after the current turn.") }

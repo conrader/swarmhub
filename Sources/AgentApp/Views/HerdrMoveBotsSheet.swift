@@ -25,6 +25,7 @@ struct HerdrMoveBotsSheet: View {
     @State private var stopIdleAgents = true
     @State private var working: String?
     @State private var problem: String?
+    @State private var setupWarnings: [String: String] = [:]
     @State private var record: HerdrServerMoveRecord?
     @State private var undone = false
 
@@ -46,6 +47,9 @@ struct HerdrMoveBotsSheet: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if !addServer, let destination, let warning = setupWarnings[destination.id] {
+                        StatusCard(kind: .warning, title: warning)
+                    }
                     switch step {
                     case .destination: destinationStep
                     case .bots: botStep
@@ -146,7 +150,7 @@ struct HerdrMoveBotsSheet: View {
                             Text(bot.name)
                             if store.createsHerdrBots(bot) { HerdrMainBotStar(label: "Main bot", size: 13) }
                             Spacer()
-                            if store.herdrMoveIsBusy(bot) {
+                            if store.herdrBotIsBusy(bot) {
                                 Text(store.isAnswering(bot) || store.herdrStreaming.contains(bot.id) ? "Answering" : "Busy")
                                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                     .padding(.horizontal, 8).padding(.vertical, 3)
@@ -284,7 +288,9 @@ struct HerdrMoveBotsSheet: View {
         Task {
             defer { working = nil }
             do {
-                if install, let server = typed.server(id: id) { try await store.installHerdrMoveDestination(server) }
+                if install, let server = typed.server(id: id) {
+                    setupWarnings[id] = try await store.installHerdrMoveDestination(server)
+                }
                 switch await store.testSetupHerdr(typed, serverID: id) {
                 case .connected(let server, let key, _):
                     let workspace = try await store.herdrMoveWorkspace(on: server, key: key)

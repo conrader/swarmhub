@@ -35,6 +35,7 @@ struct HerdrServerMoveRecord {
 
     struct Cleanup {
         var stopped = 0
+        var stoppedSourceAgents: Set<UUID> = []
         var busy: [String] = []
         var failed: [String] = []
     }
@@ -62,10 +63,10 @@ extension AppStore {
         herdrBots(on: server).filter { !$0.isReadOnlyArchive && !$0.isDemo }
     }
 
-    func herdrMoveIsBusy(_ bot: Bot) -> Bool {
+    func herdrBotIsBusy(_ bot: Bot) -> Bool {
         herdrStreaming.contains(bot.id) || runningTurns.values.contains { $0.botID == bot.id }
             || herdrPresence(for: bot)?.isActive == true && herdrReadiness[bot.id]?.isStarting != true
-            || herdrHelpers[bot.id]?.helpers.contains { $0.isLive && $0.answered != true } == true
+            || herdrHasUnansweredHelpers(bot)
     }
 
     func herdrMoveWorkspace(on server: HerdrServer, key: String? = nil) async throws -> HerdrClient.Workspace {
@@ -127,7 +128,7 @@ extension AppStore {
         let changes = targets.compactMap { bot -> HerdrServerMoveRecord.Change? in
             let agentNames = herdrExistingAgentNames(for: bot)
             let agents = sourceWorkspace.map { moveAgents(named: agentNames, in: $0) } ?? []
-            guard !herdrMoveIsBusy(bot), !agents.contains(where: { moveAgentIsBusy($0, in: sourceWorkspace?.agents ?? []) }) else {
+            guard !herdrBotIsBusy(bot), !agents.contains(where: { herdrAgentIsBusy($0, in: sourceWorkspace?.agents ?? []) }) else {
                 skipped.append(bot.name)
                 return nil
             }
@@ -186,7 +187,7 @@ extension AppStore {
                   herdrMoveChoice(for: bot) == change.after, herdrProjects(for: bot).isEmpty, bot.canManageBots == change.isMain else {
                 throw HerdrMoveError.undoUnavailable
             }
-            guard !herdrMovesCleaning.contains(bot.id), !herdrMoveIsBusy(bot) else { throw HerdrMoveError.undoBusy }
+            guard !herdrMovesCleaning.contains(bot.id), !herdrBotIsBusy(bot) else { throw HerdrMoveError.undoBusy }
             return (bot, change)
         }
         if record.changes.contains(where: \.wasMain), herdrMainBot(on: record.source) != nil { throw HerdrMoveError.mainChanged }
@@ -194,12 +195,14 @@ extension AppStore {
         for (bot, change) in targets {
             applyHerdrMoveChoice(change.before, server: record.source, to: bot)
             setHerdrProjects(change.projects, for: bot)
+            let sourceStopped = record.cleanup.stoppedSourceAgents.contains(bot.id)
             if let previous = change.carryOver { setHerdrCarryOver(previous, for: bot) }
+            else if sourceStopped { armHerdrCarryOver(for: [bot], running: [:]) }
             else if record.carryHistory {
                 let launch = bot.messages.count == change.messageCount ? change.sourceLaunch : nil
                 armHerdrCarryOver(for: [bot], running: launch.map { [bot.id: $0] } ?? [:])
             } else { setHerdrCarryOver(nil, for: bot) }
-            setHerdrMoveSkipsCarry(change.skippedCarry || !record.carryHistory && change.carryOver == nil, for: bot)
+            setHerdrMoveSkipsCarry(!sourceStopped && (change.skippedCarry || !record.carryHistory && change.carryOver == nil), for: bot)
             latestHerdrMoves[bot.id] = nil
         }
         objectWillChange.send()
@@ -262,14 +265,14 @@ extension AppStore {
         }
     }
 
-    private func moveAgentIsBusy(_ agent: HerdrClient.Agent, in agents: [HerdrClient.Agent]) -> Bool {
+    func herdrAgentIsBusy(_ agent: HerdrClient.Agent, in agents: [HerdrClient.Agent]) -> Bool {
         agent.firstMessage?.sent == false || ["working", "blocked"].contains(agent.status?.state ?? "")
-            || agents.contains { $0.isLive && $0.parent == agent.ref && !["idle", "done"].contains($0.status?.state ?? "") }
+            || agents.contains { $0.isLive && $0.parent == agent.ref }
     }
 
     private func cleanHerdrMove(_ record: HerdrServerMoveRecord, client: HerdrClient?, names: [UUID: [String]]) async -> HerdrServerMoveRecord.Cleanup {
         var result = HerdrServerMoveRecord.Cleanup()
-        guard let client, let workspace = try? await client.workspace(), workspace.core != nil else {
+        guard let client, let workspace = try? await client.workspace(), let core = workspace.core else {
             result.failed = record.changes.map(\.name)
             return result
         }
@@ -283,12 +286,17 @@ extension AppStore {
                 guard herdrServer(id: record.source.id) == record.source,
                       let current = try? await client.workspace(), current.core == workspace.core else { failed = true; break }
                 guard let live = current.agents.first(where: { $0.isLive && $0.ref == agent.ref }) else { continue }
-                guard !moveAgentIsBusy(live, in: current.agents), live.isIdleForRollover else { busy = true; continue }
+                guard !herdrAgentIsBusy(live, in: current.agents), live.isIdleForRollover else { busy = true; continue }
                 if let bot = bots.first(where: { $0.id == change.botID }), herdrServer(for: bot).id == record.source.id {
                     busy = true
                     continue
                 }
-                do { try await client.end(live); result.stopped += 1 }
+                do {
+                    try await client.end(live)
+                    result.stopped += 1
+                    let launch = HerdrAgentLaunch(server: record.source.id, core: core, address: live.address, createdMs: live.createdMs)
+                    if change.sourceLaunch == launch { result.stoppedSourceAgents.insert(change.botID) }
+                }
                 catch HerdrClient.Failure.http(404, _) { }
                 catch { failed = true }
             }

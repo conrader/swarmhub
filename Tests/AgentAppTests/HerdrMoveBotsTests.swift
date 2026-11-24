@@ -18,13 +18,17 @@ import Testing
             let analystAgent = HerdrBackend.agentName(botName: analyst.name, botID: analyst.id)
             let sourceBridge = MockHTTPProtocol.serve { request in
                 if request.url?.path.hasSuffix("/end") == true { return (200, [:]) }
+                let ended = MockHTTPProtocol.recorded(request.url?.host ?? "").compactMap(\.url?.path)
                 return (200, Self.workspace("this-mac", templates: [
                     Self.template("claude-local", "Claude Code", ["sonnet"]),
                     Self.template("codex-local", "Codex", ["sol", "local-only"])
                 ], agents: [
                     Self.agent("main-agent", name: mainAgent, status: "idle"),
                     Self.agent("analyst-agent", name: analystAgent, status: remoteWorking ? "working" : "idle")
-                ]))
+                ].filter { agent in
+                    guard let address = agent["address"] as? String else { return true }
+                    return !ended.contains("/api/agents/\(address)/42/end")
+                }))
             }
             let destinationBridge = MockHTTPProtocol.serve { _ in
                 (200, Self.workspace("vps-core", templates: [
@@ -173,6 +177,22 @@ import Testing
         #expect(store.herdrCarryOver(for: f.analyst) == nil)
         #expect(store.herdrServer(for: f.main) == f.destination)
         #expect(f.ended == ["/api/agents/main-agent/42/end"])
+    }
+
+    @Test func undoCarriesChatBackWhenTheOriginalDirectAgentWasStopped() async throws {
+        let f = Fixture(), store = f.store
+        let record = try await f.move([f.main, f.writer], history: false, stop: true)
+        #expect(f.ended == ["/api/agents/main-agent/42/end"])
+        #expect(store.herdrMoveSkipsCarry(f.main))
+        #expect(store.herdrCarrySource(for: f.main) == nil)
+
+        try store.undoHerdrMove(record)
+        #expect(!store.herdrMoveSkipsCarry(f.main))
+        #expect(store.herdrMoveSkipsCarry(f.writer))
+        let sources = try await store.prepareDirectModel(bot: f.main, server: f.source, template: "claude-local", model: "sonnet")
+        #expect(sources.count == 1)
+        #expect(sources.first?.read == nil)
+        #expect(store.herdrCarryLines(of: f.main).map(\.text) == ["My timezone is UTC.", "I’ll remember UTC."])
     }
 
     @Test func workStartedOutsideTheAppStaysOnTheSource() async throws {

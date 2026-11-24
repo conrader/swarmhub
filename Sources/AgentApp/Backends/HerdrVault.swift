@@ -82,8 +82,7 @@ extension HerdrClient {
         }
         var request = try self.request(path, method: "POST", body: JSONSerialization.data(withJSONObject: body), timeout: 15)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        try await prepare?()
-        let (data, response) = try await session.data(for: request, delegate: HerdrVaultNoRedirect())
+        let (data, response) = try await session.data(for: prepared(request), delegate: HerdrVaultNoRedirect())
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else { throw Self.failure(status: code, body: data) }
     }

@@ -191,11 +191,11 @@ extension HerdrClient {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    try await client.prepare?()
                     var request = try client.request("/api/agents/\(agent.address)/\(agent.createdMs)/events" + (after.map { "?after=\($0)" } ?? ""), method: "GET", body: nil)
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     // Silence for longer than two of the bridge's 15 s heartbeats means the connection is dead.
                     request.timeoutInterval = Self.streamIdle
+                    request = try await client.prepared(request)
                     var parser = HerdrSSEParser()
                     for try await chunk in (client.byteSource ?? { HerdrByteStream.open($0) })(request) {
                         for frame in parser.feed(chunk) {

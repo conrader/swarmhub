@@ -37,8 +37,12 @@ extension AppStore {
 
     func hasActiveCodingAgent(_ bot: Bot) -> Bool {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return false }
-        return herdrHelpers[bot.id]?.helpers.contains { $0.isLive && $0.answered != true } == true
-            || herdrPresence(for: bot)?.isActive == true
+        return herdrHasUnansweredHelpers(bot) || herdrPresence(for: bot)?.isActive == true
+    }
+
+    func herdrHasUnansweredHelpers(_ bot: Bot, parent: HerdrClient.AgentRef? = nil) -> Bool {
+        guard let snapshot = herdrHelpers[bot.id], parent == nil || snapshot.parent == parent else { return false }
+        return snapshot.helpers.contains { $0.isLive && $0.answered != true }
     }
 
     func herdrTerminalSession(for bot: Bot) -> HerdrClient.AgentRef? {

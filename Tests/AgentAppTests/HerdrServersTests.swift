@@ -48,6 +48,63 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(!HerdrTunnel.offersPassword(HerdrTunnel.Failure.timedOut))
 }
 
+@Suite struct HerdrServersTests {
+    @Test func sshForwardRecoversFromACachedPortCollisionAndRetargetsExistingClients() async throws {
+        let tunnels = HerdrTunnels(isPortFree: { [8787, 49152, 49153].contains($0) })
+        let reserved: Set<Int> = [49152]
+        let cached = try tunnels.forwardPort(for: boxServer, avoiding: reserved)
+        #expect(cached == 8787)
+        var attempts: [Int] = []
+        let port = try await tunnels.startForward(boxServer, avoiding: reserved) { port, arguments in
+            attempts.append(port)
+            #expect(arguments.contains("127.0.0.1:\(port):127.0.0.1:8787"))
+            if port == cached {
+                throw HerdrTunnels.PortBindFailure(line: "Could not request local forwarding.")
+            }
+        }
+        #expect(attempts == [8787, 49153])
+        #expect(port == 49153)
+        #expect(try tunnels.forwardPort(for: boxServer, avoiding: reserved) == port)
+
+        let originalURL = try #require(URL(string: HerdrServer.loopback(port: cached)))
+        var client = HerdrClient(baseURL: originalURL, token: "test")
+        client.forwardedHost = "127.0.0.1:8787"
+        client.prepare = { port }
+        let original = try client.request("/api/agents/t1/42/events?after=8", method: "GET", body: nil)
+        let request = try await client.prepared(original)
+        #expect(request.url?.absoluteString == "http://127.0.0.1:49153/api/agents/t1/42/events?after=8")
+        #expect(request.value(forHTTPHeaderField: "Host") == "127.0.0.1:8787")
+        #expect(request.value(forHTTPHeaderField: "Origin") == "http://127.0.0.1:8787")
+        #expect(request.value(forHTTPHeaderField: "X-SwarmHub-SSH-Forward") == "1")
+        #expect(try await client.connectedBaseURL().port == port)
+    }
+
+    @Test func sshForwardRetriesOnlyOnceOnBindFailures() async {
+        let stderr = """
+            bind [127.0.0.1]:8787: Address already in use
+            channel_setup_fwd_listener_tcpip: cannot listen to port: 8787
+            Could not request local forwarding.
+            """
+        #expect(HerdrTunnel.cannotBind(8787, stderr: stderr))
+        #expect(HerdrTunnel.cannotBind(8787, stderr: "cannot listen to port: 8787"))
+        #expect(!HerdrTunnel.cannotBind(878, stderr: stderr))
+        #expect(!HerdrTunnel.cannotBind(8787, stderr: "Permission denied (publickey)."))
+        let tunnels = HerdrTunnels(isPortFree: { _ in true })
+        var attempts: [Int] = []
+        let line = "Could not request local forwarding."
+        do {
+            _ = try await tunnels.startForward(boxServer, avoiding: []) { port, _ in
+                attempts.append(port)
+                throw HerdrTunnels.PortBindFailure(line: line)
+            }
+            Issue.record("Both attempts collided.")
+        } catch {
+            #expect(error as? HerdrTunnel.Failure == .ended(line))
+        }
+        #expect(attempts == [8787, 49152])
+    }
+}
+
 @Test func sshPasswordInputOnlyAnswersItsOwnPasswordPromptOnce() throws {
     let secret = "test $value ' with spaces"
     let input = try SSHPasswordInput(password: secret)

@@ -115,21 +115,34 @@ private struct ScriptedBackend: AgentBackend {
 private final class ModelBridge: @unchecked Sendable {
     private let lock = NSLock()
     private var agents: [[String: Any]] = [], endedNames: [String] = []
+    private var workspaceRequests = 0
     private var helperModels: [String: [String: String]] = [:]
     private var autoMode: [String: Bool] = [:]
     var ended: [String] { lock.withLock { endedNames } }
+    var workspaceReads: Int { lock.withLock { workspaceRequests } }
 
-    func run(_ name: String, state: String? = "idle", warm: Bool = false) {
+    @discardableResult func run(_ name: String, state: String? = "idle", warm: Bool = false,
+                                parent: HerdrClient.AgentRef? = nil) -> HerdrClient.AgentRef {
         lock.withLock {
             let serial = agents.count + endedNames.count
-            agents.append(["address": "a\(serial)", "created_ms": 10 + serial, "name": name, "state": "live", "template": "tpl-claude",
-                           "status": state.map { ["state": $0] as Any } ?? NSNull(), "warm": warm])
+            let ref = HerdrClient.AgentRef(address: "a\(serial)", createdMs: UInt64(10 + serial))
+            var agent: [String: Any] = ["address": ref.address, "created_ms": ref.createdMs, "name": name, "state": "live",
+                                        "template": "tpl-claude", "status": state.map { ["state": $0] as Any } ?? NSNull(), "warm": warm]
+            if let parent { agent["parent"] = ["address": parent.address, "created_ms": parent.createdMs] as [String: Any] }
+            agents.append(agent)
+            return ref
         }
     }
 
     func finish(_ name: String) {
         lock.withLock {
             if let index = agents.firstIndex(where: { $0["name"] as? String == name }) { agents[index]["status"] = ["state": "done"] }
+        }
+    }
+
+    func stop(_ name: String) {
+        lock.withLock {
+            if let index = agents.firstIndex(where: { $0["name"] as? String == name }) { agents[index]["state"] = "finished" }
         }
     }
 
@@ -150,6 +163,7 @@ private final class ModelBridge: @unchecked Sendable {
                 return (200, ["choice": helperModels[path] as Any? ?? NSNull(), "auto_mode": autoMode[path] ?? false] as [String: Any])
             }
             if request.httpMethod == "GET", path == "/api/workspace" {
+                workspaceRequests += 1
                 return (200, ["core": "c", "version": "1", "agents": agents,
                               "templates": [templateJSON("tpl-claude", program: "Claude Code", models: claudeModels), templateJSON("tpl-codex", program: "Codex", models: codexModels)]])
             }
@@ -271,6 +285,59 @@ private final class ModelBridge: @unchecked Sendable {
     }
     store.doneWithHerdrModels(record)
     #expect(store.herdrModelRecord(by: nil, on: server) == nil)
+}
+
+@MainActor @Suite struct HerdrModelRequestTests {
+    @Test func bulkSwitchDefersIdleParentsWithActiveOrUnansweredHelpers() async throws {
+        let (store, jarvis, legal, infra, bridge) = modelStore()
+        let server = store.herdrServer(for: jarvis)
+        let templates = try await store.herdrTemplates(on: server)
+        let codex = try #require(templates.first { $0.name == "tpl-codex" })
+        let jarvisName = HerdrBackend.agentName(botName: jarvis.name, botID: jarvis.id)
+        let legalName = HerdrBackend.agentName(botName: legal.name, botID: legal.id)
+        let infraName = HerdrBackend.agentName(botName: infra.name, botID: infra.id)
+        let parent = bridge.run(jarvisName)
+        bridge.run("Working helper", state: "working", parent: parent)
+        let legalParent = bridge.run(legalName)
+        store.herdrHelpers[legal.id] = .init(core: "c", parent: legalParent, limit: 3, stopAfterSeconds: 60, helpers: [
+            .init(address: "helper", createdMs: 1, name: "Unanswered helper", state: "live", status: .init(state: "done"), answered: false)
+        ])
+        bridge.run(infraName)
+
+        let record = try #require(await store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol",
+                                                                  label: "Codex", templates: templates))
+        #expect(record.fresh == [infra.id])
+        #expect(bridge.ended == [infraName])
+        #expect([jarvis, legal].allSatisfy { store.modelSwitchPending($0) && store.herdrCarryOver(for: $0)?.old != nil })
+        #expect([jarvis, legal].allSatisfy { store.herdrModel(for: $0) == "gpt-6.2-sol" })
+
+        let beforeSend = bridge.workspaceReads
+        let send = Task {
+            try await store.prepareDirectModel(bot: jarvis, server: server, template: codex.name, model: "gpt-6.2-sol")
+        }
+        defer { send.cancel() }
+        try await waitUntil(timeout: .seconds(5)) { bridge.workspaceReads >= beforeSend + 3 }
+        #expect(bridge.ended == [infraName])
+        bridge.stop("Working helper")
+        #expect(try await send.value.count == 1)
+        #expect(bridge.ended == [infraName, jarvisName])
+        #expect(!store.modelSwitchPending(jarvis))
+    }
+
+    @Test func bulkApplyAndUndoReadTheWorkspaceOnceEach() async throws {
+        let (store, jarvis, _, _, bridge) = modelStore()
+        let server = store.herdrServer(for: jarvis)
+        let templates = try await store.herdrTemplates(on: server)
+        let codex = try #require(templates.first { $0.name == "tpl-codex" })
+        let beforeApply = bridge.workspaceReads
+        let record = try #require(await store.setHerdrModelForAll(on: server, template: codex, model: "gpt-6.2-sol",
+                                                                  label: "Codex", templates: templates))
+        #expect(record.fresh.count == 3)
+        #expect(bridge.workspaceReads == beforeApply + 1)
+        let beforeUndo = bridge.workspaceReads
+        #expect(await store.undoHerdrModels(record) == 3)
+        #expect(bridge.workspaceReads == beforeUndo + 1)
+    }
 }
 
 @MainActor @Test func twoChangesStandSideBySideAndUndoAfterAFreshStartKeepsThoseBotsOnACard() async throws {

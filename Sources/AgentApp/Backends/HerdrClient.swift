@@ -162,8 +162,8 @@ struct HerdrClient: Sendable {
     var pollInterval: Duration = .milliseconds(400)
     var agentCheckInterval: Duration = .seconds(2)
     /// Runs before every request. A server reached over SSH opens its port forward here when it is not up
-    /// (`HerdrTunnels.ensure`), so each caller gets a working connection without knowing how the server is reached.
-    var prepare: (@Sendable () async throws -> Void)? = nil
+    /// (`HerdrTunnels.ensure`) and returns its current loopback port.
+    var prepare: (@Sendable () async throws -> Int)? = nil
     /// How a turn is followed: on the bridge's event stream (`HerdrEvents.swift`), with the polling routes as the
     /// fallback when the stream cannot be opened or keeps breaking; or by polling alone.
     enum Following: Sendable { case stream, polling }
@@ -621,7 +621,7 @@ struct HerdrClient: Sendable {
         // The bridge compares Origin with Host on every POST (its browser page sends both).
         let port = baseURL.port.map { ":\($0)" } ?? ""
         let authority = forwardedHost ?? host + port
-        if let forwardedHost {
+        if let forwardedHost, forwardedHost != host + port {
             // Older bridges expect this exact authority. Newer ones also handle URLSession rewriting Host.
             request.setValue(forwardedHost, forHTTPHeaderField: "Host")
             request.setValue("1", forHTTPHeaderField: "X-SwarmHub-SSH-Forward")
@@ -634,10 +634,35 @@ struct HerdrClient: Sendable {
         return request
     }
 
+    func connectedBaseURL() async throws -> URL {
+        guard let prepare else { return baseURL }
+        let port = try await prepare()
+        return try url(baseURL, onPort: port)
+    }
+
+    func prepared(_ request: URLRequest) async throws -> URLRequest {
+        guard let prepare, let originalURL = request.url else { return request }
+        let port = try await prepare()
+        guard originalURL.port != port else { return request }
+        var next = request
+        next.url = try url(originalURL, onPort: port)
+        if let forwardedHost {
+            next.setValue(forwardedHost, forHTTPHeaderField: "Host")
+            next.setValue("1", forHTTPHeaderField: "X-SwarmHub-SSH-Forward")
+        }
+        return next
+    }
+
+    private func url(_ url: URL, onPort port: Int) throws -> URL {
+        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw Failure.invalidURL }
+        parts.port = port
+        guard let connected = parts.url else { throw Failure.invalidURL }
+        return connected
+    }
+
     /// A request's body and status as they came, for routes whose refusals carry more than a sentence (`HerdrProjects.swift`).
     func raw(_ request: URLRequest) async throws -> (data: Data, status: Int) {
-        try await prepare?()
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: prepared(request))
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
@@ -651,10 +676,8 @@ struct HerdrClient: Sendable {
     }
 
     func send<T: Decodable>(_ request: URLRequest) async throws -> T {
-        try await prepare?()
-        let (data, response) = try await session.data(for: request)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(code) else { throw Self.failure(status: code, body: data) }
+        let (data, status) = try await raw(request)
+        guard (200..<300).contains(status) else { throw Self.failure(status: status, body: data) }
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(T.self, from: data.isEmpty ? Data("{}".utf8) : data)
     }

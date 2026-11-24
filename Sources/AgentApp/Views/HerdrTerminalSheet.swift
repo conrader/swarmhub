@@ -23,7 +23,7 @@ struct HerdrTerminalSheet: View {
     var group: GroupChat? = nil
     var target: HerdrPickerTarget? = nil
     var didConfirm: (() -> Void)? = nil
-    @State private var client: HerdrClient?
+    @State private var terminal: (url: URL, token: String)?
     @State private var error: String?
 
     var body: some View {
@@ -45,8 +45,8 @@ struct HerdrTerminalSheet: View {
                     .font(.callout)
             }
             if let error { Text(error).foregroundStyle(AppColor.caution).textSelection(.enabled) }
-            if let client {
-                TerminalSurface(client: client, agent: agent, name: heading, target: target, confirmed: {
+            if let terminal {
+                TerminalSurface(url: terminal.url, token: terminal.token, agent: agent, name: heading, target: target, confirmed: {
                     guard let target else { return }
                     store.rememberModel(target.record, for: bot)
                     didConfirm?()
@@ -67,22 +67,22 @@ struct HerdrTerminalSheet: View {
                         throw BackendError.unavailable("The session changed or is busy. Try the model switch when it is ready.")
                     }
                 }
-                try await connection.prepare?()
+                let url = try await connection.connectedBaseURL().appendingPathComponent("chat-terminal")
                 try Task.checkCancellation()
-                client = connection
+                terminal = (url, connection.token)
             } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
 }
 
 private struct TerminalSurface: NSViewRepresentable {
-    let client: HerdrClient
+    let url: URL
+    let token: String
     let agent: HerdrClient.AgentRef
     let name: String
     let target: HerdrPickerTarget?
     let confirmed: () -> Void
     let failed: (String) -> Void
-    var url: URL { client.baseURL.appendingPathComponent("chat-terminal") }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> WKWebView {
@@ -114,7 +114,7 @@ private struct TerminalSurface: NSViewRepresentable {
             guard view.url == terminal.url else { return }
             view.callAsyncJavaScript("window.openChatTerminal(address, created, name, token); return true",
                                      arguments: ["address": terminal.agent.address, "created": String(terminal.agent.createdMs),
-                                                 "name": terminal.name, "token": terminal.client.token], in: nil, in: .page) { result in
+                                                 "name": terminal.name, "token": terminal.token], in: nil, in: .page) { result in
                 if case .success = result, let target = self.terminal.target {
                     view.callAsyncJavaScript("return await window.chooseChatModel(program, id, label)", arguments: ["program": target.program, "id": target.record.id, "label": target.record.label], in: nil, in: .page) { response in
                         guard self.attached else { return }

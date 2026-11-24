@@ -170,6 +170,7 @@ struct HerdrServerDraft: Equatable, Sendable {
 /// background process has nowhere to ask for one.
 enum HerdrTunnel {
     static let program = "/usr/bin/ssh"
+    static let forwardReady = "SWARMHUB_SSH_FORWARD_READY"
     /// The person's own home folder, where ssh itself looks, whatever folder a development launch calls home.
     static var realHome: String { getpwuid(getuid()).flatMap { $0.pointee.pw_dir.map { String(cString: $0) } } ?? NSHomeDirectory() }
 
@@ -199,7 +200,10 @@ enum HerdrTunnel {
     static func forwardArguments(for server: HerdrServer, localPort: Int? = nil, home: String = HerdrTunnel.realHome) -> [String]? {
         guard let options = options(for: server, home: home) else { return nil }
         let port = server.port
-        return ["-N", "-L", "127.0.0.1:\(localPort ?? port):127.0.0.1:\(port)", "-o", "ExitOnForwardFailure=yes"] + options + ["--", server.sshHost]
+        // Keep the listener on this process, and get an acknowledgement from ssh after it binds the port.
+        return ["-N", "-L", "127.0.0.1:\(localPort ?? port):127.0.0.1:\(port)", "-o", "ExitOnForwardFailure=yes",
+                "-S", "none", "-o", "PermitLocalCommand=yes", "-o", "LocalCommand=/bin/echo \(forwardReady)"]
+            + options + ["--", server.sshHost]
     }
 
     /// One command on the server (reading the bridge's token file), its output trimmed.
@@ -212,6 +216,11 @@ enum HerdrTunnel {
         let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("Warning: Permanently added") }
         return lines.last ?? "ssh ended without saying why."
+    }
+
+    static func cannotBind(_ port: Int, stderr: String) -> Bool {
+        let message = "cannot listen to port: \(port)"
+        return stderr.split(whereSeparator: \.isNewline).contains { $0 == message || $0.hasSuffix(": " + message) }
     }
 
     enum Failure: LocalizedError, Equatable {
@@ -262,17 +271,32 @@ enum HerdrTunnel {
 /// (`HerdrClient.prepare`): it returns at once while the forward is up, and opens it again when ssh has ended (the
 /// Mac slept, the network changed). Nothing here is saved; closing the app closes its forwards.
 final class HerdrTunnels: @unchecked Sendable {
-    /// What ssh last wrote, kept short; read when it ends before the forward opened.
+    struct PortBindFailure: Error { let line: String }
+
+    /// What ssh last wrote, kept short.
     private final class Tail: @unchecked Sendable {
         private let lock = NSLock(); private var text = ""
-        func add(_ data: Data) { lock.withLock { text = String((text + (String(data: data, encoding: .utf8) ?? "")).suffix(2_000)) } }
+        func add(_ data: Data) {
+            lock.withLock { text = String((text + String(decoding: data, as: UTF8.self)).suffix(2_000)) }
+        }
+        func watch(_ pipe: Pipe) {
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty { handle.readabilityHandler = nil } else { self.add(data) }
+            }
+        }
         var value: String { lock.withLock { text } }
     }
     private struct Entry { var process: Process; var arguments: [String]; var ready: Bool }
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
     /// One opening at a time per server: several requests may ask at once.
-    private var opening: [String: Task<Void, Error>] = [:]
+    private var opening: [String: Task<Int, Error>] = [:]
+    private let isPortFree: @Sendable (Int) -> Bool
+
+    init(isPortFree: @escaping @Sendable (Int) -> Bool = HerdrTunnels.isFree) {
+        self.isPortFree = isPortFree
+    }
     private struct Login: Hashable {
         let host: String
         let user: String
@@ -308,35 +332,69 @@ final class HerdrTunnels: @unchecked Sendable {
     /// Each SSH server gets its own local listener, including when several bridges use 8787.
     func forwardPort(for server: HerdrServer, avoiding configuredPorts: Set<Int>) throws -> Int {
         try lock.withLock {
-            if let port = forwardPorts[server.id] { return port }
-            let used = configuredPorts.union(forwardPorts.values)
-            let candidates = (49152...65535).lazy.filter { !used.contains($0) }.prefix(20)
-            let preferred = used.contains(server.port) ? [] : [server.port]
-            let ports = preferred + candidates
-            // Client construction also works before networking is available. SSH claims the actual listener.
-            guard let port = ports.first(where: Self.isFree) ?? ports.first else {
-                throw HerdrTunnel.Failure.ended("No local port is available for the SSH connection.")
-            }
-            forwardPorts[server.id] = port
-            return port
+            try forwardPorts[server.id] ?? pickPort(for: server, avoiding: configuredPorts)
         }
+    }
+
+    // Call while holding the lock. SSH claims the actual listener, so a retry must probe a different port.
+    private func pickPort(for server: HerdrServer, avoiding configuredPorts: Set<Int>, replacing failedPort: Int? = nil) throws -> Int {
+        let used = configuredPorts.union(forwardPorts.values)
+        let candidates = (49152...65535).lazy.filter { $0 != failedPort && !used.contains($0) }
+        let preferred = server.port != failedPort && !used.contains(server.port) ? server.port : nil
+        let port = preferred.flatMap { isPortFree($0) ? $0 : nil }
+            ?? (failedPort == nil ? candidates.prefix(20).first(where: isPortFree) : candidates.first(where: isPortFree))
+            ?? (failedPort == nil ? preferred ?? candidates.first : nil)
+        guard let port else { throw HerdrTunnel.Failure.ended("No local port is available for the SSH connection.") }
+        forwardPorts[server.id] = port
+        return port
     }
 
     /// True while this server's forward is the app's own running ssh.
     func isOpen(_ id: String) -> Bool { lock.withLock { entries[id].map { $0.process.isRunning && $0.ready } ?? false } }
 
-    func ensure(_ server: HerdrServer, port: Int) async throws {
+    func ensure(_ server: HerdrServer, avoiding configuredPorts: Set<Int>) async throws -> Int {
+        let port = try forwardPort(for: server, avoiding: configuredPorts)
         guard let arguments = HerdrTunnel.forwardArguments(for: server, localPort: port) else { throw HerdrTunnel.Failure.notSSH }
-        let pending: Task<Void, Error>? = lock.withLock {
-            if let entry = entries[server.id], entry.process.isRunning, entry.ready, entry.arguments == arguments { return nil }
+        let pending: Task<Int, Error>? = lock.withLock {
             if let running = opening[server.id] { return running }
-            let task = Task { try await self.open(server, port: port, arguments: arguments) }
+            if let entry = entries[server.id], forwardPorts[server.id] == port,
+               entry.process.isRunning, entry.ready, entry.arguments == arguments { return nil }
+            let task = Task {
+                try await self.startForward(server, avoiding: configuredPorts) { port, arguments in
+                    try await self.open(server, port: port, arguments: arguments)
+                }
+            }
             opening[server.id] = task
             return task
         }
-        guard let pending else { return }
+        guard let pending else { return port }
         defer { lock.withLock { if opening[server.id] == pending { opening[server.id] = nil } } }
-        try await pending.value
+        return try await pending.value
+    }
+
+    func startForward(_ server: HerdrServer, avoiding configuredPorts: Set<Int>,
+                      open: (Int, [String]) async throws -> Void) async throws -> Int {
+        func openPort(_ port: Int) async throws {
+            guard let arguments = HerdrTunnel.forwardArguments(for: server, localPort: port) else { throw HerdrTunnel.Failure.notSSH }
+            try await open(port, arguments)
+        }
+        let port = try forwardPort(for: server, avoiding: configuredPorts)
+        do {
+            try await openPort(port)
+            return port
+        } catch is PortBindFailure {
+            let replacement = try lock.withLock {
+                forwardPorts[server.id] = nil
+                return try pickPort(for: server, avoiding: configuredPorts, replacing: port)
+            }
+            do {
+                try await openPort(replacement)
+                return replacement
+            } catch let failure as PortBindFailure {
+                lock.withLock { if forwardPorts[server.id] == replacement { forwardPorts[server.id] = nil } }
+                throw HerdrTunnel.Failure.ended(failure.line)
+            }
+        }
     }
 
     /// Ends the forward. ssh holds nothing worth a clean exit, and a child started from a thread that blocks signals
@@ -358,17 +416,15 @@ final class HerdrTunnels: @unchecked Sendable {
 
     private func open(_ server: HerdrServer, port: Int, arguments: [String]) async throws {
         close(server.id)
-        let process = Process(), err = Pipe(), tail = Tail()
+        let process = Process(), out = Pipe(), err = Pipe(), status = Tail(), tail = Tail()
         process.executableURL = URL(fileURLWithPath: HerdrTunnel.program); process.arguments = arguments
         let attempted = password(for: server)
         let input = try attempted.map(SSHPasswordInput.init(password:))
         input?.configure(process, arguments: arguments)
         defer { withExtendedLifetime(input) {} }
-        process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = err
-        err.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil } else { tail.add(data) }
-        }
+        process.standardInput = FileHandle.nullDevice; process.standardOutput = out; process.standardError = err
+        status.watch(out)
+        tail.watch(err)
         do { try process.run() } catch { throw HerdrTunnel.Failure.ended(error.localizedDescription) }
         lock.withLock { entries[server.id] = Entry(process: process, arguments: arguments, ready: false) }
         let clock = ContinuousClock(), deadline = clock.now + .seconds(25)
@@ -376,11 +432,15 @@ final class HerdrTunnels: @unchecked Sendable {
             if !process.isRunning {
                 lock.withLock { if entries[server.id]?.process === process { entries[server.id] = nil } }
                 try? await Task.sleep(for: .milliseconds(100)) // the last line may still be on its way through the pipe
-                let error = HerdrTunnel.Failure.ended(HerdrTunnel.reason(tail.value))
+                let stderr = tail.value
+                let line = HerdrTunnel.reason(stderr)
+                if HerdrTunnel.cannotBind(port, stderr: stderr) { throw PortBindFailure(line: line) }
+                let error = HerdrTunnel.Failure.ended(line)
                 discardRejected(attempted, for: server, error: error)
                 throw error
             }
-            if await Self.answers(port: port) {
+            if status.value.split(whereSeparator: \.isNewline).contains(where: { $0 == HerdrTunnel.forwardReady }),
+               await Self.answers(port: port), process.isRunning {
                 lock.withLock { if entries[server.id]?.process === process { entries[server.id]?.ready = true } }
                 return
             }
