@@ -103,7 +103,9 @@ struct HerdrClient: Sendable {
         }
         /// A task that was never typed into the agent.
         var wasNotSent: Bool { kind == "task" && state == "not_sent" }
-        /// A task the agent has read or will read: one that was never typed into it taught it nothing.
+        /// The bridge tried to type the task and saw no turn start.
+        var startNotObserved: Bool { kind == "task" && state == "start_not_observed" }
+        /// Counts tasks that may still be answered, including those whose start the bridge could not observe.
         var reachedAgent: Bool { kind == "task" && !wasNotSent }
     }
 

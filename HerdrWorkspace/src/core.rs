@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, io, path::PathBuf, time::Duration};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
-    time::timeout,
+    time::{Instant, sleep, timeout, timeout_at},
 };
 
 const LABEL: &str = "swarmhub.workspace";
@@ -140,12 +140,21 @@ pub enum LaunchSource {
 #[derive(Deserialize, Serialize)]
 pub struct Output {
     pub text: String,
+    #[serde(skip_serializing)]
+    complete: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Delivery {
     pub status: Option<String>,
     pub started: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TerminalSend {
+    #[serde(flatten)]
+    delivery: Delivery,
+    turn: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -236,6 +245,17 @@ struct RpcErrorData {
 }
 
 impl Core {
+    async fn connect(&self) -> Result<UnixStream, Failure> {
+        #[cfg(test)]
+        if let Some(socket) = tests::connection() {
+            return Ok(socket);
+        }
+        timeout(Duration::from_secs(2), UnixStream::connect(&self.0))
+            .await
+            .map_err(|_| Failure::Unreachable)?
+            .map_err(|_| Failure::Unreachable)
+    }
+
     async fn rpc<T: DeserializeOwned>(
         &self,
         method: &str,
@@ -243,10 +263,7 @@ impl Core {
         seconds: u64,
         mutating: bool,
     ) -> Result<T, Failure> {
-        let mut socket = timeout(Duration::from_secs(2), UnixStream::connect(&self.0))
-            .await
-            .map_err(|_| Failure::Unreachable)?
-            .map_err(|_| Failure::Unreachable)?;
+        let mut socket = self.connect().await?;
         let exchange = async {
             let mut request = serde_json::to_vec(
                 &json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}),
@@ -651,28 +668,145 @@ impl Core {
     }
 
     pub async fn output(&self, agent: &Terminal) -> Result<Output, Failure> {
+        let mut output = self.read_screen(agent).await?;
+        output.text = crate::person_profile::strip_prompt_context(output.text);
+        Ok(output)
+    }
+
+    async fn read_screen(&self, agent: &Terminal) -> Result<Output, Failure> {
         // Zero lines avoids asking Core to drive a full-screen program to recover scrollback.
-        let mut output: Output = self.rpc(
+        self.rpc(
             "terminal.read",
             json!({"terminal":agent.address,"lines":0}),
             5,
             false,
         )
-        .await?;
-        output.text = crate::person_profile::strip_prompt_context(output.text);
-        Ok(output)
+        .await
     }
 
-    pub async fn send(&self, agent: &Terminal, task: String) -> Result<Delivery, Failure> {
-        crate::person_profile::validate_prompt(&task)?;
+    pub(crate) async fn send(&self, agent: &Terminal, task: &str) -> Result<TerminalSend, Failure> {
+        self.send_terminal(agent, task, false).await
+    }
+
+    async fn send_terminal(
+        &self,
+        agent: &Terminal,
+        task: &str,
+        idle_only: bool,
+    ) -> Result<TerminalSend, Failure> {
+        crate::person_profile::validate_prompt(task)?;
         agent.require_live()?;
-        self.rpc(
-            "terminal.send",
-            json!({"terminal":agent.address,"text":task}),
-            135,
-            true,
+        let mut params = json!({"terminal":agent.address,"text":task});
+        if idle_only {
+            params["if"] = json!("idle");
+        }
+        self.rpc("terminal.send", params, 135, true).await
+    }
+
+    /// A send that didn't observe a start gets one recovery write, after checking the live screen.
+    pub(crate) async fn recover_send(
+        &self,
+        agent: &Terminal,
+        prompt: &str,
+        probe: &str,
+        sent: TerminalSend,
+    ) -> Result<Delivery, Failure> {
+        let TerminalSend { mut delivery, turn } = sent;
+        if delivery.started != Some(false) || agent.uses_opencode_api() {
+            return Ok(delivery);
+        }
+        let until = Instant::now() + Duration::from_secs(3);
+        let turn = turn.unwrap_or(agent.turn());
+        sleep(Duration::from_millis(350)).await;
+        let Some(current) = self.still_waiting(agent, turn, &mut delivery).await else {
+            return Ok(delivery);
+        };
+        let Some(probe) = prompt_probe(probe) else {
+            return Ok(delivery);
+        };
+        let Ok(Ok(screen)) = timeout(Duration::from_millis(400), self.read_screen(&current)).await
+        else {
+            return Ok(delivery);
+        };
+        if screen.complete == Some(false) {
+            return Ok(delivery);
+        }
+        let visible = screen_shows_probe(&screen.text, &probe);
+        if visible
+            && !matches!(
+                timeout(Duration::from_millis(400), self.identify()).await,
+                Ok(Ok(hello)) if hello.supports("terminal.keys")
+            )
+        {
+            return Ok(delivery);
+        }
+        // Recheck after the screen read so a turn that began meanwhile never triggers a write.
+        let Some(current) = self.still_waiting(agent, turn, &mut delivery).await else {
+            return Ok(delivery);
+        };
+        if visible {
+            let enter = self.rpc::<serde::de::IgnoredAny>(
+                "terminal.keys",
+                json!({"terminal":current.address,"keys":["enter"]}),
+                5,
+                true,
+            );
+            match timeout_at(until, enter).await {
+                Ok(Ok(_)) => {
+                    let _ = timeout_at(until, async {
+                        sleep(Duration::from_millis(1200)).await;
+                        self.still_waiting(agent, turn, &mut delivery).await;
+                    })
+                    .await;
+                }
+                Ok(Err(Failure::Uncertain)) | Err(_) => return Err(Failure::Uncertain),
+                Ok(Err(_)) => {}
+            }
+            return Ok(delivery);
+        }
+
+        // Core can guard an idle retry at the write boundary. Its `if` accepts idle or working.
+        let idle = current
+            .status
+            .as_ref()
+            .is_some_and(|status| status.state == "idle");
+        match timeout_at(until, self.send_terminal(&current, prompt, idle)).await {
+            Ok(Ok(retry)) => Ok(retry.delivery),
+            // A status change can refuse the retry after the first send went through.
+            Ok(Err(Failure::Rejected(kind, _)))
+                if matches!(kind.as_str(), "blocked" | "status_mismatch") =>
+            {
+                let _ = timeout_at(until, self.still_waiting(agent, turn, &mut delivery)).await;
+                Ok(delivery)
+            }
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err(Failure::Uncertain),
+        }
+    }
+
+    async fn still_waiting(
+        &self,
+        agent: &Terminal,
+        turn: u64,
+        delivery: &mut Delivery,
+    ) -> Option<Terminal> {
+        let current = timeout(
+            Duration::from_millis(400),
+            self.agent(&agent.address, agent.created_ms),
         )
         .await
+        .ok()?
+        .ok()?;
+        current.require_live().ok()?;
+        if current.launch_key() != agent.launch_key() {
+            return None;
+        }
+        let status = &current.status.as_ref()?.state;
+        if current.turn() > turn || !matches!(status.as_str(), "idle" | "done") {
+            delivery.started = Some(true);
+            return None;
+        }
+        Some(current)
     }
 
     /// Fixture protocol: Core compares identity, launch and idle turn at the write boundary.
@@ -738,6 +872,24 @@ impl Core {
         terminal.hydrate_template();
         Ok(terminal)
     }
+}
+
+fn prompt_probe(prompt: &str) -> Option<String> {
+    let first = prompt.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let normalized = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    let probe: String = normalized.chars().take(48).collect();
+    Some(probe.trim_end().to_owned())
+}
+
+fn screen_shows_probe(screen: &str, probe: &str) -> bool {
+    let mut tail: Vec<_> = screen.trim_end().lines().rev().take(12).collect();
+    tail.reverse();
+    let words: Vec<_> = tail
+        .iter()
+        .flat_map(|line| line.split_whitespace())
+        .collect();
+    // A full-width terminal line can wrap in the middle of a word.
+    words.join(" ").contains(probe) || words.concat().contains(&probe.replace(' ', ""))
 }
 
 impl Terminal {
@@ -945,7 +1097,161 @@ pub fn valid_filename(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::local_address;
+    use super::*;
+    use tokio::sync::mpsc;
+
+    tokio::task_local! {
+        static CONNECTIONS: mpsc::UnboundedSender<UnixStream>;
+    }
+
+    pub(super) fn connection() -> Option<UnixStream> {
+        CONNECTIONS
+            .try_with(|connections| {
+                let (client, server) = UnixStream::pair().unwrap();
+                connections.send(server).unwrap();
+                client
+            })
+            .ok()
+    }
+
+    const PROMPT: &str = "\n  Compare   the two receipts and summarize the differences.\nThanks.";
+
+    fn terminal(state: &str, turn: u64) -> Value {
+        json!({"address":"t7","state":"live","status":{"state":state},"created_ms":42,
+            "template":"agy","turn":turn,"labels":{"swarmhub.workspace":"agent"}})
+    }
+
+    fn hello(keys: bool) -> Value {
+        let mut methods = vec!["templates.list", "terminal.get", "terminal.list", "terminal.run",
+            "terminal.read", "terminal.send", "terminal.interrupt", "terminal.kill"];
+        if keys {
+            methods.push("terminal.keys");
+        }
+        json!({"generation":1,"version":"fixture","core":{"id":"core"},"methods":methods})
+    }
+
+    async fn terminal_send(
+        started: Option<bool>,
+        steps: Vec<(&'static str, Value)>,
+    ) -> (Delivery, Vec<Value>) {
+        let (connect, mut connections) = mpsc::unbounded_channel::<UnixStream>();
+        let mut script = vec![(
+            "terminal.send",
+            json!({"status":"idle","started":started,"turn":3}),
+        )];
+        script.extend(steps);
+        let methods: Vec<_> = script.iter().map(|(method, _)| *method).collect();
+        let server = tokio::spawn(async move {
+            let mut script = script.into_iter();
+            let mut calls = Vec::new();
+            while let Some(stream) = connections.recv().await {
+                let mut stream = BufReader::new(stream);
+                let mut line = String::new();
+                stream.read_line(&mut line).await.unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let result = script.next().map_or(Value::Null, |(_, reply)| reply);
+                let reply = json!({"jsonrpc":"2.0","id":request["id"],"result":result});
+                stream
+                    .get_mut()
+                    .write_all(format!("{reply}\n").as_bytes())
+                    .await
+                    .unwrap();
+                calls.push(request);
+            }
+            calls
+        });
+        let core = Core(PathBuf::new());
+        let agent = serde_json::from_value(terminal("idle", 3)).unwrap();
+        let typed = format!("{PROMPT}\n\n[SwarmHub person profile] The user's time zone is Asia/Bangkok.");
+        let delivery = CONNECTIONS
+            .scope(connect, async {
+                let sent = core.send(&agent, &typed).await.unwrap();
+                core.recover_send(&agent, &typed, PROMPT, sent).await.unwrap()
+            })
+            .await;
+        let calls = server.await.unwrap();
+        assert_eq!(
+            calls.iter().map(|call| call["method"].as_str().unwrap()).collect::<Vec<_>>(),
+            methods
+        );
+        for call in calls.iter().filter(|call| call["method"] == "terminal.send") {
+            assert_eq!(call["params"]["text"], typed);
+        }
+        (delivery, calls)
+    }
+
+    #[tokio::test]
+    async fn a_send_with_a_start_or_no_start_signal_is_left_alone() {
+        for started in [Some(true), None] {
+            let (delivery, _) = terminal_send(started, vec![]).await;
+            assert_eq!(delivery.started, started);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_swallowed_paste_is_retried_once_and_returns_the_second_delivery() {
+        for (state, started, write_guard) in [("idle", false, Some("idle")), ("done", true, None)] {
+            let (delivery, calls) = terminal_send(Some(false), vec![
+                ("terminal.get", terminal(state, 3)),
+                ("terminal.read", json!({"text":"Antigravity\n> \n\n"})),
+                ("terminal.get", terminal(state, 3)),
+                ("terminal.send", json!({"status":state,"started":started,"turn":3})),
+            ]).await;
+            assert_eq!(calls[2]["params"]["lines"], 0);
+            assert_eq!(calls[4]["params"]["if"].as_str(), write_guard);
+            assert_eq!(delivery.started, Some(started));
+            assert_eq!(delivery.status.as_deref(), Some(state));
+        }
+    }
+
+    #[tokio::test]
+    async fn observed_work_ends_recovery_before_another_write() {
+        for (state, turn) in [("working", 3), ("blocked", 3), ("done", 4)] {
+            let (delivery, _) = terminal_send(Some(false), vec![("terminal.get", terminal(state, turn))]).await;
+            assert_eq!(delivery.started, Some(true));
+        }
+        let (delivery, _) = terminal_send(Some(false), vec![
+            ("terminal.get", terminal("idle", 3)),
+            ("terminal.read", json!({"text":">"})),
+            ("terminal.get", terminal("working", 3)),
+        ]).await;
+        assert_eq!(delivery.started, Some(true));
+    }
+
+    #[tokio::test]
+    async fn a_visible_prompt_gets_one_enter_and_no_second_paste() {
+        let (delivery, calls) = terminal_send(Some(false), vec![
+            ("terminal.get", terminal("idle", 3)),
+            ("terminal.read", json!({"text":"> Compare the two re\nceipts and summarize the differences.\nThanks.\n\n"})),
+            ("hello", hello(true)),
+            ("terminal.get", terminal("idle", 3)),
+            ("terminal.keys", json!({"status":"idle","turn":3})),
+            ("terminal.get", terminal("working", 3)),
+        ]).await;
+        assert_eq!(calls[5]["params"]["keys"], json!(["enter"]));
+        assert_eq!(delivery.started, Some(true));
+    }
+
+    #[tokio::test]
+    async fn a_visible_prompt_is_left_in_place_if_core_has_no_keys_method() {
+        let (delivery, _) = terminal_send(Some(false), vec![
+            ("terminal.get", terminal("idle", 3)),
+            ("terminal.read", json!({"text":PROMPT})),
+            ("hello", hello(false)),
+        ]).await;
+        assert_eq!(delivery.started, Some(false));
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_screen_does_not_justify_a_second_write() {
+        for screen in [Value::Null, json!({"text":">","complete":false})] {
+            let (delivery, _) = terminal_send(Some(false), vec![
+                ("terminal.get", terminal("idle", 3)),
+                ("terminal.read", screen),
+            ]).await;
+            assert_eq!(delivery.started, Some(false));
+        }
+    }
 
     #[test]
     fn accepts_the_addresses_core_assigns_after_the_first_nineteen() {

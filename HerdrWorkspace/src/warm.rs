@@ -333,18 +333,18 @@ pub(crate) async fn send(
     wait: Wait,
 ) -> Result<Delivery, Failure> {
     let Some(key) = agent.launch_key() else {
-        return send_prompt(w, agent, prompt).await;
+        return send_prompt(w, agent, prompt, None).await;
     };
     let lookup =
         |_| Failure::Input("The workspace could not read this session. The task was not sent.");
     if waiting(&w.history, key).map_err(lookup)?.is_none() {
-        return send_prompt(w, agent, prompt).await;
+        return send_prompt(w, agent, prompt, None).await;
     }
     let gate = gate(key);
     let _one = gate.lock().await;
     // Another task may have been the first while this one waited its turn.
     let Some(waiting) = waiting(&w.history, key).map_err(lookup)? else {
-        return send_prompt(w, agent, prompt).await;
+        return send_prompt(w, agent, prompt, None).await;
     };
     core::validate_task(&prompt)?;
     let hints: Vec<&str> = waiting.hints.iter().map(String::as_str).collect();
@@ -352,18 +352,31 @@ pub(crate) async fn send(
     let agent = ready(w, agent, wait).await?;
     // From here on the agent may have been written to, so it is never ended for being idle.
     mark(&w.history, waiting.launch, "tried_ms").map_err(lookup)?;
-    let until = Instant::now() + Duration::from_secs(10);
+    send_prompt(w, &agent, prompt, Some(waiting.launch)).await
+}
+
+async fn send_prompt(
+    w: &Workspace,
+    agent: &Terminal,
+    prompt: String,
+    warm_launch: Option<i64>,
+) -> Result<Delivery, Failure> {
+    let typed = crate::person_profile::prompt(&w.history, agent.display_name(), prompt.clone())?;
+    let settling_until = warm_launch.map(|_| Instant::now() + Duration::from_secs(10));
     loop {
-        match send_prompt(w, &agent, prompt.clone()).await {
-            Ok(delivery) => {
-                // The task is in. If this cannot be recorded, the next task repeats the instructions.
-                let _ = mark(&w.history, waiting.launch, "delivered_ms");
-                return Ok(delivery);
+        match w.core.send(agent, &typed).await {
+            Ok(sent) => {
+                let outcome = w.core.recover_send(agent, &typed, &prompt, sent).await;
+                // Core accepted the original write, even if recovery could not confirm a start.
+                if let Some(launch) = warm_launch {
+                    let _ = mark(&w.history, launch, "delivered_ms");
+                }
+                return outcome;
             }
             Err(Failure::Rejected(kind, message))
                 if kind == "unavailable"
                     && message.ends_with(SETTLING)
-                    && Instant::now() < until =>
+                    && settling_until.is_some_and(|until| Instant::now() < until) =>
             {
                 sleep(LOOK).await;
             }
@@ -371,11 +384,6 @@ pub(crate) async fn send(
             Err(error) => return Err(error),
         }
     }
-}
-
-async fn send_prompt(w: &Workspace, agent: &Terminal, prompt: String) -> Result<Delivery, Failure> {
-    let prompt = crate::person_profile::prompt(&w.history, agent.display_name(), prompt)?;
-    w.core.send(agent, prompt).await
 }
 
 /// Sends a guarded completion, with the same first-message envelope used for a warm launch.

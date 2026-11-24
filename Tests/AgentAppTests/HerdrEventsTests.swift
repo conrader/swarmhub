@@ -93,6 +93,59 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     #expect(throws: HerdrClient.Failure.ended) { try quiet.ended() }
 }
 
+@Suite struct HerdrTurnFollowerTests {
+    private let task = HerdrClient.Item(id: 11, kind: "task", text: "do it", state: "start_not_observed")
+
+    private func agent(_ state: String) throws -> HerdrClient.Agent {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(HerdrClient.Agent.self, from: Data(#"{"address":"t1","name":"bot","created_ms":5,"state":"live","status":{"state":"\#(state)"}}"#.utf8))
+    }
+
+    @Test func unobservedStartUsesTheDeliveryFailureAfterTwelveSeconds() throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10)
+        follower.take(rows: [task])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeSaved(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(11)) == .waiting)
+        follower.take(agent: try agent("done"))
+        let failure = HerdrClient.Failure.notDelivered("The bot’s terminal did not pick up your message.")
+        #expect(follower.judgeAgent(now: start + .seconds(12)) == .failed(failure))
+        #expect(failure.localizedDescription.contains("Choose Retry"))
+    }
+
+    @Test func anAgentStillStartingKeepsItsLongerGracePeriod() throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10, starting: true)
+        follower.take(rows: [task])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(149)) == .waiting)
+        #expect(follower.judgeAgent(now: start + .seconds(150)) == .failed(.notDelivered("The bot’s terminal did not pick up your message.")))
+    }
+
+    @Test(arguments: [false, true]) func aReplyCanArriveWithOrWithoutObservedWork(worked: Bool) throws {
+        let start = ContinuousClock.now
+        var follower = HerdrTurnFollower(after: 10)
+        follower.take(rows: [task])
+        follower.take(agent: try agent("idle"))
+        #expect(follower.judgeAgent(now: start) == .waiting)
+        if worked {
+            follower.take(agent: try agent("working"))
+            #expect(follower.judgeAgent(now: start + .seconds(11)) == .waiting)
+            follower.take(agent: try agent("done"))
+            #expect(follower.judgeAgent(now: start + .seconds(12)) == .waiting)
+            #expect(follower.judgeAgent(now: start + .seconds(24)) == .waiting)
+        }
+        let now = start + .seconds(worked ? 25 : 11)
+        follower.take(rows: [row(12, "reply", "Done.")])
+        #expect(follower.judgeSaved(now: now) == .reply("Done."))
+        #expect(follower.judgeAgent(now: now + .seconds(1)) == .waiting)
+    }
+}
+
 /// The whole of a turn on one connection: the reply as it grows, each tool step once, the saved reply at the end.
 @Test func aTurnIsFollowedOnTheStream() async throws {
     let requests = Heard<String>(), partials = Heard<String>(), tools = Heard<String>(), statuses = Heard<HerdrTurnStatus>(), notes = Heard<HerdrClient.LiveNote>()
