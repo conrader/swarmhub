@@ -98,12 +98,14 @@ extension AppStore {
         if let origin = streamingTurnOrigin(in: conversation) {
             turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message)
         }
+        turns.inFlightSteers.insert(message.id)
         objectWillChange.send(); save()
         Task {
+            defer { turns.inFlightSteers.remove(message.id) }
             do {
                 try await activeBackend.steer(sessionID: sessionID, text: value)
                 if message.metadata[SteerKey.steer] == "sent" {
-                    // A successful turn may have ended while the steer request was still in flight.
+                    // The turn may have ended while the steer request was still in flight.
                     message.metadata[SteerKey.steer] = steerHeldByTurn(message) ? "queued" : "delivered"
                 }
             } catch {
@@ -187,13 +189,17 @@ extension AppStore {
     func endTurnParts(_ assistant: ChatMessage, end: TurnEnd) -> ChatMessage {
         let reply = turns.parts.removeValue(forKey: assistant.id) ?? assistant
         guard let pending = turns.steers.removeValue(forKey: assistant.id) else { return reply }
-        if case .completed = end, reply.turnState != .stopped {
-            for bubble in pending.bubbles where bubble.metadata[SteerKey.steer] == "queued" {
+        let stopped: Bool
+        if case .stoppedByUser = end { stopped = true } else { stopped = reply.turnState == .stopped }
+        for bubble in pending.bubbles {
+            switch (bubble.metadata[SteerKey.steer], end) {
+            case ("queued", .completed) where !stopped:
                 bubble.metadata[SteerKey.steer] = "delivered"
-            }
-        } else {
-            for bubble in pending.bubbles where ["sent", "queued"].contains(bubble.metadata[SteerKey.steer]) {
+            case ("sent", _) where stopped:
                 bubble.metadata[SteerKey.steer] = "failed"
+            case ("queued", _):
+                bubble.metadata[SteerKey.steer] = "failed"
+            default: break // The request's completion settles any still-in-flight steer.
             }
         }
         return reply

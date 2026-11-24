@@ -87,6 +87,24 @@ import Testing
         #expect(group.messages.count == 1)
     }
 
+    @Test func anUnclosedDraftCanBeSentWithTrailingNewlinesAndAHiddenBlock() async throws {
+        let backend = GroupBackend(name: "Author")
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let intro = "Here’s the draft.\n\n"
+        let draft = "```swarmhub\n{}\n```\n\n```draft\nTo: maya@example.com\n\nHello.\n\n"
+        let card = ChatMessage(role: .assistant, content: intro + draft, turnState: .finished)
+        let bot = Bot(name: "Author", messages: [card]); store.bots = [bot]
+        let shown = try #require(ChatCardParser.parseVisibleReply(draft).first)
+        #expect(shown == .draft(DraftCard(to: "maya@example.com", body: "Hello.\n\n")))
+        let indexes = ReplyLayout.blockIndexes([.text(intro), .text(draft)], content: card.content)
+        #expect(indexes == [[-1], [1]])
+
+        #expect(store.performCardAction(target: .bot(botID: bot.id), sourceID: card.id, index: 1, expected: shown))
+        try await waitUntil { store.isIdle(bot) }
+        #expect(bot.messages.filter { $0.role == .user }.map(\.content) == ["Send it"])
+        #expect(card.metadata["draftSent.1"] == "1" && store.errorMessage == nil)
+    }
+
     @Test func aCardWrittenByAnotherMemberIsRefused() throws {
         let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let a = Bot(name: "A"), b = Bot(name: "B"); store.bots = [a, b]

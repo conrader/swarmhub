@@ -346,13 +346,14 @@ private struct HerdrRoutineHistory: View {
         error = nil
         do {
             let client = try client()
-            repeat {
+            for poll in 0..<100 {
+                if poll > 0 { try await Task.sleep(for: .seconds(3)) }
+                try Task.checkCancellation()
                 let detail = try await client.routine(id)
                 try Task.checkCancellation()
                 runs = detail.runs
                 guard detail.runs.contains(where: { $0.state == "pending" || $0.awaitingResult == true }) else { return }
-                try await Task.sleep(for: .seconds(3))
-            } while !Task.isCancelled
+            }
         } catch {
             if !Task.isCancelled { self.error = error.localizedDescription }
         }

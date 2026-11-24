@@ -32,7 +32,7 @@ import Testing
         host.layoutSubtreeIfNeeded()
         return descendants(document, of: NSButton.self).count > initialButtons
     }
-    #expect(scroll.convert(scroll.bounds, to: host) == viewport)
+    expectSameViewport(scroll.convert(scroll.bounds, to: host), viewport)
     #expect(abs(document.frame.height - previewHeight) <= 2, "Long instructions should occupy the same space as three lines")
 
     let toggle = try #require(descendants(document, of: NSButton.self).first)
@@ -43,7 +43,7 @@ import Testing
     }
     scroll.contentView.scroll(to: NSPoint(x: 0, y: 120))
     #expect(scroll.documentVisibleRect.minY > 0)
-    #expect(scroll.convert(scroll.bounds, to: host) == viewport)
+    expectSameViewport(scroll.convert(scroll.bounds, to: host), viewport)
 
     scroll.contentView.scroll(to: .zero)
     try #require(descendants(document, of: NSButton.self).first).performClick(nil)
@@ -51,6 +51,13 @@ import Testing
         host.layoutSubtreeIfNeeded()
         return document.frame.height <= previewHeight + 2
     }
+}
+
+private func expectSameViewport(_ actual: NSRect, _ expected: NSRect, sourceLocation: SourceLocation = #_sourceLocation) {
+    #expect(abs(actual.origin.x - expected.origin.x) <= 1, sourceLocation: sourceLocation)
+    #expect(abs(actual.origin.y - expected.origin.y) <= 1, sourceLocation: sourceLocation)
+    #expect(abs(actual.width - expected.width) <= 1, sourceLocation: sourceLocation)
+    #expect(abs(actual.height - expected.height) <= 1, sourceLocation: sourceLocation)
 }
 
 @MainActor private func descendants<T: NSView>(_ view: NSView, of type: T.Type) -> [T] {

@@ -48,7 +48,12 @@ enum ChatChoiceInference {
         let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
         let visible = SwarmhubBlock.visibleText(normalized)
         let blocks = ChatCardParser.parse(visible, includingTildeFences: true)
-        guard !blocks.contains(where: { if case .choices = $0 { true } else { false } }),
+        guard !blocks.contains(where: { block in
+                  switch block {
+                  case .choices, .draft: true
+                  default: false
+                  }
+              }),
               case .markdown(let prose)? = blocks.last,
               let lastLine = normalized.split(separator: "\n").last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
               !lastLine.hasPrefix("    "), !lastLine.hasPrefix("\t") else { return nil }

@@ -114,7 +114,7 @@ extension AppStore {
                         || row.publishedResults?.items.isEmpty == false
                 case .user:
                     switch row.metadata[SteerKey.steer] {
-                    case "sent" where !steerHeldByTurn(row): row.metadata[SteerKey.steer] = "failed"; changed = true
+                    case "sent" where !turns.inFlightSteers.contains(row.id): row.metadata[SteerKey.steer] = "failed"; changed = true
                     case "queued" where !steerHeldByTurn(row): queued.append(row)
                     case nil where row.metadata[TurnWaitCopy.key] != "waiting":
                         settleQueued(); reply = nil; hasReplyContent = false

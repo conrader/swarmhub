@@ -42,7 +42,7 @@ import Testing
         store.setHerdrServer(other.id, for: remote)
         store.setHerdrServer(other.id, for: sample)
         let serverID = store.herdrServer(for: open).id
-        #expect(store.herdrHelperWatch() == [serverID: false, other.id: false])
+        #expect(store.herdrHelperWatch() == [serverID: false])
         store.selectedBot = open
 
         let openName = HerdrBackend.agentName(botName: open.name, botID: open.id)
@@ -80,7 +80,7 @@ import Testing
         #expect(own == HerdrClient.AgentRef(address: "own", createdMs: 4))
         #expect(store.hasActiveCodingAgent(ownAgent) && store.isWorking(ownAgent))
         #expect(!store.hasActiveCodingAgent(open) && store.herdrTerminalSession(for: open) != nil)
-        #expect(store.herdrHelperWatch() == [serverID: true, other.id: false])
+        #expect(store.herdrHelperWatch() == [serverID: true])
 
         var cached = HerdrAgentReading(templates: [], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: [])
         cached.session = own
@@ -93,11 +93,37 @@ import Testing
         await store.refreshHerdrHelpers(on: serverID)
         #expect(store.herdrHelpers[background.id] == nil && !store.isWorking(background))
         #expect(store.herdrTerminalSession(for: ownAgent) == nil && !store.isWorking(ownAgent))
-        #expect(store.herdrHelperWatch() == [serverID: false, other.id: false])
+        #expect(store.herdrHelperWatch() == [serverID: false])
         #expect(MockHTTPProtocol.recorded(http.host).compactMap { $0.url?.path } == ["/api/workspace", "/api/agents/parent/1/helpers", "/api/workspace", "/api/workspace"])
 
         store.bots = [sample]
         #expect(store.herdrHelperWatch().isEmpty)
+    }
+
+    @Test func sshHelperPollingRequiresAnOpenChatWorkOrCachedHelpers() {
+        let store = makeStore()
+        let local = Bot(name: "Local", backend: .herdr), remote = Bot(name: "Remote", backend: .herdr)
+        store.bots = [local, remote]
+        let ssh = HerdrServer(id: "ssh", name: "SSH", kind: .ssh, address: HerdrServer.loopback(port: 9_000), sshHost: "remote.example")
+        store.saveHerdrServer(ssh, token: nil)
+        store.setHerdrServer(ssh.id, for: remote)
+        let localID = store.herdrServer(for: local).id
+        #expect(store.herdrHelperWatch() == [localID: false])
+
+        store.selectedBot = remote
+        #expect(store.herdrHelperWatch() == [localID: false, ssh.id: false])
+        store.selectedBot = local
+        store.selectedGroup = GroupChat(name: "Team", memberIDs: [local.id, remote.id])
+        #expect(store.herdrHelperWatch() == [localID: false, ssh.id: false])
+        store.selectedGroup = nil
+
+        let turn = store.beginTurn(in: remote, bot: remote, assistant: nil)
+        #expect(store.herdrHelperWatch() == [localID: false, ssh.id: true])
+        store.endTurn(turn.token)
+        store.herdrLive(.helpers(list([helper])), botID: remote.id)
+        #expect(store.herdrHelperWatch() == [localID: false, ssh.id: true])
+        store.herdrLive(.helpers(nil), botID: remote.id)
+        #expect(store.herdrHelperWatch() == [localID: false])
     }
 
     @Test func chatShowsOnlyLiveHelpersAndKeepsTheBotsTerminalSeparate() async throws {

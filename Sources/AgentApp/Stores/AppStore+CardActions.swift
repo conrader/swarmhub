@@ -52,7 +52,7 @@ extension AppStore {
               let source = conversation.messages.first(where: { $0.id == sourceID }),
               source.role == .assistant, !source.isStreaming else { return false }
         if case .group = target, source.authorID != bot.id { return false }
-        let blocks = ChatCardParser.parse(SwarmhubBlock.visibleText(source.content))
+        let blocks = ChatCardParser.parseVisibleReply(source.content)
         guard blocks.indices.contains(index), blocks[index] == expected else {
             errorMessage = "This card changed. Review the current version before answering it."; return false
         }

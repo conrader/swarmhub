@@ -25,6 +25,11 @@ struct DraftCard: Hashable, Encodable {
 enum ChatCardParser {
     static let choicesMarker = "<!-- choices -->"
 
+    /// Parse the visible reply consistently for rendering, card indexes, and action validation.
+    static func parseVisibleReply(_ text: String) -> [ChatBlock] {
+        parse(SwarmhubBlock.visibleText(text, preservingWhitespace: true), preservingProseWhitespace: true)
+    }
+
     /// Optionally recognize tilde fences when inspecting prose without changing saved card indexes.
     /// The renderer can keep prose whitespace for line structure and list indentation.
     static func parse(_ text: String, includingTildeFences: Bool = false, preservingProseWhitespace: Bool = false) -> [ChatBlock] {

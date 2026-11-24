@@ -60,15 +60,20 @@ extension AppStore {
         herdrReadiness[bot.id] = nil
     }
 
-    /// Every server with bots gets a discovery read, even when its chats are closed. Only a server with work gets
-    /// the faster cadence. An answered helper still live is read often so its terminal disappears when it stops.
+    /// Discover helpers on local servers and remote servers with an open chat, work in progress, or cached helpers.
+    /// An answered helper still live is read often so its terminal disappears when it stops.
     func herdrHelperWatch() -> [String: Bool] {
         var watch: [String: Bool] = [:]
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
             let server = herdrServer(for: bot)
             guard watch[server.id] != true else { continue }
-            watch[server.id] = isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
-                || herdrPresence(for: bot)?.isActive == true || herdrHelpers[bot.id]?.helpers.contains(where: \.isLive) == true
+            let helpers = herdrHelpers[bot.id]?.helpers
+            let busy = isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
+                || herdrPresence(for: bot)?.isActive == true || helpers?.contains(where: \.isLive) == true
+            let isOpen = selectedGroup?.memberIDs.contains(bot.id) ?? (selectedBot?.id == bot.id)
+            if server.kind == .local || isOpen || busy || helpers?.isEmpty == false {
+                watch[server.id] = busy
+            }
         }
         return watch
     }

@@ -55,6 +55,7 @@ import Testing
     "    Would you like me to start?",
     "> Which way?\n> 1. Build\n> 2. Test",
     "```choices\nWhich one?\n- Build\n- Test\n```\n\nShould I start?",
+    "```draft\nTo: maya@example.com\n\nThe release is ready.\n```\n\nShould I send it?",
     "Which way?\n<!-- choices -->\n1. Build\n2. Test",
 ]) func ordinaryListsCodeAndExistingCardsDoNotGetInferredChoices(_ text: String) {
     #expect(ChatChoiceInference.options(in: text) == nil)

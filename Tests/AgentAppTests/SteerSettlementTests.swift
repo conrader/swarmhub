@@ -27,7 +27,7 @@ import Testing
         #expect(saved.bots.first?.messages.filter(\.isSteer).map { $0.metadata[SteerKey.steer] } == ["delivered", "delivered"])
     }
 
-    @Test(arguments: [true, false]) func anInterruptedTurnFailsQueuedAndPendingSteers(stopped: Bool) async throws {
+    @Test(arguments: [true, false]) func anInterruptedTurnFailsQueuedSteersAndLetsPendingRequestsSettle(stopped: Bool) async throws {
         let backend = ScriptedTurnBackend()
         let (store, bot) = steerStore(backend)
         try await startSteerableTurn(store, backend, running: false)
@@ -47,11 +47,48 @@ import Testing
         await backend.end()
         try await waitUntil { store.isIdle(bot) }
         #expect(bot.messages[1].turnState == (stopped ? .stopped : .incomplete))
-        #expect([queued, sent].allSatisfy { SteerCopy.caption($0) == "Not delivered" && store.canSendAsNextMessage($0) })
+        #expect(SteerCopy.caption(queued) == "Not delivered" && store.canSendAsNextMessage(queued))
+        #expect(sent.metadata[SteerKey.steer] == (stopped ? "failed" : "sent"))
+        #expect(store.canSendAsNextMessage(sent) == stopped)
 
         await backend.releaseSteers()
-        try await backend.calls.wait { $0.contains("steer:round the numbers") }
-        #expect(sent.metadata[SteerKey.steer] == "failed")
+        try await waitUntil { !store.turns.inFlightSteers.contains(sent.id) }
+        #expect(sent.metadata[SteerKey.steer] == (stopped ? "failed" : "delivered"))
+    }
+
+    @Test(arguments: [true, false]) func aLateRunNotFoundResendsOnlyWhenTheUserDidNotStop(stopped: Bool) async throws {
+        let backend = ScriptedTurnBackend(steerFails: true, steerError: .http(404, "run_not_found"))
+        let (store, bot) = steerStore(backend)
+        try await startSteerableTurn(store, backend, running: false)
+        await backend.holdSteers()
+        #expect(store.send(text: "use metric"))
+        try await backend.calls.wait { $0.contains("steer-held:use metric") }
+        let bubble = try #require(bot.messages.last)
+
+        if stopped {
+            store.stop(bot)
+            try await backend.calls.wait { $0.contains("stop:run-1") }
+        } else {
+            await backend.emit(.failed("could not finish"))
+        }
+        await backend.end()
+        try await waitUntil { store.isIdle(bot) }
+        store.reconcileOrphanedSteers()
+        #expect(bubble.metadata[SteerKey.steer] == (stopped ? "failed" : "sent"))
+
+        await backend.releaseSteers()
+        try await waitUntil { !store.turns.inFlightSteers.contains(bubble.id) }
+        if stopped {
+            #expect(store.canSendAsNextMessage(bubble))
+            #expect(await backend.streamCount == 1)
+        } else {
+            try await backend.calls.wait { $0.contains("send:use metric") }
+            #expect(bubble.metadata[SteerKey.steer] == "sentNext")
+            #expect(await backend.streamCount == 2)
+            await backend.emit(.replace("42 km."), .completed)
+            await backend.end()
+            try await waitUntil { store.isIdle(bot) }
+        }
     }
 
     @Test func aLateAcknowledgementSettlesAfterSuccessfulCompletion() async throws {

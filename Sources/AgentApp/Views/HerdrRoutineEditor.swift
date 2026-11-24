@@ -7,7 +7,6 @@ struct HerdrRoutineEditor: View {
     private let existing: HerdrClient.Routine?
     private let displayZone: TimeZone
     private let save: (HerdrClient.RoutineEdit) async throws -> Void
-    private let pinnedZone: String?
 
     @State private var name: String
     @State private var task: String
@@ -24,7 +23,6 @@ struct HerdrRoutineEditor: View {
 
     init(routine: HerdrClient.Routine?, displayZone: TimeZone, save: @escaping (HerdrClient.RoutineEdit) async throws -> Void) {
         existing = routine
-        self.displayZone = displayZone
         self.save = save
         _name = State(initialValue: routine?.name ?? "")
         _task = State(initialValue: routine?.task ?? "")
@@ -47,16 +45,14 @@ struct HerdrRoutineEditor: View {
         case nil:
             initialFrequency = .daily
         }
-        pinnedZone = zone
+        self.displayZone = zone.flatMap(TimeZone.init(identifier:)) ?? displayZone
         _frequency = State(initialValue: initialFrequency)
         _minutes = State(initialValue: String(interval))
-        let calendar = Self.calendar(in: zone.flatMap(TimeZone.init(identifier:)) ?? displayZone)
+        let calendar = Self.calendar(in: self.displayZone)
         // A fixed reference date keeps today's daylight-saving transition out of the clock picker.
         let components = DateComponents(year: 2001, month: 1, day: 15, hour: hour, minute: minute)
         _time = State(initialValue: calendar.date(from: components) ?? .now)
     }
-
-    private var scheduleZone: TimeZone { pinnedZone.flatMap(TimeZone.init(identifier:)) ?? displayZone }
 
     private var frequencies: [Frequency] {
         if case .webhook = existing?.schedule { return Frequency.allCases }
@@ -69,9 +65,9 @@ struct HerdrRoutineEditor: View {
             guard let count = UInt32(minutes.trimmingCharacters(in: .whitespaces)), (1...43_200).contains(count) else { return nil }
             return .interval(minutes: count)
         case .daily, .weekdays:
-            let components = Self.calendar(in: scheduleZone).dateComponents([.hour, .minute], from: time)
+            let components = Self.calendar(in: displayZone).dateComponents([.hour, .minute], from: time)
             return .daily(hour: UInt8(components.hour ?? 9), minute: UInt8(components.minute ?? 0),
-                          timezone: pinnedZone, weekdays: frequency == .weekdays)
+                          timezone: displayZone.identifier, weekdays: frequency == .weekdays)
         case .webhook:
             return existing?.schedule
         }
@@ -105,9 +101,9 @@ struct HerdrRoutineEditor: View {
                         Text("Between 1 and 43,200 minutes.").font(.caption).foregroundStyle(.secondary)
                     case .daily, .weekdays:
                         DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute)
-                            .environment(\.timeZone, scheduleZone)
-                            .environment(\.calendar, Self.calendar(in: scheduleZone))
-                        Text(pinnedZone ?? "Follows the workspace time zone").font(.caption).foregroundStyle(.secondary)
+                            .environment(\.timeZone, displayZone)
+                            .environment(\.calendar, Self.calendar(in: displayZone))
+                        Text(displayZone.identifier).font(.caption).foregroundStyle(.secondary)
                     case .webhook:
                         Text(existing?.schedule.summary(in: displayZone) ?? "Webhook")
                             .font(.callout).foregroundStyle(.secondary)

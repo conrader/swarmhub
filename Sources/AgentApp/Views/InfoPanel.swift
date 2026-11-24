@@ -49,7 +49,7 @@ struct InfoPanel: View {
                 Button("Edit description") { store.editingBot = bot }.buttonStyle(.link)
             } else if !bot.botDescription.isEmpty {
                 Text(verbatim: bot.botDescription).font(.callout).foregroundStyle(.secondary)
-                    .lineLimit(1).padding(.top, 2)
+                    .lineLimit(1, reservesSpace: true).padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity)

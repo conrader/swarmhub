@@ -13,8 +13,7 @@ struct MarkdownContent: View {
     var text: String? = nil; var indexes: [Int]? = nil
     var body: some View {
         let source = text ?? message.content
-        let visible = SwarmhubBlock.visibleText(source, preservingWhitespace: true)
-        let blocks = ChatCardParser.parse(visible, preservingProseWhitespace: true)
+        let blocks = ChatCardParser.parseVisibleReply(source)
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
                 let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset

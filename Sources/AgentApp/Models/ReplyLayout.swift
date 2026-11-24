@@ -44,12 +44,12 @@ enum ReplyLayout {
     /// segments is the first card of the reply. Prose has no place of its own (-1); nothing is stored for it.
     static func blockIndexes(_ segments: [ReplySegment], content: String) -> [[Int]] {
         func isProse(_ block: ChatBlock) -> Bool { if case .markdown = block { true } else { false } }
-        let whole = ChatCardParser.parse(SwarmhubBlock.visibleText(content))
+        let whole = ChatCardParser.parseVisibleReply(content)
         let places = whole.indices.filter { !isProse(whole[$0]) }
         var next = 0
         return segments.map { segment in
             guard case .text(let text) = segment else { return [] }
-            return ChatCardParser.parse(SwarmhubBlock.visibleText(text)).map { block in
+            return ChatCardParser.parseVisibleReply(text).map { block in
                 guard !isProse(block), next < places.count, whole[places[next]] == block else { return -1 }
                 defer { next += 1 }
                 return places[next]
