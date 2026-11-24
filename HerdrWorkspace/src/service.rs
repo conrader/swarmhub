@@ -148,7 +148,7 @@ const PROGRAMS: [Program; 5] = [
     // In beta, and last: a program earlier in this list is the one chosen by default.
     Program {
         id: "gemini",
-        name: "Gemini (beta)",
+        name: "Gemini",
         full: "Gemini CLI",
         bin: "gemini",
         template: "swarmhub-gemini",
@@ -159,7 +159,7 @@ const PROGRAMS: [Program; 5] = [
     },
     Program {
         id: "antigravity",
-        name: "Gemini (Antigravity)",
+        name: "Gemini",
         full: "Antigravity CLI",
         bin: "agy",
         template: "swarmhub-antigravity",
@@ -891,7 +891,7 @@ fn add_ai(places: &Places, id: &str, folders: &[PathBuf]) -> Result<(), Stop> {
     match draft.persist_noclobber(&dest) {
         Ok(_) => {}
         Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists && dest.is_file() => {}
-        Err(e) => return Err(Stop::failed(format!("Could not add {}: {e}", program.name))),
+        Err(e) => return Err(Stop::failed(format!("Could not add {}: {e}", program.full))),
     }
     if id == "codex" {
         let _ = first_time(places, folders);
@@ -1142,8 +1142,14 @@ fn look(places: &Places, asked: &Asked, folders: &[PathBuf]) -> Value {
         .iter()
         .map(|program| {
             let path = find(program.bin, folders);
+            // The local inventory lists both executables, even before either has a template.
+            let name = if PROGRAMS.iter().any(|p| p.id != program.id && p.name == program.name) {
+                program.full
+            } else {
+                program.name
+            };
             json!({
-                "id": program.id, "name": program.name, "full_name": program.full,
+                "id": program.id, "name": name, "full_name": program.full,
                 "installed": path.is_some(), "path": path,
                 "template": program.template,
                 "template_written": places.templates.join(format!("{}.md", program.template)).is_file(),

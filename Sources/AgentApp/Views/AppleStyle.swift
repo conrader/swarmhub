@@ -142,9 +142,10 @@ struct OptionCard: View {
     }
 }
 
-/// One tile of a gallery: whatever the choice looks like. The chosen one is filled with the accent, its words are
-/// written in the colour that reads on it, and it carries a tick; the others are outlined.
+/// One tile of a gallery. Both states share an outline and a selection mark. A chosen tile is filled with the accent.
 struct ChoiceTile<Label: View>: View {
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
+    @Environment(\.self) private var environment
     let selected: Bool
     var name: String? = nil
     let action: () -> Void
@@ -152,20 +153,37 @@ struct ChoiceTile<Label: View>: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: AppleMetrics.tileCorner, style: .continuous)
+        let fill = AppTheme.accentColor(for: accent)
+        let ink = selected ? Self.contrastingInk(on: fill, in: environment) : .primary
         Button(action: action) {
             HStack(alignment: .center, spacing: 6) {
                 label().frame(maxWidth: .infinity, alignment: .leading)
-                if selected { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).accessibilityHidden(true) }
+                Circle().strokeBorder(selected ? AnyShapeStyle(.foreground) : AnyShapeStyle(AppColor.outline), lineWidth: 1)
+                    .frame(width: 16, height: 16)
+                    .overlay {
+                        if selected { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
+                    }
+                    .accessibilityHidden(true)
             }
-            // `.primary` and `.secondary` inside the label follow this: the tile's own words turn with its fill.
-            .foregroundStyle(selected ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
-            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 6)
-            .background(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(AppColor.raised), in: shape)
-            .overlay { if !selected { shape.strokeBorder(AppColor.outline, lineWidth: 1) } }
+            .foregroundStyle(ink)
+            .frame(maxWidth: .infinity, minHeight: 30, maxHeight: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(selected ? fill : AppColor.raised, in: shape)
+            .overlay { shape.strokeBorder(AppColor.outline, lineWidth: 1) }
             .contentShape(shape)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine).accessibilityLabel(name ?? "").accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
+    }
+
+    static func contrastingInk(on fill: Color, in environment: EnvironmentValues) -> Color {
+        func rgb(_ color: Color) -> RGB {
+            let resolved = color.resolve(in: environment)
+            return RGB(red: Double(resolved.red), green: Double(resolved.green), blue: Double(resolved.blue))
+        }
+        let background = rgb(fill)
+        if rgb(AppColor.onAccent).contrast(with: background) >= 4.5 { return AppColor.onAccent }
+        return RGB.black.contrast(with: background) >= RGB.white.contrast(with: background) ? .black : .white
     }
 }
 
@@ -180,7 +198,7 @@ struct TileGallery<Item: Identifiable, Label: View>: View {
     @ViewBuilder let label: (Item) -> Label
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: minimum), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
+        TileRows(minimum: minimum) {
             ForEach(items) { item in
                 ChoiceTile(selected: isSelected(item), name: name(item), action: { select(item) }) { label(item) }
             }
@@ -188,19 +206,72 @@ struct TileGallery<Item: Identifiable, Label: View>: View {
     }
 }
 
-/// The usual tile of a gallery of names: the name in full, and a small second line (such as "Default").
+/// Measures every tile at its column width to give each row the height of its tallest tile.
+private struct TileRows: Layout {
+    let minimum: CGFloat
+    private let spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? minimum
+        return CGSize(width: width, height: frames(in: width, subviews: subviews).last?.maxY ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (tile, frame) in zip(subviews, frames(in: bounds.width, subviews: subviews)) {
+            tile.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), anchor: .topLeading,
+                       proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func frames(in width: CGFloat, subviews: Subviews) -> [CGRect] {
+        guard !subviews.isEmpty else { return [] }
+        let columns = max(1, Int((width + spacing) / (minimum + spacing)))
+        let tileWidth = (width - CGFloat(columns - 1) * spacing) / CGFloat(columns)
+        let measure = ProposedViewSize(width: tileWidth, height: nil)
+        var y: CGFloat = 0
+        return stride(from: 0, to: subviews.count, by: columns).flatMap { start in
+            let row = subviews[start..<min(start + columns, subviews.count)]
+            let height = row.map { $0.sizeThatFits(measure).height }.max() ?? 0
+            let frames = (0..<row.count).map { column in
+                CGRect(x: CGFloat(column) * (tileWidth + spacing), y: y, width: tileWidth, height: height)
+            }
+            y += height + spacing
+            return frames
+        }
+    }
+}
+
+/// The usual tile of a gallery of names: the full name and an inline badge when it fits.
 struct NameTile: View {
     let name: String
     var note: String? = nil
     var symbol: String? = nil
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(spacing: 6) {
             if let symbol { Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(.secondary).accessibilityHidden(true) }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
-                if let note { Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            if let note, !note.isEmpty {
+                let noteText = Text(note).font(.system(size: 10, weight: .semibold))
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        title.fixedSize()
+                        Spacer(minLength: 0)
+                        noteText.fixedSize().padding(.horizontal, 6).padding(.vertical, 2)
+                            .overlay { Capsule().strokeBorder(.foreground.opacity(0.55), lineWidth: 1) }
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        title
+                        noteText.fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            } else {
+                title
             }
         }
+    }
+
+    private var title: some View {
+        Text(name).font(.system(size: 13, weight: .medium)).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
     }
 }
 
