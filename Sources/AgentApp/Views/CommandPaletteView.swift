@@ -8,6 +8,7 @@ struct CommandPaletteView: View {
     let openSetup: () -> Void
     @State private var query: String
     @State private var model = QuickSwitcherModel()
+    @State private var archiveFiles = QuickSwitcherModel.ArchiveFiles()
     @State private var searching = false
     @FocusState private var searchFocused: Bool
     init(query: String = "", selectCommand: @escaping (AppCommand) -> Void, openSetup: @escaping () -> Void) {
@@ -45,20 +46,24 @@ struct CommandPaletteView: View {
         .task(id: query) { [query] in
             guard !Task.isCancelled else { return }
             searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            model.update(QuickSwitcherModel.items(in: store, query: query))
+            let navigation = QuickSwitcherModel.items(in: store, query: query)
+            model.update(navigation)
             if searching {
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             }
-            let messages = await QuickSwitcherModel.messages(in: store, query: query)
-            guard !Task.isCancelled else { return }
-            if !messages.isEmpty {
-                let items = model.items
-                let selected = model.highlighted
-                model.update(items.filter { !$0.isCommand } + messages + items.filter(\.isCommand))
-                if let selected { model.highlight(selected) }
+            let messages = await QuickSwitcherModel.messages(in: store, query: query, files: archiveFiles) { live in
+                if !Task.isCancelled { show(live, with: navigation) }
             }
+            guard !Task.isCancelled else { return }
+            if !messages.isEmpty { show(messages, with: navigation) }
             searching = false
         }
+    }
+
+    private func show(_ messages: [QuickSwitcherModel.Item], with navigation: [QuickSwitcherModel.Item]) {
+        let selected = model.highlighted
+        model.update(navigation.filter { !$0.isCommand } + messages + navigation.filter(\.isCommand))
+        if let selected { model.highlight(selected) }
     }
 
     private func move(_ offset: Int, proxy: ScrollViewProxy) {

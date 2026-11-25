@@ -94,3 +94,19 @@ import Testing
     model.saw(chat, top: nil, atBottom: false)
     #expect(model.positions[chat] == nil && model.follows(chat))
 }
+
+@MainActor @Test func importedScrollPositionsSurviveSavingAndYieldToLiveRows() {
+    let store = ChatScrollModel()
+    let bot = UUID(), group = UUID(), row = UUID()
+    store.saw(bot, top: row, atBottom: false)
+    store.readingArchive(group, key: "seq:12")
+    let reopened = ChatScrollModel()
+    reopened.restore(store.stored)
+    #expect(reopened.positions[bot] == row)
+    #expect(reopened.archivePositions[group] == "seq:12")
+    reopened.saw(group, top: row, atBottom: false)
+    #expect(reopened.archivePositions[group] == nil && reopened.positions[group] == row)
+    reopened.readingArchive(group, key: "seq:12")
+    reopened.toBottom(group)
+    #expect(reopened.stored?[group.uuidString] == nil)
+}

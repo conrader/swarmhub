@@ -409,10 +409,23 @@ def message_search(source_app):
                 rows.append({"id": str(uuid.uuid4()), "role": "user", "createdAt": 800000000 + number, "content": text})
             return rows
 
+        large_history = os.environ.get("SWARMHUB_QA_LARGE_HISTORY") == "1"
+        archive_count = 16_500 if large_history else 500
+        archive_text = "Conversation material from an earlier session. " * 18 if large_history else "An imported message."
+        archive = store.parent / "grok-history"
+        archive.mkdir()
+        for owner, first, phrase in [(bot, 1000, "original archived plan"), (group, 2000, "imported group decision")]:
+            history = [{"id": "" if i == 260 else f"old-{i}", "seq": i, "role": "assistant",
+                        "channel": "chat", "hidden": i == 261,
+                        "text": f"QA message {first + i}. " + (phrase if i in (260, 261) else archive_text)}
+                       for i in range(archive_count)]
+            (archive / f"{owner}.json").write_text(json.dumps({"sourceID": owner, "messages": history}))
         store.write_text(json.dumps({
             "version": 2, "bots": [{"id": bot, "name": "LookupQA", "backend": "Mock",
+                                     "grokSourceID": bot, "grokHistoryCount": archive_count,
                                      "messages": messages(0, {37: "original project brief", 88: "revised project brief"})}],
             "groups": [{"id": group, "name": "Launch QA", "memberIDs": [bot],
+                        "grokSourceID": group, "grokHistoryCount": archive_count,
                         "messages": messages(400, {452: "the competitor brief"})}]}))
         with open_workspace(app, home) as window:
             wait_for("fixture bot", lambda: any(label(b).startswith("LookupQA,") for b in buttons(window)))
@@ -427,12 +440,18 @@ def message_search(source_app):
                 field = next(e for e in descendants(panel) if attribute(e, "AXRole") == "AXTextField")
                 if ax.AXUIElementSetAttributeValue(field, "AXValue", "Context from an earlier") != 0:
                     raise RuntimeError("Could not start a broad search")
+                entered = time.monotonic()
                 if ax.AXUIElementSetAttributeValue(field, "AXValue", term) != 0:
                     raise RuntimeError("Could not enter the search phrase")
                 result = lambda: next((b for b in buttons(panel) if f"QA message {target + down}." in label(b)), None)
                 wait_for("message search result", result)
+                print(f"Found {term!r} in {time.monotonic() - entered:.2f}s")
                 if any("Context from an earlier" in label(b) for b in buttons(panel)):
                     raise RuntimeError("An earlier query overwrote the final results")
+                if target in (1260, 2260):
+                    names = [label(b) for b in buttons(panel)]
+                    if not any("Grok history" in name for name in names) or any(f"QA message {target + 1}." in name for name in names):
+                        raise RuntimeError("Imported result lacks its source or contains a hidden prompt")
                 started = time.monotonic()
                 if keyboard:
                     import Quartz
@@ -444,14 +463,32 @@ def message_search(source_app):
                         time.sleep(0.06)
                 elif ax.AXUIElementPerformAction(result(), "AXPress") != 0:
                     raise RuntimeError("Could not open the matching message")
-                wait_for(f"message {target} in viewport", lambda: not sheet() and target in visible_messages(window))
+                try:
+                    wait_for(f"message {target} in viewport", lambda: not sheet() and target in visible_messages(window))
+                except RuntimeError as error:
+                    raise RuntimeError(f"Expected {target}, visible {sorted(visible_messages(window))}, search open {bool(sheet())}") from error
                 print(f"Opened visible message {target} in {time.monotonic() - started:.2f}s")
 
             search("competitor brief", 452)
             search("original project brief", 37)
             search("revised project brief", 88, keyboard=True)
             search("shared lookup term", 138, keyboard=True, down=10)
-            print("Search opened saved group and bot messages outside the initial page, including a second result in the same chat.")
+            search("imported group decision", 2260)
+            press(window, "Earlier imported messages")
+            wait_for("preceding archive page", lambda: 2240 in visible_messages(window))
+            press(window, "Later imported messages")
+            wait_for("original archive page", lambda: 2260 in visible_messages(window))
+            search("original archived plan", 1260, keyboard=True)
+            press(window, "Launch QA", sidebar=True)
+            wait_for("group archive position after switching back", lambda: 2260 in visible_messages(window))
+        with open_workspace(app, home) as window:
+            press(window, "LookupQA", sidebar=True)
+            wait_for("bot archive position after relaunch", lambda: 1260 in visible_messages(window))
+        (archive / f"{bot}.json").unlink()
+        with open_workspace(app, home) as window:
+            press(window, "LookupQA", sidebar=True)
+            wait_for("latest live message when the archive is missing", lambda: 399 in visible_messages(window))
+        print("Verified live and imported search, archive paging, restored positions, and recovery from a missing archive.")
 
 
 if __name__ == "__main__":

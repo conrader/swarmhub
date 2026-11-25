@@ -57,7 +57,10 @@ struct ChatView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         ChatTopMarker()
-                        if !viewport.hasEarlier, bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
+                        if !viewport.hasEarlier, bot.grokSourceID != nil {
+                            GrokHistoryView(bot: bot, expanded: historyExpanded, page: viewport.archivePage, showPage: viewport.showArchive)
+                                .id(viewport.archivePage == nil ? 0 : viewport.revision)
+                        }
                         if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
                         if bot.showsReleaseNotesExample, draft.isEmpty {
                             Button("Draft release notes") {
@@ -84,7 +87,7 @@ struct ChatView: View {
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
-                .onChange(of: store.scrollTarget, initial: true) { _, target in viewport.reveal(target, in: store) }
+                .task(id: store.scrollTarget) { await viewport.reveal(store.scrollTarget, in: store) }
             }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }

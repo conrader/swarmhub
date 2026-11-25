@@ -4,11 +4,13 @@ import SwiftUI
 /// of unmeasured rich-text rows, which can leave a restored offset outside the actual rows.
 @MainActor final class ChatViewport: ObservableObject {
     static let pageSize = 24
-    enum Destination: Equatable { case latest, row(UUID, UnitPoint) }
+    enum Destination: Equatable { case latest, row(UUID, UnitPoint), archive(String) }
+    private(set) var archivePage: GrokHistoryPage?
     private(set) var revision = 0
     private(set) var destination: Destination = .latest
     private(set) var range = 0..<0
     private var conversation: UUID?
+    private var restoringArchive: String?
     private var order: [UUID] = []
     private var settled = false
     private var visible = ChatVisibleRows()
@@ -19,6 +21,7 @@ import SwiftUI
             self.order = order
             self.model = model
             conversation = id
+            restoringArchive = model.archivePositions[id]
             let saved = model.positions[id].flatMap { order.firstIndex(of: $0) }
             destination = saved.map { .row(order[$0], .top) } ?? .latest
             range = page(around: saved ?? order.count)
@@ -71,10 +74,30 @@ import SwiftUI
         return false
     }
 
-    func reveal(_ target: ChatMessageLocation?, in store: AppStore) {
-        guard let target, target.conversation == conversation else { return }
-        jump(to: target.message)
-        store.scrollTarget = nil
+    func reveal(_ request: ChatMessageLocation?, in store: AppStore) async {
+        guard let conversation,
+              let target = request ?? restoringArchive.map({ ChatMessageLocation(conversation: conversation, imported: $0) }),
+              target.conversation == conversation else { return }
+        switch target.row {
+        case .live(let id): jump(to: id)
+        case .imported(let key):
+            let archive = store.grokHistory
+            let page = await GrokHistoryPage.containing(key, cached: archive.loaded[target.conversation], url: archive.fileURL(for: target.conversation))
+            guard !Task.isCancelled, request == store.scrollTarget, target.conversation == self.conversation,
+                  request != nil || restoringArchive == key else { return }
+            if let page { showArchive(page) }
+            else {
+                latest()
+                if request != nil { store.errorMessage = "This message is no longer in the imported history." }
+            }
+        }
+        if request != nil { store.scrollTarget = nil }
+    }
+
+    func showArchive(_ page: GrokHistoryPage) {
+        guard let conversation else { return }
+        model?.readingArchive(conversation, key: page.key)
+        move(to: .archive(page.key), range: self.page(around: 0), archive: page)
     }
 
     func jump(to message: UUID) {
@@ -88,10 +111,12 @@ import SwiftUI
         move(to: .latest, range: page(around: order.count))
     }
 
-    private func move(to target: Destination, range: Range<Int>) {
+    private func move(to target: Destination, range: Range<Int>, archive: GrokHistoryPage? = nil) {
         objectWillChange.send()
+        restoringArchive = nil
         settled = false
         visible = ChatVisibleRows()
+        archivePage = archive
         destination = target
         self.range = range
         revision += 1
@@ -100,11 +125,12 @@ import SwiftUI
     func position(proxy: ScrollViewProxy) async {
         let request = revision
         await Task.yield()
-        guard !Task.isCancelled, request == revision else { return }
+        guard !Task.isCancelled, request == revision, restoringArchive == nil else { return }
         if request == 0, let conversation { _ = model?.open(conversation, shown: order) }
         switch destination {
         case .latest: proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom)
         case let .row(message, anchor): proxy.scrollTo(message, anchor: anchor)
+        case let .archive(key): proxy.scrollTo(ChatScrollAnchor.imported(key), anchor: .center)
         }
         await Task.yield()
         guard !Task.isCancelled, request == revision else { return }
@@ -120,6 +146,10 @@ import SwiftUI
 
     private func report() {
         guard let conversation, visible.height > 0 else { return }
+        if let page = archivePage, let focus = visible.archiveFocus, focus.maxY > 0 && focus.minY < visible.height {
+            model?.readingArchive(conversation, key: page.key)
+            return
+        }
         let top = range.lazy.map { self.order[$0] }.first { id in
             guard let frame = visible.rows[id] else { return false }
             return frame.maxY > 0 && frame.minY < visible.height
@@ -139,10 +169,11 @@ import SwiftUI
     }
 }
 
-enum ChatScrollAnchor { static let bottom = "bottom"; static let space = "chatScrollViewport" }
+enum ChatScrollAnchor: Hashable { case imported(String); static let bottom = "bottom"; static let space = "chatScrollViewport" }
 
 struct ChatVisibleRows: Equatable {
     var rows: [UUID: CGRect] = [:]
+    var archiveFocus: CGRect?
     var start: CGFloat?
     var bottom: CGFloat?
     var height: CGFloat = 0
@@ -152,6 +183,7 @@ private struct ChatFrames: PreferenceKey {
     static func reduce(value: inout ChatVisibleRows, nextValue: () -> ChatVisibleRows) {
         let next = nextValue()
         value.rows.merge(next.rows) { _, new in new }
+        if let focus = next.archiveFocus { value.archiveFocus = focus }
         if let start = next.start { value.start = start }
         if let bottom = next.bottom { value.bottom = bottom }
         value.height = max(value.height, next.height)
@@ -159,6 +191,16 @@ private struct ChatFrames: PreferenceKey {
 }
 
 extension View {
+    func trackArchiveFocus(_ isFocused: Bool) -> some View {
+        background {
+            if isFocused {
+                GeometryReader { geo in
+                    Color.clear.preference(key: ChatFrames.self, value: ChatVisibleRows(archiveFocus: geo.frame(in: .named(ChatScrollAnchor.space))))
+                }
+            }
+        }
+    }
+
     func chatRow(_ id: UUID) -> some View {
         background { GeometryReader { geo in
             Color.clear.preference(key: ChatFrames.self, value: ChatVisibleRows(rows: [id: geo.frame(in: .named(ChatScrollAnchor.space))]))
