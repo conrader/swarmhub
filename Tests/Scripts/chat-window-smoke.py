@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -135,19 +136,24 @@ def private_workspace(source_app):
 
 
 @contextmanager
-def open_workspace(app, home, address="http://127.0.0.1:1", token=""):
+def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_environment=None):
     from AppKit import NSRunningApplication
 
     environment = dict(os.environ, HOME=str(home), CFFIXED_USER_HOME=str(home),
                        SWARMHUB_DISABLE_UPDATES="1", SWARMHUB_SERVICE_HOME=str(home), SWARMHUB_HERDR_TOKEN=token)
+    environment.update(extra_environment or {})
     process = subprocess.Popen([app / "Contents/MacOS/AgentApp", "-setupState", "skipped",
                                 "-herdrBaseURL", address], env=environment)
     try:
         application = ax.AXUIElementCreateApplication(process.pid)
         windows = lambda: attribute(application, "AXWindows") or []
+        running = lambda: NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
+        wait_for("private app launch", lambda: running() and running().isFinishedLaunching(), seconds=15)
+        running().activateWithOptions_(3)
+        if not windows():
+            # A direct executable launch can be running without an open-document event.
+            subprocess.run(["open", "-a", str(app)], check=True)
         wait_for("private workspace", windows, seconds=15)
-        instance = NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
-        instance.activateWithOptions_(3)
         yield windows()[0]
     finally:
         if process.poll() is None:
@@ -287,6 +293,109 @@ def media_reopen(source_app):
         print("Image opened and video played online, after switching back offline, and after relaunch. Each file downloaded once.")
 
 
+def ai_inventory(source_app, service_binary):
+    """Register an AI while the workspace is offline, then rescan from the same bot's model inspector."""
+    with private_workspace(source_app) as (app, home, store):
+        installed = home / ".local/bin"
+        installed.mkdir(parents=True)
+        shutil.copy2(service_binary, installed / "swarmhub-herdr")
+        config = home / ".config"
+        registration = config / "herdr-core/templates/swarmhub-antigravity.md"
+        launched = installed / "unexpected-launch"
+        offline = False
+
+        class Catalog(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path.split("?")[0] != "/api/workspace":
+                    self.send_error(404)
+                    return
+                if offline:
+                    self.send_error(503)
+                    return
+                templates = [{"name": "qa-claude", "runtime": {"harness": "Claude Code", "display_name": "Claude"}}]
+                if registration.is_file():
+                    templates.append({"name": "swarmhub-antigravity",
+                                      "runtime": {"harness": "Antigravity CLI", "display_name": "Gemini"}})
+                data = json.dumps({"core": "qa", "agents": [], "templates": templates}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        def has_text(window, value):
+            return any(attribute(e, "AXValue") == value for e in descendants(window)
+                       if attribute(e, "AXRole") == "AXStaticText")
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Catalog) as server:
+            Thread(target=server.serve_forever, daemon=True).start()
+            address = f"http://127.0.0.1:{server.server_port}"
+            local = {"id": "default", "name": "QA Mac", "kind": "local", "address": address}
+            bot = {"id": str(uuid.uuid4()), "name": "InventoryQA", "backend": "Herdr"}
+            other = {"id": str(uuid.uuid4()), "name": "OtherQA", "backend": "Herdr"}
+            store.write_text(json.dumps({"version": 2, "bots": [bot, other]}))
+            # cfprefsd resolves preferences by bundle identifier in the Mac login session.
+            domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
+            subprocess.run(["defaults", "write", domain, "herdrServers", "-string", json.dumps([local])], check=True)
+            isolated = {"XDG_CONFIG_HOME": str(config), "XDG_STATE_HOME": str(home / "state"),
+                        "HC_SOCKET": str(home / "hc.sock"), "SWARMHUB_DATA_DIR": str(home / "data"),
+                        "SWARMHUB_SERVICE_LABEL": domain, "SWARMHUB_SERVICE_PATH": str(installed)}
+            try:
+                with open_workspace(app, home, address, uuid.uuid4().hex, isolated) as window:
+                    wait_for("QA bot", lambda: any(label(b).startswith("InventoryQA,") for b in buttons(window)))
+                    press(window, "InventoryQA", sidebar=True)
+                    model = lambda: next((b for b in buttons(window) if attribute(b, "AXIdentifier") == "chat.bot.model"), None)
+                    wait_for("chat model button", model)
+                    if ax.AXUIElementPerformAction(model(), "AXPress") != 0:
+                        raise RuntimeError("Could not open model settings")
+                    wait_for("existing provider", lambda: any(label(b) == "Claude, Default" for b in buttons(window)))
+                    press(window, "Manage AIs on this Mac…")
+                    app_element = attribute(window, "AXParent")
+
+                    def settings_window():
+                        return next((w for w in attribute(app_element, "AXWindows") or []
+                                     if any(label(b) == "Scan again" for b in buttons(w))), None)
+
+                    wait_for("AI settings window", settings_window)
+                    settings = settings_window()
+                    wait_for("initial inventory", lambda: has_text(settings, "Antigravity CLI"))
+                    executable = installed / "agy"
+                    executable.write_text('#!/bin/sh\ntouch "$(dirname "$0")/unexpected-launch"\n')
+                    executable.chmod(0o700)
+                    press(settings, "Scan again")
+                    wait_for("newly installed Antigravity", lambda: any(label(b) == "Add Antigravity CLI" for b in buttons(settings)))
+                    offline = True
+                    press(settings, "Add Antigravity CLI")
+                    wait_for("template written by the service", registration.is_file)
+                    wait_for("local registration receipt", lambda: has_text(settings, "Registered on this Mac"))
+                    if has_text(settings, "Added"):
+                        raise RuntimeError("An offline workspace was shown as having accepted the new AI")
+                    # Wait for the failed catalog read to finish before requesting another scan.
+                    wait_for("completed offline scan", lambda: any(label(b) == "Scan again" and attribute(b, "AXEnabled")
+                                                                 for b in buttons(settings)))
+                    offline = False
+                    press(settings, "Scan again")
+                    wait_for("workspace registration confirmed", lambda: has_text(settings, "Added"))
+                    if ax.AXUIElementPerformAction(attribute(settings, "AXCloseButton"), "AXPress") != 0:
+                        raise RuntimeError("Could not close Settings")
+                    wait_for("Antigravity in the open picker",
+                             lambda: any(label(b) == "Gemini · Antigravity" for b in buttons(window)))
+                    press(window, "Gemini · Antigravity")
+                prefs = plistlib.loads(subprocess.check_output(["defaults", "export", domain, "-"]))
+                if prefs.get("herdrTemplate." + bot["id"]) != "swarmhub-antigravity":
+                    raise RuntimeError("The chosen bot did not save the Antigravity template")
+                if prefs.get("herdrTemplate") or prefs.get("herdrTemplate." + other["id"]):
+                    raise RuntimeError("Selecting a bot's AI changed another bot or the shared default")
+                if launched.exists():
+                    raise RuntimeError("Discovery launched the fixture AI")
+            finally:
+                server.shutdown()
+                subprocess.run(["defaults", "delete", domain], check=False)
+            print("Antigravity discovered, registered offline, and available in the original bot picker after one rescan.")
+
+
 if __name__ == "__main__":
     if not ax.AXIsProcessTrusted():
         raise SystemExit("This test needs macOS Accessibility access.")
@@ -294,7 +403,9 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--media-reopen":
         media_reopen(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--ai-inventory":
+        ai_inventory(Path(sys.argv[2]).resolve(strict=True), Path(sys.argv[3]).resolve(strict=True))
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen) /path/to/SwarmHub.app")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

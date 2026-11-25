@@ -8,10 +8,10 @@ import Testing
     private let codex = Self.template("swarmhub-codex", harness: "Codex", display: "Codex")
     private let antigravity = Self.template("swarmhub-antigravity", harness: "Antigravity CLI", display: "Gemini (Antigravity)")
 
-    @Test func runtimeLabelsOnlyDisambiguateWhenTwoTemplatesShareAName() {
+    @Test func runtimeLabelsKeepTheInstalledProgramVisibleAlongsideItsProvider() {
         let templates = [claude, codex, antigravity]
         let labels = HerdrProgramName.labels(for: templates)
-        #expect(templates.compactMap { labels[$0.name] } == ["Claude", "Codex", "Gemini"])
+        #expect(templates.compactMap { labels[$0.name] } == ["Claude", "Codex", "Gemini · Antigravity"])
         for alias in ["Gemini", "Antigravity", "swarmhub-antigravity", "Gemini (Antigravity)"] {
             #expect(HerdrBotRequest.template(for: alias, in: templates) == antigravity)
         }
@@ -19,9 +19,13 @@ import Testing
         let googleCLI = Self.template("swarmhub-gemini", harness: "Gemini CLI", display: "Gemini (beta)")
         let both = [antigravity, googleCLI]
         #expect(HerdrProgramName.labels(for: both) == [
-            antigravity.name: "Gemini · swarmhub-antigravity",
-            googleCLI.name: "Gemini · swarmhub-gemini",
+            antigravity.name: "Gemini · Antigravity",
+            googleCLI.name: "Gemini",
         ])
+        let wizard = HerdrOffer(programs: both.map {
+            HerdrProgram(template: $0.name, name: $0.label, takesModel: false, models: [], programDetail: $0.programDetail)
+        })
+        #expect(wizard.programs.map(wizard.label) == ["Gemini · Antigravity", "Gemini"])
         #expect(HerdrBotRequest.template(for: "Gemini (beta)", in: both) == googleCLI)
         #expect(HerdrProgramName.friendly(display: "Gemini (Antigravity) (beta)", program: nil) == "Gemini")
     }
