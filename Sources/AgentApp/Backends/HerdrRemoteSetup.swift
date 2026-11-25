@@ -16,7 +16,7 @@ extension AppStore {
         }
 
         let installed = try await HerdrTunnel.run(
-            #"if test -x "$HOME/.local/bin/swarmhub-herdr"; then printf yes; fi"#, on: server, password: password
+            #"if "$HOME/.local/bin/swarmhub-herdr" version --json >/dev/null 2>&1; then printf yes; fi"#, on: server, password: password
         )
         if installed != "yes" {
             let release = try await WorkspaceRelease.latest()
@@ -32,18 +32,8 @@ extension AppStore {
             try program.write(to: file)
             let input = try FileHandle(forReadingFrom: file)
             defer { try? input.close() }
-            _ = try await HerdrTunnel.run(#"""
-                set -eu
-                umask 077
-                bin="$HOME/.local/bin"
-                mkdir -p "$bin"
-                draft=$(mktemp "$bin/.swarmhub-herdr.XXXXXX")
-                trap 'rm -f "$draft"' EXIT
-                cat > "$draft"
-                test "$(wc -c < "$draft" | tr -d ' ')" = "\#(program.count)"
-                chmod 700 "$draft"
-                ln "$draft" "$bin/swarmhub-herdr"
-                """#, on: server, password: password, timeout: .seconds(180), standardInput: input)
+            _ = try await HerdrTunnel.run(HerdrRemoteSetup.placeProgram(byteCount: program.count), on: server,
+                                          password: password, timeout: .seconds(180), standardInput: input)
         }
 
         if mac {
@@ -59,6 +49,33 @@ extension AppStore {
 }
 
 enum HerdrRemoteSetup {
+    /// Execute the verified download on its destination before installing it. A prior release can have the
+    /// right CPU architecture and executable bit but depend on a newer system library.
+    static func placeProgram(byteCount: Int) -> String {
+        #"""
+        set -eu
+        umask 077
+        bin="$HOME/.local/bin"
+        program="$bin/swarmhub-herdr"
+        mkdir -p "$bin"
+        draft=$(mktemp "$bin/.swarmhub-herdr.XXXXXX")
+        trap 'rm -f "$draft"' EXIT
+        cat > "$draft"
+        test "$(wc -c < "$draft" | tr -d ' ')" = "\#(byteCount)"
+        chmod 700 "$draft"
+        "$draft" version --json >/dev/null
+        if "$program" version --json >/dev/null 2>&1; then exit 0; fi
+        if [ -L "$program" ]; then
+            echo "The workspace path is a symbolic link to an unavailable program. Check $program and retry." >&2
+            exit 1
+        elif [ -f "$program" ]; then
+            mv -f "$draft" "$program"
+        else
+            ln "$draft" "$program" || "$program" version --json >/dev/null
+        fi
+        """#
+    }
+
     static func lingerWarning(in output: String, for server: HerdrServer) -> String? {
         let lines = output.split(whereSeparator: \.isNewline)
         guard lines.contains("SWARMHUB_LINGER=disabled") else { return nil }
