@@ -53,6 +53,13 @@ struct SettingsAIsPane: View {
         .task { await refresh() }
     }
 
+    private func localServer(for report: HerdrLocalReport) -> HerdrServer? {
+        let local = store.herdrServers.filter { $0.kind == .local }
+        guard report.service.installed else { return local.first }
+        return local.first { $0.port == report.port } ?? HerdrServer(
+            id: "local-\(report.port)", name: "This Mac", kind: .local, address: HerdrServer.loopback(port: report.port))
+    }
+
     private func refresh(adding program: HerdrLocalReport.Program? = nil) async {
         guard !busy else { return }
         busy = true; defer { busy = false }
@@ -61,14 +68,13 @@ struct SettingsAIsPane: View {
         guard service.isPlaced else {
             report = nil; message = "Set up the workspace on this Mac to connect local AIs."; return
         }
-        let server = store.herdrServers.first { $0.kind == .local }
         do {
             if let program {
-                report = try await service.addAI(program.id, port: server?.port)
+                report = try await service.addAI(program.id, port: nil)
                 guard report?.program(template: program.template)?.templateWritten == true else {
                     throw HerdrLocalFailure(kind: "template", message: "The workspace could not register " + program.name + ".")
                 }
-                if let server {
+                if let report, let server = localServer(for: report) {
                     let available = try await store.herdrTemplates(on: server)
                     guard available.contains(where: { $0.name == program.template }) else {
                         throw HerdrLocalFailure(kind: "template", message: "The local server could not load the template for " + program.name + ".")
@@ -77,7 +83,7 @@ struct SettingsAIsPane: View {
                 store.localAIRevision += 1
                 message = program.name + " added. Choose it in your bot’s Model tab."
             } else {
-                report = try await service.status(port: server?.port)
+                report = try await service.status(port: nil)
             }
         } catch {
             if program == nil { report = nil }

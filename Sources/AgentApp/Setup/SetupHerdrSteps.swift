@@ -95,7 +95,8 @@ struct SetupHerdrStep: View {
     let test: () -> Void
     /// This Mac only: opens the window of an AI that waits for an answer, and looks at the AIs again.
     var answer: (HerdrAICheck) -> Void = { _ in }
-    var checkAgain: () -> Void = {}
+    var scan: () -> Void = {}
+    var addAI: (HerdrLocalReport.Program) -> Void = { _ in }
     @State private var showDetails = false
     @State private var showDone = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -133,6 +134,14 @@ struct SetupHerdrStep: View {
             HeroHeader(title: header, detail: intro) { SymbolTile(symbol: flow.herdr.kind.mark.symbol, colour: flow.herdr.kind.mark.colour, size: 60) }
             VStack(alignment: .leading, spacing: 18) {
                 result.animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: resultKind)
+                if !testing, flow.herdrServer?.kind == .local, let report = flow.localReport {
+                    if report.canAddAi == true {
+                        ForEach(report.programs.filter { $0.installed && $0.templateWritten == false }) { program in
+                            Button(WizardCopy.addAI(program.name)) { addAI(program) }
+                        }
+                    }
+                    if flow.herdrReady { Button(WizardCopy.scanAIs, action: scan) }
+                }
                 if !flow.missingStarterPrograms.isEmpty {
                     Text(WizardCopy.missingPrograms(flow.missingStarterPrograms)).foregroundStyle(.secondary)
                     if flow.herdrOffer?.programs.isEmpty == false {
@@ -163,15 +172,17 @@ struct SetupHerdrStep: View {
             StatusCard(kind: .warning, title: WizardCopy.notConnected, detail: failure).transition(.opacity)
         } else if flow.herdrNoPrograms, let server = flow.herdrServer {
             // On this Mac the service says which AI programs it looked for, and what to do to get one.
-            if server.kind == .local, let missing = flow.localReport?.missing, !missing.isEmpty {
+            if server.kind == .local, let report = flow.localReport, report.programs.contains(where: { $0.installed }) {
+                StatusCard(kind: .info, title: WizardCopy.addInstalledAI)
+            } else if server.kind == .local, let missing = flow.localReport?.missing, !missing.isEmpty {
                 StatusCard(kind: .warning, title: WizardCopy.noAIsTitle, detail: WizardCopy.noAIsDetail).transition(.opacity)
-                SetupAIChecks(checks: [], missing: missing, answer: answer, again: checkAgain)
+                SetupAIChecks(checks: [], missing: missing, answer: answer)
             } else {
                 StatusCard(kind: .warning, title: WizardCopy.notReady, detail: HerdrSetupProblem.noPrograms.line(for: server)).transition(.opacity)
             }
         } else if flow.herdrReady, let server = flow.herdrServer, let offer = flow.herdrOffer {
             StatusCard(kind: .good, title: WizardCopy.connected(server.name), detail: WizardCopy.canRun(offer.names, count: Set(offer.programs.map(\.name)).count)).transition(.opacity)
-            if !flow.aiChecks.isEmpty { SetupAIChecks(checks: flow.aiChecks, answer: answer, again: checkAgain).transition(.opacity) }
+            if !flow.aiChecks.isEmpty { SetupAIChecks(checks: flow.aiChecks, answer: answer, again: test).transition(.opacity) }
             // What setting this Mac up did, in the service's own sentences, for whoever wants to read it.
             if let did = flow.localReport?.did, !did.isEmpty {
                 QuietFold(title: WizardCopy.whatWasDone, isOpen: $showDone) {
@@ -283,6 +294,12 @@ struct SetupMainBotStep: View {
         if let program = offer.program(flow.mainBot.template), program.takesModel {
             SettingBlock(title: WizardCopy.model) {
                 HerdrModelPicker(model: $flow.mainBot.model, program: program.modelAgent ?? program.name, models: program.models)
+                    .task(id: program.template) {
+                        guard let source = program.deferredModelList, let server = flow.herdrServer,
+                              let models = try? await store.herdrClient(for: server, token: flow.herdrKey).models(for: source),
+                              !Task.isCancelled, flow.herdrServer == server else { return }
+                        flow.loadedModels(models, for: source)
+                    }
             }
         } else {
             SettingBlock(title: WizardCopy.model, detail: HerdrAgentReading.programPicks) { EmptyView() }
