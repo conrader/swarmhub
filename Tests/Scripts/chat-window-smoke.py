@@ -612,11 +612,12 @@ def workspace_pages(source_app, service_binary):
     import select
     import urllib.request
 
-    with private_workspace(source_app) as (app, home, store):
+    with private_workspace(source_app) as (app, home, store), tempfile.TemporaryDirectory(dir="/tmp", prefix="sw-pages-") as scratch:
         token = secrets.token_hex(32)
-        environment = dict(HOME=str(home), PATH="/usr/bin:/bin", HC_SOCKET=str(home / "private-core.sock"),
-                           SWARMHUB_ACCESS_TOKEN=token, SWARMHUB_DATA_DIR=str(home / "workspace"), SWARMHUB_PORT="0")
-        bridge = subprocess.Popen([service_binary], cwd=home, env=environment, stdout=subprocess.PIPE, text=True)
+        root = Path(scratch)
+        environment = dict(HOME=scratch, PATH="/usr/bin:/bin", HC_SOCKET=str(root / "core.sock"),
+                           SWARMHUB_ACCESS_TOKEN=token, SWARMHUB_DATA_DIR=str(root / "workspace"), SWARMHUB_PORT="0")
+        bridge = subprocess.Popen([service_binary], cwd=root, env=environment, stdout=subprocess.PIPE, text=True)
         try:
             if not select.select([bridge.stdout], [], [], 10)[0]:
                 raise RuntimeError("Private workspace did not start")
@@ -671,6 +672,15 @@ def workspace_pages(source_app, service_binary):
 
                 wait_for("Page author", lambda: button(window, "PagesQA,"))
                 press(window, "PagesQA", sidebar=True)
+                if not button(window, "Media"):
+                    press(window, "Details")
+                press(window, "Media")
+                click(window, "Browse published Pages")
+                media_library = panel("bot workspace library", lambda s: has_text(s, "Published Pages"))
+                click(media_library, other["title"])
+                close_page_containing("Search marker C++ & test")
+                press(media_library, "Done")
+                wait_for("media library dismissed", lambda: not sheets())
                 press(window, "Search")
                 palette = panel("Quick Switcher", lambda s: button(s, "Pages"))
                 enter(palette, first["title"])

@@ -25,7 +25,7 @@ struct WorkspacePageReader: View {
                 Button("Retry") { retry += 1 }
             } else { ProgressView("Opening Page…") }
             Spacer(minLength: 0)
-        }.padding().frame(minWidth: 480, idealWidth: 640, minHeight: 360, idealHeight: 480)
+        }.padding().frame(minWidth: 480, idealWidth: 640, minHeight: 360, idealHeight: 480).background(AppColor.panel)
         .task(id: retry) {
             error = nil
             do {
@@ -65,7 +65,7 @@ struct WorkspacePageLibrary: View {
                 }.id(server.id).id(term)
             } else { Text("Choose a workspace to see its Pages.") }
             Spacer(minLength: 0)
-        }.padding().frame(width: 520, height: 400)
+        }.padding().frame(width: 520, height: 400).background(AppColor.panel)
         .sheet(item: $page) { WorkspacePageReader(link: $0) }
     }
 }
@@ -92,7 +92,7 @@ private struct WorkspacePageList: View {
                             Label(item.title, systemImage: item.pinned == true ? "pin" : "doc.richtext")
                                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(.plain)
-                    }
+                    }.scrollContentBackground(.hidden)
                 }
             } else { ProgressView("Loading Pages…") }
         }.task(id: retry) {
