@@ -32,7 +32,12 @@ struct HerdrBackend: AgentBackend {
     let client: HerdrClient
     let agentName: String
     let botID: UUID
-    private let accepted = LockedValue<(sessionID: String, target: StopTarget)?>(nil)
+    private struct AcceptedRun: Sendable {
+        let sessionID: String
+        let turn: HerdrClient.Turn
+        var target: StopTarget { .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)") }
+    }
+    private let accepted = LockedValue<AcceptedRun?>(nil)
     private let groupSends = GroupSendTasks()
     /// True from the start of a turn that may hand the bot's earlier conversation over until that step has ended:
     /// meanwhile the turn takes no steer (`features`), so a message the person sends then waits its turn instead of
@@ -249,8 +254,7 @@ struct HerdrBackend: AgentBackend {
                                                                 projects: backend.projects, files: files, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
                                                                 status: { continuation.yield(.status($0.code)) })
                     delivered = true
-                    let target = StopTarget.serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)")
-                    _ = backend.accepted.swap((sessionID, target))
+                    _ = backend.accepted.swap(AcceptedRun(sessionID: sessionID, turn: turn))
                     for (source, why) in missed { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
@@ -337,17 +341,17 @@ struct HerdrBackend: AgentBackend {
     }
 
     /// Nothing while the bot's earlier conversation is being handed over: that turn is not the person's to steer.
-    func features() async throws -> Set<String> { steers && !handingOver.current && accepted.current?.steerReference != nil ? ["run_steer"] : [] }
+    func features() async throws -> Set<String> { steers && !handingOver.current && accepted.current?.turn.steerReference != nil ? ["run_steer"] : [] }
 
     func steer(sessionID: String, text: String) async throws {
         try await steer(sessionID: sessionID, text: text, files: [])
     }
 
     func steer(sessionID: String, text: String, files: [HerdrClient.TaskFile]) async throws {
-        guard steers, !handingOver.current, let turn = accepted.current else {
+        guard steers, !handingOver.current, let accepted = accepted.current, accepted.sessionID == sessionID else {
             throw BackendError.unavailable("This turn is not ready for live guidance.")
         }
-        try await client.steer(turn, text: text, files: files)
+        try await client.steer(accepted.turn, text: text, files: files)
     }
 
     func cancelGroupSend(sessionID: String) { groupSends.cancel(sessionID: sessionID) }
