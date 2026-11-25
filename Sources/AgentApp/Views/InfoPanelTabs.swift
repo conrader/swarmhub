@@ -6,6 +6,7 @@ extension AgentInfoTab {
     var symbol: String {
         switch self {
         case .overview: "info.circle"
+        case .team: "person.2"
         case .model: "cpu"
         case .routines: "clock.arrow.2.circlepath"
         case .skills: "puzzlepiece.extension"
@@ -50,7 +51,7 @@ struct InfoTabBar: View {
                 Image(systemName: tab.symbol).font(.system(size: style == .symbolOnly ? 14 : 13)).frame(height: 17)
                 if style == .symbolCaption { Text(tab.caption).font(.system(size: 11, weight: selected ? .semibold : .regular)).lineLimit(1).fixedSize() }
             }
-            .padding(.horizontal, style == .symbolOnly ? 8 : 4).frame(height: style == .symbolOnly ? 28 : 36)
+            .padding(.horizontal, style == .symbolOnly ? 8 : 2.5).frame(height: style == .symbolOnly ? 28 : 36)
             .contentShape(Rectangle())
             .background { if selected { InspectorSurface(selected: true) } }
         }

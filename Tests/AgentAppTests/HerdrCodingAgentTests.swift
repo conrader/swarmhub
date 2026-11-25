@@ -424,15 +424,18 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         let card = CGRect(x: 30, y: 329, width: 240, height: 108)
         let helperTerminal = CGRect(x: 555, y: 329, width: 107, height: 108)
         let details = CGRect(x: 664, y: 329, width: 66, height: 108)
-        let headerTerminal = CGRect(x: 610, y: 8, width: 138, height: 39)
+        func headerHasTerminal(_ image: CGImage) async throws -> Bool {
+            let header = try #require(image.cropping(to: CGRect(x: 0, y: 0, width: size.width, height: 54)))
+            return try await recognizedLines(in: header).contains { $0.contains("Terminal") }
+        }
         for region in [card, helperTerminal, details] {
             #expect(try lightPixels(in: region, of: live) > 30)
             #expect(try lightPixels(in: region, of: ended) == 0)
             #expect(try lightPixels(in: region, of: own) == 0)
         }
-        #expect(try lightPixels(in: headerTerminal, of: live) == 0)
-        #expect(try lightPixels(in: headerTerminal, of: ended) == 0)
-        #expect(try lightPixels(in: headerTerminal, of: own) > 30)
+        #expect(try await !headerHasTerminal(live))
+        #expect(try await !headerHasTerminal(ended))
+        #expect(try await headerHasTerminal(own))
     }
 
     // Normal GET responses captured by HerdrWorkspace/tests/codejob_activity.py.

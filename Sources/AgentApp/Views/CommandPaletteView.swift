@@ -10,6 +10,7 @@ struct CommandPaletteView: View {
     @State private var model = QuickSwitcherModel()
     @State private var archiveFiles = QuickSwitcherModel.ArchiveFiles()
     @State private var searching = false
+    @State private var keyboardPointer: NSPoint?
     @FocusState private var searchFocused: Bool
     init(query: String = "", selectCommand: @escaping (AppCommand) -> Void, openSetup: @escaping () -> Void) {
         _query = State(initialValue: query); self.selectCommand = selectCommand; self.openSetup = openSetup
@@ -46,6 +47,7 @@ struct CommandPaletteView: View {
         .task(id: query) { [query] in
             guard !Task.isCancelled else { return }
             searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            keyboardPointer = NSEvent.mouseLocation
             let navigation = QuickSwitcherModel.items(in: store, query: query)
             model.update(navigation)
             if searching {
@@ -67,6 +69,7 @@ struct CommandPaletteView: View {
     }
 
     private func move(_ offset: Int, proxy: ScrollViewProxy) {
+        keyboardPointer = NSEvent.mouseLocation
         model.move(by: offset)
         if let id = model.highlighted { proxy.scrollTo(id) }
     }
@@ -85,7 +88,13 @@ struct CommandPaletteView: View {
             .foregroundStyle(model.highlighted == item.id ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.primary))
             .background(model.highlighted == item.id ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).disabled(!item.isEnabled).id(item.id)
-        .onHover { if $0 { model.highlight(item.id) } }
+        .accessibilityAddTraits(model.highlighted == item.id ? .isSelected : [])
+        .onContinuousHover { phase in
+            // Scrolling a keyboard selection can move another row beneath a stationary pointer.
+            guard case .active = phase, NSEvent.mouseLocation != keyboardPointer else { return }
+            keyboardPointer = nil
+            if model.highlighted != item.id { model.highlight(item.id) }
+        }
         .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
         .listRowSeparator(.hidden).listRowBackground(Color.clear)
     }

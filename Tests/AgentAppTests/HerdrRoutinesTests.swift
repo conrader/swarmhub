@@ -6,7 +6,7 @@ import Testing
 @Suite struct HerdrRoutinesTests {
     private typealias Schedule = HerdrClient.RoutineSchedule
 
-    @Test @MainActor func allFiveTabsRenderAtTheDetailsMinimumWidth() throws {
+    @Test @MainActor func allWorkspaceTabsRenderAtTheDetailsMinimumWidth() throws {
         let store = AppStore(storeURL: temporaryStore(), autoStart: false,
                              keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let bot = Bot(name: "Ada", backend: .herdr)
@@ -14,7 +14,7 @@ import Testing
         store.selectedBot = bot
         store.showInfo = false
         let tabs = store.infoTabs(for: bot)
-        #expect(tabs == [.overview, .model, .routines, .skills, .media])
+        #expect(tabs == [.overview, .model, .team, .routines, .skills, .media])
         #expect(AppCommand.routines.isEnabled(in: store))
         AppCommand.routines.performWorkspaceAction(in: store)
         #expect(store.showInfo && store.visibleInfoTab(for: bot) == .routines)
@@ -39,7 +39,7 @@ import Testing
         let inkedColumns = (0..<bitmap.pixelsWide).filter { x in
             (0..<bitmap.pixelsHigh).contains { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 }
         }
-        // Separate the five painted controls by their gutters, allowing letter and icon spacing.
+        // Separate the painted controls by their gutters, allowing letter and icon spacing.
         let gutters = zip(inkedColumns, inkedColumns.dropFirst()).count { $1 - $0 > 18 }
         #expect(gutters == tabs.count - 1)
         #expect((inkedColumns.first ?? 0) >= 18 && (inkedColumns.last ?? image.width) < image.width - 18)

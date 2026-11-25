@@ -153,7 +153,7 @@ Opening a chat starts that bot if it is not running, so the first reply does not
 
 ### Change what a bot runs on
 
-Click the model beside the bot’s name or press ⌘6 to open its Model settings. **Started on** identifies the model recorded at session launch. **Last confirmed** identifies a model the workspace verified. When a change is pending, **Next direct turn** shows what will handle your next new message. Choose the AI and model from the lists supplied by the server. The next direct message uses your choice automatically. A reply already in progress finishes first. When the switch needs a different provider session, the new agent reads the chat so far. **Advanced → Start fresh** clears the agent’s context when you want a new conversation.
+Click the model button in the chat header or press ⌘6 to open its Model settings. **Started on** identifies the model recorded at session launch. **Last confirmed** identifies a model the workspace verified. When a change is pending, **Next direct turn** shows what will handle your next new message. Choose the AI and model from the lists supplied by the server. The next direct message uses your choice automatically. A reply already in progress finishes first. When the switch needs a different provider session, the new agent reads the chat so far. **Advanced → Start fresh** clears the agent’s context when you want a new conversation.
 
 **New bots run on**, in **Settings → Servers**, chooses the AI that new bots start on.
 
@@ -170,6 +170,8 @@ Click the model beside the bot’s name or press ⌘6 to open its Model settings
 ### Bots that write to each other
 
 A bot can write to another bot on its server by name. The app puts the message into that bot's chat as a card with the sender's face, and the reply back into the sender's chat, so you can read both sides. This happens while the app runs. Limits keep two bots from answering each other for ever; at a limit the bots are told to bring the matter to you. To stop a bot from getting such messages, turn off **Other bots can message it** in its settings, under **Advanced**. **Stop** in a bot's chat ends the exchanges it is part of.
+
+Open **Details → Team** (⌘2) to see a bot’s open exchanges, scheduled check-ins, CI watches and promises. Recent exchanges include completed handoffs. Expand one to read the message. Switching bots keeps the tab open and loads the selected bot’s activity.
 
 ### Helpers
 
@@ -302,7 +304,7 @@ How this works, what is trusted, and the one-time install by hand on a server wh
 | ⌃⌘S | Show or Hide Sidebar |
 | ⇧⌘I | Show or Hide Details |
 | ⇧⌘H | Show or Hide Hidden Chats |
-| ⌘1, ⌘6, ⌘7, ⌘3 | Details: Overview, Model, Skills, Media |
+| ⌘1, ⌘2, ⌘6, ⌘8, ⌘7, ⌘3 | Open Overview, Team, Model, Routines, Skills or Media in Details |
 | ⌘5 | Members, in a group |
 | ⌥⌘↑, ⌥⌘↓ | Previous Chat, Next Chat |
 | ⌥⌘, | Bot Settings |

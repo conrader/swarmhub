@@ -105,7 +105,8 @@ struct ComposerView: View {
             }
             if let commandNotice, noticeDraft == text { Text(commandNotice).font(.callout).textSelection(.enabled) }
             if let hint, hint != SteerCopy.hint || canSteer { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, ComposerMetrics.control + ComposerMetrics.spacing) }
-        }.padding(8).glassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous), tint: AppColor.raised.opacity(AppGlass.surfaceTint))
+        }.padding(8)
+            .glassSurface(in: RoundedRectangle(cornerRadius: 10, style: .continuous), tint: AppColor.raised.opacity(AppGlass.surfaceTint))
             .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: 768)
             .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 guard case .success(let urls) = result else { return }

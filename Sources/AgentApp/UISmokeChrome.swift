@@ -262,7 +262,7 @@ enum ChromeHit {
             steps.append(state())
         }
         let first = steps[0]
-        return ["presented": first["visible"] as? Bool ?? false, "width": first["width"] ?? NSNull(), "mechanism": RightColumnMechanism.current.rawValue,
+        return ["presented": first["visible"] as? Bool ?? false, "width": first["width"] ?? NSNull(), "mechanism": "split",
                 "toggle": steps, "binding_ok": steps.map { $0["visible"] as? Bool ?? false } == [true, false, true]]
     }
 

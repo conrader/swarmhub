@@ -115,7 +115,10 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool, outco
     let same = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: "m-b", offered: offered, agent: agent, profiles: profiles)
     #expect(same.pendingLine == nil && same.summary == "AI: Agent One (default). Model: Model B. Current session started on Model B.")
     let unstated = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: older, profiles: profiles)
-    #expect(unstated.headerModel == "Session model unreported")
+    #expect(unstated.headerModel == "Agent One · Model unreported")
+    var switching = unstated
+    switching.runtime = two
+    #expect(switching.headerModel == "Agent One · Model unreported")
     #expect(unstated.running == .unstated && unstated.short == nil && unstated.runningLine?.contains("it picked itself") == true && unstated.pendingLine == "Model A will answer your next new direct turn.", "an agent started without a model is not given one by guess")
     #expect(HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: []).running == .unknown)
 }
