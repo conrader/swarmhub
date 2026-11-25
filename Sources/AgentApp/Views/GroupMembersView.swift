@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Right panel for a group (P21b item 3): its name, the members with avatar and name, Remove, Add agent and a mute
 /// switch on top; who answers, @mentions, the context cap and where each member runs fold under Advanced
@@ -6,6 +7,7 @@ import SwiftUI
 struct GroupInfoPanel: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
     @State private var name = ""
+    @State private var exportError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,7 +50,25 @@ struct GroupInfoPanel: View {
                 ForEach(candidates) { bot in Button(bot.name) { store.addMember(bot, to: group) } }
             } label: { Label(InspectorCopy.addAgent, systemImage: "plus") }.disabled(candidates.isEmpty).fixedSize()
             Toggle(InspectorCopy.mute, isOn: Binding(get: { group.isMuted }, set: { group.isMuted = $0; store.save() })).toggleStyle(.appleSwitchLabelled).controlSize(.small)
+            Button("Export Team Pack…", action: exportTeamPack).disabled(members.count < 2)
+            if let exportError { Text(exportError).font(.callout).foregroundStyle(.secondary) }
             AdvancedFold { GroupRoutingDetails(members: members) }
         }
+    }
+
+    private func exportTeamPack() {
+        exportError = nil
+        do {
+            let data = try TeamPack(group: group, store: store).encoded()
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.json]
+            panel.nameFieldStringValue = "SwarmHub Team Pack.json"
+            panel.message = "Share this group’s bot names, roles, instructions, avatars and model choices."
+            panel.begin { answer in
+                guard answer == .OK, let url = panel.url else { return }
+                do { try data.write(to: url, options: .atomic) }
+                catch { exportError = error.localizedDescription }
+            }
+        } catch { exportError = error.localizedDescription }
     }
 }

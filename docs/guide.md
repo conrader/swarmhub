@@ -267,6 +267,8 @@ Then open a bot's settings, **Advanced**, or the **Overview** tab of its Details
 
 **File → New Group…** (⇧⌘N) puts several bots in one thread. Write `@Name` to address one member; a message without a mention goes to every member.
 
+To share a group, open its **Members** panel and choose **Export Team Pack…**. The JSON contains its name, members, roles, instructions, avatars and bot model choices. On the receiving Mac, choose **File → New Group… → Import Team Pack…**, select the file, expand a bot to review its instructions, then choose the workspace and press **Import group**. The import creates new bots with empty chats. Projects, logins, approval grants and schedules stay with the source workspace. The destination needs the selected AI to run each bot.
+
 <a id="files-and-voice"></a>
 <a id="files"></a>
 

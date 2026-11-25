@@ -2,6 +2,7 @@
 
 - See a bot’s role in its chat header and open its model settings from a labeled button. The chat, sidebar and Details panel use the dark and light colors shown in the website preview.
 - Open **Details → Team** or press ⌘2 to follow open handoffs, review recent exchanges and find scheduled CI watches. Details reopens immediately after closing, including when you switch bots.
+- Share a group from **Members → Export Team Pack…**. Under **File → New Group…**, import the file, review the bot instructions and choose a destination workspace.
 - Open **Activity** in the sidebar to find chats that need attention, see work in progress, and jump to unread answers. Press ⇧⌘A with the sidebar hidden. Inspect an approval there and use ⌘Return to allow it once or ⌘Delete to deny. Your current chat stays open.
 - Reopen a long chat at your saved reading position or jump straight to the latest message. Reply drafts stay with the bot or group where you wrote them.
 - Send a follow-up while a bot starts. Codex can use it in the current answer, including when the bot is loading your earlier chat. For a workspace without live steering, it stays queued as the next message.
