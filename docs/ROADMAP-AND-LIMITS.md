@@ -1,6 +1,6 @@
 # Limits
 
-What the macOS app does not do today. Each item was checked against the code in `Sources/AgentApp`. There is no dated roadmap in this file.
+Platform requirements, supported workflows and remaining limits in the macOS app.
 
 ## Setup
 
@@ -17,19 +17,18 @@ What the macOS app does not do today. Each item was checked against the code in 
 
 ## Chat
 
-- An agent receives text only. An attached image is kept in the chat and is not sent to the agent.
-- Only the newest message is sent. The agent keeps its own conversation, so the app's copy of earlier messages is not replayed to a fresh agent.
+- Pasted screenshots appear in the chat and are sent to supported providers. Live image recognition has been exercised with Codex, Claude Code and Antigravity. Gemini CLI and OpenCode image transport was verified with local test endpoints. [Mac window trials](chat-window-audit-2026-11-25.md#pasting-a-screenshot-with-a-text-caption)
+- A running agent keeps its conversation. Switching providers carries a handoff into the new session. **Summarize & start fresh** creates a summary before opening the next session. Earlier messages remain visible.
 - A first task, with the bot's instructions, is cut to what the bridge accepts (16 KB).
 - A reply is saved by the agent's own hook when its turn ends. An agent that stops at a prompt in its terminal saves none; the app stops waiting after the agent has been quiet for a while. Choose **Answer here** in chat. Older bridges also support the external terminal option.
 - Stop presses the agent's interrupt key. What the agent does with it is up to the agent program.
 
-## Not in the Mac app
+## Browser workspace and native controls
 
-These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspace/README.md)) but not in the Mac app:
+On the Mac, use Activity for pending decisions, the bot’s routines panel for schedules and webhook triggers, and ⌘K for published Pages. The browser workspace also provides these controls. [Browser workspace](../HerdrWorkspace/README.md)
 
-- workspace-wide approval history and remembered read rules,
-- routines and webhooks,
-- Library browsing, editing Pages, and snapshots,
+- workspace-wide approval history,
+- editing Pages and managing snapshots,
 - connected folders, Google Drive and GitHub,
 - taking over an agent’s graphical desktop.
 
@@ -42,8 +41,8 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 
 ## Helpers
 
-- The app shows helpers and edits the server's helper settings. It does not start, stop or message a helper; the bot's agent does.
-- A bot's agent cannot choose a helper's model. The server's settings do.
+- Open a helper from its parent chat to inspect its work, send guidance, stop it or promote it to a separate bot. The parent agent starts delegated runs.
+- The parent bot’s Model panel has a separate coding model choice for helpers. [Live helper trial](chat-window-audit-2026-11-25.md#promote-a-running-helper-to-a-permanent-bot)
 
 ## Updates
 
