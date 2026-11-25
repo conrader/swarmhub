@@ -4,10 +4,10 @@ import Foundation
 /// over enabled rows and stop at the ends; Return opens the highlighted row.
 struct QuickSwitcherModel: Equatable {
     struct Item: Identifiable, Equatable {
-        enum Target: Equatable { case bot(UUID), group(UUID), command(AppCommand), setup }
-        var id: String; var title: String; var icon: String; var shortcut: String? = nil; var isEnabled = true; var target: Target
+        enum Target: Equatable { case bot(UUID), group(UUID), message(ChatMessageLocation), command(AppCommand), setup }
+        var id: String; var title: String; var icon: String; var detail: String? = nil; var shortcut: String? = nil; var isEnabled = true; var target: Target
         /// Commands come after a divider.
-        var isCommand: Bool { switch target { case .bot, .group: false; case .command, .setup: true } }
+        var isCommand: Bool { switch target { case .bot, .group, .message: false; case .command, .setup: true } }
     }
 
     private(set) var items: [Item] = []
@@ -31,6 +31,69 @@ struct QuickSwitcherModel: Equatable {
     mutating func highlight(_ id: String) { if items.contains(where: { $0.id == id && $0.isEnabled }) { highlighted = id } }
 
     var selection: Item? { items.first { $0.id == highlighted && $0.isEnabled } }
+
+    private struct MessageRow: Sendable {
+        let location: ChatMessageLocation
+        let chat: String
+        let author: String
+        let date: Date
+        let role: MessageRole
+        let content: String
+
+        /// The text someone can read in the transcript, including prose before tool steps.
+        var searchableText: String {
+            guard role != .system, content.rangeOfCharacter(from: Self.markup) != nil else { return content }
+            return role == .assistant ? TranscriptText(reply: content, segments: nil).string : TranscriptText(user: content).string
+        }
+        private static let markup = CharacterSet(charactersIn: "*_`~[<>\\#!|")
+    }
+
+    /// Snapshot the local rows on the main actor. Text parsing, matching and sorting can run
+    /// away from the chat window while the person types their next character.
+    @MainActor static func messages(in store: AppStore, query: String) async -> [Item] {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return [] }
+        let chats = store.bots.map { ($0.id, $0.name, $0.messages) } + store.groups.map { ($0.id, $0.name, $0.messages) }
+        var rows: [MessageRow] = []
+        for (id, name, messages) in chats {
+            for (index, message) in messages.enumerated() {
+                if index.isMultiple(of: 128) {
+                    await Task.yield()
+                    if Task.isCancelled { return [] }
+                }
+                guard !message.isSilent else { continue }
+                let body: String
+                if let title = message.metadata["herdrExchangeTitle"] { body = title + "\n" + message.content }
+                else if message.metadata[HerdrIntro.Key.kind] != nil || message.metadata[HerdrBotRelay.Key.kind] != nil {
+                    body = store.displayLine(message)
+                } else { body = message.content }
+                let location = ChatMessageLocation(conversation: id, message: message.id)
+                rows.append(MessageRow(location: location, chat: name, author: store.copyAuthor(message, botName: name),
+                                       date: message.transcriptDate, role: message.role, content: body))
+            }
+        }
+        return await matches(in: rows, term: term, timeZone: store.personDisplayZone)
+    }
+
+    private static func matches(in rows: [MessageRow], term: String, timeZone: TimeZone) async -> [Item] {
+        let dateStyle = Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone)
+        var matches: [(date: Date, item: Item)] = []
+        for row in rows {
+            if Task.isCancelled { return [] }
+            let body = row.searchableText
+            guard let found = body.range(of: term, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) else { continue }
+            let start = body.index(found.lowerBound, offsetBy: -32, limitedBy: body.startIndex) ?? body.startIndex
+            let end = body.index(found.upperBound, offsetBy: 64, limitedBy: body.endIndex) ?? body.endIndex
+            let excerpt = body[start..<end].split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let title = (start == body.startIndex ? "" : "…") + excerpt + (end == body.endIndex ? "" : "…")
+            let source = row.author == row.chat ? row.chat : "\(row.chat) · \(row.author)"
+            let detail = source + " · " + row.date.formatted(dateStyle)
+            let item = Item(id: "message-\(row.location.conversation)-\(row.location.message)", title: title,
+                            icon: "text.bubble", detail: detail, target: .message(row.location))
+            matches.append((row.date, item))
+        }
+        return matches.sorted { $0.date > $1.date }.map(\.item)
+    }
 
     @MainActor static func items(in store: AppStore, query: String) -> [Item] {
         func matches(_ title: String) -> Bool { query.isEmpty || title.localizedCaseInsensitiveContains(query) }

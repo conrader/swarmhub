@@ -1,5 +1,10 @@
 import Foundation
 
+struct ChatMessageLocation: Equatable, Sendable {
+    let conversation: UUID
+    let message: UUID
+}
+
 /// P50: where each chat (bot chat, group or thread, keyed by its id) was left, and whether it is away from the newest
 /// message. The saved position is the top visible message; at the bottom nothing is saved, so the chat opens at the
 /// newest. Views report what they show; this model decides where a chat opens, what follows and what the button says.

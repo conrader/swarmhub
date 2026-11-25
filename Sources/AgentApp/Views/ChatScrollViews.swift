@@ -71,6 +71,12 @@ import SwiftUI
         return false
     }
 
+    func reveal(_ target: ChatMessageLocation?, in store: AppStore) {
+        guard let target, target.conversation == conversation else { return }
+        jump(to: target.message)
+        store.scrollTarget = nil
+    }
+
     func jump(to message: UUID) {
         guard let i = order.firstIndex(of: message) else { return }
         move(to: .row(message, .center), range: page(around: i))

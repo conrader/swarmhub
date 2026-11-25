@@ -59,6 +59,8 @@ extension AppStore {
 
     /// Media tab → the message in the chat.
     func jump(to item: MediaItem) {
-        scrollTarget = item.messageID
+        if let selectedBot {
+            scrollTarget = ChatMessageLocation(conversation: selectedBot.id, message: item.messageID)
+        }
     }
 }

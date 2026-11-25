@@ -92,8 +92,8 @@ import UserNotifications
     @Published var infoTab = AgentInfoTab.overview
     @Published var editingBot: Bot?; @Published var errorMessage: String? { didSet { pendingError = nil } }
     var pendingError: DismissedError?
-    /// A message the transcript should scroll to (Media tab).
-    @Published var scrollTarget: UUID?
+    /// A message the transcript should scroll to after opening a media item or search result.
+    @Published var scrollTarget: ChatMessageLocation?
     /// A saved document on its way from the Media tab into a chat's composer.
     @Published var pendingComposerAttachment: PendingComposerAttachment?
     /// The one-time caption under the composer after the first steer.
