@@ -4,6 +4,7 @@ import Foundation
 /// does nothing until the person answers there. `question` is what its terminal shows, read from the server; empty
 /// until it was read, or when the server could not show it. Foundation only.
 struct HerdrPrompt: Equatable, Sendable {
+    var origin: String? = nil
     var reviewDescription: String? = nil
     /// The server's name for the agent program ("Codex"); nil when it gave none.
     var program: String?

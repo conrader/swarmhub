@@ -157,23 +157,16 @@ extension AppStore {
         objectWillChange.send(); save()
     }
 
-    /// What the bot's running turn takes as a steer follows what its backend offers now. A turn that is handing the
-    /// conversation over offers nothing (`HerdrBackend.features`), so a message sent meanwhile waits as the chat's
-    /// next message and goes after the first one, in order; once the handoff has ended the turn takes steers again.
-    /// Only for a bot that is handed a conversation, so every other bot's turn is left exactly as it was; never for
-    /// a turn the person stopped; and asked only when the answer could change something: at a hidden step while
-    /// steers are on, at any other status while they are off.
-    func steerFollowsBackend(of bot: Bot, at status: HerdrTurnStatus?) async {
-        guard grokHandoffIsOn(for: bot) || herdrCarryOver(for: bot) != nil || grokHandoffs.carried.contains(bot.id), let running = turn(in: bot), !running.stopping, let active = running.backend, let status else { return }
-        let hidden = status == .summarising || status == .readingHistory
-        guard running.steerAvailable == hidden else { return }
+    /// The real transport learns its steer capability after the provider accepts the
+    /// user turn. Handoff, startup and blocked statuses can all change the answer.
+    func steerFollowsBackend(_ running: ConversationTurn, bot: Bot) async {
+        guard !running.stopping, let active = running.backend else { return }
         let token = running.token
         let flags = try? await active.features()
-        // The person may have pressed Stop meanwhile: a stopping turn takes no steer.
-        guard let still = turn(token: token), !still.stopping else { return }
-        setSteerAvailable(flags?.contains("run_steer") == true, token: token)
-        // The turn that handed the bot's own chat over is back to taking steers: nothing more to follow for it.
-        if !hidden { grokHandoffs.carried.remove(bot.id) }
+        guard isCurrent(token), !running.stopping, running.botID == bot.id else { return }
+        let available = flags?.contains("run_steer") == true
+        setSteerAvailable(available, token: token)
+        if available { grokHandoffs.carried.remove(bot.id) }
     }
 
     // MARK: What the header says

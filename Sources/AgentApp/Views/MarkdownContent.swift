@@ -34,7 +34,7 @@ struct MarkdownContent: View {
                     MultipleChoiceCard(prompt: prompt, options: options, picked: message.metadata["picked.\(index)"],
                         enabled: index >= 0 && actionTarget.map { store.choiceStatus(message, target: $0, key: "picked.\(index)", binary: false).enabled } == true) { answer in
                         guard let actionTarget else { return }
-                        store.performCardAction(target: actionTarget, sourceID: message.id, index: index, expected: block, choice: answer)
+                        store.performCardAction(target: actionTarget, sourceID: message.id, index: index, expected: block, choice: answer, shownContent: shownContent)
                     }.id(options)
                 case .draft(let draft):
                     DraftCardView(message: message, target: actionTarget, index: index, draft: draft).id(draft)

@@ -29,19 +29,19 @@ extension AppStore {
         }
     }
 
-    /// Only ordinary binary questions stay open in history. A reply linked to a message
+    /// Ordinary questions remain answerable in history. A reply linked to a message
     /// with several cards needs a block key to identify which one it answered.
     func choiceStatus(_ source: ChatMessage, target: ConversationActionTarget, key: String,
                       binary: Bool) -> (picked: String?, enabled: Bool) {
         let picked = source.metadata[key]
         guard picked == nil, let (bot, conversation) = actionConversation(target),
               storeRestoreOffer == nil, !bot.isReadOnlyArchive, source.role == .assistant,
-              !source.isStreaming, source.turnState == nil || source.turnState == .finished,
+              (!source.isStreaming && (source.turnState == nil || source.turnState == .finished)) || runningTurns.values.contains { $0.conversation === conversation && $0.botID == bot.id && $0.assistant === source && !$0.stopping && source.isStreaming },
               !(conversation is GroupChat) || source.authorID == bot.id,
               let index = conversation.messages.lastIndex(where: { $0 === source }) else { return (picked, false) }
 
         let later = conversation.messages.suffix(from: index + 1)
-        guard binary || !later.contains(where: { !$0.isSilent }) else { return (nil, false) }
+
         for reply in later where reply.role == .user && reply.replyToID == source.id {
             if let answeredKey = reply.metadata[ChoiceReply.cardKey] {
                 if answeredKey == key { return (reply.content, false) }
@@ -56,7 +56,7 @@ extension AppStore {
                 if cards.count <= 1 { return (reply.content, false) }
             }
         }
-        return (nil, isIdle(conversation))
+        return (nil, true)
     }
 
     /// A card action uses the target captured by its view, independent of the current chat selection.
@@ -64,7 +64,7 @@ extension AppStore {
                                               choice: ChatChoiceAnswer? = nil, editedDraft: DraftCard? = nil, shownContent: String? = nil) -> Bool {
         guard let (bot, conversation) = actionConversation(target),
               let source = conversation.messages.first(where: { $0.id == sourceID }),
-              source.role == .assistant, !source.isStreaming else { return false }
+              source.role == .assistant else { return false }
         if case .group = target, source.authorID != bot.id { return false }
         let blocks = ChatCardParser.parseVisibleReply(source.content)
         guard shownContent == nil || shownContent == source.content, blocks.indices.contains(index), blocks[index] == expected else {
@@ -78,7 +78,7 @@ extension AppStore {
             let binary = ChoiceReply.isYesNo(options)
             guard choiceStatus(source, target: target, key: "picked.\(index)", binary: binary).enabled,
                   let reply = choice?.text(options: options) else { return false }
-            if binary {
+            do {
                 // A marker-style card puts its question in the prose before the options.
                 if !prompt.isEmpty { question = prompt }
                 else if case .markdown(let prose)? = blocks[..<index].last { question = prose }
@@ -86,12 +86,14 @@ extension AppStore {
             }
             queueChoice = true
             key = "picked.\(index)"; text = reply; value = reply
-        case .multiChoices(_, let options):
+        case .multiChoices(let prompt, let options):
+            question = prompt.isEmpty ? SwarmhubBlock.visibleText(source.content) : prompt
             guard choiceStatus(source, target: target, key: "picked.\(index)", binary: false).enabled,
                   let reply = choice?.multipleText(options: options) else { return false }
             queueChoice = true
             key = "picked.\(index)"; text = reply; value = reply
         case .draft(let original):
+            guard !source.isStreaming, source.turnState == nil || source.turnState == .finished else { return false }
             queueChoice = false
             key = "draftSent.\(index)"
             if let editedDraft, editedDraft != original {
@@ -118,14 +120,15 @@ extension AppStore {
         let key = ChatChoiceInference.answerKey
         guard choiceStatus(source, target: target, key: key, binary: binary).enabled else { return false }
         return sendCardReply(reply, bot: bot, in: conversation, source: source, key: key, value: reply,
-                             queueChoice: true, question: binary ? SwarmhubBlock.visibleText(shownContent) : nil)
+                             queueChoice: true, question: SwarmhubBlock.visibleText(shownContent))
     }
 
     private func sendCardReply(_ text: String, bot: Bot, in conversation: any Conversation, source: ChatMessage,
                                key: String, value: String, queueChoice: Bool, question: String?) -> Bool {
         guard source.metadata[key] == nil else { return false }
+        guard queueChoice || isIdle(conversation) else { return false }
         var metadata = queueChoice ? [ChoiceReply.cardKey: key] : [:]
-        if let question, conversation.messages.last(where: { !$0.isSilent }) !== source {
+        if let question {
             let excerpt = question.trimmingCharacters(in: .whitespacesAndNewlines)
             let quote = excerpt.count > 1200 ? "…" + String(excerpt.suffix(1200)) : excerpt
             metadata[ChoiceReply.quoteKey] = "\(bot.name): \(quote)"

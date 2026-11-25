@@ -146,6 +146,9 @@ struct ChatView: View {
                         }, openDetails: { helper in store.open(helper, of: bot) })
                     }
                 }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil || !helpers.isEmpty ? 8 : 0).frame(maxWidth: .infinity)
+                if let goal = bot.goal {
+                    GoalStatusView(bot: bot, goal: goal)
+                }
                 composer
             }
         }
@@ -161,7 +164,12 @@ struct ChatView: View {
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
                      manage: { action in if let request = action.request { draft = request } else { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot, again: true) } },
-                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name)
+                     wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name,
+                     goalCommand: { command in
+                         let notice = store.handleGoalCommand(command, in: bot, attachments: intake.items)
+                         if case .start = command, notice == nil { intake.items = []; store.replyTo = nil }
+                         return notice
+                     })
         }
     }
     /// Media tab → Attach puts a saved document into this chat's composer.
@@ -171,10 +179,11 @@ struct ChatView: View {
     }
     private func attach(_ urls: [URL]) { intake.attach(urls, store: store) }
     private func send() {
+        guard store.openConversation === bot else { return }
         let value = draft, items = intake.items
         guard !verifyingAttachmentSupport, !intake.isReading,
               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !items.isEmpty else { return }
-        if items.isEmpty { submit(value, items: items); return }
+        if items.isEmpty || !store.isIdle(bot) { submit(value, items: items); return }
         verifyingAttachmentSupport = true
         Task {
             defer { verifyingAttachmentSupport = false }

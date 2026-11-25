@@ -299,7 +299,7 @@ struct HerdrAgentControls: View {
     @ObservedObject var bot: Bot
     @State private var template = ""; @State private var model = ""
     @State private var templates: [HerdrClient.Template]; @State private var models: [HerdrClient.Template.Model]
-    @State private var note = ""; @State private var loaded = false; @State private var restarting = false; @State private var steers = true
+    @State private var note = ""; @State private var loaded = false; @State private var restarting = false
     @State private var moveSource: HerdrServer?
     @State private var showAdvanced = false
     @Environment(\.inspectorStartsAdvanced) private var renderOpen
@@ -350,7 +350,10 @@ struct HerdrAgentControls: View {
                 if let running = reading?.runningLine {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(running)
-                        if let pending = reading?.pendingLine { Text(pending) }
+                        if let pending = reading?.pendingLine {
+                            Text(pending)
+                            Text("Bot messages and scheduled check-ins use the existing session while it is running.")
+                        }
                     }
                     .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -395,8 +398,6 @@ struct HerdrAgentControls: View {
                     SettingBlock(title: "New conversation", detail: GrokHandoffCopy.newConversation(bot.name, readsHistory: store.grokHandoffIsOn(for: bot))) {
                         Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isAnswering(bot))
                     }
-                    SettingSwitch(title: "Read new messages mid-answer", detail: "Off: a message you send while \(bot.name) is answering waits until the answer ends.",
-                                  isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
                     // It is started when its chat opens, so the first message does not wait for it.
                     let ahead = store.herdrStartsAhead(for: bot)
                     SettingSwitch(title: "Keep \(bot.name) ready", detail: AppStore.keepsReadyCaption(bot: bot.name, program: effective?.modelAgent ?? effective?.programName, available: ahead),
@@ -415,7 +416,7 @@ struct HerdrAgentControls: View {
         }
         .sheet(item: $moveSource) { HerdrMoveBotsSheet(source: $0, initialBot: bot.id) }
         .task(id: "\(bot.id)-\(server.id)-\(store.localAIRevision)") {
-            template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
+            template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot)
             loaded = true
             if preset == nil { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
         }

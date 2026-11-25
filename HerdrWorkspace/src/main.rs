@@ -397,6 +397,8 @@ fn workspace_router(workspace: Workspace) -> Router {
             post(launch_with_files).layer(DefaultBodyLimit::max(task_files::UPLOAD_LIMIT)),
         )
         .route("/api/agents/{id}/{created}/output", get(output))
+        .route("/api/agents/{id}/{created}/steer", post(steer))
+        .route("/api/agents/{id}/{created}/steer/with-files", post(steer_files).layer(DefaultBodyLimit::max(task_files::UPLOAD_LIMIT)))
         .route("/api/agents/{id}/{created}/messages", post(send))
         .route(
             "/api/agents/{id}/{created}/messages/with-files",
@@ -441,6 +443,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .route("/api/library/{id}", get(snapshot))
         .route("/api/agents/{id}/{created}/interrupt", post(interrupt))
         .route("/api/agents/{id}/{created}/end", post(end))
+        .route("/api/agents/{id}/{created}/end-if-idle", post(end_if_idle))
         .layer(DefaultBodyLimit::max(128 * 1024))
         .layer(middleware::from_fn_with_state(
             workspace.clone(),
@@ -750,7 +753,7 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
-               "attachments":hello.supports("terminal.put"),"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,
+               "attachments":hello.supports("terminal.put"),"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"codex_turn_steer":true,
                "workspace_root":core::bot_workspace_root().ok().flatten(),"terminal_attach":hello.supports("terminal.attach"),
                "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)}),
     ))
@@ -1284,6 +1287,87 @@ async fn task_turn(w: &Workspace, address: &str, created: u64) -> tokio::sync::O
     gate.lock_owned().await
 }
 
+async fn stage_message(w: &Workspace, agent: &core::Terminal, core_id: &str, text: &str, files: &[groups::Upload]) -> Result<String, ApiError> {
+    const CHANGED: ApiError = ApiError::Conflict("The terminal changed during file staging.");
+    let mut paths = Vec::new();
+    for file in files {
+        const STAGING: ApiError =
+            ApiError::Conflict("A file could not be attached. The task was not sent.");
+        if w.core.identify().await?.core.id != core_id {
+            return Err(CHANGED);
+        }
+        let staged = w
+            .core
+            .stage_file(agent, &file.name, &file.data)
+            .await
+            .map_err(|_| STAGING)?;
+        if staged.bytes != file.data.len()
+            || staged.path.is_empty()
+            || staged.path.chars().any(char::is_control)
+        {
+            return Err(STAGING);
+        }
+        paths.push((file.name.as_str(), staged.path));
+    }
+    let text = if paths.is_empty() {
+        text.to_owned()
+    } else {
+        if w.core.identify().await?.core.id != core_id {
+            return Err(CHANGED);
+        }
+        let current = w.core.agent(&agent.address, agent.created_ms).await?;
+        current.require_live()?;
+        if current.launch_key() != agent.launch_key() {
+            return Err(CHANGED);
+        }
+        let attachment_list: Vec<_> = paths
+            .iter()
+            .map(|(name, path)| json!({"name":name,"path":path}))
+            .collect();
+        format!(
+            "{}\n\nAttached files (name and terminal path):\n{}",
+            text,
+            json!(attachment_list)
+        )
+    };
+    Ok(text)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Steer {
+    expected_core: String,
+    reference: String,
+    text: String,
+}
+
+async fn steer(State(w): State<Workspace>, Path(target): Path<(String, u64)>, Json(body): Json<Steer>) -> Result<Response, ApiError> {
+    steer_turn(w, target, body, vec![]).await
+}
+
+async fn steer_files(State(w): State<Workspace>, Path(target): Path<(String, u64)>, multipart: Multipart) -> Result<Response, ApiError> {
+    let (body, files) = task_files::read(multipart).await?;
+    steer_turn(w, target, body, files).await
+}
+
+async fn steer_turn(w: Workspace, (address, created): (String, u64), body: Steer, files: Vec<groups::Upload>) -> Result<Response, ApiError> {
+    core::validate_task(&body.text)?;
+    if body.reference.len() != 36 || !body.reference.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-') {
+        return Err(Failure::Input("Invalid turn reference.").into());
+    }
+    let hello = w.core.identify().await?;
+    if body.expected_core != hello.core.id || (!files.is_empty() && !hello.supports("terminal.put")) {
+        return Err(ApiError::Conflict("The selected workspace cannot receive this follow-up."));
+    }
+    let agent = w.core.agent(&address, created).await?;
+    agent.require_live()?;
+    let key = agent.launch_key().ok_or(ApiError::Conflict("No steerable session."))?;
+    let text = stage_message(&w, &agent, &hello.core.id, &body.text, &files).await?;
+    core::validate_task(&text)?;
+    codex_agent::stream::steer(w.history.file(), key, &body.reference, &text).await?;
+    Ok(Json(json!({"delivered":true})).into_response())
+}
+
 async fn send_message(
     w: Workspace,
     id: String,
@@ -1327,47 +1411,7 @@ async fn send_message(
     } else {
         None
     };
-    let mut paths = Vec::new();
-    for file in &files {
-        const STAGING: ApiError =
-            ApiError::Conflict("A file could not be attached. The task was not sent.");
-        if w.core.identify().await?.core.id != hello.core.id {
-            return Err(CHANGED);
-        }
-        let staged = w
-            .core
-            .stage_file(&agent, &file.name, &file.data)
-            .await
-            .map_err(|_| STAGING)?;
-        if staged.bytes != file.data.len()
-            || staged.path.is_empty()
-            || staged.path.chars().any(char::is_control)
-        {
-            return Err(STAGING);
-        }
-        paths.push((file.name.as_str(), staged.path));
-    }
-    let text = if paths.is_empty() {
-        body.text.clone()
-    } else {
-        if w.core.identify().await?.core.id != hello.core.id {
-            return Err(CHANGED);
-        }
-        let current = w.core.agent(&id, created).await?;
-        current.require_live()?;
-        if current.launch_key() != agent.launch_key() {
-            return Err(CHANGED);
-        }
-        let attachment_list: Vec<_> = paths
-            .iter()
-            .map(|(name, path)| json!({"name":name,"path":path}))
-            .collect();
-        format!(
-            "{}\n\nAttached files (name and terminal path):\n{}",
-            body.text,
-            json!(attachment_list)
-        )
-    };
+    let text = stage_message(&w, &agent, &hello.core.id, &body.text, &files).await?;
     const INTRO: &str = "The user is replying to this excerpt from your earlier message (a JSON string for context):";
     let base = quote
         .as_ref()
@@ -1804,6 +1848,49 @@ async fn interrupt(
     // The person's Stop also ends the exchanges this bot is part of with other bots (`bots`).
     bots::stopped_agent(&w, &agent);
     Ok(Json(json!({"outcome": outcome})))
+}
+
+#[derive(Deserialize)]
+struct IdleRollover {
+    expected_core: String,
+    unused_only: bool,
+}
+
+/// Serialize a model/Auto rollover with bot messages, check-ins and direct tasks.
+/// A rollover keeps the chat and outbox; only an explicit Stop ends exchanges.
+async fn end_if_idle(
+    State(w): State<Workspace>,
+    Path((id, created)): Path<(String, u64)>,
+    Json(request): Json<IdleRollover>,
+) -> Result<impl IntoResponse, ApiError> {
+    let _turn = task_turn(&w, &id, created).await;
+    let hello = w.core.identify().await?;
+    if hello.core.id != request.expected_core { return Err(ApiError::Conflict("The workspace changed.")); }
+    let agents = w.core.agents().await?;
+    let agent = agents.iter().find(|a| a.address == id && a.created_ms == created).ok_or(ApiError::NotFound)?;
+    agent.require_live()?;
+    let key = agent.launch_key().ok_or(ApiError::Conflict("Unknown launch."))?;
+    let unused = warm::Start::of(&w.history, agent).warm;
+    let idle = match agent.status.as_ref().map(|s| s.state.as_str()) {
+        Some("idle" | "done") => true,
+        None => unused,
+        _ => false,
+    };
+    let parents = helpers::parents(&w.history, &hello.core.id, &agents)?;
+    let helper_busy = agents.iter().filter(|a| a.state == "live").any(|a| {
+        a.launch_key().and_then(|key| parents.get(key)).and_then(Option::as_ref)
+            .is_some_and(|p| p.address == id && p.created_ms == created)
+            && !a.status.as_ref().is_some_and(|s| matches!(s.state.as_str(), "idle" | "done"))
+    });
+    if !idle || helper_busy || (request.unused_only && !unused) || w.approvals.waits_on(key)? {
+        return Err(ApiError::Conflict("The existing session is busy or waiting for a decision."));
+    }
+    let pending: bool = w.history.db()?.query_row(
+        "SELECT EXISTS(SELECT 1 FROM journal WHERE core_id=? AND address=? AND created_ms=? AND kind='task' AND state='pending')",
+        rusqlite::params![request.expected_core, id, created], |row| row.get(0)
+    ).map_err(StoreError::from)?;
+    if pending { return Err(ApiError::Conflict("The existing session has a pending delivery.")); }
+    Ok(Json(w.core.end(agent).await?))
 }
 
 async fn end(

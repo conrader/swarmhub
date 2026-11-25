@@ -270,10 +270,12 @@ pub(crate) struct Checkin {
     pub fires: i64,
     /// The bot's "Takes initiative" switch is off, so it does not fire.
     pub paused: bool,
+    pub enabled: bool,
+    pub control_revision: i64,
 }
 
 const CHECKIN: &str = "c.id,c.bot,c.what,c.schedule,c.next_ms,c.state,c.planned_by,c.created_ms,c.last_fired_ms,c.last_outcome,c.fires,
-    NOT coalesce((SELECT takes_initiative FROM bots WHERE id=c.bot),1)";
+    NOT c.enabled OR NOT coalesce((SELECT takes_initiative FROM bots WHERE id=c.bot),1),c.enabled,c.control_revision";
 
 fn read_checkin(row: &Row<'_>) -> rusqlite::Result<Checkin> {
     Ok(Checkin {
@@ -290,6 +292,8 @@ fn read_checkin(row: &Row<'_>) -> rusqlite::Result<Checkin> {
         last_outcome: row.get(9)?,
         fires: row.get(10)?,
         paused: row.get(11)?,
+        enabled: row.get(12)?,
+        control_revision: row.get(13)?,
     })
 }
 
@@ -402,6 +406,30 @@ pub(crate) fn plan(
     Ok(Ok(planned))
 }
 
+/// Called in the same write transaction as the scheduler's claim. The revision
+/// distinguishes a retry from an old request arriving after two newer changes.
+pub(crate) fn set_enabled(ctx: &Ctx<'_>, bot: &str, id: i64, enabled: bool, revision: i64)
+    -> rusqlite::Result<Result<Checkin, &'static str>> {
+    let read = || ctx.db.query_row(&format!("SELECT {CHECKIN} FROM bot_checkins c
+        WHERE c.bot=?1 AND c.id=?2 AND c.state='planned'"), params![bot,id], read_checkin).optional();
+    let Some(item) = read()? else { return Ok(Err("This bot no longer has this planned check-in.")); };
+    if item.enabled == enabled && (item.control_revision == revision || revision.checked_add(1) == Some(item.control_revision)) {
+        return Ok(Ok(item));
+    }
+    if revision != item.control_revision { return Ok(Err("The check-in changed. Refresh before changing it again.")); }
+    let recompute = enabled && (item.next_ms.is_none_or(|due| due <= ctx.now)
+        || matches!(item.schedule, Schedule::Daily { .. } | Schedule::LocalOnce { .. }));
+    let next = if recompute {
+        let Some(next) = item.schedule.next(ctx.now, ctx.zone) else {
+            return Ok(Err("The one-off time has passed. This check-in remains paused."));
+        };
+        Some(next)
+    } else { item.next_ms };
+    ctx.db.execute("UPDATE bot_checkins SET enabled=?3,next_ms=?4,control_revision=control_revision+1
+        WHERE id=?1 AND bot=?2 AND state='planned' AND control_revision=?5", params![id,bot,enabled,next,revision])?;
+    Ok(read()?.ok_or("The check-in is no longer planned."))
+}
+
 /// Cancels a planned check-in of `bot`.
 pub(crate) fn cancel(ctx: &Ctx<'_>, bot: &str, id: i64) -> rusqlite::Result<bool> {
     Ok(ctx.db.execute(
@@ -417,7 +445,7 @@ pub(crate) fn fire_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
     let due: Vec<Checkin> = ctx
         .db
         .prepare_cached(&format!(
-            "SELECT {CHECKIN} FROM bot_checkins c WHERE c.state='planned' AND c.next_ms<=?1 AND (json_extract(c.schedule,'$.kind')!='ci' OR json_extract(c.schedule,'$.failure') IS NOT NULL) ORDER BY c.next_ms,c.id LIMIT 64"
+            "SELECT {CHECKIN} FROM bot_checkins c WHERE c.state='planned' AND c.enabled AND c.next_ms<=?1 AND (json_extract(c.schedule,'$.kind')!='ci' OR json_extract(c.schedule,'$.failure') IS NOT NULL) ORDER BY c.next_ms,c.id LIMIT 64"
         ))?
         .query_map([ctx.now], read_checkin)?
         .collect::<Result<_, _>>()?;
@@ -801,7 +829,7 @@ pub(crate) fn promise_text(ctx: &Ctx<'_>, bot: &Bot) -> rusqlite::Result<String>
 pub(crate) fn rezone(db: &rusqlite::Connection, at: i64, zone: Tz) -> rusqlite::Result<()> {
     for (select, update) in [
         (
-            "SELECT id,schedule,next_ms FROM bot_checkins WHERE state='planned'
+            "SELECT id,schedule,next_ms FROM bot_checkins WHERE enabled AND state='planned'
                AND json_extract(schedule,'$.kind') IN ('daily','local_once')
                AND json_extract(schedule,'$.timezone') IS NULL",
             "UPDATE bot_checkins SET next_ms=?2 WHERE id=?1",
@@ -1518,6 +1546,47 @@ mod tests {
                 .1
                 .contains("did not reach Jarvis's agent: its agent could not be started.")
         );
+    }
+
+    #[test]
+    fn paused_schedules_survive_restart_and_conditional_control_is_idempotent() {
+        let (dir, history) = testing::journal(&["Fixture", "Other"]);
+        let set = utc();
+        let owner = testing::id_of("Fixture");
+        let once = planned(&history, NOON, &set, "Fixture", When::In { seconds: 600 }, "One-off").unwrap();
+        let recurring = planned(&history, NOON, &set, "Fixture", When::Every { seconds: 3600 }, "Recurring").unwrap();
+        testing::at(&history, NOON, &set, |ctx| {
+            assert!(set_enabled(ctx, "other-id", once.id, false, 0)?.is_err());
+            for id in [once.id, recurring.id] {
+                assert_eq!(set_enabled(ctx, &owner, id, false, 0)?.unwrap().control_revision, 1);
+                assert_eq!(set_enabled(ctx, &owner, id, false, 0)?.unwrap().control_revision, 1);
+            }
+            assert!(set_enabled(ctx, &owner, once.id, true, 1)?.unwrap().enabled);
+            assert!(!set_enabled(ctx, &owner, once.id, false, 2)?.unwrap().enabled);
+            Ok(())
+        });
+        history.db().unwrap().execute("UPDATE bots SET takes_initiative=0 WHERE id=?", [&owner]).unwrap();
+        drop(history);
+        let history = History::open_at(&dir.path().join("workspace")).unwrap();
+        let later = NOON + 61 * MINUTE;
+        testing::at(&history, later, &set, |ctx| {
+            let list = checkins(ctx.db, Some(&owner), false)?;
+            assert_eq!(list.len(), 2);
+            assert!(list.iter().all(|item| !item.enabled && item.fires == 0));
+            assert_eq!(fire_due(ctx)?, 0);
+            assert!(set_enabled(ctx, &owner, once.id, true, 3)?.unwrap_err().contains("passed"));
+            let resumed = set_enabled(ctx, &owner, recurring.id, true, 1)?.unwrap();
+            assert_eq!(resumed.schedule, recurring.schedule);
+            assert_eq!(resumed.next_ms, Some(later + 60 * MINUTE));
+            assert!(set_enabled(ctx, &owner, recurring.id, false, 0)?.is_err());
+            assert_eq!(set_enabled(ctx, &owner, recurring.id, true, 1)?.unwrap().next_ms, resumed.next_ms);
+            assert_eq!(fire_due(ctx)?, 0);
+            Ok(())
+        });
+        assert_eq!(testing::at(&history, later + 60 * MINUTE, &set, fire_due), 0);
+        history.db().unwrap().execute("UPDATE bots SET takes_initiative=1 WHERE id=?", [&owner]).unwrap();
+        assert_eq!(testing::at(&history, later + 60 * MINUTE, &set, fire_due), 1);
+        assert_eq!(testing::at(&history, later + 60 * MINUTE, &set, fire_due), 0);
     }
 
     #[test]

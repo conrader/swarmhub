@@ -9,10 +9,8 @@ enum SteerCopy {
     /// Sent before the correction's text (never shown in the bubble).
     static let lead = "(Correction while you were answering:)"
     static let placeholder = "Add to this answer…"
-    /// An agent that cannot steer: the message waits and goes when the answer ends.
-    static let queuePlaceholder = "Message (sends when this answer ends)…"
-    static let hint = "Your message goes into this answer without stopping it. If the answer ends first, it is sent as your next message."
-    /// The line under a message that waits for the running answer (no steer for this bot, or attachments).
+    static let hint = "Follow-ups go to the current turn. Check the receipt below your message."
+    /// Legacy automatic wait caption, used to recover old queues.
     static let afterTurn = "Sends when the current answer ends."
     /// The status line under a failed steer: only the reason (the bubble's caption already says "Not delivered").
     static let endedFirst = "The answer ended first."
@@ -28,12 +26,15 @@ enum SteerCopy {
         }
         switch message.metadata[SteerKey.steer] {
         case nil: return nil
-        case "sent": return "Sending…"
-        case "queued": return "Delivered after the current step"
+        case "sent": return "Accepted · sending to current turn…"
+        case "queued": return "Accepted · delivery unconfirmed"
+        case "uncertain": return "Delivery unconfirmed"
         case "failed": return "Not delivered"
+        case "goalContext": return "Saved to goal context"
         case "next": return "Sends as the next message when the answer ends"
         case "sentNext": return "It did not get into that answer, so it was sent as your next message"
-        default: return "Delivered"
+        case "delivered": return "Delivered"
+        default: return "Delivery unconfirmed"
         }
     }
 }
@@ -49,33 +50,28 @@ struct PendingSteer {
 extension AppStore {
     // MARK: Entry
 
-    /// Text typed while this bot's turn streams never stops that turn. It steers it (typed into the running agent, which
-    /// reads it as soon as it can). A bot that holds messages, or a message with attachments, waits as the chat's next
-    /// message and goes when the turn ends.
-    func steer(text: String, attachments: [ChatAttachment], bot: Bot) -> Bool {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let turn = turn(in: bot), turn.botID == bot.id else { return false }
-        if !(bot.backend == .herdr && (modelSwitchPending(bot) || autoSwitchPending(bot))), turn.steerAvailable, attachments.isEmpty, !value.isEmpty, turn.assistant != nil, let activeBackend = try? backend(for: bot) {
-            noteFirstSteer()
-            deliverSteer(value, into: bot, sessionID: turnSessionID(in: bot, bot: bot), backend: activeBackend)
+    func steer(_ message: ChatMessage, bot: Bot, turn: ConversationTurn) -> Bool {
+        guard !bot.isReadOnlyArchive, storeRestoreOffer == nil, turn.botID == bot.id else { return false }
+        let conversation = turn.conversation
+        let files: [HerdrClient.TaskFile]
+        do {
+            try validateArtifactAccess(message, botID: bot.id)
+            files = try message.attachments.map(attachmentEncoder.taskFile(for:))
+            try HerdrClient.TaskFile.validate(files)
+        } catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return false }
+        captureAttachments(message, readers: [bot.id])
+        conversation.messages.append(message)
+        guard turn.steerAvailable, !turn.stopping, let backend = turn.backend, turn.assistant != nil else {
+            message.metadata[SteerKey.steer] = "failed"
+            addWarning("The current turn cannot accept this follow-up.", in: conversation, after: message)
+            objectWillChange.send(); save()
             return true
         }
-        return queueAfterTurn(text: text, attachments: attachments, bot: bot, conversation: bot)
-    }
-
-    /// The message goes into the chat now and waits there as its next message (`waitForTurn`): it is sent when the
-    /// running turn ends, which it never stops.
-    func queueAfterTurn(text: String, attachments: [ChatAttachment], bot: Bot, conversation: any Conversation) -> Bool {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        let user = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)
-        do {
-            try validateArtifactAccess(user, botID: bot.id)
-            _ = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))
-        } catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return false }
-        steerHint = nil
-        captureAttachments(user, readers: [bot.id])
-        conversation.messages.append(user)
-        return waitForTurn(user, in: conversation, reason: SteerCopy.afterTurn)
+        noteFirstSteer()
+        message.metadata[SteerKey.steer] = "sent"
+        deliverSteer(message.modelText.trimmingCharacters(in: .whitespacesAndNewlines), into: conversation,
+                     sessionID: turnSessionID(in: conversation, bot: bot), backend: backend, bubble: message, files: files, slot: turn)
+        return true
     }
 
     func noteFirstSteer() {
@@ -85,68 +81,69 @@ extension AppStore {
 
     /// The first reply row of `conversation`'s running turn (the key of its steers and parts).
     func streamingTurnOrigin(in conversation: any Conversation) -> UUID? {
-        guard let row = turn(in: conversation)?.assistant else { return nil }
+        return steerOrigin(turn(in: conversation))
+    }
+
+    func steerOrigin(_ turn: ConversationTurn?) -> UUID? {
+        guard let row = turn?.assistant else { return nil }
         return turns.parts.first { $0.value === row }?.key ?? row.id
     }
 
     // MARK: Queued
 
     /// Shows the steer bubble and posts it; it waits for the running step to end. A refusal marks it and says why.
-    func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil) {
+    func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil, files: [HerdrClient.TaskFile] = [], slot: ConversationTurn? = nil) {
         let message = bubble ?? ChatMessage(role: .user, content: value, metadata: [SteerKey.steer: "sent"])
         if bubble == nil { conversation.messages.append(message) }
-        if let origin = streamingTurnOrigin(in: conversation) {
+        let slot = slot ?? turn(in: conversation)
+        let recipient = slot?.botID
+        if let origin = steerOrigin(slot) {
             turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message)
         }
+        let goalID = (conversation as? Bot)?.goal.flatMap { $0.state.active ? $0.id : nil }
         turns.inFlightSteers.insert(message.id)
         objectWillChange.send(); save()
-        Task {
-            defer { turns.inFlightSteers.remove(message.id) }
+        let delivery = Task {
+            defer {
+                turns.inFlightSteers.remove(message.id)
+                slot?.guidanceReceipts[message.id] = nil
+            }
             do {
-                try await activeBackend.steer(sessionID: sessionID, text: value)
-                if message.metadata[SteerKey.steer] == "sent" {
-                    // The turn may have ended while the steer request was still in flight.
-                    message.metadata[SteerKey.steer] = steerHeldByTurn(message) ? "queued" : "delivered"
+                guard steerHeldByTurn(message), let slot, isCurrent(slot.token), !slot.stopping, slot.botID == recipient else {
+                    throw BackendError.unavailable(SteerCopy.endedFirst)
+                }
+                guard let recipient, bots.contains(where: { $0.id == recipient && !$0.isReadOnlyArchive }),
+                      storeRestoreOffer == nil else { throw BackendError.unavailable("This recipient is unavailable.") }
+                if let group = conversation as? GroupChat,
+                   !groups.contains(where: { $0 === group }) || !group.memberIDs.contains(recipient) {
+                    throw BackendError.unavailable("This recipient left the group.")
+                }
+                try validateArtifactAccess(message, botID: recipient)
+                try await activeBackend.steer(sessionID: sessionID, text: value, files: files)
+                message.metadata[SteerKey.steer] = "delivered"
+                if let bot = conversation as? Bot, let goalID, bot.goal?.id == goalID, bot.goal?.state.active == true {
+                    bot.goal?.objective += "\nFollow-up: " + value + files.map { "\nAttached file: " + $0.name }.joined()
                 }
             } catch {
-                guard ["sent", "queued"].contains(message.metadata[SteerKey.steer] ?? "") else { return }
-                // The agent says there is no run to steer any more: nothing was typed, so the text goes as the next message.
-                let refused = Self.runTakesNoSteer(error)
-                message.metadata[SteerKey.steer] = "failed"
+                let uncertain: Bool
+                switch error {
+                case BackendError.http(let code, _) where code >= 500: uncertain = true
+                case let network as URLError:
+                    uncertain = ![.notConnectedToInternet, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed].contains(network.code)
+                case is DecodingError, HerdrClient.Failure.unconfirmedDelivery: uncertain = true
+                default: uncertain = false
+                }
+                message.metadata[SteerKey.steer] = uncertain ? "uncertain" : "failed"
                 for key in turns.steers.keys { turns.steers[key]?.bubbles.removeAll { $0 === message } }
-                // Never after the user's Stop: then it is only offered ("Send as next message").
-                if refused, !turns.stoppedSteers.contains(message.id), turn(in: conversation)?.stopping != true {
-                    sendLateSteer(message, in: conversation)
-                } else if !refused { addWarning(error.localizedDescription, in: conversation, after: message) }
+                addWarning(error.localizedDescription, in: conversation, after: message)
             }
             objectWillChange.send(); save()
         }
+        if slot?.goalAttempt != nil { slot?.guidanceReceipts[message.id] = delivery }
     }
 
     /// The bubble still belongs to a running turn's steer bookkeeping.
     func steerHeldByTurn(_ bubble: ChatMessage) -> Bool { turns.steers.values.contains { $0.bubbles.contains { $0 === bubble } } }
-
-    /// A steer its turn can no longer read goes as the chat's next message ("Sent after the answer finished").
-    private func sendLateSteer(_ bubble: ChatMessage, in conversation: any Conversation) {
-        bubble.metadata[SteerKey.steer] = "failed"
-        if !sendAsNextMessage(bubble, automatic: true) { addWarning(SteerCopy.endedFirst, in: conversation, after: bubble) }
-    }
-
-    /// Refusals that mean there is no run to take the text: `run_not_found` (the agent is not running). Anything else
-    /// (a 500, a network drop) is shown.
-    nonisolated static func runTakesNoSteer(_ error: Error) -> Bool {
-        if case BackendError.http(let code, let text) = error { return (code == 409 || code == 404) && text.contains("run_not_found") }
-        return false
-    }
-
-    /// The user's Stop: the turn's unsent steers, and the ones already waiting by themselves as its next message,
-    /// are only offered from now on (`Send as next message`), never sent by themselves.
-    func holdSteersAtStop(in conversation: any Conversation, origin: UUID?) {
-        if let origin, let pending = turns.steers[origin] { pending.bubbles.forEach { turns.stoppedSteers.insert($0.id) } }
-        let automatic = turns.nextMessages.filter { $0.automatic && $0.conversation === conversation && !$0.restored }
-        turns.nextMessages.removeAll { next in automatic.contains { $0.id == next.id } }
-        automatic.forEach { turns.stoppedSteers.insert($0.bubble.id); giveBack($0) }
-    }
 
     /// Stream bookkeeping for queued steers (`consumeTurn`). Returns the row the event belongs in: after a step ended,
     /// the first text or step of a turn holding a queued steer starts a new reply row below the steer bubble (D5).
@@ -160,7 +157,7 @@ extension AppStore {
         case .tool(let tool) where tool.phase != .started: return row
         case .token, .replace, .tool:
             let boundary = pending.boundary; pending.boundary = false
-            let queued = pending.bubbles.filter { $0.metadata[SteerKey.steer] == "queued" }
+            let queued = pending.bubbles.filter { $0.metadata[SteerKey.steer] == "delivered" }
             guard boundary, let last = queued.last, let index = pending.conversation.messages.firstIndex(where: { $0 === last }) else { return row }
             queued.forEach { $0.metadata[SteerKey.steer] = "delivered" }
             pending.bubbles.removeAll { bubble in queued.contains { $0 === bubble } }
@@ -177,10 +174,11 @@ extension AppStore {
         if var activity = row.activity { activity.finish(at: now()); row.activity = activity }
         var metadata = [TurnKey.part: String(number + 1)]
         metadata[TurnKey.forUser] = row.metadata[TurnKey.forUser]
+        metadata[GoalKey.attempt] = row.metadata[GoalKey.attempt]
         let next = ChatMessage(role: .assistant, content: "", isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
         conversation.messages.insert(next, at: index + 1)
         turns.parts[origin.id] = next
-        if let turn = turn(in: conversation), turn.assistant === row { turn.assistant = next }
+        runningTurns.values.first { $0.conversation === conversation && $0.assistant === row }?.assistant = next
         objectWillChange.send(); save()
         return next
     }
@@ -188,20 +186,7 @@ extension AppStore {
     /// Returns the final reply row and settles its steers before the caller saves the turn.
     func endTurnParts(_ assistant: ChatMessage, end: TurnEnd) -> ChatMessage {
         let reply = turns.parts.removeValue(forKey: assistant.id) ?? assistant
-        guard let pending = turns.steers.removeValue(forKey: assistant.id) else { return reply }
-        let stopped: Bool
-        if case .stoppedByUser = end { stopped = true } else { stopped = reply.turnState == .stopped }
-        for bubble in pending.bubbles {
-            switch (bubble.metadata[SteerKey.steer], end) {
-            case ("queued", .completed) where !stopped:
-                bubble.metadata[SteerKey.steer] = "delivered"
-            case ("sent", _) where stopped:
-                bubble.metadata[SteerKey.steer] = "failed"
-            case ("queued", _):
-                bubble.metadata[SteerKey.steer] = "failed"
-            default: break // The request's completion settles any still-in-flight steer.
-            }
-        }
+        turns.steers[assistant.id] = nil
         return reply
     }
 }

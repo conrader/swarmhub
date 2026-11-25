@@ -94,16 +94,73 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async
      {"id":2,"runtime_name":"an-older-bridge-without-sessions"}]
     """.utf8))
     let running = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: profiles)
-    #expect(running.running == .model(id: "m-b", label: "Model B") && running.short == "Model B" && running.runningLine == "Started on Model B.")
-    #expect(running.pendingLine == "Model A will answer your next message.", "another model is chosen than the one running: it says when it applies")
+    #expect(running.running == .model(id: "m-b", label: "Model B") && running.short == "Model B" && running.runningLine == "Current session started on Model B.")
+    #expect(running.pendingLine == "Model A will answer your next new direct turn.", "another model is chosen than the one running: it says when it applies")
     var changedProgram = running
     changedProgram.activeTemplate = "old-program"
-    #expect(changedProgram.changesProgram && changedProgram.pendingLine == "Next reply: Agent One · Model A. Your chat stays here.")
+    #expect(changedProgram.changesProgram && changedProgram.pendingLine == "Next new direct turn: Agent One · Model A. Your chat stays here.")
     changedProgram.model = nil
-    #expect(changedProgram.pendingLine == "Next reply: Agent One. Your chat stays here.")
+    #expect(changedProgram.pendingLine == "Next new direct turn: Agent One. Your chat stays here.")
     let same = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: "m-b", offered: offered, agent: agent, profiles: profiles)
-    #expect(same.pendingLine == nil && same.summary == "AI: Agent One (default). Model: Model B. Started on Model B.")
+    #expect(same.pendingLine == nil && same.summary == "AI: Agent One (default). Model: Model B. Current session started on Model B.")
     let unstated = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: older, profiles: profiles)
-    #expect(unstated.running == .unstated && unstated.short == nil && unstated.runningLine?.contains("it picked itself") == true && unstated.pendingLine == "Model A will answer your next message.", "an agent started without a model is not given one by guess")
+    #expect(unstated.running == .unstated && unstated.short == nil && unstated.runningLine?.contains("it picked itself") == true && unstated.pendingLine == "Model A will answer your next new direct turn.", "an agent started without a model is not given one by guess")
     #expect(HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: []).running == .unknown)
+}
+
+@MainActor @Test func docComposerRechecksNativeSteeringAfterDirectPreparationAtAPermissionPrompt() async throws {
+    let bot = Bot(name: "Doc", backend: .herdr)
+    let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+    let events = AwaitableLog<String>()
+    let (host, session) = MockHTTPProtocol.serve { request in
+        let blocked = events.all.contains("started")
+        let finished = events.all.contains("finished")
+        switch request.url?.path {
+        case "/api/workspace":
+            let state = finished ? "done" : blocked ? "blocked" : "idle"
+            let agent: [String: Any] = ["name": name, "address": "doc", "created_ms": 7, "state": "live",
+                "template": "codex", "status": ["state": state, "kind": "permission"], "auto_restart_pending": true,
+                "codex_policy": "on-request", "codex_reviewer": "user", "codex_sandbox": "read-only"]
+            return (200, ["core":"fixture-core","codex_turn_steer":true,"agents":[agent],
+                          "templates":[["name":"codex","runtime":["harness":"Codex"]]]])
+        case "/api/history/fixture-core/doc/7":
+            var rows: [[String: Any]] = blocked ? [["id":1,"kind":"task","state":"sent","text":"Read the fixture"]] : []
+            if finished { rows.append(["id":2,"kind":"reply","text":"Fixture done"]) }
+            return (200, ["items": rows])
+        case "/api/history/fixture-core/doc/7/draft": return (200, ["tools":[]])
+        case "/api/profiles": return (200, [])
+        case "/api/agents/doc/7/messages":
+            events.append("started")
+            return (200, [:])
+        case "/api/agents/doc/7/steer":
+            guard let data = request.bodyData, let body = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                  body["text"] == "Include the manifest", body["expected_core"] == "fixture-core",
+                  UUID(uuidString: body["reference"] ?? "") != nil else { return (409, [:]) }
+            events.append("steered")
+            return (200, ["delivered":true])
+        default: return (404, ["error":"Unknown fixture route"])
+        }
+    }
+    var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "fixture", session: session)
+    client.following = .polling
+    client.pollInterval = .milliseconds(10)
+    client.agentCheckInterval = .milliseconds(10)
+    var configured = HerdrBackend(client: client, botName: bot.name, botID: bot.id, template: "codex")
+    configured.prepareDirect = { [] }
+    let backend = configured
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
+                         keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    store.bots = [bot]; store.open(bot, remember: false)
+    let active = try #require(try await client.workspace().agents.first)
+    #expect(active.autoRestartPending == true && active.reviewDescription?.contains("read-only · on-request") == true)
+    #expect(store.send(text: "Inspect the fixture directory"))
+    try await waitUntil { store.herdrWaits(bot).waits && store.canSteer(in: bot) }
+    #expect(store.send(text: "Include the manifest"))
+    let row = try #require(bot.messages.last)
+    try await waitUntil { row.metadata[SteerKey.steer] == "delivered" }
+    #expect(!store.isIdle(bot) && events.all == ["started", "steered"] && store.herdrWaits(bot).waits)
+    events.append("finished")
+    try await waitUntil { store.isIdle(bot) }
+    #expect(MockHTTPProtocol.recorded(host).filter { $0.httpMethod == "POST" }.map { $0.url!.path } ==
+            ["/api/agents/doc/7/messages", "/api/agents/doc/7/steer"])
 }

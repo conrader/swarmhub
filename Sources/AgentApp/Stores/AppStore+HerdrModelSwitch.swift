@@ -82,25 +82,22 @@ extension AppStore {
                 }
                 if replace {
                     // Use the exact launch, never an agent found again by name after an asynchronous read.
-                    let clock = ContinuousClock()
-                    let deadline = clock.now.advanced(by: .seconds(90))
-                    var stillRunning = true
-                    while true {
-                        let live = try await client.workspace()
-                        try checkChoice()
-                        guard live.core == current.core else { throw BackendError.unavailable("The workspace restarted during the model switch. Retry the message.") }
-                        guard let active = client.liveAgent(named: name, in: live) else { stillRunning = false; break }
+                    let live = try await client.workspace()
+                    try checkChoice()
+                    guard live.core == current.core else { throw BackendError.unavailable("The workspace restarted during the model switch. Retry the message.") }
+                    let active = client.liveAgent(named: name, in: live)
+                    if let active {
                         guard active.ref == agent.ref else { throw BackendError.unavailable("Another session started during the model switch. Retry the message.") }
-                        let ready = ["idle", "done"].contains(active.status?.state ?? "")
-                            || active.warm == true && active.status?.state == nil && active.ready != false
-                        if ready, !herdrAgentIsBusy(active, in: live.agents), !herdrHasUnansweredHelpers(bot, parent: active.ref) {
-                            break
+                        guard active.isIdleForRollover, !herdrAgentIsBusy(active, in: live.agents),
+                              !herdrHasUnansweredHelpers(bot, parent: active.ref) else {
+                            throw HerdrClient.Failure.notDelivered("The existing session is busy. The saved choice will apply at a safe launch.")
                         }
-                        guard clock.now < deadline else { throw BackendError.unavailable("The previous agent is still busy. Your model choice is saved. Retry when it finishes.") }
-                        try await Task.sleep(for: .milliseconds(500))
+                        guard try await client.approvals(for: name).isEmpty else {
+                            throw HerdrClient.Failure.notDelivered("Review the existing session’s approval before switching.")
+                        }
                     }
                     // Auto mode is set in the process environment at launch, so OpenCode cannot apply it in place.
-                    if !autoPending, stillRunning, target.name == agent.template, target.modelAgent == "OpenCode", let core = current.core, let liveModel {
+                    if !autoPending, active != nil, target.name == agent.template, target.modelAgent == "OpenCode", let core = current.core, let liveModel {
                         _ = try await client.selectModel(liveModel.id, for: agent.ref, core: core)
                         try checkChoice()
                         rememberModel(.init(server: server.id, core: core, address: agent.address, created: agent.createdMs,
@@ -113,8 +110,9 @@ extension AppStore {
                     let old = current.core.map { HerdrAgentLaunch(server: server.id, core: $0, address: agent.address, createdMs: agent.createdMs) }
                     if !skipsCarry { setHerdrCarryOver(HerdrCarryOver(old: old, at: now()), for: bot) }
                     try checkChoice()
-                    if stillRunning {
-                        do { try await client.end(agent) }
+                    if active != nil {
+                        guard let core = current.core else { throw HerdrClient.Failure.noTemplate }
+                        do { try await client.endIfIdle(agent, core: core) }
                         catch {
                             let latest = try await client.workspace()
                             guard latest.core == current.core, client.liveAgent(named: name, in: latest) == nil else { throw error }

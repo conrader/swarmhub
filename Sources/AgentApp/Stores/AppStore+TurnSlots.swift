@@ -14,6 +14,12 @@ import Foundation
     var steerAvailable = false
     var groupRun: GroupRun?
     var stopping = false
+    var goalAttempt: UUID?
+    var guidanceReceipts: [UUID: Task<Void, Never>] = [:]
+    // The workspace interrupt targets an agent session. Keep its slot until both
+    // the local stream and the remote stop request have settled.
+    var goalStopPending = false
+    var endedDuringGoalStop = false
     init(conversation: any Conversation, botID: UUID?, assistant: ChatMessage?, groupRun: GroupRun?) {
         self.conversation = conversation; self.botID = botID; self.assistant = assistant; self.groupRun = groupRun
     }
@@ -59,6 +65,7 @@ extension AppStore {
 
     func turn(in conversation: any Conversation) -> ConversationTurn? {
         runningTurns[conversation.id].flatMap { $0.conversation === conversation ? $0 : nil }
+            ?? runningTurns.values.first { $0.conversation === conversation }
     }
     func turn(token: UUID) -> ConversationTurn? { runningTurns.values.first { $0.token == token } }
     func isCurrent(_ token: UUID) -> Bool { turn(token: token) != nil }
@@ -82,7 +89,11 @@ extension AppStore {
     /// Frees the slot `token` holds (a no-op once Stop or another end released it).
     func endTurn(_ token: UUID) {
         guard let turn = turn(token: token) else { return }
-        runningTurns[turn.conversation.id] = nil
+        if turn.goalStopPending {
+            turn.endedDuringGoalStop = true
+            return
+        }
+        if let key = runningTurns.first(where: { $0.value === turn })?.key { runningTurns[key] = nil }
     }
 
     /// Sets the running turn's steer flag (the composer of that chat reads it).
@@ -139,17 +150,32 @@ extension AppStore {
     func stop() { if let conversation = openConversation { stop(conversation) } }
 
     func stop(_ conversation: any Conversation) {
-        guard let turn = turn(in: conversation), !turn.stopping else { return }
+        for turn in runningTurns.values.filter({ $0.conversation === conversation && !$0.stopping }) { stop(turn) }
+    }
+
+    private func stop(_ turn: ConversationTurn) {
+        let conversation = turn.conversation
         // The slot stays until the turn's task ends (`endTurn`), as the one app-wide slot did before P39.
         turn.stopping = true; turn.groupRun?.stopped = true
         let streamToken = turn.token
         let bot = turn.botID.flatMap { id in bots.first { $0.id == id } }
         turn.assistant?.isStreaming = false; turn.steerAvailable = false
         herdrStopWaitingExchanges(in: conversation)
-        holdSteersAtStop(in: conversation, origin: streamingTurnOrigin(in: conversation))
         // The row is `stopped` at once and never extended.
         if let row = turn.assistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
         objectWillChange.send()
+        if let attempt = turn.goalAttempt {
+            if let bot, let goal = bot.goal, goal.attempt == attempt {
+                turns.scheduledGoals.remove(goal.id)
+                bot.goal?.stop()
+                save()
+            }
+            // A goal still checking approvals has no delivery to interrupt.
+            if turn.backend == nil {
+                if let task = turn.task { task.cancel() } else { endTurn(streamToken) }
+                return
+            }
+        }
         guard let bot, let activeBackend = turn.backend ?? (try? backend(for: bot)) else {
             // The task's end frees the slot; a slot without a task is freed here.
             if let task = turn.task { task.cancel() } else { endTurn(streamToken) }
@@ -157,13 +183,15 @@ extension AppStore {
         }
         let taskToCancel = turn.task
         let stoppedAssistantID = turn.assistant?.id
-        let sessionID = turnSessionID(in: conversation, bot: bot)
+        let sessionID = turn.goalAttempt.flatMap { _ in bot.goal?.destination.sessionID } ?? turnSessionID(in: conversation, bot: bot)
+        turn.goalStopPending = turn.goalAttempt != nil
         let server = bot.backend.shortName
         if conversation is GroupChat, let herdr = activeBackend as? HerdrBackend {
             // Stop an upcoming send as well as one already preparing its request.
             taskToCancel?.cancel()
             herdr.cancelGroupSend(sessionID: sessionID)
         }
+        turns.pendingInterrupts[conversation.id, default: []].insert(streamToken)
         Task {
             do {
                 // Backends that clear their run on stream termination need the target captured first.
@@ -185,6 +213,13 @@ extension AppStore {
                     presentError(IntentLine.stopFailed.render(server, error.localizedDescription), reason: .stop, bot: bot)
                 }
             }
+            turns.pendingInterrupts[conversation.id]?.remove(streamToken)
+            if turns.pendingInterrupts[conversation.id]?.isEmpty == true { turns.pendingInterrupts[conversation.id] = nil }
+            turn.goalStopPending = false
+            if turn.endedDuringGoalStop {
+                endTurn(streamToken)
+                sendQueuedNextMessage()
+            } else { dispatchQueuedGoals() }
             save()
         }
     }

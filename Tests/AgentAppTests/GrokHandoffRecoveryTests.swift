@@ -168,7 +168,7 @@ import Testing
     #expect(again == nil && bridge.sent.count == 2)
 }
 
-@Test @MainActor func aMessageSentWhileTheConversationIsHandedOverWaitsItsTurn() async throws {
+@Test @MainActor func aMessageDuringHandoffRemainsRecoverable() async throws {
     let bridge = HandoffBridge()
     bridge.holds = { $0.contains("[SwarmHub handoff") }
     let (store, bot) = try handoffStore(bridge, lines: handoffConversation(exchanges: 5))
@@ -177,12 +177,11 @@ import Testing
     try await waitUntil { bridge.sent.count == 1 }
     #expect(bridge.sent[0].route == "launch-with-files" && !store.canSteer(in: bot), "the turn the chat does not show takes no steer")
     #expect(store.send(text: "Second"))
-    #expect(bot.messages.filter { $0.role == .user }.map(\.content) == ["First", "Second"] && !bot.messages.contains(where: { $0.isSteer }))
-    #expect(bridge.sent.count == 1, "nothing was typed into the handoff")
+    let row = try #require(bot.messages.first { $0.content == "Second" })
+    #expect(row.metadata[SteerKey.steer] == "failed" && store.canSendAsNextMessage(row))
+    #expect(bridge.sent.count == 1)
     bridge.release("It stood at question 5.")
-    try await waitUntil { store.runningTurns.isEmpty && bridge.sent.count == 3 && bot.messages.filter { $0.role == .assistant && !$0.isStreaming }.count == 2 }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message", "message"])
-    #expect(bridge.sent[1].text.hasSuffix("First") && bridge.sent[2].text.hasSuffix("Second"), "in the order they were sent")
-    #expect(bot.messages.filter { $0.role != .system }.map(\.role) == [.user, .assistant, .user, .assistant])
-    #expect(bot.messages.filter { $0.role == .assistant }.map(\.content) == ["ok", "ok"])
+    try await waitUntil { store.runningTurns.isEmpty }
+    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message"])
+    #expect(bridge.sent[1].text.hasSuffix("First") && store.turns.nextMessages.isEmpty)
 }

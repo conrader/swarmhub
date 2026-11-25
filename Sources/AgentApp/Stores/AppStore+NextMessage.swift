@@ -10,9 +10,8 @@ struct QueuedNextMessage {
     var anchorID: UUID
     var restored = false
     /// uxfix3: queued by the app (a steer the run could no longer read), not by the user's button; the user's Stop takes it back.
-    var automatic = false
-    init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false, automatic: Bool = false) {
-        self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored; self.automatic = automatic
+    init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false) {
+        self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored
     }
 }
 
@@ -28,11 +27,11 @@ extension AppStore {
     }
 
     /// "Send as next message" pressed. False when the bubble is not a failed steer or its chat can't send.
-    @discardableResult func sendAsNextMessage(_ bubble: ChatMessage, automatic: Bool = false) -> Bool {
+    @discardableResult func sendAsNextMessage(_ bubble: ChatMessage) -> Bool {
         guard canSendAsNextMessage(bubble), let conversation = conversation(containing: bubble.id) else { return false }
-        if !automatic { turns.stoppedSteers.remove(bubble.id) }
+        bubble.metadata["explicitNext"] = "1"
         bubble.metadata[SteerKey.steer] = "next"
-        guard enqueueNextMessage(QueuedNextMessage(conversation: conversation, bubble: bubble, automatic: automatic)) else { bubble.metadata[SteerKey.steer] = "failed"; return false }
+        guard enqueueNextMessage(QueuedNextMessage(conversation: conversation, bubble: bubble)) else { bubble.metadata[SteerKey.steer] = "failed"; return false }
         objectWillChange.send(); save()
         sendQueuedNextMessage()
         return true
@@ -45,6 +44,7 @@ extension AppStore {
     /// P39: per chat. Each chat's oldest entry goes once that chat has no turn and the turn limits allow it; a chat's later
     /// entries wait behind its first, and a restored entry holds its own chat only.
     func sendQueuedNextMessage() {
+        defer { dispatchQueuedGoals() }
         var held: Set<UUID> = []; var index = 0
         while index < turns.nextMessages.count {
             let next = turns.nextMessages[index], key = next.conversation.id
@@ -71,7 +71,11 @@ extension AppStore {
         let text = next.bubble.content
         if let group = next.conversation as? GroupChat {
             guard groups.contains(where: { $0 === group }) else { return false }
-            guard next.kind == .turn else { return send(text: text, to: group) }
+            guard next.kind == .turn else {
+                let ids = queuedRecipients(next.bubble, in: group)
+                return !ids.isEmpty && send(text: text, attachments: next.bubble.attachments, to: group, recipientIDs: ids,
+                                           sourceMessageID: next.bubble.replyToID, metadata: next.bubble.metadata.filter { $0.key == ChoiceReply.quoteKey || $0.key == ChoiceReply.cardKey })
+            }
             let recipients = queuedRecipients(next.bubble, in: group)
             guard !recipients.isEmpty else { return false }
             endWait(next.bubble, in: group)
@@ -81,9 +85,16 @@ extension AppStore {
               let activeBackend = try? backend(for: bot) else { return false }
         let user: ChatMessage
         if next.kind == .turn {
-            user = next.bubble; endWait(user, in: next.conversation)
+            user = next.bubble
+            if let attempt = user.metadata[GoalKey.attempt],
+               bot.goal?.attempt?.uuidString != attempt || !goalDestinationMatches(bot) { return false }
+            guard (try? validateArtifactAccess(user, botID: bot.id)) != nil else { return false }
+            endWait(user, in: next.conversation)
         } else {
-            user = ChatMessage(role: .user, content: text); next.conversation.messages.append(user)
+            user = ChatMessage(role: .user, content: text, metadata: next.bubble.metadata.filter { $0.key == ChoiceReply.quoteKey || $0.key == ChoiceReply.cardKey },
+                               replyToID: next.bubble.replyToID, attachments: next.bubble.attachments)
+            guard (try? validateArtifactAccess(user, botID: bot.id)) != nil else { return false }
+            next.conversation.messages.append(user)
         }
         let images = (try? user.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))) ?? []
         startChatTurn(bot: bot, conversation: next.conversation, user: user, images: images, backend: activeBackend)
@@ -100,8 +111,16 @@ extension AppStore {
     private func queuedRecipients(_ bubble: ChatMessage, in group: GroupChat) -> [UUID] {
         let members = routingMembers(of: group)
         if let pinned = bubble.metadata[TurnWaitCopy.recipients] {
-            let ids = pinned.components(separatedBy: ",").compactMap(UUID.init(uuidString:))
+            let parts = pinned.components(separatedBy: ",")
+            let ids = parts.compactMap(UUID.init(uuidString:))
+            guard parts.count == ids.count else { return [] }
             return ids.allSatisfy { id in members.contains { $0.id == id } } ? ids : []
+        }
+        if bubble.isSteer {
+            // Legacy group steers lack a trustworthy recipient once membership changes.
+            guard let id = bubble.replyToID, let author = group.messages.first(where: { $0.id == id })?.authorID,
+                  members.contains(where: { $0.id == author }) else { return [] }
+            return [author]
         }
         return GroupRouting.recipients(of: bubble.content, members: members)
     }

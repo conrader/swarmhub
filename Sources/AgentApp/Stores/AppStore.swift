@@ -231,6 +231,7 @@ import UserNotifications
 
     /// The decoded store becomes this window's state (launch, and the restore of a set-aside store).
     func adoptStoreFile(_ file: StoreFile) {
+        turns.scheduledGoals.removeAll()
         bots = file.bots; groups = file.groups; removedBots = file.removedBots ?? [:]; deletedGroupIDs = file.deletedGroupIDs ?? []
         pendingHerdrEndings = file.pendingHerdrEndings ?? []
         chatScroll.restore(file.scrollPositions)
@@ -342,38 +343,83 @@ import UserNotifications
             turns.saveFailing = true
         }
     }
-    /// Sends into the selected bot's chat. While that chat's turn streams, the text steers it when the agent takes
-    /// steers; otherwise it waits as the chat's next message, and the turn is never stopped. Other chats never block
-    /// it; when the turn limit is reached the message waits as the chat's next message.
+    /// Dispatch from the selected composer, retaining the draft on refusal.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
         guard storeRestoreOffer == nil, let bot = selectedBot, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if bot.backend == .herdr, !validateHerdrDraft(text, attachments: attachments, bot: bot) { return false }
-        guard isIdle(bot) else { return steer(text: text, attachments: attachments, bot: bot) }
         guard send(text: text, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true) else { return false }
         replyTo = nil
         return true
     }
-    /// A new turn in `conversation` (the bot's chat), whatever is selected; never steers. Refused while that chat has
-    /// a turn; at the turn limit it is refused, or waits as the chat's next message (`waitWhenFull`, the composer), as
-    /// does a message sent while earlier ones still wait there.
+    /// Deliver to the captured direct recipient. Capacity waits apply only to new turns.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?, waitWhenFull: Bool = false,
                                  metadata: [String: String] = [:]) -> Bool {
         guard storeRestoreOffer == nil, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        guard isIdle(conversation) else { return false }
         let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
         if bot.backend == .herdr, !validateHerdrDraft(user.modelText, attachments: attachments, bot: bot) { return false }
+        guard bots.contains(where: { $0 === bot }), conversation === bot else { return false }
+        if let id = replyToID, user.metadata[ChoiceReply.quoteKey] == nil,
+           let source = conversation.messages.first(where: { $0.id == id }) {
+            user.metadata[ChoiceReply.quoteKey] = String(SwarmhubBlock.visibleText(source.content).suffix(1200))
+        }
+        var revised = metadata[GoalKey.attempt] == nil ? bot.goal : nil
+        if revised?.state.active == true {
+            guard goalDestinationMatches(bot) else { return false }
+            let guidance = user.modelText + attachments.map { "\nAttached file: " + $0.name }.joined()
+            revised?.objective += "\nFollow-up: " + guidance
+            guard let revised, validateHerdrDraft(revised.request(for: UUID()), attachments: attachments, bot: bot) else { return false }
+        } else { revised = nil }
+        if let turn = turn(in: conversation) {
+            return steer(user, bot: bot, turn: turn)
+        }
+        if herdrWaits(bot).waits {
+            presentError("The session is waiting for a decision. This follow-up could not be delivered.", reason: .send, bot: bot)
+            return false
+        }
         let full = turnCapacityProblem(for: [bot])
         if let full, !waitWhenFull { presentError(full, reason: .capacity, bot: bot); return false }
+        if let initial = revised?.initialAttachments, !initial.isEmpty, revised?.attempt == nil {
+            user.attachments = initial + attachments
+            guard let goal = revised, validateHerdrDraft(goal.request(for: UUID()), attachments: user.attachments, bot: bot) else { return false }
+            revised?.initialAttachments = nil
+        }
         let activeBackend: any AgentBackend; let images: [String]
         do {
             try validateArtifactAccess(user, botID: bot.id)
-            activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))
+            activeBackend = try backend(for: bot); images = try user.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))
         } catch { presentError(error.localizedDescription, reason: .send, bot: bot); return false }
         steerHint = nil
         captureAttachments(user, readers: [bot.id])
         if conversation === bot { bot.offersReleaseNotesExample = false }
+        if let goal = revised, let attempt = goal.attempt,
+           let waiting = turns.nextMessages.first(where: { $0.conversation === bot && $0.bubble.metadata[GoalKey.attempt] == attempt.uuidString }) {
+            let files = waiting.bubble.attachments + attachments
+            let request = goal.request(for: attempt)
+            guard validateHerdrDraft(request, attachments: files, bot: bot) else { return false }
+            waiting.bubble.attachments = files
+            waiting.bubble.metadata[GoalKey.request] = request
+            user.metadata[SteerKey.steer] = "goalContext"
+            bot.goal = goal
+            conversation.messages.append(user)
+            objectWillChange.send(); save()
+            return true
+        }
+        let previousGoal = bot.goal
+        if var goal = revised {
+            let attempt = goal.begin()
+            user.metadata[GoalKey.request] = goal.request(for: attempt)
+            user.metadata[GoalKey.attempt] = attempt.uuidString
+            turns.scheduledGoals.remove(goal.id)
+            bot.goal = goal
+        }
         conversation.messages.append(user)
-        if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) { return waitForTurn(user, in: conversation, reason: reason) }
+        if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) {
+            guard waitForTurn(user, in: conversation, reason: reason) else {
+                if revised != nil { bot.goal = previousGoal; if let goal = previousGoal, goal.state == .queued { turns.scheduledGoals.insert(goal.id) } }
+                return false
+            }
+            return true
+        }
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true
     }
@@ -399,6 +445,8 @@ import UserNotifications
         let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
+        turn.goalAttempt = user.metadata[GoalKey.attempt].flatMap(UUID.init(uuidString:))
+        assistant.metadata[GoalKey.attempt] = user.metadata[GoalKey.attempt]
         objectWillChange.send(); save()
         let streamToken = turn.token
         let history = chatHistory(conversation, upTo: conversation.messages.contains { $0 === user } ? user : nil, excluding: assistant, inlineFiles: !herdr)

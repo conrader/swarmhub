@@ -46,7 +46,7 @@ struct HerdrBackend: AgentBackend {
     /// below and, for an imported bot, the earlier conversation (`handoff`).
     let instructions: String?
     /// A message sent while the agent answers is typed into the running agent (steer), which reads it as soon as it
-    /// can. Off: the app holds the message until the answer ends.
+    /// can. An unsupported steer retains an unsent receipt in chat.
     var coordinate: (@Sendable () async throws -> Bool)?
     var confirmation: HerdrModelConfirmation?
     var serverID: String?
@@ -180,6 +180,19 @@ struct HerdrBackend: AgentBackend {
         return "group-" + digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
+    func goalBlocker(sessionID: String) async throws -> String? {
+        let name = runtimeName(sessionID: sessionID)
+        if !(try await client.approvals(for: name)).isEmpty {
+            return "Review the pending workspace approval, then resume the goal."
+        }
+        let workspace = try await client.workspace()
+        switch client.liveAgent(named: name, in: workspace)?.status?.state {
+        case "blocked": return "Resolve the workspace prompt, then resume the goal."
+        case "working": return "The workspace agent is still working. Review its result before resuming."
+        default: return nil
+        }
+    }
+
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
         let images = try request.images.map { url -> HerdrClient.TaskFile in
@@ -255,7 +268,7 @@ struct HerdrBackend: AgentBackend {
                         }
                         let profiles = try? await backend.client.profiles()
                         let sessions = profiles?.lazy.flatMap { $0.sessions ?? [] }
-                        let runtime = sessions?.first { $0.address == turn.address && $0.createdMs == turn.createdMs }?.runtime
+                        let runtime = sessions?.first { ($0.core == nil || $0.core == turn.core) && $0.address == turn.address && $0.createdMs == turn.createdMs }?.runtime
                         if let model = runtime?.model ?? runtime?.modelId, !model.isEmpty, !Task.isCancelled {
                             continuation.yield(.launchModel(model))
                         }
@@ -324,15 +337,17 @@ struct HerdrBackend: AgentBackend {
     }
 
     /// Nothing while the bot's earlier conversation is being handed over: that turn is not the person's to steer.
-    func features() async throws -> Set<String> { steers && !handingOver.current ? ["run_steer"] : [] }
+    func features() async throws -> Set<String> { steers && !handingOver.current && accepted.current?.steerReference != nil ? ["run_steer"] : [] }
 
-    /// Types the message into the running agent. Claude Code and Codex keep their own queue for input that arrives
-    /// mid-turn, so nothing is handed back; with no agent running there is nothing to steer.
     func steer(sessionID: String, text: String) async throws {
-        guard steers else { throw BackendError.unavailable("This bot holds messages until its answer ends.") }
-        guard let agent = client.liveAgent(named: runtimeName(sessionID: sessionID), in: try await client.workspace()) else { throw BackendError.http(404, "run_not_found") }
-        try HerdrClient.validateMessage(text)
-        try await client.message(HerdrClient.plain(text, bytes: Int.max), to: agent)
+        try await steer(sessionID: sessionID, text: text, files: [])
+    }
+
+    func steer(sessionID: String, text: String, files: [HerdrClient.TaskFile]) async throws {
+        guard steers, !handingOver.current, let turn = accepted.current else {
+            throw BackendError.unavailable("This turn is not ready for live guidance.")
+        }
+        try await client.steer(turn, text: text, files: files)
     }
 
     func cancelGroupSend(sessionID: String) { groupSends.cancel(sessionID: sessionID) }

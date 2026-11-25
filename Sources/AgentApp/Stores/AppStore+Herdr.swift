@@ -258,8 +258,7 @@ extension AppStore {
     }
 
     /// Steer is the default: a message sent while the agent answers goes into that answer.
-    func herdrSteers(_ bot: Bot) -> Bool { defaults.object(forKey: HerdrBackend.botSteerKey(bot.id)) as? Bool ?? true }
-    func setHerdrSteers(_ steers: Bool, for bot: Bot) { defaults.set(steers, forKey: HerdrBackend.botSteerKey(bot.id)) }
+    func herdrSteers(_ bot: Bot) -> Bool { defaults.removeObject(forKey: HerdrBackend.botSteerKey(bot.id)); return true }
 
     /// Ends the bot's running agent, so its next message starts a fresh one on the chosen runtime and model.
     /// Returns whether an agent was running. The chat stays; the agent's own memory of it does not.

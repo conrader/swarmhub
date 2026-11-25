@@ -41,6 +41,11 @@ struct MessageView: View {
                 if let title = message.metadata["herdrExchangeTitle"] {
                     DisclosureGroup(title) { Text(message.content).textSelection(.enabled) }.font(.callout)
                 } else { content }
+                if let outcome = message.metadata[GoalKey.outcome] {
+                    Text("Goal step · " + outcome.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .help(message.metadata[GoalKey.evidence] ?? outcome)
+                }
                 if let results = message.publishedResults { HerdrReplyFiles(results: results) }
                 if message.turnState == .finished, let summary = message.runSummary {
                     Text(summary.line).font(.caption).foregroundStyle(.secondary)
@@ -90,6 +95,8 @@ struct MessageView: View {
         } else if let intro = message.metadata[HerdrIntro.Key.kind] {
             // The note that asks the main bot to introduce itself: one line says so, the note is the agent's to read.
             Label(HerdrIntro.caption(bot: store.selectedBot?.name ?? "your bot", again: intro == HerdrIntro.again), systemImage: "hand.wave").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
+        } else if message.role == .user, message.metadata[GoalKey.attempt] != nil {
+            Label(message.content, systemImage: "scope").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         } else if message.role == .user {
             if !message.content.isEmpty {
                 Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)

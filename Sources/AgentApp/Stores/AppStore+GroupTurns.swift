@@ -7,6 +7,9 @@ extension AppStore {
         var skipped: [UUID] = []; var skipWhy = "stopped"
         for (index, botID) in recipients.enumerated() {
             let rest = Array(recipients[index...])
+            while let parallel = runningTurns.values.first(where: { $0.conversation === group && $0.token != token && $0.botID == botID }), let task = parallel.task {
+                await task.value
+            }
             if run.stopped || Task.isCancelled { skipped = rest; skipWhy = "stopped"; break }
             // A round starts no member's turn while the path is down.
             if turns.pathDown { skipped = rest; skipWhy = "offline"; break }
@@ -39,6 +42,8 @@ extension AppStore {
 
     /// One member's turn. `reusing` is a `notSent` row Retry sends into.
     @discardableResult func groupTurn(bot: Bot, group: GroupChat, run: GroupRun, token: UUID, images: [String], trigger: ChatMessage, reusing row: ChatMessage? = nil) async -> TurnOutcome? {
+        guard !run.stopped, !Task.isCancelled, group.memberIDs.contains(bot.id), !bot.isReadOnlyArchive,
+              groups.contains(where: { $0 === group }), bots.contains(where: { $0 === bot }) else { return nil }
         // A saved document whose access was removed after the round started is never sent to this member.
         do { try validateArtifactAccess(trigger, botID: bot.id) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return nil }
         let activeBackend: any AgentBackend
@@ -51,7 +56,7 @@ extension AppStore {
             assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, metadata: [TurnKey.forUser: trigger.id.uuidString], authorID: bot.id, turnState: .incomplete)
             group.messages.append(assistant)
         }
-        group.activeMemberID = bot.id
+        if runningTurns[group.id]?.token == token { group.activeMemberID = bot.id }
         if let turn = turn(token: token) { turn.botID = bot.id; turn.assistant = assistant; turn.backend = activeBackend }
         objectWillChange.send(); save()
         let sessionID = turnSessionID(in: group, bot: bot)
@@ -82,7 +87,7 @@ extension AppStore {
         let reply = endTurnParts(assistant, end: end)
         if case .stoppedByUser = end, reply.turnState != .stopped { reply.turnState = .stopped; reply.metadata[TurnKey.why] = "stopped" }
         let outcome = finishTurn(end, assistant: reply, bot: bot, in: group, alertPrefix: "\(bot.name): ")
-        group.activeMemberID = nil
+        if runningTurns[group.id]?.token == token { group.activeMemberID = nil }
         if let turn = turn(token: token) { turn.botID = nil; turn.backend = nil }
         setSteerAvailable(false, token: token)
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)

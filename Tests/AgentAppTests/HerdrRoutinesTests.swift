@@ -312,3 +312,46 @@ import Testing
           {"id":5,"kind":"schedule","at_ms":1700000008000,"state":"skipped","detail":null}]}
         """
 }
+
+@MainActor struct ScheduleListFixtureTests {
+    @Test(arguments: [false, true]) func compactAndExpandedRows(expanded: Bool) throws {
+        let full = "Inspect the fixture only. " + String(repeating: "Long legacy instructions. ", count: 12)
+        let item = HerdrClient.BotCheckin(id: 41, enabled: false, controlRevision: 1, what: full,
+                                         paused: true, schedule: .init(kind: "interval", url: nil), nextMs: 1)
+        #expect(!item.title.contains("Inspect") && item.title.count < 40)
+        #expect(item.what == full)
+        let rows = VStack(alignment: .leading, spacing: 12) {
+            ScheduleDisclosure(title: "Morning brief", kind: "Routine", next: "Tomorrow, 09:00",
+                               enabled: true, locked: false, setEnabled: { _ in }) { Text("Summarize the fixture.") }
+            ScheduleDisclosure(title: item.title, kind: "Check-in", next: nil, enabled: false, locked: false,
+                               setEnabled: { _ in }, detail: { Text(item.what); Text("Every hour · Paused") }, open: expanded)
+        }.padding(14).frame(width: ChromeMetrics.infoWidth.min).fixedSize(horizontal: false, vertical: true)
+        let host = NSHostingView(rootView: rows)
+        host.frame.size = host.fittingSize
+        host.layoutSubtreeIfNeeded()
+        #expect(host.bounds.width == ChromeMetrics.infoWidth.min)
+        guard let directory = ProcessInfo.processInfo.environment["SWARMHUB_FIXTURE_SHOTS"] else { return }
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let png = try #require(rep.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent(expanded ? "routines-expanded.png" : "routines-compact.png"))
+    }
+
+    @Test(arguments: [false, true]) func checkinOnlyAndOffline(offline: Bool) async throws {
+        let id = UUID()
+        let (host, session) = MockHTTPProtocol.serve { request in
+            if request.url?.path == "/api/routines" { return (200, Data("[]".utf8)) }
+            guard !offline else { return (503, ["error":"Fixture offline"]) }
+            return (200, ["checkins":[["id":1, "bot":id.uuidString.lowercased(), "paused":true,
+                                       "enabled":false, "control_revision":1, "what":"Inspect fixture", "schedule":["kind":"interval"]]]])
+        }
+        let client = HerdrClient(baseURL: try #require(URL(string: "http://\(host)")), token: "fixture", session: session)
+        #expect(try await client.routines().isEmpty)
+        if offline {
+            await #expect(throws: HerdrClient.Failure.self) { try await client.botCheckins(id) }
+        } else {
+            let items = try await client.botCheckins(id)
+            #expect(items.map(\.title) == ["Recurring check-in #1"] && items[0].enabled == false)
+        }
+    }
+}

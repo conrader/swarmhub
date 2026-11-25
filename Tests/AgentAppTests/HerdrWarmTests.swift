@@ -96,7 +96,8 @@ private final class WarmBridge: @unchecked Sendable {
                 rows.append(row("task", text)); rows.append(row("reply", "ok")); agent?["warm"] = false
                 return (200, ["status": "sent"])
             }
-        case "POST /api/agents/t1/5/end": return lock.withLock { () -> (Int, Any) in ends += 1; agent = nil; rows = []; return (200, [String: Any]()) }
+        case "GET /api/approvals": return (200, ["pending": []])
+        case "POST /api/agents/t1/5/end", "POST /api/agents/t1/5/end-if-idle": return lock.withLock { () -> (Int, Any) in ends += 1; agent = nil; rows = []; return (200, [String: Any]()) }
         default: return (404, ["error": "no route"])
         }
     }

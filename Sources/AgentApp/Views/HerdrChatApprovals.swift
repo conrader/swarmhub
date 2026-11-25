@@ -11,11 +11,14 @@ struct HerdrChatApprovals: View {
     @State private var decided: Set<Int> = []
 
     var body: some View {
-        let watching = store.isAnswering(bot) || store.herdrPrompts[bot.id] != nil
+        let watching = store.isAnswering(bot) || store.herdrPrompts[bot.id] != nil || bot.goal?.state == .waiting
         VStack(alignment: .leading, spacing: 6) {
             if let request = pending.first {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(request.provider) requests \(HerdrClient.Approval.visible(request.tool))").font(.headline)
+                    if let address = request.address, let created = request.createdMs {
+                        Text("\(request.launchModel ?? "Model unreported") · \(address)/\(created)").font(.caption)
+                    }
                     Text(HerdrClient.Approval.visible(request.cwd)).font(.caption).textSelection(.enabled)
                     ScrollView {
                         Text(HerdrClient.Approval.visible(request.arguments)).font(.body.monospaced()).textSelection(.enabled)

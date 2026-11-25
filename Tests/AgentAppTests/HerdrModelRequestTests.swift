@@ -167,7 +167,8 @@ private final class ModelBridge: @unchecked Sendable {
                 return (200, ["core": "c", "version": "1", "agents": agents,
                               "templates": [templateJSON("tpl-claude", program: "Claude Code", models: claudeModels), templateJSON("tpl-codex", program: "Codex", models: codexModels)]])
             }
-            if request.httpMethod == "POST", path.hasSuffix("/end") {
+            if request.httpMethod == "GET", path == "/api/approvals" { return (200, ["pending": []]) }
+            if request.httpMethod == "POST", path.hasSuffix("/end-if-idle") || path.hasSuffix("/end") {
                 let address = String(path.split(separator: "/")[2])
                 endedNames += agents.filter { $0["address"] as? String == address }.compactMap { $0["name"] as? String }
                 agents.removeAll { $0["address"] as? String == address }

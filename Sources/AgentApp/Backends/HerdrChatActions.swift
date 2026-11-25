@@ -31,6 +31,7 @@ struct HerdrPublishedResult: Identifiable, Codable, Sendable, Equatable {
 extension HerdrClient {
     struct Approval: Decodable, Identifiable, Sendable {
         let id: Int
+        var launchModel: String? = nil
         let agent, provider, tool, cwd, arguments: String
         let core, address: String?
         let createdMs: UInt64?

@@ -54,9 +54,15 @@ pub(crate) struct ApprovalSummary {
     provider: &'static str,
     tool: String,
     terminal: Option<(String, String, u64)>,
+    model: Option<String>,
 }
 
 impl Desk {
+    pub(crate) fn waits_on(&self, key: &str) -> Result<bool, StoreError> {
+        Ok(self.pending.lock().map_err(|_| StoreError)?.values()
+            .any(|item| item.launch == key && item.answer.is_some() && Instant::now() < item.until))
+    }
+
     pub(crate) fn summary(&self, history: &History) -> Result<Vec<ApprovalSummary>, StoreError> {
         let pending = self
             .pending
@@ -72,6 +78,7 @@ impl Desk {
                         provider: item.info.provider,
                         tool: item.info.tool.clone(),
                         terminal: None,
+                        model: None,
                     },
                     item.launch.clone(),
                 )
@@ -81,13 +88,17 @@ impl Desk {
             return Ok(Vec::new());
         }
         let db = history.db()?;
-        let mut terminal = db.prepare("SELECT core_id,address,created_ms FROM journal WHERE launch_key=?1 AND address IS NOT NULL AND created_ms IS NOT NULL")?;
+        let mut terminal = db.prepare("SELECT core_id,address,created_ms,
+            coalesce(json_extract(launch_runtime,'$.model'),json_extract(launch_runtime,'$.model_id')) FROM journal WHERE launch_key=?1 AND address IS NOT NULL AND created_ms IS NOT NULL")?;
         pending
             .into_iter()
             .map(|(mut item, launch)| {
-                item.terminal = terminal
-                    .query_row([launch], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-                    .optional()?;
+                if let Some((target, model)) = terminal
+                    .query_row([launch], |row| Ok(((row.get(0)?, row.get(1)?, row.get(2)?), row.get(3)?)))
+                    .optional()? {
+                    item.terminal = Some(target);
+                    item.model = model;
+                }
                 Ok(item)
             })
             .collect()
@@ -250,16 +261,17 @@ async fn inbox(
             .approvals
             .summary(&w.history)?
             .into_iter()
-            .filter_map(|item| Some((item.id, item.terminal?)))
+            .filter_map(|item| Some((item.id, (item.terminal?, item.model))))
             .collect();
         let pending: Vec<_> = pending
             .into_iter()
             .filter_map(|review| {
-                let (core, address, created) = sessions.get(&review.id)?;
+                let ((core, address, created), model) = sessions.get(&review.id)?;
                 let mut row = json!(review);
                 row["core"] = json!(core);
                 row["address"] = json!(address);
                 row["created_ms"] = json!(created);
+                row["launch_model"] = json!(model);
                 Some(row)
             })
             .collect();
@@ -659,4 +671,42 @@ fn hook_answer(provider: Provider) -> Result<Option<&'static str>, Box<dyn std::
         b'D' => Some("deny"),
         _ => None,
     })
+}
+
+#[cfg(test)]
+mod switch_tests {
+    use super::*;
+
+    #[test]
+    fn inter_bot_delivery_uses_boppys_current_launch_and_keeps_its_review() {
+        use crate::bots::{desk::agent_of, testing};
+        let (_dir, history) = testing::journal(&["Boppy"]);
+        let key = testing::session(&history, "Boppy", "fixture-terminal");
+        let db = history.db().unwrap();
+        db.execute("UPDATE journal SET launch_runtime=? WHERE launch_key=?",
+            params![r#"{"model":"Gemini Neon","model_id":"gemini"}"#, key]).unwrap();
+        db.execute("UPDATE bots SET model='astra' WHERE id='boppy-id'", []).unwrap();
+        let bot = testing::bot(&history, "Boppy");
+        let live = vec![serde_json::from_value(json!({
+            "address":"fixture-terminal","created_ms":42,"name":bot.agent_name,"state":"live",
+            "status":{"state":"blocked","kind":"permission"},"template":"fixture",
+            "labels":{"swarmhub.workspace":"agent","swarmhub.launch":key}
+        })).unwrap()];
+        assert_eq!(bot.model, "astra");
+        assert_eq!(agent_of(&history, "core", &live, &bot), Some(0));
+        let desk = Desk::default();
+        let (tx, mut decision) = oneshot::channel();
+        desk.pending.lock().unwrap().insert(7, Pending {
+            info: Review { id:7, agent:bot.agent_name, tool:"SSH directory listing (fixture)".into(),
+                provider:"Gemini", cwd:"/fixture".into(), arguments:"archived-project".into(),
+                expires_ms:30_000, can_remember_read:false },
+            launch:key.clone(), until:Instant::now() + WAIT, answer:Some(tx),
+        });
+        let summary = desk.summary(&history).unwrap().pop().unwrap();
+        assert_eq!(summary.model.as_deref(), Some("Gemini Neon"));
+        assert_eq!(summary.terminal, Some(("core".into(), "fixture-terminal".into(), 42)));
+        assert!(desk.waits_on(&key).unwrap());
+        assert!(!desk.waits_on("another-launch").unwrap());
+        assert!(matches!(decision.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+    }
 }
