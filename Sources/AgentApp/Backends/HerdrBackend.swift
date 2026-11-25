@@ -275,7 +275,7 @@ struct HerdrBackend: AgentBackend {
                         turn = try await submit(text, files)
                     }
                     delivered = true
-                    if name == backend.agentName, let server = backend.serverID, let text = turn.submittedText {
+                    if let server = backend.serverID, let text = turn.submittedText {
                         continuation.yield(.accepted(HerdrDeliveryReceipt(server: server, turn: turn, text: text)))
                     }
                     if name == backend.agentName { backend.onDirectDelivery?(turn) }
@@ -414,8 +414,7 @@ struct HerdrBackend: AgentBackend {
         let workspace = try await client.workspace()
         guard let core = workspace.core,
               let agent = workspace.agents.first(where: { "\(core)/\($0.address)/\($0.createdMs)" == id && $0.isLive }) else { return .noActiveRun }
-        try await client.interrupt(agent)
-        return .requested
+        return try await client.interrupt(agent)
     }
 
     /// Settings → Test: the bridge answers, Core is up, and how many templates it can start.

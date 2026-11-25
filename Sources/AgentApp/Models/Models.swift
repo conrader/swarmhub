@@ -215,7 +215,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
 }
 
 enum StopTarget: Sendable, Equatable { case serverRun(String), noRunControl, noActiveRun }
-enum StopOutcome: Sendable, Equatable { case requested, noRunControl, noActiveRun }
+enum StopOutcome: Sendable, Equatable { case requested, stillWorking, unconfirmed, noRunControl, noActiveRun }
 /// What a backend's stream says about a turn. `replace`: the whole reply text so far, when a snapshot no longer
 /// extends what was streamed. `tool`: a tool started, progressed or finished; the reply keeps these as its activity steps.
 enum AgentEvent: Sendable { case accepted(HerdrDeliveryReceipt), token(String), replace(String), status(String), tool(ToolEvent), sessionModel(String, RunSummary.ModelSource), journal(String, [Int]), published(String, HerdrPublishedResult), runActivity(seconds: Int, tools: Int), completed, failed(String) }

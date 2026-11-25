@@ -6,6 +6,6 @@
 - Click the model in the chat header to open that bot’s settings. When you change providers, the next message carries the conversation forward. The header shows which model answered and whether a change is pending.
 - See what a coding helper is working on and read its result in the parent chat. The parent can save a next step to run when the helper finishes, leaving the chat available for other messages. Automatic continuation requires workspace 0.2.14.
 - Open **Manage AIs on this Mac** beside a bot’s AI choices. **Scan again** checks installed programs and refreshes the open picker. Antigravity appears by name alongside Gemini. Discovery skips Codex’s interactive update flow.
-- If the workspace connection drops while a bot runs a command, the chat can reconnect and retrieve its answer without submitting the command again.
+- If the workspace connection drops while a bot runs a command, the chat can reconnect and retrieve its answer without submitting the command again. If Stop fails while disconnected, the chat shows that the bot may still be running and checks for its final answer after reconnection. Activity and Search remain available from the keyboard.
 - Reopen previously viewed images and videos while the workspace is offline, including after restarting SwarmHub.
 - Review an available update or reopen the sidebar from an empty workspace with the sidebar hidden.

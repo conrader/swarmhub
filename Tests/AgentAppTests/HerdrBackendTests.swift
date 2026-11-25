@@ -18,8 +18,8 @@ import Testing
     #expect(HerdrClient.suffix(of: "ada-lovelace-1a2b3c") == HerdrClient.suffix(of: "renamed-1a2b3c"))
 }
 
-@Test(arguments: [false, true])
-func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async throws {
+@Test(arguments: [false, true], ["stopped", "exited", "still_working", "unknown", "legacy"])
+func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool, outcome: String) async throws {
     let id = UUID()
     let groupSession = GroupRouting.sessionID(group: UUID(), bot: id)
     let sessionID = inGroup ? groupSession : id.uuidString
@@ -35,7 +35,7 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async
             return (200, ["core": "c", "agents": agents, "templates": []])
         case "/api/history/c/\(address)/1", "/api/history/c/\(address)/1/draft": return (200, ["items": [], "tools": []])
         case target + "/messages": return (200, MockHTTPProtocol.PendingResponse())
-        case target + "/interrupt": return (200, [:])
+        case target + "/interrupt": return (200, outcome == "legacy" ? [:] : ["outcome": outcome])
         default: return (404, ["error": "Unexpected fixture route"])
         }
     }
@@ -45,7 +45,12 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async
     let consuming = Task { for try await _ in stream {} }
     defer { consuming.cancel() }
     try await MockHTTPProtocol.log(host).wait(ceiling: .seconds(5)) { $0.contains { $0.url?.path == target + "/messages" } }
-    #expect(try await backend.cancel(sessionID: sessionID) == .requested)
+    let expected: StopOutcome = switch outcome {
+    case "stopped", "exited": .requested
+    case "still_working": .stillWorking
+    default: .unconfirmed
+    }
+    #expect(try await backend.cancel(sessionID: sessionID) == expected)
     #expect(MockHTTPProtocol.recorded(host).filter { $0.url?.path.hasSuffix("/interrupt") == true }.map { $0.url?.path } == [target + "/interrupt"])
 }
 

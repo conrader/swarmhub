@@ -64,6 +64,9 @@ import Testing
     let stoppedIndex = try #require(bot.messages.firstIndex { $0.id == stoppedAssistantID })
     let noteIndex = try #require(bot.messages.firstIndex { $0.role == .system && $0.content.contains("Herdr Stop failed") })
     let laterIndex = try #require(bot.messages.firstIndex { $0.id == laterMessage.id })
+    let stopped = bot.messages[stoppedIndex]
+    #expect(stopped.stopUnconfirmed && store.needsAttention(bot))
+    #expect(TurnStateFooter.text(for: stopped) == "Stop unconfirmed. The bot may still be running.")
     #expect(noteIndex == stoppedIndex + 1)
     #expect(laterIndex == noteIndex + 1)
 }

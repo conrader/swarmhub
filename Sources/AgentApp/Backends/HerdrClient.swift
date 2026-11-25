@@ -346,9 +346,14 @@ struct HerdrClient: Sendable {
         return delivery.queued == true
     }
 
-    func interrupt(_ agent: Agent) async throws {
-        struct Outcome: Decodable {}
-        let _: Outcome = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/interrupt", [:])
+    func interrupt(_ agent: Agent) async throws -> StopOutcome {
+        struct Outcome: Decodable { let outcome: String? }
+        let result: Outcome = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/interrupt", [:])
+        switch result.outcome {
+        case "stopped", "exited": return .requested
+        case "still_working": return .stillWorking
+        default: return .unconfirmed
+        }
     }
 
     // MARK: A turn

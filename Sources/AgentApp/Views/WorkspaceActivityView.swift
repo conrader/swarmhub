@@ -46,7 +46,9 @@ extension AppStore {
         }
 
         if let last = conversation.messages.last(where: { $0.role == .assistant }) {
+            if last.turnState == .stopped, last.metadata[TurnKey.why] == TurnKey.stopPending { return item(.working, "Waiting for stop confirmation…") }
             if last.needsTurnAttention {
+                if last.stopUnconfirmed { return item(.attention, "Stop unconfirmed") }
                 if last.turnState == .notSent, last.metadata[TurnKey.ambiguous] == "1" { return item(.attention, "Delivery unconfirmed") }
                 return item(.attention, last.turnState == .notSent ? "Message wasn’t sent" : "Reply is incomplete")
             }

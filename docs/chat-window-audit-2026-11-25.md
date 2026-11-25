@@ -166,6 +166,16 @@ With a real Codex session on another Mac, the first build reported a running she
 
 The debug build also logged a SwiftUI AttributeGraph cycle during sheet transitions. The final native runs completed navigation and updated the visible status through those transitions. The cause of the diagnostic remains open.
 
+## Stopping while the workspace is disconnected
+
+The native test started a real Codex shell command on a second Mac, hid the sidebar, disconnected the private workspace and pressed **Stop response**. The remote journal subsequently contained the final answer. On the original build the Mac saved a stop failure beside a reply marked stopped. Nine seconds after reconnecting, that row still had no final answer. A separate regression on the command dispatcher showed that a transient connection banner disabled Activity, Search and next-chat navigation.
+
+With the fix, the transcript shows **Stop unconfirmed. The bot may still be running.** Activity also identifies the affected chat. With the connection banner visible and the sidebar hidden, the driver opened Activity and Search by keyboard, then switched to a local chat. After the remote command finished, reconnecting recovered its answer into the original conversation and raised its unread count. In a separate group run, the driver quit and relaunched the app offline. The group answer appeared about six seconds after connection was restored. Each remote journal contained one task and one answer. The app only reads the journal to recover that answer. Recovery needs the saved delivery receipt and a matching journal entry. Older conversations without a receipt can show that Stop failed, but cannot identify the final answer automatically.
+
+The workspace can also acknowledge an interrupt while reporting that its agent is still working. HTTP fixture tests cover stopped, exited, still working, unknown and older responses without an outcome in both direct and group sessions. The Mac retains the delivery receipt when the response leaves the result unconfirmed.
+
+The native regression includes a saved group request that was waiting for stop confirmation when the app closed. It checks the warning while offline, the unread badge after reconnecting, and the final text and identity of the group reply after relaunch. [Repeat the recovery check](agent-qa.md#use-the-real-mac-window)
+
 ## Product comparison and remaining checks
 
 

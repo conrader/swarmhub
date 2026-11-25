@@ -12,6 +12,15 @@ enum TranscriptHistory {
     /// Earlier builds appended workspace imports. Their timestamps identify where to merge
     /// them. Local rows keep their saved sequence, including any ambiguous old steer.
     static func restoring(_ rows: [ChatMessage]) -> [ChatMessage] {
+        // A quit during the interrupt leaves its outcome unknown. Older saves recorded a failed interrupt
+        // only in the system note immediately after the stopped reply.
+        for (index, reply) in rows.enumerated() where reply.role == .assistant && reply.turnState == .stopped {
+            let next = index + 1
+            if reply.metadata[TurnKey.why] == TurnKey.stopPending ||
+                (next < rows.count && rows[next].role == .system && IntentLine.stopFailed.matches(rows[next].content)) {
+                reply.metadata[TurnKey.why] = TurnKey.stopUnconfirmed
+            }
+        }
         func needsPlacement(_ row: ChatMessage) -> Bool {
             row.metadata["herdrTeamEntry"] != nil && row.metadata[placed] == nil
         }
