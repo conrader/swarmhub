@@ -80,6 +80,8 @@ Before the fix, the chat showed **Incomplete** by the six-second check. Even 75 
 
 With the fix, the chat showed **Reconnecting to the workspace…** while the command ran. Its saved reply appeared 0.8 seconds after the tunnel reopened. A second message in the same chat received its answer in 5.1 seconds. The server recorded exactly two tasks and two matching replies. This exercise used a manually restored SSH forward. The client retries reads of an accepted turn for up to two minutes with increasing delays. A permanent refusal such as an invalid access token ends the wait immediately.
 
+A second exercise used the SSH connection managed by SwarmHub. The driver terminated the app’s own SSH forward after the command started. SwarmHub opened a replacement forward automatically. The reply to the 12-second command was visible 14.9 seconds after the disconnect. A follow-up received its answer in 9.8 seconds. Both tasks appeared exactly once in the remote journal.
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
