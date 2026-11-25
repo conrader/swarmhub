@@ -274,7 +274,7 @@ To share a group, open its **Members** panel and choose **Export Team Pack…**.
 
 ### Files
 
-Drop or attach images, movies, text files, PDF, RTF, DOC or DOCX files. Published images appear in the reply, and movies have playback controls inside the chat. Video attachments share the existing 8 MB total upload limit per message.
+Drop or attach images, movies, text files, PDF, RTF, DOC or DOCX files. In a bot or group chat, press ⌘V in the message field to attach a copied image. PNG, JPEG, GIF and WebP keep their original format. TIFF screenshots are converted to PNG. Click an attachment to preview it before sending. Published images appear in the reply, and movies have playback controls inside the chat. Video attachments share the existing 8 MB total upload limit per message.
 
 ### Import from Grok Bot
 
