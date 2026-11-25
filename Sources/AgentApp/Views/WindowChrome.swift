@@ -110,6 +110,18 @@ struct ShowSidebarItem: View {
     }
 }
 
+/// Keep the way back to the inspector visible after its close button is clicked.
+struct ShowDetailsItem: View {
+    @EnvironmentObject private var store: AppStore
+    var body: some View {
+        if !store.showInfo {
+            Button("Details", systemImage: "sidebar.right") { store.showInfo = true }
+                .buttonStyle(.bordered).controlSize(.small).fixedSize()
+                .help("Show details (⇧⌘I)").accessibilityIdentifier("chat.showDetails")
+        }
+    }
+}
+
 /// How the Details/Members column opens and closes; the smoke reports which one is live.
 enum RightColumnMechanism: String {
     case inspector, transition

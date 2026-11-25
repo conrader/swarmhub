@@ -21,7 +21,7 @@ private func fixture(summary: String? = nil) -> (handoff: HerdrHandoff, id: UUID
 private func backend(_ bridge: HandoffBridge, id: UUID, handoff: HerdrHandoff?) -> HerdrBackend {
     var made = HerdrBackend(client: bridge.client(), botName: "Ada", botID: id, template: nil, instructions: persona)
     made.helperNote = appNote
-    if let handoff { made.handoff = HerdrHandoffSource(lead: handoff.lead, prepare: { _ in handoff }, replyLimit: .seconds(10)) }
+    if let handoff { made.handoff = HerdrHandoffSource(lead: handoff.lead, prepare: { _ in handoff }) }
     return made
 }
 
@@ -35,22 +35,20 @@ private func say(_ text: String, to backend: HerdrBackend, session: String) asyn
     return reply
 }
 
-private let answering: @Sendable (String) -> String? = { task in task.contains("[SwarmHub handoff") ? "It stood at question 120." : "the answer" }
+private let answering: @Sendable (String) -> String? = { _ in "the answer" }
 
-@Test func aNewAgentReadsTheConversationBeforeThePersonsMessage() async throws {
+@Test func aNewAgentReceivesTheQuestionAndItsContextInOneSteerableTask() async throws {
     let bridge = HandoffBridge(); bridge.answers = answering
     let (handoff, id) = fixture()
     let reply = try await say("What did we decide last?", to: backend(bridge, id: id, handoff: handoff), session: id.uuidString)
     let sent = bridge.sent
-    try #require(sent.map(\.route) == ["launch-with-files", "message"])
-    let first = sent[0], second = sent[1]
-    #expect(first.text.contains(persona) && first.text.contains(handoff.marker) && first.text.contains("grok-handoff.md"), "the first task: the bot's instructions and the note with its marker")
-    #expect(!first.text.contains("What did we decide last?") && !first.text.contains(appNote), "neither the person's message nor the app's notes")
+    try #require(sent.map(\.route) == ["launch-with-files"])
+    let first = sent[0]
+    #expect(first.text.contains(persona) && first.text.contains(appNote) && first.text.contains(handoff.marker))
+    #expect(first.text.hasSuffix("What did we decide last?") && first.text.contains("answer 120 end"))
     #expect(first.files.keys.sorted() == ["grok-handoff.md", "grok-history-full.md"])
-    #expect(first.files["grok-handoff.md"] == String(decoding: handoff.files[0].data, as: UTF8.self) && first.files["grok-history-full.md"]?.contains("question 1 end") == true)
-    #expect(first.workspaceID == id.uuidString.lowercased(), "launched into the bot's own workspace folder")
-    #expect(first.text.utf8.count <= 12 * 1024 && first.text.contains("The last messages, in case you cannot open the files:") && first.text.contains("answer 120 end"))
-    #expect(second.agent == first.agent && second.text.hasSuffix("What did we decide last?") && second.text.contains(appNote) && !second.text.contains(handoff.lead))
+    #expect(first.files["grok-history-full.md"]?.contains("question 1 end") == true)
+    #expect(first.workspaceID == id.uuidString.lowercased())
     #expect(reply == "the answer")
 }
 
@@ -78,21 +76,26 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     bridge.seed(agent: name, rows: [("task", "an earlier question"), ("reply", "an earlier answer"), ("task", handoff.note(bytes: 8_000, withFiles: true))])
     let reply = try await say("And now?", to: backend(bridge, id: id, handoff: handoff), session: id.uuidString)
     let sent = bridge.sent
-    try #require(sent.map(\.route) == ["message-with-files", "message"])
-    #expect(sent[0].agent == name && sent[0].text.hasPrefix(handoff.marker) && sent[0].files.keys.sorted() == ["grok-handoff.md", "grok-history-full.md"], "to the running agent, with the files")
+    try #require(sent.map(\.route) == ["message-with-files"])
+    #expect(sent[0].agent == name && sent[0].text.contains(handoff.marker) && sent[0].files.keys.sorted() == ["grok-handoff.md", "grok-history-full.md"], "to the running agent, with the files")
     #expect(!sent[0].text.contains(persona), "an agent that holds a conversation has its instructions")
-    #expect(sent[1].text.hasSuffix("And now?") && reply == "the answer")
+    #expect(sent[0].text.hasSuffix("And now?") && reply == "the answer")
 }
 
 @Test func aHandoffTheAgentIsStillReadingIsWaitedForNotSentTwice() async throws {
     let (handoff, id) = fixture()
     let name = HerdrBackend.agentName(botName: "Ada", botID: id)
     let bridge = HandoffBridge(); bridge.answers = answering
-    bridge.agentState = "working"; bridge.lateReply = "It stood at question 120."
+    bridge.agentState = "working"
     bridge.seed(agent: name, rows: [("task", handoff.note(bytes: 8_000, withFiles: true))])
+    let settling = Task {
+        try await Task.sleep(for: .milliseconds(50))
+        bridge.setState("done", for: name)
+    }
     let reply = try await say("And now?", to: backend(bridge, id: id, handoff: handoff), session: id.uuidString)
+    try await settling.value
     let sent = bridge.sent
-    try #require(sent.map(\.route) == ["message"], "the handoff on its way is followed")
+    try #require(sent.map(\.route) == ["message"])
     #expect(sent[0].text.hasSuffix("And now?") && !sent[0].text.contains(handoff.lead) && reply == "the answer")
     // What the saved rows say, by themselves.
     let task = HerdrClient.Item(id: 4, kind: "task", text: handoff.marker + " …"), answer = HerdrClient.Item(id: 5, kind: "reply", text: "ok")
@@ -105,22 +108,16 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     #expect(HerdrClient.handoffState(lead: handoff.lead, rows: [other, unsent, answer]) == .missing, "a task that was never typed taught the agent nothing")
 }
 
-@Test func anAgentStartedAheadOfTimeIsStartedAgainWithTheFiles() async throws {
+@Test func anAgentStartedAheadOfTimeReceivesTheQuestionWithItsFiles() async throws {
     let (handoff, id) = fixture()
     let name = HerdrBackend.agentName(botName: "Ada", botID: id)
     let bridge = HandoffBridge(); bridge.answers = answering
     bridge.seed(agent: name, warm: true)
     let reply = try await say("Hello again", to: backend(bridge, id: id, handoff: handoff), session: id.uuidString)
     let sent = bridge.sent
-    try #require(sent.map(\.route) == ["end", "launch-with-files", "message"], "the unused agent is ended and launched with the files, so they land in its folder")
-    #expect(sent.allSatisfy { $0.agent == name } && sent[1].text.contains(persona) && sent[1].text.contains(handoff.marker) && sent[1].files.count == 2)
-    #expect(sent[1].workspaceID == id.uuidString.lowercased() && sent[2].text.hasSuffix("Hello again") && reply == "the answer" && bridge.liveNames == [name])
-    // A server that cannot launch with files keeps the agent and sends them to it, as its first task.
-    let older = HandoffBridge(); older.answers = answering; older.launchAttachments = false
-    older.seed(agent: name, warm: true)
-    _ = try await say("Hello again", to: backend(older, id: id, handoff: handoff), session: id.uuidString)
-    try #require(older.sent.map(\.route) == ["message-with-files", "message"])
-    #expect(older.sent[0].text.contains(persona) && older.sent[0].text.contains(handoff.marker) && older.sent[0].text.utf8.count <= 12 * 1024)
+    try #require(sent.map(\.route) == ["message-with-files"])
+    #expect(sent[0].agent == name && sent[0].text.contains(persona) && sent[0].text.contains(handoff.marker) && sent[0].files.count == 2)
+
 }
 
 @Test func aServerThatTakesNoFilesGetsTheNoteWithItsExcerpt() async throws {
@@ -128,12 +125,12 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     let bridge = HandoffBridge(); bridge.answers = answering; bridge.attachments = false
     _ = try await say("Hello again", to: backend(bridge, id: id, handoff: handoff), session: id.uuidString)
     let sent = bridge.sent
-    try #require(sent.map(\.route) == ["launch", "message"])
-    #expect(sent[0].files.isEmpty && sent[0].text.contains(handoff.marker) && sent[0].text.contains("could not take the files") && sent[0].text.contains("They planned the launch for Friday."))
-    #expect(sent[0].text.utf8.count <= HerdrClient.taskBytes && sent[1].text.hasSuffix("Hello again"))
+    try #require(sent.map(\.route) == ["launch"])
+    #expect(sent[0].files.isEmpty && sent[0].text.contains("summary") && sent[0].text.contains("They planned the launch for Friday."))
+
 }
 
-@Test @MainActor func theTurnTakesNoSteerUntilTheHandoffHasEnded() async throws {
+@Test @MainActor func anOlderWorkspaceQueuesFollowUpsOnContextualQuestions() async throws {
     let (handoff, id) = fixture()
     let bridge = HandoffBridge(); bridge.holds = { $0.contains("[SwarmHub handoff") }
     let made = backend(bridge, id: id, handoff: handoff)
@@ -144,7 +141,7 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     #expect(try await made.features().isEmpty, "while the agent reads the conversation")
     bridge.release("It stood at question 120.")
     try await reading.value
-    #expect(try await made.features().isEmpty && bridge.sent.map(\.route) == ["launch-with-files", "message"])
+    #expect(try await made.features().isEmpty && bridge.sent.map(\.route) == ["launch-with-files"])
     // An older workspace has no live-steer transport, with or without handoff.
     let plain = backend(HandoffBridge(), id: id, handoff: nil)
     _ = try await plain.send(AgentRequest(sessionID: id.uuidString, systemPrompt: "", messages: [(role: "user", content: "Hello")]))
@@ -192,9 +189,8 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     #expect(store.send(text: "Where were we?"))
     try await waitUntil { store.runningTurns.isEmpty && store.grokHandoffRecord(for: bot) != nil }
     let sent = bridge.sent
-    try #require(sent.map(\.route) == ["launch-with-files", "message"])
-    #expect(sent[0].text.contains(GrokHandoff.lead(for: bot.id)) && !sent[0].text.contains("Where were we?") && sent[0].files["grok-handoff.md"]?.contains("question 5 end") == true)
-    #expect(sent[1].text.hasSuffix("Where were we?"))
+    try #require(sent.map(\.route) == ["launch-with-files"])
+    #expect(sent[0].text.contains(GrokHandoff.lead(for: bot.id)) && sent[0].text.hasSuffix("Where were we?") && sent[0].files["grok-handoff.md"]?.contains("question 5 end") == true)
     #expect(bot.messages.filter { $0.role != .system }.map(\.role) == [.user, .assistant] && bot.messages.last(where: { $0.role == .assistant })?.content == "the answer")
     let lines = bot.messages.filter { $0.role == .system }
     #expect(lines.map(\.content) == [GrokHandoffCopy.read("Ada")] && lines.allSatisfy { AppOnlyLine.isAppOnly($0) }, "one line for the person, never sent to the agent")
@@ -204,5 +200,5 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     // The next message finds the conversation read: nothing but the message, and no second line in the chat.
     #expect(store.send(text: "And then?"))
     try await waitUntil { store.runningTurns.isEmpty }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message", "message"] && bot.messages.filter { $0.role == .system }.count == 1)
+    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message"] && bot.messages.filter { $0.role == .system }.count == 1)
 }

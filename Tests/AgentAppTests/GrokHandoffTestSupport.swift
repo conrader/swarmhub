@@ -46,7 +46,7 @@ final class HandoffBridge: @unchecked Sendable {
     private var autoModes: [String: Bool] = [:]
     /// What the server says it can do, the status every agent reports, and what an agent replies to a task.
     /// Set before the first request.
-    var attachments = true, launchAttachments = true
+    var attachments = true, launchAttachments = true, codexSteer = false
     var agentState: String? = nil
     var answers: @Sendable (String) -> String? = { _ in "ok" }
     /// The agent names this server refuses to start.
@@ -159,9 +159,9 @@ final class HandoffBridge: @unchecked Sendable {
         let pieces = path.split(separator: "/").map(String.init)
         return lock.withLock { () -> (Int, Any) in
             if method == "GET", path == "/api/workspace" {
-                let template: [String: Any] = ["name": "tpl-one", "description": "", "error": NSNull(), "runtime": ["harness": "Agent One", "provider": NSNull(), "model": NSNull()]]
+                let template: [String: Any] = ["name": "tpl-one", "description": "", "error": NSNull(), "runtime": ["harness": codexSteer ? "Codex" : "Agent One", "provider": NSNull(), "model": NSNull()]]
                 let workspace: [String: Any] = ["core": "c", "version": "1", "attachments": attachments, "launch_attachments": launchAttachments,
-                                                "bot_workspaces": true, "agents": agents, "templates": [template]]
+                                                "codex_turn_steer": codexSteer, "bot_workspaces": true, "agents": agents, "templates": [template]]
                 return (200, workspace)
             }
             if method == "GET", path == "/api/approvals" { return (200, ["pending": []]) }
@@ -203,6 +203,14 @@ final class HandoffBridge: @unchecked Sendable {
             if method == "POST", pieces.count >= 5, pieces[1] == "agents" {
                 let key = "\(pieces[2])/\(pieces[3])", action = pieces[4...].joined(separator: "/")
                 let agent = name(of: key)
+                if action == "steer", codexSteer {
+                    let (body, _) = Self.parts(request)
+                    let reference = body["reference"] as? String ?? ""
+                    guard !reference.isEmpty, let task = rows[key]?.last(where: { $0["kind"] as? String == "task" })?["text"] as? String,
+                          task.contains("[SwarmHub turn " + reference + "]") else { return (409, ["error": "Stale turn"]) }
+                    posts.append(Sent(route: "steer", agent: agent, text: body["text"] as? String ?? ""))
+                    return (200, ["delivered": true])
+                }
                 if action == "end" || action == "end-if-idle" {
                     posts.append(Sent(route: "end", agent: agent, text: ""))
                     agents.removeAll { Self.key($0) == key }

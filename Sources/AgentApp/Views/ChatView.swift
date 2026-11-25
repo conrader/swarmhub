@@ -46,6 +46,7 @@ struct ChatView: View {
                         .buttonStyle(.bordered).controlSize(.small).fixedSize()
                         .accessibilityLabel("Open terminal for \(bot.name)").accessibilityIdentifier("chat.bot.terminal")
                 }
+                ShowDetailsItem()
             }.animation(.easeInOut(duration: 0.2), value: store.herdrReadiness[bot.id]?.word)
             .padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header")
                 // The bot's own colour, as a soft wash behind its name: each chat is recognisably its bot's.

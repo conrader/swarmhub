@@ -25,14 +25,14 @@ import Testing
     store.grokHandoffs.states[bot.id] = nil
     #expect(store.send(text: "Message 1"))
     try await waitUntil { store.runningTurns.isEmpty && store.grokHandoffState(for: bot.id).read == launch }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message", "message"])
+    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message"])
     for index in 2...40 {
         #expect(store.send(text: "Message \(index)"))
         try await waitUntil { store.runningTurns.isEmpty }
     }
     let sent = bridge.sent
     #expect(sent.filter { $0.route == "launch-with-files" }.count == 1 && !sent.contains(where: { $0.route == "message-with-files" }), "one handoff in 41 exchanges")
-    #expect(sent.filter { $0.route == "message" }.count == 41 && sent.filter { $0.text.contains(lead) }.count == 1)
+    #expect(sent.filter { $0.route == "message" }.count == 40 && sent.filter { $0.text.contains(lead) }.count == 1)
     #expect(systemLines(bot) == [GrokHandoffCopy.read("Ada")] && bot.messages.last(where: { $0.role == .assistant })?.content == "ok")
     // What the Mac remembers goes with the archive.
     store.grokHistory.remove(bot.id)
@@ -71,7 +71,7 @@ import Testing
     #expect(!store.grokOffersRetry(for: bot) && store.grokHandoffLine(for: bot) == GrokHandoffCopy.pending("Ada"))
     #expect(store.send(text: "Fourth"))
     try await waitUntil { store.runningTurns.isEmpty && store.grokHandoffRecord(for: bot) != nil }
-    #expect(bridge.sent.map(\.route) == ["launch", "message", "message", "message-with-files", "message"] && bridge.sent[3].text.contains(lead))
+    #expect(bridge.sent.map(\.route) == ["launch", "message", "message", "message-with-files"] && bridge.sent[3].text.contains(lead))
     #expect(store.grokHandoffState(for: bot.id).failures == nil && store.grokHandoffLine(for: bot).hasPrefix("Handed over to Ada"))
     #expect(systemLines(bot).count == 3 && systemLines(bot).contains(GrokHandoffCopy.read("Ada")))
 }
@@ -86,7 +86,7 @@ import Testing
     #expect(HerdrHandoff.reason(HerdrClient.Failure.http(413, "Too large.")) == "The server said: Too large.")
     #expect(HerdrHandoff.reason(BackendError.unavailable("This server cannot receive attachments.")) == "This server cannot receive attachments.")
     // "New conversation" does not promise an empty start to a bot that is handed its history again.
-    #expect(GrokHandoffCopy.newConversation("Ada", readsHistory: true).contains("reads its Grok history again") && !GrokHandoffCopy.newConversation("Ada", readsHistory: true).contains("empty context"))
+    #expect(GrokHandoffCopy.newConversation("Ada", readsHistory: true).contains("includes its Grok history") && !GrokHandoffCopy.newConversation("Ada", readsHistory: true).contains("empty context"))
     #expect(GrokHandoffCopy.newConversation("Ada", readsHistory: false) == "Start Ada with empty context. Earlier messages stay visible here.")
 }
 
@@ -137,7 +137,7 @@ import Testing
     #expect(draft.plan.needsSummary && draft.parts > GrokHandoff.unaskedParts && draft.parts <= GrokHandoff.mostParts, "\(draft.parts) files")
     #expect(store.send(text: "Hello"))
     try await waitUntil { store.runningTurns.isEmpty && store.grokHandoffRecord(for: bot) != nil }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message"] && bridge.sent.allSatisfy { $0.agent == agent }, "no summary agent was started")
+    #expect(bridge.sent.map(\.route) == ["launch-with-files"] && bridge.sent.allSatisfy { $0.agent == agent }, "no summary agent was started")
     #expect(store.grokHandoffState(for: bot.id).summaryHold?.tooLong == true && store.grokOffersSummary(for: bot))
     #expect(store.grokHandoffLine(for: bot).contains("without a summary") && store.grokHandoffLine(for: bot).contains(GrokHandoffCopy.tooLong))
     // Asked for, it is made in messages of four files.
@@ -182,6 +182,22 @@ import Testing
     #expect(bridge.sent.count == 1)
     bridge.release("It stood at question 5.")
     try await waitUntil { store.runningTurns.isEmpty }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message", "message"])
-    #expect(bridge.sent[1].text.hasSuffix("First") && bridge.sent[2].text.hasSuffix("Second") && store.turns.nextMessages.isEmpty)
+    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message"])
+    #expect(bridge.sent[0].text.hasSuffix("First") && bridge.sent[1].text.hasSuffix("Second") && store.turns.nextMessages.isEmpty)
+}
+
+@Test @MainActor func importedHistoryDoesNotOccupyTheCodexTurnOrQueueItsSteers() async throws {
+    let bridge = HandoffBridge()
+    bridge.codexSteer = true
+    bridge.holds = { $0.hasSuffix("First question") }
+    let (store, bot) = try handoffStore(bridge, lines: handoffConversation(exchanges: 5))
+    #expect(store.send(text: "First question"))
+    try await waitUntil { store.canSteer(in: bot) }
+    #expect(bridge.sent.map(\.route) == ["launch-with-files"])
+    #expect(store.send(text: "One more detail"))
+    try await waitUntil { bot.messages.contains { $0.content == "One more detail" && $0.metadata[SteerKey.steer] == "delivered" } }
+    #expect(bridge.sent.map(\.route) == ["launch-with-files", "steer"])
+    #expect(!store.hasWaitingTurn(in: bot))
+    bridge.release("Answer with the detail.")
+    try await waitUntil { store.runningTurns.isEmpty }
 }

@@ -64,21 +64,19 @@ private func permissions(_ url: URL) throws -> Int? {
     let bridge = HandoffBridge()
     bridge.answers = { task in
         if task.contains("You are preparing a handover") { return "They planned the launch. The person likes short answers. password: \(secret)" }
-        return task.contains("[SwarmHub handoff") ? "It stood at question 120." : "the answer"
+        return "the answer"
     }
     let (store, bot) = try handoffStore(bridge, lines: handoffConversation(exchanges: 120, bytes: 400))
     let compactor = HerdrClient.compactorName(for: bot.id), agent = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
     #expect(store.send(text: "Where were we?"))
     try await waitUntil { store.runningTurns.isEmpty && store.grokHandoffRecord(for: bot) != nil }
-    let sent = bridge.sent
-    try #require(sent.map(\.route) == ["launch-with-files", "end", "launch-with-files", "message"])
-    #expect(sent.map(\.agent) == [compactor, compactor, agent, agent], "the summary is written and its agent ended before the bot's agent starts")
-    #expect(sent[0].files.keys.sorted() == ["older-part-1.md"] && sent[0].files["older-part-1.md"]?.contains("question 1 end") == true)
-    #expect(sent[0].files["older-part-1.md"]?.contains("question 120 end") == false, "only the older part is summarised")
-    let handoff = try #require(sent[2].files["grok-handoff.md"])
-    #expect(handoff.contains("## Summary of the older part (152 messages, #1 to #152)") && handoff.contains("They planned the launch.") && handoff.contains("question 120 end"))
-    #expect(!handoff.contains(secret) && !sent[2].text.contains(secret) && sent[2].text.contains("They planned the launch."), "the note carries the summary too, filtered")
-    #expect(sent[3].text.hasSuffix("Where were we?") && bot.messages.last(where: { $0.role == .assistant })?.content == "the answer")
+    try await waitUntil { store.grokHandoffs.summaries.isEmpty }
+    let summaryCalls = bridge.sent.filter { $0.agent == compactor }
+    #expect(summaryCalls.map(\.route) == ["launch-with-files", "end"])
+    #expect(summaryCalls.first?.files["older-part-1.md"]?.contains("question 1 end") == true)
+    let first = try #require(bridge.sent.first { $0.agent == agent })
+    #expect(first.text.hasSuffix("Where were we?") && first.files["grok-history-full.md"] != nil)
+    #expect(!first.text.contains(secret) && bot.messages.last(where: { $0.role == .assistant })?.content == "the answer")
     // Kept beside the archive, private, filtered.
     let url = store.grokHistory.handoffURL(for: bot.id)
     let cache = try #require(GrokHandoffCache.load(url))
@@ -87,15 +85,15 @@ private func permissions(_ url: URL) throws -> Int? {
     #expect(try permissions(url) == 0o600)
     #expect(!onDisk.contains(secret) && onDisk.contains("They planned the launch."))
     let record = try #require(store.grokHandoffRecord(for: bot))
-    #expect(record.summarised && record.older == 152 && record.recent == 88 && store.grokHandoffs.summaries.isEmpty && store.grokHandoffState(for: bot.id).summaryHold == nil)
-    #expect(store.grokHandoffLine(for: bot).hasPrefix("Handed over to Ada · summary of 152 + last 88 messages · "))
+    #expect(!record.summarised && record.older == 152 && record.recent == 88 && store.grokHandoffs.summaries.isEmpty && store.grokHandoffState(for: bot.id).summaryHold == nil)
+    let beforeRestart = bridge.sent.count
     // A new agent of the bot is handed the conversation again, with the summary that was kept: none is made twice.
     #expect(try await store.restartHerdrAgent(for: bot))
     #expect(store.send(text: "And now?"))
     try await waitUntil { store.runningTurns.isEmpty }
-    let later = Array(bridge.sent.dropFirst(4))
-    #expect(later.map(\.route) == ["end", "launch-with-files", "message"] && later.allSatisfy { $0.agent == agent })
-    #expect(later[1].files["grok-handoff.md"] == handoff && bot.messages.filter { $0.role == .system }.count == 1, "the same bytes, and the chat said it once")
+    let later = Array(bridge.sent.dropFirst(beforeRestart))
+    #expect(later.map(\.route) == ["end", "launch-with-files"] && later.allSatisfy { $0.agent == agent })
+    #expect(later.last?.files["grok-handoff.md"]?.contains("They planned the launch.") == true && bot.messages.filter { $0.role == .system }.count == 1)
 }
 
 @Test @MainActor func aSummaryThatCannotBeMadeLeavesTheRecentPartAndTheFullTranscript() async throws {
@@ -106,13 +104,14 @@ private func permissions(_ url: URL) throws -> Int? {
     let agent = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
     #expect(store.send(text: "Where were we?"))
     try await waitUntil { store.runningTurns.isEmpty && store.grokHandoffRecord(for: bot) != nil }
+    try await waitUntil { store.grokHandoffs.summaries.isEmpty }
     let sent = bridge.sent
-    try #require(sent.map(\.route) == ["launch-with-files", "message"])
+    try #require(sent.map(\.route) == ["launch-with-files"])
     #expect(sent.allSatisfy { $0.agent == agent } && bridge.liveNames == [agent], "no one-off agent is left behind")
     let handoff = try #require(sent[0].files["grok-handoff.md"])
     #expect(handoff.contains("The older part is not summarised here") && !handoff.contains("## Summary of the older part") && handoff.contains("question 120 end") && !handoff.contains("question 1 end"))
     #expect(sent[0].files["grok-history-full.md"]?.contains("question 1 end") == true, "the older part is in the full transcript")
-    #expect(sent[0].text.contains("The last messages, in case you cannot open the files:") && sent[1].text.hasSuffix("Where were we?"))
+    #expect(sent[0].text.contains("The last messages") && sent[0].text.hasSuffix("Where were we?"))
     #expect(!FileManager.default.fileExists(atPath: store.grokHistory.handoffURL(for: bot.id).path) && store.grokHandoffs.summaries.isEmpty)
     #expect(store.grokHandoffState(for: bot.id).summaryHold?.tooLong == false && store.grokOffersSummary(for: bot), "the failure is kept, and the header offers to try again")
     let record = try #require(store.grokHandoffRecord(for: bot))

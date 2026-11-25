@@ -21,6 +21,7 @@ struct GroupChatView: View {
                 Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 Text(members.isEmpty ? "No bots yet" : ([store.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
+                ShowDetailsItem()
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollViewReader { proxy in
