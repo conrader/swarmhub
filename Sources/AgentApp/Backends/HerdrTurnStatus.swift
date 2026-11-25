@@ -9,6 +9,7 @@ import Foundation
 enum HerdrTurnStatus: Equatable, Sendable {
     /// The message is on its way to the server.
     case sending
+    case reconnecting
     case waitingForIdle
     /// The agent program is starting: this turn launched it, or it was started ahead of time and is not ready yet.
     case starting(program: String?)
@@ -32,6 +33,7 @@ enum HerdrTurnStatus: Equatable, Sendable {
     var code: String {
         let (name, program): (String, String?) = switch self {
         case .waitingForIdle: ("waitingForIdle", nil)
+        case .reconnecting: ("reconnecting", nil)
         case .sending: ("sending", nil)
         case .starting(let program): ("starting", program)
         case .delivered(let program): ("delivered", program)
@@ -52,6 +54,7 @@ enum HerdrTurnStatus: Equatable, Sendable {
         let program = parts.count > 1 && !parts[1].isEmpty ? String(parts[1]) : nil
         switch parts.first.map(String.init) {
         case "waitingForIdle": self = .waitingForIdle
+        case "reconnecting": self = .reconnecting
         case "sending": self = .sending
         case "starting": self = .starting(program: program)
         case "delivered": self = .delivered(program: program)
@@ -69,6 +72,7 @@ enum HerdrTurnStatus: Equatable, Sendable {
     var line: String {
         switch self {
         case .waitingForIdle: "Waiting for the current workspace task to finish…"
+        case .reconnecting: "Reconnecting to the workspace…"
         case .sending: "Sending…"
         case .starting(let program): "Starting \(program ?? "the agent")…"
         case .delivered(let program): "Delivered to \(program ?? "the agent")…"
@@ -93,7 +97,7 @@ enum HerdrTurnStatus: Equatable, Sendable {
     /// reading, unless the agent program is still starting, waits at a prompt in its terminal, or reported an error.
     static func duringHandoff(_ status: HerdrTurnStatus) -> HerdrTurnStatus {
         switch status {
-        case .starting, .blocked, .failing, .waitingForIdle: return status
+        case .starting, .blocked, .failing, .waitingForIdle, .reconnecting: return status
         case .sending, .delivered, .working, .finishing, .summarising, .readingHistory: return .readingHistory
         }
     }

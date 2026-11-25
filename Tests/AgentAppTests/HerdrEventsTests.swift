@@ -328,3 +328,63 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     let confirmed = RunSummary(model: "Sol", modelSource: .confirmation, seconds: 12, tools: 1)
     #expect(confirmed.line == "Last confirmed · Sol · 12 s · 1 tool call")
 }
+
+@Test func acceptedTurnRecoversAcrossRepeatedReadFailures() async throws {
+    let reads = Heard<String>(), statuses = Heard<HerdrTurnStatus>()
+    let (host, session) = MockHTTPProtocol.serve { req in
+        guard req.url?.path == "/api/history/c/t1/5" else { return (200, ["tools": []]) }
+        reads.add(req.httpMethod ?? "")
+        switch reads.all.count {
+        case 1...5: return (0, URLError(.cannotConnectToHost))
+        case 6: return (503, ["error": "restarting"])
+        default: return (200, ["items": [["id": 12, "kind": "reply", "text": "Once"] as [String: Any]]])
+        }
+    }
+    var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
+    client.following = .polling
+    client.pollInterval = .milliseconds(1)
+    let answer = try await client.reply(to: turn, status: { statuses.add($0) })
+    #expect(answer == "Once")
+    #expect(statuses.all == [.reconnecting])
+    #expect(MockHTTPProtocol.recorded(host).allSatisfy { $0.httpMethod == "GET" })
+    #expect(ActivityCopy.agentStatus(.reconnecting, phase: .working) == .reconnecting)
+}
+
+@Test(arguments: [401, 503]) func acceptedTurnEndsOnRefusalOrExtendedOutage(code: Int) async throws {
+    let statuses = Heard<HerdrTurnStatus>()
+    let (host, session) = MockHTTPProtocol.serve { _ in (code, ["error": "test response"]) }
+    var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
+    client.following = .polling
+    client.pollInterval = .milliseconds(2)
+    client.reconnectLimit = .milliseconds(30)
+    let expected: HerdrClient.Failure = code == 401 ? .unauthorized : .http(code, "test response")
+    await #expect(throws: expected) { try await client.reply(to: turn, status: { statuses.add($0) }) }
+    #expect(statuses.all == (code == 401 ? [] : [.reconnecting]))
+}
+
+@Test func offlineTimeDoesNotFinishAnUnansweredSteer() {
+    var follower = HerdrTurnFollower(after: 10)
+    let start = ContinuousClock.now
+    follower.take(rows: [row(11, "task", "first"), row(12, "task", "second"), row(13, "reply", "first answer")])
+    #expect(follower.judgeSaved(now: start) == .waiting)
+    #expect(follower.drain() == [.partial("first answer")])
+    follower.connectionLost()
+    #expect(follower.judgeSaved(now: start + .seconds(60)) == .waiting)
+    #expect(follower.drain() == [.status(.reconnecting)])
+    follower.take(rows: [row(14, "reply", "second answer")])
+    #expect(follower.judgeSaved(now: start + .seconds(61)) == .reply("first answer\n\nsecond answer"))
+}
+
+@Test func cancellingDuringReconnectStopsTheReadLoop() async throws {
+    let (host, session) = MockHTTPProtocol.serve { _ in (0, URLError(.networkConnectionLost)) }
+    var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
+    client.following = .polling
+    client.pollInterval = .seconds(30)
+    let statuses = AwaitableLog<HerdrTurnStatus>()
+    let reading = Task { try await client.reply(to: turn, status: { statuses.append($0) }) }
+    defer { reading.cancel() }
+    try await statuses.wait(ceiling: .seconds(3)) { $0.contains(.reconnecting) }
+    reading.cancel()
+    await #expect(throws: CancellationError.self) { try await reading.value }
+    #expect(MockHTTPProtocol.recorded(host).count == 1)
+}
