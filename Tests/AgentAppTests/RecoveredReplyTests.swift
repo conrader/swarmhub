@@ -47,7 +47,7 @@ import Testing
         let url = temporaryStore()
         let (store, bot) = steerStore(ScriptedTurnBackend(), url: url)
         let question = ChatMessage(role: .user, content: "first")
-        let prefix = "Before the correction."
+        let prefix = quit == .afterCommentary ? "Bl" : "Before the correction."
         let original = ChatMessage(role: .assistant, content: quit == .beforeOutput ? "" : prefix,
             metadata: [TurnKey.forUser: question.id.uuidString], turnState: .incomplete)
         original.deliveryReceipt = receipt

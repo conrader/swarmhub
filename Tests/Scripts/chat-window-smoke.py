@@ -255,7 +255,7 @@ def steer_reopen(source_app):
         rows = []
         question = row("user", "Check the rendering.")
         rows.append(question)
-        prefix = "The render has started."
+        prefix = "The render has started." if index else "Up"
         original = row("assistant", prefix, metadata={"for": question["id"]}, turnState="incomplete")
         rows.append(original)
         guidance = "Use blue for " + name
@@ -273,7 +273,8 @@ def steer_reopen(source_app):
         pending["deliveryReceipt"] = dict(server="default", core="qa", address=address, createdMs=50, after=0,
                                           taskDigest=base64.b64encode(hashlib.sha256(question["content"].encode()).digest()).decode())
         answers["/api/history/qa/" + address + "/50"] = [
-            dict(id=1, kind="task", text=question["content"]), dict(id=2, kind="reply", text=answer)]
+            dict(id=1, kind="task", text=question["content"]),
+            dict(id=2, kind="reply", text=prefix + "\n\n" + answer if index else answer)]
         bots.append(dict(id=str(uuid.uuid4()), name=name, backend="Herdr", messages=rows))
 
     online = False

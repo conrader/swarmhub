@@ -131,16 +131,17 @@ extension AppStore {
         let prefix = TurnReplyText.joined(earlier)
         // Codex can save just its final answer, omitting earlier tool commentary. Other
         // providers can save a cumulative snapshot. Keep each earlier part exactly once.
-        var final = reply.text[...]
-        if !prefix.isEmpty, reply.text.hasPrefix(prefix), reply.text.count > prefix.count {
-            final = reply.text.dropFirst(prefix.count)
-            if final.hasPrefix("\n\n") {
-                answer.metadata[TurnReplyText.separator] = "\n\n"
-                final = final.dropFirst(2)
-            } else { answer.metadata[TurnReplyText.separator] = nil }
-        } else if !prefix.isEmpty { answer.metadata[TurnReplyText.separator] = "\n\n" }
+        if !prefix.isEmpty, reply.text.hasPrefix(prefix + "\n\n"), reply.text.count > prefix.count + 2 {
+            answer.content = String(reply.text.dropFirst(prefix.count + 2))
+            answer.metadata[TurnReplyText.separator] = "\n\n"
+        } else if !prefix.isEmpty, !answer.content.isEmpty,
+                  reply.text.hasPrefix(prefix + (answer.metadata[TurnReplyText.separator] ?? "") + answer.content) {
+            answer.content = String(reply.text.dropFirst(prefix.count + (answer.metadata[TurnReplyText.separator]?.count ?? 0)))
+        } else {
+            answer.content = reply.text
+            if !prefix.isEmpty { answer.metadata[TurnReplyText.separator] = "\n\n" }
+        }
         answer.isStreaming = false
-        answer.content = String(final)
         answer.turnState = .finished
         answer.deliveryReceipt = nil
         (earlier.first ?? answer).metadata["herdrJournal"] = "\(serverID):\(reply.id)"
