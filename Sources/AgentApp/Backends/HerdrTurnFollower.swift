@@ -34,6 +34,8 @@ struct HerdrTurnFollower: Sendable {
     private var repliesSeen = 0, settleSince: ContinuousClock.Instant?, quietSince: ContinuousClock.Instant?
     /// The agent's status as last heard; nil until it was.
     private var agentState: String?
+    private var loginPrompt: HerdrClient.AgentRef?
+    private var nextLoginCheck: ContinuousClock.Instant?
 
     init(after: Int, afterTool: UInt64 = 0, quietLimit: Duration = .seconds(45), program: String? = nil, starting: Bool = false) {
         self.after = after; self.afterTool = afterTool; self.quietLimit = quietLimit; self.program = program; self.starting = starting
@@ -74,7 +76,21 @@ struct HerdrTurnFollower: Sendable {
         return true
     }
 
-    mutating func take(agent: HerdrClient.Agent) { agentState = agent.status?.state ?? "" }
+    mutating func take(agent: HerdrClient.Agent) {
+        agentState = agent.status?.state ?? ""
+        let current = agentState == "blocked" && agent.status?.kind?.lowercased() == "auth" ? agent.ref : nil
+        if current != loginPrompt { nextLoginCheck = nil }
+        loginPrompt = current
+    }
+
+    mutating func checkRejectedLogin(using client: HerdrClient, now: ContinuousClock.Instant) async throws {
+        guard let loginPrompt, replies.isEmpty, rows.values.contains(where: { $0.kind == "task" && $0.state == "sent" }),
+              nextLoginCheck.map({ now >= $0 }) ?? true else { return }
+        nextLoginCheck = now + .seconds(4)
+        guard let screen = try? await client.screen(of: loginPrompt), HerdrPrompt.requestsResendAfterLogin(screen) else { return }
+        try Task.checkCancellation()
+        throw HerdrClient.Failure.notDelivered("\(program ?? "The agent") needs you to sign in. Open its terminal and run /login.")
+    }
 
     /// The steps to show that the last readings produced, oldest first.
     mutating func drain() -> [Step] { defer { steps = [] }; return steps }
@@ -195,6 +211,7 @@ extension HerdrClient {
                 if case .reply(let text) = saved { return text }
                 if case .failed(let failure) = saved { throw failure }
                 if case .failed(let failure) = agentVerdict { throw failure }
+                try await follower.checkRejectedLogin(using: self, now: clock.now)
             }
             reader.cancel(); ticker.cancel()
             try Task.checkCancellation()

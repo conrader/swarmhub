@@ -213,6 +213,7 @@ extension AppStore {
         herdrHelpers = herdrHelpers.filter { $0.key.botID != bot.id }
         herdrHelperReads = herdrHelperReads.filter { $0.key.botID != bot.id }
         herdrAgentPresence[bot.id] = nil
+        herdrReadingUpdated[bot.id] = nil
         herdrAgentReadings[bot.id] = nil
         herdrReadiness[bot.id] = nil
     }

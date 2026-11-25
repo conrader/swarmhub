@@ -46,8 +46,16 @@ On the fixed candidate, a macOS Accessibility driver opened the wizard against a
 
 A second run began with zero registered templates and reached the bot picker with Gemini alone. In Settings, the driver added an Antigravity executable after opening **AIs**, rescanned and chose **Add Antigravity CLI**. Settings confirmed registration on the workspace’s actual port. The test used the real Mac app, bridge and Core, with disposable provider executables. It covers discovery and registration. Signing in to Gemini or Antigravity and completing a chat require separate tests.
 
+## Switching between Codex and Claude in the same chat
+
+On the MacBook, an Accessibility driver gave a fresh random project nickname to a live Codex Astra bot and selected Claude in its Model panel. The next message asked for the nickname without repeating it. In the Mac login session, Claude returned it exactly. The reply footer said Sonnet 5.5, but the header still showed Astra and said Claude would answer next.
+
+On the fixed candidate, the same sequence ended with Sonnet 5.5 in both the header and the reply footer. The driver gave Claude a second random nickname, selected Codex and asked for the second nickname. The reply from GPT-6.2 Sol matched. The workspace journal recorded three distinct sessions, four completed replies and the same bot throughout. No reset or manual transfer was needed.
+
+Launching a separate test from SSH also exercised a sign-in failure. The Claude CLI in that login context explicitly requested `/login` and a resend. Previously the chat still showed an active turn after 95 seconds. On the candidate it ended the turn, displayed the sign-in instruction and exposed **Retry sending this message**. Interactive sign-in screens that can resume keep their terminal action. This exercise did not change the user's credentials.
+
 ## Product comparison and remaining checks
 
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
-- Pending end-to-end coverage includes whether the parent independently takes the next step of a multi-stage task when its helper finishes, switching providers during a live conversation, reopening a saved production-scale group after restart, the update installer, and remote or disconnected servers. Read-only visits to Settings do not exercise credential changes or install software.
+- Pending end-to-end coverage includes whether the parent independently takes the next step of a multi-stage task when its helper finishes, reopening a saved production-scale group after restart, the update installer, and remote or disconnected servers. Read-only visits to Settings do not exercise credential changes or install software.
