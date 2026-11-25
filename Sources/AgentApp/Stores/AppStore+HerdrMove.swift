@@ -209,22 +209,12 @@ extension AppStore {
         guard !herdrMoveInProgress else { throw HerdrMoveError.undoBusy }
         herdrMoveInProgress = true
         defer { herdrMoveInProgress = false }
-        try checkHerdrMoveServers(source: record.source, destination: record.destination)
-        let current = movableHerdrBots(on: record.destination)
-        let targets = try record.changes.map { change in
-            guard let bot = current.first(where: { $0.id == change.botID }), latestHerdrMoves[bot.id] == record.id,
-                  herdrMoveChoice(for: bot) == change.after, herdrProjects(for: bot).isEmpty, createsHerdrBots(bot) == change.isMain else {
-                throw HerdrMoveError.undoUnavailable
-            }
-            guard !herdrMovesCleaning.contains(bot.id), !herdrBotIsBusy(bot) else { throw HerdrMoveError.undoBusy }
-            return (bot, change)
-        }
-        if record.changes.contains(where: \.wasMain), herdrMainBot(on: record.source) != nil { throw HerdrMoveError.mainChanged }
+        _ = try validatedUndoTargets(for: record)
+        let targets: [(Bot, HerdrServerMoveRecord.Change)]
         do {
             try await suspendRoutineMove(record)
             try Task.checkCancellation()
-            guard targets.allSatisfy({ !herdrBotIsBusy($0.0) && herdrServer(for: $0.0) == record.destination
-            && herdrMoveChoice(for: $0.0) == $0.1.after }) else { throw HerdrMoveError.undoBusy }
+            targets = try validatedUndoTargets(for: record)
             try applyHerdrMoveRoles(targets.map { ($0, $1.wasMain) })
         } catch {
             try await Task { try await self.recoverRoutineMove(from: record.source, to: record.destination) }.value
@@ -245,6 +235,21 @@ extension AppStore {
         }
         try await recoverRoutineMove(from: record.source, to: record.destination)
         objectWillChange.send()
+    }
+
+    private func validatedUndoTargets(for record: HerdrServerMoveRecord) throws -> [(Bot, HerdrServerMoveRecord.Change)] {
+        try checkHerdrMoveServers(source: record.source, destination: record.destination)
+        let current = movableHerdrBots(on: record.destination)
+        let targets = try record.changes.map { change in
+            guard let bot = current.first(where: { $0.id == change.botID }), latestHerdrMoves[bot.id] == record.id,
+                  herdrMoveChoice(for: bot) == change.after, herdrProjects(for: bot).isEmpty, createsHerdrBots(bot) == change.isMain else {
+                throw HerdrMoveError.undoUnavailable
+            }
+            guard !herdrMovesCleaning.contains(bot.id), !herdrBotIsBusy(bot) else { throw HerdrMoveError.undoBusy }
+            return (bot, change)
+        }
+        if record.changes.contains(where: \.wasMain), herdrMainBot(on: record.source) != nil { throw HerdrMoveError.mainChanged }
+        return targets
     }
 
     private func checkHerdrMoveServers(source: HerdrServer, destination: HerdrServer) throws {
@@ -275,7 +280,12 @@ extension AppStore {
 
     /// Save role changes with rollback before changing server bindings and runtime caches.
     private func applyHerdrMoveRoles(_ roles: [(Bot, Bool)]) throws {
-        let changed = roles.filter { $0.0.canManageBots != $0.1 }
+        var changed = roles.filter { $0.0.canManageBots != $0.1 }
+        if let main = roles.first(where: { createsHerdrBots($0.0) }) {
+            let moving = Set(roles.map { $0.0.id })
+            let duplicates = duplicateHerdrMainBots(of: main.0)
+            changed += duplicates.filter { !moving.contains($0.id) }.map { ($0, false) }
+        }
         guard !changed.isEmpty else { return }
         let transaction = SetupTransaction(self)
         for (bot, role) in changed {

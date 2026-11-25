@@ -295,11 +295,14 @@ import UserNotifications
         if bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo {
             removedBots[herdrServer(for: bot).id, default: []].insert(bot.id.uuidString.lowercased())
         }
+        let duplicateMains = duplicateHerdrMainBots(of: bot)
+        for other in duplicateMains { other.canManageBots = false }
         bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }
         if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }
         if persistenceEnabled {
             save()
             if turns.saveFailing {
+                for other in duplicateMains { other.canManageBots = true }
                 bots = oldBots; removedBots = oldRemoved; pendingHerdrEndings = oldEndings
                 for (group, ids) in zip(groups, oldMembers) { group.memberIDs = ids }
                 selectVisibleChat()
