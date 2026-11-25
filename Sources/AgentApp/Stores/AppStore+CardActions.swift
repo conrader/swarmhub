@@ -63,6 +63,10 @@ extension AppStore {
             guard canAnswerChoice(source, bot: bot, in: conversation), let reply = choice?.text(options: options) else { return false }
             queueChoice = true
             key = "picked.\(index)"; text = reply; value = reply
+        case .multiChoices(_, let options):
+            guard canAnswerChoice(source, bot: bot, in: conversation), let reply = choice?.multipleText(options: options) else { return false }
+            queueChoice = true
+            key = "picked.\(index)"; text = reply; value = reply
         case .draft(let original):
             queueChoice = false
             key = "draftSent.\(index)"

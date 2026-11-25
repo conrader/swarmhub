@@ -28,6 +28,12 @@ struct MarkdownContent: View {
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
                                                 expected: .choices(prompt: prompt, options: options), choice: answer)
                     }
+                case .multiChoices(let prompt, let options):
+                    MultipleChoiceCard(prompt: prompt, options: options, picked: message.metadata["picked.\(index)"],
+                        enabled: index >= 0 && actionTarget.map { store.canAnswerChoice(message, target: $0) } == true) { answer in
+                        guard let actionTarget else { return }
+                        store.performCardAction(target: actionTarget, sourceID: message.id, index: index, expected: block, choice: answer)
+                    }.id(options)
                 case .draft(let draft):
                     DraftCardView(message: message, target: actionTarget, index: index, draft: draft).id(draft)
                 case .image(let alt, let url):
@@ -210,6 +216,34 @@ struct LinkPillRow: View {
                     .buttonStyle(.bordered).help(url)
             }
         }
+    }
+}
+
+private struct MultipleChoiceCard: View {
+    let prompt: String
+    let options: [String]
+    let picked: String?
+    let enabled: Bool
+    let answer: (ChatChoiceAnswer) -> Void
+    @State private var selected: Set<String> = []
+    @State private var other = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
+            if let picked {
+                Label(picked, systemImage: "checkmark")
+            } else {
+                ForEach(options, id: \.self) { option in
+                    Toggle(option, isOn: Binding(get: { selected.contains(option) }, set: { checked in
+                        if checked { selected.insert(option) } else { selected.remove(option) }
+                    })).toggleStyle(.checkbox)
+                }
+                TextField("Add your own answer (optional)", text: $other)
+                Button("Send") { answer(.multiple(selected, other: other)) }
+                    .disabled(selected.isEmpty && other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }.disabled(!enabled && picked == nil).appleCard(padding: 12)
     }
 }
 

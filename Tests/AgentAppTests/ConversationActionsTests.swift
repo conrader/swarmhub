@@ -34,6 +34,31 @@ import Testing
         #expect(backend.sent.all.count == 1 && backend.sent.all[0].session.contains(author.id.uuidString.lowercased()))
     }
 
+    @Test func multiSelectQueuesOneAnswerInCardOrderWithCustomText() async throws {
+        let backend = GroupBackend(name: "Writer")
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let card = ChatMessage(role: .assistant, content: "```choices-multiple\nInclude which?\n- One\n- Two\n- Three\n```")
+        let bot = Bot(name: "Writer", messages: [card]), busy = Bot(name: "Busy")
+        store.bots = [bot, busy]
+        store.setTotalTurnLimit(1)
+        let turn = store.beginTurn(in: busy, bot: busy, assistant: nil)
+        let block = try #require(ChatCardParser.parse(card.content).first)
+        #expect(block == .multiChoices(prompt: "Include which?", options: ["One", "Two", "Three"]))
+        func submit(_ selection: ChatChoiceAnswer) -> Bool {
+            store.performCardAction(target: .bot(botID: bot.id), sourceID: card.id, index: 0, expected: block, choice: selection)
+        }
+        #expect(!submit(.multiple(["missing"], other: "")) && card.metadata["picked.0"] == nil)
+        #expect(!submit(.option("One")))
+        #expect(submit(.multiple(["Three", "One"], other: "  Four ")))
+        #expect(!submit(.multiple(["Two"], other: "")))
+        #expect(store.turns.nextMessages.count == 1 && card.metadata["picked.0"] == "One\nThree\nFour")
+        store.endTurn(turn.token)
+        store.sendQueuedNextMessage()
+        try await waitUntil { !store.anyTurnRunning }
+        #expect(bot.messages.filter { $0.role == .user }.map(\.content) == ["One\nThree\nFour"])
+        #expect(backend.sent.all.count == 1)
+    }
+
     @Test func inferredChoiceSendsTheMarkerAndExpiresImmediately() async throws {
         let backend = GroupBackend(name: "Infra")
         let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())

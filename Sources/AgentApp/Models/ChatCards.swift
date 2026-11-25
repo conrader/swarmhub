@@ -6,6 +6,7 @@ enum ChatBlock: Equatable {
     case code(language: String, body: String)
     /// Question with options; picking one sends it as the user's reply.
     case choices(prompt: String, options: [String])
+    case multiChoices(prompt: String, options: [String])
     /// Draft with inline Edit, Copy, and Send actions.
     case draft(DraftCard)
     case image(alt: String, url: String)
@@ -70,12 +71,15 @@ enum ChatCardParser {
 
     private static func fencedBlock(language: String, body: [String], closed: Bool) -> ChatBlock {
         switch language.lowercased() {
-        case "choices":
+        case "choices", "choices-multiple":
             var prompt: [String] = [], options: [String] = []
             for line in body where !line.trimmingCharacters(in: .whitespaces).isEmpty {
                 if let option = listItem(line) { options.append(option) } else { prompt.append(line.trimmingCharacters(in: .whitespaces)) }
             }
-            return options.count >= 2 ? .choices(prompt: prompt.joined(separator: " "), options: options) : .code(language: language, body: body.joined(separator: "\n"))
+            if language.lowercased() == "choices-multiple", closed, options.count >= 2, Set(options).count == options.count {
+                return .multiChoices(prompt: prompt.joined(separator: " "), options: options)
+            }
+            return language.lowercased() == "choices" && options.count >= 2 ? .choices(prompt: prompt.joined(separator: " "), options: options) : .code(language: language, body: body.joined(separator: "\n"))
         case "draft", "email", "message":
             var draft = DraftCard(body: "")
             var rest = body[...]

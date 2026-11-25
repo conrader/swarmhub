@@ -8,9 +8,19 @@ struct ChatChoiceOption: Equatable {
 enum ChatChoiceAnswer {
     case option(String)
     case other(String)
+    case multiple(Set<String>, other: String)
+
+    func multipleText(options: [String]) -> String? {
+        guard case .multiple(let selected, let other) = self, selected.isSubset(of: Set(options)) else { return nil }
+        var parts = options.filter(selected.contains)
+        let custom = other.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty { parts.append(custom) }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n")
+    }
 
     func text(options: [String]) -> String? {
         switch self {
+        case .multiple: return nil
         case .option(let reply): return options.contains(reply) ? reply : nil
         case .other(let reply):
             let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -50,7 +60,7 @@ enum ChatChoiceInference {
         let blocks = ChatCardParser.parse(visible, includingTildeFences: true)
         guard !blocks.contains(where: { block in
                   switch block {
-                  case .choices, .draft: true
+                  case .choices, .multiChoices, .draft: true
                   default: false
                   }
               }),

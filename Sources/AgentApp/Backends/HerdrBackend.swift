@@ -101,9 +101,9 @@ struct HerdrBackend: AgentBackend {
     static let publishNote = """
     Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. Publish images and videos with their file extensions so the person can view them in chat.
     """
-    static let choiceMarker = "Choices for the person"
+    static let choiceMarker = "Choice cards for the person"
     static let choiceNote = """
-    \(choiceMarker): When you need the person to choose, end your reply with a `choices` fence. Put the question first and each short answer on a `- ` list line. Include Yes and No for a yes/no question, or Both when it is an option. SwarmHub sends the selected answer as the person's reply.
+    \(choiceMarker): When you need the person to choose, end your reply with a `choices` fence. Put the question first and each short answer on a `- ` list line. Include Yes and No for a yes/no question, or Both when it is an option. Use `choices-multiple` with the same list format when several answers are allowed. The person checks options, can add text, then sends one reply.
 
     ```choices
     Which way should I go?
