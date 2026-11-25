@@ -124,7 +124,14 @@ struct HerdrSettingsSection: View {
                 if adding { ProgressView().controlSize(.small) }
                 if let problem = draft.problem, addResult.isEmpty { Text(problem).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             }
-            if !addResult.isEmpty { StatusCard(kind: addFailed ? .warning : .good, title: addFailed ? "Could not add it" : "Added", detail: addResult) }
+            if adding, !addResult.isEmpty {
+                StatusCard(kind: .working, title: addResult)
+            } else if let offer = setupOffer, offer.draft == draft, !addFailed {
+                StatusCard(kind: .info, title: WizardCopy.serverSetupTitle(offer.server.sshHost),
+                           detail: WizardCopy.serverSetupDetail(port: offer.server.port))
+            } else if !addResult.isEmpty {
+                StatusCard(kind: addFailed ? .warning : .good, title: addFailed ? "Could not add it" : "Added", detail: addResult)
+            }
         }
     }
 
@@ -154,7 +161,7 @@ struct HerdrSettingsSection: View {
             case .sshLoginRequired(let server):
                 if self.draft == draft && chosen == Self.addID { loginServer = server }
             case .sshSetupAvailable(let server, _):
-                setupOffer = (draft, server); addResult = WizardCopy.serverSetupDetail(port: server.port)
+                setupOffer = (draft, server); addResult = ""
             case .nothingHere(let port): addFailed = true; addResult = SetupCopy.herdrNothingHere(port: port) + " " + SetupCopy.herdrStartHelp
             case .failed(let line): addFailed = true; addResult = line
             }
