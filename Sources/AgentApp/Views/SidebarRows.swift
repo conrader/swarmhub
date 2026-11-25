@@ -22,18 +22,13 @@ enum SidebarMetrics {
     }
 }
 
-/// Name over a one-line grey fragment, both truncated with "…"; unread makes the name semibold. `main` (a Herdr
-/// server's main bot, "Main bot of This Mac") puts a small star right after the name.
+/// Name over a one-line grey fragment, both truncated with "…"; unread makes the name semibold.
 private struct RowText: View {
     let name: String; let fragment: String; let unread: Bool
-    var main: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
-                Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
-                    .lineLimit(1).truncationMode(.tail)
-                if let main { HerdrMainBotStar(label: main) }
-            }
+            Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
+                .lineLimit(1).truncationMode(.tail)
             // A blank fragment still takes its line, so every row is the same height.
             Text(fragment.isEmpty ? " " : fragment).font(.system(size: SidebarMetrics.fragmentSize)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.tail)
@@ -67,6 +62,7 @@ struct BotRow: View {
     @State private var hovering = false
     var body: some View {
         let answering = store.isAnswering(bot), coding = store.hasActiveCodingAgent(bot), attention = store.needsAttention(bot)
+        let main = store.herdrMainBotLabel(bot)
         // Sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
             // An agent that waits at a question says so, whatever its last message was.
@@ -75,7 +71,8 @@ struct BotRow: View {
         }
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
-                BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: answering, isHovered: hovering, probe: "sidebar", hasActiveCodingAgent: coding)
+                BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: answering, isHovered: hovering,
+                          probe: "sidebar", hasActiveCodingAgent: coding, mainBotLabel: main)
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
                             Circle().fill(AppColor.clay).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
@@ -85,14 +82,14 @@ struct BotRow: View {
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
                 if answering {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, main: store.herdrMainBotLabel(bot)) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread) }
                 } else {
-                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, main: store.herdrMainBotLabel(bot))
+                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread)
                 }
                 Spacer(minLength: 4)
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
-        }.buttonStyle(.plain).contextMenu {
+        }.buttonStyle(.plain).accessibilityValue(Text(verbatim: main ?? "")).contextMenu {
             SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection) { botToDelete = bot }
         }
     }

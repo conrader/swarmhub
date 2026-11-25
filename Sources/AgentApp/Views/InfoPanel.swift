@@ -39,11 +39,9 @@ struct InfoPanel: View {
 
     private var identity: some View {
         VStack(spacing: 6) {
-            BotAvatar(bot: bot, size: 72, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left).padding(.bottom, 4)
-            HStack(spacing: 6) {
-                Text(bot.name).font(.title2.bold()).multilineTextAlignment(.center)
-                if let main = store.herdrMainBotLabel(bot) { HerdrMainBotStar(label: main, size: 14) }
-            }
+            BotAvatar(bot: bot, size: 72, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left,
+                      mainBotLabel: store.herdrMainBotLabel(bot)).padding(.bottom, 4)
+            Text(bot.name).font(.title2.bold()).multilineTextAlignment(.center)
             if !bot.title.isEmpty, bot.title != Bot.placeholderTitle {
                 Text(bot.title).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }

@@ -1,21 +1,41 @@
 import SwiftUI
+import UniformTypeIdentifiers
+
+private struct PinnedChatDrag: Codable, Transferable {
+    let id: UUID
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: UTType(exportedAs: "app.swarmhub.pinned-chat", conformingTo: .data))
+            .visibility(.ownProcess)
+    }
+}
 
 /// The pinned chats, first in the list's stack so they scroll with it: three to a line, each a big mark with its name under it.
 struct SidebarPinnedStrip: View {
+    @EnvironmentObject private var store: AppStore
     let chats: [SidebarChat]
     let askNewSection: (UUID?) -> Void
     let requestDelete: (SidebarChat) -> Void
+    static let layout = TileRows(minimum: SidebarMetrics.pinnedMark + 8, centeredColumns: SidebarMetrics.pinnedColumns, spacing: 4)
 
     var body: some View {
-        let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 4), count: SidebarMetrics.pinnedColumns)
-        LazyVGrid(columns: columns, spacing: 4) {
+        Self.layout {
             ForEach(chats) { chat in
-                switch chat {
-                case .bot(let bot): PinnedBotTile(bot: bot, askNewSection: askNewSection) { requestDelete(chat) }
-                case .group(let group): PinnedGroupTile(group: group, askNewSection: askNewSection) { requestDelete(chat) }
-                }
+                tile(chat)
+                    .draggable(PinnedChatDrag(id: chat.id))
+                    .dropDestination(for: PinnedChatDrag.self) { items, _ in
+                        guard items.count == 1, let item = items.first else { return false }
+                        return store.movePinnedChat(item.id, onto: chat.id)
+                    }
             }
         }.padding(.bottom, 6)
+    }
+
+    @ViewBuilder private func tile(_ chat: SidebarChat) -> some View {
+        switch chat {
+        case .bot(let bot): PinnedBotTile(bot: bot, askNewSection: askNewSection) { requestDelete(chat) }
+        case .group(let group): PinnedGroupTile(group: group, askNewSection: askNewSection) { requestDelete(chat) }
+        }
     }
 }
 
@@ -48,9 +68,11 @@ private struct PinnedBotTile: View {
     var body: some View {
         let selected = store.selectedBot?.id == bot.id && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id
         let coding = store.hasActiveCodingAgent(bot), attention = store.needsAttention(bot)
+        let main = store.herdrMainBotLabel(bot)
         Button { store.open(bot) } label: {
             PinnedTileFrame(name: bot.name, unread: bot.isUnread, selected: selected, hovering: hovering) {
-                BotAvatar(bot: bot, size: SidebarMetrics.pinnedMark, motion: .list, isWorking: store.isAnswering(bot), isHovered: hovering, probe: "sidebar", hasActiveCodingAgent: coding)
+                BotAvatar(bot: bot, size: SidebarMetrics.pinnedMark, motion: .list, isWorking: store.isAnswering(bot), isHovered: hovering,
+                          probe: "sidebar", hasActiveCodingAgent: coding, mainBotLabel: main)
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
                             Circle().fill(AppColor.clay).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
@@ -60,7 +82,7 @@ private struct PinnedBotTile: View {
                     }
             }.onHover { hovering = $0 }
         }.buttonStyle(.plain)
-            .accessibilityLabel(coding ? "\(bot.name), pinned, coding agent active" : "\(bot.name), pinned")
+            .accessibilityLabel([bot.name, "pinned", main, coding ? "coding agent active" : nil].compactMap { $0 }.joined(separator: ", "))
             .accessibilityAddTraits(selected ? .isSelected : [])
             .contextMenu { SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection, requestDelete: requestDelete) }
     }

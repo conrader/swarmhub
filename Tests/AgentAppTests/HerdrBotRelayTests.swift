@@ -94,12 +94,31 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     #expect(store.herdrMainBotLabel(far) == "Main bot of Box" && store.herdrMainBotLabel(jarvis) == "Main bot of This Mac", "each server's main bot has its star")
     store.setCanManageBots(boppy, true)
     #expect(store.herdrMainBot(on: store.herdrServers[0]) === boppy && !jarvis.canManageBots && far.canManageBots, "the role moves; it is never held twice")
+    #expect(store.herdrMainBotLabel(jarvis) == nil && store.herdrMainBotLabel(boppy) == "Main bot of This Mac")
+    #expect(store.herdrMainBotLabel(far) == "Main bot of Box")
     let nowMain = try store.herdrBackend(for: boppy), noLonger = try store.herdrBackend(for: jarvis)
     #expect(nowMain.creationNote == AppStore.herdrCreationNote && nowMain.askNote == nil && noLonger.creationNote == nil && noLonger.askNote == HerdrBotAsk.note(main: "Boppy"))
     store.setHerdrAsksFirst(true, for: boppy)
     #expect(try store.herdrBackend(for: boppy).creationNote == AppStore.herdrCreationNoteAsking)
     #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: true, main: "Jarvis", server: "This Mac").contains("takes this role from Jarvis"))
     #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: "Jarvis", server: "This Mac").contains("Jarvis is the main bot") && BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: nil, server: "This Mac").contains("has no main bot yet"))
+}
+
+@MainActor @Test func mainBotStarUsesTheSameOwnerAsTheServerRelay() {
+    let (store, jarvis, boppy) = relayStore()
+    // A stale duplicate flag or an archived group must never produce a second star.
+    boppy.canManageBots = true
+    let archive = Bot(name: "Archive", backend: .herdr)
+    archive.archivedMembers = ["Old bot"]
+    archive.canManageBots = true
+    store.bots.insert(archive, at: 0)
+    #expect(store.herdrMainBotLabel(archive) == nil)
+    #expect(store.herdrMainBotLabel(jarvis) == "Main bot of This Mac")
+    #expect(store.herdrMainBotLabel(boppy) == nil)
+    store.setCanManageBots(boppy, true)
+    #expect(store.herdrMainBotLabel(jarvis) == nil && store.herdrMainBotLabel(boppy) == "Main bot of This Mac")
+    store.setCanManageBots(boppy, false)
+    #expect(store.herdrMainBotLabel(boppy) == nil)
 }
 
 /// A bot that is not the main bot asks; the main bot decides itself; the bot is created at once, the asking bot is

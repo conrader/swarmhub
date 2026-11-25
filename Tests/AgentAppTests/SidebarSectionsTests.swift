@@ -120,6 +120,25 @@ import Testing
         #expect(!layout.sections[0].showsHeader && layout.sections[0].chats.count == 3)
     }
 
+    @Test func droppingPinnedChatsMovesBotsAndGroupsInTheSavedOrder() throws {
+        let url = temporaryStore()
+        let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let f = fixture()
+        store.bots = f.bots
+        store.groups = [f.group]
+        let pins = ids(f.chats)
+        for pin in pins { store.setPinned(pin, true) }
+        #expect(store.movePinnedChat(f.group.id, onto: pins[3]))
+        #expect(ids(store.sidebarLayout.pinned) == [pins[0], pins[2], pins[3], f.group.id])
+        #expect(store.movePinnedChat(pins[3], onto: pins[0]))
+        #expect(!store.movePinnedChat(UUID(), onto: pins[0]))
+        #expect(!store.movePinnedChat(pins[0], onto: UUID()))
+        let expected = [pins[3], pins[0], pins[2], f.group.id]
+        #expect(ids(store.sidebarLayout.navigationOrder) == expected)
+        let saved = try StoreFile.decode(Data(contentsOf: url))
+        #expect(saved.sidebar?.pinned == expected)
+    }
+
     @Test func foldedRowsAreOutOfNavigationButCounted() {
         let f = fixture()
         var org = SidebarOrganisation()

@@ -36,10 +36,17 @@ extension AppStore {
     /// `bot` is its server's main bot.
     func createsHerdrBots(_ bot: Bot) -> Bool { bot.backend == .herdr && bot.canManageBots && !bot.isReadOnlyArchive }
 
-    func herdrMainBot(on server: HerdrServer) -> Bot? { herdrBots(on: server).first { createsHerdrBots($0) } }
+    func herdrMainBot(on server: HerdrServer) -> Bot? {
+        bots.first { createsHerdrBots($0) && herdrServer(for: $0).id == server.id }
+    }
 
     /// "Main bot of This Mac" for a server's main bot, which wears a star (`HerdrMainBotStar`); nil for every other bot.
-    func herdrMainBotLabel(_ bot: Bot) -> String? { createsHerdrBots(bot) ? "Main bot of \(herdrServer(for: bot).name)" : nil }
+    func herdrMainBotLabel(_ bot: Bot) -> String? {
+        guard createsHerdrBots(bot) else { return nil }
+        let server = herdrServer(for: bot)
+        guard herdrMainBot(on: server)?.id == bot.id else { return nil }
+        return "Main bot of \(server.name)"
+    }
 
     /// Stores whether this main bot needs the user's confirmation before it creates a bot.
     static func herdrAsksFirstKey(_ botID: UUID) -> String { "herdrAsksFirst.\(botID.uuidString.lowercased())" }
