@@ -127,7 +127,13 @@ done
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK"
 /usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier "$BUNDLE_ID" "$APP_DIR/Contents/MacOS/AgentApp"
 TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -F= '/^TeamIdentifier=/ {print $2}')"
-echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
+if [[ "$SIGN_ID" == - ]]; then
+  TEAM_ID=adhoc
+elif [[ -z "$TEAM_ID" || "$TEAM_ID" == "not set" ]]; then
+  echo "ERROR: the signed executable has no Apple team identifier." >&2
+  exit 1
+fi
+echo "signing_team=$TEAM_ID" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
 /usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier "$BUNDLE_ID" "$APP_DIR"
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
 if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then

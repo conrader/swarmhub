@@ -53,7 +53,7 @@ fi
 # 2. The app: built for release, signed with the Developer ID, notarized and stapled.
 ZIP="$(./scripts/package-release.sh | tail -1)"
 APP_TEAM="$(/usr/bin/unzip -p "$ZIP" 'SwarmHub.app/Contents/Resources/SOURCE.txt' | sed -n 's/^signing_team=//p')"
-[[ -n "$APP_TEAM" && "$APP_TEAM" != adhoc ]] || die "The packaged app has no Developer ID team."
+[[ -n "$APP_TEAM" && "$APP_TEAM" != adhoc && "$APP_TEAM" != "not set" ]] || die "The packaged app has no Developer ID team."
 
 # 3. The appcast: the archive's EdDSA signature and the release notes.
 ./scripts/generate-appcast.sh "$TAG" "$ZIP"
