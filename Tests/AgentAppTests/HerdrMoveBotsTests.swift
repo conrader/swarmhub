@@ -17,6 +17,7 @@ import Testing
             let mainAgent = HerdrBackend.agentName(botName: main.name, botID: main.id)
             let analystAgent = HerdrBackend.agentName(botName: analyst.name, botID: analyst.id)
             let sourceBridge = MockHTTPProtocol.serve { request in
+                if request.url?.path == "/api/routines" { return (200, []) }
                 if request.url?.path.hasSuffix("/end") == true { return (200, [:]) }
                 let ended = MockHTTPProtocol.recorded(request.url?.host ?? "").compactMap(\.url?.path)
                 return (200, Self.workspace("this-mac", templates: [
@@ -148,7 +149,7 @@ import Testing
         #expect(!f.main.canManageBots)
         #expect(f.ended.isEmpty)
 
-        try store.undoHerdrMove(record)
+        try await store.undoHerdrMove(record)
         #expect(store.herdrServer(for: f.main) == f.source)
         #expect(store.herdrServer(for: f.analyst) == f.source)
         #expect(store.herdrServer(for: f.writer) == f.source)
@@ -163,7 +164,7 @@ import Testing
         #expect(store.herdrModel(for: f.writer) == "local-only")
         #expect(store.herdrProjects(for: f.main) == [f.project])
         #expect(store.herdrProjects(for: f.writer) == [f.project])
-        #expect(throws: HerdrMoveError.undoUnavailable) { try store.undoHerdrMove(record) }
+        await #expect(throws: HerdrMoveError.undoUnavailable) { try await store.undoHerdrMove(record) }
     }
 
     @Test func streamingTurnStaysOnTheSourceAndIsNeverStopped() async throws {
@@ -186,7 +187,7 @@ import Testing
         #expect(store.herdrMoveSkipsCarry(f.main))
         #expect(store.herdrCarrySource(for: f.main) == nil)
 
-        try store.undoHerdrMove(record)
+        try await store.undoHerdrMove(record)
         #expect(!store.herdrMoveSkipsCarry(f.main))
         #expect(store.herdrMoveSkipsCarry(f.writer))
         let sources = try await store.prepareDirectModel(bot: f.main, server: f.source, template: "claude-local", model: "sonnet")
@@ -208,7 +209,7 @@ import Testing
         let f = Fixture()
         let record = try await f.move([f.main, f.analyst], stop: false)
         f.store.setHerdrModel("terra", for: f.analyst)
-        #expect(throws: HerdrMoveError.undoUnavailable) { try f.store.undoHerdrMove(record) }
+        await #expect(throws: HerdrMoveError.undoUnavailable) { try await f.store.undoHerdrMove(record) }
         #expect(f.store.herdrServer(for: f.main) == f.destination)
         #expect(f.store.herdrServer(for: f.analyst) == f.destination)
         #expect(f.store.herdrModel(for: f.analyst) == "terra")

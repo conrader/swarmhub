@@ -128,6 +128,7 @@ extension HerdrClient {
         let nextAt: Int64?
         var webhookReady: Bool
         let profileId: Int?
+        var ownerBot: UUID? = nil
     }
 
     struct RoutineRun: Codable, Identifiable, Sendable {
@@ -327,5 +328,29 @@ struct HerdrRoutineSessions: Sendable {
 func routinesForBot(_ routines: [HerdrClient.Routine], agentName: String, sessions: HerdrRoutineSessions?) -> [HerdrClient.Routine] {
     routines.filter {
         $0.state != .archived && (HerdrRoutineSessions.matches($0.agent, agentName) || sessions?.contains($0) == true)
+    }
+}
+
+extension HerdrClient {
+    struct TransferBody: Encodable {
+        let core: String
+        let action: String
+        var id: Int64?
+        var target: AgentRef?
+        var name: String?
+        var task: String?
+        var schedule: RoutineSchedule?
+        var state: Routine.State?
+        var nextAt: Int64?
+        var after: String?
+        var owner: UUID?
+        var attempt: UUID?
+        var digests: [String]?
+    }
+
+    struct TransferResult: Decodable { let routine: Routine?; let digests: [String]? }
+
+    func transfer(_ token: UUID, _ body: TransferBody) async throws -> TransferResult {
+        try await postRoutine("/api/routine-transfers/\(token.uuidString)", body)
     }
 }

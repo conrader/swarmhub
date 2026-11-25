@@ -34,6 +34,7 @@ pub fn routes() -> Router<Workspace> {
             }),
         )
         .route("/api/routines", get(list).post(create))
+        .route("/api/routine-transfers/{token}", post(crate::routines::transfer::handle))
         .route("/api/routines/imported", get(list_imported))
         .route(
             "/api/routines/imported/{id}/configure",
@@ -566,6 +567,7 @@ fn hook_result(w: Workspace, result: HookRun) -> (StatusCode, Json<Value>) {
                 Json(json!({"id":id,"duplicate":false})),
             )
         }
+        HookRun::PreviouslyHandled => (StatusCode::OK, Json(json!({"duplicate":true}))),
         HookRun::Duplicate(id) => (
             StatusCode::ACCEPTED,
             Json(json!({"id":id,"duplicate":true})),

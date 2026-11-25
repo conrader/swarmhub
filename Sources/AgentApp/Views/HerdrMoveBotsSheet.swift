@@ -201,6 +201,30 @@ struct HerdrMoveBotsSheet: View {
                 StatusCard(kind: .good, title: "Moved \(AppStore.botCount(record.changes.count)) to \(place).",
                            detail: record.carryHistory ? "Their next replies will run on \(place) with your conversation carried over."
                                : "Their next replies will run on \(place).")
+                if record.activationPending {
+                    StatusCard(kind: .warning, title: "Some routines are waiting for the destination.") {
+                        Button("Retry cutover") {
+                            working = "Finishing routine cutover…"
+                            Task {
+                                defer { working = nil }
+                                do {
+                                    try await store.recoverRoutineMoveFromSettings(from: source, to: record.destination)
+                                    self.record?.activationPending = false
+                                    problem = nil
+                                } catch { problem = error.localizedDescription }
+                            }
+                        }
+                    }
+                }
+                if !record.receipts.isEmpty {
+                    Text("Moved \(record.receipts.count) routines with their schedules and pause settings.")
+                }
+                ForEach(store.bots.filter { record.webhookOwners.contains($0.id) }) { bot in
+                    DisclosureGroup("Configure webhook senders for \(bot.name)") {
+                        Text("Update each sender to the destination URL. Generate a destination key for Bearer or GitHub webhooks, or configure Slack signing on this server.")
+                        HerdrRoutinesPanel(bot: bot, server: record.destination)
+                    }
+                }
                 if record.changes.contains(where: { $0.wasMain && !$0.isMain }) {
                     Text("\(place) kept its existing Main bot.")
                 }
@@ -242,8 +266,12 @@ struct HerdrMoveBotsSheet: View {
                     if record.changes.isEmpty { Button("Back") { step = .bots; problem = nil } }
                     else {
                         Button("Undo") {
-                            do { try store.undoHerdrMove(record); undone = true; problem = nil }
-                            catch { problem = error.localizedDescription }
+                            working = "Restoring bots and routines…"
+                            Task {
+                                defer { working = nil }
+                                do { try await store.undoHerdrMove(record); undone = true; problem = nil }
+                                catch { problem = error.localizedDescription }
+                            }
                         }
                     }
                 }

@@ -250,7 +250,7 @@ async fn receive(
                 duplicate: false, ..
             } => review += 1,
             HookRun::Busy | HookRun::RateLimited | HookRun::ReviewFull => retry = true,
-            HookRun::Unauthorized | HookRun::Inactive | HookRun::Ignored | HookRun::Dismissed => (),
+            HookRun::PreviouslyHandled | HookRun::Unauthorized | HookRun::Inactive | HookRun::Ignored | HookRun::Dismissed => (),
         }
     }
     // Retried deliveries can fill in routines that were busy without re-running successful matches.

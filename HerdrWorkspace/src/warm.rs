@@ -451,6 +451,9 @@ fn idle(history: &History, before: i64) -> Result<Vec<Idle>, StoreError> {
          FROM warm_launches w JOIN journal j ON j.id=w.launch
          WHERE w.tried_ms IS NULL AND w.delivered_ms IS NULL AND w.ended_ms IS NULL AND w.first_task_ms IS NULL
            AND w.started_ms<?1 AND j.address IS NOT NULL AND j.created_ms IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM routine_transfers t JOIN routines r ON r.id=t.routine
+               WHERE r.core=j.core_id AND r.address=j.address AND r.created_ms=j.created_ms
+               AND (t.phase IN ('held','staged','suspended') OR r.state!='archived'))
            AND NOT EXISTS (SELECT 1 FROM journal reply WHERE reply.reply_for=j.launch_key)
          ORDER BY w.launch LIMIT 64",
     )?;

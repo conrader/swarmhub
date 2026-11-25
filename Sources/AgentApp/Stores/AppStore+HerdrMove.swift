@@ -32,6 +32,9 @@ struct HerdrServerMoveRecord {
     let carryHistory: Bool
     let skipped: [String]
     var cleanup = Cleanup()
+    var receipts: [RoutineMoveReceipt] = []
+    var webhookOwners: Set<UUID> { Set(receipts.filter(\.webhook).map(\.owner)) }
+    var activationPending = false
 
     struct Cleanup {
         var stopped = 0
@@ -84,6 +87,10 @@ extension AppStore {
     func moveHerdrBots(_ selected: Set<UUID>, from source: HerdrServer, to destination: HerdrServer,
                        mapping: HerdrMoveMapping, carryHistory: Bool, stopIdleAgents: Bool) async throws -> HerdrServerMoveRecord {
         try checkHerdrMoveServers(source: source, destination: destination)
+        guard !herdrMoveInProgress else { throw HerdrMoveError.selectionChanged }
+        herdrMoveInProgress = true
+        defer { herdrMoveInProgress = false }
+        try await recoverRoutineMove(from: source, to: destination)
         let destinationClient = try herdrClient(for: destination)
         let destinationWorkspace = try await herdrMoveWorkspace(on: destination)
         let templates = destinationWorkspace.templates.filter { $0.error == nil }
@@ -112,8 +119,9 @@ extension AppStore {
             throw HerdrMoveError.aiUnavailable
         }
 
-        let sourceClient = try? herdrClient(for: source)
-        let sourceWorkspace = try? await sourceClient?.workspace()
+        let sourceClient = try herdrClient(for: source)
+        let workspace = try await herdrMoveWorkspace(on: source)
+        let sourceWorkspace: HerdrClient.Workspace? = workspace
         if let core = sourceWorkspace?.core, core == destinationWorkspace.core { throw HerdrMoveError.sameWorkspace }
         try Task.checkCancellation()
         try checkHerdrMoveServers(source: source, destination: destination)
@@ -157,7 +165,21 @@ extension AppStore {
         var record = HerdrServerMoveRecord(source: source, destination: destination, changes: changes, carryHistory: carryHistory, skipped: skipped)
         guard !changes.isEmpty else { return record }
         let byID = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, $0) })
-        try applyHerdrMoveRoles(changes.compactMap { change in byID[change.botID].map { ($0, change.isMain) } })
+        do {
+            record.receipts = try await stageRoutines(record, workspace: workspace, destination: destinationWorkspace)
+            try Task.checkCancellation()
+            try checkHerdrMoveServers(source: source, destination: destination)
+            guard changes.allSatisfy({ change in
+                guard let bot = byID[change.botID] else { return false }
+                return bots.contains(bot) && herdrServer(for: bot) == source && !herdrBotIsBusy(bot)
+                    && herdrMoveChoice(for: bot) == change.before && bot.canManageBots == change.wasMain
+            }) else { throw HerdrMoveError.selectionChanged }
+            try applyHerdrMoveRoles(changes.compactMap { change in byID[change.botID].map { ($0, change.isMain) } })
+        } catch {
+            // Cancellation of the UI task must not cancel its compensation requests.
+            try await Task { try await self.recoverRoutineMove(from: source, to: destination) }.value
+            throw error
+        }
         for change in changes {
             guard let bot = byID[change.botID] else { continue }
             applyHerdrMoveChoice(change.after, server: destination, to: bot)
@@ -166,6 +188,9 @@ extension AppStore {
             setHerdrMoveSkipsCarry(!carryHistory, for: bot)
             latestHerdrMoves[bot.id] = record.id
         }
+        do {
+            try await recoverRoutineMove(from: source, to: destination)
+        } catch { record.activationPending = true }
         objectWillChange.send()
 
         if stopIdleAgents {
@@ -179,7 +204,10 @@ extension AppStore {
     }
 
     /// Restores every bot together. If the move is no longer the latest change, leave the whole batch as it is.
-    func undoHerdrMove(_ record: HerdrServerMoveRecord) throws {
+    func undoHerdrMove(_ record: HerdrServerMoveRecord) async throws {
+        guard !herdrMoveInProgress else { throw HerdrMoveError.undoBusy }
+        herdrMoveInProgress = true
+        defer { herdrMoveInProgress = false }
         try checkHerdrMoveServers(source: record.source, destination: record.destination)
         let current = movableHerdrBots(on: record.destination)
         let targets = try record.changes.map { change in
@@ -191,7 +219,16 @@ extension AppStore {
             return (bot, change)
         }
         if record.changes.contains(where: \.wasMain), herdrMainBot(on: record.source) != nil { throw HerdrMoveError.mainChanged }
-        try applyHerdrMoveRoles(targets.map { ($0, $1.wasMain) })
+        do {
+            try await suspendRoutineMove(record)
+            try Task.checkCancellation()
+            guard targets.allSatisfy({ !herdrBotIsBusy($0.0) && herdrServer(for: $0.0) == record.destination
+            && herdrMoveChoice(for: $0.0) == $0.1.after }) else { throw HerdrMoveError.undoBusy }
+            try applyHerdrMoveRoles(targets.map { ($0, $1.wasMain) })
+        } catch {
+            try await Task { try await self.recoverRoutineMove(from: record.source, to: record.destination) }.value
+            throw error
+        }
         for (bot, change) in targets {
             applyHerdrMoveChoice(change.before, server: record.source, to: bot)
             setHerdrProjects(change.projects, for: bot)
@@ -205,6 +242,7 @@ extension AppStore {
             setHerdrMoveSkipsCarry(!sourceStopped && (change.skippedCarry || !record.carryHistory && change.carryOver == nil), for: bot)
             latestHerdrMoves[bot.id] = nil
         }
+        try await recoverRoutineMove(from: record.source, to: record.destination)
         objectWillChange.send()
     }
 
@@ -277,6 +315,8 @@ extension AppStore {
             return result
         }
         for change in record.changes {
+            // Undo restores the original binding, including the source session.
+            if record.receipts.contains(where: { $0.owner == change.botID }) { continue }
             let agents = moveAgents(named: names[change.botID] ?? [], in: workspace)
             guard !agents.isEmpty else { continue }
             var busy = false

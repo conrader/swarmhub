@@ -74,6 +74,7 @@ struct HerdrClient: Sendable {
         var bridge: HerdrBridgeInfo? = nil
         var attachments: Bool? = nil
         var botWorkspaces: Bool? = nil
+        var routineTransfers: Bool? = nil
         var workspaceRoot: String? = nil
         var launchAttachments: Bool? = nil
         /// The server's name for the agent program `agent` runs ("Codex"); nil when its template names none.

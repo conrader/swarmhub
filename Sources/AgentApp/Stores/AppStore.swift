@@ -37,6 +37,7 @@ import UserNotifications
     /// The bots whose running turn is on the bridge's event stream, which owns their helper lists during the turn.
     var herdrStreaming: Set<UUID> = []
     /// A move can be undone while its record is still current and its source cleanup has finished.
+    var herdrMoveInProgress = false
     var latestHerdrMoves: [UUID: UUID] = [:]
     var herdrMovesCleaning: Set<UUID> = []
     @Published var herdrAgentPresence: [UUID: HerdrAgentPresence] = [:]

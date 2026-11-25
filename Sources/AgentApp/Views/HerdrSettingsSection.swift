@@ -46,6 +46,14 @@ struct HerdrSettingsSection: View {
                         Button("Move bots to another server…") { moveSource = current }
                             .buttonStyle(.bordered).controlSize(.large)
                     }
+                    ForEach(servers.filter { store.routineMovePending(from: current, to: $0) }) { destination in
+                        Button("Recover unfinished routine move to \(destination.name)") {
+                            Task {
+                                do { try await store.recoverRoutineMoveFromSettings(from: current, to: destination) }
+                                catch { store.errorMessage = error.localizedDescription }
+                            }
+                        }
+                    }
                     mainBotPicker(on: current)
                     SegmentedChoice(title: "Part of \(current.name)", options: Part.allCases.map { ($0, $0.rawValue) }, selection: $part).frame(maxWidth: 480)
                     switch part {

@@ -1,3 +1,4 @@
+pub(crate) mod transfer;
 use crate::{
     core::Terminal,
     groups::Target,
@@ -299,12 +300,16 @@ pub struct Routine {
     pub webhook_ready: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<i64>,
+    pub owner_bot: Option<String>,
 }
 
 const WITH_OWNER: &str = "SELECT r.*,
    (SELECT j.profile_id FROM journal j WHERE j.core_id=r.core AND j.address=r.address
     AND j.created_ms=r.created_ms AND j.launch_key IS NOT NULL ORDER BY j.id DESC LIMIT 1)
-   AS owner_profile FROM routines r";
+   AS owner_profile,
+   coalesce(r.transferred_owner, (SELECT j.parent_bot_id FROM journal j WHERE j.core_id=r.core AND j.address=r.address
+    AND j.created_ms=r.created_ms AND j.launch_key IS NOT NULL ORDER BY j.id DESC LIMIT 1)
+   ) AS owner_bot FROM routines r";
 
 #[derive(Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -375,6 +380,7 @@ pub struct Dispatch {
 }
 
 pub enum HookRun {
+    PreviouslyHandled,
     Accepted(Box<Dispatch>),
     Duplicate(i64),
     Queued { id: i64, duplicate: bool },
@@ -610,7 +616,8 @@ impl History {
     pub fn claim_test(&self, routine: Routine) -> Result<Option<Dispatch>, StoreError> {
         let mut db = self.db()?;
         let txn = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        if pending(&txn, &routine)? {
+        let available: bool = txn.query_row("SELECT state!='archived' FROM routines WHERE id=?", [routine.id], |r| r.get(0))?;
+        if !available || pending(&txn, &routine)? {
             return Ok(None);
         }
         let run = make_run(&txn, routine.id, "test", now(), "pending", None)?;
@@ -719,6 +726,10 @@ impl History {
                     duplicate: true,
                 }
             });
+        }
+        if tx.query_row("SELECT EXISTS(SELECT 1 FROM routine_event_receipts WHERE routine=? AND digest=?)",
+            params![id,webhook_hash(key)], |r| r.get::<_,bool>(0))? {
+            return Ok(HookRun::PreviouslyHandled);
         }
         let Schedule::Webhook {
             filters, review, ..
@@ -1088,6 +1099,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Routine> {
         next_at: row.get("next_at")?,
         webhook_ready: row.get::<_, Option<String>>("webhook_hash")?.is_some(),
         profile_id: None,
+        owner_bot: None,
         schedule,
     })
 }
@@ -1095,6 +1107,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Routine> {
 fn with_owner(row: &Row<'_>) -> rusqlite::Result<Routine> {
     let mut routine = from_row(row)?;
     routine.profile_id = row.get("owner_profile")?;
+    routine.owner_bot = row.get("owner_bot")?;
     Ok(routine)
 }
 
