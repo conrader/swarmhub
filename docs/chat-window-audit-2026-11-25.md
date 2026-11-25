@@ -76,7 +76,7 @@ A private MacBook workspace held two sample bots and a 620-message group. On ope
 
 The MacBook driver paused a private workspace’s SSH forward, pressed Send on a request to run a command and return a unique word, then submitted a different word through the same chat composer. Both presses cleared the input before the forward resumed.
 
-On the baseline, the second button read **Queue as the next message**. The workspace recorded two tasks and replied with each word in turn. On the candidate, **Send follow-up when the bot starts** accepted the correction in a chat with an imported history fixture. The remote Codex command ran, the workspace recorded one task, and its only reply used the corrected word. The chat showed **Delivered**.
+On the baseline, the second button read **Queue as the next message**. The workspace recorded two tasks and replied with each word in turn. On the candidate, **Send follow-up when the bot starts** accepted the correction in a chat with an imported history fixture. The remote Codex command ran, the workspace recorded one task, and its only reply used the corrected word. The chat showed **Delivered**. A repeat on the final build asked the bot to include the project name from the imported conversation. Its only reply combined the correction’s unique word with the archived name, and the native window displayed that reply and its receipt.
 
 ## Losing the server connection during a command
 
