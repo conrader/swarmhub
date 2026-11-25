@@ -170,3 +170,11 @@ To check an AI installed after setup, use a Mac workspace service that supports 
 ```
 
 The driver opens a bot’s model settings and adds a fixture Antigravity executable to the private home’s search path. It presses **Scan again** and **Add Antigravity CLI** while a loopback workspace is offline. After the workspace comes back, the driver verifies the registration, selects Antigravity in the open bot picker, and checks the saved per-bot preference. A marker detects accidental execution of the fixture CLI.
+
+To verify native Page search, pass a packaged app and the workspace executable for this Mac.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --pages /Applications/SwarmHub.app /path/to/swarmhub-herdr
+```
+
+The driver starts a private loopback workspace, edits a published Page and opens its original revision from chat search. It checks the latest revision, a second Page found by its body, punctuation in a query and local navigation after disconnecting the workspace.

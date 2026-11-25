@@ -607,6 +607,106 @@ def media_reopen(source_app):
         print("Image opened and video played online, after switching back offline, and after relaunch. Each file downloaded once.")
 
 
+def workspace_pages(source_app, service_binary):
+    import secrets
+    import select
+    import urllib.request
+
+    with private_workspace(source_app) as (app, home, store):
+        token = secrets.token_hex(32)
+        environment = dict(HOME=str(home), PATH="/usr/bin:/bin", HC_SOCKET=str(home / "private-core.sock"),
+                           SWARMHUB_ACCESS_TOKEN=token, SWARMHUB_DATA_DIR=str(home / "workspace"), SWARMHUB_PORT="0")
+        bridge = subprocess.Popen([service_binary], cwd=home, env=environment, stdout=subprocess.PIPE, text=True)
+        try:
+            if not select.select([bridge.stdout], [], [], 10)[0]:
+                raise RuntimeError("Private workspace did not start")
+            origin = re.search(r"http://127\.0\.0\.1:\d+", bridge.stdout.readline()).group()
+
+            def post(path, body):
+                headers = {"Authorization": "Bearer " + token, "Origin": origin, "Content-Type": "application/json"}
+                request = urllib.request.Request(origin + path, headers=headers, data=json.dumps(body).encode())
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    return json.load(response)
+
+            first = post("/api/pages", dict(title="QA C++ & status", markdown="Amber revision first"))
+            post("/api/pages/" + str(first["id"]), dict(title=first["title"], revision=first["revision"],
+                                                       markdown="Indigo revision latest"))
+            other = post("/api/pages", dict(title="QA remote only", markdown="Search marker C++ & test"))
+            card = dict(id=94, kind="page", pageID=first["id"], revision=first["revision"], title=first["title"])
+            message = dict(id=str(uuid.uuid4()), role="assistant", createdAt=800000000, content="Read the attached result.",
+                           publishedResults=dict(serverID="default", items=[card]))
+            bot = dict(id=str(uuid.uuid4()), name="PagesQA", backend="Herdr", messages=[message])
+            store.write_text(json.dumps(dict(version=2, bots=[bot])))
+            with open_workspace(app, home, origin, token) as window:
+                application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
+
+                def sheets():
+                    return [s for w in attribute(application, "AXWindows") or [] for s in descendants(w)
+                            if attribute(s, "AXRole") == "AXSheet"]
+
+                def has_text(root, text):
+                    return any(text == attribute(e, "AXValue") for e in descendants(root)
+                               if attribute(e, "AXRole") == "AXStaticText")
+
+                def button(root, prefix):
+                    return next((b for b in buttons(root) if label(b).startswith(prefix)), None)
+
+                def panel(description, predicate):
+                    def current():
+                        return next((s for s in reversed(sheets()) if predicate(s)), None)
+                    wait_for(description, current)
+                    return current()
+
+                def click(root, prefix):
+                    wait_for(prefix, lambda: button(root, prefix))
+                    assert ax.AXUIElementPerformAction(button(root, prefix), "AXPress") == 0
+
+                def enter(root, query):
+                    field = next(e for e in descendants(root) if attribute(e, "AXRole") == "AXTextField")
+                    assert ax.AXUIElementSetAttributeValue(field, "AXFocused", True) == 0
+                    assert ax.AXUIElementSetAttributeValue(field, "AXValue", query) == 0
+
+                def close_page_containing(text):
+                    press(panel(text, lambda s: has_text(s, text)), "Done")
+
+                wait_for("Page author", lambda: button(window, "PagesQA,"))
+                press(window, "PagesQA", sidebar=True)
+                press(window, "Search")
+                palette = panel("Quick Switcher", lambda s: button(s, "Pages"))
+                enter(palette, first["title"])
+                click(palette, first["title"])
+                close_page_containing("Amber revision first")
+
+                press(palette, "Pages")
+                library = panel("Page library", lambda s: has_text(s, "Published Pages"))
+                click(library, first["title"])
+                close_page_containing("Indigo revision latest")
+                enter(library, "C++ & test")
+                click(library, other["title"])
+                close_page_containing("Search marker C++ & test")
+                press(library, "Done")
+                wait_for("library dismissed", lambda: not any(has_text(s, "Published Pages") for s in sheets()))
+
+                enter(palette, "remote only")
+                click(palette, "Search Pages in")
+                library = panel("prefilled workspace search", lambda s: button(s, other["title"]))
+                bridge.terminate()
+                bridge.wait(timeout=5)
+                click(library, other["title"])
+                press(panel("offline Page retry", lambda s: button(s, "Retry")), "Done")
+                press(library, "Done")
+                wait_for("library dismissed offline", lambda: not any(has_text(s, "Published Pages") for s in sheets()))
+                enter(palette, "PagesQA")
+                click(palette, "PagesQA")
+                wait_for("local chat open offline", lambda: not sheets())
+                print("Verified the saved revision, current Page, workspace search, offline failure and local chat navigation.")
+        finally:
+            if bridge.poll() is None:
+                bridge.terminate()
+                bridge.wait(timeout=5)
+            bridge.stdout.close()
+
+
 def ai_inventory(source_app, service_binary):
     """Register an AI while the workspace is offline, then rescan from the same bot's model inspector."""
     with private_workspace(source_app) as (app, home, store):
@@ -1133,9 +1233,11 @@ if __name__ == "__main__":
         message_search(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--media-reopen":
         media_reopen(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--pages":
+        workspace_pages(Path(sys.argv[2]).resolve(strict=True), Path(sys.argv[3]).resolve(strict=True))
     elif len(sys.argv) == 4 and sys.argv[1] == "--ai-inventory":
         ai_inventory(Path(sys.argv[2]).resolve(strict=True), Path(sys.argv[3]).resolve(strict=True))
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE")

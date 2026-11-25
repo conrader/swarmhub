@@ -86,3 +86,26 @@ private func item(_ id: String, enabled: Bool = true) -> QuickSwitcherModel.Item
     try FileManager.default.removeItem(at: archive)
     #expect(await QuickSwitcherModel.messages(in: store, query: "New budget", files: files).isEmpty)
 }
+
+@MainActor @Test func quickSwitcherKeepsPageWorkspaceAndRevisionAcrossRepeatedPublications() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Scout")
+    func message(server: String, revision: Int) throws -> ChatMessage {
+        let row = ChatMessage(role: .assistant, content: "Read the attached Page.")
+        let data = Data(#"{"serverID":"\#(server)","items":[{"id":94,"kind":"page","title":"Résumé","pageID":7,"revision":\#(revision)}]}"#.utf8)
+        row.publishedResults = try JSONDecoder().decode(HerdrReplyResults.self, from: data)
+        return row
+    }
+    bot.messages = try [message(server: "mac", revision: 2), message(server: "mac", revision: 2),
+                        message(server: "mac", revision: 3), message(server: "linux", revision: 2)]
+    store.bots = [bot]
+    let results = await QuickSwitcherModel.messages(in: store, query: "resume")
+    let pages = results.compactMap { item -> WorkspacePageLink? in
+        if case .page(let link) = item.target { return link }
+        return nil
+    }
+    #expect(pages.count == 3)
+    #expect(Set(pages) == [.init(serverID: "mac", pageID: 7, revision: 2, title: "Résumé"),
+                           .init(serverID: "mac", pageID: 7, revision: 3, title: "Résumé"),
+                           .init(serverID: "linux", pageID: 7, revision: 2, title: "Résumé")])
+}

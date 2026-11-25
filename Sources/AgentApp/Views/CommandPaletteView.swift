@@ -9,6 +9,14 @@ struct CommandPaletteView: View {
     @State private var query: String
     @State private var model = QuickSwitcherModel()
     @State private var archiveFiles = QuickSwitcherModel.ArchiveFiles()
+    @State private var page: WorkspacePageLink?
+    private struct LibraryRequest: Identifiable {
+        let id = UUID()
+        let serverID: String
+        let query: String
+    }
+    @State private var library: LibraryRequest?
+    @State private var resultQuery: String?
     @State private var searching = false
     @State private var keyboardPointer: NSPoint?
     @FocusState private var searchFocused: Bool
@@ -25,10 +33,13 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search chats, messages and actions", text: $query).textFieldStyle(.plain).font(.title3).focused($searchFocused)
+                TextField("Search chats, messages, Pages and actions", text: $query).textFieldStyle(.plain).font(.title3).focused($searchFocused)
                     .onKeyPress(.downArrow) { move(1, proxy: proxy); return .handled }
                     .onKeyPress(.upArrow) { move(-1, proxy: proxy); return .handled }
                     .onSubmit { if let item = model.selection { perform(item) } }
+                if store.herdrConfigured {
+                    Button("Pages") { openLibrary(query: "") }.help("Browse published Pages by workspace")
+                }
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(16)
             Divider()
@@ -43,12 +54,17 @@ struct CommandPaletteView: View {
                 ForEach(items.filter(\.isCommand)) { row($0) }
             }.listStyle(.plain).scrollContentBackground(.hidden).id(query)
         }.frame(width: 480, height: 380).background(AppColor.panel)
+        .sheet(item: $page, onDismiss: { searchFocused = true }) { WorkspacePageReader(link: $0) }
+        .sheet(item: $library, onDismiss: { searchFocused = true }) { request in
+            WorkspacePageLibrary(serverID: request.serverID, query: request.query)
+        }
         .task { searchFocused = true }
         .task(id: query) { [query] in
             guard !Task.isCancelled else { return }
             searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             keyboardPointer = NSEvent.mouseLocation
             let navigation = QuickSwitcherModel.items(in: store, query: query)
+            resultQuery = query
             model.update(navigation)
             if searching {
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
@@ -57,7 +73,13 @@ struct CommandPaletteView: View {
                 if !Task.isCancelled { show(live, with: navigation) }
             }
             guard !Task.isCancelled else { return }
-            if !messages.isEmpty { show(messages, with: navigation) }
+            var destinations = navigation
+            let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !term.isEmpty, store.herdrConfigured {
+                destinations.append(.init(id: "workspace-page-search", title: "Search Pages in " + pageServer.name,
+                                          icon: "doc.text.magnifyingglass", detail: term, target: .findPages))
+            }
+            show(messages, with: destinations)
             searching = false
         }
     }
@@ -66,6 +88,14 @@ struct CommandPaletteView: View {
         let selected = model.highlighted
         model.update(navigation.filter { !$0.isCommand } + messages + navigation.filter(\.isCommand))
         if let selected { model.highlight(selected) }
+    }
+
+    private var pageServer: HerdrServer {
+        store.selectedBot.map { store.herdrServer(for: $0) } ?? store.herdrServers[0]
+    }
+
+    private func openLibrary(query: String) {
+        library = LibraryRequest(serverID: pageServer.id, query: query)
     }
 
     private func move(_ offset: Int, proxy: ScrollViewProxy) {
@@ -111,7 +141,7 @@ struct CommandPaletteView: View {
     }
 
     private func perform(_ item: QuickSwitcherModel.Item) {
-        guard item.isEnabled else { return }
+        guard item.isEnabled, resultQuery == query || item.target == .findPages else { return }
         switch item.target {
         case .bot(let id): if let bot = store.bots.first(where: { $0.id == id }) { store.open(bot) }
         case .group(let id): if let group = store.groups.first(where: { $0.id == id }) { store.open(group) }
@@ -119,6 +149,10 @@ struct CommandPaletteView: View {
             if let group = store.groups.first(where: { $0.id == location.conversation }) { store.open(group) }
             else if let bot = store.bots.first(where: { $0.id == location.conversation }) { store.open(bot) }
             store.scrollTarget = location
+        case .findPages: openLibrary(query: query); return
+        case .page(let link):
+            page = link
+            return
         case .command(let command): selectCommand(command)
         case .setup: openSetup()
         }
