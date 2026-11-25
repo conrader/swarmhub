@@ -115,6 +115,8 @@ struct Review {
     arguments: String,
     expires_ms: i64,
     can_remember_read: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reviewer: Option<crate::command_reviewer::Advice>,
 }
 
 #[derive(Serialize)]
@@ -374,12 +376,32 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     } else {
         None
     };
-    let registered = match register(&w, request, read.is_some(), automatic.is_some()) {
+    let reviewer = if matches!(request.provider, Provider::Codex) && request.tool == "Bash" {
+        w.history.db().ok().and_then(|db| crate::bot_agent_settings::for_launch(&db, &launch).ok())
+            .map(|settings| settings.command_reviewer)
+            .filter(|model| *model != crate::command_reviewer::Model::Off)
+    } else { None };
+    let review_input = reviewer.map(|model| (model, json!({
+        "tool": request.tool, "working_directory": request.cwd, "arguments": request.input
+    }).to_string()));
+    let registered = match register(&w, request, read.is_some(), automatic.is_some(), reviewer) {
         Ok(Some(id)) => id,
         _ => return,
     };
     let Registered { id, agent, answer } = registered;
     let mut decision = if let Some(answer) = answer {
+        // The user's decision, expiry or departure drops the future and its subprocess immediately.
+        let review = async {
+            if let Some((model, input)) = review_input {
+                let text = crate::command_reviewer::assess(model, &input).await;
+                if let Ok(mut map) = w.approvals.pending.lock()
+                    && let Some(item) = map.get_mut(&id)
+                    && let Some(advice) = item.info.reviewer.as_mut() {
+                    advice.assessment = Some(text);
+                }
+            }
+            std::future::pending::<Decision>().await
+        };
         let result = tokio::select! {
             // A canceled native hook must not count as a browser decision.
             biased;
@@ -388,6 +410,7 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
                 Ok(Ok(choice)) => choice,
                 _ => Decision::Terminal,
             },
+            result = review => result,
         };
         if let Ok(mut map) = w.approvals.pending.lock() {
             map.remove(&id);
@@ -514,6 +537,7 @@ fn register(
     request: HookRequest,
     can_remember_read: bool,
     automatic: bool,
+    reviewer: Option<crate::command_reviewer::Model>,
 ) -> Result<Option<Registered>, StoreError> {
     let arguments = request.input.get().to_owned();
     let mut pending = w.approvals.pending.lock().map_err(|_| StoreError)?;
@@ -556,6 +580,7 @@ fn register(
                 arguments,
                 expires_ms: requested + 45_000,
                 can_remember_read,
+                reviewer: reviewer.map(|model| crate::command_reviewer::Advice { model, assessment: None }),
             },
             until: Instant::now() + WAIT,
             answer: Some(send),
@@ -701,7 +726,7 @@ mod switch_tests {
         desk.pending.lock().unwrap().insert(7, Pending {
             info: Review { id:7, agent:bot.agent_name, tool:"SSH directory listing (fixture)".into(),
                 provider:"Gemini", cwd:"/fixture".into(), arguments:"archived-project".into(),
-                expires_ms:30_000, can_remember_read:false },
+                expires_ms:30_000, can_remember_read:false, reviewer:None },
             launch:key.clone(), until:Instant::now() + WAIT, answer:Some(tx),
         });
         let summary = desk.summary(&history).unwrap().pop().unwrap();

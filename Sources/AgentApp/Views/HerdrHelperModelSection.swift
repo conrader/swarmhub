@@ -11,6 +11,7 @@ struct HerdrHelperModelSection: View {
     @State private var program = ""
     @State private var model = ""
     @State private var saving = false
+    @State private var reviewerError: String?
     @State private var autoProblem = ""
     @State private var problem = ""
 
@@ -44,6 +45,17 @@ struct HerdrHelperModelSection: View {
             }
         }.task(id: "\(bot.id)-\(server.id)") { await load() }
         if let saved {
+            if let reviewer = saved.commandReviewer {
+                SettingBlock(title: "Command reviewer", detail: "When Codex asks to run a shell command, Claude Code on this workspace sends its arguments and working directory to the selected model for a second opinion.") {
+                    Picker("Reviewer", selection: Binding(get: { reviewer }, set: { value in Task { await setReviewer(value) } })) {
+                        Text("Off").tag("off")
+                        ForEach(["haiku", "sonnet", "opus"], id: \.self) { model in
+                            Text("Claude " + model.capitalized).tag(model)
+                        }
+                    }.disabled(saving).accessibilityIdentifier("bot.commandReviewer")
+                    if let reviewerError { Text(reviewerError).font(.callout).foregroundStyle(AppColor.caution) }
+                }
+            }
             let reading = store.herdrAgentReadings[bot.id]
             VStack(alignment: .leading, spacing: 7) {
                 Toggle(isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } })) {
@@ -91,6 +103,16 @@ struct HerdrHelperModelSection: View {
             saved = try await store.herdrClient(for: server).setHelperModel(draft, for: bot.id, existingAgents: store.herdrExistingAgentNames(for: bot))
             problem = ""
         } catch { problem = error.localizedDescription }
+    }
+
+    private func setReviewer(_ model: String) async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            saved = try await store.herdrClient(for: server).setCommandReviewer(model, for: bot.id, existingAgents: store.herdrExistingAgentNames(for: bot))
+            reviewerError = nil
+        } catch { reviewerError = error.localizedDescription }
     }
 
     private func setAuto(_ enabled: Bool) async {

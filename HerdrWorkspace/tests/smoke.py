@@ -1338,6 +1338,7 @@ def smoke(hc, bridge, chrome=None):
                 **({"SWARMHUB_AGENT_CWD": str(agents)} if agents else {}),
                 "HC_SOCKET": str(socket), "SWARMHUB_ACCESS_TOKEN": token, "SWARMHUB_PORT": port,
                 "SWARMHUB_DATA_DIR": str(root / "workspace"),
+                **({"SWARMHUB_CLAUDE_BIN": str(claude)} if selected_focus == "command-reviewer" else {}),
                 **(dav[0] if dav else {}),
                 **(github[0] if github else {}),
                 **({"SWARMHUB_VAULT_KEY_FILE":str(vault_key)} if vault_key else {}),
@@ -1644,6 +1645,10 @@ def smoke(hc, bridge, chrome=None):
                 assert not request(url + "/archive", False)["archived"]
 
             try:
+                if selected_focus == "command-reviewer":
+                    from command_reviewer import exercise
+                    exercise(root, claude, request, until, chrome, base, token)
+                    return
                 if selected_focus == "bot-helper-model":
                     catalog = {"harness": "Fixture", "model_transport": "environment"}
                     (root / "workspace/runtime-catalog.json").write_text(json.dumps({"fixture": catalog, "coding-fixture": catalog}))
@@ -1661,11 +1666,12 @@ def smoke(hc, bridge, chrome=None):
                     group = parent("group-legacy")
                     second = parent("other", other)
                     url = "/api/bot-agent-settings/" + owner
-                    assert request(url) == {"choice": None, "auto_mode": False}
+                    assert request(url) == {"choice": None, "auto_mode": False, "auto_changed_ms": None, "command_reviewer": "off"}
                     assert request(url, {"choice": chosen, "existing_agents": ["group-legacy"]})["choice"] == chosen
                     request(url, {"choice": {"template": "missing", "model": "x"}}, status=422)
                     assert request(url)["choice"] == chosen
-                    assert request(url, {"auto_mode": True}) == {"choice": chosen, "auto_mode": True}
+                    updated = request(url, {"auto_mode": True})
+                    assert updated["choice"] == chosen and updated["auto_mode"] and updated["auto_changed_ms"] > 0
                     fresh = parent("fresh", owner)
                     assert "Launch model=chat-model auto=1" in request(f"/api/agents/{fresh['address']}/{fresh['created_ms']}/output")["text"]
                     def spawn(agent, name, expected, difficulty="easy", auto=True):
@@ -1742,7 +1748,8 @@ def smoke(hc, bridge, chrome=None):
                     spawn(second, "other", default, auto=False)
                     spawn(direct, "blocked", None, difficulty="hard")
                     assert request(url, {"choice": None})["choice"] is None
-                    assert request(url, {"auto_mode": False}) == {"choice": None, "auto_mode": False}
+                    updated = request(url, {"auto_mode": False})
+                    assert updated["choice"] is None and not updated["auto_mode"] and updated["auto_changed_ms"] > 0
                     spawn(direct, "reset", default, auto=False)
                     assert "Launch model=chat-model" in request(f"/api/agents/{direct['address']}/{direct['created_ms']}/output")["text"]
                     return

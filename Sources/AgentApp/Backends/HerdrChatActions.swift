@@ -35,6 +35,11 @@ extension HerdrClient {
         let agent, provider, tool, cwd, arguments: String
         let core, address: String?
         let createdMs: UInt64?
+        struct Reviewer: Decodable, Equatable, Sendable {
+            let model: String
+            let assessment: String?
+        }
+        var reviewer: Reviewer? = nil
 
         static func visible(_ value: String) -> String {
             value.unicodeScalars.map { scalar in

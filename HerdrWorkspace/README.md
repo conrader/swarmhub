@@ -188,6 +188,8 @@ For built-in model choice support, use a direct `/absolute/path/to/swarmhub-herd
 | Claude Code | `run-claude` | [Claude Code aliases or model IDs](https://code.claude.com/docs/en/model-config) |
 | OpenCode V2 | `run-opencode mini` | The `provider/model` IDs shown by `opencode models` |
 
+In **Details → Model → Command reviewer** on the Mac, choose a Claude model for a bot whose Codex shell requests go through workspace approvals. The workspace sends the proposed command arguments and working directory to that model using its signed-in Claude Code installation. Its assessment appears alongside the original request in chat, Activity and the browser approval details. You can allow or deny the request while the review runs. The reviewer is off by default.
+
 Templates can also put `--workspace-approvals` immediately after `run-codex`, `run-claude`, or `run-opencode`. Keep fixed model flags and other agent arguments in separate templates, or set defaults in the agent's own configuration. Add a `models` list under the template name in `runtime-catalog.json`, using the IDs available in your setup:
 
 ```json

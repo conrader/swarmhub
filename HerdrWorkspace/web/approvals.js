@@ -105,7 +105,7 @@
     parkRequest++;
     parkDetail.hidden = true;
     parkInput.value = parkPreview.textContent = "";
-    $("approval-input").textContent = "";
+    $("approval-input").textContent = $("approval-reviewer").textContent = "";
     $("approval-path").textContent = "";
     state.signature = null;
     $("approval-detail").hidden = true;
@@ -139,7 +139,12 @@
   function render() {
     if (parkId !== null) return;
     if (state.active) {
-      const waiting = state.pending.some(({id}) => id === state.active.id);
+      const waiting = state.pending.find(({id}) => id === state.active.id);
+      const advice = waiting?.reviewer;
+      const reviewer = $("approval-reviewer");
+      reviewer.hidden = !advice;
+      const reviewText = advice ? `Claude ${advice.model} · ${visible(advice.assessment ?? "Reviewing command…")}` : "";
+      if (reviewer.textContent !== reviewText) reviewer.textContent = reviewText;
       for (const button of ["allow", "deny", "terminal", "remember"]) $("approval-" + button).disabled = !waiting || state.working;
       if (!waiting && !state.working && $("approval-notice").textContent === state.active.instruction) {
         $("approval-input").textContent = "";
@@ -340,7 +345,7 @@
     parkList.replaceChildren();
     state.active = null;
     refreshBadge();
-    $("approval-input").textContent = $("approval-path").textContent = $("approval-action").textContent = "";
+    $("approval-input").textContent = $("approval-reviewer").textContent = $("approval-path").textContent = $("approval-action").textContent = "";
     for (const id of ["approval-list", "approval-history", "approval-read-rules"]) $(id).replaceChildren();
   }
   window.approvalInbox = { open, openPark, lockIfNeeded };
@@ -357,7 +362,7 @@
     parkRequest++;
     parkInput.value = parkPreview.textContent = "";
     state.active = null;
-    $("approval-input").textContent = "";
+    $("approval-input").textContent = $("approval-reviewer").textContent = "";
     $("approval-path").textContent = "";
   });
   setInterval(poll, 1800);

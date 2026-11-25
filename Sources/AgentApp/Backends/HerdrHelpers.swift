@@ -266,7 +266,7 @@ struct HerdrHelperPolicyDraft: Equatable, Sendable {
 }
 
 extension HerdrClient {
-    struct BotAgentSettings: Decodable { let choice: HerdrHelperPolicy.Tier?; let autoMode: Bool; var autoChangedMs: UInt64? = nil }
+    struct BotAgentSettings: Decodable { let choice: HerdrHelperPolicy.Tier?; let autoMode: Bool; var autoChangedMs: UInt64? = nil; var commandReviewer: String? = nil }
 
     func botAgentSettings(for bot: UUID) async throws -> BotAgentSettings {
         try await get("/api/bot-agent-settings/\(bot.uuidString.lowercased())")
@@ -275,6 +275,9 @@ extension HerdrClient {
     func setHelperModel(_ tier: HerdrHelperPolicy.Tier?, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
         let choice: Any = tier.map { ["template": $0.template, "model": $0.model] as Any } ?? NSNull()
         return try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["choice": choice, "existing_agents": existingAgents])
+    }
+    func setCommandReviewer(_ model: String, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
+        try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["command_reviewer": model, "existing_agents": existingAgents])
     }
     func setProjectAutoMode(_ enabled: Bool, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
         try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["auto_mode": enabled, "existing_agents": existingAgents])
