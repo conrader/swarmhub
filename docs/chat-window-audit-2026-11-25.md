@@ -164,6 +164,8 @@ In SwarmHub, **Activity** in the sidebar or Navigate menu now opens a list of vi
 
 With a real Codex session on another Mac, the first build reported a running shell command while the workspace had an unanswered approval and the command had never started. The candidate reads the workspace’s pending approvals and checks their session identity. While the user was in another chat, Activity showed **Review Bash**. Opening it led to the approval card. After **Allow once**, the command ran, the answer became unread, and selecting it opened the reply. The journal recorded one ordinary request and one final reply. In a separate group run, the row named both the group and the member requesting approval. Clicking **Allow once** in the group released its own command. Its final reply also opened from Activity. The Swift session-matching regression rejects an approval from an older launch at the same address and a cached inbox from a different server binding.
 
+The debug build also logged a SwiftUI AttributeGraph cycle during sheet transitions. The final native runs completed navigation and updated the visible status through those transitions. The cause of the diagnostic remains open.
+
 ## Product comparison and remaining checks
 
 
