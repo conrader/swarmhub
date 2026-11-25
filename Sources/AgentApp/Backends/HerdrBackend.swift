@@ -99,7 +99,7 @@ struct HerdrBackend: AgentBackend {
     /// before a message, the bot's own agent is handed that conversation as files, unless its session has read it.
     /// Never for the agent a bot has in a group. nil: nothing but the message is sent.
     var handoff: HerdrHandoffSource? = nil
-    var prepareDirect: (@MainActor @Sendable (HerdrClient.Workspace) async throws -> [HerdrHandoffSource])?
+    var prepareDirect: (@MainActor @Sendable (HerdrClient.Workspace, @Sendable (HerdrTurnStatus) -> Void) async throws -> [HerdrHandoffSource])?
 
     static let teamNote = """
     SwarmHub team commands: use swarmhub-herdr bot list to find peers, bot ask NAME "QUESTION" for a reply, or bot handoff NAME "TASK" to delegate. Use checkin ci PUBLIC_PR_URL "WHAT" for a GitHub CI failure watch, checkin list for plans and promise list for commitments. Use the command path in your SwarmHub instructions when provided. After fixing a blocker, resume the authorized task and verify the requested outcome. For a previously declined handoff, check whether the sender reassigned or canceled it before retrying, then report the result to the sender and the person.
@@ -250,7 +250,7 @@ struct HerdrBackend: AgentBackend {
                         if let prepare = backend.prepareDirect {
                             // The previous reply may already be saved while Core still owns the terminal.
                             let workspace = try await backend.client.workspaceForDelivery(name: name, status: report)
-                            sources = try await prepare(workspace)
+                            sources = try await prepare(workspace, report)
                         } else { sources = [backend.handoff].compactMap { $0 } }
                         context = try await backend.questionContext(text: text, files: files, sources: sources)
                         _ = backend.handingOver.swap(false)

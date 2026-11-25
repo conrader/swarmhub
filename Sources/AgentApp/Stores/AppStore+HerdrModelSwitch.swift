@@ -45,7 +45,8 @@ extension AppStore {
 
     /// Called inside the direct turn, after an outstanding warm start and before either history or user input.
     /// Reconcile the live session as well as newly changed choices: older app versions only saved the preference.
-    func prepareDirectModel(bot: Bot, server: HerdrServer, template: String?, model: String, in current: HerdrClient.Workspace) async throws -> [HerdrHandoffSource] {
+    func prepareDirectModel(bot: Bot, server: HerdrServer, template: String?, model: String, in current: HerdrClient.Workspace,
+                            status: @Sendable (HerdrTurnStatus) -> Void = { _ in }) async throws -> [HerdrHandoffSource] {
         func checkChoice() throws {
             try Task.checkCancellation()
             guard server == herdrServer(for: bot), template == herdrTemplate(for: bot), model == herdrModel(for: bot) else {
@@ -81,7 +82,7 @@ extension AppStore {
                 }
                 if replace {
                     // Use the exact launch, never an agent found again by name after an asynchronous read.
-                    let live = try await client.workspace()
+                    let live = try await client.workspaceForDelivery(name: name, status: status)
                     try checkChoice()
                     guard live.core == current.core else { throw BackendError.unavailable("The workspace restarted during the model switch. Retry the message.") }
                     let active = client.liveAgent(named: name, in: live)
