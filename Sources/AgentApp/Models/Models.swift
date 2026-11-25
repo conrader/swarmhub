@@ -97,8 +97,9 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         content = try c.decode(String.self, forKey: .content); createdAt = try c.decode(Date.self, forKey: .createdAt)
         continuedAt = try c.decodeIfPresent(Date.self, forKey: .continuedAt)
         presentation = try c.decodeIfPresent(MessagePresentation.self, forKey: .presentation) ?? .text
-        metadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
-        historyPlacement = TranscriptHistory.placement(in: metadata)
+        let savedMetadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+        metadata = savedMetadata
+        historyPlacement = TranscriptHistory.placement(in: savedMetadata)
         reactions = try c.decodeIfPresent([String].self, forKey: .reactions) ?? []
         replyToID = try c.decodeIfPresent(UUID.self, forKey: .replyToID)
         attachments = try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []
