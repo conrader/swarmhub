@@ -126,6 +126,54 @@ import Testing
         #expect(store.herdrHelperWatch() == [localID: false])
     }
 
+    @Test func pinnedMainBotShowsTerminalUnreadAndAttentionTogether() async throws {
+        let store = makeStore()
+        let bot = Bot(name: "Pinned", backend: .herdr, avatarName: .faceMint, unreadCount: 1)
+        bot.messages = [ChatMessage(role: .assistant, content: "Partial reply", turnState: .incomplete)]
+        store.bots = [bot]
+        store.herdrLive(.helpers(list([helper])), botID: bot.id)
+
+        let size = NSSize(width: 240, height: 120)
+        func render() async throws -> CGImage {
+            let view = SidebarPinnedStrip(chats: [.bot(bot)], askNewSection: { _ in }, requestDelete: { _ in })
+                .environmentObject(store).tint(Color(nsColor: .magenta))
+                .frame(width: size.width, height: size.height, alignment: .top).background(Color.white)
+            let data = try #require(await SnapshotRenderer.png(view, size: size, scale: 1))
+            return try #require(NSBitmapImageRep(data: data)?.cgImage)
+        }
+
+        let statusOnly = try await render()
+        store.setCanManageBots(bot, true)
+        let together = try await render()
+        store.herdrLive(.helpers(nil), botID: bot.id)
+        bot.unreadCount = 0
+        bot.messages.removeAll()
+        let starOnly = try await render()
+
+        // A single 56-point avatar is centered at x=120, with its top at y=20.
+        func pixels(_ image: CGImage, in region: CGRect) throws -> [NSColor] {
+            let crop = try #require(image.cropping(to: region))
+            let bitmap = NSBitmapImageRep(cgImage: crop)
+            return (0..<bitmap.pixelsHigh).flatMap { y in
+                (0..<bitmap.pixelsWide).compactMap { x in bitmap.colorAt(x: x, y: y) }
+            }
+        }
+        let star = CGRect(x: 92, y: 20, width: 24, height: 24)
+        let terminal = CGRect(x: 90, y: 56, width: 22, height: 23)
+        let unread = CGRect(x: 138, y: 19, width: 12, height: 12)
+        let attention = CGRect(x: 136, y: 64, width: 16, height: 16)
+        let starPixels = try pixels(together, in: star)
+        #expect(try starPixels == pixels(starOnly, in: star))
+        #expect(try starPixels != pixels(statusOnly, in: star))
+        for region in [terminal, unread, attention] {
+            let statusPixels = try pixels(together, in: region)
+            #expect(try statusPixels == pixels(statusOnly, in: region))
+            #expect(try statusPixels != pixels(starOnly, in: region))
+        }
+        // Check the white terminal symbol inside its dark badge, excluding the border.
+        #expect(try lightPixels(in: CGRect(x: 94, y: 61, width: 14, height: 12), of: together) > 4)
+    }
+
     @Test func chatShowsOnlyLiveHelpersAndKeepsTheBotsTerminalSeparate() async throws {
         let store = makeStore()
         let bot = Bot(name: "Bot fixture", backend: .herdr)

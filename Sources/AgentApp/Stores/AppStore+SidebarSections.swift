@@ -51,16 +51,4 @@ extension AppStore {
         if pinned { guard sidebar.pin(chat) else { return } } else { sidebar.unpin(chat) }
         save()
     }
-
-    @discardableResult
-    func movePinnedChat(_ chat: UUID, onto destination: UUID) -> Bool {
-        var pins = sidebar.pinned
-        guard storeRestoreOffer == nil, let from = pins.firstIndex(of: chat),
-              let to = pins.firstIndex(of: destination), from != to else { return false }
-        pins.remove(at: from)
-        pins.insert(chat, at: to)
-        sidebar.pinned = pins
-        save()
-        return true
-    }
 }

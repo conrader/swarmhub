@@ -1,41 +1,22 @@
 import SwiftUI
-import UniformTypeIdentifiers
-
-private struct PinnedChatDrag: Codable, Transferable {
-    let id: UUID
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: UTType(exportedAs: "app.swarmhub.pinned-chat", conformingTo: .data))
-            .visibility(.ownProcess)
-    }
-}
 
 /// The pinned chats, first in the list's stack so they scroll with it: three to a line, each a big mark with its name under it.
 struct SidebarPinnedStrip: View {
-    @EnvironmentObject private var store: AppStore
     let chats: [SidebarChat]
     let askNewSection: (UUID?) -> Void
     let requestDelete: (SidebarChat) -> Void
+
     static let layout = TileRows(minimum: SidebarMetrics.pinnedMark + 8, centeredColumns: SidebarMetrics.pinnedColumns, spacing: 4)
 
     var body: some View {
         Self.layout {
             ForEach(chats) { chat in
-                tile(chat)
-                    .draggable(PinnedChatDrag(id: chat.id))
-                    .dropDestination(for: PinnedChatDrag.self) { items, _ in
-                        guard items.count == 1, let item = items.first else { return false }
-                        return store.movePinnedChat(item.id, onto: chat.id)
-                    }
+                switch chat {
+                case .bot(let bot): PinnedBotTile(bot: bot, askNewSection: askNewSection) { requestDelete(chat) }
+                case .group(let group): PinnedGroupTile(group: group, askNewSection: askNewSection) { requestDelete(chat) }
+                }
             }
         }.padding(.bottom, 6)
-    }
-
-    @ViewBuilder private func tile(_ chat: SidebarChat) -> some View {
-        switch chat {
-        case .bot(let bot): PinnedBotTile(bot: bot, askNewSection: askNewSection) { requestDelete(chat) }
-        case .group(let group): PinnedGroupTile(group: group, askNewSection: askNewSection) { requestDelete(chat) }
-        }
     }
 }
 
