@@ -636,6 +636,7 @@ printf '%s\n' '{PRIVATE_DIAGNOSTIC}' >&2
 printf '%s\n' "started" >> "$HOME/invocations"
 case "$outcome" in
     timeout) /bin/sleep 20 ;;
+    wait_for_release) while [ ! -f "$HOME/release" ]; do /bin/sleep 0.05; done ;;
     first_holds) if [ "$(/usr/bin/wc -l < "$HOME/invocations" | /usr/bin/tr -d ' ')" = 1 ]; then /bin/sleep 20; fi ;;
     workload-gate) while [ ! -f "$FIXTURE_WORKLOAD_OUTCOME" ]; do /bin/sleep 0.05; done
         /bin/cp "$FIXTURE_WORKLOAD_OUTCOME" "$HOME/workload-received"

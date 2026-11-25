@@ -91,38 +91,45 @@ struct WorkspaceActivityView: View {
     @State private var selectedReview: Review?
     @State private var completed: [Review] = []
 
-    private struct CIReading {
+    private struct ServerReading {
         let server: HerdrServer
         var failures: [HerdrClient.CIFailure]
         var reviewed: Set<Int64> = []
+        var completions: [HerdrClient.JobCompletion] = []
     }
 
-    @State private var ciReadings: [String: CIReading] = [:]
+    @State private var serverReadings: [String: ServerReading] = [:]
 
     private func ciFailures(on server: HerdrServer) -> [HerdrClient.CIFailure] {
-        guard let reading = ciReadings[server.id], reading.server == server else { return [] }
+        guard let reading = serverReadings[server.id], reading.server == server else { return [] }
         return reading.failures.filter { !reading.reviewed.contains($0.id) }
     }
-    @State private var ciUnavailable = Set<String>()
+    @State private var attentionUnavailable = Set<String>()
+
+    private func completions(on server: HerdrServer) -> [HerdrClient.JobCompletion] {
+        guard let reading = serverReadings[server.id], reading.server == server else { return [] }
+        return reading.completions
+    }
 
     private var servers: [HerdrServer] { inboxes.values.map(\.server).sorted { $0.id < $1.id } }
 
-    private func refreshCI(on server: HerdrServer) async {
+    private func refreshAttention(on server: HerdrServer) async {
         while !Task.isCancelled {
             do {
                 let client = try store.herdrClient(for: server)
-                let result: HerdrClient.CIInbox = try await client.get("/api/attention")
+                let result: HerdrClient.AttentionInbox = try await client.get("/api/attention")
                 guard !Task.isCancelled else { return }
-                var reading = ciReadings[server.id] ?? CIReading(server: server, failures: [])
-                if reading.server != server { reading = CIReading(server: server, failures: []) }
+                var reading = serverReadings[server.id] ?? ServerReading(server: server, failures: [])
+                if reading.server != server { reading = ServerReading(server: server, failures: []) }
                 reading.failures = result.ciFailures ?? []
+                reading.completions = result.completions ?? []
                 reading.reviewed.formIntersection(reading.failures.map(\.id))
-                ciReadings[server.id] = reading
-                ciUnavailable.remove(server.id)
+                serverReadings[server.id] = reading
+                attentionUnavailable.remove(server.id)
             } catch {
                 guard !Task.isCancelled else { return }
-                ciReadings[server.id] = nil
-                ciUnavailable.insert(server.id)
+                serverReadings[server.id] = nil
+                attentionUnavailable.insert(server.id)
             }
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
         }
@@ -139,6 +146,20 @@ struct WorkspaceActivityView: View {
         case .bot(let bot): return requests(bot, nil)
         case .group(let group): return store.members(of: group).flatMap { requests($0, group) }
         }
+    }
+
+    private func completionRow(_ result: HerdrClient.JobCompletion, on server: HerdrServer) -> some View {
+        let bot = store.bots.first { $0.id == UUID(uuidString: result.ownerBotId) && $0.backend == .herdr && store.herdrServer(for: $0) == server }
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("\(result.ownerName ?? bot?.name ?? result.ownerBotId) · Job \(result.verdict)")
+                .font(.body.weight(.medium))
+            if let detail = result.outcomeDetail, !detail.isEmpty { Text(detail) }
+            Text([server.name, result.delivery, result.blocker].compactMap { $0 }.joined(separator: " · "))
+                .font(.callout).foregroundStyle(.secondary)
+            if let bot {
+                Button("Open \(bot.name) chat") { store.open(bot); dismiss() }.controlSize(.small)
+            }
+        }.padding(6).help(result.id)
     }
 
     private struct ActivitySection: Identifiable {
@@ -165,12 +186,12 @@ struct WorkspaceActivityView: View {
                 Label("Can’t check approvals on \(server.name)", systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
             }
-            ForEach(servers.filter { ciUnavailable.contains($0.id) && inboxes[$0.id]?.unavailable == false }) { server in
-                Label("Can’t check CI on \(server.name)", systemImage: "exclamationmark.triangle")
+            ForEach(servers.filter { attentionUnavailable.contains($0.id) && inboxes[$0.id]?.unavailable == false }) { server in
+                Label("Can’t check background jobs or CI on \(server.name)", systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
             }
             Group {
-                if items.isEmpty && servers.allSatisfy({ ciFailures(on: $0).isEmpty }) {
+                if items.isEmpty && servers.allSatisfy({ ciFailures(on: $0).isEmpty && completions(on: $0).isEmpty }) {
                     ContentUnavailableView("No chat activity", systemImage: AppCommand.activity.icon,
                                            description: Text("Chats with pending work or unread messages appear here."))
                 } else {
@@ -181,9 +202,17 @@ struct WorkspaceActivityView: View {
                                 ForEach(servers) { server in
                                     ForEach(ciFailures(on: server)) { failure in
                                         WorkspaceCIFailureRow(server: server, failure: failure) {
-                                            guard ciReadings[server.id]?.server == server else { return }
-                                            ciReadings[server.id]?.reviewed.insert(failure.id)
+                                            guard serverReadings[server.id]?.server == server else { return }
+                                            serverReadings[server.id]?.reviewed.insert(failure.id)
                                         }
+                                    }
+                                }
+                            }
+                            if servers.contains(where: { !completions(on: $0).isEmpty }) {
+                                Text("Background job results").font(.headline).accessibilityAddTraits(.isHeader).padding(.top, 10)
+                                ForEach(servers) { server in
+                                    ForEach(completions(on: server)) { result in
+                                        completionRow(result, on: server)
                                     }
                                 }
                             }
@@ -234,10 +263,10 @@ struct WorkspaceActivityView: View {
         }.frame(width: 440, height: 420)
         .background {
             ForEach(servers) { server in
-                Color.clear.task(id: server) { await refreshCI(on: server) }
+                Color.clear.task(id: server) { await refreshAttention(on: server) }
                     .onDisappear {
-                        ciReadings[server.id] = nil
-                        ciUnavailable.remove(server.id)
+                        serverReadings[server.id] = nil
+                        attentionUnavailable.remove(server.id)
                     }
             }
         }

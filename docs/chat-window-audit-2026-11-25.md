@@ -238,6 +238,14 @@ On the MacBook, the driver sent a message in a private chat and opened **Sign in
 
 A simulated provider completion closed the setup terminal automatically and the wizard showed Ready. The workspace integration test also finished a simulated sign-in, retried the message and checked that the initial and blocked follow-ups never reached the provider. The trials did not authorize a live Google account.
 
+## Interrupted background work and delivery to the bot
+
+A restart test intermittently reported an interrupted job. Holding its supervisor before provider registration past the test’s two-second lease reproduced an interruption with `lease_expired` and zero provider invocations. The earlier failure recorded only the verdict, so its cause is still unknown. The workspace had the worker reason, but its completion inbox omitted it.
+
+Two regression checks exercise those paths separately. An expired reservation reaches the owner’s inbox and staged message with its reason. For both Claude and Codex worker profiles, a running fixture program finishes with the workspace bridge offline. Restarting the bridge retrieves the result and delivers the completion after exactly one provider invocation. The production lease is unchanged.
+
+Chrome and the native MacBook Activity sheet displayed the interrupted job and the paused owner’s pending delivery from seeded workspaces. With another bot selected on the Mac, pressing **Open RemoteQA chat** dismissed Activity and switched the composer to the owning bot. The workspace still reported the completion as pending.
+
 ## Product comparison and remaining checks
 
 

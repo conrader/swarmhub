@@ -1,23 +1,5 @@
 import SwiftUI
 
-extension HerdrClient {
-    struct CIInbox: Decodable {
-        let ciFailures: [CIFailure]?
-    }
-
-    struct CIFailure: Decodable, Equatable, Identifiable {
-        let id: Int64
-        let bot: String
-        let pullRequest: String
-        let checkRun: String
-
-        var checkURL: URL? {
-            guard checkRun.wholeMatch(of: #/https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/runs\/[0-9]+/#) != nil else { return nil }
-            return URL(string: checkRun)
-        }
-    }
-}
-
 struct WorkspaceCIFailureRow: View {
     @EnvironmentObject private var store: AppStore
     let server: HerdrServer

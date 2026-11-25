@@ -19,13 +19,16 @@ pub(crate) struct Completion {
     verdict: String,
     exit_reason: String,
     exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worker_reason: Option<String>,
     result_ref: Option<String>,
     expected_next_action: String,
 }
 
 /// Admission and replay use only terminal facts and an opaque result reference.
 const EVENT: &str = "c.job_id,c.attempt,c.owner_bot_id,a.verdict,a.exit_reason,
-    a.exit_code,a.result_ref,c.expected_next_action";
+    a.exit_code,a.result_ref,c.expected_next_action,
+    json_extract(a.requested_runtime,'$.worker_reason') AS worker_reason";
 
 fn event(row: &Row<'_>) -> rusqlite::Result<Completion> {
     let job_id: String = row.get(0)?;
@@ -38,6 +41,7 @@ fn event(row: &Row<'_>) -> rusqlite::Result<Completion> {
         verdict: row.get(3)?,
         exit_reason: row.get(4)?,
         exit_code: row.get(5)?,
+        worker_reason: row.get("worker_reason")?,
         result_ref: row.get(6)?,
         expected_next_action: row.get(7)?,
     })
@@ -99,23 +103,37 @@ pub(super) fn stage_waiting(ctx: &Ctx<'_>) -> rusqlite::Result<()> {
 pub(crate) struct Status {
     #[serde(flatten)]
     pub event: Completion,
+    owner_name: String,
+    outcome_detail: String,
     state: String,
     blocker: Option<String>,
 }
 
 fn status(row: &Row<'_>) -> rusqlite::Result<Status> {
+    let event = event(row)?;
+    let outcome_detail = match event.worker_reason.as_deref() {
+        Some("lease_expired") => "The worker’s reservation expired.".to_string(),
+        Some("runtime_timeout") => "The program reached its time limit.".to_string(),
+        Some(reason) => format!("Worker reported {}.", reason.replace('_', " ")),
+        None => match (event.exit_reason.as_str(), event.exit_code) {
+            ("nonzero_exit", Some(code)) => format!("The program exited with code {code}."),
+            ("missing_result", _) => "The program exited without a result.".to_string(),
+            _ => String::new(),
+        },
+    };
     Ok(Status {
-        event: event(row)?,
-        state: row.get(8)?,
-        blocker: row.get(9)?,
+        event, outcome_detail,
+        owner_name: row.get("owner_name")?,
+        state: row.get("delivery_state")?,
+        blocker: row.get("delivery_blocker")?,
     })
 }
 
-const STATUS: &str = "COALESCE(d.state,'pending'),
+const STATUS: &str = "b.name AS owner_name, COALESCE(d.state,'pending') AS delivery_state,
     CASE WHEN d.state='acknowledged' THEN NULL
          WHEN b.removed_ms IS NOT NULL THEN 'Owner was removed.'
          WHEN b.takes_messages=0 THEN 'Owner has paused incoming messages.'
-         ELSE d.blocker END";
+         ELSE d.blocker END AS delivery_blocker";
 
 const FROM: &str = "FROM job_completions c JOIN job_attempts a USING (job_id,attempt)
     JOIN bots b ON b.id=c.owner_bot_id LEFT JOIN job_deliveries d USING (job_id,attempt)";
