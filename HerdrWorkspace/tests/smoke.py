@@ -675,6 +675,8 @@ def opencode_reply(root, bridge, request, core, browser):
                     return
                 chunk = {"id": "chatcmpl-local", "object": "chat.completion.chunk", "created": int(time.time()),
                          "model": request["model"], "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+                if focus == "opencode-usage" and finish:
+                    chunk["usage"] = {"prompt_tokens": 1000, "completion_tokens": 100, "total_tokens": 1100}
                 self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
                 self.wfile.flush()
             self.wfile.write(b"data: [DONE]\n\n")
@@ -692,6 +694,8 @@ def opencode_reply(root, bridge, request, core, browser):
                   "package": "@opencode/ai/providers/openai-compatible",
                   "models": {name: {"name": name.title(), "capabilities": {"tools": True}} for name in ("default", "fast", "detailed", "discovered")},
                   "settings": {"baseURL": f"http://127.0.0.1:{endpoint.server_port}/v1"}}}}
+        if focus == "opencode-usage":
+            config["providers"]["fixture"]["models"]["default"]["cost"] = {"input": 10, "output": 20}
         if image_mode:
             config["providers"]["fixture"]["models"]["default"]["capabilities"]["input"] = ["text", "image"]
         path = root / "opencode.json"
@@ -794,6 +798,27 @@ def opencode_reply(root, bridge, request, core, browser):
                 request(blocked_url + "/end", {})
 
         try:
+            if focus == "opencode-usage":
+                agent = request("/api/agents", {"name": "cost-qa", "template": "local-model", "task": "Count usage"}, status=201, timeout=45)
+                session = f"{agent['address']}/{agent['created_ms']}"
+                def usage():
+                    return next(a for a in request("/api/workspace")["agents"] if a["address"] == agent["address"]).get("session_usage", {})
+                try:
+                    previous_cost = 0
+                    for turn in (1, 2):
+                        if turn == 2:
+                            request(f"/api/agents/{session}/messages", {"text": "Count again"})
+                        until(lambda: sum(i["kind"] == "reply" for i in request(f"/api/history/{core}/{session}")["items"]) == turn, seconds=20)
+                        until(lambda: usage().get("opencode_cost_usd", 0) >= previous_cost + .012 - 1e-8, seconds=10)
+                        data = usage()
+                        assert abs(data["opencode_cost_usd"] - data["total_tokens"] * .012 / 1100) < 1e-8, data
+                        previous_cost = data["opencode_cost_usd"]
+                        assert data.get("context_tokens") is None
+                    if browser:
+                        subprocess.run(browser, check=True, timeout=45)
+                finally:
+                    request(f"/api/agents/{session}/end", {})
+                return
             if image_mode:
                 boundary = secrets.token_hex(16)
                 meta = {"name": "vision-fixture", "template": "local-model", "task": "Inspect the screenshot.", "expected_core": core}
@@ -1649,11 +1674,15 @@ def smoke(hc, bridge, chrome=None):
                     def agent(name):
                         return request("/api/agents", {"name": name, "template": "fixture", "task": "Start"}, status=201)
                     first = agent("usage-visible")
+                    tiny = agent("usage-tiny")
+                    free = agent("usage-zero")
                     agent("usage-unreported")
                     usage = {"context_tokens": 2500, "window_tokens": 10000, "total_tokens": 12500}
                     with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
-                        db.execute("UPDATE journal SET session_usage=? WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
-                                   (json.dumps(usage), first["address"], first["created_ms"]))
+                        for sample, report in [(first, usage), (tiny, {"opencode_cost_usd": 1e-6, "total_tokens": 2}),
+                                               (free, {"opencode_cost_usd": 0, "total_tokens": 12})]:
+                            db.execute("UPDATE journal SET session_usage=? WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
+                                       (json.dumps(report), sample["address"], sample["created_ms"]))
                     by_name = {a["name"]: a for a in request("/api/workspace")["agents"]}
                     assert by_name["usage-visible"]["session_usage"] == usage
                     assert "session_usage" not in by_name["usage-unreported"]
@@ -2409,7 +2438,7 @@ def smoke(hc, bridge, chrome=None):
                     assert request("/api/drive-files/disconnect",{}) == {"configured":False}
                     assert request("/api/vault")["entries"] == []
                     return
-                if focus in ("opencode", "opencode-status", "opencode-approvals", "opencode-image"):
+                if focus in ("opencode", "opencode-status", "opencode-approvals", "opencode-image", "opencode-usage"):
                     browser = ["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, temp] if chrome else None
                     opencode_reply(root, bridge, request, core, browser)
                     return

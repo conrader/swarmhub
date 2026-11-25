@@ -385,11 +385,14 @@ struct HerdrAgentControls: View {
             }
             if !note.isEmpty { Text(note).font(.callout).textSelection(.enabled) }
             if let usage = store.herdrPresence(for: bot)?.usage {
-                SettingBlock(title: "Session usage", detail: "Reported by Codex after each model call.") {
-                    if let percent = usage.contextPercent, let window = usage.windowTokens {
-                        LabeledContent("Context", value: "\(usage.contextTokens.formatted()) of \(window.formatted()) tokens (\(percent)%)")
-                    } else {
-                        LabeledContent("Last model call", value: "\(usage.contextTokens.formatted()) tokens")
+                SettingBlock(title: "Session usage", detail: usage.opencodeCostUsd == nil ? "Reported by Codex after each model call." : "OpenCode uses the endpoint’s price when available and can estimate from model rates.") {
+                    if let context = usage.contextTokens, let percent = usage.contextPercent, let window = usage.windowTokens {
+                        LabeledContent("Context", value: "\(context.formatted()) of \(window.formatted()) tokens (\(percent)%)")
+                    } else if let context = usage.contextTokens {
+                        LabeledContent("Last model call", value: "\(context.formatted()) tokens")
+                    }
+                    if usage.opencodeCostUsd != nil {
+                        LabeledContent("Estimated session cost", value: usage.estimatedCost ?? "No priced usage reported")
                     }
                     LabeledContent("Conversation total", value: "\(usage.totalTokens.formatted()) tokens")
                 }

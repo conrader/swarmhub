@@ -47,12 +47,19 @@ struct HerdrClient: Sendable {
     }
 
     struct SessionUsage: Decodable, Sendable, Equatable {
-        let contextTokens: Int64
+        let contextTokens: Int64?
         let windowTokens: Int64?
         let totalTokens: Int64
+        let opencodeCostUsd: Double?
+
+        var estimatedCost: String? {
+            guard let amount = opencodeCostUsd, amount.isFinite, amount > 0 else { return nil }
+            if amount < 0.0001 { return "< " + 0.0001.formatted(.currency(code: "USD").precision(.fractionLength(4))) }
+            return amount.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))
+        }
 
         var contextPercent: Int? {
-            guard contextTokens >= 0, let windowTokens, windowTokens > 0 else { return nil }
+            guard let contextTokens, contextTokens >= 0, let windowTokens, windowTokens > 0 else { return nil }
             return Int((100 * min(1, Double(contextTokens) / Double(windowTokens))).rounded())
         }
     }

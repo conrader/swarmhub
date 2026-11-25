@@ -13,7 +13,7 @@
 //!
 //! If the app server does not come up, `run-codex` starts Codex the way it did before and the reply appears whole.
 
-mod usage;
+use crate::session_usage as usage;
 
 use crate::agent::session;
 use futures_util::{SinkExt, StreamExt};
@@ -807,7 +807,7 @@ impl Follower {
                 self.clear(thread);
             }
             "thread/tokenUsage/updated" if self.joined.contains(thread) => {
-                if let Some(report) = usage::SessionUsage::reported(&params["tokenUsage"]) {
+                if let Some(report) = usage::SessionUsage::codex(&params["tokenUsage"]) {
                     self.usage = Some(usage::Change::Report(thread.to_owned(), report));
                 }
             }
@@ -1105,11 +1105,11 @@ mod tests {
         };
         assert!(record(usage("child", 99, Some(100), 100)).is_none());
         let first = record(usage(THREAD, 80, Some(100), 440)).unwrap();
-        assert_eq!(first.context_tokens, 80);
+        assert_eq!(first.context_tokens, Some(80));
         assert_eq!(first.window_tokens, Some(100));
         assert_eq!(record(usage(THREAD, -1, Some(100), 100)), Some(first));
         let compacted = record(usage(THREAD, 15, None, 455)).unwrap();
-        assert_eq!(compacted.context_tokens, 15);
+        assert_eq!(compacted.context_tokens, Some(15));
         assert_eq!(compacted.total_tokens, 455);
         assert!(compacted.window_tokens.is_none());
         assert_eq!(record(note("thread/started", json!({"thread":{"id":"internal","source":{"subAgent":"review"}}}))), Some(compacted));
