@@ -200,6 +200,14 @@ pub(crate) fn start_serving(w: Workspace) {
 
 pub(crate) fn recover_outbox(history: &crate::History) {
     let _ = super::write(history, |ctx| {
+        // Older restarts marked interrupted attempts typed without recording delivery.
+        // Migration 67 identifies those receipts as uncertain. Keep their original cutoff.
+        ctx.db.execute(
+            "UPDATE bot_messages AS m SET deadline_ms=o.give_up_ms FROM bot_outbox AS o
+             WHERE m.id=o.message AND m.state='open' AND m.delivered_ms IS NULL AND m.deadline_ms IS NULL
+               AND o.cause='message' AND o.state='typed' AND o.delivery_receipt='uncertain'",
+            [],
+        )?;
         let ids = ctx.db.prepare("SELECT id FROM bot_outbox WHERE state='typing' AND cause IN ('message','outcome')
             AND NOT EXISTS(SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id)")?
             .query_map([], |r| r.get(0))?.collect::<Result<Vec<i64>,_>>()?;
@@ -784,7 +792,11 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
         );
         return Outcome::Typed;
     }
-    let wait = if item.recoverable { warm::Wait::Outbox(item.id) } else { warm::Wait::Queued };
+    let wait = if item.recoverable {
+        warm::Wait::Outbox { id: item.id, task: record }
+    } else {
+        warm::Wait::Queued
+    };
     let sent = crate::deliver_task_waiting(w.clone(), agent, record, text, wait).await;
     if item.recoverable {
         let settled = super::write(&w.history, |ctx| rules::reconcile_delivery(ctx, item.id));

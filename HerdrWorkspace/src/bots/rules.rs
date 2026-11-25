@@ -508,10 +508,6 @@ pub(crate) fn send(
         };
         entry(ctx, bot, "message", &text, about, false, false)?;
     }
-    if about.state == "open" && about.deadline_ms.is_some_and(|deadline| deadline <= ctx.now) {
-        end_unanswered(ctx,&about,None)?;
-        return Ok(Err("This message expired before the response arrived.".into()));
-    }
     let from_person = work.origin == "person";
     let typed = match kind {
         Kind::Ask => notes::ask(ctx.cmd, &sender.name, id, &text, ctx.set),
@@ -559,9 +555,12 @@ fn back(
     via: &str,
 ) -> rusqlite::Result<i64> {
     if let Some(outbox) = ctx.db.query_row(
-        "SELECT id FROM bot_outbox WHERE cause='message' AND message=? AND bot=? AND state IN ('pending','typing')",
-        params![about.id,about.receiver], |r| r.get(0)).optional()? {
-        typed(ctx,outbox)?;
+        "SELECT id FROM bot_outbox WHERE cause='message' AND message=?1 AND bot=?2
+         AND (state IN ('pending','typing') OR (state='typed' AND delivery_receipt='uncertain'))",
+        params![about.id, about.receiver],
+        |row| row.get(0),
+    ).optional()? {
+        typed(ctx, outbox)?;
     }
     let id: i64 = ctx.db.query_row(
         "INSERT INTO bot_messages (work,kind,sender,receiver,text,about,state,via,sent_ms)
@@ -590,7 +589,7 @@ fn back(
 }
 
 /// `bot` answers, accepts or declines the ask or hand-off `id` that was sent to it. `Ok` is what its agent
-/// reads; `Err` a refusal, after which nothing changed.
+/// reads. A late response expires the open message before returning a refusal.
 pub(crate) fn close(
     ctx: &Ctx<'_>,
     bot: &Bot,
@@ -634,20 +633,27 @@ pub(crate) fn close(
             )));
         }
     }
+    // A delayed acknowledgement can arrive between the delivery deadline and the next clock tick.
+    if about.state == "open" && about.delivered_ms.is_none() {
+        let overdue = ctx.db.query_row(
+            "SELECT id,state FROM bot_outbox WHERE cause='message' AND message=?1
+             AND state IN ('pending','typing') AND give_up_ms<=?2",
+            params![id, ctx.now],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        ).optional()?;
+        if let Some((outbox, state)) = overdue {
+            if state == "pending" {
+                untyped(ctx, outbox, "its delivery deadline passed.")?;
+            } else {
+                // The attempt may have reached the recipient. Leave its receipt uncertain.
+                end_unanswered(ctx, &about, None)?;
+            }
+            return ended("passed its delivery deadline");
+        }
+    }
     if about.state == "open" && about.deadline_ms.is_some_and(|deadline| ctx.now >= deadline) {
         end_unanswered(ctx, &about, None)?;
         return ended("passed its deadline");
-    }
-    // A delayed acknowledgement can arrive between the delivery deadline and the next clock tick.
-    if about.state == "open" && about.delivered_ms.is_none() {
-        let overdue: bool = ctx.db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM bot_outbox WHERE cause='message' AND message=?1
-             AND state IN ('pending','typing') AND give_up_ms<=?2)",
-            params![about.id,ctx.now], |row| row.get(0))?;
-        if overdue {
-            end_unanswered(ctx, &about, None)?;
-            return ended("passed its delivery deadline");
-        }
     }
     let from_person = work.origin == "person";
     // What comes back is typed into the agent of the bot that asked.
@@ -1582,6 +1588,82 @@ mod tests {
     }
 
     #[test]
+    fn a_response_at_the_deadline_expires_once_even_before_the_clock_ticks() {
+        let set = Settings::default();
+        for (kind, seconds_to_close, closing) in [
+            (Kind::Ask, set.ask_seconds, Closing::Reply("answer")),
+            (Kind::Ask, set.ask_seconds, Closing::Decline("reason")),
+            (Kind::Handoff, set.handoff_accept_seconds, Closing::Accept),
+            (Kind::Handoff, set.handoff_accept_seconds, Closing::Decline("reason")),
+            (Kind::Handoff, set.handoff_accept_seconds, Closing::Reply("result")),
+        ] {
+            let (_dir, history) = testing::journal(&["Jarvis", "Infra"]);
+            let id = sent(&history, T0, &set, "Jarvis", kind, "Infra", "fixture").unwrap();
+            let delivered = T0 + 1_000;
+            deliver(&history, delivered, &set);
+            let deadline = delivered + seconds(seconds_to_close);
+            assert!(closed(&history, deadline, &set, "Infra", id, closing).is_err());
+            assert!(closed(&history, deadline + 1, &set, "Infra", id, Closing::Reply("retry")).is_err());
+            assert_eq!(testing::at(&history, deadline + 1, &set, expire), 0);
+            assert_eq!(state(&history, id), "expired");
+            assert_eq!(count(&history, "SELECT count(*) FROM bot_messages WHERE about IS NOT NULL"), 0);
+            assert_eq!(count(&history, "SELECT count(*) FROM bot_work WHERE owner='jarvis-id'"), 1);
+            assert_eq!(count(&history, "SELECT count(*) FROM bot_outbox WHERE cause='outcome'"), 1);
+            assert_eq!(
+                count(&history, "SELECT typed_ms FROM bot_outbox WHERE delivery_receipt='acknowledged'"),
+                delivered
+            );
+        }
+    }
+
+    #[test]
+    fn a_late_response_to_a_pending_delivery_settles_the_outbox_once() {
+        let (_dir, history) = testing::journal(&["Jarvis", "Infra"]);
+        let set = Settings::default();
+        let id = sent(&history, T0, &set, "Jarvis", Kind::Ask, "Infra", "fixture").unwrap();
+        let deadline = T0 + seconds(set.deliver_seconds);
+        for now in [deadline, deadline + 1] {
+            assert!(closed(&history, now, &set, "Infra", id, Closing::Reply("late")).is_err());
+        }
+        assert_eq!(testing::at(&history, deadline + 1, &set, give_up), 0);
+        assert_eq!(state(&history, id), "expired");
+        assert_eq!(
+            count(&history, "SELECT count(*) FROM bot_outbox WHERE state='failed'
+                             AND delivery_receipt='expired' AND typed_ms IS NULL"),
+            1
+        );
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_history WHERE kind='notice'"), 2);
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_outbox WHERE cause='outcome'"), 1);
+    }
+
+    #[test]
+    fn a_restart_preserves_the_cutoff_for_older_unconfirmed_deliveries() {
+        let (_dir, history) = testing::journal(&["Jarvis", "Infra"]);
+        let set = Settings::default();
+        let handoff = sent(&history, T0, &set, "Jarvis", Kind::Handoff, "Infra", "first").unwrap();
+        let ask = sent(&history, T0, &set, "Jarvis", Kind::Ask, "Infra", "second").unwrap();
+        let deadline = T0 + seconds(set.deliver_seconds);
+        history.db().unwrap().execute(
+            "UPDATE bot_outbox SET state='typed', typed_ms=?1, delivery_receipt='uncertain'",
+            [T0 + 1],
+        ).unwrap();
+        crate::bots::desk::recover_outbox(&history);
+        closed(&history, deadline - 1, &set, "Infra", handoff, Closing::Accept).unwrap();
+        assert!(closed(&history, deadline, &set, "Infra", handoff, Closing::Accept).is_err());
+        assert!(closed(&history, deadline, &set, "Infra", ask, Closing::Reply("late")).is_err());
+        closed(&history, deadline + 1, &set, "Infra", handoff, Closing::Reply("done")).unwrap();
+        assert_eq!(state(&history, handoff), "answered");
+        assert_eq!(state(&history, ask), "expired");
+        for (id, receipt) in [(handoff, "acknowledged"), (ask, "uncertain")] {
+            let saved: String = history.db().unwrap().query_row(
+                "SELECT delivery_receipt FROM bot_outbox WHERE cause='message' AND message=?",
+                [id], |row| row.get(0),
+            ).unwrap();
+            assert_eq!(saved, receipt);
+        }
+    }
+
+    #[test]
     fn delayed_ack_settles_an_uncertain_attempt_once() {
         let (_dir, history) = testing::journal(&["Jarvis","Infra"]);
         let set = Settings::default();
@@ -1608,12 +1690,26 @@ mod tests {
             [T0], |row| row.get::<_,i64>(0)).unwrap();
         history.db().unwrap().execute("UPDATE bot_outbox SET state='typing',task=? WHERE id=?",
             params![task,outbox]).unwrap();
-        assert!(testing::at(&history,T0+1,&settings,|ctx| reconcile_delivery(ctx,outbox)));
-        assert_eq!(deliver(&history,T0+6_000,&settings).len(),1);
-        assert!(deliver(&history,T0+7_000,&settings).is_empty());
-        assert_eq!(history.db().unwrap().query_row(
-            "SELECT id,delivery_receipt FROM bot_outbox WHERE message=?", [ask],
-            |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?))).unwrap(),(outbox,"acknowledged".into()));
+        assert!(testing::at(&history, T0 + 1, &settings, |ctx| reconcile_delivery(ctx, outbox)));
+        assert_eq!(count(&history, "SELECT retry_after_ms FROM bot_outbox
+            WHERE state='pending' AND task IS NULL AND delivery_receipt='unsent'"), T0 + 5_001);
+        let retry_at = T0 + 6_000;
+        testing::at(&history, retry_at, &settings, |ctx| {
+            let retry: i64 = ctx.db.query_row(
+                "INSERT INTO journal(core_id,agent,kind,state,text,at_ms)
+                 VALUES('fixture','fixture','task','sent','retry',?) RETURNING id",
+                [retry_at], |row| row.get(0),
+            )?;
+            ctx.db.execute("UPDATE bot_outbox SET state='typing', task=?2 WHERE id=?1",
+                params![outbox, retry])?;
+            reconcile_delivery(ctx, outbox)
+        });
+        assert!(!testing::at(&history, retry_at + 1, &settings, |ctx| reconcile_delivery(ctx, outbox)));
+        let asked = message(&history.db().unwrap(), ask).unwrap().unwrap();
+        assert_eq!(asked.delivered_ms, Some(retry_at));
+        assert_eq!(asked.deadline_ms, Some(retry_at + seconds(settings.ask_seconds)));
+        assert_eq!(count(&history, "SELECT id FROM bot_outbox WHERE state='typed' AND delivery_receipt='acknowledged'"), outbox);
+        assert!(deliver(&history, retry_at + 1, &settings).is_empty());
     }
 
     #[test]

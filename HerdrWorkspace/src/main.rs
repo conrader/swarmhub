@@ -156,7 +156,7 @@ impl Workspace {
             ));
         }
         let prompt = person_profile::prompt(&self.history, current.display_name(), prompt)?;
-        wait.check_outbox(self)?;
+        wait.check_outbox(&self.history)?;
         match group {
             Some(binding) => {
                 opencode_agent::follow_up::send_group(

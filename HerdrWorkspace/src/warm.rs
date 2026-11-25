@@ -49,17 +49,25 @@ pub(crate) enum Wait {
     Held,
     /// Nobody: the caller was told that the task is queued.
     Queued,
-    Outbox(i64),
+    Outbox { id: i64, task: i64 },
 }
 impl Wait {
-    pub(crate) fn check_outbox(self, w: &Workspace) -> Result<(), Failure> {
-        if let Self::Outbox(id) = self {
-            let ready = w.history.db().ok().and_then(|db| db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM bot_outbox o JOIN bots b ON b.id=o.bot
-                 WHERE o.id=? AND o.state='typing' AND o.give_up_ms>? AND b.removed_ms IS NULL AND b.takes_messages
-                 AND NOT EXISTS(SELECT 1 FROM bot_work WHERE id=o.work AND state='stopped'))",
-                rusqlite::params![id,now()], |row| row.get::<_,bool>(0)).ok());
-            if ready != Some(true) { return Err(Failure::Input("The pending delivery is no longer available.")); }
+    pub(crate) fn check_outbox(self, history: &History) -> Result<(), Failure> {
+        if let Self::Outbox { id, task } = self {
+            let ready = history.db().is_ok_and(|db| {
+                db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM bot_outbox o JOIN bots b ON b.id=o.bot
+                     WHERE o.id=?1 AND o.task=?2 AND o.state='typing' AND o.give_up_ms>?3
+                       AND b.removed_ms IS NULL AND b.takes_messages
+                       AND (o.cause='outcome' OR NOT EXISTS (
+                           SELECT 1 FROM bot_work WHERE id=o.work AND state='stopped')))",
+                    params![id, task, now()],
+                    |row| row.get::<_, bool>(0),
+                ).unwrap_or(false)
+            });
+            if !ready {
+                return Err(Failure::Input("The pending delivery is no longer available."));
+            }
         }
         Ok(())
     }
@@ -95,7 +103,7 @@ fn start_wait(asked: Option<&str>, wait: Wait) -> Duration {
             seconds.clamp(*START_WAIT_BOUNDS.start(), *START_WAIT_BOUNDS.end())
         });
     match wait {
-        Wait::Queued | Wait::Outbox(_) => Duration::from_secs(seconds),
+        Wait::Queued | Wait::Outbox { .. } => Duration::from_secs(seconds),
         Wait::Held => HELD_WAIT.min(Duration::from_secs(seconds)),
     }
 }
@@ -379,10 +387,10 @@ async fn send_prompt(
     let typed = crate::person_profile::prompt(&w.history, agent.display_name(), prompt.clone())?;
     let settling_until = warm_launch.map(|_| Instant::now() + Duration::from_secs(10));
     loop {
-        wait.check_outbox(w)?;
+        wait.check_outbox(&w.history)?;
         match w.core.send(agent, &typed).await {
             Ok(sent) => {
-                let outcome = if matches!(wait, Wait::Outbox(_)) {
+                let outcome = if matches!(wait, Wait::Outbox { .. }) {
                     Ok(sent.delivery)
                 } else { w.core.recover_send(agent, &typed, &prompt, sent).await };
                 if let Some(launch) = warm_launch
@@ -552,6 +560,33 @@ mod tests {
 
     const INSTRUCTIONS: &str = "Answer in one line.";
     const PROJECTS: &str = "You may work on these projects on other machines: site (on web).";
+
+    #[test]
+    fn a_retry_checks_its_own_attempt_and_can_deliver_a_stopped_exchanges_outcome() {
+        let (_dir, history) = crate::bots::testing::journal(&["Infra"]);
+        {
+            let db = history.db().unwrap();
+            db.execute_batch(
+                "INSERT INTO bot_work(id,started_by,owner,origin,chain,started_ms)
+                 VALUES(1,'infra-id','infra-id','person','[]',0);
+                 INSERT INTO bot_outbox(id,bot,text,cause,work,state,created_ms,give_up_ms,task)
+                 VALUES(1,'infra-id','question','message',1,'typing',0,9223372036854775807,10),
+                       (2,'infra-id','result','outcome',1,'typing',0,9223372036854775807,20);"
+            ).unwrap();
+        }
+        let first = Wait::Outbox { id: 1, task: 10 };
+        let outcome = Wait::Outbox { id: 2, task: 20 };
+        assert!(first.check_outbox(&history).is_ok());
+        history.db().unwrap().execute("UPDATE bot_outbox SET task=11 WHERE id=1", []).unwrap();
+        let retry = Wait::Outbox { id: 1, task: 11 };
+        assert!(first.check_outbox(&history).is_err());
+        assert!(retry.check_outbox(&history).is_ok());
+        history.db().unwrap().execute("UPDATE bot_work SET state='stopped' WHERE id=1", []).unwrap();
+        assert!(retry.check_outbox(&history).is_err());
+        assert!(outcome.check_outbox(&history).is_ok());
+        history.db().unwrap().execute("UPDATE bot_outbox SET give_up_ms=0 WHERE id=2", []).unwrap();
+        assert!(outcome.check_outbox(&history).is_err());
+    }
 
     fn terminal(address: &str, key: &str, reported: bool, turn: u64) -> Terminal {
         serde_json::from_value(serde_json::json!({
