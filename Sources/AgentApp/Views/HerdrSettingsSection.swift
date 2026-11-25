@@ -304,6 +304,8 @@ struct HerdrAgentControls: View {
     @State private var showAdvanced = false
     @Environment(\.inspectorStartsAdvanced) private var renderOpen
     /// The server's lists were read (a render passes them in); until then the default entries cannot be named.
+    @State private var modelListError: String?
+    @State private var modelListRequest: UUID?
     @State private var templateError: String?
     @State private var listed: Bool
     @State private var switchTarget: HerdrPickerTarget?
@@ -348,6 +350,10 @@ struct HerdrAgentControls: View {
                                      program: effective.modelAgent ?? effective.programName, models: models)
                         .tint(Color(nsColor: .secondaryLabelColor))
                         .disabled(switching)
+                    if let modelListError {
+                        Text(modelListError).font(.callout).foregroundStyle(.secondary)
+                        Button("Reload models") { Task { await loadModels() } }
+                    }
                 } else if listed, effective != nil {
                     Text(HerdrAgentReading.programPicks).font(.callout).foregroundStyle(.secondary)
                 }
@@ -452,11 +458,24 @@ struct HerdrAgentControls: View {
     }
 
     private func loadModels() async {
+        let request = UUID()
+        modelListRequest = request
+        modelListError = nil
         guard let selected = effective, selected.takesModel else { models = []; return }
         let server = store.herdrServer(for: bot)
-        let offered = (try? await store.herdrClient(for: server).models(for: selected)) ?? selected.models ?? []
-        guard selected.name == effective?.name, server == store.herdrServer(for: bot) else { return }
+        let offered: [HerdrClient.Template.Model]
+        let problem: String?
+        do {
+            offered = try await store.herdrClient(for: server).models(for: selected)
+            problem = nil
+        } catch {
+            offered = selected.models ?? []
+            problem = error.localizedDescription
+        }
+        guard !Task.isCancelled, modelListRequest == request, selected.name == effective?.name,
+              server == store.herdrServer(for: bot) else { return }
         models = offered
+        modelListError = problem
     }
 
     /// The agent program or model was changed. An agent that was started ahead of time and has not been written to
