@@ -122,6 +122,14 @@ To check the order of replies after steering a bot and reopening SwarmHub, use t
 
 The driver opens two private chats with a loopback workspace offline. One saved turn has just acknowledged the follow-up. In the other, the bot has already started its next step. It types a draft in a third chat and brings the workspace online. Both recovering bots must become unread, including the pinned bot, while the draft retains its text and keyboard focus. The driver opens a coding helper, returns to its parent chat, and checks which badge clears. A second offline launch verifies the remaining unread badge and the order of both answers beneath their guidance.
 
+To check replies that arrive while the selected chat is out of view, run the native window driver.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --window-unread /Applications/SwarmHub.app
+```
+
+The driver sends a message to a private bot and group in each of five conditions. It minimizes the workspace, hides SwarmHub, switches to Finder, opens Settings and opens Search. It verifies that each reply finishes with one unread mark and that returning to the workspace clears it.
+
 To check published media in a bot reply, run the driver from a checkout containing the PNG and MP4 fixtures.
 
 ```sh

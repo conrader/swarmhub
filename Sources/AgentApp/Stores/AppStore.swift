@@ -5,6 +5,8 @@ import UserNotifications
 
 @MainActor final class AppStore: ObservableObject {
     @Published var bots: [Bot] = []
+    /// Window groups share chat selection. A headless store has no attached workspace.
+    var focusedWorkspaceWindows: Set<UUID>?
     @Published var selectedBot: Bot?
     /// The running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`).
     @Published var runningTurns: [UUID: ConversationTurn] = [:]
