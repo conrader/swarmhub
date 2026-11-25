@@ -90,7 +90,7 @@ Choose **Draft release notes** in a new bot’s chat. Edit the changes or send t
 - Bring recent Grok Bot conversations into SwarmHub from this Mac.
 - Set up bots locally even when another server is using the default port.
 
-A finished live reply shows time spent on the successful attempt and the number of tool calls observed for that turn. A steered turn has one summary on its final reply. The model name comes from the server’s launch record when available. Check your provider’s usage view for quota or charges.
+A finished live reply shows time spent on the successful attempt and the number of tool calls observed for that turn. A steered turn has one summary on its final reply. Each reply keeps its own session label. The footer identifies a launch record or a model confirmation when that information was saved. Earlier replies use **Session model**. A tool count appears when SwarmHub received activity for that reply. Check your provider’s usage view for quota or charges.
 
 ### Optional introduction
 
@@ -146,14 +146,14 @@ Type a message and send it. The reply appears as the bot writes it, with each to
 Opening a chat starts that bot if it is not running, so the first reply does not wait for the AI to start. The header says **Starting …** and then **Ready**; **Ready** means a reply starts at once. You can write while it starts: the message is delivered as soon as the bot is ready. To turn this off for one bot, open its Details, **Model**, **Advanced**, and switch off **Keep _name_ ready**.
 
 - **Stop** in the composer (**Chat → Stop Answer**, ⌘.) interrupts the answer. The bot stays open for the next message.
-- A message you send while the bot answers goes into the running answer. If **Read new messages mid-answer** is off for the bot (Details, **Model**, **Advanced**), or the message has attachments, it waits and is sent when the answer ends.
+- When the composer says **Add to this answer…**, send a follow-up to steer the current turn. Its receipt changes to **Delivered** when the workspace confirms delivery. **Queue the next message…** means the active turn cannot accept guidance and the follow-up will run after it finishes.
 - A row marked as not sent offers **Retry**.
 
 <a id="change-a-model"></a>
 
 ### Change what a bot runs on
 
-Open the bot's Details (⇧⌘I) and choose **Model** (⌘6). Pick the **AI** and the **Model**; both lists come from the server. The next direct message uses your choice automatically. A reply already in progress finishes first. When the switch needs a different provider session, the new agent reads the chat so far. **Advanced → Start fresh** clears the agent’s context when you want a new conversation.
+Click the model beside the bot’s name or press ⌘6 to open its Model settings. **Started on** identifies the model recorded at session launch. **Last confirmed** identifies a model the workspace verified. When a change is pending, **Next direct turn** shows what will handle your next new message. Choose the AI and model from the lists supplied by the server. The next direct message uses your choice automatically. A reply already in progress finishes first. When the switch needs a different provider session, the new agent reads the chat so far. **Advanced → Start fresh** clears the agent’s context when you want a new conversation.
 
 **New bots run on**, in **Settings → Servers**, chooses the AI that new bots start on.
 

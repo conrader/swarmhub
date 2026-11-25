@@ -33,14 +33,27 @@ enum BotAvatarName: String, Codable, CaseIterable, Identifiable {
 }
 
 struct RunSummary: Codable, Equatable, Sendable {
+    enum ModelSource: String, Codable, Sendable { case launch, confirmation }
     let model: String?
+    var modelSource: ModelSource? = nil
     let seconds: Int
     let tools: Int
 
     var line: String {
         let elapsed = seconds < 1 ? "<1 s" : "\(seconds) s"
-        let calls = tools == 1 ? "1 tool call" : "\(tools) tool calls"
-        return [model, elapsed, calls].compactMap { $0 }.joined(separator: " · ")
+        let session = model.map { name in
+            switch modelSource {
+            case .launch: "Started on \(name)"
+            case .confirmation: "Last confirmed · \(name)"
+            case nil: "Session model · \(name)"
+            }
+        }
+        let calls: String? = switch tools {
+        case 0: nil
+        case 1: "1 tool call"
+        default: "\(tools) tool calls"
+        }
+        return [session, elapsed, calls].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -201,4 +214,4 @@ enum StopTarget: Sendable, Equatable { case serverRun(String), noRunControl, noA
 enum StopOutcome: Sendable, Equatable { case requested, noRunControl, noActiveRun }
 /// What a backend's stream says about a turn. `replace`: the whole reply text so far, when a snapshot no longer
 /// extends what was streamed. `tool`: a tool started, progressed or finished; the reply keeps these as its activity steps.
-enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), launchModel(String), journal(String, [Int]), published(String, HerdrPublishedResult), runActivity(seconds: Int, tools: Int), completed, failed(String) }
+enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), sessionModel(String, RunSummary.ModelSource), journal(String, [Int]), published(String, HerdrPublishedResult), runActivity(seconds: Int, tools: Int), completed, failed(String) }

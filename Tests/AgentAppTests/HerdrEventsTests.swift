@@ -276,7 +276,7 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     let bot = Bot(name: "Review", backend: .herdr)
     let reply = ChatMessage(role: .assistant, content: "", isStreaming: true)
     let stream = AsyncThrowingStream<AgentEvent, Error> { events in
-        events.yield(.launchModel("Sol"))
+        events.yield(.sessionModel("Sol", .launch))
         events.yield(.replace("Ready"))
         events.yield(.runActivity(seconds: 4, tools: 2))
         events.yield(.completed)
@@ -284,7 +284,15 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     }
     _ = try await store.consumeTurn(stream, assistant: reply, bot: bot)
     let saved = try JSONDecoder().decode(ChatMessage.self, from: JSONEncoder().encode(reply))
-    #expect(saved.runSummary?.line == "Sol · 4 s · 2 tool calls")
+    #expect(saved.runSummary?.line == "Started on Sol · 4 s · 2 tool calls")
     let old = ChatMessage(role: .assistant, content: "Earlier reply")
     #expect(try JSONDecoder().decode(ChatMessage.self, from: JSONEncoder().encode(old)).runSummary == nil)
+}
+
+@Test func historicalSummariesKeepTheirSessionLabelWithoutInventingAModelSource() throws {
+    let data = Data(#"{"model":"Sonnet","seconds":12,"tools":0}"#.utf8)
+    let historical = try JSONDecoder().decode(RunSummary.self, from: data)
+    #expect(historical.line == "Session model · Sonnet · 12 s")
+    let confirmed = RunSummary(model: "Sol", modelSource: .confirmation, seconds: 12, tools: 1)
+    #expect(confirmed.line == "Last confirmed · Sol · 12 s · 1 tool call")
 }

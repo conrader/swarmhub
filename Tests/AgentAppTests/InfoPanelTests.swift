@@ -63,3 +63,21 @@ private func expectSameViewport(_ actual: NSRect, _ expected: NSRect, sourceLoca
 @MainActor private func descendants<T: NSView>(_ view: NSView, of type: T.Type) -> [T] {
     (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, of: type) }
 }
+
+@MainActor @Test func narrowChatShowsTheLaunchModelAndPendingDirectTurnTogether() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in MockBackend() },
+                         keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "GameDev", backend: .herdr)
+    store.bots = [bot]
+    store.open(bot)
+    var reading = HerdrAgentReading(templates: [], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: [])
+    reading.running = .model(id: "before", label: "Sonnet")
+    reading.model = .init(id: "after", label: "Sol")
+    store.herdrAgentReadings[bot.id] = reading
+    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
+    let data = try #require(await HeadlessSetup.png(ChatView(bot: bot), store: store, updater: updater,
+                                                    size: NSSize(width: 500, height: 400)))
+    let image = try #require(NSBitmapImageRep(data: data)?.cgImage)
+    let text = try await recognizedLines(in: image).joined(separator: " ")
+    #expect(text.contains("Sonnet") && text.contains("Sol"), "Both model names should fit the minimum chat width: \(text)")
+}
