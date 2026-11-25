@@ -11,27 +11,30 @@ struct MarkdownContent: View {
     /// One text segment of an ordered reply (nil = the whole text), and for each of its blocks the place that block
     /// has in the whole reply (`ReplyLayout.blockIndexes`), which is what a card's answer is stored and checked by.
     var text: String? = nil; var indexes: [Int]? = nil
+    var renderedBlocks: [TranscriptText.Block]? = nil
     var body: some View {
         let shownContent = message.content
         let source = text ?? shownContent
-        let blocks = ChatCardParser.parseVisibleReply(source)
+        let blocks = renderedBlocks ?? TranscriptText(reply: source, segments: nil).parts[0]
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
+            ForEach(Array(blocks.enumerated()), id: \.offset) { offset, rendered in
+                let block = rendered.card
                 let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset
                 switch block {
-                case .markdown(let text): ProseBlock(text: text)
-                case .code(_, let body): CodeBlock(code: body)
+                case .markdown(let text): ProseBlock(text: text, rendered: rendered.prose)
+                case .code(_, let body):
+                    if let run = rendered.run { CodeBlock(code: body, run: run) }
                 case .choices(let prompt, let options):
                     let key = "picked.\(index)"
                     let status = actionTarget.map { store.choiceStatus(message, target: $0, key: key, binary: ChoiceReply.isYesNo(options)) }
-                    ChoicesCard(prompt: prompt, options: options.map { ChatChoiceOption(label: $0, reply: $0) }, picked: status?.picked ?? message.metadata[key],
+                    ChoicesCard(prompt: prompt, promptRun: rendered.run, options: options.map { ChatChoiceOption(label: $0, reply: $0) }, picked: status?.picked ?? message.metadata[key],
                                 enabled: index >= 0 && status?.enabled == true) { answer in
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
                                                 expected: block, choice: answer, shownContent: shownContent)
                     }
                 case .multiChoices(let prompt, let options):
-                    MultipleChoiceCard(prompt: prompt, options: options, picked: message.metadata["picked.\(index)"],
+                    MultipleChoiceCard(prompt: prompt, promptRun: rendered.run, options: options, picked: message.metadata["picked.\(index)"],
                         enabled: index >= 0 && actionTarget.map { store.choiceStatus(message, target: $0, key: "picked.\(index)", binary: false).enabled } == true) { answer in
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index, expected: block, choice: answer, shownContent: shownContent)
@@ -52,9 +55,15 @@ struct MarkdownContent: View {
 
 struct ProseBlock: View {
     let text: String
+    var rendered: [TranscriptText.Prose]? = nil
+    private var blocks: [TranscriptText.Prose] {
+        if let rendered { return rendered }
+        var projection = TranscriptText()
+        return projection.prose(text)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            MarkdownBlockContent(blocks: MarkdownBlockParser.parse(text))
+            MarkdownBlockContent(blocks: blocks)
             let urls = ChatCardParser.bareURLs(in: text)
             if !urls.isEmpty { LinkPillRow(urls: urls) }
             ForEach(ChatCardParser.links(in: text), id: \.self) { link in
@@ -70,8 +79,30 @@ struct ProseBlock: View {
     }
 }
 
+/// User Markdown shares the same text coordinates, without activating assistant cards.
+struct UserMessageText: View {
+    @Environment(\.transcriptRow) private var row
+    @Environment(\.transcriptSelection) private var selection
+    let source: String
+    var body: some View {
+        let projection = TranscriptText(user: source)
+        let _ = selection?.rendered(row, text: projection.string)
+        let blocks = projection.parts[0]
+        VStack(alignment: .leading, spacing: 9) {
+            ForEach(blocks.indices, id: \.self) { index in
+                let block = blocks[index]
+                if let run = block.run {
+                    TranscriptRunView(run: run, style: .code).font(.system(.callout, design: .monospaced))
+                } else {
+                    MarkdownBlockContent(blocks: block.prose)
+                }
+            }
+        }
+    }
+}
+
 private struct MarkdownBlockContent: View {
-    let blocks: [MarkdownBlock]
+    let blocks: [TranscriptText.Prose]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -81,12 +112,12 @@ private struct MarkdownBlockContent: View {
         }
     }
 
-    @ViewBuilder private func blockView(_ block: MarkdownBlock) -> some View {
+    @ViewBuilder private func blockView(_ block: TranscriptText.Prose) -> some View {
         switch block {
         case .paragraph(let text):
             markdownText(text).font(.body)
         case .heading(let level, let text):
-            markdownText(text).font(headingFont(level)).accessibilityAddTraits(.isHeader)
+            markdownText(text, style: .heading(level)).font(headingFont(level)).accessibilityAddTraits(.isHeader)
         case .quote(let children):
             if !children.isEmpty {
                 MarkdownBlockContent(blocks: children)
@@ -103,8 +134,8 @@ private struct MarkdownBlockContent: View {
             Divider().padding(.vertical, 3)
         case .list(let items):
             list(items)
-        case .table(let header, let rows):
-            table(header: header, rows: rows)
+        case .table(let rows):
+            table(rows)
         }
     }
 
@@ -117,23 +148,19 @@ private struct MarkdownBlockContent: View {
         }
     }
 
-    private func list(_ items: [MarkdownListItem]) -> some View {
-        let widestNumber = items.reduce(into: [Int: String]()) { numbers, item in
-            guard let number = item.number, number.count > (numbers[item.depth]?.count ?? 0) else { return }
-            numbers[item.depth] = number
+    private func list(_ items: [(depth: Int, marker: TranscriptText.Run, text: TranscriptText.Run)]) -> some View {
+        let widths = Dictionary(grouping: items, by: \.depth).mapValues { items in
+            items.map { String($0.marker.value.characters) }.max { $0.count < $1.count } ?? ""
         }
         return VStack(alignment: .leading, spacing: 5) {
             ForEach(items.indices, id: \.self) { index in
                 let item = items[index]
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if let number = item.number, let widest = widestNumber[item.depth] {
-                        ZStack(alignment: Alignment(horizontal: .trailing, vertical: .firstTextBaseline)) {
-                            Text(widest + ".").hidden().accessibilityHidden(true)
-                            Text(number + ".")
-                        }.font(.body.monospacedDigit()).foregroundStyle(.tint).fixedSize()
-                    } else {
-                        Text(item.depth == 0 ? "•" : "◦").font(.body).foregroundStyle(.tint).accessibilityHidden(true)
-                    }
+                HStack(alignment: .top, spacing: 8) {
+                    ZStack(alignment: .trailing) {
+                        Text(widths[item.depth] ?? "").hidden().accessibilityHidden(true)
+                        TranscriptRunView(run: item.marker, style: .marker)
+                            .accessibilityHidden(item.marker.value.characters.first?.isNumber != true)
+                    }.font(.body.monospacedDigit()).foregroundStyle(.tint).fixedSize()
                     markdownText(item.text).font(.body)
                 }
                 .padding(.leading, CGFloat(min(item.depth, 6)) * 16)
@@ -141,13 +168,12 @@ private struct MarkdownBlockContent: View {
         }
     }
 
-    private func table(header: [String], rows: [[String]]) -> some View {
+    private func table(_ rows: [[TranscriptText.Run]]) -> some View {
         let border = RoundedRectangle(cornerRadius: 5)
         return ScrollView(.horizontal) {
             Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-                tableRow(header, isHeader: true, hasNextRow: !rows.isEmpty)
                 ForEach(rows.indices, id: \.self) { index in
-                    tableRow(rows[index], isHeader: false, hasNextRow: index < rows.count - 1)
+                    tableRow(rows[index], isHeader: index == 0, hasNextRow: index < rows.count - 1)
                 }
             }
             .fixedSize()
@@ -157,11 +183,11 @@ private struct MarkdownBlockContent: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func tableRow(_ cells: [String], isHeader: Bool, hasNextRow: Bool) -> some View {
+    private func tableRow(_ cells: [TranscriptText.Run], isHeader: Bool, hasNextRow: Bool) -> some View {
         GridRow {
             ForEach(cells.indices, id: \.self) { index in
                 MarkdownTableCellLayout {
-                    markdownText(cells[index]).font(isHeader ? .body.bold() : .body)
+                    markdownText(cells[index], style: isHeader ? .bold : .body).font(isHeader ? .body.bold() : .body)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -178,10 +204,8 @@ private struct MarkdownBlockContent: View {
         }
     }
 
-    private func markdownText(_ value: String) -> some View {
-        let inline = try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
-        return Text(inline ?? AttributedString(value))
-            .textSelection(.enabled)
+    private func markdownText(_ run: TranscriptText.Run, style: TranscriptFont = .body) -> some View {
+        TranscriptRunView(run: run, style: style)
             .lineSpacing(4)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -202,8 +226,9 @@ private struct MarkdownTableCellLayout: Layout {
 
 private struct CodeBlock: View {
     let code: String
+    let run: TranscriptText.Run
     var body: some View {
-        ScrollView(.horizontal) { Text(code.trimmingCharacters(in: .newlines)).font(.system(.callout, design: .monospaced)).textSelection(.enabled).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
+        ScrollView(.horizontal) { TranscriptRunView(run: run, style: .code).font(.system(.callout, design: .monospaced)).padding(12).frame(maxWidth: .infinity, alignment: .leading) }
             .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
             .overlay(alignment: .topTrailing) { Button { copyToPasteboard(code) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.plain).font(.caption).foregroundStyle(.tertiary).padding(9).help("Copy") }
     }
@@ -223,6 +248,7 @@ struct LinkPillRow: View {
 
 private struct MultipleChoiceCard: View {
     let prompt: String
+    var promptRun: TranscriptText.Run? = nil
     let options: [String]
     let picked: String?
     let enabled: Bool
@@ -232,7 +258,9 @@ private struct MultipleChoiceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
+            if let promptRun {
+                TranscriptRunView(run: promptRun, style: .bold).font(.callout.weight(.semibold))
+            } else if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
             if let picked {
                 Label(picked, systemImage: "checkmark")
             } else {
@@ -251,6 +279,7 @@ private struct MultipleChoiceCard: View {
 
 struct ChoicesCard: View {
     let prompt: String
+    var promptRun: TranscriptText.Run? = nil
     let options: [ChatChoiceOption]
     let picked: String?
     let enabled: Bool
@@ -261,7 +290,9 @@ struct ChoicesCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
+            if let promptRun {
+                TranscriptRunView(run: promptRun, style: .bold).font(.callout.weight(.semibold))
+            } else if !prompt.isEmpty { Text(prompt).font(.callout.weight(.semibold)) }
             ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                 optionButton(option.label, selected: picked == option.reply) {
                     if isOther(option) { openOther() } else { answer(.option(option.reply)) }

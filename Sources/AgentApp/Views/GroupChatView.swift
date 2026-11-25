@@ -13,7 +13,7 @@ struct GroupChatView: View {
         let members = store.members(of: group), shown = group.messages.filter { !$0.isSilent }
         let _ = viewport.show(group.id, order: shown.map(\.id))
         let appStore = store, groupName = group.name
-        let _ = selection.show(rows: shown) { appStore.copiedMessage($0, botName: groupName) }
+        let _ = selection.show(rows: shown, conversation: group.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: groupName) }
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -70,8 +70,8 @@ struct GroupChatView: View {
                     .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy).alignmentGuide(.top) { $0[.bottom] } }
                 }
                 .task(id: group.id) { await viewport.open(group.id, model: store.chatScroll, proxy: proxy) }
-                .onChange(of: shown.last?.content) { _, _ in viewport.grew(proxy: proxy) }
-                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
+                .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
+                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy, follow: !selection.characters.holdsScroll) }
             }
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in

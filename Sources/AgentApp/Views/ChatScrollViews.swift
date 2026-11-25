@@ -47,9 +47,9 @@ import SwiftUI
     }
 
     /// New rows: follow them only at the bottom, else count them for the button.
-    func arrived(_ count: Int, proxy: ScrollViewProxy) {
+    func arrived(_ count: Int, proxy: ScrollViewProxy, follow: Bool = true) {
         guard let id = conversationID, let model, count > 0 else { return }
-        if model.arrived(id, count: count) { proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom) }
+        if model.arrived(id, count: count), follow { proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom) }
     }
     /// Streaming text in the newest row.
     func grew(proxy: ScrollViewProxy) {

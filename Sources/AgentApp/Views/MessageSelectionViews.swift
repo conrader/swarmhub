@@ -11,7 +11,8 @@ import SwiftUI
     nonisolated static let space = "messageSelection"
     @Published private(set) var state = MessageSelectionState()
     /// The transcript content's view (`SelectionReader`): its window, and a click's point in `space`.
-    weak var reader: NSView?
+    let characters = TranscriptSelection()
+    weak var reader: NSView? { didSet { characters.reader = reader } }
     private var rows: [ChatMessage] = []
     private var describe: (ChatMessage) -> CopiedMessage = { CopiedMessage(author: "", date: $0.createdAt, text: MessageCopy.body($0.content)) }
     private var frames: [UUID: CGRect] = [:], inTranscript = false
@@ -21,8 +22,11 @@ import SwiftUI
     init(copyText: @escaping (String) -> Void = copyToPasteboard) { self.copyText = copyText }
 
     /// Every body pass: the rows that can be picked (top to bottom) and how each is copied. Never redraws.
-    func show(rows: [ChatMessage], describe: @escaping (ChatMessage) -> CopiedMessage) {
+    func show(rows: [ChatMessage], conversation: UUID? = nil, body: ((ChatMessage) -> String)? = nil, describe: @escaping (ChatMessage) -> CopiedMessage) {
         self.rows = rows; self.describe = describe
+        if let conversation, let body {
+            characters.show(conversation, rows: rows.map(\.id)) { body(rows[$0]) }
+        }
     }
 
     func isSelected(_ id: UUID) -> Bool { state.contains(id) }
@@ -30,7 +34,15 @@ import SwiftUI
     var count: Int { rows.reduce(0) { $0 + (state.contains($1.id) ? 1 : 0) } }
     func toggle(_ id: UUID) { state.toggle(id) }
     func extend(to id: UUID) { state.extend(to: id, order: rows.map(\.id)) }
-    func clear() { if !state.isEmpty { state.clear() } }
+    func clear() {
+        characters.clear()
+        if !state.isEmpty { state.clear() }
+    }
+
+    func selectAll() {
+        if !state.isEmpty { state.clear() }
+        characters.selectAll()
+    }
 
     /// The picked rows as plain text, oldest first.
     var copiedText: String { MessageCopy.text(rows.filter { state.contains($0.id) }.map(describe)) }
@@ -42,7 +54,9 @@ import SwiftUI
     /// Keyboard/menu Copy belongs to a focused text view (including a field editor or custom text input), even
     /// when messages remain picked. Explicitly copying messages from their context menu still works.
     func canCopy(in window: NSWindow) -> Bool {
-        guard reader?.window === window, count > 0 else { return false }
+        guard reader?.window === window else { return false }
+        if characters.hasText { return window.firstResponder === reader }
+        guard !state.isEmpty, count > 0 else { return false }
         let responder = window.firstResponder
         return !(responder is NSText || responder is NSTextInputClient || responder is NSTextField)
             && (responder as? NSControl)?.currentEditor() == nil
@@ -50,7 +64,8 @@ import SwiftUI
 
     @discardableResult func copyIfAllowed(in window: NSWindow) -> Bool {
         guard canCopy(in: window) else { return false }
-        copy(); return true
+        if characters.hasText { copyText(characters.copiedText) } else { copy() }
+        return true
     }
 
     /// A laid-out row's frame in `space` (nil: no longer laid out).
@@ -61,7 +76,7 @@ import SwiftUI
     func install() {
         holders += 1
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
             return self.handle(event, in: event.window)
         }
@@ -86,8 +101,18 @@ import SwiftUI
         guard let window = reader?.window, eventWindow === window else { return event }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         switch event.type {
+        case .leftMouseDragged where characters.tracking:
+            characters.drag(to: event.locationInWindow)
+            return nil
+        case .leftMouseUp where characters.tracking:
+            characters.end(at: event.locationInWindow)
+            return nil
         case .keyDown:
-            guard count > 0 else { return event }
+            if flags == .command, event.charactersIgnoringModifiers == "a", window.firstResponder === reader {
+                selectAll()
+                return nil
+            }
+            guard !state.isEmpty || (characters.hasText && window.firstResponder === reader) else { return event }
             if event.keyCode == 53 { clear(); return nil } // Escape
             if flags == .command, event.charactersIgnoringModifiers == "c", copyIfAllowed(in: window) { return nil }
             return event
@@ -95,10 +120,21 @@ import SwiftUI
         case .leftMouseDown:
             if flags.contains(.control) { return menu(event, in: window) }
             guard flags.contains(.command) || flags.contains(.shift) else {
-                if inTranscript { clear() }
+                if inTranscript {
+                    clear()
+                    // Whitespace in the transcript is a keyboard focus target too.
+                    // Text fields and button editors retain their normal click handling.
+                    if let content = window.contentView,
+                       let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)),
+                       hit.enclosingScrollView === reader?.enclosingScrollView,
+                       !(hit is NSControl || hit is NSTextInputClient || hit is NSScroller) {
+                        window.makeFirstResponder(reader)
+                    }
+                }
                 return event
             }
             guard inTranscript, let id = row(at: event) else { return event }
+            characters.clear()
             if flags.contains(.shift) { extend(to: id) } else { toggle(id) }
             // A message-selection gesture moves keyboard focus out of the composer. The reader supplies native
             // Edit > Copy while it owns focus; clicking back into a text input restores its normal Copy command.
@@ -149,7 +185,11 @@ final class MessageSelectionReader: NSView, NSUserInterfaceValidations {
     @objc func copy(_ sender: Any?) {
         if let window { selection?.copyIfAllowed(in: window) }
     }
+    override func selectAll(_ sender: Any?) {
+        if window?.firstResponder === self { selection?.selectAll() }
+    }
     func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(selectAll(_:)) { return window?.firstResponder === self }
         guard item.action == #selector(copy(_:)), let window else { return false }
         return selection?.canCopy(in: window) == true
     }
@@ -182,11 +222,11 @@ private struct SelectableMessageRow: ViewModifier {
 extension View {
     /// A transcript row ⌘-click and ⇧-click can pick.
     func selectableMessage(_ id: UUID, in selection: MessageSelection) -> some View {
-        modifier(SelectableMessageRow(id: id, selection: selection))
+        environment(\.transcriptRow, .message(id)).modifier(SelectableMessageRow(id: id, selection: selection))
     }
     /// The transcript content whose rows `selection` picks (inside the scroll view, around the rows).
     func messageSelectionContent(_ selection: MessageSelection) -> some View {
-        coordinateSpace(.named(MessageSelection.space)).background(SelectionReader(selection: selection))
+        environment(\.transcriptSelection, selection.characters).coordinateSpace(.named(MessageSelection.space)).background(SelectionReader(selection: selection))
     }
     /// The scroll view: whether the pointer is over it, and the event monitor while it is shown.
     func messageSelection(_ selection: MessageSelection) -> some View {
