@@ -43,9 +43,9 @@ ensure_sparkle
 [[ "$("$SPARKLE_DIR/bin/generate_keys" --account "$SPARKLE_KEY_ACCOUNT" -p)" == "$PUBLIC_KEY" ]] \
   || die "this Mac's Keychain does not hold the release key that Resources/Info.plist trusts. Import it (docs/updates.md); never make a new one."
 # Sparkle offers an update only when its build number is higher than the installed one.
-PUBLISHED="$(curl --fail --silent --location --max-time 30 "$FEED/appcast.xml" | sed -n 's|.*<sparkle:version>\([0-9.]*\)</sparkle:version>.*|\1|p' | head -1 || true)"
+PUBLISHED="$(python3 "$ROOT_DIR/scripts/release_feed.py" previous-build "$FEED")"
 if [[ -z "$PUBLISHED" ]]; then
-  echo "NOTE: the published appcast could not be read, so the build number was not compared with it."
+  echo "No previous appcast (HTTP 404)."
 elif [[ "$PUBLISHED" == "$BUILD" || "$(printf '%s\n%s\n' "$PUBLISHED" "$BUILD" | sort -V | tail -1)" != "$BUILD" ]]; then
   die "CFBundleVersion is $BUILD, and build $PUBLISHED is already published. Raise CFBundleVersion."
 fi
@@ -89,12 +89,8 @@ if [[ ${#FRAGMENTS[@]} -gt 0 ]]; then
     PROGRAMS+=("$PROGRAM")
   done
   "$SPARKLE_DIR/bin/sign_update" --account "$SPARKLE_KEY_ACCOUNT" -p "$MANIFEST" > "$MANIFEST.sig"
-elif curl --fail --silent --location --max-time 30 "$FEED/workspace-manifest.json" -o "$MANIFEST" \
-  && curl --fail --silent --location --max-time 30 "$FEED/workspace-manifest.json.sig" -o "$MANIFEST.sig"; then
-  echo "NOTE: no new workspace server in dist/workspace; the published manifest is carried over unchanged."
 else
-  : > "$MANIFEST"; : > "$MANIFEST.sig"
-  echo "NOTE: this release has no workspace server, and none is published yet. Servers will find nothing to update to."
+  python3 "$ROOT_DIR/scripts/release_feed.py" carry-workspace "$FEED" "$MANIFEST"
 fi
 # Which kinds of machine the manifest serves, new or carried over. A missing kind does not stop the release.
 CARRIED=()
@@ -128,3 +124,7 @@ echo
 printf '  gh release create %s --repo %s --latest --title %q --notes-file %q' "$TAG" "$REPO" "SwarmHub $VERSION" "$NOTES"
 printf ' \\\n    %q' "${ASSETS[@]}"
 echo
+if [[ -s "$MANIFEST" ]]; then
+  echo "After publishing, verify both updates from the release checkout:"
+  echo "  python3 scripts/verify-published-update.py /Applications/SwarmHub.app/Contents/Info.plist --workspace-manifest dist/workspace-manifest.json"
+fi

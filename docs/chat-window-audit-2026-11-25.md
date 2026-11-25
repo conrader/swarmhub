@@ -106,6 +106,14 @@ The Mac’s installed workspace service reported Antigravity CLI registered. In 
 
 On the baseline, **Add Antigravity CLI** wrote the template while the endpoint was unavailable. Settings showed **Added**. After the endpoint recovered, **Scan again** still left the open bot picker offering only Claude. With the fix, the offline receipt reads **Registered on this Mac**. A successful rescan changes it to **Added** and updates the open picker. [Repeat the native inventory test](agent-qa.md#use-the-real-mac-window)
 
+## Updating the app and workspace behind a running job
+
+On the MacBook, a private copy of the universal app at `c739cd12` connected to workspace 0.2.13 built from the public 0.8.16 tag. The driver started a five-minute job in a private Herdr Core session, opened **Settings → Software Update** and clicked **Update**. The workspace installed 0.2.14 from a loopback feed signed with a test key. The workspace process kept its PID, the job stayed in Core, and the installed program and rollback copy matched the two original binaries byte for byte.
+
+In a separate Sparkle rehearsal, the executable from the public 0.8.16 build 50 ZIP downloaded the candidate. The incorrect signing key left build 50 installed. With the trusted test key the candidate installed on quit and passed code-signature verification. Both exercises used private app copies and disposable signing keys.
+
+The public feed offered app 0.8.16 build 50 and workspace 0.2.13. The verifier checked the app signature with the installed app’s trusted key and downloaded all three workspace programs to check them against their signed manifest. Giving it the staged 0.2.14 manifest correctly failed. Release preparation previously treated a network error as an absent workspace feed, which could drop these programs from an app-only release. Preparation now stops on an unreadable feed and on a missing signature for an existing manifest.
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
