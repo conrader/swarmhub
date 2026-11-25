@@ -44,13 +44,20 @@ struct HerdrApprovalReview: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("\(request.provider) requests \(HerdrClient.Approval.visible(request.tool))").font(.headline)
             if let address = request.address, let created = request.createdMs {
-                Text("\(request.launchModel ?? "Model unreported") · \(address)/\(created)").font(.caption)
+                Text("\(request.launchModel ?? "Model unreported") · \(address)/\(String(created))").font(.caption)
             }
             Text(HerdrClient.Approval.visible(request.cwd)).font(.caption).textSelection(.enabled)
             ScrollView {
                 Text(HerdrClient.Approval.visible(request.arguments)).font(.body.monospaced()).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.frame(maxHeight: 140).fixedSize(horizontal: false, vertical: true)
+            if let reviewer = request.reviewer {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Claude \(reviewer.model.capitalized) review").font(.subheadline.bold())
+                    Text(reviewer.assessment.map(HerdrClient.Approval.visible) ?? "Reviewing command…")
+                        .font(.callout).textSelection(.enabled)
+                }.accessibilityIdentifier("approval.commandReview")
+            }
             HStack {
                 Button("Allow once") { respond(.approve) }
                     .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.return, modifiers: .command) : nil)

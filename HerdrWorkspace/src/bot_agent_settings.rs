@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Settings {
     pub choice: Option<Tier>,
     pub auto_mode: bool,
+    pub command_reviewer: crate::command_reviewer::Model,
     pub auto_changed_ms: Option<i64>,
 }
 
@@ -26,11 +27,19 @@ pub(crate) struct Settings {
 enum Edit {
     Model(ModelEdit),
     Auto(AutoEdit),
+    Reviewer(ReviewerEdit),
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelEdit {
     choice: serde_json::Value,
+    #[serde(default)]
+    existing_agents: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReviewerEdit {
+    command_reviewer: crate::command_reviewer::Model,
     #[serde(default)]
     existing_agents: Vec<String>,
 }
@@ -49,7 +58,7 @@ pub(crate) fn routes() -> Router<Workspace> {
 pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
     Ok(db
         .query_row(
-            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms FROM bot_agent_settings WHERE bot=?1",
+            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer FROM bot_agent_settings WHERE bot=?1",
             [id],
             |r| {
                 let template: Option<String> = r.get(0)?;
@@ -60,6 +69,7 @@ pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
                         .map(|(template, model)| Tier { template, model }),
                     auto_mode: r.get(2)?,
                     auto_changed_ms: r.get(3)?,
+                    command_reviewer: crate::command_reviewer::Model::stored(&r.get::<_, String>(4)?),
                 })
             },
         )
@@ -103,6 +113,7 @@ async fn save(
     let existing = match &body {
         Edit::Model(e) => &e.existing_agents,
         Edit::Auto(e) => &e.existing_agents,
+        Edit::Reviewer(e) => &e.existing_agents,
     };
     if !bots::valid_id(&bot) || existing.iter().any(|agent| !valid_name(agent)) {
         return Err(Failure::Input("Invalid bot or agent name.").into());
@@ -127,6 +138,10 @@ async fn save(
                 "INSERT INTO bot_agent_settings(bot,helper_template,helper_model) VALUES(?1,?2,?3)
                  ON CONFLICT(bot) DO UPDATE SET helper_template=excluded.helper_template,helper_model=excluded.helper_model",
                 params![bot, choice.as_ref().map(|c| &c.template), choice.as_ref().map(|c| &c.model)])?,
+            Edit::Reviewer(edit) => tx.execute(
+                "INSERT INTO bot_agent_settings(bot,command_reviewer) VALUES(?1,?2)
+                 ON CONFLICT(bot) DO UPDATE SET command_reviewer=excluded.command_reviewer",
+                params![bot, edit.command_reviewer.name()])?,
             Edit::Auto(edit) => tx.execute(
                 "INSERT INTO bot_agent_settings(bot,auto_mode,auto_changed_ms) VALUES(?1,?2,?3)
                  ON CONFLICT(bot) DO UPDATE SET auto_mode=excluded.auto_mode,

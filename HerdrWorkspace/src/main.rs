@@ -2,6 +2,7 @@ mod activity;
 mod agent;
 mod appearance;
 mod approval_rules;
+mod command_reviewer;
 mod approvals;
 mod attention;
 mod bot_agent_settings;

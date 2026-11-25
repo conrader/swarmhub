@@ -2307,6 +2307,14 @@ try {
     await evaluate('document.getElementById("library-close").click(); document.getElementById("details-toggle").click()');
     await check('!document.getElementById("results-folder-detail").hidden && document.getElementById("results-folder-path").textContent.includes("/workspace/results/")');
     console.log("Chrome automatic result collection passed.");
+  } else if (focus === "command-reviewer") {
+    await check('!document.getElementById("approval-count").hidden && !document.getElementById("approvals-open").disabled');
+    await evaluate('document.getElementById("workspace-tools").open = true; document.getElementById("approvals-open").click()');
+    await check('document.querySelector("#approval-list button")');
+    await evaluate('document.querySelector("#approval-list button").click()');
+    await check('!document.getElementById("approval-reviewer").hidden && document.getElementById("approval-reviewer").textContent.includes("Would print audit.")');
+    await evaluate('document.getElementById("approval-deny").click()');
+    await check('!document.querySelector("#approval-list button") && !document.getElementById("approval-reviewer").textContent');
   } else if (focus === "opencode-inbox") {
     await check('document.getElementById("attention-count").textContent === "1"');
     await evaluate('document.getElementById("attention-open").click()');
