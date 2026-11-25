@@ -93,7 +93,7 @@ sys.exit(runner['main'](sys.argv[2:]))
                            env=env, cwd=root, stdout=subprocess.DEVNULL, check=True, timeout=15)
             status, = directory.glob("*.json")
         else:
-            directory.mkdir(parents=True)
+            directory.mkdir(mode=0o700, parents=True)
             child = subprocess.Popen(cmd, cwd=work, env=env)
             status = directory / "20261125T060000Z-sensitive-fixture-slug.json"
             save(status, {"tool": "sb-codejob", "host": scope["runner_host"], "agent": "Swarmhub",
