@@ -168,7 +168,7 @@ import SwiftUI
         var localConnected = local; localConnected.apply(.herdrTest(.connected(server: thisMac, key: nil, offer: offer)))
         var ssh = SetupFlow(); ssh.place = .ssh; ssh.apply(.pickHerdr(.ssh)); ssh.herdr.sshDestination = "deploy@studio.example.com"; ssh.herdr.sshKeyPath = "~/.ssh/id_ed25519"
         var refused = ssh; refused.apply(.herdrTest(.failed(HerdrSetupProblem.sshFailed("deploy@studio.example.com: Permission denied (publickey).").line(for: server))))
-        var noService = ssh; noService.apply(.herdrTest(.failed(HerdrSetupProblem.sshNoService.line(for: server))))
+        var noService = ssh; noService.apply(.herdrTest(.sshSetupAvailable(server, .sshNoService)))
         var address = SetupFlow(); address.place = .address; address.apply(.pickHerdr(.address)); address.herdr.address = "http://127.0.0.1:8787"; address.herdr.key = "synthetic"
         let typed = HerdrServer(id: "typed", name: "127.0.0.1", kind: .address, address: "http://127.0.0.1:8787")
         var wrongKey = address; wrongKey.apply(.herdrTest(.failed(HerdrSetupProblem.wrongKey.line(for: typed))))

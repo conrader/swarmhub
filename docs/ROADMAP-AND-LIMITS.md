@@ -4,7 +4,7 @@ What the macOS app does not do today. Each item was checked against the code in 
 
 ## Setup
 
-- On **This Mac** the app installs and starts the SwarmHub service and, when it is missing, Herdr Core ([This Mac](guide.md#this-mac)). On a server it does not: start both yourself there. The first install of the bridge on a server is by hand; after that the app updates it ([Updates](updates.md)).
+- On **This Mac** the app installs and starts the SwarmHub service and, when it is missing, Herdr Core ([This Mac](guide.md#this-mac)). For an SSH server, the wizard and Settings offer **Set up on server** when the connection check finds the workspace missing. The installer needs a supported platform, a writable SSH account and an available service port. [Updates](updates.md)
 - Bots from versions up to 0.6.8 do not carry over to 0.8. On first launch the app saves a copy of the old data beside it and removes them.
 - The SwarmHub service is published for Macs (Apple silicon and Intel) and for x86_64 Linux servers. Setting up **This Mac** needs an AI program you have already installed and signed in to (Claude Code or Codex); the app installs none.
 - Gemini CLI is in beta (checked with Gemini CLI 0.70.0): its reply arrives whole, permission questions are answered in its terminal, a refused step or a turn stopped in the terminal keeps the bot reading as busy until **Stop** or its next turn, and a sign-in that has run out is not detected. The full list is in the [bridge manual](../HerdrWorkspace/README.md#run-gemini-cli-beta).
@@ -12,8 +12,8 @@ What the macOS app does not do today. Each item was checked against the code in 
 - An agent's graphical desktop (`run-desktop`) exists on Linux servers only. The service on a Mac says so.
 - Port 8787 must be free on the Mac, or you choose another port in the setup window.
 - "Get a ready-made server from us" is one line marked "Coming soon". It is planned: today it cannot be chosen, no server is created and nothing is charged.
-- The bridge answers on its own machine's loopback only. A remote server is reached through an SSH port forward that uses the same port number on both ends, so two servers with the same bridge port cannot be connected at the same time. Give one a different `SWARMHUB_PORT`.
-- SSH runs in batch mode. A key with a passphrase must already be in the agent, because the app cannot ask for it.
+- The bridge listens on loopback. For SSH connections the app selects a local forwarding port per server, so two servers can use the same remote port.
+- For key authentication, load a passphrase-protected SSH key into your agent. When the server offers password login, the app can prompt for the account password.
 
 ## Chat
 

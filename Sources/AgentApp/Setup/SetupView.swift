@@ -231,7 +231,7 @@ struct SetupView: View {
                 guard !closed, flow.sshSetupTarget == server else { return }
                 failure = warning
                 testing = true
-                await checkHerdr(draft, step: .herdr)
+                await checkHerdr(draft, step: .herdr, serverID: server.id)
             } catch {
                 guard !closed, flow.sshSetupTarget == server else { return }
                 failure = error.localizedDescription
@@ -246,7 +246,7 @@ struct SetupView: View {
         Task { await checkHerdr(typed, step: step, inventoryOnly: inventoryOnly) }
     }
 
-    private func checkHerdr(_ typed: HerdrServerDraft, step: SetupFlow.Step, inventoryOnly: Bool = false, installReceipt: HerdrLocalReport? = nil) async {
+    private func checkHerdr(_ typed: HerdrServerDraft, step: SetupFlow.Step, inventoryOnly: Bool = false, installReceipt: HerdrLocalReport? = nil, serverID: String? = nil) async {
         checkGeneration = UUID()
         var draft = typed
         // This Mac's usual port can lead to another server: its own port is found before anything is asked.
@@ -254,7 +254,7 @@ struct SetupView: View {
             flow.localMovedFrom = Int(typed.port.trimmingCharacters(in: .whitespaces)); flow.herdr.port = String(port); draft = flow.herdr
         }
         guard !Task.isCancelled else { testing = false; return }
-        let outcome = await store.testSetupHerdr(draft, discoverModels: step != .herdr || draft.kind != .local)
+        let outcome = await store.testSetupHerdr(draft, serverID: serverID, discoverModels: step != .herdr || draft.kind != .local)
         testing = false
         let current = !closed && !Task.isCancelled && flow.step == step && flow.herdr == draft
         if current, flow.localSetup == .working(.checkingConnection) { flow.apply(.localSetup(nil)) }
