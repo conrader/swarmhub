@@ -297,6 +297,10 @@ button.activity-unread { border-inline-start:3px solid var(--accent); }
 #attention-dialog { width:min(600px,calc(100% - 24px)); }
 #attention-list h3 { font-size:1rem; margin-bottom:0; }
 #attention-list .library-items { max-height:none; margin-top:8px; }
+#attention-list .ci-review { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; padding:10px; border:1px solid var(--line); border-radius:8px; }
+.ci-review > div { flex-basis:100%; overflow-wrap:anywhere; }
+.ci-review a { display:inline-flex; align-items:center; min-height:44px; color:var(--accent); }
+#attention-list .ci-review button { width:auto; min-height:44px; }
 #approval-dialog { width:min(720px,calc(100% - 24px)); }
 #approval-input { border:1px solid var(--line); border-radius:9px; }
 .park-preview { max-height:50dvh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }

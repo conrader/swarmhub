@@ -1483,7 +1483,7 @@ Label the steps and remove any clicks you don't want. **Review as skill** detach
 
 ## See what needs attention
 
-The **Needs attention** badge collects pending approvals, blocked terminals, unanswered group questions and forms, and webhook events awaiting review. Open a row to go straight to the relevant review, terminal, or answer. Webhook events stay visible while Herdr Core is offline and can be dismissed there. If desktop notifications are enabled, new reviews can trigger a generic alert without exposing the event payload.
+The **Needs attention** badge collects pending approvals, blocked terminals, unanswered group questions and forms, and webhook events awaiting review. Open a row to go straight to the relevant review, terminal, or answer. A failed check on a watched GitHub pull request appears with its bot name and a link to the check run. **Mark reviewed** clears the item on every connected device. Webhook events stay visible while Herdr Core is offline and can be dismissed there. If desktop notifications are enabled, new reviews can trigger a generic alert without exposing the event payload.
 
 **Activity** collects saved replies, new Pages, and published files. Unread counts appear on the inbox and beside agents and groups in the roster. Open an activity item to mark it read and jump to the exact message, or use **Unread only** and **Mark all as read**. Viewing the latest messages in a focused conversation marks activity through the latest item shown as read. Read state survives restart and works while Herdr Core is offline.
 

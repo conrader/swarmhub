@@ -1,5 +1,6 @@
 # Changes since SwarmHub 0.8.16
 
+- A failed check on a watched public pull request now appears in **Activity** on Mac and **Needs attention** in the browser, including iPhone Safari. Open the failed GitHub check or mark it reviewed across devices. The bot still receives its scheduled follow-up. Requires workspace 0.2.14.
 - Set a step limit when starting a goal. For example, `/goal --steps 3 review the failing tests` allows up to three goal turns. The goal card shows the count and keeps the last result when it stops.
 - Codex now reports the current session model in the chat header. Each new reply keeps the model setting observed for its turn. A reply marked **Routed to** records an explicit model change for that turn.
 - OpenCode chats show the estimated session cost beside the model. Open **Details → Model → Session usage** to see the estimate and cumulative token count.

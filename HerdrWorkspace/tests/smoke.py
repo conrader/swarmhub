@@ -2458,6 +2458,23 @@ def smoke(hc, bridge, chrome=None):
                     browser = ["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, temp] if chrome else None
                     opencode_reply(root, bridge, request, core, browser)
                     return
+                if focus == "ci-review":
+                    request("/api/bots", {"bots":[{"id":"ci-review","name":"CI Reviewer"}]})
+                    schedule = {"kind":"ci","url":"https://github.com/example/repo/pull/42",
+                                "failure":"https://github.com/example/repo/runs/987"}
+                    with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
+                        checkin = db.execute("INSERT INTO bot_checkins(bot,what,schedule,state,created_ms) VALUES(?,?,?,'done',0)",
+                                             ("ci-review","Inspect failure",json.dumps(schedule))).lastrowid
+                    route = f"/api/attention/ci/{checkin}/review"
+                    request(route, {}, authorized=False, status=401)
+                    request(route, {}, origin="https://outside.test", status=403)
+                    assert [r["id"] for r in request("/api/attention")["ci_failures"]] == [checkin]
+                    if chrome:
+                        subprocess.run(["node",str(Path(__file__).with_name("browser.mjs")),chrome,base,token,temp],check=True,timeout=85)
+                        assert not request("/api/attention")["ci_failures"]
+                    assert request(route, {})["reviewed"]
+                    assert not request("/api/attention")["ci_failures"]
+                    return
                 if focus == "webhook-review":
                     agent = request("/api/agents", {"name":"review-events","template":"fixture","task":"Start up"},status=201)
                     body = {"name":"Review incoming events","task":"Review the incoming event",

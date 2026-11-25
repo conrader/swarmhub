@@ -91,6 +91,43 @@ struct WorkspaceActivityView: View {
     @State private var selectedReview: Review?
     @State private var completed: [Review] = []
 
+    private struct CIReading {
+        let server: HerdrServer
+        var failures: [HerdrClient.CIFailure]
+        var reviewed: Set<Int64> = []
+    }
+
+    @State private var ciReadings: [String: CIReading] = [:]
+
+    private func ciFailures(on server: HerdrServer) -> [HerdrClient.CIFailure] {
+        guard let reading = ciReadings[server.id], reading.server == server else { return [] }
+        return reading.failures.filter { !reading.reviewed.contains($0.id) }
+    }
+    @State private var ciUnavailable = Set<String>()
+
+    private var servers: [HerdrServer] { inboxes.values.map(\.server).sorted { $0.id < $1.id } }
+
+    private func refreshCI(on server: HerdrServer) async {
+        while !Task.isCancelled {
+            do {
+                let client = try store.herdrClient(for: server)
+                let result: HerdrClient.CIInbox = try await client.get("/api/attention")
+                guard !Task.isCancelled else { return }
+                var reading = ciReadings[server.id] ?? CIReading(server: server, failures: [])
+                if reading.server != server { reading = CIReading(server: server, failures: []) }
+                reading.failures = result.ciFailures ?? []
+                reading.reviewed.formIntersection(reading.failures.map(\.id))
+                ciReadings[server.id] = reading
+                ciUnavailable.remove(server.id)
+            } catch {
+                guard !Task.isCancelled else { return }
+                ciReadings[server.id] = nil
+                ciUnavailable.insert(server.id)
+            }
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+        }
+    }
+
     private func reviews(in chat: SidebarChat) -> [Review] {
         func requests(_ bot: Bot, _ group: GroupChat?) -> [Review] {
             let server = store.herdrServer(for: bot)
@@ -128,13 +165,28 @@ struct WorkspaceActivityView: View {
                 Label("Can’t check approvals on \(server.name)", systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
             }
+            ForEach(servers.filter { ciUnavailable.contains($0.id) && inboxes[$0.id]?.unavailable == false }) { server in
+                Label("Can’t check CI on \(server.name)", systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
+            }
             Group {
-                if items.isEmpty {
+                if items.isEmpty && servers.allSatisfy({ ciFailures(on: $0).isEmpty }) {
                     ContentUnavailableView("No chat activity", systemImage: AppCommand.activity.icon,
                                            description: Text("Chats with pending work or unread messages appear here."))
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 3) {
+                            if servers.contains(where: { !ciFailures(on: $0).isEmpty }) {
+                                Text("Failed pull request checks").font(.headline).accessibilityAddTraits(.isHeader).padding(.top, 10)
+                                ForEach(servers) { server in
+                                    ForEach(ciFailures(on: server)) { failure in
+                                        WorkspaceCIFailureRow(server: server, failure: failure) {
+                                            guard ciReadings[server.id]?.server == server else { return }
+                                            ciReadings[server.id]?.reviewed.insert(failure.id)
+                                        }
+                                    }
+                                }
+                            }
                             ForEach(sections) { section in
                                 HStack {
                                     Text(section.id.rawValue).font(.headline)
@@ -180,6 +232,15 @@ struct WorkspaceActivityView: View {
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }.frame(width: 440, height: 420)
+        .background {
+            ForEach(servers) { server in
+                Color.clear.task(id: server) { await refreshCI(on: server) }
+                    .onDisappear {
+                        ciReadings[server.id] = nil
+                        ciUnavailable.remove(server.id)
+                    }
+            }
+        }
         .task(id: inboxes) {
             // Messages and remote helper snapshots can change independently of the store's published lists.
             while !Task.isCancelled {
