@@ -184,8 +184,13 @@ extension AppStore {
 
     // MARK: When a reply ends
 
-    /// The user messages a reply answers: those between it and the reply before it.
+    /// A local reply keeps its original trigger even when later receipts or queued relays precede its continuation.
     func herdrTriggers(of reply: ChatMessage, in bot: Bot) -> [ChatMessage] {
+        if let trigger = reply.metadata[TurnKey.forUser] {
+            return bot.messages.first { $0.role == .user && $0.id.uuidString == trigger }.map { [$0] } ?? []
+        }
+        guard reply.metadata["herdrTeamEntry"] == nil else { return [] }
+        // Older local turns have no explicit trigger.
         guard let index = bot.messages.firstIndex(where: { $0.id == reply.id }) else { return [] }
         let before = bot.messages[..<index]
         let start = before.lastIndex { $0.role == .assistant && $0.presentation == .text }.map { $0 + 1 } ?? before.startIndex

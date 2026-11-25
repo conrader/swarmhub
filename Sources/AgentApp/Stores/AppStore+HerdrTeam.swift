@@ -128,11 +128,8 @@ extension AppStore {
                         if item.kind == "message", let exchange = item.message { metadata["herdrExchangeTitle"] = exchange.title }
                         let row = ChatMessage(role: item.kind == "said" ? .assistant : .system, content: item.text,
                             createdAt: Date(timeIntervalSince1970: Double(item.atMs) / 1000), metadata: metadata)
-                        if item.code == "direct_followup", let next = bot.messages.firstIndex(where: { $0.createdAt > row.createdAt }) {
-                            bot.messages.insert(row, at: next)
-                        } else {
-                            bot.messages.append(row)
-                        }
+                        let index = bot.messages.firstIndex { $0.transcriptDate > row.transcriptDate } ?? bot.messages.endIndex
+                        bot.messages.insert(row, at: index)
                         if item.unread, selectedGroup != nil || selectedBot?.id != bot.id { bot.unreadCount += 1 }
                         if item.notify { notifyIfNeeded(bot: bot, message: item.text) }
                         if item.kind == "said", item.code != "direct_followup", createsHerdrBots(bot) { herdrReplyEnded(row, from: bot, finished: true) }

@@ -35,7 +35,7 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Group"
-        memberIDs = try c.decodeIfPresent([UUID].self, forKey: .memberIDs) ?? []; messages = try c.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
+        memberIDs = try c.decodeIfPresent([UUID].self, forKey: .memberIDs) ?? []; messages = TranscriptHistory.restoring(try c.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? [])
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0; manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
         isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false; isMuted = try c.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
         sessions = try c.decodeIfPresent([String: String].self, forKey: .sessions) ?? [:]
@@ -107,8 +107,8 @@ struct StoreFile: Codable {
             group.unreadCount = old.unreadCount; group.manualUnread = old.manualUnread
             if let existing = groups.first(where: { $0.id == group.id }) {
                 let saved = Set(existing.messages.map(\.id))
-                existing.messages += group.messages.filter { !saved.contains($0.id) }
-                existing.messages.sort { $0.createdAt < $1.createdAt }
+                let missing = group.messages.filter { !saved.contains($0.id) }
+                existing.messages = TranscriptHistory.merging(missing, into: existing.messages) { $0.transcriptDate < $1.transcriptDate }
                 existing.grokSourceID = existing.grokSourceID ?? group.grokSourceID
                 existing.grokHistoryCount = max(existing.grokHistoryCount, group.grokHistoryCount)
             } else {

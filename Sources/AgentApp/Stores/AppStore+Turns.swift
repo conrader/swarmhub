@@ -26,40 +26,91 @@ import Foundation
     var nextMessages: [QueuedNextMessage] = []
 }
 
+/// Tracks the wire snapshot separately from the text visible in the current part.
+private struct TurnStreamText {
+    var snapshot: String
+    var frozenPrefixes: [String] = []
+
+    mutating func freeze(parts: [ChatMessage]) {
+        // Herdr can follow individual drafts before returning all saved replies joined
+        // by blank lines. Token streams can instead continue the same snapshot verbatim.
+        let journalText = parts.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        frozenPrefixes = [snapshot, journalText].filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+    }
+
+    func remainder(of text: String) -> String {
+        guard let prefix = frozenPrefixes.first(where: { text.hasPrefix($0) }) else { return text }
+        let tail = text.dropFirst(prefix.count)
+        return String(tail.hasPrefix("\n\n") ? tail.dropFirst(2) : tail)
+    }
+}
+
 /// One stream consumer and one `finishTurn` for both send paths (a bot's chat and a group).
 extension AppStore {
     /// Reads the stream into `assistant` (and the parts a delivered steer opens after it, `endTurnParts`). Returns how it ended; throws what the backend threw (and cancellation).
     func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot, group: GroupChat? = nil) async throws -> TurnEnd {
         var completed = false; var failure: String?
         var launchModel: String?
+        var finalJournal: String?
         var activitySummary: (seconds: Int, tools: Int)?
         // A delivered steer moves the rest of the reply into a new row below its bubble.
         var row = assistant
-        var lastFullReplace = ""
-        var committedReplacePrefix = ""
+        var streamText = TurnStreamText(snapshot: row.content)
+        // A tool can finish after text has crossed a receipt. Update the part that owns its start.
+        var earlierParts: [ChatMessage] = []
+        defer {
+            for part in earlierParts where part.activity?.current != nil {
+                part.activity?.finish(at: now())
+            }
+        }
         // What the agent's server says the turn is waiting for; it goes with the reply into each new part.
         var agentStatus: String?
         for try await event in stream {
             guard !Task.isCancelled, row.metadata[GoalKey.attempt] == nil || row.turnState != .stopped else { break }
-            let nextRow = steerRow(for: event, origin: assistant, row: row)
-            if nextRow !== row { committedReplacePrefix = lastFullReplace; row = nextRow }
+            // Herdr emits the journal IDs just before its final snapshot. An intervening save
+            // must not mark a draft as already containing the final journal text.
+            if case .replace = event, let ids = finalJournal {
+                assistant.metadata["herdrJournal"] = ids
+                finalJournal = nil
+            }
+            var continued = false
+            if let pending = turns.steers[assistant.id], pending.bubbles.contains(where: { $0.metadata[SteerKey.steer] == "delivered" }) {
+                let hasNewOutput: Bool
+                switch event {
+                case .token(let token): hasNewOutput = !token.isEmpty
+                case .replace(let text):
+                    let visible = streamText.remainder(of: text)
+                    guard !visible.isEmpty, text != streamText.snapshot else { continue }
+                    if visible == row.content { streamText.snapshot = text; continue }
+                    hasNewOutput = true
+                case .tool(let tool):
+                    hasNewOutput = tool.phase == .started && ToolActivity.isShown(tool.name)
+                        && !(tool.callID.map { id in row.activity?.steps.contains { $0.callID == id } == true } ?? false)
+                case .published(_, let result):
+                    hasNewOutput = row.publishedResults?.items.contains { $0.id == result.id } != true
+                default: hasNewOutput = false
+                }
+                if hasNewOutput, let next = continueAfterSteer(origin: assistant, row: row) {
+                    if next !== row {
+                        earlierParts.append(row)
+                        streamText.freeze(parts: earlierParts)
+                    }
+                    row = next
+                    continued = true
+                }
+            }
             if row.metadata[TurnKey.agent] != agentStatus { row.metadata[TurnKey.agent] = agentStatus }
             // Anything the server sends again ends a reconnect.
             if case .status = event {} else if row.metadata[TurnKey.reconnecting] != nil { row.metadata[TurnKey.reconnecting] = nil; objectWillChange.send() }
             switch event {
             case .token(let token):
+                streamText.snapshot += token
                 row.content += token
                 if !token.isEmpty { row.lastTextAt = now() }
                 objectWillChange.send(); autosaveIfDue()
             case .replace(let text):
-                lastFullReplace = text
-                let remainder: String
-                if !committedReplacePrefix.isEmpty, text.hasPrefix(committedReplacePrefix) {
-                    let tail = String(text.dropFirst(committedReplacePrefix.count))
-                    remainder = tail.hasPrefix("\n\n") ? String(tail.dropFirst(2)) : tail
-                } else {
-                    remainder = text
-                }
+                streamText.snapshot = text
+                let remainder = streamText.remainder(of: text)
                 row.content = remainder
                 row.lastTextAt = remainder.isEmpty ? nil : now()
                 objectWillChange.send(); autosaveIfDue()
@@ -76,11 +127,18 @@ extension AppStore {
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
-                if row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
-                // A step remembers where in the text it started, so the reply draws text → steps → text.
-                var activity = row.activity ?? ToolActivity(); activity.apply(tool, at: now(), textOffset: row.content.utf16.count)
-                if activity.total > 0 { row.activity = activity; objectWillChange.send() }
-            case .journal(let server, let ids): row.metadata["herdrJournal"] = ids.map { "\(server):\($0)" }.joined(separator: " ")
+                let owner: ChatMessage
+                if tool.phase != .started, let part = earlierParts.first(where: { part in
+                    part.activity?.steps.contains { $0.isRunning && (tool.callID == nil ? $0.name == tool.name : $0.callID == tool.callID) } == true
+                }) {
+                    owner = part
+                } else { owner = row }
+                if owner === row, row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
+                var activity = owner.activity ?? ToolActivity()
+                activity.apply(tool, at: now(), textOffset: owner.content.utf16.count)
+                if owner !== row, activity.current == nil { activity.finish(at: now()) }
+                if activity.total > 0 { owner.activity = activity; objectWillChange.send() }
+            case .journal(let server, let ids): finalJournal = ids.map { "\(server):\($0)" }.joined(separator: " ")
             case .launchModel(let model): launchModel = model
             case .published(let server, let result):
                 var saved = row.publishedResults ?? HerdrReplyResults(serverID: server, items: [])
@@ -90,9 +148,12 @@ extension AppStore {
                     autosaveIfDue()
                 }
             case .runActivity(let seconds, let tools): activitySummary = (seconds, tools)
-            case .completed: completed = true
+            case .completed:
+                if let finalJournal { assistant.metadata["herdrJournal"] = finalJournal }
+                completed = true
             case .failed(let value): failure = value
             }
+            if continued { objectWillChange.send(); save() }
         }
         if Task.isCancelled { throw CancellationError() }
         if let failure { return .failedByAgent(failure) }

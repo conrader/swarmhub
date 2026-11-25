@@ -39,12 +39,10 @@ enum SteerCopy {
     }
 }
 
-/// Queued steers of one turn, until a step boundary delivers them or the turn ends (memory only).
+/// Receipts for one specific running reply, including independently steered group members.
 struct PendingSteer {
     let conversation: any Conversation
     var bubbles: [ChatMessage] = []
-    /// A tool step just ended and no text or step followed yet: the next text is written after the agent read the steer.
-    var boundary = false
 }
 
 extension AppStore {
@@ -145,41 +143,39 @@ extension AppStore {
     /// The bubble still belongs to a running turn's steer bookkeeping.
     func steerHeldByTurn(_ bubble: ChatMessage) -> Bool { turns.steers.values.contains { $0.bubbles.contains { $0 === bubble } } }
 
-    /// Stream bookkeeping for queued steers (`consumeTurn`). Returns the row the event belongs in: after a step ended,
-    /// the first text or step of a turn holding a queued steer starts a new reply row below the steer bubble (D5).
-    func steerRow(for event: AgentEvent, origin: ChatMessage, row: ChatMessage) -> ChatMessage {
-        guard row.turnState != .stopped, var pending = turns.steers[origin.id] else { return row }
-        defer { turns.steers[origin.id] = pending.bubbles.isEmpty ? nil : pending }
-        switch event {
-        case .tool(let tool) where tool.phase == .completed || tool.phase == .failed:
-            // Checked before the event is applied: the step that ends now is the last one running.
-            pending.boundary = (row.activity?.steps.filter(\.isRunning).count ?? 0) <= 1; return row
-        case .tool(let tool) where tool.phase != .started: return row
-        case .token, .replace, .tool:
-            let boundary = pending.boundary; pending.boundary = false
-            let queued = pending.bubbles.filter { $0.metadata[SteerKey.steer] == "delivered" }
-            guard boundary, let last = queued.last, let index = pending.conversation.messages.firstIndex(where: { $0 === last }) else { return row }
-            queued.forEach { $0.metadata[SteerKey.steer] = "delivered" }
-            pending.bubbles.removeAll { bubble in queued.contains { $0 === bubble } }
-            return split(row, origin: origin, in: pending.conversation, after: index)
-        default: return row
-        }
-    }
+    /// Called on new visible output. A receipt alone (or a replay of the same snapshot)
+    /// doesn't create a reply. Multiple confirmations before any output share a continuation.
+    func continueAfterSteer(origin: ChatMessage, row: ChatMessage) -> ChatMessage? {
+        guard row.turnState != .stopped, var pending = turns.steers[origin.id] else { return nil }
+        guard let anchor = pending.bubbles.last(where: { $0.metadata[SteerKey.steer] == "delivered" }) else { return nil }
+        pending.bubbles.removeAll { $0.metadata[SteerKey.steer] == "delivered" }
+        turns.steers[origin.id] = pending.bubbles.isEmpty ? nil : pending
 
-    /// Ends `row` as a finished part and opens the next part right after the bubble at `index`.
-    private func split(_ row: ChatMessage, origin: ChatMessage, in conversation: any Conversation, after index: Int) -> ChatMessage {
+        let conversation = pending.conversation
+        guard conversation.messages.contains(where: { $0 === anchor }),
+              let index = conversation.messages.firstIndex(where: { $0 === row }) else { return nil }
+        let at = now()
+        if row.content.isEmpty, row.activity == nil, row.publishedResults == nil, row.attachments.isEmpty {
+            // Reuse the empty placeholder, including its ID and original turn start time.
+            row.continuedAt = at
+            var messages = conversation.messages
+            messages.remove(at: index)
+            messages.append(row)
+            conversation.messages = messages
+            return row
+        }
+
         let number = Int(row.metadata[TurnKey.part] ?? "1") ?? 1
         row.metadata[TurnKey.part] = String(number)
         row.isStreaming = false; row.turnState = .finished; row.metadata[TurnKey.why] = nil; row.metadata["status"] = nil; row.metadata[TurnKey.agent] = nil
-        if var activity = row.activity { activity.finish(at: now()); row.activity = activity }
+        if var activity = row.activity, activity.current == nil { activity.finish(at: at); row.activity = activity }
         var metadata = [TurnKey.part: String(number + 1)]
         metadata[TurnKey.forUser] = row.metadata[TurnKey.forUser]
         metadata[GoalKey.attempt] = row.metadata[GoalKey.attempt]
-        let next = ChatMessage(role: .assistant, content: "", isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
-        conversation.messages.insert(next, at: index + 1)
+        let next = ChatMessage(role: .assistant, content: "", createdAt: at, isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
+        conversation.messages.append(next)
         turns.parts[origin.id] = next
         runningTurns.values.first { $0.conversation === conversation && $0.assistant === row }?.assistant = next
-        objectWillChange.send(); save()
         return next
     }
 

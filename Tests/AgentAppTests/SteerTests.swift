@@ -63,6 +63,10 @@ import Testing
     let bubble = try #require(bot.messages.first { $0.content == "shorter" })
     #expect(store.canSendAsNextMessage(bubble), "Send as next message is offered")
     #expect(store.anyTurnRunning && bot.messages[1].turnState == .incomplete, "the answer keeps streaming")
+    let original = bot.messages[1]
+    await backend.emit(.token("More."))
+    try await waitUntil { original.content == "Before. More." }
+    #expect(bot.messages[1] === original && bot.messages[2] === bubble)
     store.stop(); try await waitUntil { !store.anyTurnRunning }
 }
 
@@ -107,7 +111,8 @@ import Testing
     #expect(store.anyTurnRunning && partial.turnState == .incomplete && partial.isStreaming, "the answer keeps streaming")
     await backend.emit(.token("still writing."), .completed); await backend.end()
     try await waitUntil { !store.anyTurnRunning }
-    #expect(partial.content == "Before. still writing." && partial.turnState == .finished, "the answer finished whole")
+    #expect(bot.messages.map(\.content) == ["go", "Before. ", " use metric ", "still writing."])
+    #expect(partial.turnState == .finished && bot.messages.last?.turnState == .finished)
     #expect(await backend.calls.all.filter { $0.hasPrefix("stop") }.isEmpty)
 }
 
@@ -119,20 +124,20 @@ import Testing
     #expect(store.send(text: "use metric"))
     try await backend.calls.wait { $0.contains("steer:use metric") }
     try await waitUntil { bot.messages.last?.metadata["steer"] == "delivered" }
-    await backend.emit(.token("still before. "), step(.completed), .token("After."), step(.started, id: "c2"), step(.completed, id: "c2"), .completed)
+    await backend.emit(.token("New text. "), step(.completed), .token("After."), step(.started, id: "c2"), step(.completed, id: "c2"), .completed)
     await backend.end()
     try await waitUntil { !store.anyTurnRunning }
 
     let rows = bot.messages
     #expect(rows.map(\.role) == [.user, .assistant, .user, .assistant], "[user, assistant(part before), steer, assistant(rest)]")
-    #expect(rows[1].content == "Before. still before. " && rows[1].metadata[TurnKey.part] == "1" && rows[1].turnState == .finished)
+    #expect(rows[1].content == "Before. " && rows[1].metadata[TurnKey.part] == "1" && rows[1].turnState == .finished)
     #expect(rows[2].isSteer && rows[2].metadata["steer"] == "delivered" && SteerCopy.caption(rows[2]) == "Delivered")
-    #expect(rows[3].content == "After." && rows[3].metadata[TurnKey.part] == "2" && rows[3].turnState == .finished && !rows[3].isStreaming)
+    #expect(rows[3].content == "New text. After." && rows[3].metadata[TurnKey.part] == "2" && rows[3].turnState == .finished && !rows[3].isStreaming)
     #expect(rows[1].activity?.total == 1 && rows[3].activity?.total == 1, "steps after delivery land on the new row")
-    #expect(SidebarFragment.text(messages: rows, draft: nil, isWorking: false, archiveNewest: nil) == "After.")
+    #expect(SidebarFragment.text(messages: rows, draft: nil, isWorking: false, archiveNewest: nil) == "New text. After.")
 
     let reloaded = try #require(AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults()).bots.first)
-    #expect(reloaded.messages.map(\.content) == ["go", "Before. still before. ", "use metric", "After."])
+    #expect(reloaded.messages.map(\.content) == ["go", "Before. ", "use metric", "New text. After."])
     #expect(reloaded.messages.map { $0.metadata[TurnKey.part] } == [nil, "1", nil, "2"])
 }
 
