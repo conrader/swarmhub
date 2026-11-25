@@ -114,7 +114,7 @@ extension AppStore {
         let mentioned = GroupRouting.mentions(in: text, members: GroupRouting.mentionable(members))
         let source = message.replyToID.flatMap { id in group.messages.first { $0.id == id } }
         guard message.replyToID == nil || source != nil else { errorMessage = "The original group message is unavailable."; return false }
-        if message.metadata[ChoiceReply.quoteKey] == nil, let source {
+        if !message.isDraftApproval, message.metadata[ChoiceReply.quoteKey] == nil, let source {
             message.metadata[ChoiceReply.quoteKey] = String(SwarmhubBlock.visibleText(source.content).suffix(1200))
         }
         let targeted = recipientIDs ?? (!mentioned.isEmpty ? mentioned : source?.authorID.map { [$0] })

@@ -58,6 +58,8 @@ enum ChoiceReply {
 }
 
 extension ChatMessage {
+    var isDraftApproval: Bool { metadata[ChoiceReply.cardKey]?.hasPrefix("draftSent.") == true }
+
     /// A historical card keeps its quote on the user row so queue recovery and retries
     /// send the same question even if the agent has since moved on.
     var modelText: String {

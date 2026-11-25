@@ -103,18 +103,34 @@ func recognizedLines(in image: CGImage) async throws -> [String] {
 
 /// Runs a script test's process to its end on a GCD thread (stdout and stderr together), so the parallel suite's shell
 /// tests never block the Swift concurrency threads the async tests wait on (that starved them into WaitTimeouts).
-func runToEnd(_ process: Process) async throws -> (status: Int32, output: String) {
+func runToEnd(_ process: Process, timeout: TimeInterval) async throws -> (status: Int32, output: String) {
     nonisolated(unsafe) let process = process
-    nonisolated(unsafe) let pipe = Pipe()
-    process.standardOutput = pipe; process.standardError = pipe
     await ScriptSlots.shared.take()
     defer { Task { await ScriptSlots.shared.give() } }
     return try await withCheckedThrowingContinuation { continuation in
         DispatchQueue.global().async {
             do {
+                // A detached descendant can inherit stdout. Reading a regular file after the fixture exits
+                // avoids waiting for that descendant to close a pipe.
+                let log = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                try Data().write(to: log, options: .withoutOverwriting)
+                defer { try? FileManager.default.removeItem(at: log) }
+                let handle = try FileHandle(forWritingTo: log)
+                defer { try? handle.close() }
+                process.standardOutput = handle
+                process.standardError = handle
+                let done = DispatchSemaphore(value: 0)
+                process.terminationHandler = { _ in done.signal() }
                 try process.run()
-                let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                process.waitUntilExit()
+                if done.wait(timeout: .now() + timeout) == .timedOut {
+                    // Python unwinds the fixture's gate, bridge and private Core on KeyboardInterrupt.
+                    if process.isRunning { process.interrupt() }
+                    if done.wait(timeout: .now() + 30) == .timedOut, process.isRunning { process.terminate() }
+                    let output = String(decoding: try Data(contentsOf: log), as: UTF8.self)
+                    throw NSError(domain: "ScriptFixture", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                        "Fixture timed out after \(timeout) seconds. \(output)"])
+                }
+                let output = String(decoding: try Data(contentsOf: log), as: UTF8.self)
                 continuation.resume(returning: (process.terminationStatus, output))
             } catch { continuation.resume(throwing: error) }
         }

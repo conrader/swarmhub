@@ -43,18 +43,19 @@ int main(void) {
 """
 
 
-def wait(check):
+def wait(check, description="fixture transition"):
     for _ in range(300):
-        if check():
-            return
+        result = check()
+        if result:
+            return result
         time.sleep(.05)
-    raise AssertionError("fixture transition timed out")
+    raise AssertionError(description + " timed out")
 
 
 def start_token(pid):
     if sys.platform == "darwin":
         return subprocess.check_output(["/bin/ps", "-p", str(pid), "-o", "lstart="],
-                                       env={"LC_ALL": "C"}).decode().strip()
+                                       env={"LC_ALL": "C"}, timeout=5).decode().strip()
     return int(Path("/proc/%d/stat" % pid).read_text().rsplit(")", 1)[1].split()[19])
 
 
@@ -70,7 +71,7 @@ def job(root, scope, runner):
     work = Path(scope["owners"][0]["workdir"])
     work.mkdir()
     worker = scope["executables"]["codex"]
-    subprocess.run(["cc", "-x", "c", "-", "-o", worker], input=WORKER.encode(), check=True)
+    subprocess.run(["cc", "-x", "c", "-", "-o", worker], input=WORKER.encode(), check=True, timeout=30)
     gate = (work / "gate").open("w")
     fcntl.flock(gate, fcntl.LOCK_EX)
     cmd = [sys.executable, "-I", "-c", WRAPPER, worker]
@@ -128,6 +129,8 @@ def bridge_reads(binary, root, host):
     peer = {"state": "connected", "target": "fixture@host"}
 
     class RPC(socketserver.StreamRequestHandler):
+        timeout = 5
+
         def handle(self):
             request = json.loads(self.rfile.readline())
             method, params = request["method"], request["params"]
@@ -177,9 +180,16 @@ def running_bridge(binary, root, endpoint, host):
     env = dict(HOME=str(root), PATH="/usr/bin:/bin", HC_SOCKET=str(endpoint),
                SWARMHUB_DATA_DIR=str(root / "db"), SWARMHUB_PORT="0", SWARMHUB_ACCESS_TOKEN=TOKEN,
                SWARMHUB_CODEJOB_HOSTS=json.dumps([host]))
-    bridge = subprocess.Popen([binary], env=env, cwd=root, stdout=subprocess.PIPE, text=True)
+    banner = root / "bridge.stdout"
+    with banner.open("w") as stdout:
+        bridge = subprocess.Popen([binary], env=env, cwd=root, stdout=stdout)
     try:
-        url = bridge.stdout.readline().strip().split()[-1].rstrip("/")
+        def startup_line():
+            if bridge.poll() is not None:
+                raise RuntimeError("fixture bridge exited during startup (status %d)" % bridge.returncode)
+            line, newline, _ = banner.read_bytes().partition(b"\n")
+            return line.decode() if newline else None
+        url = wait(startup_line, "fixture bridge startup").split()[-1].rstrip("/")
         assert url.startswith("http://127.0.0.1:")
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         def read():
@@ -190,7 +200,12 @@ def running_bridge(binary, root, endpoint, host):
         yield read
     finally:
         bridge.terminate()
-        bridge.wait(timeout=5)
+        try:
+            bridge.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            bridge.kill()
+            bridge.wait(timeout=5)
+            raise
 
 
 @contextlib.contextmanager
@@ -216,7 +231,7 @@ def direct_reads(host):
     def read(state="connected"):
         if state == "connected":
             p = subprocess.run(["/usr/bin/python3", "-I", "-B", "-c", PROBE, json.dumps(host["scope"])],
-                               check=True, capture_output=True)
+                               check=True, capture_output=True, timeout=5)
             reading = json.loads(p.stdout)
         else:
             reading = dict(jobs=[], complete=False)
@@ -231,18 +246,34 @@ def main():
     parser.add_argument("--write-rosters", type=Path)
     parser.add_argument("--integration", action="store_true",
                         help="Require the installed runner, candidate bridge and a private Herdr Core")
+    parser.add_argument("--check-prerequisites", action="store_true",
+                        help="Check integration executables without starting them; exit 77 if unavailable")
     parser.add_argument("--core", type=lambda s: str(Path(s).resolve()))
     args = parser.parse_args()
+    if args.check_prerequisites and not args.integration:
+        parser.error("--check-prerequisites requires --integration")
     if args.integration:
         target = Path(os.environ.get("CARGO_TARGET_DIR", Path(__file__).resolve().parents[1] / "target"))
-        args.bridge = args.bridge or os.environ.get("SWARMHUB_TEST_BRIDGE") or str(target / "debug/swarmhub-herdr")
-        args.runner = args.runner or shutil.which("sb-codejob")
-        args.core = args.core or shutil.which("hc")
-        for name in ("bridge", "runner", "core"):
-            path = getattr(args, name)
-            if not path or not os.access(path, os.X_OK):
-                parser.error("integration requires an executable --" + name)
-            setattr(args, name, str(Path(path).absolute()))
+        args.bridge = args.bridge or os.environ.get("SWARMHUB_TEST_BRIDGE")
+        defaults = {"bridge": str(target / "debug/swarmhub-herdr"), "runner": "sb-codejob", "core": "hc"}
+        missing = []
+        for name, default in defaults.items():
+            supplied = getattr(args, name)
+            path = supplied if supplied is not None else shutil.which(default)
+            if path and Path(path).is_file() and os.access(path, os.X_OK):
+                setattr(args, name, str(Path(path).absolute()))
+            elif supplied is not None:
+                parser.error("configured --%s is not executable: %s" % (name, supplied))
+            else:
+                missing.append(default)
+        if missing:
+            reason = "missing detached integration prerequisite(s): " + ", ".join(missing)
+            if args.check_prerequisites:
+                print("SKIP: " + reason)
+                return 77
+            parser.error(reason)
+        if args.check_prerequisites:
+            return 0
     if args.core and not args.bridge:
         parser.error("--core requires --bridge")
     if args.write_rosters and not args.bridge:
@@ -324,4 +355,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

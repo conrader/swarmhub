@@ -312,15 +312,16 @@ private final class ModelBridge: @unchecked Sendable {
         #expect([jarvis, legal].allSatisfy { store.modelSwitchPending($0) && store.herdrCarryOver(for: $0)?.old != nil })
         #expect([jarvis, legal].allSatisfy { store.herdrModel(for: $0) == "gpt-6.2-sol" })
 
-        let beforeSend = bridge.workspaceReads
-        let send = Task {
-            try await store.prepareDirectModel(bot: jarvis, server: server, template: codex.name, model: "gpt-6.2-sol")
+        for bot in [jarvis, legal] {
+            await #expect(throws: HerdrClient.Failure.notDelivered("The existing session is busy. The saved choice will apply at a safe launch.")) {
+                _ = try await store.prepareDirectModel(bot: bot, server: server, template: codex.name, model: "gpt-6.2-sol")
+            }
+            #expect(store.modelSwitchPending(bot) && store.herdrCarryOver(for: bot)?.old != nil)
         }
-        defer { send.cancel() }
-        try await waitUntil(timeout: .seconds(5)) { bridge.workspaceReads >= beforeSend + 3 }
         #expect(bridge.ended == [infraName])
         bridge.stop("Working helper")
-        #expect(try await send.value.count == 1)
+        let sources = try await store.prepareDirectModel(bot: jarvis, server: server, template: codex.name, model: "gpt-6.2-sol")
+        #expect(sources.count == 1)
         #expect(bridge.ended == [infraName, jarvisName])
         #expect(!store.modelSwitchPending(jarvis))
     }

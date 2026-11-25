@@ -369,11 +369,12 @@ import UserNotifications
         let user = ChatMessage(role: .user, content: text, createdAt: now(), metadata: metadata, replyToID: replyToID, attachments: attachments)
         if bot.backend == .herdr, !validateHerdrDraft(user.modelText, attachments: attachments, bot: bot) { return false }
         guard bots.contains(where: { $0 === bot }), conversation === bot else { return false }
-        if let id = replyToID, user.metadata[ChoiceReply.quoteKey] == nil,
+        if !user.isDraftApproval, let id = replyToID, user.metadata[ChoiceReply.quoteKey] == nil,
            let source = conversation.messages.first(where: { $0.id == id }) {
             user.metadata[ChoiceReply.quoteKey] = String(SwarmhubBlock.visibleText(source.content).suffix(1200))
         }
-        var revised = metadata[GoalKey.attempt] == nil ? bot.goal : nil
+        // An approval is a one-time instruction. Repeating it in later goal steps could send the draft again.
+        var revised = !user.isDraftApproval && metadata[GoalKey.attempt] == nil ? bot.goal : nil
         if revised?.state.active == true {
             guard goalDestinationMatches(bot) else { return false }
             let guidance = user.modelText + attachments.map { "\nAttached file: " + $0.name }.joined()

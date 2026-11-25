@@ -3,6 +3,24 @@ import SwiftUI
 import Testing
 @testable import AgentApp
 
+private let suppliedCodejobRosters = ProcessInfo.processInfo.environment["SWARMHUB_CODEJOB_TEST_ROSTERS"].map { URL(fileURLWithPath: $0) }
+
+private func codejobFixture(_ arguments: [String]) async throws -> (status: Int32, output: String) {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let fixture = Process()
+    fixture.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+    fixture.arguments = [root.appendingPathComponent("HerdrWorkspace/tests/codejob_activity.py").path, "--integration"] + arguments
+    return try await runToEnd(fixture, timeout: arguments.contains("--check-prerequisites") ? 10 : 120)
+}
+
+private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bridge-captured rosters or the candidate bridge, sb-codejob and hc.") {
+    if suppliedCodejobRosters != nil { return true }
+    let check = try await codejobFixture(["--check-prerequisites"])
+    if shellSuiteSkipped(check.status, check.output) { return false }
+    try #require(check.status == 0, "Detached fixture configuration failed: \(check.output)")
+    return true
+}
+
 @MainActor @Suite struct HerdrCodingAgentTests {
     private let parent = HerdrClient.AgentRef(address: "parent", createdMs: 1)
     private let helper = HerdrClient.Helper(address: "child", createdMs: 2, name: "Build Scout", modelLabel: "Atlas Pro",
@@ -414,22 +432,17 @@ import Testing
     }
 
     // Normal GET responses captured by HerdrWorkspace/tests/codejob_activity.py.
-    @Test func detachedRecordIngestion() async throws {
+    @Test(detachedRosterFixture) func detachedRecordIngestion() async throws {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: output) }
-        let supplied = ProcessInfo.processInfo.environment["SWARMHUB_CODEJOB_TEST_ROSTERS"].map { URL(fileURLWithPath: $0) }
-        if supplied == nil {
-            let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            let fixture = Process()
-            fixture.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            fixture.arguments = [root.appendingPathComponent("HerdrWorkspace/tests/codejob_activity.py").path, "--integration", "--write-rosters", output.path]
-            let ran = try await runToEnd(fixture)
+        if suppliedCodejobRosters == nil {
+            let ran = try await codejobFixture(["--write-rosters", output.path])
             try #require(ran.status == 0, "Fixture failed: \(ran.output)")
         }
-        let source = try Data(contentsOf: supplied ?? output)
+        let source = try Data(contentsOf: suppliedCodejobRosters ?? output)
         let values = try #require(JSONSerialization.jsonObject(with: source) as? [[String: Any]])
         let responses = try values.map { try JSONSerialization.data(withJSONObject: $0) }
-        #expect(responses.count == 8)
+        try #require(responses.count == 8)
         let http = MockHTTPProtocol.serve { request in
             guard request.httpMethod == "GET", request.url?.path == "/api/workspace",
                   request.url?.query == "codejobs=true" else { return (404, [:]) }

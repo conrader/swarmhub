@@ -1,5 +1,14 @@
 import Foundation
 
+private extension DraftCard {
+    var approvedFields: String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(self) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
 /// Where a card's answer goes, captured when the card is rendered: a bot's chat, or a group with the member that
 /// wrote the card. Changing the selection never changes it.
 enum ConversationActionTarget: Hashable, Sendable {
@@ -97,15 +106,21 @@ extension AppStore {
             queueChoice = false
             key = "draftSent.\(index)"
             if let editedDraft, editedDraft != original {
-                // JSON preserves the exact field values, including line breaks and whitespace in the body.
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-                guard let data = try? encoder.encode(editedDraft) else { return false }
-                text = "Send this edited draft:\n" + String(decoding: data, as: UTF8.self)
+                guard let fields = editedDraft.approvedFields else { return false }
+                text = "Send this edited draft:\n" + fields
                 value = "edited"
             } else {
                 text = "Send it"
                 value = "1"
+                let hasOtherDraft = blocks.enumerated().contains { offset, block in
+                    if case .draft = block { return offset != index }
+                    return false
+                }
+                if conversation.messages.last !== source || hasOtherDraft {
+                    // “Send it” needs the entire selected draft when it could refer to another.
+                    guard let fields = original.approvedFields else { return false }
+                    question = fields
+                }
             }
         default: return false
         }
@@ -127,18 +142,23 @@ extension AppStore {
                                key: String, value: String, queueChoice: Bool, question: String?) -> Bool {
         guard source.metadata[key] == nil else { return false }
         guard queueChoice || isIdle(conversation) else { return false }
-        var metadata = queueChoice ? [ChoiceReply.cardKey: key] : [:]
-        if let question {
+        var metadata = [ChoiceReply.cardKey: key]
+        if let question, queueChoice {
             let excerpt = question.trimmingCharacters(in: .whitespacesAndNewlines)
             let quote = excerpt.count > 1200 ? "…" + String(excerpt.suffix(1200)) : excerpt
             metadata[ChoiceReply.quoteKey] = "\(bot.name): \(quote)"
+        } else if let question {
+            metadata[ChoiceReply.quoteKey] = question
         }
+        // The accepted turn saves the transcript before send returns. Persist the draft marker with it.
+        if !queueChoice { source.metadata[key] = value }
         let accepted = if let group = conversation as? GroupChat {
             send(text: text, to: group, recipientIDs: [bot.id], sourceMessageID: source.id, queueChoice: queueChoice, metadata: metadata)
         } else {
             send(text: text, bot: bot, conversation: conversation, replyToID: source.id, waitWhenFull: queueChoice, metadata: metadata)
         }
         if accepted { source.metadata[key] = value; save() }
+        else if !queueChoice { source.metadata[key] = nil }
         return accepted
     }
 }

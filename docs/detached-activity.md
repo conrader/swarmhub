@@ -69,4 +69,6 @@ On **mini-m4**, use a logged-in macOS desktop session, Xcode Command Line Tools,
 )
 ```
 
-The Swift ingestion test captures workspace GET responses using the integration fixture by default. Set `SWARMHUB_TEST_BRIDGE` to the candidate executable when it is outside the debug target directory. Put the compatible runner and `hc` on PATH, or pass their paths with `--runner` and `--core` when capturing rosters separately. The fixture verifies a live worker through a private local Core and checks offline, replaced and recovered remote targets using a separate Core RPC peer. Process-only runs exercise the probe without the workspace HTTP transport.
+The Swift ingestion test captures workspace GET responses using the integration fixture by default. When discovery finds a missing executable, Swift Testing skips ingestion and the fixture names the missing prerequisite. A supplied capture, an explicitly configured bridge and every started integration run must succeed. For release verification, the capture command above requires all prerequisites and the Swift test must consume its eight responses.
+
+Set `SWARMHUB_TEST_BRIDGE` to the candidate executable when it is outside the debug target directory. Put the compatible runner and `hc` on PATH, or pass their paths with `--runner` and `--core` when capturing rosters separately. The fixture verifies a live worker through a private local Core and checks offline, replaced and recovered remote targets using a separate Core RPC peer. Process-only runs exercise the probe without the workspace HTTP transport.

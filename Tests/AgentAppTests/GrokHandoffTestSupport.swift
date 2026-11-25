@@ -78,6 +78,7 @@ final class HandoffBridge: @unchecked Sendable {
         let (host, session) = MockHTTPProtocol.serve { [self] in answer($0) }
         var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
         client.following = .polling; client.pollInterval = .milliseconds(2); client.agentCheckInterval = .milliseconds(5)
+        client.busyWaitLimit = .seconds(2)
         return client
     }
 
@@ -183,7 +184,10 @@ final class HandoffBridge: @unchecked Sendable {
                 if pieces.count == 6 { return (200, ["draft": NSNull(), "tools": [Any]()]) }
                 let key = "\(pieces[3])/\(pieces[4])"
                 historyReads += 1
-                if historyReads == 3, let late = lateReply { rows[key, default: []].append(row("reply", late, in: key)) }
+                if historyReads == 3, let late = lateReply, let index = agents.firstIndex(where: { Self.key($0) == key }) {
+                    rows[key, default: []].append(row("reply", late, in: key))
+                    agents[index]["status"] = ["state": "done"]
+                }
                 let all: [[String: Any]] = rows[key] ?? []
                 let saved: [[String: Any]] = pageSize.map { Array(all.suffix($0)) } ?? all
                 return (200, ["items": saved])
@@ -197,6 +201,10 @@ final class HandoffBridge: @unchecked Sendable {
                     return (200, [String: Any]())
                 }
                 if action == "messages" || action == "messages/with-files" {
+                    if let target = agents.first(where: { Self.key($0) == key }),
+                       (target["status"] as? [String: String])?["state"] == "working" {
+                        return (409, ["error": "The session still has an active turn."])
+                    }
                     let (message, files) = Self.parts(request)
                     let text = message["text"] as? String ?? ""
                     posts.append(Sent(route: files.isEmpty ? "message" : "message-with-files", agent: agent, text: text, files: files))

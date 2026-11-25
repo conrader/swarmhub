@@ -19,7 +19,10 @@ import WebKit
         window.contentView = host
         window.center()
         window.orderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { view.stopLoading(); window.orderOut(nil) }
+        let screen = try #require(window.screen, "The terminal fixture needs a logged-in desktop.")
+        window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: screen.visibleFrame.maxY))
+        host.layoutSubtreeIfNeeded()
         var html = try String(contentsOf: web.appendingPathComponent("chat-terminal.html"), encoding: .utf8)
         let css = try String(contentsOf: web.appendingPathComponent("vendor/xterm.css"), encoding: .utf8)
         html = html.replacingOccurrences(of: #"<link rel="stylesheet" href="/vendor/xterm.css">"#, with: "<style>" + css + "</style>")
@@ -27,6 +30,7 @@ import WebKit
         html = html.replacingOccurrences(of: "<head>", with: """
         <head><script>
         window.fixtureSizes = [];
+        window.fixtureRendered = false;
         window.WebSocket = class extends EventTarget {
           static OPEN = 1; readyState = 1; bufferedAmount = 0;
           constructor() { super(); setTimeout(() => this.dispatchEvent(new Event("open")), 0); }
@@ -34,6 +38,7 @@ import WebKit
             if (typeof raw !== "string") throw Error("Unexpected terminal input");
             const message = JSON.parse(raw);
             if (message.rows) fixtureSizes.push(message.rows);
+            if (message.type === "credit") fixtureRendered = true;
             if (message.token) {
               this.dispatchEvent(new MessageEvent("message", {data:'{"type":"ready"}'}));
               const prompt = "Would you like to run the following command? " + "archived-fixture-directory/".repeat(12) + "\\r\\n1. Allow once\\r\\n2. Deny";
@@ -51,19 +56,65 @@ import WebKit
             scripts += "<script>" + js.replacingOccurrences(of: "</script", with: "<\\/script") + "</script>"
         }
         view.loadHTMLString(html.replacingOccurrences(of: "</body>", with: scripts + "</body>"), baseURL: nil)
-        try await waitUntil { (try? await view.evaluateJavaScript("typeof openChatTerminal === 'function'") as? Bool) == true }
-        _ = try await view.evaluateJavaScript("openChatTerminal('fixture','1','Doc','fixture')")
-        try await waitUntil { (try? await view.evaluateJavaScript("fixtureSizes.length > 0") as? Bool) == true }
-        let target = try #require(try await view.evaluateJavaScript("chatModelTerminal.heightForRows(24)") as? NSNumber)
+        try await waitUntil(timeout: .seconds(10)) { !view.isLoading }
+        _ = try await evaluate("typeof openChatTerminal === 'function'", in: view, until: { $0 as? Bool == true })
+        _ = try await evaluate("openChatTerminal('fixture','1','Doc','fixture'); true", in: view)
+        _ = try await evaluate("fixtureRendered && fixtureSizes.length > 0 && document.fonts.status === 'loaded'",
+                               in: view, until: { $0 as? Bool == true })
+        let target = try #require(try await evaluate("chatModelTerminal.heightForRows(24)", in: view) as? NSNumber)
+        let needed = window.frame.height - view.bounds.height + target.doubleValue
+        try #require(needed <= screen.visibleFrame.height, "The 24-row fixture needs \(needed) points of screen height.")
         TerminalSheetSize.fit(window, webView: view, viewportHeight: target.doubleValue)
-        try await waitUntil { (try? await view.evaluateJavaScript("fixtureSizes.at(-1) === 24 && chatModelTerminal.lines().length === 24") as? Bool) == true }
-        let lines = try #require(try await view.evaluateJavaScript("chatModelTerminal.lines()") as? [String])
+        let rows = "[fixtureSizes.at(-1), chatModelTerminal.lines().length]"
+        _ = try await evaluate(rows, in: view, until: { $0 as? [Int] == [24, 24] })
+        let lines = try #require(try await evaluate("chatModelTerminal.lines()", in: view) as? [String])
         #expect(lines.filter { !$0.isEmpty }.count > 3 && lines.joined().contains("2. Deny"))
         #expect(host.bounds.height > view.bounds.height)
         try snapshot(host, "terminal-24")
         window.setContentSize(NSSize(width: host.bounds.width, height: host.bounds.height - 90))
-        try await waitUntil { (try? await view.evaluateJavaScript("fixtureSizes.at(-1) < 24 && fixtureSizes.at(-1) === chatModelTerminal.lines().length") as? Bool) == true }
+        _ = try await evaluate(rows, in: view) { value in
+            guard let sizes = value as? [Int], sizes.count == 2 else { return false }
+            return sizes[0] > 0 && sizes[0] < 24 && sizes[0] == sizes[1]
+        }
         try snapshot(host, "terminal-resized")
+    }
+
+    /// Poll the result on the main actor. A WebKit callback that never arrives must also hit the deadline.
+    private func evaluate(_ script: String, in view: WKWebView, until matches: @escaping (Any?) -> Bool = { _ in true }) async throws -> Any? {
+        var pending = false
+        var result: Result<Any?, Error>?
+        var last = "no WebKit response"
+        do {
+            try await waitUntil(timeout: .seconds(10)) {
+                if let response = result {
+                    switch response {
+                    case .failure: return true
+                    case .success(let value):
+                        if matches(value) { return true }
+                        last = String(describing: value)
+                    }
+                    result = nil
+                }
+                if !pending {
+                    pending = true
+                    view.evaluateJavaScript(script) { value, error in
+                        if let error { result = .failure(error) } else { result = .success(value) }
+                        pending = false
+                    }
+                }
+                return false
+            }
+        } catch is WaitTimeout {
+            throw FixtureTimeout(script: script, last: last, bounds: view.bounds)
+        }
+        return try #require(result).get()
+    }
+
+    private struct FixtureTimeout: Error, CustomStringConvertible {
+        let script: String
+        let last: String
+        let bounds: CGRect
+        var description: String { "Timed out evaluating \(script), last value \(last), web view \(bounds)" }
     }
 
     private struct FixtureTerminal: NSViewRepresentable {

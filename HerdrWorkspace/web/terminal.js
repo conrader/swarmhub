@@ -79,7 +79,10 @@
           const screen = host.querySelector(".xterm-screen");
           const cell = screen?.getBoundingClientRect().height / terminal.rows;
           if (!(cell > 0)) return null;
-          return Math.ceil(innerHeight - host.clientHeight + rows * cell);
+          // FitAddon truncates the host's CSS height before dividing by the cell height.
+          // clientHeight rounds to the nearest pixel and can leave the last row just short.
+          const usableHeight = Math.floor(host.getBoundingClientRect().height);
+          return innerHeight - usableHeight + Math.ceil(rows * cell);
         },
         closed: () => session !== state || state.ended || socket.readyState >= WebSocket.CLOSING,
         key: key => sendBytes(state, encoder.encode(key)),

@@ -21,7 +21,7 @@ private func fixture(summary: String? = nil) -> (handoff: HerdrHandoff, id: UUID
 private func backend(_ bridge: HandoffBridge, id: UUID, handoff: HerdrHandoff?) -> HerdrBackend {
     var made = HerdrBackend(client: bridge.client(), botName: "Ada", botID: id, template: nil, instructions: persona)
     made.helperNote = appNote
-    if let handoff { made.handoff = HerdrHandoffSource(lead: handoff.lead, prepare: { _ in handoff }) }
+    if let handoff { made.handoff = HerdrHandoffSource(lead: handoff.lead, prepare: { _ in handoff }, replyLimit: .seconds(10)) }
     return made
 }
 

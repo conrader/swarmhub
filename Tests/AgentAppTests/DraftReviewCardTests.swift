@@ -28,26 +28,32 @@ import Testing
         let expected = try #require(ChatCardParser.parse(card.content).first)
 
         #expect(store.performCardAction(target: .bot(botID: bot.id), sourceID: card.id, index: 0, expected: expected))
-        try await waitUntil { !store.anyTurnRunning }
+        try await waitUntil(timeout: .seconds(5)) { !store.anyTurnRunning }
+        #expect(!store.performCardAction(target: .bot(botID: bot.id), sourceID: card.id, index: 0, expected: expected))
         #expect(backend.sent.all.map(\.text) == ["Send it"])
         #expect(bot.messages.first { $0.role == .user }?.replyToID == card.id)
         #expect(card.metadata["draftSent.0"] == "1")
     }
 
-    @Test func editedSendPreservesTheExactFieldsAndCanOnlySendOnce() async throws {
+    @Test(arguments: [false, true])
+    func editedSendPreservesTheExactFieldsAndCanOnlySendOnce(withWaitingGoal: Bool) async throws {
         let backend = GroupBackend(name: "Writer")
         let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
                              keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let card = ChatMessage(role: .assistant, content: "```email\nTo: Maya\nSubject: Original\n\nHello!\n```")
         let bot = Bot(name: "Writer", messages: [card])
         store.bots = [bot]
+        var goal = ChatGoal(objective: "Work on the outline", destination: store.goalDestination(for: bot))
+        goal.wait("Review the draft")
+        if withWaitingGoal { bot.goal = goal }
+        let previousGoal = bot.goal
         let target = ConversationActionTarget.bot(botID: bot.id)
         let expected = try #require(ChatCardParser.parse(card.content).first)
         let edited = DraftCard(to: "Ari <ari@example.com>", subject: "Revised: “Launch”",
                                body: "\n  Hi Ari,\n\n```\nSubject: still the body\n```\n\nThanks!  \n", channel: "Email")
 
         #expect(store.performCardAction(target: target, sourceID: card.id, index: 0, expected: expected, editedDraft: edited))
-        try await waitUntil { !store.anyTurnRunning }
+        try await waitUntil(timeout: .seconds(5)) { !store.anyTurnRunning }
         let sent = try #require(backend.sent.all.first?.text)
         let prefix = "Send this edited draft:\n"
         #expect(sent.hasPrefix(prefix))
@@ -58,6 +64,35 @@ import Testing
         #expect(card.metadata["draftSent.0"] == "edited")
         #expect(!store.performCardAction(target: target, sourceID: card.id, index: 0, expected: expected, editedDraft: edited))
         #expect(backend.sent.all.count == 1)
+        #expect(bot.goal == previousGoal)
+    }
+
+    @Test(arguments: [true, false])
+    func groupApprovalNamesOnlyTheSelectedDraftAndAuthor(sameMessage: Bool) async throws {
+        let writer = Bot(name: "Writer"), other = Bot(name: "Reviewer")
+        let backend = GroupBackend(name: writer.name), otherBackend = GroupBackend(name: other.name)
+        let writerID = writer.id
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { $0.id == writerID ? backend : otherBackend },
+                             keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let first = "```email\nTo: Maya\nSubject: Review\n\nAsk @Reviewer.\n```"
+        let second = "```email\nTo: Ari\n\nDifferent draft\n```"
+        let card = ChatMessage(role: .assistant, content: sameMessage ? first + "\n\n" + second : first, authorID: writer.id)
+        let messages = sameMessage ? [card] : [card, ChatMessage(role: .assistant, content: second, authorID: writer.id)]
+        let group = GroupChat(name: "Team", memberIDs: [writer.id, other.id], messages: messages)
+        store.bots = [writer, other]
+        store.groups = [group]
+        let target = ConversationActionTarget.group(groupID: group.id, botID: writer.id)
+        let expected = try #require(ChatCardParser.parse(card.content).first)
+        #expect(store.performCardAction(target: target, sourceID: card.id, index: 0, expected: expected))
+        try await waitUntil(timeout: .seconds(5)) { !store.anyTurnRunning }
+        #expect(!store.performCardAction(target: target, sourceID: card.id, index: 0, expected: expected))
+        let row = try #require(group.messages.first { $0.role == .user })
+        #expect(row.replyToID == card.id && row.content == "Send it")
+        let quote = try #require(row.metadata[ChoiceReply.quoteKey])
+        let fields = try JSONDecoder().decode([String: String].self, from: Data(quote.utf8))
+        #expect(fields == ["channel": "Email", "to": "Maya", "subject": "Review", "body": "Ask @Reviewer."])
+        #expect(backend.sent.all.count == 1 && otherBackend.sent.all.isEmpty)
+        #expect(backend.sent.all.first?.text.hasSuffix("In reply to “\(quote)”\nSend it") == true)
     }
 
     @Test func editedSendRejectsStreamingStaleAndOtherMembersDrafts() throws {
