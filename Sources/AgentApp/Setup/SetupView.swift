@@ -14,6 +14,7 @@ struct SetupView: View {
     @State private var savedHostID: String?
     @AccessibilityFocusState private var progressFocused: Bool
     @State private var loginServer: HerdrServer?
+    @State private var signInCheck: HerdrAICheck?
     @State private var testing = false
     @State private var checkGeneration = UUID()
     @State private var localSetupTask: Task<Void, Never>?
@@ -43,7 +44,7 @@ struct SetupView: View {
                     case .welcome:
                         SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace, saved: store.herdrConfigured ? store.herdrServers : [],
                                               savedHostID: $savedHostID)
-                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, scan: { testHerdr(inventoryOnly: true) }, addAI: addLocalAI)
+                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: answerSetupPrompt, scan: { testHerdr(inventoryOnly: true) }, addAI: addLocalAI)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
                     case .projects: if let model = presetProjects ?? projects { SetupProjectsStep(flow: $flow, model: model) }
@@ -61,6 +62,17 @@ struct SetupView: View {
         .onAppear { if Self.cameBackUnasked(preset: preset, generation: store.setupGeneration) { closeUnasked() } else { restart() } }
         .onChange(of: store.setupGeneration) { _, _ in unasked = false; restart() }
         .onChange(of: flow.step, initial: true) { _, step in readProjects(step); progressFocused = true }
+        .sheet(item: $signInCheck) { check in
+            if let server = flow.herdrServer, case .signIn(let agent) = check.state {
+                SetupSignInSheet(check: check, agent: agent, server: server, key: flow.herdrKey) {
+                    guard flow.step == .herdr, flow.herdrServer == server,
+                          flow.aiChecks.contains(check) else { return }
+                    var ready = check
+                    ready.state = .ready
+                    flow.apply(.aiCheck(ready))
+                }
+            }
+        }
         .sheet(item: $loginServer) { server in
             SSHLoginSheet(server: server) { signedIn in
                 flow.herdr.sshDestination = signedIn.sshUser + "@" + signedIn.sshHost
@@ -311,6 +323,11 @@ struct SetupView: View {
                 if !closed, flow.step == .herdr, flow.herdr == draft { failure = error.localizedDescription }
             }
         }
+    }
+
+    private func answerSetupPrompt(_ check: HerdrAICheck) {
+        if case .signIn = check.state { signInCheck = check }
+        else { store.answerInTerminal(check) }
     }
 
     private func checkAIs(report: HerdrLocalReport?, inventoryOnly: Bool) {

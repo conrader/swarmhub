@@ -653,6 +653,19 @@ impl Core {
         };
         let mut terminal: Terminal = self.rpc(method, params, 85, true).await?;
         terminal.hydrate_template();
+        // Core returns the initial terminal snapshot with its first-message receipt. If it
+        // withheld the task at a dialog, include the current status that explains why.
+        if terminal.first_message.as_ref().is_some_and(|receipt| !receipt.sent)
+            && let Ok(current) = self.agent(&terminal.address, terminal.created_ms).await
+            && current.launch_key() == terminal.launch_key()
+        {
+            terminal.status = current.status;
+            if terminal.status.as_ref().is_some_and(|s| s.state == "blocked" && s.kind.as_deref() == Some("auth"))
+                && let Some(receipt) = &mut terminal.first_message
+            {
+                receipt.reason = Some("Sign in to the agent, then retry this message.".into());
+            }
+        }
         if terminal.managed() {
             Ok(terminal)
         } else {

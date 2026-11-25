@@ -137,14 +137,14 @@ private let statusJSON = #"""
 
 /// A server that starts an agent ahead of its first message: the check starts the AI with no task and reads whether
 /// it gets ready. `ready`: what the server says about the started agent each time it is asked.
-private func checkClient(ready: [Bool], live: Bool = true, screen: String = " Trust this folder?\n") -> (HerdrClient, LockedTrace) {
+private func checkClient(ready: [Bool], live: Bool = true, status: [String: String]? = nil, screen: String = " Trust this folder?\n") -> (HerdrClient, LockedTrace) {
     let trace = LockedTrace(), looked = LockedTrace()
     let served = MockHTTPProtocol.serve { request in
         let path = request.url?.path ?? "", method = request.httpMethod ?? "GET"
         trace.add("\(method) \(path)")
         let template: [String: Any] = ["name": "starter-one", "description": "", "error": NSNull(), "runtime": ["harness": "Program One"]]
         func agent(_ ready: Bool) -> [String: Any] {
-            ["address": "t1", "name": "setup-starter-one", "state": live ? "live" : "finished", "created_ms": 7, "template": "starter-one", "status": NSNull(), "ready": ready, "warm": true]
+            ["address": "t1", "name": "setup-starter-one", "state": live ? "live" : "finished", "created_ms": 7, "template": "starter-one", "status": status as Any? ?? NSNull(), "ready": ready, "warm": true]
         }
         if method == "POST", path == "/api/agents" { return (201, agent(false)) }
         if path == "/api/workspace" {
@@ -216,6 +216,14 @@ private func checkClient(ready: [Bool], live: Bool = true, screen: String = " Tr
         let program = HerdrProgram(template: "starter-one", name: "One", takesModel: false, models: [])
         let check = await store.checkAI(program, on: server, key: nil, report: report, inventoryOnly: true)
         #expect(check.state == .installation(found: true))
+    }
+
+    @Test func setupOffersSignInWithoutCopyingTheOAuthScreenOrEndingTheTerminal() async {
+        let (client, trace) = checkClient(ready: [false], status: ["state": "blocked", "kind": "auth"])
+        let state = await client.firstRunCheck(template: "starter-one")
+        #expect(state == .signIn(.init(address: "t1", createdMs: 7)))
+        #expect(!trace.read().contains("GET /api/agents/t1/7/output"))
+        #expect(!trace.read().contains("POST /api/agents/t1/7/end"))
     }
 
     @Test func anAIThatGetsReadyIsEndedAgainAndOneThatAsksIsLeftRunning() async {

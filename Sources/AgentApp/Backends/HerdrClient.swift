@@ -86,7 +86,12 @@ struct HerdrClient: Sendable {
         var isLive: Bool { state == "live" }
         var ref: AgentRef { AgentRef(address: address, createdMs: createdMs) }
         /// Running, but its program is not ready for a task yet.
-        var isStarting: Bool { isLive && ready == false }
+        var isStarting: Bool { isLive && ready == false && status?.state != "blocked" }
+        func promptFailure(program: String?) -> Failure {
+            status?.kind?.lowercased() == "auth"
+                ? .signInRequired(ref, program)
+                : .waitingAtPrompt
+        }
 
         var isIdleForRollover: Bool {
             switch status?.state {
@@ -182,8 +187,10 @@ struct HerdrClient: Sendable {
 
     enum Failure: LocalizedError, Equatable {
         case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt, unconfirmedDelivery, startNotObserved, notDelivered(String?)
+        case signInRequired(AgentRef, String?)
         var errorDescription: String? {
             switch self {
+            case .signInRequired: "Sign in here, then choose Retry to send your message."
             case .invalidURL: "The server address is not valid. Use http://127.0.0.1:8787, or the port you forwarded."
             case .unauthorized: "The server did not accept the access key. Open Settings → Servers and check the connection."
             case .refusedHost: "The workspace refused the connection address. For an older workspace over SSH, free its matching local port or update the workspace."
@@ -385,7 +392,7 @@ struct HerdrClient: Sendable {
             switch live.status?.state {
             case "working": continue
             case "idle", "done": return (current, live)
-            case "blocked": throw Failure.waitingAtPrompt
+            case "blocked": throw live.promptFailure(program: current.program(of: live))
             default: throw Failure.notDelivered("The workspace could not confirm the session was ready.")
             }
         }
@@ -586,7 +593,7 @@ struct HerdrClient: Sendable {
             }
         }
         if let agent = active {
-            if agent.status?.state == "blocked" { throw Failure.waitingAtPrompt }
+            if agent.status?.state == "blocked" { throw agent.promptFailure(program: current.program(of: agent)) }
             // Started ahead of time and not ready yet: the bridge keeps the message and types it when the agent is.
             if agent.isStarting { status(.starting(program: current.program(of: agent))) }
             let saved = try await history(core: core, address: agent.address, createdMs: agent.createdMs)
@@ -629,7 +636,7 @@ struct HerdrClient: Sendable {
         if resync { synced() }
         if agent.openCodeFirstTask == "uncertain" { throw Failure.unconfirmedDelivery }
         if agent.openCodeFirstTask == "not_sent" { throw Failure.notDelivered("OpenCode did not accept the first task.") }
-        if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
+        if agent.firstMessage?.sent == false { throw agent.promptFailure(program: current.program(of: agent)) }
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true, steerReference: steerReference, submittedText: first, program: current.program(of: agent))
     }
 

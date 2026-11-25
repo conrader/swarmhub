@@ -127,7 +127,7 @@ struct SetupFlow: Equatable {
     /// This Mac only: whether each AI can take a message, or waits for an answer first.
     private(set) var aiChecks: [HerdrAICheck] = []
     /// An AI waits for the person's answer in its terminal.
-    var aiNeedsAnswer: Bool { aiChecks.contains { if case .asks = $0.state { true } else { false } } }
+    var aiNeedsAnswer: Bool { aiChecks.contains { switch $0.state { case .asks, .signIn: true; default: false } } }
     var aiChecking: Bool { aiChecks.contains { $0.state == .checking } }
     var mainBot = HerdrMainBotDraft()
     /// Templates ticked on "More bots"; none to begin with, so nothing is added unasked.

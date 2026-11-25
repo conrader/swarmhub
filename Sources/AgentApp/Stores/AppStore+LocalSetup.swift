@@ -86,7 +86,7 @@ extension AppStore {
     @discardableResult func answerInTerminal(_ check: HerdrAICheck) -> Bool {
         let agent: HerdrClient.AgentRef
         switch check.state {
-        case .asks(_, let ref), .unready(let ref): agent = ref
+        case .asks(_, let ref), .unready(let ref), .signIn(let ref): agent = ref
         default: return false
         }
         return openInTerminal(script: Self.terminalScript(core: localService.corePath, address: agent.address, name: check.name, environment: ProcessInfo.processInfo.environment), name: check.name)

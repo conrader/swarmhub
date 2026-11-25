@@ -5,6 +5,8 @@ import Foundation
 /// agent program's name), and where a notification goes (tests listen here).
 struct HerdrPromptBook {
     var refreshing: Set<UUID> = []
+    // A refused group send ends its turn before anyone can act on its sign-in prompt.
+    var groupSignIns: [UUID: [UUID: HerdrPrompt]] = [:]
     var turnWaits: [UUID: (botID: UUID, program: String)] = [:]
     var notifier: (@MainActor (Bot, GroupChat?, String) -> Void)?
 }
@@ -25,10 +27,24 @@ extension AppStore {
 
     func herdrPrompt(for bot: Bot, in group: GroupChat?) -> HerdrPrompt? {
         if let group {
-            guard groups.contains(group), group.memberIDs.contains(bot.id),
-                  herdrWaits(bot, in: group).waits else { return nil }
+            guard groups.contains(group), group.memberIDs.contains(bot.id) else { return nil }
+            if let prompt = herdrPromptBook.groupSignIns[group.id]?[bot.id] { return prompt }
+            guard herdrWaits(bot, in: group).waits else { return nil }
         }
         return herdrPrompts[herdrPromptID(for: bot, in: group)]
+    }
+
+    func showSignIn(for bot: Bot, in group: GroupChat?, agent: HerdrClient.AgentRef, program: String?) {
+        let prompt = HerdrPrompt(program: program, needsSignIn: true, agent: agent, since: now())
+        let old = herdrPrompt(for: bot, in: group)
+        if let group {
+            herdrPromptBook.groupSignIns[group.id, default: [:]][bot.id] = prompt
+            objectWillChange.send()
+        } else {
+            herdrPrompts[bot.id] = prompt
+            herdrReadiness[bot.id] = .blocked(program: program)
+        }
+        if old?.agent != agent { raiseHerdrPrompt(prompt, for: bot, in: group) }
     }
 
     /// The agent program's name when `bot`'s agent waits at a prompt; nil when it does not.
@@ -66,6 +82,7 @@ extension AppStore {
     func herdrPromptsFollowReadiness() {
         let ids = Set(herdrReadiness.keys).union(herdrPrompts.keys)
         for bot in bots where ids.contains(bot.id) { herdrPromptCheck(bot) }
+        herdrPromptBook.groupSignIns = herdrPromptBook.groupSignIns.filter { id, _ in groups.contains { $0.id == id } }
         let conversations = Set(bots.map(\.id) + groups.map(\.id)).union(runningTurns.keys)
         for id in herdrPrompts.keys where !conversations.contains(id) { herdrPrompts[id] = nil }
     }
@@ -86,6 +103,18 @@ extension AppStore {
 
     /// Reads what the waiting agent's terminal shows. A server that cannot be read leaves the prompt as it is.
     func refreshHerdrPrompt(for bot: Bot, in group: GroupChat? = nil) async {
+        if let group, let ref = herdrPromptBook.groupSignIns[group.id]?[bot.id]?.agent {
+            guard let backend = try? herdrBackend(for: bot),
+                  let workspace = try? await backend.client.workspace(),
+                  herdrPromptBook.groupSignIns[group.id]?[bot.id]?.agent == ref else { return }
+            let name = backend.runtimeName(sessionID: turnSessionID(in: group, bot: bot))
+            let live = backend.client.liveAgent(named: name, in: workspace)
+            if live?.ref != ref || live?.status?.state != "blocked" || live?.status?.kind != "auth" {
+                herdrPromptBook.groupSignIns[group.id]?[bot.id] = nil
+                objectWillChange.send()
+            }
+            return
+        }
         let id = herdrPromptID(for: bot, in: group)
         func stillWaiting() -> Bool {
             herdrPromptID(for: bot, in: group) == id && herdrWaits(bot, in: group).waits && bots.contains(bot)
@@ -109,7 +138,8 @@ extension AppStore {
             }
             return
         }
-        let screen = (try? await backend.client.screen(of: agent.ref)) ?? ""
+        let needsSignIn = agent.status?.kind?.lowercased() == "auth"
+        let screen = needsSignIn ? "" : (try? await backend.client.screen(of: agent.ref)) ?? ""
         guard !Task.isCancelled, stillWaiting() else { return }
         guard HerdrPrompt.actionable(kind: agent.status?.kind, screen: screen) else { herdrPrompts[id] = nil; return }
         let old = herdrPrompts[id]
@@ -121,7 +151,7 @@ extension AppStore {
         let model = runtime?.model ?? runtime?.modelId ?? "Model unreported"
         let origin = "\(program ?? "Agent") · \(model) · \(agent.address)/\(agent.createdMs)"
         let prompt = HerdrPrompt(origin: origin, reviewDescription: HerdrPrompt.review(for: agent, program: program, question: question), program: program,
-                                 needsSignIn: agent.status?.kind?.lowercased() == "auth", question: question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,
+                                 needsSignIn: needsSignIn, question: !needsSignIn && question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,
                                  since: old?.agent == agent.ref ? old?.since ?? now() : now())
         if prompt != old { herdrPrompts[id] = prompt }
         if old?.agent != agent.ref { raiseHerdrPrompt(prompt, for: bot, in: group) }

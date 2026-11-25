@@ -222,6 +222,14 @@ For each live trial, the driver pasted a different PNG, typed the same question 
 
 In a fourth Mac window, the driver selected the standalone Gemini CLI, pasted the image and sent it to a Linux workspace. Gemini CLI 0.71.1 sent the matching PNG as inline image data to a local Google-compatible test endpoint, and the endpoint’s reply appeared in chat. A separate live Google attempt stopped at its OAuth sign-in prompt. On Linux, an OpenCode 2.4.1 integration test uploaded a PNG in a first message, observed an image part with the exact bytes at the local model endpoint, and found the endpoint’s reply in the workspace journal. Neither endpoint test measures a live model’s image recognition.
 
+## Gemini waits for Google authorization before its first hook
+
+With Gemini CLI 0.71.1 and a private home on Linux, the authorization-code question was visible after about two seconds. The original workspace kept a cold first message pending for 60 seconds and then returned both `ready: true` and `first_message.sent: false`. The updated workspace returned the unsent receipt, `ready: false`, and `blocked/auth` after about three seconds. The message stayed out of the authorization field.
+
+On the MacBook, the driver sent a message in a private chat and opened **Sign in here**. The embedded terminal opened, the message offered Retry, and the saved conversation contained no Google authorization URL. In a separate native run, the driver opened **Set up → This Mac** and reached the same sign-in terminal. Both used the real Gemini CLI on a forwarded private workspace. The wizard used a local inventory fixture to select that workspace.
+
+A simulated provider completion closed the setup terminal automatically and the wizard showed Ready. The workspace integration test also finished a simulated sign-in, retried the message and checked that the initial and blocked follow-ups never reached the provider. The trials did not authorize a live Google account.
+
 ## Product comparison and remaining checks
 
 

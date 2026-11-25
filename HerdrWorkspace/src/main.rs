@@ -1130,6 +1130,7 @@ async fn launch_agent(
             None
         };
         let vault_session = w.vault.as_ref().and_then(|vault| vault.session(&key, &body.name));
+        gemini_agent::startup::watch(&w.core, w.history.file(), &key, &template);
         match w
             .core
             .launch(

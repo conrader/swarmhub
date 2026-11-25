@@ -364,13 +364,17 @@ def fire(event, **fields):
     assert result.returncode == 0 and json.loads(result.stdout) == {}, (event, result)
 
 def line():
-    text = b""
-    while not text.endswith(b"\n"):
+    text = bytearray()
+    start, end = b"\x1b[200~", b"\x1b[201~"
+    while True:
         byte = os.read(0, 1)
         if not byte:
             sys.exit(0)
-        text += byte
-    return text.decode().strip().lstrip("\x1b")
+        if text == b"\x1b" and byte != b"[":
+            text.clear()  # A preceding Stop is separate from the new paste.
+        if byte in (b"\n", b"\r") and (not text.startswith(start) or text.endswith(end)):
+            return bytes(text).removeprefix(start).removesuffix(end).decode().strip()
+        text.extend(byte)
 
 def answer():
     file = folder / "permission-answer"
@@ -383,6 +387,15 @@ def answer():
     return "refuse"
 
 note("args " + json.dumps(args))
+if folder.name == "agent-gemini-reauth":
+    print("Please visit the following URL to authorize the application:\n\nhttps://example.invalid/qa\n", flush=True)
+    print("Enter the authorization code: ", end="", flush=True)
+    # A person finishes sign-in outside the chat. The first hook runs only afterwards.
+    while not (folder / "finish-fixture-sign-in").exists():
+        time.sleep(.05)
+# The real TUI receives a multiline paste as one task, including optional workspace notes.
+tty.setcbreak(0)
+os.write(1, b"\x1b[?2004h")
 fire("SessionStart", source="startup")
 while True:
     task = line()
@@ -419,7 +432,7 @@ while True:
     elif task == "say nothing":
         fire("AfterAgent", prompt=task, prompt_response="[no response text]", stop_hook_active=False)
     else:
-        fire("AfterAgent", prompt=task, prompt_response="Gemini reply for " + task, stop_hook_active=False)
+        fire("AfterAgent", prompt=task, prompt_response="Gemini reply for " + task.splitlines()[0], stop_hook_active=False)
 """
 
 def seed_legacy_database(directory, version):
@@ -1485,6 +1498,22 @@ def smoke(hc, bridge, chrome=None):
                 assert status(fresh) == {"state": "blocked", "kind": "auth"}
                 assert "agent-gemini-new: received" not in log.read_text()
                 request(fresh_url + "/end", {})
+
+                # Gemini 0.71 can request a new OAuth code before running any hook.
+                retry = request("/api/agents", {"name": "gemini-reauth", "template": "gemini-fixture",
+                                                "task": "held first task"}, status=201, timeout=15)
+                assert retry["first_message"] == {"sent": False, "reason": "Sign in to the agent, then retry this message."}
+                assert not retry["ready"], retry
+                assert retry["status"] == {"state": "blocked", "kind": "auth"}
+                url = f"/api/agents/{retry['address']}/{retry['created_ms']}"
+                request(url + "/messages", {"text": "still held"}, status=409)
+                (agents / "agent-gemini-reauth" / "finish-fixture-sign-in").touch()
+                until(lambda: status(retry) == {"state": "idle"})
+                request(url + "/messages", {"text": "retry after sign-in"})
+                until(lambda: "agent-gemini-reauth: received retry after sign-in" in log.read_text())
+                assert "agent-gemini-reauth: received held first task" not in log.read_text()
+                assert "agent-gemini-reauth: received still held" not in log.read_text()
+                request(url + "/end", {})
 
                 launched = request("/api/agents", {"name": "gemini-agent", "template": "gemini-fixture",
                                                     "task": "Gemini first task"}, status=201)

@@ -48,6 +48,9 @@ struct TurnOutcome: Equatable {
 
     static func classify(error: Error) -> TurnOutcome {
         let reason = error.localizedDescription
+        if case HerdrClient.Failure.signInRequired = error {
+            return .init(state: .notSent, why: "sign-in required", reason: reason)
+        }
         let streamBreak = error as? StreamBreak
         if let failure = (streamBreak?.underlying ?? error) as? HerdrClient.Failure,
            failure == .unconfirmedDelivery || failure == .startNotObserved {
