@@ -5,6 +5,7 @@ import Foundation
 enum HerdrSetupOutcome: Equatable, Sendable {
     case connected(server: HerdrServer, key: String?, offer: HerdrOffer)
     case sshLoginRequired(HerdrServer)
+    case sshSetupAvailable(HerdrServer, HerdrSetupProblem)
     case nothingHere(port: Int)
     case failed(String)
 }
@@ -156,7 +157,18 @@ struct SetupFlow: Equatable {
     var herdrServer: HerdrServer? { if case .connected(let server, _, _) = herdrOutcome { server } else { nil } }
     var herdrKey: String? { if case .connected(_, let key, _) = herdrOutcome { key } else { nil } }
     var herdrOffer: HerdrOffer? { if case .connected(_, _, let offer) = herdrOutcome { offer } else { nil } }
-    var herdrFailure: String? { if case .failed(let line) = herdrOutcome { line } else { nil } }
+    var herdrFailure: String? {
+        switch herdrOutcome {
+        case .failed(let line): line
+        case .sshSetupAvailable(let server, let problem): problem.line(for: server)
+        default: nil
+        }
+    }
+
+    var sshSetupTarget: HerdrServer? {
+        guard step == .herdr, herdr == herdrTested, case .sshSetupAvailable(let server, _) = herdrOutcome else { return nil }
+        return server
+    }
     /// The port nothing answered on, when this Mac has no Herdr running.
     var herdrNothingHere: Int? { if case .nothingHere(let port) = herdrOutcome { port } else { nil } }
     /// Test passed for the fields as they are now and the server has an agent program: Connect can be left.

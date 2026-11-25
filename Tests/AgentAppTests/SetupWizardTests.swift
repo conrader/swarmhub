@@ -176,6 +176,22 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     #expect(literal.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) == 0, "SetupHerdrSteps.swift passes a string literal to a control")
 }
 
+@Test func remoteSetupIsOfferedOnlyForTheTestedDestination() throws {
+    var flow = SetupFlow()
+    flow.apply(.pickHerdr(.ssh))
+    flow.herdr.sshDestination = "qa@box.example.com"
+    let server = try #require(flow.herdr.server(id: "qa-server"))
+    flow.apply(.herdrTest(.sshSetupAvailable(server, .sshNoService)))
+    #expect(flow.sshSetupTarget == server)
+    flow.herdr.sshDestination = "qa@another.example.com"
+    #expect(flow.sshSetupTarget == nil)
+    flow.herdr.sshDestination = "qa@box.example.com"
+    flow.apply(.herdrTest(.failed(HerdrSetupProblem.wrongKey.line(for: server))))
+    #expect(flow.sshSetupTarget == nil)
+    flow.apply(.herdrTest(.sshLoginRequired(server)))
+    #expect(flow.sshSetupTarget == nil)
+}
+
 @Test func theWizardGoesFromWhereToConnectToTheMainBotToMoreBots() {
     var flow = SetupFlow()
     #expect(flow.step == .welcome && flow.place == .local, "This Mac is selected to begin with")
