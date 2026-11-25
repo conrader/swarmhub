@@ -34,14 +34,20 @@ SIGNATURE_TOOL=(/usr/bin/xcrun swift "$ROOT_DIR/scripts/release-signature.swift"
 [[ "${SWARMHUB_SIGN_IDENTITY:-}" == "Developer ID Application: "* ]] || die "set SWARMHUB_SIGN_IDENTITY to your Developer ID Application certificate's name (security find-identity -v -p codesigning)."
 [[ -n "${SWARMHUB_NOTARY_PROFILE:-}" || ( -s "${SWARMHUB_NOTARY_KEY:-}" && -n "${SWARMHUB_NOTARY_KEY_ID:-}" && -n "${SWARMHUB_NOTARY_ISSUER:-}" ) ]] \
   || die "set SWARMHUB_NOTARY_PROFILE to the Keychain profile made with xcrun notarytool store-credentials, or SWARMHUB_NOTARY_KEY, SWARMHUB_NOTARY_KEY_ID and SWARMHUB_NOTARY_ISSUER to an App Store Connect API key file, its id and its issuer."
-/usr/bin/security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || die "the login Keychain is locked. Run this in a terminal on the Mac itself, not over SSH."
+/usr/bin/security show-keychain-info "${SWARMHUB_SIGN_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}" >/dev/null 2>&1 || die "the signing Keychain is inaccessible. Unlock the selected Keychain and rerun."
 if [[ -n "$(git status --porcelain --untracked-files=normal)" && "${SWARMHUB_ALLOW_DIRTY:-}" != 1 ]]; then
   die "the working tree has uncommitted changes; a release is built from a commit."
 fi
 source "$ROOT_DIR/scripts/sparkle-tools.sh"
 ensure_sparkle
-[[ "$("$SPARKLE_DIR/bin/generate_keys" --account "$SPARKLE_KEY_ACCOUNT" -p)" == "$PUBLIC_KEY" ]] \
-  || die "this Mac's Keychain does not hold the release key that Resources/Info.plist trusts. Import it (docs/updates.md); never make a new one."
+if [[ -n "${SWARMHUB_UPDATE_KEY_FILE:-}" ]]; then
+  KEY_ARGS=(--ed-key-file "$SWARMHUB_UPDATE_KEY_FILE")
+  SIGNING_PUBLIC_KEY="$("${SIGNATURE_TOOL[@]}" public "$SWARMHUB_UPDATE_KEY_FILE")"
+else
+  KEY_ARGS=(--account "$SPARKLE_KEY_ACCOUNT")
+  SIGNING_PUBLIC_KEY="$("$SPARKLE_DIR/bin/generate_keys" --account "$SPARKLE_KEY_ACCOUNT" -p)"
+fi
+[[ "$SIGNING_PUBLIC_KEY" == "$PUBLIC_KEY" ]] || die "the selected release key differs from the one trusted by installed apps."
 # Sparkle offers an update only when its build number is higher than the installed one.
 PUBLISHED="$(python3 "$ROOT_DIR/scripts/release_feed.py" previous-build "$FEED")"
 if [[ -z "$PUBLISHED" ]]; then
@@ -88,7 +94,7 @@ if [[ ${#FRAGMENTS[@]} -gt 0 ]]; then
     fi
     PROGRAMS+=("$PROGRAM")
   done
-  "$SPARKLE_DIR/bin/sign_update" --account "$SPARKLE_KEY_ACCOUNT" -p "$MANIFEST" > "$MANIFEST.sig"
+  "$SPARKLE_DIR/bin/sign_update" "${KEY_ARGS[@]}" -p "$MANIFEST" > "$MANIFEST.sig"
 else
   python3 "$ROOT_DIR/scripts/release_feed.py" carry-workspace "$FEED" "$MANIFEST"
 fi

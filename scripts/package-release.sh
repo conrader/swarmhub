@@ -107,13 +107,14 @@ fi
 if [[ -z "$SIGN_ID" ]]; then
   echo "WARNING: no Apple Development identity found; signing ad-hoc. Keychain keys will not survive rebuilds." >&2
   SIGN_ID="-"
-elif [[ "$SIGN_ID" != - ]] && ! /usr/bin/security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
-  echo "ERROR: login keychain is locked; unlock it and rerun (not falling back to ad-hoc)." >&2
+elif [[ "$SIGN_ID" != - ]] && ! /usr/bin/security show-keychain-info "${SWARMHUB_SIGN_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}" >/dev/null 2>&1; then
+  echo "ERROR: the signing Keychain is inaccessible. Unlock the selected Keychain and rerun." >&2
   exit 1
 fi
 SIGN_ARGS=(--force --sign "$SIGN_ID")
 if [[ "$SIGN_ID" != - ]]; then
   SIGN_ARGS+=(--options runtime --timestamp)
+  [[ -z "${SWARMHUB_SIGN_KEYCHAIN:-}" ]] || SIGN_ARGS+=(--keychain "$SWARMHUB_SIGN_KEYCHAIN")
 fi
 # Sign the app binary and bundle with the location entitlement for the opt-in Mac location setting.
 # Sign inside out, preserving the helpers' own identifiers and entitlements.
@@ -157,6 +158,7 @@ rm -f "$ZIP_PATH"
 NOTARY_ARGS=()
 if [[ -n "${SWARMHUB_NOTARY_PROFILE:-}" ]]; then
   NOTARY_ARGS=(--keychain-profile "$SWARMHUB_NOTARY_PROFILE")
+  [[ -z "${SWARMHUB_SIGN_KEYCHAIN:-}" ]] || NOTARY_ARGS+=(--keychain "$SWARMHUB_SIGN_KEYCHAIN")
 elif [[ -n "${SWARMHUB_NOTARY_KEY:-}" ]]; then
   NOTARY_ARGS=(--key "$SWARMHUB_NOTARY_KEY" --key-id "${SWARMHUB_NOTARY_KEY_ID:?set SWARMHUB_NOTARY_KEY_ID}" --issuer "${SWARMHUB_NOTARY_ISSUER:?set SWARMHUB_NOTARY_ISSUER}")
 fi

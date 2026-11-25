@@ -57,8 +57,8 @@ case "$(uname -m)" in
   *) die "this Mac reports the machine type $(uname -m); expected arm64 or x86_64." ;;
 esac
 IDENTITY="${SWARMHUB_SIGN_IDENTITY:-}"
-if [ -n "$IDENTITY" ] && [ "$IDENTITY" != - ] && ! /usr/bin/security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
-  die "the login Keychain is locked, so $IDENTITY cannot sign. Run this in a terminal on the Mac itself, not over SSH."
+if [ -n "$IDENTITY" ] && [ "$IDENTITY" != - ] && ! /usr/bin/security show-keychain-info "${SWARMHUB_SIGN_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}" >/dev/null 2>&1; then
+  die "the signing Keychain is inaccessible. Unlock the selected Keychain and rerun."
 fi
 for ARCH in aarch64 x86_64; do
   # shellcheck disable=SC2086
@@ -89,7 +89,10 @@ for ARCH in aarch64 x86_64; do
   [ "$(/usr/bin/lipo -archs "$FILE")" = "$SLICE" ] || die "$FILE is built for $(/usr/bin/lipo -archs "$FILE"), not for $SLICE alone."
   if [ -n "$IDENTITY" ]; then
     set -- --force --identifier com.konrad.agentapp.swarmhub-herdr --sign "$IDENTITY"
-    [ "$IDENTITY" = - ] || set -- "$@" --options runtime --timestamp
+    if [ "$IDENTITY" != - ]; then
+      set -- "$@" --options runtime --timestamp
+      [ -z "${SWARMHUB_SIGN_KEYCHAIN:-}" ] || set -- "$@" --keychain "$SWARMHUB_SIGN_KEYCHAIN"
+    fi
     /usr/bin/codesign "$@" "$FILE"
     /usr/bin/codesign --verify --strict "$FILE"
     if [ "$IDENTITY" != - ]; then
@@ -109,6 +112,7 @@ esac
 set --
 if [ -n "${SWARMHUB_NOTARY_PROFILE:-}" ]; then
   set -- --keychain-profile "$SWARMHUB_NOTARY_PROFILE"
+  [ -z "${SWARMHUB_SIGN_KEYCHAIN:-}" ] || set -- "$@" --keychain "$SWARMHUB_SIGN_KEYCHAIN"
 elif [ -n "${SWARMHUB_NOTARY_KEY:-}" ]; then
   set -- --key "$SWARMHUB_NOTARY_KEY" --key-id "${SWARMHUB_NOTARY_KEY_ID:?set SWARMHUB_NOTARY_KEY_ID}" --issuer "${SWARMHUB_NOTARY_ISSUER:?set SWARMHUB_NOTARY_ISSUER}"
 fi
