@@ -83,7 +83,7 @@ struct HerdrBackend: AgentBackend {
     var onProjectsSynced: (@Sendable () -> Void)? = nil
     /// Hears, while a turn runs, the agent's helpers as the stream reports them and whether the stream is delivering
     /// (`HerdrClient.LiveNote`): the bot's helper rows then need no polling of their own.
-    var onLive: (@Sendable (HerdrClient.LiveNote) -> Void)? = nil
+    var onLive: (@Sendable (HerdrClient.LiveNote, String?) -> Void)? = nil
     /// Set while the app is starting this bot's agent ahead of time (`AppStore+HerdrWarm.swift`): `settled` returns
     /// when that start has gone through or failed. A message waits for it, so it finds the agent instead of starting
     /// another; meanwhile the chat says that `program` is starting.
@@ -263,7 +263,7 @@ struct HerdrBackend: AgentBackend {
                     defer { modelRead.cancel() }
                     let reply = try await backend.client.replyWithActivity(to: turn, status: { continuation.yield(.status($0.code)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },
-                                                               partial: { continuation.yield(.replace($0)) }, live: { backend.onLive?($0) },
+                                                               partial: { continuation.yield(.replace($0)) }, live: { backend.onLive?($0, name == backend.agentName ? nil : name) },
                                                                published: { result in
                                                                    if let serverID = backend.serverID { continuation.yield(.published(serverID, result)) }
                                                                })

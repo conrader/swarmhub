@@ -181,10 +181,11 @@ struct HerdrHelperView: View {
         _reply = StateObject(wrappedValue: ChatMessage(role: .assistant, content: log?.latestReply(answered: helper?.answered == true) ?? ""))
     }
 
-    private var listed: HerdrClient.Helper? { store.herdrHelpers[bot.id]?.helpers.first { $0.id == selection.helperID } }
+    private var listed: HerdrClient.Helper? { store.herdrHelpers[selection.parent]?.helpers.first { $0.id == selection.helperID } }
 
     var body: some View {
         let shown = listed ?? helper
+        let unavailable = store.herdrHelperReads[selection.parent] == .unavailable
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -200,8 +201,8 @@ struct HerdrHelperView: View {
                     if !shown.runLine.isEmpty {
                         FactChip(text: shown.runLine).help(shown.difficultyLine.map { "\(bot.name) called this an \($0.lowercased()), and helpers for those run on \(shown.runLine)." } ?? "The model this helper runs on")
                     }
-                    FactChip(text: listed == nil ? "Finished" : shown.statusLine)
-                    if listed?.isLive == true {
+                    FactChip(text: unavailable ? "Status unavailable" : (listed == nil ? "Finished" : shown.statusLine))
+                    if listed?.isLive == true && !unavailable {
                         Button("Open terminal", systemImage: "terminal") {
                             terminal = HerdrTerminalTarget(agent: shown.ref, title: "\(bot.name) · \(shown.name)")
                         }.buttonStyle(.bordered).controlSize(.small).fixedSize()
@@ -212,7 +213,9 @@ struct HerdrHelperView: View {
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    if listed == nil, shown != nil {
+                    if unavailable {
+                        StatusCard(kind: .info, title: "Helper activity is unavailable.", detail: "Showing the last details received from \(store.herdrServer(for: bot).name).")
+                    } else if listed == nil, shown != nil {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
                     part("Task", symbol: "text.bubble.fill", colour: AppColor.sky) {
@@ -245,7 +248,7 @@ struct HerdrHelperView: View {
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .task(id: selection) { await follow() }
             .onChange(of: listed) { _, now in if let now { helper = now } }
-            .onChange(of: store.herdrHelpers[bot.id]?.core) { _, now in if let now { core = now } }
+            .onChange(of: store.herdrHelpers[selection.parent]?.core) { _, now in if let now { core = now } }
     }
 
     /// One part of what the helper did: a small mark and a heading, and under them the content on its own card.
@@ -282,7 +285,7 @@ struct HerdrHelperView: View {
 
     private func follow() async {
         if let listed { helper = listed }
-        if let known = store.herdrHelpers[bot.id]?.core { core = known }
+        if let known = store.herdrHelpers[selection.parent]?.core { core = known }
         // The helper's own session on the event stream; a server without one, or a stream that breaks, is polled.
         if await followStream() { return }
         while !Task.isCancelled {

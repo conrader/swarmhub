@@ -26,16 +26,17 @@ import UserNotifications
     let herdrTunnels = HerdrTunnels()
     var personTimezoneObserver: AnyCancellable?
     var personSettingsModels: [String: HerdrPersonSettings] = [:]
-    /// The helper agents each Herdr bot's agent has now, by bot (`AppStore+HerdrHelpers.swift`); the helper open in the
-    /// detail column; the poll that reads them, and the failed reads in a row per server.
-    @Published var herdrHelpers: [UUID: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
+    /// Each direct or group session's last helper listing, its read state, and the helper open in the detail column.
+    @Published var herdrHelpers: [HerdrHelperParent: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
+    @Published var herdrHelperReads: [HerdrHelperParent: HerdrHelperRead] = [:]
     var teamPolling: Task<Void, Never>?
     var teamRegistrations: [String: Task<Bool, Error>] = [:]
     var teamSynced: [String: ([HerdrClient.TeamMember], Date, Bool)] = [:]
     @Published var teamErrors: [String: String] = [:]
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
     /// The bots whose running turn is on the bridge's event stream, which owns their helper lists during the turn.
-    var herdrStreaming: Set<UUID> = []
+    var herdrStreamingParents: Set<HerdrHelperParent> = []
+    var herdrStreaming: Set<UUID> { Set(herdrStreamingParents.map(\.botID)) }
     /// A move can be undone while its record is still current and its source cleanup has finished.
     var herdrMoveInProgress = false
     var latestHerdrMoves: [UUID: UUID] = [:]

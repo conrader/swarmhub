@@ -256,6 +256,7 @@ import SwiftUI
                        HerdrClient.Helper(address: "t41", createdMs: 1, name: "design", model: "server-model-c", modelLabel: "Server model C", difficulty: "hard", task: "Propose how the importer should report partial failures.", state: "live", status: .init(state: "blocked"), answered: false)]
         store.herdrHelpers[jarvis.id] = HerdrClient.Helpers(core: "core", parent: .init(address: "t40", createdMs: 0), limit: 3, stopAfterSeconds: 60, helpers: helpers)
         store.bots = [jarvis, Bot(name: "Research", title: "Sources and links", backend: .herdr), infra]
+        for bot in store.bots { store.herdrHelperReads[bot.id] = .polled }
         let sidebar = NSSize(width: SidebarMetrics.width.ideal, height: 460)
         write(other[5], await png(AnyView(SidebarView(selection: .constant(jarvis)).frame(width: sidebar.width, height: sidebar.height)), store, sidebar))
         store.selectedBot = jarvis; store.infoTab = .overview
