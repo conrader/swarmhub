@@ -1,5 +1,6 @@
 # Changes since SwarmHub 0.8.16
 
+- Paste a screenshot into a bot or group chat with ⌘V. SwarmHub shows the image for review even when the source app also puts a caption on the clipboard.
 - See a bot’s role in its chat header and open its model settings from a labeled button. The chat, sidebar and Details panel use the dark and light colors shown in the website preview.
 - Open **Details → Team** or press ⌘2 to follow open handoffs, review recent exchanges and find scheduled CI watches. Details reopens immediately after closing, including when you switch bots.
 - Share a group from **Members → Export Team Pack…**. Under **File → New Group…**, import the file, review the bot instructions and choose a destination workspace.

@@ -540,6 +540,7 @@ os.execv(OPENCODE_BINARY, [OPENCODE_BINARY] + args)
 
 def opencode_reply(root, bridge, request, core, browser):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from base64 import b64encode
     import re
 
     focus = os.environ.get("SWARMHUB_TEST_FOCUS")
@@ -576,6 +577,28 @@ def opencode_reply(root, bridge, request, core, browser):
     cancelled = threading.Event()
     guarded = root / "permission-fixture.txt"
     guarded.write_text("A test file that requires permission.\n")
+
+    image_mode = focus == "opencode-image"
+    if image_mode:
+        png = (Path(__file__).resolve().parents[2] / "Tests/Fixtures/chat-media/render.png").read_bytes()
+        image_url = "data:image/png;base64," + b64encode(png).decode()
+        image_received = threading.Event()
+
+    def screenshot_chunks(req):
+        messages = req["messages"]
+        if any(part.get("type") == "image_url" and part["image_url"]["url"] == image_url
+               for m in messages if isinstance(m["content"], list) for part in m["content"]):
+            image_received.set()
+            return (({"role": "assistant", "content": "Received the screenshot."}, None), ({}, "stop"))
+        marker = "Attached files (name and terminal path):\n"
+        prompt = next((m["content"] for m in messages if m["role"] == "user"
+                       and isinstance(m["content"], str) and marker in m["content"]), None)
+        if prompt and not any(m["role"] == "tool" for m in messages):
+            attachments, _ = json.JSONDecoder().raw_decode(prompt.rsplit(marker, 1)[1].lstrip())
+            tool = {"index": 0, "id": "call_screenshot", "type": "function",
+                    "function": {"name": "read", "arguments": json.dumps({"path": attachments[0]["path"]})}}
+            return (({"role": "assistant", "tool_calls": [tool]}, None), ({}, "tool_calls"))
+        return (({"role": "assistant", "content": "Fixture response."}, None), ({}, "stop"))
 
     class Model(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -618,7 +641,9 @@ def opencode_reply(root, bridge, request, core, browser):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
-            if permission and any(tool["function"]["name"] == "read" for tool in request.get("tools", [])):
+            if image_mode:
+                chunks = screenshot_chunks(request)
+            elif permission and any(tool["function"]["name"] == "read" for tool in request.get("tools", [])):
                 tool = {"index": 0, "id": "call_permission_fixture", "type": "function",
                         "function": {"name": "read", "arguments": json.dumps({"path": str(guarded)})}}
                 chunks = (({"role": "assistant", "tool_calls": [tool]}, None), ({}, "tool_calls"))
@@ -654,6 +679,8 @@ def opencode_reply(root, bridge, request, core, browser):
                   "package": "@opencode/ai/providers/openai-compatible",
                   "models": {name: {"name": name.title(), "capabilities": {"tools": True}} for name in ("default", "fast", "detailed", "discovered")},
                   "settings": {"baseURL": f"http://127.0.0.1:{endpoint.server_port}/v1"}}}}
+        if image_mode:
+            config["providers"]["fixture"]["models"]["default"]["capabilities"]["input"] = ["text", "image"]
         path = root / "opencode.json"
         path.write_text(json.dumps(config))
         # Give the real renderer time to process the paste before Enter on a loaded host.
@@ -754,6 +781,21 @@ def opencode_reply(root, bridge, request, core, browser):
                 request(blocked_url + "/end", {})
 
         try:
+            if image_mode:
+                boundary = secrets.token_hex(16)
+                meta = {"name": "vision-fixture", "template": "local-model", "task": "Inspect the screenshot.", "expected_core": core}
+                body = (f'--{boundary}\r\nContent-Disposition: form-data; name="message"\r\n\r\n{json.dumps(meta)}\r\n'
+                        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="Pasted image.png"\r\n'
+                        f'Content-Type: image/png\r\n\r\n').encode() + png + f'\r\n--{boundary}--\r\n'.encode()
+                launched = request("/api/agents/with-files", body, media_type=f"multipart/form-data; boundary={boundary}", status=201, timeout=45)
+                session = f"{launched['address']}/{launched['created_ms']}"
+                try:
+                    until(lambda: any(item["kind"] == "reply" and item["text"] == "Received the screenshot."
+                                      for item in request(f"/api/history/{core}/{session}")["items"]), seconds=30)
+                    assert image_received.is_set(), "The model endpoint did not receive the uploaded PNG"
+                finally:
+                    request(f"/api/agents/{session}/end", {})
+                return
             if os.environ.get("SWARMHUB_TEST_FOCUS") in ("opencode-status", "opencode-approvals"):
                 verify_handoff()
                 return
@@ -1275,6 +1317,9 @@ def smoke(hc, bridge, chrome=None):
             return result.stdout
 
         def start_bridge(port="0", agents=None):
+            if agents is None and selected_focus == "opencode-image":
+                agents = root / "agents"
+                agents.mkdir(mode=0o700, exist_ok=True)
             process = subprocess.Popen([bridge], env={
                 # The folder bots get their private workspace folders in; without one they start in Core's.
                 **({"SWARMHUB_AGENT_CWD": str(agents)} if agents else {}),
@@ -2312,7 +2357,7 @@ def smoke(hc, bridge, chrome=None):
                     assert request("/api/drive-files/disconnect",{}) == {"configured":False}
                     assert request("/api/vault")["entries"] == []
                     return
-                if focus in ("opencode", "opencode-status", "opencode-approvals"):
+                if focus in ("opencode", "opencode-status", "opencode-approvals", "opencode-image"):
                     browser = ["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, temp] if chrome else None
                     opencode_reply(root, bridge, request, core, browser)
                     return

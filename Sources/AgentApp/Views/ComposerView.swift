@@ -212,7 +212,8 @@ struct ComposerView: View {
                   let item = PasteboardAttachments.item() else { return event }
             switch item {
             case .files(let urls): attach(urls)
-            case .image(let data, let name): pasteImage(data, name)
+            case .images(let images):
+                for image in images { pasteImage(image.data, image.name) }
             }
             return nil
         }

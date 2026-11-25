@@ -1562,6 +1562,8 @@ SWARMHUB_TEST_FOCUS=codex python3 tests/smoke.py "$(command -v hc)" "$PWD/target
 python3 tests/claude_preview.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr" "$(command -v claude)"
 # Verify OpenCode V2 through Herdr using a local mock model endpoint:
 SWARMHUB_TEST_FOCUS=opencode SWARMHUB_TEST_OPENCODE_BIN="$(command -v opencode)" python3 tests/smoke.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr" "$(command -v google-chrome)"
+# Verify that the OpenCode V2 model request carries the uploaded screenshot bytes:
+SWARMHUB_TEST_FOCUS=opencode-image SWARMHUB_TEST_OPENCODE_BIN="$(command -v opencode2 || command -v opencode)" python3 tests/smoke.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr"
 # Verify OpenCode's permission prompt and the browser terminal handoff:
 SWARMHUB_TEST_FOCUS=opencode-status SWARMHUB_TEST_OPENCODE_BIN="$(command -v opencode)" python3 tests/smoke.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr" "$(command -v google-chrome)"
 # Verify the OpenCode approval inbox and its terminal fallback:

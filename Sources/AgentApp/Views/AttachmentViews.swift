@@ -100,12 +100,31 @@ struct ImagePreviewSheet<Content: View>: View {
 
 /// Cmd+V in the composer: files and images on the pasteboard become attachments; text pastes normally.
 enum PasteboardAttachments {
-    enum Item { case files([URL]), image(Data, String) }
+    struct Image { let data: Data; let name: String }
+    enum Item { case files([URL]), images([Image]) }
+
     static func item(from pasteboard: NSPasteboard = .general) -> Item? {
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty { return .files(urls) }
-        guard pasteboard.string(forType: .string) == nil else { return nil }
-        if let png = pasteboard.data(forType: .png) { return .image(png, "Pasted image.png") }
-        if let tiff = pasteboard.data(forType: .tiff), let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) { return .image(png, "Pasted image.png") }
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return item(files: urls, items: pasteboard.pasteboardItems ?? [])
+    }
+
+    static func item(files: [URL], items: [NSPasteboardItem]) -> Item? {
+        if !files.isEmpty { return .files(files) }
+        let images = items.compactMap(image(from:))
+        return images.isEmpty ? nil : .images(images)
+    }
+
+    private static func image(from item: NSPasteboardItem) -> Image? {
+        // An image may also carry a text caption or source URL. Pick one image representation per item.
+        for type in [UTType.png, .jpeg, .gif, .webP] {
+            if let data = item.data(forType: NSPasteboard.PasteboardType(type.identifier)),
+               let ext = type.preferredFilenameExtension {
+                return Image(data: data, name: "Pasted image." + ext)
+            }
+        }
+        if let tiff = item.data(forType: .tiff), let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            return Image(data: png, name: "Pasted image.png")
+        }
         return nil
     }
 }

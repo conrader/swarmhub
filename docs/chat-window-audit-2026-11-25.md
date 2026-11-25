@@ -197,7 +197,7 @@ The features page also advertises several workflows beyond the four home-page ex
 | --- | --- |
 | Unified attention queue and keyboard decisions | Activity leads to pending direct and group approval cards. Keyboard decisions also work inside Activity. With another chat open, the two-Mac driver inspected the shell arguments and pressed ⌘Return or ⌘Delete on separate runs. The workspace received each decision. |
 | Scoped rules and cross-model command review | The bridge supports expiring exact-read approvals. The review and execution of a risky terminal command by a separately selected reviewer was not verified. |
-| Paste screenshots into four providers | Image intake, local previews and media recovery were tested. Recognition of a pasted image by all four signed-in providers remains unverified. |
+| Paste screenshots into four providers | Codex, Claude Code and Antigravity each read a random code from an image pasted into the Mac chat. Gemini CLI and OpenCode V2 each sent the original PNG bytes to a local test endpoint. Live recognition through Google’s standalone Gemini CLI and OpenRouter remains unverified. |
 | Routines, webhooks and Pages | The Mac has a routines editor and artifact library. Workspace and Swift suites exercise these paths. This pass did not use an external webhook service. |
 | Context and spend limits, interactive helpers | The Mac exposes goals and read-only helper sessions. Live cost accounting, per-goal spend ceilings and promotion of a running helper were not demonstrated. |
 | SSH bootstrap, iPhone approvals and Team Packs | The two-Mac runs used an existing SSH connection. In Safari on a simulated iPhone 17e, the driver unlocked the live workspace, opened Review in chat, inspected a real Codex shell request and tapped Allow once. The native Mac driver exported two bots from a group, reviewed the pack and created a new group from the JSON. Each imported bot had the expected instructions, a new identity and an empty chat. The standalone native iPhone app remains unverified. |
@@ -213,6 +213,14 @@ With the CLI paused during model enumeration, a second request for the same cata
 In a separate Linux run, OpenCode 2.4.1 listed four models from a local OpenAI-compatible provider without requesting inference. In Chrome, the test launched an OpenCode bot, approved its command once, checked that the reply was saved and verified that a second permission request returned to the terminal. Live OpenRouter account access remains unverified.
 
 The same native test pass found a keyboard search issue. In a list of 21 results, scrolling the keyboard highlight under a stationary pointer could change the result selected by Return. A failing run opened message 133 after ten Down Arrow presses from message 148. The fixed run opened message 138, then navigated to imported group and bot messages. [Repeat the Mac checks](agent-qa.md#use-the-real-mac-window)
+
+## Pasting a screenshot with a text caption
+
+In a disposable MacBook window, the driver pressed ⌘V with an image and its text description on the same clipboard item. The original composer inserted “Clipboard label” and discarded the screenshot. With the fix, a preview appeared and the text field stayed empty. The run used a private pasteboard.
+
+For each live trial, the driver pasted a different PNG, typed the same question and pressed Send. Each six-character code appeared only in the pixels. Codex, Claude Code and Antigravity all returned their own codes. The saved attachment and the file staged in each remote bot’s workspace matched the original by SHA-256.
+
+In a fourth Mac window, the driver selected the standalone Gemini CLI, pasted the image and sent it to a Linux workspace. Gemini CLI 0.71.1 sent the matching PNG as inline image data to a local Google-compatible test endpoint, and the endpoint’s reply appeared in chat. A separate live Google attempt stopped at its OAuth sign-in prompt. On Linux, an OpenCode 2.4.1 integration test uploaded a PNG in a first message, observed an image part with the exact bytes at the local model endpoint, and found the endpoint’s reply in the workspace journal. Neither endpoint test measures a live model’s image recognition.
 
 ## Product comparison and remaining checks
 
