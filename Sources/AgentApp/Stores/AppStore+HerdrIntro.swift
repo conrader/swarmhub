@@ -46,7 +46,7 @@ extension AppStore {
               let reply = bot.messages.last(where: { $0.role == .assistant && $0.presentation == .text }), !reply.isStreaming else { return [] }
         let handled = Set(defaults.stringArray(forKey: Self.aboutYouHandledKey) ?? [])
         let known = aboutYou.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-        return HerdrAboutYou.additions(in: reply.content).enumerated().compactMap { index, line in
+        return HerdrAboutYou.additions(in: TurnReplyText.complete(reply, in: bot)).enumerated().compactMap { index, line in
             let id = "\(reply.id.uuidString.lowercased())#\(index)"
             return handled.contains(id) || known.contains(line.lowercased()) ? nil : PendingAboutYou(id: id, text: line)
         }

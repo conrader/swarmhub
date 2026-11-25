@@ -19,8 +19,8 @@ import Testing
         await backend.end()
         try await waitUntil { store.isIdle(bot) }
 
-        #expect(bot.messages[1].content == "42 km." && bot.messages[1].turnState == .finished)
-        #expect(bot.messages[1].activity == nil)
+        #expect(bot.messages.map(\.content) == ["go", "use metric", "round the numbers", "42 km."])
+        #expect(bot.messages.last?.turnState == .finished && bot.messages.last?.activity == nil)
         #expect([first, second].map { $0.metadata[SteerKey.steer] } == ["delivered", "delivered"])
         #expect([first, second].map { SteerCopy.caption($0) } == ["Delivered", "Delivered"])
         let saved = try StoreFile.decode(Data(contentsOf: url))
@@ -98,6 +98,7 @@ import Testing
         await backend.releaseSteers()
         try await waitUntil { bubble.metadata[SteerKey.steer] != "sent" }
         #expect(bubble.metadata[SteerKey.steer] == "delivered")
+        #expect(bot.messages.map(\.content) == ["go", "42 km.", "use metric"], "a late receipt cannot date text already visible")
     }
 
     @Test func aGroupMemberDeliversQueuedSteersWhenItsReplyFinishes() async throws {
@@ -112,10 +113,16 @@ import Testing
         let bubble = try #require(group.messages.last)
         try await waitUntil { bubble.metadata[SteerKey.steer] == "delivered" }
 
+        group.messages.append(ChatMessage(role: .assistant, content: "Other member finished", authorID: other.id))
         await backend.emit(.replace("42 km."), .completed)
         await backend.end()
         try await waitUntil { store.isIdle(group) }
         #expect(bubble.metadata[SteerKey.steer] == "delivered")
+        let next = ChatMessage(role: .user, content: "Next question")
+        let context = try GroupRouting.herdrContext(for: .init(id: bot.id, name: bot.name), groupName: group.name,
+            members: store.routingMembers(of: group), messages: group.messages + [next], current: next, limit: 8_000, userName: "Tester")
+        #expect(context.contains("Other: Other member finished") && !context.contains("42 km."))
+        #expect(context.hasSuffix("Tester: Next question"))
     }
 
     @Test func reopeningSettlesOrphanedSteersAndSavesTheirStates() throws {

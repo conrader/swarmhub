@@ -49,3 +49,29 @@ import Testing
     await backend.emit(.completed); await backend.end()
     try await waitUntil { !store.anyTurnRunning && !store.hasWaitingTurn(in: bot) }
 }
+
+@MainActor @Test(arguments: [true, false]) func steeringTheFirstQueuedTurnKeepsItsReplyAheadOfTheNextTurn(partial: Bool) async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    let busy = Bot(name: "Busy")
+    store.bots.append(busy)
+    store.setTotalTurnLimit(1)
+    let blocker = store.beginTurn(in: busy, bot: busy, assistant: nil)
+    #expect(store.send(text: "First") && store.send(text: "Second"))
+    store.endTurn(blocker.token)
+    store.sendQueuedNextMessage()
+    try await waitUntil { store.canSteer(in: bot) }
+    if partial {
+        await backend.emit(.token("Before."))
+        try await waitUntil { store.soleTurn?.assistant?.content == "Before." }
+    }
+    #expect(store.send(text: "Correction"))
+    try await waitUntil { bot.messages.contains { $0.metadata[SteerKey.steer] == "delivered" } }
+    await backend.emit(.token("First answer"), .completed); await backend.end()
+    try await backend.calls.wait { $0.contains("send:Second") }
+    await backend.emit(.token("Second answer"), .completed); await backend.end()
+    try await waitUntil { store.isIdle(bot) }
+    let expected = ["First"] + (partial ? ["Before."] : []) + ["Correction", "First answer", "Second", "Second answer"]
+    #expect(bot.messages.map(\.content) == expected)
+    #expect(await backend.calls.all == ["send:First", "steer:Correction", "send:Second"])
+}

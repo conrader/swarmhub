@@ -56,6 +56,33 @@ enum ChatCardParser {
         return interpretCards ? markTrailingChoices(blocks, preservingWhitespace: preservingProseWhitespace) : blocks
     }
 
+    /// First cut at or after the receipt that keeps a fenced block in one bubble.
+    /// An unfinished block continues in its original row until its closing line arrives.
+    static func steerBoundary(in text: String, after prefix: String) -> String.Index? {
+        let cut = text.index(text.startIndex, offsetBy: prefix.count)
+        guard prefix.contains("`") || prefix.contains("~") else { return cut }
+        var lineStart = text.startIndex
+        while lineStart < cut {
+            let lineEnd = text[lineStart...].firstIndex(of: "\n") ?? text.endIndex
+            let next = lineEnd == text.endIndex ? lineEnd : text.index(after: lineEnd)
+            guard let fence = fenceOpening(String(text[lineStart..<lineEnd]), includingTildeFences: true) else {
+                lineStart = next
+                continue
+            }
+            lineStart = next
+            var closed = false
+            while lineStart < text.endIndex {
+                let end = text[lineStart...].firstIndex(of: "\n") ?? text.endIndex
+                closed = closesFence(String(text[lineStart..<end]), mark: fence.mark, length: fence.length)
+                lineStart = end == text.endIndex ? end : text.index(after: end)
+                if closed { break }
+            }
+            if !closed { return nil }
+            if lineStart >= cut { return lineStart }
+        }
+        return cut
+    }
+
     private static func fenceOpening(_ line: String, includingTildeFences: Bool) -> (mark: Character, length: Int, info: String)? {
         let trimmed = line.drop { $0 == " " }
         guard line.count - trimmed.count <= 3, let mark = trimmed.first, mark == "`" || (includingTildeFences && mark == "~") else { return nil }

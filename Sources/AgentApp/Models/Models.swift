@@ -46,6 +46,9 @@ struct RunSummary: Codable, Equatable, Sendable {
 
 final class ChatMessage: ObservableObject, Identifiable, Codable {
     let id: UUID; let role: MessageRole; @Published var content: String; let createdAt: Date
+    /// First output after a delivered steer when this row reused an empty placeholder.
+    var continuedAt: Date?
+    var transcriptDate: Date { continuedAt ?? createdAt }
     @Published var isStreaming: Bool; var presentation: MessagePresentation; @Published var metadata: [String: String]
     @Published var reactions: [String]; var replyToID: UUID?; var attachments: [ChatAttachment]
     /// Group chats: the bot that wrote an assistant message (nil = the user, or a one-bot chat).
@@ -61,11 +64,12 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
         self.turnState = turnState
     }
-    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary, publishedResults }
+    enum CodingKeys: CodingKey { case id, role, content, createdAt, continuedAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary, publishedResults }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); role = try c.decode(MessageRole.self, forKey: .role)
         content = try c.decode(String.self, forKey: .content); createdAt = try c.decode(Date.self, forKey: .createdAt)
+        continuedAt = try c.decodeIfPresent(Date.self, forKey: .continuedAt)
         presentation = try c.decodeIfPresent(MessagePresentation.self, forKey: .presentation) ?? .text
         metadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
         reactions = try c.decodeIfPresent([String].self, forKey: .reactions) ?? []
@@ -82,6 +86,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self); try c.encode(id, forKey: .id); try c.encode(role, forKey: .role)
         try c.encode(content, forKey: .content); try c.encode(createdAt, forKey: .createdAt); try c.encode(presentation, forKey: .presentation)
+        try c.encodeIfPresent(continuedAt, forKey: .continuedAt)
         try c.encode(metadata, forKey: .metadata)
         try c.encode(reactions, forKey: .reactions); try c.encodeIfPresent(replyToID, forKey: .replyToID)
         if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
@@ -165,7 +170,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         offersReleaseNotesExample = try c.decodeIfPresent(Bool.self, forKey: .offersReleaseNotesExample) ?? false
         canManageBots = try c.decodeIfPresent(Bool.self, forKey: .canManageBots) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
-        messages = try c.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
+        messages = TranscriptHistory.restoring(try c.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? [])
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
         avatarMark = (try? c.decodeIfPresent(AvatarMark.self, forKey: .avatarMark)) ?? nil
         if avatarMark == nil, let migrated = AvatarMigration.mark(avatarName: avatarName, accentColor: accentColor, grokSourceID: grokSourceID) {

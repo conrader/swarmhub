@@ -156,7 +156,8 @@ extension AppStore {
     private func stop(_ turn: ConversationTurn) {
         let conversation = turn.conversation
         // The slot stays until the turn's task ends (`endTurn`), as the one app-wide slot did before P39.
-        turns.textBuffers[conversation.id]?.flush()
+        let bufferID = conversation is GroupChat ? steerOrigin(turn) : conversation.id
+        if let bufferID { turns.textBuffers[bufferID]?.flush() }
         turn.stopping = true; turn.groupRun?.stopped = true
         let streamToken = turn.token
         let bot = turn.botID.flatMap { id in bots.first { $0.id == id } }

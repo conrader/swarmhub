@@ -48,13 +48,13 @@ extension AppStore {
     func pendingHerdrModels(for bot: Bot) -> [PendingHerdrModel] {
         guard createsHerdrBots(bot), isIdle(bot),
               let newest = bot.messages.suffix(60).last(where: { $0.role == .assistant && $0.presentation == .text && !$0.isStreaming }) else { return [] }
-        return herdrModelRequests(in: newest).filter { !herdrSettling.contains($0.id) }
+        return herdrModelRequests(in: newest, of: bot).filter { !herdrSettling.contains($0.id) }
     }
 
     /// The unhandled model requests of one reply.
-    func herdrModelRequests(in reply: ChatMessage) -> [PendingHerdrModel] {
+    func herdrModelRequests(in reply: ChatMessage, of bot: Bot) -> [PendingHerdrModel] {
         let handled = Set(defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? [])
-        return HerdrModelRequest.requests(in: reply.content).enumerated().compactMap { index, request in
+        return HerdrModelRequest.requests(in: TurnReplyText.complete(reply, in: bot)).enumerated().compactMap { index, request in
             let id = "\(reply.id.uuidString.lowercased())#\(HerdrModelRequest.op)#\(index)"
             return handled.contains(id) ? nil : PendingHerdrModel(id: id, request: request)
         }

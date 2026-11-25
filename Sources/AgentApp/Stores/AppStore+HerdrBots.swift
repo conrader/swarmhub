@@ -78,7 +78,12 @@ extension AppStore {
     /// stay until the person answers, because that bot is waiting. Nothing the app is creating right now is offered.
     func pendingHerdrBots(for bot: Bot) -> [PendingHerdrBot] {
         guard createsHerdrBots(bot) else { return [] }
-        let replies = bot.messages.suffix(60).filter { $0.role == .assistant && $0.presentation == .text && !$0.isStreaming }
+        var seenTurns: Set<String> = []
+        let replies = bot.messages.suffix(60).reversed().filter { row in
+            guard row.role == .assistant, row.presentation == .text else { return false }
+            if let id = TurnReplyText.turnID(of: row), !seenTurns.insert(id).inserted { return false }
+            return !row.isStreaming
+        }.reversed()
         guard let newest = replies.last else { return [] }
         return replies.flatMap { reply -> [PendingHerdrBot] in
             let asker = herdrPassedOnRequest(answeredBy: reply, in: bot)?.metadata[HerdrBotRelay.Key.asker].flatMap(UUID.init(uuidString:))
@@ -91,7 +96,7 @@ extension AppStore {
     func herdrRequests(in reply: ChatMessage, of bot: Bot, askerID: UUID? = nil) -> [PendingHerdrBot] {
         let handled = Set(defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? [])
         let names = Set(herdrBots(on: herdrServer(for: bot)).map { $0.name.lowercased() })
-        return HerdrBotRequest.requests(in: reply.content).compactMap { request in
+        return HerdrBotRequest.requests(in: TurnReplyText.complete(reply, in: bot)).compactMap { request in
             let id = Self.herdrRequestID(reply.id, request)
             return handled.contains(id) ? nil : PendingHerdrBot(id: id, request: request, taken: names.contains(request.name.lowercased()), askerID: askerID)
         }
@@ -202,8 +207,13 @@ extension AppStore {
 
     // MARK: When a reply ends
 
-    /// The user messages a reply answers: those between it and the reply before it.
+    /// A local reply keeps its original trigger even when later receipts or queued relays precede its continuation.
     func herdrTriggers(of reply: ChatMessage, in bot: Bot) -> [ChatMessage] {
+        if let trigger = reply.metadata[TurnKey.forUser] {
+            return bot.messages.first { $0.role == .user && $0.id.uuidString == trigger }.map { [$0] } ?? []
+        }
+        guard reply.metadata["herdrTeamEntry"] == nil else { return [] }
+        // Older local turns have no explicit trigger.
         guard let index = bot.messages.firstIndex(where: { $0.id == reply.id }) else { return [] }
         let before = bot.messages[..<index]
         let start = before.lastIndex { $0.role == .assistant && $0.presentation == .text }.map { $0 + 1 } ?? before.startIndex
@@ -224,8 +234,9 @@ extension AppStore {
         herdrReadiness[bot.id] = finished ? .ready : nil
         let triggers = herdrTriggers(of: reply, in: bot)
         // What it wrote to other bots is delivered, and its answer to another bot's message goes back (`AppStore+HerdrMessages.swift`).
+        let text = TurnReplyText.complete(reply, in: bot)
         let managed = bridgeCoordinates(bot)
-        if !managed { herdrMessagesEnded(reply, from: bot, triggers: triggers, finished: finished) }
+        if !managed { herdrMessagesEnded(text, from: bot, triggers: triggers, finished: finished) }
         if createsHerdrBots(bot) {
             let request = triggers.first { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.request }
             guard finished else {
@@ -234,16 +245,16 @@ extension AppStore {
                 return
             }
             // A change of the bots' models it asks for is applied or left for the person (`AppStore+HerdrModels.swift`).
-            let models = herdrModelRequests(in: reply)
+            let models = herdrModelRequests(in: reply, of: bot)
             if !models.isEmpty {
                 herdrSettling.formUnion(models.map(\.id))
                 Task { await settleHerdrModels(models, main: bot, triggers: triggers) }
             }
             let waiting = herdrRequests(in: reply, of: bot, askerID: herdrAsker(of: request)?.id)
             herdrSettling.formUnion(waiting.map(\.id))
-            Task { await settleHerdrReply(reply, main: bot, waiting: waiting, request: request) }
+            Task { await settleHerdrReply(text, main: bot, waiting: waiting, request: request) }
         } else if !managed, finished, triggers.allSatisfy({ HerdrBotRelay.mayAsk(replyingTo: $0.metadata) }) {
-            passOnHerdrAsks(HerdrBotAsk.asks(in: reply.content), from: bot)
+            passOnHerdrAsks(HerdrBotAsk.asks(in: text), from: bot)
         }
     }
 
@@ -254,7 +265,7 @@ extension AppStore {
     /// The main bot's finished reply: each bot it decided is created now (unless its person confirms every bot, or it
     /// has created `HerdrBotRelay.createLimit` already within the window); the rest wait for the person. When the
     /// reply answers another bot's request, that bot is told what came of it.
-    func settleHerdrReply(_ reply: ChatMessage, main: Bot, waiting: [PendingHerdrBot], request: ChatMessage?) async {
+    func settleHerdrReply(_ text: String, main: Bot, waiting: [PendingHerdrBot], request: ChatMessage?) async {
         defer { herdrSettling.subtract(waiting.map(\.id)); objectWillChange.send() }
         var outcomes: [HerdrBotRelay.Outcome] = []
         for pending in waiting {
@@ -268,7 +279,7 @@ extension AppStore {
         }
         guard let request, let asker = herdrAsker(of: request) else { save(); return }
         let asked = request.metadata[HerdrBotRelay.Key.name]
-        let verdict = HerdrBotRelay.verdicts(in: reply.content, visible: SwarmhubBlock.visibleText(reply.content))
+        let verdict = HerdrBotRelay.verdicts(in: text, visible: SwarmhubBlock.visibleText(text))
         outcomes += verdict.declines.map { .declined($0.name ?? asked, reason: $0.reason) }
         if outcomes.isEmpty, let words = verdict.words { outcomes.append(.answered(words.isEmpty ? "(nothing)" : words)) }
         herdrPassOn(HerdrBotRelay.answer(from: main.name, outcomes), to: asker, kind: HerdrBotRelay.outcome, asker: asker, name: asked)

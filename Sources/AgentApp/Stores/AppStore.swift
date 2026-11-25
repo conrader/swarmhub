@@ -366,7 +366,7 @@ import UserNotifications
     @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?, waitWhenFull: Bool = false,
                                  metadata: [String: String] = [:]) -> Bool {
         guard storeRestoreOffer == nil, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
+        let user = ChatMessage(role: .user, content: text, createdAt: now(), metadata: metadata, replyToID: replyToID, attachments: attachments)
         if bot.backend == .herdr, !validateHerdrDraft(user.modelText, attachments: attachments, bot: bot) { return false }
         guard bots.contains(where: { $0 === bot }), conversation === bot else { return false }
         if let id = replyToID, user.metadata[ChoiceReply.quoteKey] == nil,
@@ -453,7 +453,7 @@ import UserNotifications
         let files: [HerdrClient.TaskFile]
         do { files = herdr ? try user.attachments.map(attachmentEncoder.taskFile(for:)) : [] }
         catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return }
-        let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
+        let assistant = ChatMessage(role: .assistant, content: "", createdAt: now(), isStreaming: true, metadata: [TurnKey.forUser: user.id.uuidString], turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
         turn.goalAttempt = user.metadata[GoalKey.attempt].flatMap(UUID.init(uuidString:))
