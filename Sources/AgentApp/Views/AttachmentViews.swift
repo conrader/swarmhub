@@ -34,7 +34,7 @@ struct AttachmentTile: View {
     let attachment: ChatAttachment; let size: CGFloat; var remove: (() -> Void)? = nil
     @State private var previewing = false
     var body: some View {
-        Button { previewing = true } label: { tile }.buttonStyle(.plain).help(attachment.summary.map { "\(attachment.name)\n\($0)" } ?? attachment.name)
+        Button { previewing = true } label: { tile }.buttonStyle(.plain).accessibilityLabel("Preview " + attachment.name).help(attachment.summary.map { "\(attachment.name)\n\($0)" } ?? attachment.name)
             .overlay(alignment: .topTrailing) {
                 if let remove { Button(action: remove) { Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary).background(Circle().fill(AppColor.chat)) }.buttonStyle(.plain).padding(3).help("Remove") }
             }

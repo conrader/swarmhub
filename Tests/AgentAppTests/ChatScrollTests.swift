@@ -74,3 +74,23 @@ import Testing
     #expect(model.jumpLabel(chat) == nil && model.positions[chat] == nil && model.arrived(chat, count: 1), "the sent message is followed")
     #expect(model.open(chat, shown: [row]) == .newest)
 }
+
+@MainActor @Test func longChatsLayOutTheSavedMessageAndJumpDirectlyToTheNewestPage() {
+    let model = ChatScrollModel(), viewport = ChatViewport(), chat = UUID()
+    let rows = (0..<486).map { _ in UUID() }
+    model.saw(chat, top: rows[242], atBottom: false)
+    viewport.show(chat, order: rows, model: model)
+    #expect(viewport.range.contains(242))
+    #expect(viewport.range.count <= ChatViewport.pageSize)
+    viewport.latest()
+    #expect(viewport.range.last == 485 && !viewport.hasLater && viewport.hasEarlier)
+    let first = viewport.range.lowerBound
+    viewport.earlier()
+    #expect(viewport.range.last == first)
+    viewport.later()
+    #expect(viewport.range.first == first)
+    viewport.jump(to: rows[2])
+    #expect(viewport.range.contains(2) && !viewport.hasEarlier)
+    model.saw(chat, top: nil, atBottom: false)
+    #expect(model.positions[chat] == nil && model.follows(chat))
+}

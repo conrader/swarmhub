@@ -31,7 +31,8 @@ import Foundation
     func saw(_ id: UUID, top: UUID?, atBottom: Bool) {
         guard !opening.contains(id) else { return }
         if atBottom { positions[id] = nil; setAway(id, nil); return }
-        if let top { positions[id] = top }
+        guard let top else { return }
+        positions[id] = top
         if away[id] == nil { setAway(id, 0) }
     }
 

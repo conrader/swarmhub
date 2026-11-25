@@ -82,22 +82,22 @@ struct ComposerView: View {
             // label's frame), and the slots sit on the draft's last line as it grows.
             HStack(alignment: .bottom, spacing: ComposerMetrics.spacing) {
                 Button { importing = true } label: { Image(systemName: "paperclip").frame(width: ComposerMetrics.control, height: ComposerMetrics.control).contentShape(Rectangle()) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Attach images or documents")
+                    .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Attach files").help("Attach images, videos or documents")
                     .composerSlot("composer_attach")
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus") }.composerSlot("composer_manage") }
                 input.chromeProbe("composer_input")
                 if isStreaming && hasContent {
                     Button(action: submit) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(followUpHelp)
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).accessibilityLabel(followUpHelp).help(followUpHelp)
                         .disabled(!reading.isEmpty).composerSlot("composer_steer")
                 }
                 if isStreaming {
                     Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).help("Stop")
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).accessibilityLabel("Stop response").help("Stop")
                         .composerSlot("composer_send")
                 } else {
                     Button(action: submit) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).disabled(!hasContent || !reading.isEmpty)
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).accessibilityLabel("Send message").help("Send message").disabled(!hasContent || !reading.isEmpty)
                         .composerSlot("composer_send")
                 }
             }

@@ -5,13 +5,13 @@ struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
     @State private var draft = ""; private var intake: AttachmentIntake { store.attachmentIntake(for: group.id) }
     @State private var verifyingAttachmentSupport = false
-    @State private var viewport = ChatViewport()
+    @StateObject private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
         let members = store.members(of: group), shown = group.messages.filter { !$0.isSilent }
-        let _ = viewport.show(group.id, order: shown.map(\.id))
+        let _ = viewport.show(group.id, order: shown.map(\.id), model: store.chatScroll)
         let appStore = store, groupName = group.name
         let _ = selection.show(rows: shown, conversation: group.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: groupName) }
         VStack(spacing: 0) {
@@ -26,20 +26,22 @@ struct GroupChatView: View {
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        Color.clear.frame(height: 20)
-                        if group.grokSourceID != nil { GrokHistoryView(archiveID: group.id, count: group.grokHistoryCount, ownerName: group.name, expanded: historyExpanded) }
+                    VStack(spacing: 0) {
+                        ChatTopMarker()
+                        if !viewport.hasEarlier, group.grokSourceID != nil { GrokHistoryView(archiveID: group.id, count: group.grokHistoryCount, ownerName: group.name, expanded: historyExpanded) }
                         if group.messages.isEmpty { Text("Message everyone, or address one bot with @name.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 12) }
-                        ForEach(shown) { message in
+                        if viewport.hasEarlier { HistoryPageButton(earlier: true, action: viewport.earlier) }
+                        ForEach(shown[viewport.range]) { message in
                             GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
-                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id).chatRow(message.id, in: viewport)
+                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id).chatRow(message.id)
                                 .selectableMessage(message.id, in: selection)
                         }
-                        ChatBottomMarker(viewport: viewport, conversationID: group.id)
+                        if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
+                        ChatBottomMarker()
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection)
-                }.id(group.id).background(AppColor.chat)
+                }.trackChatViewport(viewport).id(group.id).background(AppColor.chat)
                 // ⌘/⇧-click picks rows, ⌘C copies them; another group starts with none picked.
-                .messageSelection(selection).onChange(of: group.id) { _, _ in selection.clear() }
+                .messageSelection(selection, viewport: viewport).onChange(of: group.id) { _, _ in selection.clear() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
                 // The message box floats at the bottom: the transcript passes beneath it.
                 .floatingBar(edge: .bottom, backing: AppColor.chat) {
@@ -68,11 +70,11 @@ struct GroupChatView: View {
         }
                     }
                     .frame(maxWidth: .infinity).glassGroup(spacing: 4)
-                    .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy).alignmentGuide(.top) { $0[.bottom] } }
+                    .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, action: viewport.latest).alignmentGuide(.top) { $0[.bottom] } }
                 }
-                .task(id: group.id) { await viewport.open(group.id, model: store.chatScroll, proxy: proxy) }
+                .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
-                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy, follow: !selection.characters.holdsScroll) }
+                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
             }
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in

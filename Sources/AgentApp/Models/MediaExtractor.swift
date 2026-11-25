@@ -2,7 +2,7 @@ import Foundation
 
 /// One entry of the Media tab: an attachment, an image or a link found in a bot's transcripts.
 struct MediaItem: Identifiable, Equatable {
-    enum Kind: String, Equatable { case image, file, link }
+    enum Kind: String, Equatable { case image, video, file, link }
     let id: String; let kind: Kind; let title: String
     /// Remote/data URL for links and Markdown images; nil for stored attachments.
     let url: String?
@@ -22,10 +22,21 @@ enum MediaExtractor {
     static func items(in messages: [ChatMessage]) -> [MediaItem] {
         messages.flatMap { message -> [MediaItem] in
             var found: [(MediaItem.Kind, String, String?, ChatAttachment?)] = []
-            for attachment in message.attachments { found.append((attachment.kind == .image ? .image : .file, attachment.name, nil, attachment)) }
+            for attachment in message.attachments {
+                let kind: MediaItem.Kind = switch attachment.kind {
+                case .image: .image
+                case .video: .video
+                case .text: .file
+                }
+                found.append((kind, attachment.name, nil, attachment))
+            }
             if let published = message.publishedResults?.items {
                 for item in published {
-                    let kind: MediaItem.Kind = item.kind == .file && ChatMediaKind(filename: item.title) == .image ? .image : .file
+                    let kind: MediaItem.Kind = switch item.kind == .file ? ChatMediaKind(filename: item.title) : nil {
+                    case .image: .image
+                    case .video: .video
+                    default: .file
+                    }
                     found.append((kind, item.title, nil, nil))
                 }
             }

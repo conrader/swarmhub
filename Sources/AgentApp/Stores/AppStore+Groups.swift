@@ -14,6 +14,13 @@ extension AppStore {
 
     func members(of group: GroupChat) -> [Bot] { group.memberIDs.compactMap { id in bots.first { $0.id == id } } }
     func routingMembers(of group: GroupChat) -> [GroupRouting.Member] { members(of: group).filter { !$0.isReadOnlyArchive }.map { .init(id: $0.id, name: $0.name) } }
+    /// A sample-only workspace can try group chats. Once real bots are available, prefer them.
+    func groupCandidates(including selected: Set<UUID> = []) -> [Bot] {
+        let writable = bots.filter { !$0.isReadOnlyArchive }
+        let hasRealBots = writable.contains { !$0.isDemo }
+        return writable.filter { !$0.isDemo || selected.contains($0.id) || (!hasRealBots && !$0.isHidden) }
+    }
+
     func defaultGroupName(_ memberIDs: [UUID]) -> String {
         ([userName] + memberIDs.compactMap { id in bots.first { $0.id == id }?.name }).joined(separator: ", ")
     }
@@ -52,7 +59,6 @@ extension AppStore {
     }
 
     func open(_ group: GroupChat, remember: Bool = true) {
-        if selectedGroup?.id != group.id { replyTo = nil }
         selectedGroup = group
         if remember { rememberSelection(group: group) }
         if group.isUnread { group.unreadCount = 0; group.manualUnread = false; save() }
@@ -110,7 +116,7 @@ extension AppStore {
         }
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
-        let message = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
+        let message = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: sourceMessageID ?? draftReplyIDs[group.id], attachments: attachments)
         let mentioned = GroupRouting.mentions(in: text, members: GroupRouting.mentionable(members))
         let source = message.replyToID.flatMap { id in group.messages.first { $0.id == id } }
         guard message.replyToID == nil || source != nil else { errorMessage = "The original group message is unavailable."; return false }
@@ -153,7 +159,7 @@ extension AppStore {
                     else { startGroupMember(bot, in: group, trigger: row, images: images) }
                 }
             }
-            replyTo = nil
+            draftReplyIDs[group.id] = nil
             return true
         }
         let recipients = targeted ?? GroupRouting.recipients(of: text, members: members)
@@ -174,7 +180,7 @@ extension AppStore {
             message.metadata[TurnWaitCopy.recipients] = targeted.map(\.uuidString).joined(separator: ",")
         }
         captureAttachments(message, readers: recipients)
-        group.messages.append(message); replyTo = nil
+        group.messages.append(message); draftReplyIDs[group.id] = nil
         if let reason = full ?? (hasWaitingTurn(in: group) ? TurnWaitCopy.behind : nil) { return waitForTurn(message, in: group, reason: reason) }
         return startGroupRound(group, message: message, recipients: recipients, images: images)
     }

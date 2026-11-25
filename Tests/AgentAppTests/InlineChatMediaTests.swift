@@ -31,6 +31,7 @@ import Testing
     #expect(upload.kind == .video && payload.data == clip)
     let sent = ChatMessage(role: .user, content: "Review my clip.")
     sent.attachments = [upload]
+    #expect(MediaExtractor.items(in: [sent]).first?.kind == .video)
 
     _ = NSApplication.shared
     let size = NSSize(width: 700, height: 840)
