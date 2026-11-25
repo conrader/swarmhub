@@ -326,8 +326,11 @@ extension AppStore {
             }
             do {
                 var list: HerdrClient.Helpers?
-                if let agent { list = try await client.helpers(of: agent, in: workspace) }
-                results[parent] = .success(list?.helpers.isEmpty == false ? list : nil)
+                if let agent {
+                    let readingChat = parent.groupRuntime == nil && selectedGroup == nil && selectedBot?.id == parent.botID
+                    list = try await client.helpers(of: agent, in: workspace, includeLastResult: readingChat)
+                }
+                results[parent] = .success(list?.helpers.isEmpty == false || list?.lastResult != nil ? list : nil)
             } catch {
                 results[parent] = .unavailable
             }
@@ -399,7 +402,7 @@ extension AppStore {
                 return
             }
             helperListingFailures[parent] = nil
-            let shown = list.helpers.isEmpty ? nil : list
+            let shown = list.helpers.isEmpty && list.lastResult == nil ? nil : list
             if herdrHelpers[parent] != shown { herdrHelpers[parent] = shown }
             if herdrHelperReads[parent] != .streamed { herdrHelperReads[parent] = .streamed }
         }

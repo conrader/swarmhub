@@ -169,3 +169,15 @@ private let listingJSON = """
     let fresh = HerdrHelperPolicyDraft(try decoded(HerdrHelperSettings.self, #"{"policy":null,"bounds":{"stop_unanswered_after_seconds":{"min":60,"max":3600,"default":1200}}}"#))
     #expect(fresh.stopUnansweredSeconds == 1_200 && fresh.unansweredDelays() == [300, 900, 1_200, 1_800, 3_600])
 }
+
+@Test func chatKeepsTheLatestHelperAnswerWhenItsTerminalCloses() {
+    let previous = HerdrClient.Helper.Reply(id: 4, text: "old")
+    let current = HerdrClient.Helper.Reply(id: 7, text: "build succeeded")
+    let working = HerdrClient.Helper(address: "t1", createdMs: 1, name: "worker", state: "live", answered: false, reply: previous)
+    let newest = HerdrClient.Helper(address: "t2", createdMs: 2, name: "compiler", state: "gone", answered: true, reply: current)
+    let older = HerdrClient.Helper(address: "t3", createdMs: 3, name: "other", state: "finished", answered: true, reply: previous)
+    let list = HerdrClient.Helpers(core: "test", parent: .init(address: "p", createdMs: 1), helpers: [working, older], lastResult: newest)
+    #expect(list.inChat.map(\.name) == ["worker", "compiler"])
+    #expect(working.resultPreview == nil)
+    #expect(newest.resultPreview == "build succeeded")
+}

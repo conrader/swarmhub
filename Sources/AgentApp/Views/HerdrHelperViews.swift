@@ -64,7 +64,7 @@ struct HerdrHelperGlyph: View {
     }
 }
 
-/// The live helper sessions available from chat, including answered helpers whose terminals are still open.
+/// Helpers available from the conversation and their latest result.
 struct HerdrCodingAgentCard: View {
     let helpers: [HerdrClient.Helper]
     let tint: BotTint
@@ -94,14 +94,20 @@ struct HerdrCodingAgentCard: View {
                                 Text(helper.runLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
-                        Text(helper.statusLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if !helper.taskLine.isEmpty {
+                        if let result = helper.resultPreview {
+                            Text(result).font(.callout).lineLimit(2).accessibilityLabel("Result from \(helper.name): \(result)")
+                        } else {
+                            Text(helper.statusLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        if helper.resultPreview == nil, !helper.taskLine.isEmpty {
                             Text(helper.taskLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     Spacer(minLength: 4)
-                    Button("Terminal", systemImage: "terminal") { openTerminal(helper) }
-                        .accessibilityLabel("Open terminal for \(helper.name)").accessibilityIdentifier("chat.helper.terminal.\(helper.id)")
+                    if helper.isLive {
+                        Button("Terminal", systemImage: "terminal") { openTerminal(helper) }
+                            .accessibilityLabel("Open terminal for \(helper.name)").accessibilityIdentifier("chat.helper.terminal.\(helper.id)")
+                    }
                     Button("Details") { openDetails(helper) }.accessibilityLabel("Details for \(helper.name)")
                 }.buttonStyle(.bordered).controlSize(.small)
             }
@@ -184,7 +190,7 @@ struct HerdrHelperView: View {
         _reply = StateObject(wrappedValue: ChatMessage(role: .assistant, content: log?.latestReply(answered: helper?.answered == true) ?? ""))
     }
 
-    private var listed: HerdrClient.Helper? { store.herdrHelpers[selection.parent]?.helpers.first { $0.id == selection.helperID } }
+    private var listed: HerdrClient.Helper? { store.herdrHelpers[selection.parent]?.inChat.first { $0.id == selection.helperID } }
 
     var body: some View {
         let shown = listed ?? helper

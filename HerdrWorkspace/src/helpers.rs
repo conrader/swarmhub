@@ -140,6 +140,9 @@ pub(crate) struct Listing {
     stop_after_seconds: u64,
     /// Seconds after its latest task at which a helper that has not answered is stopped.
     stop_unanswered_after_seconds: u64,
+    /// Most recent answered assignment when its terminal has closed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_result: Option<View>,
     /// Running helpers only, newest first.
     helpers: Vec<View>,
 }
@@ -475,7 +478,7 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
                 .map_err(explain)?;
             Ok(Reply {
                 text: format!(
-                    "Sent to {name}. Wait for its answer with: swarmhub-herdr helper wait {name}"
+                    "Sent to {name}. The helper works independently. For a background task, acknowledge the handoff and return to chat. If your current answer depends on it, run: swarmhub-herdr helper wait {name}"
                 ),
                 ..Reply::default()
             })
@@ -684,7 +687,7 @@ async fn start(
     };
     if defer {
         let text = format!(
-            "Starting helper {described}{folder}. It starts as soon as this command has returned.\nWait for its answer with: swarmhub-herdr helper wait {name}\n{stays}"
+            "Starting helper {described}{folder}. It starts as soon as this command has returned.\nThe helper works independently. For a background task, acknowledge the handoff and return to chat. If your current answer depends on it, run: swarmhub-herdr helper wait {name}\n{stays}"
         );
         let deferred = Deferred {
             record,
@@ -706,7 +709,7 @@ async fn start(
         .map_err(|_| "The helper launch was interrupted. Run `swarmhub-herdr helper list`.")??;
     let text = match undelivered {
         None => format!(
-            "Started helper {described} as {address}{folder}.\nWait for its answer with: swarmhub-herdr helper wait {name}\n{stays}"
+            "Started helper {described} as {address}{folder}.\nThe helper works independently. For a background task, acknowledge the handoff and return to chat. If your current answer depends on it, run: swarmhub-herdr helper wait {name}\n{stays}"
         ),
         Some(reason) => format!(
             "Started helper {described} as {address}{folder}, but its task was not delivered: {reason}.\nIt still counts as running. Look at it with: swarmhub-herdr helper read {name} --lines 30\nIf it waits at a prompt only a person should answer, stop it with `swarmhub-herdr helper stop {name}` and tell the user. Otherwise send the task again with `swarmhub-herdr helper send {name} TEXT`."
@@ -766,10 +769,10 @@ pub(crate) async fn listing(
     } else {
         Vec::new()
     };
-    helpers.retain(View::live);
-    if !helpers.is_empty() {
+    let mut last_result = helpers.iter().position(|helper| !helper.live()).map(|i| helpers.remove(i));
+    if !helpers.is_empty() || last_result.is_some() {
         let catalog = crate::runtimes::Catalog::load(w.history.file());
-        for helper in &mut helpers {
+        for helper in helpers.iter_mut().chain(last_result.iter_mut()) {
             helper.open_task = Some(helper.working());
             helper.model_label = catalog.model_label(&helper.template, &helper.model);
         }
@@ -783,6 +786,7 @@ pub(crate) async fn listing(
             .map(|policy| policy.max_running),
         stop_after_seconds,
         stop_unanswered_after_seconds,
+        last_result,
         helpers,
     })
 }

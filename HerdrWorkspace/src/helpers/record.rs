@@ -263,12 +263,20 @@ pub(super) fn views(
         "WITH recent AS (
              SELECT h.launch FROM helpers h JOIN journal j ON j.id=h.launch
              WHERE h.parent_key=?1 AND j.core_id=?2 ORDER BY h.launch DESC LIMIT ?3
+         ), last_answer AS (
+             SELECT h.launch FROM helpers h JOIN journal j ON j.id=h.launch
+             JOIN journal r ON r.id=(SELECT max(id) FROM journal WHERE reply_for=j.launch_key AND kind='reply')
+             WHERE ?3=0 AND h.parent_key=?1 AND j.core_id=?2 AND r.id>coalesce((
+                 SELECT max(t.id) FROM journal t WHERE t.kind='task' AND t.core_id=j.core_id
+                 AND t.address=j.address AND t.created_ms=j.created_ms),j.id)
+             ORDER BY r.id DESC LIMIT 1
          )
          SELECT j.id,j.launch_key,j.address,j.created_ms,j.agent,j.text,j.at_ms,j.state,
                 h.name,h.difficulty,h.template,h.model,j.detail
          FROM helpers h JOIN journal j ON j.id=h.launch
          WHERE h.parent_key=?1 AND j.core_id=?2 AND h.launch IN (
-             SELECT launch FROM recent UNION SELECT id FROM journal WHERE launch_key IN (SELECT value FROM json_each(?4))
+             SELECT launch FROM recent UNION SELECT launch FROM last_answer
+             UNION SELECT id FROM journal WHERE launch_key IN (SELECT value FROM json_each(?4))
          ) ORDER BY h.launch DESC",
     )?;
     let mut latest_task = db.prepare(
@@ -855,6 +863,11 @@ mod tests {
         );
         assert_eq!(due(&everyone, now() + 1_000, NEVER), ["t9"]);
         assert!(due(&everyone, answered_at, now() + 1_000).is_empty());
+
+        let archived = views(&history, "core", &parent, &[], 50, 0).unwrap();
+        assert_eq!(archived.len(), 1);
+        assert!(!archived[0].live() && archived[0].reply.as_ref().unwrap().text == "Two");
+        assert!(views(&history, "other-core", &parent, &[], 50, 0).unwrap().is_empty());
 
         // The HTTP listing includes every live helper, even with a newer, ended launch.
         let listed = views(&history, "core", &parent, &everyone, 50, 0).unwrap();
