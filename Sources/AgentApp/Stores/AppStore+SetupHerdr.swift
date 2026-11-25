@@ -38,7 +38,11 @@ extension AppStore {
 
     private func setupConnectionFailure(_ error: Error, server: HerdrServer, readingKey: Bool = false) -> HerdrSetupOutcome {
         if server.kind == .ssh, HerdrTunnel.offersPassword(error) { return .sshLoginRequired(server) }
-        return .failed(HerdrSetupProblem.of(error, readingKey: readingKey).line(for: server))
+        let problem = HerdrSetupProblem.of(error, readingKey: readingKey)
+        if server.kind == .ssh, [.sshNoService, .sshNoAnswer, .unreachable].contains(problem) {
+            return .sshSetupAvailable(server, problem)
+        }
+        return .failed(problem.line(for: server))
     }
 
     /// "This Mac", before its Test: the port its service is on, or will be put on, when that is not the one in the

@@ -16,6 +16,7 @@ struct SetupView: View {
     @State private var loginServer: HerdrServer?
     @State private var signInCheck: HerdrAICheck?
     @State private var testing = false
+    @State private var installingRemote = false
     @State private var checkGeneration = UUID()
     @State private var localSetupTask: Task<Void, Never>?
     @State private var failure: String?
@@ -44,16 +45,16 @@ struct SetupView: View {
                     case .welcome:
                         SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace, saved: store.herdrConfigured ? store.herdrServers : [],
                                               savedHostID: $savedHostID)
-                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: answerSetupPrompt, scan: { testHerdr(inventoryOnly: true) }, addAI: addLocalAI)
+                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, installingRemote: installingRemote, test: testHerdr, answer: answerSetupPrompt, scan: { testHerdr(inventoryOnly: true) }, addAI: addLocalAI)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
                     case .projects: if let model = presetProjects ?? projects { SetupProjectsStep(flow: $flow, model: model) }
                     }
                 }.frame(maxWidth: .infinity, alignment: .top).padding(.horizontal, 44).padding(.top, 34).padding(.bottom, 20)
-            }.scrollBounceBehavior(.basedOnSize)
+            }.scrollBounceBehavior(.basedOnSize).disabled(installingRemote)
             if let failure { Text(failure).font(.callout).foregroundStyle(AppColor.caution).padding(.horizontal, 24).padding(.bottom, 8) }
             Divider()
-            footer.padding(.horizontal, 20).padding(.vertical, 14)
+            footer.padding(.horizontal, 20).padding(.vertical, 14).disabled(installingRemote)
         }
         .frame(minWidth: preset == nil ? 560 : Self.size.width, idealWidth: Self.size.width,
                maxWidth: preset == nil ? .infinity : Self.size.width,
@@ -126,6 +127,9 @@ struct SetupView: View {
                             Button(localSetupButton(for: setup), action: setUpThisMac).buttonStyle(.appleProminent)
                                 .disabled(setup.isWorking || testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
                         }
+                    } else if let server = flow.sshSetupTarget, !testing {
+                        Button(SetupCopy.testAgain, action: testHerdr)
+                        Button(WizardCopy.setUpServer) { installRemote(server) }.buttonStyle(.appleProminent)
                     } else if flow.herdrNoPrograms || !flow.missingStarterPrograms.isEmpty, flow.herdr.kind == .local, flow.localReport != nil, !testing {
                         if flow.localReport?.canAddAi == true {
                             Button(WizardCopy.scanAIs) { testHerdr(inventoryOnly: true) }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
@@ -215,14 +219,34 @@ struct SetupView: View {
     /// Connect's Test, and the reading of a server that was set up before (the window then waits on the main bot).
     private func testHerdr() { testHerdr(inventoryOnly: false) }
 
+    private func installRemote(_ server: HerdrServer) {
+        guard !testing, !installingRemote, flow.sshSetupTarget == server else { return }
+        let draft = flow.herdr
+        installingRemote = true
+        failure = nil
+        Task {
+            defer { installingRemote = false }
+            do {
+                let warning = try await store.installHerdrWorkspace(server)
+                guard !closed, flow.sshSetupTarget == server else { return }
+                failure = warning
+                testing = true
+                await checkHerdr(draft, step: .herdr, serverID: server.id)
+            } catch {
+                guard !closed, flow.sshSetupTarget == server else { return }
+                failure = error.localizedDescription
+            }
+        }
+    }
+
     private func testHerdr(inventoryOnly: Bool) {
-        guard flow.herdr.problem == nil, !testing else { return }
+        guard flow.herdr.problem == nil, !testing, !installingRemote else { return }
         let typed = flow.herdr, step = flow.step
         testing = true; failure = nil
         Task { await checkHerdr(typed, step: step, inventoryOnly: inventoryOnly) }
     }
 
-    private func checkHerdr(_ typed: HerdrServerDraft, step: SetupFlow.Step, inventoryOnly: Bool = false, installReceipt: HerdrLocalReport? = nil) async {
+    private func checkHerdr(_ typed: HerdrServerDraft, step: SetupFlow.Step, inventoryOnly: Bool = false, installReceipt: HerdrLocalReport? = nil, serverID: String? = nil) async {
         checkGeneration = UUID()
         var draft = typed
         // This Mac's usual port can lead to another server: its own port is found before anything is asked.
@@ -230,7 +254,7 @@ struct SetupView: View {
             flow.localMovedFrom = Int(typed.port.trimmingCharacters(in: .whitespaces)); flow.herdr.port = String(port); draft = flow.herdr
         }
         guard !Task.isCancelled else { testing = false; return }
-        let outcome = await store.testSetupHerdr(draft, discoverModels: step != .herdr || draft.kind != .local)
+        let outcome = await store.testSetupHerdr(draft, serverID: serverID, discoverModels: step != .herdr || draft.kind != .local)
         testing = false
         let current = !closed && !Task.isCancelled && flow.step == step && flow.herdr == draft
         if current, flow.localSetup == .working(.checkingConnection) { flow.apply(.localSetup(nil)) }

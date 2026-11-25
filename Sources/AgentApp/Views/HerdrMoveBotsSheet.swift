@@ -317,7 +317,7 @@ struct HerdrMoveBotsSheet: View {
             defer { working = nil }
             do {
                 if install, let server = typed.server(id: id) {
-                    setupWarnings[id] = try await store.installHerdrMoveDestination(server)
+                    setupWarnings[id] = try await store.installHerdrWorkspace(server)
                 }
                 switch await store.testSetupHerdr(typed, serverID: id) {
                 case .connected(let server, let key, _):
@@ -328,11 +328,10 @@ struct HerdrMoveBotsSheet: View {
                     setDestination(server, workspace: workspace)
                 case .sshLoginRequired(let server): loginServer = server
                 case .nothingHere(let port): problem = SetupCopy.herdrNothingHere(port: port)
-                case .failed(let line):
-                    problem = line
-                    if typed.kind == .ssh, let server = typed.server(id: id) {
-                        offerInstall = [HerdrSetupProblem.sshNoService, .sshNoAnswer, .unreachable].contains { $0.line(for: server) == line }
-                    }
+                case .sshSetupAvailable(let server, let issue):
+                    problem = issue.line(for: server)
+                    offerInstall = true
+                case .failed(let line): problem = line
                 }
             } catch { problem = error.localizedDescription; offerInstall = install }
         }

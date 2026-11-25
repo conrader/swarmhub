@@ -5,6 +5,11 @@ import Foundation
 /// The wizard says "bot" (a "helper" is something a bot starts), "AI" for the agent program a bot runs on and "access
 /// key" for the server's secret. It names no AI and no model itself: those names come from the server.
 enum WizardCopy {
+    static let setUpServer = "Set up on server"
+    static func serverSetupTitle(_ host: String) -> String { "Set up SwarmHub on " + host }
+    static func settingUpServer(_ host: String) -> String { "Setting up on " + host + "…" }
+    static func serverSetupDetail(port: Int) -> String { "Install and start the workspace for this SSH account on port " + String(port) + "." }
+
     /// The four steps, as the strip at the top of the window names them.
     static let addHost = "Add a host"
     static let steps = ["Where", "Connect", "Main bot", "More bots"]

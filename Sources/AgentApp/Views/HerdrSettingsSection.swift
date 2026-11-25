@@ -18,6 +18,7 @@ struct HerdrSettingsSection: View {
     @State private var templates: [HerdrClient.Template] = []
     @State private var draft = HerdrServerDraft(kind: .ssh); @State private var adding = false; @State private var addResult = ""; @State private var addFailed = false
     /// The server whose parts show (nil: the first), or `addID` for the form that adds one.
+    @State private var setupOffer: (draft: HerdrServerDraft, server: HerdrServer)?
     @State private var chosen: String?
     @State private var loginServer: HerdrServer?
     @State private var moveSource: HerdrServer?
@@ -113,32 +114,58 @@ struct HerdrSettingsSection: View {
                     }
                     ReadyMadeServerNote()
                 }
-            }
-            HerdrServerFields(draft: $draft, submit: add).frame(maxWidth: AppleMetrics.column)
+            }.disabled(adding)
+            HerdrServerFields(draft: $draft, submit: add).disabled(adding).frame(maxWidth: AppleMetrics.column)
             HStack(spacing: 10) {
                 Button("Connect and add", action: add).buttonStyle(.appleProminent).controlSize(.large).disabled(adding || draft.problem != nil)
+                if let offer = setupOffer, offer.draft == draft, !adding {
+                    Button(WizardCopy.setUpServer) { connect(install: offer.server) }
+                }
                 if adding { ProgressView().controlSize(.small) }
                 if let problem = draft.problem, addResult.isEmpty { Text(problem).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             }
-            if !addResult.isEmpty { StatusCard(kind: addFailed ? .warning : .good, title: addFailed ? "Could not add it" : "Added", detail: addResult) }
+            if adding, !addResult.isEmpty {
+                StatusCard(kind: .working, title: addResult)
+            } else if let offer = setupOffer, offer.draft == draft, !addFailed {
+                StatusCard(kind: .info, title: WizardCopy.serverSetupTitle(offer.server.sshHost),
+                           detail: WizardCopy.serverSetupDetail(port: offer.server.port))
+            } else if !addResult.isEmpty {
+                StatusCard(kind: addFailed ? .warning : .good, title: addFailed ? "Could not add it" : "Added", detail: addResult)
+            }
         }
     }
 
-    private func add() {
+    private func add() { connect(install: nil) }
+
+    private func connect(install server: HerdrServer?) {
         guard draft.problem == nil, !adding else { return }
         let draft = draft
-        adding = true; addResult = ""; addFailed = false
+        setupOffer = nil
+        adding = true; addResult = server.map { WizardCopy.settingUpServer($0.sshHost) } ?? ""; addFailed = false
         Task {
-            switch await store.testSetupHerdr(draft) {
+            defer { adding = false }
+            var warning: String?
+            if let server {
+                do { warning = try await store.installHerdrWorkspace(server) }
+                catch {
+                    if self.draft == draft { setupOffer = (draft, server); addFailed = true; addResult = error.localizedDescription }
+                    return
+                }
+            }
+            let result = await store.testSetupHerdr(draft, serverID: server?.id)
+            guard self.draft == draft else { return }
+            addResult = ""
+            switch result {
             case .connected(let server, let key, _):
                 store.saveHerdrServer(server, token: key)
-                addResult = "Added \(server.name)."; self.draft = HerdrServerDraft(kind: draft.kind)
+                addResult = ["Added \(server.name).", warning].compactMap { $0 }.joined(separator: " "); self.draft = HerdrServerDraft(kind: draft.kind)
             case .sshLoginRequired(let server):
                 if self.draft == draft && chosen == Self.addID { loginServer = server }
+            case .sshSetupAvailable(let server, _):
+                setupOffer = (draft, server); addResult = ""
             case .nothingHere(let port): addFailed = true; addResult = SetupCopy.herdrNothingHere(port: port) + " " + SetupCopy.herdrStartHelp
             case .failed(let line): addFailed = true; addResult = line
             }
-            adding = false
         }
     }
 }

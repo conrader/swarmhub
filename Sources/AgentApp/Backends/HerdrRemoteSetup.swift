@@ -2,7 +2,7 @@ import Foundation
 
 extension AppStore {
     /// Installs a signed workspace build for the SSH account, then uses the service's own setup commands.
-    func installHerdrMoveDestination(_ server: HerdrServer) async throws -> String? {
+    func installHerdrWorkspace(_ server: HerdrServer) async throws -> String? {
         let password = herdrTunnels.password(for: server)
         let platform = try await HerdrTunnel.run("uname -s && uname -m", on: server, password: password)
         let target: String
