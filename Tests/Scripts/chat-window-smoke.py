@@ -279,6 +279,15 @@ def steer_reopen(source_app):
         bots.append(dict(id=str(uuid.uuid4()), name=name, backend="Herdr", messages=rows))
 
     owner = bots[0]
+    group_question = "Finish the group build"
+    group_answer = "Group build finished after the connection dropped."
+    group_reply = dict(id=str(uuid.uuid4()), role="assistant", content="Building…", authorID=owner["id"],
+                       createdAt=800000012, turnState="stopped", metadata={"why": "stop-pending"},
+                       deliveryReceipt=dict(server="default", core="qa", address="group-session", createdMs=70, after=0,
+                                            taskDigest=base64.b64encode(hashlib.sha256(group_question.encode()).digest()).decode()))
+    group = dict(id=str(uuid.uuid4()), name="Build team", memberIDs=[owner["id"]], messages=[
+        dict(id=str(uuid.uuid4()), role="user", content=group_question, createdAt=800000011), group_reply])
+    answers["/api/history/qa/group-session/70"] = [dict(id=1, kind="task", text=group_question), dict(id=2, kind="reply", text=group_answer)]
     parent = dict(address="session-0", created_ms=50)
     agent = dict(**parent, name=owner["name"].lower() + "-" + owner["id"][:6], state="live")
     helper = dict(address="worker", created_ms=51, name="RenderQA", state="live",
@@ -321,7 +330,7 @@ def steer_reopen(source_app):
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), History) as server:
         reader = dict(id=str(uuid.uuid4()), name="ReadingQA", backend="Herdr",
                       messages=[dict(id=str(uuid.uuid4()), createdAt=800000001, role="assistant", content="Still reading this chat.")])
-        store.write_text(json.dumps({"version": 2, "bots": bots + [reader], "sidebar": {"pinned": [bots[1]["id"]]}}))
+        store.write_text(json.dumps({"version": 2, "bots": bots + [reader], "groups": [group], "sidebar": {"pinned": [bots[1]["id"]]}}))
         def unread_counts():
             return [b.get("unreadCount", 0) for b in json.loads(store.read_text())["bots"] if b["name"] != reader["name"]]
 
@@ -333,6 +342,8 @@ def steer_reopen(source_app):
             for launch in range(2):
                 with open_workspace(app, home, f"http://127.0.0.1:{server.server_port}", token) as window:
                     if launch == 0:
+                        press(window, group["name"], sidebar=True)
+                        wait_for("unconfirmed group stop", lambda: "Stop unconfirmed. The bot may still be running." in text_positions(window))
                         press(window, bots[0]["name"], sidebar=True)
                         wait_for("offline recovery footer", lambda: "Checking the workspace for your reply…" in text_positions(window))
                         if any("Needs attention" in label(b) and owner["name"] in label(b) for b in buttons(window)):
@@ -393,6 +404,14 @@ def steer_reopen(source_app):
 
                         wait_for("saved answer below " + guidance, correct_order, seconds=15)
                         wait_for("cleared unread badge on " + name, lambda: not unread_badge(window, name))
+                    wait_for("unread group answer after reconnection", lambda: unread_badge(window, group["name"]), seconds=15)
+                    if launch:
+                        press(window, group["name"], sidebar=True)
+                        wait_for("finished group command", lambda: group_answer in text_positions(window))
+                        stored = json.loads(store.read_text())["groups"][0]
+                        final = next(m for m in stored["messages"] if m["id"].lower() == group_reply["id"].lower())
+                        if final["content"] != group_answer or final.get("turnState") != "finished" or stored["unreadCount"] != 0:
+                            raise RuntimeError("Recovered group answer did not settle its original reply")
                     online = False
         finally:
             server.shutdown()

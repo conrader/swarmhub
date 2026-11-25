@@ -98,13 +98,17 @@ extension AppStore {
         if runningTurns[group.id]?.token == token { group.activeMemberID = nil }
         if let turn = turn(token: token) { turn.botID = nil; turn.backend = nil }
         setSteerAvailable(false, token: token)
+        groupReplyArrived(reply, state: outcome.state, from: bot, in: group)
+        objectWillChange.send(); save()
+        return outcome
+    }
+
+    func groupReplyArrived(_ reply: ChatMessage, state: TurnState, from bot: Bot, in group: GroupChat) {
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty && !reply.isSilent && (outcome.state == .finished || outcome.state == .incomplete) && !showsGroupChat(group) { group.unreadCount += 1 }
-        if outcome.state == .finished && !text.isEmpty {
+        if !text.isEmpty && !reply.isSilent && (state == .finished || state == .incomplete) && !showsGroupChat(group) { group.unreadCount += 1 }
+        if state == .finished && !text.isEmpty {
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(group: group, bot: bot, message: reply.finalText.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        objectWillChange.send(); save()
-        return outcome
     }
 }

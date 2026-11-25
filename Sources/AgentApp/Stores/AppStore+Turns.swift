@@ -173,7 +173,7 @@ extension AppStore {
                 if owner !== row, activity.current == nil { activity.finish(at: now()) }
                 if activity.total > 0 { owner.activity = activity; objectWillChange.send() }
             case .accepted(let receipt):
-                if group == nil, assistant.metadata[GoalKey.attempt] == nil {
+                if assistant.metadata[GoalKey.attempt] == nil {
                     assistant.deliveryReceipt = receipt
                     save()
                 }

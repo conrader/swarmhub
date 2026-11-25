@@ -60,34 +60,47 @@ struct HerdrDeliveryReceipt: Codable, Equatable, Sendable {
 }
 
 extension AppStore {
-    func recoverAcceptedDirectReplies() {
+    func recoverAcceptedReplies() {
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
-            for row in bot.messages where row.turnState == .incomplete {
-                guard let receipt = row.deliveryReceipt else { continue }
-                row.checkingSavedReply = true
-                Task { [weak self, weak bot, weak row] in
-                    defer {
-                        row?.checkingSavedReply = false
-                        if row?.turnState == .incomplete { bot?.objectWillChange.send() }
-                    }
-                    var delay = 2
-                    while let self, let bot, let row, !Task.isCancelled {
-                        guard await self.checkRecoveredReply(receipt, bot: bot, row: row) else { return }
-                        do { try await Task.sleep(for: .seconds(delay)) } catch { return }
-                        delay = min(delay * 2, 30)
-                    }
-                }
+            for row in bot.messages where row.deliveryReceipt != nil {
+                recoverAcceptedReply(in: bot, row: row)
+            }
+        }
+        for group in groups {
+            for row in group.messages where row.stopUnconfirmed && row.deliveryReceipt != nil {
+                guard let author = bots.first(where: { $0.id == row.authorID }) else { continue }
+                recoverAcceptedReply(in: author, row: row, group: group)
+            }
+        }
+    }
+
+    func recoverAcceptedReply(in bot: Bot, row: ChatMessage, group: GroupChat? = nil) {
+        guard let receipt = row.deliveryReceipt, !row.checkingSavedReply, !row.isStreaming,
+              row.turnState == .incomplete || row.stopUnconfirmed else { return }
+        row.checkingSavedReply = true
+        Task { [weak self, weak bot, weak row] in
+            defer {
+                row?.checkingSavedReply = false
+                bot?.objectWillChange.send()
+            }
+            var delay = 2
+            while let self, let bot, let row, !Task.isCancelled {
+                guard await self.checkRecoveredReply(receipt, bot: bot, row: row, group: group) else { return }
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                delay = min(delay * 2, 30)
             }
         }
     }
 
     /// Recheck ownership after network I/O. A chat can be removed, moved or stopped while offline.
-    func checkRecoveredReply(_ receipt: HerdrDeliveryReceipt, bot: Bot, row: ChatMessage) async -> Bool {
+    func checkRecoveredReply(_ receipt: HerdrDeliveryReceipt, bot: Bot, row: ChatMessage, group: GroupChat? = nil) async -> Bool {
         let server = herdrServer(for: bot)
+        let conversation: any Conversation = group as (any Conversation)? ?? bot
         func current() -> Bool {
-            storeRestoreOffer == nil && bots.contains { $0 === bot } && bot.backend == .herdr && !bot.isReadOnlyArchive
-                && herdrServer(for: bot) == server && server.id == receipt.server && bot.messages.contains { $0 === row }
-                && row.deliveryReceipt == receipt && row.turnState == .incomplete && !row.isStreaming
+            if let group, !(groups.contains { $0 === group } && group.memberIDs.contains(bot.id) && row.authorID == bot.id && row.stopUnconfirmed) { return false }
+            return storeRestoreOffer == nil && bots.contains { $0 === bot } && bot.backend == .herdr && !bot.isReadOnlyArchive
+                && herdrServer(for: bot) == server && server.id == receipt.server && conversation.messages.contains { $0 === row }
+                && row.deliveryReceipt == receipt && (row.turnState == .incomplete || row.stopUnconfirmed) && !row.isStreaming
         }
         guard current() else { return false }
         do {
@@ -97,7 +110,7 @@ extension AppStore {
             case .waiting: return true
             case .unresolved: break
             case .answered(let reply, let results):
-                restoreSavedAnswer(reply, results: results, for: row, in: bot, serverID: server.id)
+                restoreSavedAnswer(reply, results: results, for: row, in: bot, group: group, serverID: server.id)
             }
             row.deliveryReceipt = nil
             bot.objectWillChange.send()
@@ -110,25 +123,26 @@ extension AppStore {
     }
 
     private func restoreSavedAnswer(_ reply: HerdrClient.Item, results: [HerdrPublishedResult], for row: ChatMessage,
-                                    in bot: Bot, serverID: String) {
-        guard let index = bot.messages.firstIndex(where: { $0 === row }) else { return }
+                                    in bot: Bot, group: GroupChat?, serverID: String) {
+        let conversation: any Conversation = group as (any Conversation)? ?? bot
+        guard let index = conversation.messages.firstIndex(where: { $0 === row }) else { return }
         let origin = row.metadata[TurnReplyText.origin] ?? row.id.uuidString
         // Older receipts can predate explicit steer ownership. Only cross adjacent guidance
         // and status rows; an independent question or another reply starts a new turn.
-        let following = bot.messages.suffix(from: index + 1).prefix {
+        let following = conversation.messages.suffix(from: index + 1).prefix {
             $0.role == .system || ($0.role == .user && $0.metadata[SteerKey.steer] != nil
                 && ($0.metadata[TurnReplyText.origin] ?? origin) == origin)
         }
         let ended = reply.atMs.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? now()
         let answer: ChatMessage
         if let anchor = following.last(where: { $0.metadata[SteerKey.steer] == "delivered" }),
-           let anchorIndex = bot.messages.firstIndex(where: { $0 === anchor }) {
+           let anchorIndex = conversation.messages.firstIndex(where: { $0 === anchor }) {
             answer = replyPartAfterGuidance(row, origin: origin, at: max(ended, anchor.createdAt))
-            if answer === row { bot.messages.remove(at: index) }
-            bot.messages.insert(answer, at: anchorIndex + (answer === row ? 0 : 1))
+            if answer === row { conversation.messages.remove(at: index) }
+            conversation.messages.insert(answer, at: anchorIndex + (answer === row ? 0 : 1))
         } else { answer = row }
 
-        let earlier = bot.messages.prefix { $0 !== answer }.filter {
+        let earlier = conversation.messages.prefix { $0 !== answer }.filter {
             $0.role == .assistant && $0.metadata[TurnReplyText.origin] == origin
         }
         let prefix = TurnReplyText.joined(earlier)
@@ -158,7 +172,8 @@ extension AppStore {
         let shown = Set(earlier.flatMap { $0.publishedResults?.items.map(\.id) ?? [] })
         let remaining = results.filter { !shown.contains($0.id) }
         if !remaining.isEmpty { answer.publishedResults = HerdrReplyResults(serverID: serverID, items: remaining) }
-        directReplyArrived(answer, from: bot)
+        if let group { groupReplyArrived(answer, state: .finished, from: bot, in: group) }
+        else { directReplyArrived(answer, from: bot) }
     }
 
 }

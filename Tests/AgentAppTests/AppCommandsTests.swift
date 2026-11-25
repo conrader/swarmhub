@@ -39,6 +39,28 @@ import Testing
         #expect(!AppCommand.quickSwitcher.isEnabled(in: store))
     }
 
+    @Test func connectionBannerLeavesWorkspaceCommandsAvailableUntilAModalOpens() {
+        let store = store()
+        let first = Bot(name: "Build"), second = Bot(name: "Review")
+        store.bots = [first, second]
+        store.open(first)
+        store.sidebarHidden = true
+        store.presentError("Could not connect to the server.", reason: .connection)
+        #expect(store.connectionNotice != nil)
+        AppCommand.activity.performWorkspaceAction(in: store)
+        #expect(store.showingActivity)
+        #expect(!AppCommand.nextChat.isEnabled(in: store))
+        store.showingActivity = false
+        AppCommand.nextChat.performWorkspaceAction(in: store)
+        #expect(store.selectedBot === second)
+        AppCommand.quickSwitcher.performWorkspaceAction(in: store)
+        #expect(store.showingCommandPalette && store.connectionNotice != nil)
+        store.showingCommandPalette = false
+        store.presentError("Could not save your chats.", reason: .storage)
+        #expect(store.modalErrorMessage != nil && !AppCommand.activity.isEnabled(in: store))
+        #expect(!AppCommand.nextChat.isEnabled(in: store))
+    }
+
     @Test func appShortcutsDoNotCollide() {
         let bindings = AppCommand.allCases.map { "\($0.modifiers.rawValue):\($0.key.character)" }
         #expect(Set(bindings).count == bindings.count)

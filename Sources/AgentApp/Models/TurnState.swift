@@ -83,15 +83,24 @@ struct TurnOutcome: Equatable {
             let reason = why.map { " (\($0))" } ?? ""
             return ambiguous ? "Not confirmed\(reason) — the bot may have it" : "Not sent\(reason)"
         case .incomplete?: return "Incomplete"
-        case .stopped?: return empty ? "Stopped" : nil
+        case .stopped?:
+            if why == TurnKey.stopPending { return "Waiting for stop confirmation…" }
+            if why == TurnKey.stopUnconfirmed { return "Stop unconfirmed. The bot may still be running." }
+            return empty ? "Stopped" : nil
         case .finished?: return empty && why == "later" ? "Delivered with a later message" : nil
         case nil: return nil
         }
     }
 }
 
-/// Metadata keys on reply rows.
+extension ChatMessage {
+    var stopUnconfirmed: Bool { turnState == .stopped && metadata[TurnKey.why] == TurnKey.stopUnconfirmed }
+}
+
+/// Metadata keys and stop-confirmation values on reply rows.
 enum TurnKey {
+    static let stopPending = "stop-pending"
+    static let stopUnconfirmed = "stop-unconfirmed"
     static let forUser = "for", why = "why", ambiguous = "ambiguous", tone = "tone"
     /// A second tap is needed before a reply the agent may already have is sent again.
     static let end = "end", retry = "retry"

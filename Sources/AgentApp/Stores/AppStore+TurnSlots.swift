@@ -193,7 +193,11 @@ extension AppStore {
             return
         }
         let taskToCancel = turn.task
-        let stoppedAssistantID = turn.assistant?.id
+        let stoppedAssistant = turn.assistant
+        if bot.backend == .herdr, let row = stoppedAssistant, row.turnState == .stopped {
+            row.metadata[TurnKey.why] = TurnKey.stopPending
+            save()
+        }
         let sessionID = turn.goalAttempt.flatMap { _ in bot.goal?.destination.sessionID } ?? turnSessionID(in: conversation, bot: bot)
         turn.goalStopPending = turn.goalAttempt != nil
         let server = bot.backend.shortName
@@ -204,24 +208,43 @@ extension AppStore {
         }
         turns.pendingInterrupts[conversation.id, default: []].insert(streamToken)
         Task {
+            let feedback: String
+            let unconfirmed: Bool
             do {
                 // Backends that clear their run on stream termination need the target captured first.
                 let target = try await activeBackend.stopTarget(sessionID: sessionID)
                 taskToCancel?.cancel()
                 didCancelLocalStream?()
                 let outcome = try await activeBackend.requestStop(target)
-                let feedback: String
+                unconfirmed = outcome == .stillWorking || outcome == .unconfirmed
                 switch outcome {
                 case .requested: feedback = IntentLine.stopRequested.render(server)
+                case .stillWorking: feedback = IntentLine.stillWorking.render(server)
+                case .unconfirmed: feedback = IntentLine.stopUnknown.render(server)
                 case .noRunControl: feedback = IntentLine.stoppedNoRunControl.render()
                 case .noActiveRun: feedback = IntentLine.stoppedBeforeRunID.render(server)
                 }
-                insertStopLine(feedback, in: conversation, after: stoppedAssistantID)
             } catch {
                 taskToCancel?.cancel()
-                insertStopLine(IntentLine.stopFailed.render(server, error.localizedDescription), in: conversation, after: stoppedAssistantID)
-                if isCurrent(streamToken) {
-                    presentError(IntentLine.stopFailed.render(server, error.localizedDescription), reason: .stop, bot: bot)
+                unconfirmed = true
+                feedback = IntentLine.stopFailed.render(server, error.localizedDescription)
+                let latestReply = conversation.messages.last { $0.role == .assistant }
+                let visible = (conversation as? GroupChat).map(showsGroupChat) ?? showsDirectChat(bot)
+                let latestStop = stoppedAssistant != nil && latestReply === stoppedAssistant
+                if isCurrent(streamToken) || (visible && isIdle(conversation) && latestStop) {
+                    presentError(feedback, reason: .stop, bot: bot)
+                }
+            }
+            insertStopLine(feedback, in: conversation, after: stoppedAssistant?.id)
+            if let row = stoppedAssistant, row.turnState == .stopped {
+                row.metadata[TurnKey.why] = unconfirmed ? TurnKey.stopUnconfirmed : "stopped"
+                if !unconfirmed { row.deliveryReceipt = nil }
+                else if row.deliveryReceipt != nil {
+                    // Wait for the local stream to settle before importing a possible final workspace answer.
+                    Task {
+                        await taskToCancel?.value
+                        recoverAcceptedReply(in: bot, row: row, group: conversation as? GroupChat)
+                    }
                 }
             }
             turns.pendingInterrupts[conversation.id]?.remove(streamToken)

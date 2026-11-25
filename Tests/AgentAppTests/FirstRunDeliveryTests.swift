@@ -100,6 +100,7 @@ import Testing
             return (200, ["core": "test-core", "templates": [], "agents": [
                 ["name": directName, "address": "t1", "created_ms": 3, "state": "live"],
                 ["name": groupName, "address": "t2", "created_ms": 4, "state": "live"]]])
+        case "/api/agents/t2/4/interrupt": return (200, ["outcome": "stopped"])
         case "/api/history/test-core/t2/4/draft":
             _ = pauseNextRequest.swap(stopBeforePost)
             return (200, ["tools": []])

@@ -7,7 +7,7 @@ struct ConnectionNoticeBar: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "wifi.exclamationmark").foregroundStyle(AppColor.caution).accessibilityHidden(true)
-            Text("Connection interrupted. SwarmHub keeps retrying.").fontWeight(.medium)
+            Text("Connection interrupted.").fontWeight(.medium)
             Text(text).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
             Button("Dismiss", action: dismiss).buttonStyle(.plain).foregroundStyle(.secondary)
                 .accessibilityLabel("Dismiss connection notice")

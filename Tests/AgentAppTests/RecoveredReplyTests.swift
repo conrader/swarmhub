@@ -6,7 +6,9 @@ import Testing
     private let receipt = HerdrDeliveryReceipt(server: HerdrServer.defaultID,
         turn: .init(core: "core", address: "terminal", createdMs: 50, after: 6, launched: false), text: "first")
 
-    @Test func readsOlderPagesIntoOriginalRowAcrossRestart() async throws {
+    enum SavedTurn: CaseIterable { case interrupted, legacyFailedStop, quitDuringStop }
+
+    @Test(arguments: SavedTurn.allCases) func readsOlderPagesIntoOriginalRowAcrossRestart(savedTurn: SavedTurn) async throws {
         let url = temporaryStore()
         let (store, bot) = steerStore(ScriptedTurnBackend(), url: url)
         let http = MockHTTPProtocol.serve { request in
@@ -25,22 +27,60 @@ import Testing
         let row = ChatMessage(role: .assistant, content: "draft", metadata: [TurnKey.forUser: question.id.uuidString], turnState: .incomplete)
         row.deliveryReceipt = receipt
         bot.messages = [question, row]
+        if savedTurn == .quitDuringStop {
+            row.turnState = .stopped
+            row.metadata[TurnKey.why] = TurnKey.stopPending
+        } else if savedTurn == .legacyFailedStop {
+            row.turnState = .stopped
+            row.metadata[TurnKey.why] = "stopped"
+            bot.messages.append(ChatMessage(role: .system, content: IntentLine.stopFailed.render("Herdr", "Could not connect to the server.")))
+        }
         store.save()
         let reopened = AppStore(storeURL: url, autoStart: false, keyStore: store.keyStore, defaults: store.defaults)
         reopened.herdrClientSetup = { $0.session = http.session }
         let saved = try #require(reopened.bots.first { $0.id == bot.id })
-        let answer = try #require(saved.messages.last)
+        let answer = try #require(saved.messages.first { $0.id == row.id })
+        #expect(answer.stopUnconfirmed == (savedTurn != .interrupted))
         reopened.selectedBot = nil
         #expect(answer.deliveryReceipt == receipt)
         #expect(await !reopened.checkRecoveredReply(receipt, bot: saved, row: answer))
         #expect(await !reopened.checkRecoveredReply(receipt, bot: saved, row: answer))
         let disk = try #require(StoreFile.decode(Data(contentsOf: url)).bots.first { $0.id == bot.id })
         #expect(disk.unreadCount == 1)
-        #expect(disk.messages.map(\.id) == [question.id, row.id])
-        let result = try #require(disk.messages.last)
+        #expect(disk.messages.map(\.id) == bot.messages.map(\.id))
+        let result = try #require(disk.messages.first { $0.id == row.id })
         #expect(result.content == "finished" && result.turnState == .finished && result.deliveryReceipt == nil)
         #expect(result.metadata["herdrJournal"] == "\(receipt.server):9")
         #expect(result.publishedResults?.items.map(\.title) == ["view.png"])
+    }
+
+    @Test func failedGroupStopUsesOnlyTheOriginalMemberAndChat() async throws {
+        let (store, bot) = steerStore(ScriptedTurnBackend())
+        let group = GroupChat(name: "Release", memberIDs: [bot.id])
+        let row = ChatMessage(role: .assistant, content: "Building", metadata: [TurnKey.why: TurnKey.stopUnconfirmed],
+                              authorID: bot.id, turnState: .stopped)
+        row.deliveryReceipt = receipt
+        group.messages = [row]
+        let http = MockHTTPProtocol.serve { request in
+            guard request.httpMethod == "GET", request.url?.path == "/api/history/core/terminal/50" else { return (400, [:]) }
+            return (200, ["items": [["id": 7, "kind": "task", "text": "first"], ["id": 8, "kind": "reply", "text": "Built"]]])
+        }
+        store.saveHerdrServer(HerdrServer(id: receipt.server, name: "Fixture", kind: .address, address: "http://\(http.host)"), token: "test")
+        store.herdrClientSetup = { $0.session = http.session }
+        #expect(await !store.checkRecoveredReply(receipt, bot: bot, row: row, group: group))
+        #expect(row.stopUnconfirmed && row.deliveryReceipt == receipt)
+        store.groups = [group]
+        group.memberIDs = []
+        #expect(await !store.checkRecoveredReply(receipt, bot: bot, row: row, group: group))
+        #expect(row.content == "Building")
+        group.memberIDs = [bot.id]
+        row.metadata[TurnKey.why] = "stopped"
+        #expect(await !store.checkRecoveredReply(receipt, bot: bot, row: row, group: group))
+        #expect(row.content == "Building")
+        row.metadata[TurnKey.why] = TurnKey.stopUnconfirmed
+        #expect(await !store.checkRecoveredReply(receipt, bot: bot, row: row, group: group))
+        #expect(row.turnState == .finished && row.content == "Built" && row.authorID == bot.id && row.deliveryReceipt == nil)
+        #expect(group.messages.count == 1 && group.unreadCount == 1 && bot.unreadCount == 0)
     }
 
     enum QuitPoint: CaseIterable { case beforeOutput, afterCommentary, afterSplit }

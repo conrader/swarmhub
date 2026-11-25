@@ -32,12 +32,12 @@ struct TurnStateFooter: View {
 
 extension ChatMessage {
     var needsTurnAttention: Bool {
-        !isStreaming && (turnState == .notSent || (turnState == .incomplete && !checkingSavedReply))
+        !isStreaming && (stopUnconfirmed || turnState == .notSent || (turnState == .incomplete && !checkingSavedReply))
     }
 }
 
 extension AppStore {
-    /// The sidebar badge: a last reply that failed (`notSent`) or is `incomplete` and not streaming.
+    /// The sidebar badge covers undelivered messages, incomplete replies and unconfirmed stops.
     func needsAttention(_ bot: Bot) -> Bool {
         // An agent that waits for an answer in its terminal needs the person, whatever its last reply says.
         if herdrPrompts[bot.id] != nil { return true }

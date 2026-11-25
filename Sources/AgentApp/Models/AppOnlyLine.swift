@@ -78,8 +78,10 @@ enum IntentLine {
     static let stopRequested = LineTemplate("Stop requested from ", ".")
     static let stoppedBeforeRunID = LineTemplate("Stopped here before ", " had an agent running.")
     static let stoppedNoRunControl = LineTemplate("Stopped here; this bot cannot be interrupted from the app.")
+    static let stillWorking = LineTemplate("", " received Stop. The agent reported it was still working.")
+    static let stopUnknown = LineTemplate("", " received Stop. The agent’s response was unconfirmed.")
     static let stopFailed = LineTemplate("", " Stop failed: ", "")
 
-    static let all = [stopRequested, stoppedBeforeRunID, stoppedNoRunControl, stopFailed]
+    static let all = [stopRequested, stoppedBeforeRunID, stoppedNoRunControl, stopFailed, stillWorking, stopUnknown]
     static func matches(_ text: String) -> Bool { all.contains { $0.matches(text) } }
 }
