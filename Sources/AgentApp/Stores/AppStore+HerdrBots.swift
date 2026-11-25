@@ -21,7 +21,10 @@ extension AppStore {
 
     /// Makes `bot` its server's main bot (and takes the role from any other bot there), or takes the role from it.
     func setCanManageBots(_ bot: Bot, _ on: Bool) {
-        guard on else { bot.canManageBots = false; objectWillChange.send(); save(); return }
+        guard on else {
+            for other in duplicateHerdrMainBots(of: bot) { other.canManageBots = false }
+            bot.canManageBots = false; objectWillChange.send(); save(); return
+        }
         guard bot.backend == .herdr else { return }
         let target = connection(of: bot)
         for other in bots where other.id != bot.id && other.canManageBots && connection(of: other) == target { other.canManageBots = false }
@@ -38,8 +41,16 @@ extension AppStore {
         bot.canManageBots && herdrMainBot(on: herdrServer(for: bot)) === bot
     }
 
-    func herdrMainBot(on server: HerdrServer) -> Bot? {
-        bots.first { $0.canManageBots && $0.backend == .herdr && !$0.isReadOnlyArchive && herdrServer(for: $0).id == server.id }
+    func flaggedHerdrBots(on server: HerdrServer) -> LazyFilterSequence<[Bot]> {
+        bots.lazy.filter { $0.canManageBots && $0.backend == .herdr && !$0.isReadOnlyArchive && self.herdrServer(for: $0).id == server.id }
+    }
+
+    func herdrMainBot(on server: HerdrServer) -> Bot? { flaggedHerdrBots(on: server).first }
+
+    /// Extra flags in older stores that would become active if this bot gave up its role.
+    func duplicateHerdrMainBots(of bot: Bot) -> [Bot] {
+        guard createsHerdrBots(bot) else { return [] }
+        return Array(flaggedHerdrBots(on: herdrServer(for: bot)).dropFirst())
     }
 
     /// "Main bot of This Mac" for a server's main bot, which wears a star (`HerdrMainBotStar`); nil for every other bot.

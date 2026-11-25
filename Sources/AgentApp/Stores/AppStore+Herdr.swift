@@ -106,21 +106,32 @@ extension AppStore {
     /// Forgets a server, its token and its forward. Its bots stay and move to the first server left. The last server
     /// cannot be removed.
     func removeHerdrServer(_ server: HerdrServer) {
-        var servers = herdrServers
-        guard servers.count > 1, servers.contains(where: { $0.id == server.id }) else { return }
+        let servers = herdrServers
+        let remaining = servers.filter { $0.id != server.id }
+        guard remaining.count < servers.count, let fallback = remaining.first else { return }
         let moving = herdrBots(on: server)
+        // Resolve both roles before changing any bindings. The surviving server has first claim.
+        let flags = Array(flaggedHerdrBots(on: fallback)) + Array(flaggedHerdrBots(on: server))
+        let revoked = flags.dropFirst()
+        if !revoked.isEmpty {
+            for bot in revoked { bot.canManageBots = false }
+            save()
+            if persistenceEnabled && turns.saveFailing {
+                for bot in revoked { bot.canManageBots = true }
+                return
+            }
+        }
         for bot in moving {
             setHerdrProjects([], for: bot)
             defaults.removeObject(forKey: HerdrServer.botKey(bot.id))
             forgetHerdrAgentState(for: bot)
         }
-        servers.removeAll { $0.id == server.id }
         herdrTunnels.forgetPassword(for: server)
         herdrTunnels.release(server.id)
         keyStore.setKey("", for: server.keyAccount)
         // Its bots move to another server, which has its own projects: the ones chosen on this server do not go with them.
         herdrProjectModels[server.id] = nil
-        saveHerdrServers(servers)
+        saveHerdrServers(remaining)
     }
 
     /// The id a new server from the setup window or Settings is saved under: `default` while this install has none of

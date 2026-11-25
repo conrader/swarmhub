@@ -275,7 +275,12 @@ extension AppStore {
 
     /// Save role changes with rollback before changing server bindings and runtime caches.
     private func applyHerdrMoveRoles(_ roles: [(Bot, Bool)]) throws {
-        let changed = roles.filter { $0.0.canManageBots != $0.1 }
+        var changed = roles.filter { $0.0.canManageBots != $0.1 }
+        if let main = roles.first(where: { createsHerdrBots($0.0) }) {
+            let moving = Set(roles.map { $0.0.id })
+            let duplicates = duplicateHerdrMainBots(of: main.0)
+            changed += duplicates.filter { !moving.contains($0.id) }.map { ($0, false) }
+        }
         guard !changed.isEmpty else { return }
         let transaction = SetupTransaction(self)
         for (bot, role) in changed {

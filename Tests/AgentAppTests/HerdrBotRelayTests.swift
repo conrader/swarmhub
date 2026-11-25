@@ -104,11 +104,18 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: "Jarvis", server: "This Mac").contains("Jarvis is the main bot") && BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: nil, server: "This Mac").contains("has no main bot yet"))
 }
 
-@MainActor @Test func removingAServerLeavesOneBotWithTheStarAndCreationActions() throws {
+@MainActor @Test(arguments: [false, true])
+func removingAServerLeavesOneBotWithTheStarAndCreationActions(rehomedFirst: Bool) throws {
     let (store, jarvis, boppy) = relayStore()
     let local = store.herdrServers[0]
     let box = HerdrServer(id: "box", name: "Box", kind: .address, address: HerdrServer.loopback(port: 8788))
     store.saveHerdrServer(box, token: "t")
+    let studio = HerdrServer(id: "studio", name: "Studio", kind: .address, address: HerdrServer.loopback(port: 8789))
+    store.saveHerdrServer(studio, token: "t")
+    let far = Bot(name: "Far", backend: .herdr)
+    store.bots.append(far)
+    store.setHerdrServer(studio.id, for: far)
+    store.setCanManageBots(far, true)
     store.setHerdrServer(box.id, for: boppy)
     store.setCanManageBots(boppy, true)
     store.setHerdrModel("own-model", for: boppy)
@@ -120,10 +127,14 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     let archive = Bot(name: "Archive", backend: .herdr)
     archive.archivedMembers = ["Old bot"]
     archive.canManageBots = true
+    if rehomedFirst { store.bots.reverse() }
     store.bots.insert(archive, at: 0)
     store.removeHerdrServer(box)
-    #expect(jarvis.canManageBots && boppy.canManageBots)
+    #expect(jarvis.canManageBots && !boppy.canManageBots)
+    let saved = try StoreFile.decode(Data(contentsOf: store.fileURL))
+    #expect(saved.bots.first { $0.id == boppy.id }?.canManageBots == false)
     #expect(store.herdrMainBot(on: local) === jarvis)
+    #expect(store.herdrMainBot(on: studio) === far)
     #expect(store.herdrMainBotLabel(archive) == nil && !store.createsHerdrBots(archive))
     #expect(store.herdrMainBotLabel(jarvis) == "Main bot of This Mac")
     #expect(store.herdrMainBotLabel(boppy) == nil && !store.createsHerdrBots(boppy))
@@ -136,7 +147,7 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     var fields = BotEditorFields(bot: boppy, store: store)
     #expect(!fields.canManage)
     fields.apply(to: boppy, store: store, avatarTouched: false)
-    #expect(boppy.canManageBots && store.herdrMainBot(on: local) === jarvis)
+    #expect(!boppy.canManageBots && store.herdrMainBot(on: local) === jarvis)
     fields.canManage = true
     fields.apply(to: boppy, store: store, avatarTouched: false)
     #expect(store.herdrMainBotLabel(jarvis) == nil && store.herdrMainBotLabel(boppy) == "Main bot of This Mac")
@@ -144,6 +155,54 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     #expect(store.herdrModel(for: boppy) == "own-model")
     store.setCanManageBots(boppy, false)
     #expect(store.herdrMainBotLabel(boppy) == nil)
+}
+
+@MainActor @Test func removingTheFirstServerCarriesItsMainToAVacantServer() {
+    let (store, jarvis, boppy) = relayStore()
+    let local = store.herdrServers[0]
+    let box = HerdrServer(id: "box", name: "Box", kind: .address, address: HerdrServer.loopback(port: 8788))
+    store.saveHerdrServer(box, token: "t")
+    boppy.canManageBots = true
+    let archive = Bot(name: "Archive", backend: .herdr)
+    archive.archivedMembers = ["Old bot"]
+    archive.canManageBots = true
+    store.setHerdrServer(box.id, for: archive)
+    store.bots.insert(archive, at: 0)
+
+    store.removeHerdrServer(local)
+    #expect(store.herdrMainBot(on: box) === jarvis)
+    #expect(!boppy.canManageBots && !store.createsHerdrBots(archive))
+}
+
+@MainActor @Test(arguments: [false, true])
+func vacatingASavedMainRoleLeavesItsServerWithoutAMain(deleteOwner: Bool) throws {
+    let (original, jarvis, boppy) = relayStore()
+    let local = original.herdrServers[0]
+    let box = HerdrServer(id: "box", name: "Box", kind: .address, address: HerdrServer.loopback(port: 8788))
+    original.saveHerdrServer(box, token: "t")
+    let far = Bot(name: "Far", backend: .herdr)
+    original.bots.append(far)
+    original.setHerdrServer(box.id, for: far)
+    original.setCanManageBots(far, true)
+    boppy.canManageBots = true
+    try original.saveThrowing()
+
+    let store = AppStore(storeURL: original.fileURL, autoStart: false, keyStore: original.keyStore, defaults: original.defaults)
+    let owner = try #require(store.herdrMainBot(on: local))
+    #expect(owner.id == jarvis.id)
+    if deleteOwner {
+        store.delete(owner)
+        #expect(!store.bots.contains(owner))
+    } else {
+        var fields = BotEditorFields(bot: owner, store: store)
+        fields.canManage = false
+        fields.apply(to: owner, store: store, avatarTouched: false)
+    }
+    let stale = try #require(store.bots.first { $0.id == boppy.id })
+    #expect(store.herdrMainBot(on: local) == nil && store.herdrMainBotLabel(stale) == nil)
+    #expect(store.herdrMainBot(on: box)?.id == far.id)
+    let saved = try StoreFile.decode(Data(contentsOf: store.fileURL))
+    #expect(saved.bots.filter(\.canManageBots).map(\.id) == [far.id])
 }
 
 /// A bot that is not the main bot asks; the main bot decides itself; the bot is created at once, the asking bot is

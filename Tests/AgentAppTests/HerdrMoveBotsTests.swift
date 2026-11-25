@@ -138,6 +138,29 @@ import Testing
         #expect(f.store.herdrMainBot(on: f.source) === f.main)
     }
 
+    @Test(arguments: [false, true])
+    func movingTheMainClearsStaleFlagsAndUndoRespectsANewChoice(chooseNewMain: Bool) async throws {
+        let f = Fixture()
+        f.analyst.canManageBots = true
+        try f.store.saveThrowing()
+        let record = try await f.move([f.main], stop: false)
+        #expect(f.store.herdrMainBot(on: f.source) == nil && !f.analyst.canManageBots)
+        #expect(f.store.herdrMainBot(on: f.destination) === f.main)
+        let saved = try StoreFile.decode(Data(contentsOf: f.store.fileURL))
+        #expect(saved.bots.filter(\.canManageBots).map(\.id) == [f.main.id])
+
+        if chooseNewMain {
+            f.store.setCanManageBots(f.writer, true)
+            await #expect(throws: HerdrMoveError.mainChanged) { try await f.store.undoHerdrMove(record) }
+            #expect(f.store.herdrMainBot(on: f.source) === f.writer)
+            #expect(f.store.herdrMainBot(on: f.destination) === f.main)
+        } else {
+            try await f.store.undoHerdrMove(record)
+            #expect(f.store.herdrMainBot(on: f.source) === f.main && !f.analyst.canManageBots)
+            #expect(f.store.herdrMainBot(on: f.destination) == nil)
+        }
+    }
+
     @Test func explicitChoiceAndUndoRestoreAllOriginalSettings() async throws {
         let f = Fixture(), store = f.store
         store.defaults.set("codex-local", forKey: HerdrBackend.templateKey)
