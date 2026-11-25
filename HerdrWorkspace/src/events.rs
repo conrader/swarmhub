@@ -293,7 +293,7 @@ impl Stream {
     fn no_helpers(&self) -> bool {
         self.helpers["helpers"]
             .as_array()
-            .is_none_or(|helpers| helpers.is_empty())
+            .is_some_and(|helpers| helpers.is_empty())
     }
 
     fn find_launch(&mut self) -> Result<(), StoreError> {
@@ -479,9 +479,10 @@ impl Stream {
     }
 
     async fn helpers(&mut self) -> Result<(), Over> {
-        if let Some(listing) = self.listing().await
-            && listing != self.helpers
-        {
+        // As in the initial snapshot, null means the listing could not be read.
+        // An authoritative empty list is an object with helpers: [].
+        let listing = self.listing().await.unwrap_or(Value::Null);
+        if listing != self.helpers {
             self.send(event("helpers", &listing)).await?;
             self.helpers = listing;
         }

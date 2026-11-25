@@ -302,6 +302,7 @@ A helper is an ordinary session: its replies, tool activity, terminal and histor
 
 - `GET /api/agents/{address}/{created_ms}/events` sends the same list whenever it changes ([Follow a session without polling](#follow-a-session-without-polling)).
 - `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s running helpers, newest first, with each one’s name, difficulty, template, model, `model_label` (the catalog’s label for that model, such as “Sonnet 5.5”, when it lists the model), task, status and latest saved reply, plus `limit`, `stop_after_seconds` and `stop_unanswered_after_seconds`.
+- A helper’s `task` is its launch assignment. After a follow-up, `current_task` carries the latest assignment in full in both the listing and the parent’s event stream.
 - In `/api/workspace`, a running helper carries `parent` with the address and creation time of the agent that started it.
 - `GET /api/helper-policy` returns `policy` (the file’s four fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the three numbers.
 - `POST /api/helper-policy` takes the policy as its body and saves the file. It answers like `GET`, or with status 422 and an `error` when a number is out of bounds, Herdr has no such template, or the template cannot take the model.

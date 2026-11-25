@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-/// The newest helpers of one agent that are listed.
-const LISTED: usize = 50;
+/// How many recent launches to keep alongside the live helpers.
+pub(super) const RECENT_LAUNCHES: usize = 50;
 
 /// A turn that ended without a saved reply counts as over this long after its task was sent.
 const QUIET_MS: i64 = 20_000;
@@ -45,6 +45,9 @@ pub(super) struct View {
     pub(super) model_label: Option<String>,
     difficulty: String,
     task: String,
+    /// A follow-up assignment. The original task stays available to existing clients.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_task: Option<String>,
     started_ms: i64,
     /// `live` in the HTTP list. For the agent's commands also `finished`, `gone` (Core no longer has the
     /// terminal), `starting` (no terminal yet) and `failed` (it never got one).
@@ -245,16 +248,29 @@ pub(super) fn views(
     parent_key: &str,
     agents: &[Terminal],
     reply_chars: usize,
+    recent_launches: usize,
 ) -> Result<Vec<View>, StoreError> {
     let db = history.db()?;
+    let live_keys: Vec<_> = agents
+        .iter()
+        .filter(|agent| agent.state == "live")
+        .filter_map(Terminal::launch_key)
+        .collect();
+    let live_keys = serde_json::to_string(&live_keys).map_err(|_| StoreError)?;
     let mut rows = db.prepare(
-        "SELECT j.id,j.launch_key,j.address,j.created_ms,j.agent,j.text,j.at_ms,j.state,
+        "WITH recent AS (
+             SELECT h.launch FROM helpers h JOIN journal j ON j.id=h.launch
+             WHERE h.parent_key=?1 AND j.core_id=?2 ORDER BY h.launch DESC LIMIT ?3
+         )
+         SELECT j.id,j.launch_key,j.address,j.created_ms,j.agent,j.text,j.at_ms,j.state,
                 h.name,h.difficulty,h.template,h.model,j.detail
          FROM helpers h JOIN journal j ON j.id=h.launch
-         WHERE h.parent_key=?1 AND j.core_id=?2 ORDER BY h.launch DESC LIMIT ?3",
+         WHERE h.parent_key=?1 AND j.core_id=?2 AND h.launch IN (
+             SELECT launch FROM recent UNION SELECT id FROM journal WHERE launch_key IN (SELECT value FROM json_each(?4))
+         ) ORDER BY h.launch DESC",
     )?;
     let mut latest_task = db.prepare(
-        "SELECT at_ms,state FROM journal
+        "SELECT at_ms,state,CASE WHEN id!=?1 THEN text END FROM journal
          WHERE kind='task' AND (id=?1 OR (core_id=?2 AND address=?3 AND created_ms=?4))
          ORDER BY id DESC LIMIT 1",
     )?;
@@ -265,7 +281,7 @@ pub(super) fn views(
          FROM journal WHERE reply_for=?1 AND kind='reply' ORDER BY id DESC LIMIT 1",
     )?;
     let mut helpers = Vec::new();
-    let mut found = rows.query(params![parent_key, core_id, LISTED as i64])?;
+    let mut found = rows.query(params![parent_key, core_id, recent_launches as i64, live_keys])?;
     while let Some(row) = found.next()? {
         let launch: i64 = row.get(0)?;
         let key: String = row.get(1)?;
@@ -287,9 +303,9 @@ pub(super) fn views(
             None if launch_state == "pending" => "starting".into(),
             None => "failed".into(),
         };
-        let (task_at_ms, task_state): (i64, String) = latest_task
+        let (task_at_ms, task_state, current_task): (i64, String, Option<String>) = latest_task
             .query_row(params![launch, core_id, address, created_ms], |row| {
-                Ok((row.get(0)?, row.get(1)?))
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })?;
         let reply = latest_reply
             .query_row(params![key, core_id, address, created_ms], |row| {
@@ -321,6 +337,7 @@ pub(super) fn views(
             model_label: None,
             difficulty: row.get(9)?,
             task: row.get(5)?,
+            current_task,
             started_ms: row.get(6)?,
             state,
             status: terminal
@@ -656,7 +673,7 @@ mod tests {
             terminal("t8", &first.key, "finished", None),
             terminal("t9", &second.key, "live", Some("working")),
         ];
-        let listed = views(&history, "core", &parent, &agents, 5).unwrap();
+        let listed = views(&history, "core", &parent, &agents, 5, RECENT_LAUNCHES).unwrap();
         // `third` has no terminal yet: the agent's commands see it starting, and the HTTP list leaves it out.
         assert_eq!(listed.len(), 3);
         assert_eq!(
@@ -676,7 +693,7 @@ mod tests {
                 None,
             )
             .unwrap();
-        let mut listed = views(&history, "core", &parent, &agents, 5).unwrap();
+        let mut listed = views(&history, "core", &parent, &agents, 5, RECENT_LAUNCHES).unwrap();
         assert_eq!(listed[0].phase(), "could not be started: no such template");
         assert!(!listed[0].working() && !listed[0].holds_a_place());
         listed.remove(0);
@@ -702,6 +719,7 @@ mod tests {
             )
         );
         assert!(tests.working() && tests.reply.is_none() && !tests.answered);
+        assert!(tests.current_task.is_none());
         assert_eq!(listed[1].phase(), "stopped without an answer");
         assert_eq!(
             read_text(&listed[1], None, 1800).lines().last().unwrap(),
@@ -720,7 +738,7 @@ mod tests {
             )
             .unwrap()
         );
-        let mut listed = views(&history, "core", &parent, &agents, 5).unwrap();
+        let mut listed = views(&history, "core", &parent, &agents, 5, RECENT_LAUNCHES).unwrap();
         listed.remove(0);
         let reply = listed[0].reply.as_ref().unwrap();
         assert_eq!((reply.text.as_str(), reply.truncated), ("Seven", true));
@@ -745,11 +763,11 @@ mod tests {
         );
 
         // Helpers are found under their parent only, and marked with it for the roster.
-        let of_other = views(&history, "core", &other, &agents, 5).unwrap();
+        let of_other = views(&history, "core", &other, &agents, 5, RECENT_LAUNCHES).unwrap();
         assert_eq!(of_other.len(), 1);
         assert_eq!(of_other[0].state, "starting");
         assert!(
-            views(&history, "elsewhere", &parent, &agents, 5)
+            views(&history, "elsewhere", &parent, &agents, 5, RECENT_LAUNCHES)
                 .unwrap()
                 .is_empty()
         );
@@ -812,12 +830,14 @@ mod tests {
         // Too long without an answer: stopped, also while it still works.
         assert_eq!(due(&everyone, NEVER, asked_at), ["t9"]);
         assert_eq!(due(&agents, NEVER, asked_at), ["t9"]);
-        let unanswered = views(&history, "core", &parent, &agents[..1], 50).unwrap();
+        let unanswered = views(&history, "core", &parent, &agents[..1], 50, RECENT_LAUNCHES).unwrap();
         let gone = unanswered
             .iter()
             .find(|helper| helper.name == "tests")
             .unwrap();
         assert_eq!(gone.phase(), "gone without an answer to its latest task");
+        assert_eq!(gone.current_task.as_deref(), Some("And the folders?"));
+        assert_eq!(gone.task, "Count the files");
         assert!(read_text(gone, None, 600).contains(
             "It was stopped without an answer to its latest task. The workspace stops a helper that has not answered 600 seconds after its task was sent. Its previous answer:\nSeven files"
         ));
@@ -828,6 +848,11 @@ mod tests {
         );
         assert_eq!(due(&everyone, now() + 1_000, NEVER), ["t9"]);
         assert!(due(&everyone, answered_at, now() + 1_000).is_empty());
+
+        // The HTTP listing includes every live helper, even with a newer, ended launch.
+        let listed = views(&history, "core", &parent, &everyone, 50, 0).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].live() && listed[0].name == "tests");
     }
 
     #[test]

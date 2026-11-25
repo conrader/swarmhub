@@ -39,7 +39,7 @@ mod record;
 mod settings;
 mod spool;
 
-use record::{Admitted, View, Wanted, admit, list_text, one_line, read_text, views};
+use record::{Admitted, RECENT_LAUNCHES, View, Wanted, admit, list_text, one_line, read_text, views};
 pub(crate) use record::{ParentRef, parents};
 pub(crate) use spool::{ENV as SPOOL_ENV, directory as spool_directory};
 
@@ -402,7 +402,7 @@ async fn registered(w: &Workspace, key: &str) -> Result<String, String> {
 async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, String> {
     let core_id = registered(w, &key).await?;
     let agents = w.core.agents().await.map_err(explain)?;
-    let mut helpers = stored(views(&w.history, &core_id, &key, &agents, READ_REPLY_CHARS))?;
+    let mut helpers = stored(views(&w.history, &core_id, &key, &agents, READ_REPLY_CHARS, RECENT_LAUNCHES))?;
     let find = |helpers: &[View], name: &str| {
         helpers
             .iter()
@@ -762,7 +762,7 @@ pub(crate) async fn listing(
         .map_err(StoreError::from)?;
     let mut helpers = if any {
         let agents = w.core.agents().await?;
-        views(&w.history, &core_id, key, &agents, LIST_REPLY_CHARS)?
+        views(&w.history, &core_id, key, &agents, LIST_REPLY_CHARS, 0)?
     } else {
         Vec::new()
     };
