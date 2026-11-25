@@ -283,18 +283,18 @@ struct HerdrBackend: AgentBackend {
                         let ref = HerdrClient.AgentRef(address: turn.address, createdMs: turn.createdMs)
                         if turn.program?.lowercased() == "opencode",
                            let state = try? await backend.client.sessionModel(ref, core: turn.core), let model = state.effective {
-                            continuation.yield(.launchModel(model))
+                            continuation.yield(.sessionModel(model, .confirmation))
                             return
                         }
                         if let saved = backend.confirmation, saved.matches(server: backend.serverID, core: turn.core, agent: ref) {
-                            continuation.yield(.launchModel(saved.label))
+                            continuation.yield(.sessionModel(saved.label, .confirmation))
                             return
                         }
                         let profiles = try? await backend.client.profiles()
                         let sessions = profiles?.lazy.flatMap { $0.sessions ?? [] }
                         let runtime = sessions?.first { ($0.core == nil || $0.core == turn.core) && $0.address == turn.address && $0.createdMs == turn.createdMs }?.runtime
                         if let model = runtime?.model ?? runtime?.modelId, !model.isEmpty, !Task.isCancelled {
-                            continuation.yield(.launchModel(model))
+                            continuation.yield(.sessionModel(model, .launch))
                         }
                     }
                     defer { modelRead.cancel() }

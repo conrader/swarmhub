@@ -106,17 +106,30 @@ struct HerdrAgentReading: Equatable, Sendable {
         return activeTemplate != runtime.name
     }
 
-    /// Set when the next agent would start on another model than the running one: what the person has to do for it.
-    var pendingLine: String? {
+    /// The target of a pending change, including the provider when switching programs.
+    var pendingTarget: String? {
         if changesProgram, let runtime {
-            let next = [runtime.label, model.map(Self.name)].compactMap { $0 }.joined(separator: " · ")
-            return "Next new direct turn: \(next). Your chat stays here."
+            return [runtime.label, model.map(Self.name)].compactMap { $0 }.joined(separator: " · ")
         }
         guard let model else { return nil }
         switch running {
-        case .model(let id, _) where id != model.id: return "\(Self.name(model)) will answer your next new direct turn."
-        case .unstated: return "\(Self.name(model)) will answer your next new direct turn."
+        case .model(let id, _) where id != model.id: return Self.name(model)
+        case .unstated: return Self.name(model)
         default: return nil
+        }
+    }
+
+    var pendingLine: String? {
+        guard let target = pendingTarget else { return nil }
+        return changesProgram ? "Next new direct turn: \(target). Your chat stays here."
+                              : "\(target) will answer your next new direct turn."
+    }
+
+    var headerModel: String {
+        switch running {
+        case .model(_, let label): confirmed ? "Last confirmed · \(label)" : "Started on \(label)"
+        case .unknown, .unstated: "Session model unreported"
+        case .none: model.map { "Next direct turn · \(Self.name($0))" } ?? "Model settings"
         }
     }
 

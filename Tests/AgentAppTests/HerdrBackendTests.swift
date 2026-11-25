@@ -96,14 +96,21 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async
     let running = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: profiles)
     #expect(running.running == .model(id: "m-b", label: "Model B") && running.short == "Model B" && running.runningLine == "Current session started on Model B.")
     #expect(running.pendingLine == "Model A will answer your next new direct turn.", "another model is chosen than the one running: it says when it applies")
+    #expect(plain.headerModel == "Next direct turn · Model A" && plain.pendingTarget == nil)
+    #expect(running.headerModel == "Started on Model B" && running.pendingTarget == "Model A")
+    var confirmed = running
+    confirmed.confirmed = true
+    #expect(confirmed.headerModel == "Last confirmed · Model B")
     var changedProgram = running
     changedProgram.activeTemplate = "old-program"
     #expect(changedProgram.changesProgram && changedProgram.pendingLine == "Next new direct turn: Agent One · Model A. Your chat stays here.")
+    #expect(changedProgram.pendingTarget == "Agent One · Model A")
     changedProgram.model = nil
     #expect(changedProgram.pendingLine == "Next new direct turn: Agent One. Your chat stays here.")
     let same = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: "m-b", offered: offered, agent: agent, profiles: profiles)
     #expect(same.pendingLine == nil && same.summary == "AI: Agent One (default). Model: Model B. Current session started on Model B.")
     let unstated = HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: older, profiles: profiles)
+    #expect(unstated.headerModel == "Session model unreported")
     #expect(unstated.running == .unstated && unstated.short == nil && unstated.runningLine?.contains("it picked itself") == true && unstated.pendingLine == "Model A will answer your next new direct turn.", "an agent started without a model is not given one by guess")
     #expect(HerdrAgentReading(templates: [one], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: offered, agent: agent, profiles: []).running == .unknown)
 }

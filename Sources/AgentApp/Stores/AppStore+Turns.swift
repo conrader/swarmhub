@@ -32,7 +32,7 @@ extension AppStore {
     /// Reads the stream into `assistant` (and the parts a delivered steer opens after it, `endTurnParts`). Returns how it ended; throws what the backend threw (and cancellation).
     func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot, group: GroupChat? = nil, cumulativeReplacements: Bool = false) async throws -> TurnEnd {
         var completed = false; var failure: String?
-        var launchModel: String?
+        var sessionModel: (name: String, source: RunSummary.ModelSource)?
         var finalJournal: String?
         var activitySummary: (seconds: Int, tools: Int)?
         // A delivered steer moves the rest of the reply into a new row below its bubble.
@@ -173,7 +173,7 @@ extension AppStore {
                 if owner !== row, activity.current == nil { activity.finish(at: now()) }
                 if activity.total > 0 { owner.activity = activity; objectWillChange.send() }
             case .journal(let server, let ids): finalJournal = ids.map { "\(server):\($0)" }.joined(separator: " ")
-            case .launchModel(let model): launchModel = model
+            case .sessionModel(let name, let source): sessionModel = (name, source)
             case .published(let server, let result):
                 var saved = row.publishedResults ?? HerdrReplyResults(serverID: server, items: [])
                 if !saved.items.contains(where: { $0.id == result.id }) {
@@ -193,7 +193,7 @@ extension AppStore {
         if let failure { return .failedByAgent(failure) }
         if completed {
             if let activitySummary {
-                row.runSummary = RunSummary(model: launchModel, seconds: activitySummary.seconds, tools: activitySummary.tools)
+                row.runSummary = RunSummary(model: sessionModel?.name, modelSource: sessionModel?.source, seconds: activitySummary.seconds, tools: activitySummary.tools)
             }
             return .completed
         }

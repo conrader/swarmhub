@@ -26,8 +26,9 @@ struct ChatView: View {
                 BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: answering, probe: "chat_header",
                           hasActiveCodingAgent: coding, mainBotLabel: store.herdrMainBotLabel(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
-                // A Herdr bot's model by the server's name for it: the running agent's, else the one its next agent starts on.
-                if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model \(bot.name) runs on") }
+                if bot.backend == .herdr, !bot.isReadOnlyArchive {
+                    ChatModelButton(reading: store.herdrAgentReadings[bot.id]) { store.openInfoTab(.model) }
+                }
                 // Whether its agent is running: ready for a message, or still starting. Nothing while it answers.
                 if bot.backend == .herdr, !bot.isReadOnlyArchive {
                     let helpers = store.startsHerdrHelpers(bot)
@@ -200,5 +201,31 @@ struct ChatView: View {
     private func submit(_ value: String, items: [ChatAttachment]) {
         store.chatScroll.toBottom(bot.id)
         if store.send(text: value, attachments: items) { draft = ""; intake.items = [] }
+    }
+}
+
+struct ChatModelButton: View {
+    let reading: HerdrAgentReading?
+    let openSettings: () -> Void
+
+    var body: some View {
+        Button(action: openSettings) {
+            HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(reading?.headerModel ?? "Model settings")
+                    if let next = reading?.pendingTarget {
+                        Text("Next direct turn · \(next)").foregroundStyle(.primary)
+                    }
+                }
+                Image(systemName: "chevron.right").font(.caption2)
+            }
+            .lineLimit(1)
+            .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("chat.bot.model")
+        .accessibilityHint("Open this bot’s model settings")
+        .help(reading?.summary ?? "Open this bot’s model settings")
     }
 }

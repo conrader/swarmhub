@@ -49,7 +49,7 @@ struct MessageView: View {
                 if let results = message.publishedResults { HerdrReplyFiles(results: results) }
                 if message.turnState == .finished, let summary = message.runSummary {
                     Text(summary.line).font(.caption).foregroundStyle(.secondary)
-                        .help("Elapsed time and tool calls observed by SwarmHub. The launch model appears when reported by the server.")
+                        .help("Elapsed time and tool calls reported to SwarmHub. The model label comes from this reply’s session.")
                 }
                 if store.canSendAsNextMessage(message) {
                     Button(SteerCopy.sendAsNext) { store.sendAsNextMessage(message) }
