@@ -57,8 +57,9 @@ impl Wait {
             let ready = history.db().is_ok_and(|db| {
                 db.query_row(
                     "SELECT EXISTS(SELECT 1 FROM bot_outbox o JOIN bots b ON b.id=o.bot
+                     LEFT JOIN helper_followups f ON f.outbox=o.id
                      WHERE o.id=?1 AND o.task=?2 AND o.state='typing' AND o.give_up_ms>?3
-                       AND b.removed_ms IS NULL AND b.takes_messages
+                       AND b.removed_ms IS NULL AND (b.takes_messages OR f.task IS NOT NULL) AND coalesce(f.cancelled,0)=0
                        AND (o.cause='outcome' OR NOT EXISTS (
                            SELECT 1 FROM bot_work WHERE id=o.work AND state='stopped')))",
                     params![id, task, now()],

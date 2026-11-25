@@ -250,7 +250,7 @@ A running agent can hand one task to another agent: a helper. The agent says how
 
 The workspace reads the file again for every request, so an edit applies to the next helper without a restart. A file it cannot read as a policy turns helpers off; the agent is told so.
 
-Tell an agent about the command in its task or standing instructions, for example: “For a self-contained subtask, run `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"`, acknowledge the handoff and keep the conversation available. Use `swarmhub-herdr helper wait NAME` when your current answer depends on the result.” The agent runs these in its own terminal:
+Tell an agent about the command in its task or standing instructions, for example: “For a self-contained subtask, run `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"`, record any next step with `swarmhub-herdr helper after NAME "NEXT STEP"`, then acknowledge the handoff and keep the conversation available. Use `swarmhub-herdr helper wait NAME` when your current answer depends on the result.” The agent runs these in its own terminal:
 
 | Command | What it does |
 | --- | --- |
@@ -258,6 +258,7 @@ Tell an agent about the command in its task or standing instructions, for exampl
 | `swarmhub-herdr helper list` | Lists the agent’s running helpers, and names the ended ones whose answers it can still read. |
 | `swarmhub-herdr helper wait NAME [--seconds N]` | Waits for the helper’s answer (100 seconds unless you say otherwise), then prints it. |
 | `swarmhub-herdr helper read NAME [--lines N]` | Prints the helper’s latest answer, also after the helper has ended, or the last lines of its terminal screen. |
+| `swarmhub-herdr helper after NAME "NEXT STEP"` | Returns immediately. When this assignment finishes, the workspace delivers its result and the saved next step to the registered parent bot’s direct chat. A terminal that ends without an answer also produces an outcome. |
 | `swarmhub-herdr helper send NAME TEXT` | Gives a running helper a follow-up. |
 | `swarmhub-herdr helper stop NAME` | Ends the helper now. Its answer stays readable. |
 

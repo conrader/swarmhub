@@ -97,6 +97,7 @@ pub(crate) enum Action {
         /// starts every agent.
         cwd: Option<String>,
     },
+    After { name: String, step: String },
     List,
     Read {
         name: String,
@@ -255,6 +256,7 @@ async fn stop_answered(w: &Workspace) {
     if !record::any(&w.history).unwrap_or(false) {
         return;
     }
+    let followups = crate::bots::helper_followups::pending(&w.history).unwrap_or_default();
     let (Ok(hello), Ok(agents)) = (w.core.identify().await, w.core.agents().await) else {
         return;
     };
@@ -263,6 +265,9 @@ async fn stop_answered(w: &Workspace) {
         crate::history::now()
             .saturating_sub(i64::try_from(seconds.saturating_mul(1000)).unwrap_or(i64::MAX))
     };
+    if let Err(error) = crate::bots::helper_followups::check(&w.history, &hello.core.id, &agents, followups) {
+        eprintln!("Could not queue a helper follow-up: {error:?}");
+    }
     let Ok(due) = record::overdue(
         &w.history,
         &hello.core.id,
@@ -429,6 +434,10 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
             ),
             ..Reply::default()
         }),
+        Action::After { name, step } => Ok(Reply {
+            text: crate::bots::helper_followups::register(&w.history, &key, &name, &step)?,
+            ..Reply::default()
+        }),
         Action::Read { name, lines } => {
             let helper = &helpers[find(&helpers, &name)?];
             let screen = match lines {
@@ -476,9 +485,10 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
             crate::deliver_task(w.clone(), terminal, record, text)
                 .await
                 .map_err(explain)?;
+            let next = next_step(&name);
             Ok(Reply {
                 text: format!(
-                    "Sent to {name}. The helper works independently. For a background task, acknowledge the handoff and return to chat. If your current answer depends on it, run: swarmhub-herdr helper wait {name}"
+                    "Sent to {name}. {next}"
                 ),
                 ..Reply::default()
             })
@@ -506,6 +516,15 @@ fn terminal_of(agents: Vec<Terminal>, helper: &View) -> Result<Terminal, String>
         .into_iter()
         .find(|agent| agent.address == helper.address && agent.created_ms == helper.created_ms)
         .ok_or_else(|| "This helper's terminal is no longer in Herdr Core.".to_owned())
+}
+
+/// A parent terminal may resolve a different version of the CLI on its PATH.
+fn next_step(name: &str) -> String {
+    let command = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.to_str().map(crate::agent::shell_quote))
+        .unwrap_or_else(|| "swarmhub-herdr".to_owned());
+    format!("If you have a next step when this helper finishes, register it before replying: `{command} helper after {name} \"NEXT STEP\"`. Use that exact executable. Then finish your turn and leave the chat available. For foreground work, use: {command} helper wait {name}")
 }
 
 async fn start(
@@ -685,9 +704,10 @@ async fn start(
             }
         }
     };
+    let next = next_step(&name);
     if defer {
         let text = format!(
-            "Starting helper {described}{folder}. It starts as soon as this command has returned.\nThe helper works independently. For a background task, acknowledge the handoff and return to chat. If your current answer depends on it, run: swarmhub-herdr helper wait {name}\n{stays}"
+            "Starting helper {described}{folder}. It starts as soon as this command has returned.\n{next}\n{stays}"
         );
         let deferred = Deferred {
             record,
@@ -709,7 +729,7 @@ async fn start(
         .map_err(|_| "The helper launch was interrupted. Run `swarmhub-herdr helper list`.")??;
     let text = match undelivered {
         None => format!(
-            "Started helper {described} as {address}{folder}.\nThe helper works independently. For a background task, acknowledge the handoff and return to chat. If your current answer depends on it, run: swarmhub-herdr helper wait {name}\n{stays}"
+            "Started helper {described} as {address}{folder}.\n{next}\n{stays}"
         ),
         Some(reason) => format!(
             "Started helper {described} as {address}{folder}, but its task was not delivered: {reason}.\nIt still counts as running. Look at it with: swarmhub-herdr helper read {name} --lines 30\nIf it waits at a prompt only a person should answer, stop it with `swarmhub-herdr helper stop {name}` and tell the user. Otherwise send the task again with `swarmhub-herdr helper send {name} TEXT`."

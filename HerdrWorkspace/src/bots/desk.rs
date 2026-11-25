@@ -339,6 +339,7 @@ fn sync_direct_followups(db: &rusqlite::Connection) -> rusqlite::Result<()> {
 
 struct Waiting {
     completion: bool,
+    helper_followup: bool,
     recoverable: bool,
     id: i64,
     bot: String,
@@ -360,7 +361,8 @@ pub(crate) fn drain(w: &Workspace) -> Vec<tokio::task::JoinHandle<()>> {
     }
     let waiting: Vec<Waiting> = db
         .prepare_cached(
-            "SELECT o.id,o.bot,o.text,d.outbox IS NOT NULL,o.cause IN ('message','outcome')
+            "SELECT o.id,o.bot,o.text,d.outbox IS NOT NULL,o.cause IN ('message','outcome'),
+                    EXISTS(SELECT 1 FROM helper_followups f WHERE f.outbox=o.id)
              FROM bot_outbox o LEFT JOIN job_deliveries d ON d.outbox=o.id
              WHERE (d.outbox IS NULL AND o.state='pending' AND o.give_up_ms>?1 AND o.retry_after_ms<=?1)
                 OR (d.state!='acknowledged' AND d.retry_ms<=?1)
@@ -374,6 +376,7 @@ pub(crate) fn drain(w: &Workspace) -> Vec<tokio::task::JoinHandle<()>> {
                     text: row.get(2)?,
                     completion: row.get(3)?,
                     recoverable: row.get(4)?,
+                    helper_followup: row.get(5)?,
                 })
             })?
             .collect()
@@ -734,7 +737,9 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     };
     // A pending desk review can precede the terminal's blocked status.
     let Some(launch) = agent.launch_key() else { return Outcome::Later; };
-    if agent.status.as_ref().is_some_and(|status| status.state == "blocked")
+    if agent.status.as_ref().is_some_and(|status| {
+        status.state == "blocked" || (item.helper_followup && status.state == "working")
+    })
         || w.approvals.waits_on(launch).unwrap_or(true)
     {
         return Outcome::Later;

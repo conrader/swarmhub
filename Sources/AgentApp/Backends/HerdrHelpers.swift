@@ -139,26 +139,21 @@ extension HerdrClient {
 /// what each difficulty runs on, so the note names no model and the agent is told that it cannot choose one.
 enum HerdrHelperNote {
     /// Only this note (and a person quoting the command) contains it: `HerdrClient.deliver` tells an agent once.
-    static let marker = "Background helper results"
+    static let marker = "After a background helper"
     static let difficulties = ["easy", "medium", "hard"]
 
     static let text = """
-        You can hand a self-contained subtask to a helper agent that works on its own while you carry on. In your shell run:
-
+        Delegate a self-contained task in your shell:
         swarmhub-herdr helper start --difficulty \(difficulties.joined(separator: "|")) [--name NAME] [--here] "TASK"
 
-        \(marker) appear in the direct chat. For a background request, acknowledge the handoff once the helper starts \
-        and leave the conversation available. Use `swarmhub-herdr helper wait NAME` only when the current answer needs its result. \
-        `swarmhub-herdr helper list` shows your helpers, \
-        `helper read NAME` its latest answer, `helper send NAME "TEXT"` gives it a follow-up and `helper stop NAME` ends it. \
-        The helper knows nothing of this conversation: put everything it needs into TASK. It starts in the server's \
-        agent folder, or with --here in the folder you run the command in. \
-        Choose the difficulty honestly: easy for small mechanical edits, medium for normal features and fixes, hard for \
-        design-heavy or risky work. The server uses the person's helper model choice for this bot or its default for the difficulty. \
-        The server limits how many helpers you may have at \
-        once and tells you when a start is refused. It stops a helper a short while after it has answered, unless you \
-        send it a follow-up first; its answer stays readable with `helper read NAME`. Check a helper's answer before you \
-        rely on it, and do small things yourself.
+        \(marker) starts, its result appears in chat. If you owe the user another step, before ending your turn use the \
+        start receipt’s exact `helper after NAME "NEXT STEP"` command. On older workspaces, plan a check-in. \
+        Acknowledge the handoff and leave chat available. Use `helper wait NAME` for foreground work. \
+        `helper list` lists helpers, `helper read NAME` reads the result, `helper send NAME "TEXT"` assigns more work, \
+        and `helper stop NAME` ends it. Include the context the helper needs in TASK. Use --here to share your working directory.
+        Choose easy for small mechanical edits, medium for normal features and fixes, hard for design-heavy or risky work. \
+        The server uses the person's helper model choice for this bot or its default for the difficulty. It limits concurrent helpers \
+        and stops a helper a short while after it has answered. Check the saved answer before relying on it.
         """
 }
 
