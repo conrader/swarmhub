@@ -112,7 +112,7 @@ To check saved-message search on the Mac, run the driver against the candidate a
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --message-search /Applications/SwarmHub.app
 ```
 
-The driver opens a private workspace with 400 bot messages and 400 group messages. It replaces a broad search with a specific phrase, opens the result and checks the message’s position against the visible scroll area. It repeats the lookup across chats and within one chat, using both a click and Return.
+The driver opens a private workspace with 800 live messages and 1,000 imported Grok entries. It checks the visible message after a click, Return and keyboard navigation. It pages through neighboring imported messages, switches conversations, relaunches the app and opens a chat whose archive file has gone away. Set `SWARMHUB_QA_LARGE_HISTORY=1` on the same command to repeat the exercise with 33,000 imported entries (about 32 MB). The driver reports time to a result and time from selection to the visible message.
 
 To check published media in a bot reply, run the driver from a checkout containing the PNG and MP4 fixtures.
 

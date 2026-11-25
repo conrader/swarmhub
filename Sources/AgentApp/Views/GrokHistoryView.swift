@@ -10,17 +10,22 @@ struct GrokHistoryView: View {
     let archiveID: UUID; let count: Int; let ownerName: String
     /// The bot whose agent gets this archive; nil for a group.
     let handoffBotID: UUID?
+    let page: GrokHistoryPage?
+    let showPage: ((GrokHistoryPage) -> Void)?
     @State private var expanded: Bool
     @State private var query = ""
 
-    init(bot: Bot, expanded: Bool = false) { self.init(archiveID: bot.id, count: bot.grokHistoryCount, ownerName: bot.name, expanded: expanded, handoffBotID: bot.id) }
-    init(archiveID: UUID, count: Int, ownerName: String, expanded: Bool = false, handoffBotID: UUID? = nil) {
+    init(bot: Bot, expanded: Bool = false, page: GrokHistoryPage? = nil, showPage: ((GrokHistoryPage) -> Void)? = nil) { self.init(archiveID: bot.id, count: bot.grokHistoryCount, ownerName: bot.name, expanded: expanded, handoffBotID: bot.id, page: page, showPage: showPage) }
+    init(archiveID: UUID, count: Int, ownerName: String, expanded: Bool = false, handoffBotID: UUID? = nil, page: GrokHistoryPage? = nil, showPage: ((GrokHistoryPage) -> Void)? = nil) {
         self.archiveID = archiveID; self.count = count; self.ownerName = ownerName; self.handoffBotID = handoffBotID
-        _expanded = State(initialValue: expanded)
+        self.page = page; self.showPage = showPage
+        _expanded = State(initialValue: expanded || page != nil)
     }
 
     var body: some View {
-        let rows = expanded ? store.grokHistory.messages(for: archiveID).filter { $0.matches(query.trimmingCharacters(in: .whitespaces)) } : []
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = term.isEmpty ? page : nil
+        let rows = archiveRows(matching: term)
         let _ = selection?.showHistory(archiveID, rows: rows.filter { !$0.hidden })
         VStack(alignment: .leading, spacing: 8) {
             Button { expanded.toggle() } label: {
@@ -38,13 +43,32 @@ struct GrokHistoryView: View {
                 HStack { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Search Grok history", text: $query).textFieldStyle(.plain) }
                     .font(.system(size: 12)).padding(7).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 7))
                 if rows.isEmpty { Text(query.isEmpty ? "No imported messages." : "No matches.").font(.caption).foregroundStyle(.secondary) }
-                LazyVStack(alignment: .leading, spacing: 6) { ForEach(rows) { ArchivedMessageRow(message: $0, botName: ownerName) } }
+                if let context {
+                    if let earlier = context.earlier { Button("Earlier imported messages") { showPage?(earlier) } }
+                    VStack(alignment: .leading, spacing: 6) { archivedRows(rows) }
+                    if let later = context.later { Button("Later imported messages") { showPage?(later) } }
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 6) { archivedRows(rows) }
+                }
             }
         }
         .padding(12).background(AppColor.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColor.separator, lineWidth: 0.5))
         .padding(.horizontal, 24).padding(.bottom, 12)
         .task(id: archiveID) { UISmokeProbe.historyHeaders[archiveID] = count }
+    }
+    private func archiveRows(matching term: String) -> [ArchivedMessage] {
+        guard expanded else { return [] }
+        if term.isEmpty, let page { return Array(page.rows) }
+        let messages = page?.messages ?? store.grokHistory.messages(for: archiveID)
+        return term.isEmpty ? messages : messages.filter { $0.matches(term) }
+    }
+
+    private func archivedRows(_ rows: [ArchivedMessage]) -> some View {
+        ForEach(rows, id: \.dedupeKey) { row in
+            ArchivedMessageRow(message: row, botName: ownerName)
+                .trackArchiveFocus(page?.key == row.dedupeKey).id(ChatScrollAnchor.imported(row.dedupeKey))
+        }
     }
 }
 
@@ -81,14 +105,10 @@ extension EnvironmentValues {
 private struct ArchivedMessageRow: View {
     @Environment(\.timeZone) private var timeZone
     let message: ArchivedMessage; let botName: String
-    private var heading: String {
-        if message.channel == "agent" { return "\(message.author ?? "Agent") → \(message.to ?? "Agent")" }
-        switch message.role { case "user": return "You"; case "system": return "System"; default: return message.author ?? botName }
-    }
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(heading).font(.system(size: 11, weight: .semibold))
+                Text(message.heading(botName: botName)).font(.system(size: 11, weight: .semibold))
                 if message.hidden { Text("hidden prompt").font(.system(size: 10)).padding(.horizontal, 5).background(AppColor.raised, in: Capsule()) }
                 if let date = message.timestamp { Text(date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone))).font(.system(size: 10)).foregroundStyle(.tertiary) }
             }

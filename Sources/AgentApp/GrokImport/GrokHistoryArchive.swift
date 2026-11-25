@@ -8,8 +8,30 @@ struct ArchivedMessage: Codable, Equatable, Identifiable, Sendable {
     var streaming: Bool? = nil
 
     var dedupeKey: String { id.isEmpty ? "seq:\(seq)" : id }
+    func heading(botName: String) -> String {
+        if channel == "agent" { return "\(author ?? "Agent") → \(to ?? "Agent")" }
+        switch role { case "user": return "You"; case "system": return "System"; default: return author ?? botName }
+    }
+
     func matches(_ query: String) -> Bool {
         query.isEmpty || text.localizedCaseInsensitiveContains(query) || (author?.localizedCaseInsensitiveContains(query) ?? false) || (to?.localizedCaseInsensitiveContains(query) ?? false)
+    }
+}
+
+/// Layout a bounded set of neighbors before scrolling to a search result in a long archive.
+struct GrokHistoryPage: Sendable {
+    let messages: [ArchivedMessage]
+    let index: Int
+    var key: String { messages[index].dedupeKey }
+    var rows: ArraySlice<ArchivedMessage> { messages[max(0, index - 10)..<min(messages.count, index + 11)] }
+    var earlier: Self? { rows.startIndex > 0 ? Self(messages: messages, index: max(0, rows.startIndex - 10)) : nil }
+    var later: Self? { rows.endIndex < messages.count ? Self(messages: messages, index: min(messages.count - 1, rows.endIndex + 9)) : nil }
+
+    static func containing(_ key: String, cached: [ArchivedMessage]?, url: URL) async -> Self? {
+        guard !Task.isCancelled else { return nil }
+        let visible = (cached ?? GrokHistoryStore.linesOnDisk(url) ?? []).filter { !$0.hidden }
+        guard !Task.isCancelled, let index = visible.firstIndex(where: { $0.dedupeKey == key }) else { return nil }
+        return Self(messages: visible, index: index)
     }
 }
 

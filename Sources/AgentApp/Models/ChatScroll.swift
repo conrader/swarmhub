@@ -2,7 +2,19 @@ import Foundation
 
 struct ChatMessageLocation: Equatable, Sendable {
     let conversation: UUID
-    let message: UUID
+    enum Row: Equatable, Sendable {
+        case live(UUID)
+        case imported(String)
+    }
+    let row: Row
+    init(conversation: UUID, message: UUID) { self.conversation = conversation; row = .live(message) }
+    init(conversation: UUID, imported: String) { self.conversation = conversation; row = .imported(imported) }
+    var id: String {
+        switch row {
+        case .live(let id): "message-\(conversation)-\(id)"
+        case .imported(let key): "archive-\(conversation)-\(key)"
+        }
+    }
 }
 
 /// P50: where each chat (bot chat, group or thread, keyed by its id) was left, and whether it is away from the newest
@@ -13,6 +25,7 @@ struct ChatMessageLocation: Equatable, Sendable {
 
     /// Conversation id → its top visible message, written with the next store save (quit flushes it).
     private(set) var positions: [UUID: UUID] = [:]
+    private(set) var archivePositions: [UUID: String] = [:]
     /// Conversations scrolled up from the bottom → messages that arrived below since.
     @Published private(set) var away: [UUID: Int] = [:]
     /// Conversations whose opening scroll is still settling; what the view shows meanwhile is not the user's position.
@@ -35,8 +48,9 @@ struct ChatMessageLocation: Equatable, Sendable {
     /// The view's top visible message and whether its bottom is in view.
     func saw(_ id: UUID, top: UUID?, atBottom: Bool) {
         guard !opening.contains(id) else { return }
-        if atBottom { positions[id] = nil; setAway(id, nil); return }
+        if atBottom { toBottom(id); return }
         guard let top else { return }
+        archivePositions[id] = nil
         positions[id] = top
         if away[id] == nil { setAway(id, 0) }
     }
@@ -51,8 +65,14 @@ struct ChatMessageLocation: Equatable, Sendable {
     /// Streaming text follows only at the bottom.
     func follows(_ id: UUID) -> Bool { away[id] == nil }
 
+    func readingArchive(_ id: UUID, key: String) {
+        positions[id] = nil
+        archivePositions[id] = key
+        setAway(id, away[id] ?? 0)
+    }
+
     /// Sending a message or Jump to latest: back at the newest.
-    func toBottom(_ id: UUID) { positions[id] = nil; setAway(id, nil) }
+    func toBottom(_ id: UUID) { positions[id] = nil; archivePositions[id] = nil; setAway(id, nil) }
 
     /// "Jump to latest", plus " · N new"; nil at the bottom.
     func jumpLabel(_ id: UUID) -> String? {
@@ -61,13 +81,18 @@ struct ChatMessageLocation: Equatable, Sendable {
 
     /// store.json form; absent while empty.
     var stored: [String: String]? {
-        positions.isEmpty ? nil : Dictionary(uniqueKeysWithValues: positions.map { ($0.key.uuidString, $0.value.uuidString) })
+        var result = Dictionary(uniqueKeysWithValues: positions.map { ($0.key.uuidString, $0.value.uuidString) })
+        for (id, key) in archivePositions { result[id.uuidString] = "archive:" + key }
+        return result.isEmpty ? nil : result
     }
     func restore(_ stored: [String: String]?) {
-        positions = Dictionary(uniqueKeysWithValues: (stored ?? [:]).compactMap { key, value in
-            guard let conversation = UUID(uuidString: key), let message = UUID(uuidString: value) else { return nil }
-            return (conversation, message)
-        })
+        positions.removeAll()
+        archivePositions.removeAll()
+        for (key, value) in stored ?? [:] {
+            guard let conversation = UUID(uuidString: key) else { continue }
+            if let message = UUID(uuidString: value) { positions[conversation] = message }
+            else if value.hasPrefix("archive:") { archivePositions[conversation] = String(value.dropFirst("archive:".count)) }
+        }
     }
 
     private func setAway(_ id: UUID, _ value: Int?) { if away[id] != value { away[id] = value } }

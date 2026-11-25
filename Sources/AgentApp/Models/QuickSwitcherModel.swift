@@ -36,7 +36,7 @@ struct QuickSwitcherModel: Equatable {
         let location: ChatMessageLocation
         let chat: String
         let author: String
-        let date: Date
+        let date: Date?
         let role: MessageRole
         let content: String
 
@@ -50,7 +50,8 @@ struct QuickSwitcherModel: Equatable {
 
     /// Snapshot the local rows on the main actor. Text parsing, matching and sorting can run
     /// away from the chat window while the person types their next character.
-    @MainActor static func messages(in store: AppStore, query: String) async -> [Item] {
+    @MainActor static func messages(in store: AppStore, query: String, files: ArchiveFiles = ArchiveFiles(),
+                                    liveResults: (@MainActor @Sendable ([Item]) -> Void)? = nil) async -> [Item] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
         let chats = store.bots.map { ($0.id, $0.name, $0.messages) } + store.groups.map { ($0.id, $0.name, $0.messages) }
@@ -72,25 +73,71 @@ struct QuickSwitcherModel: Equatable {
                                        date: message.transcriptDate, role: message.role, content: body))
             }
         }
-        return await matches(in: rows, term: term, timeZone: store.personDisplayZone)
+        let archives = store.bots.compactMap { $0.grokSourceID == nil ? nil : ($0.id, $0.name) }
+            + store.groups.compactMap { $0.grokSourceID == nil ? nil : ($0.id, $0.name) }
+        let sources = archives.map { (id, name) in
+            ArchiveSource(id: id, name: name, url: store.grokHistory.fileURL(for: id), cached: store.grokHistory.loaded[id])
+        }
+        return await matches(in: rows, archives: sources, files: files, term: term, timeZone: store.personDisplayZone, liveResults: liveResults)
     }
 
-    private static func matches(in rows: [MessageRow], term: String, timeZone: TimeZone) async -> [Item] {
+    private struct ArchiveSource: Sendable {
+        let id: UUID
+        let name: String
+        let url: URL
+        let cached: [ArchivedMessage]?
+    }
+
+    /// A search sheet reuses decoded archive files as the person refines their query.
+    actor ArchiveFiles {
+        private var entries: [URL: (modified: Date, size: Int, messages: [ArchivedMessage])] = [:]
+
+        func messages(at url: URL) -> [ArchivedMessage] {
+            guard !Task.isCancelled, let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                  let modified = values.contentModificationDate, let size = values.fileSize else { return [] }
+            if let entry = entries[url], entry.modified == modified, entry.size == size { return entry.messages }
+            let messages = GrokHistoryStore.linesOnDisk(url) ?? []
+            entries[url] = (modified, size, messages)
+            return messages
+        }
+    }
+
+    private static func matches(in rows: [MessageRow], archives: [ArchiveSource], files: ArchiveFiles, term: String,
+                                timeZone: TimeZone, liveResults: (@MainActor @Sendable ([Item]) -> Void)?) async -> [Item] {
         let dateStyle = Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone)
         var matches: [(date: Date, item: Item)] = []
-        for row in rows {
-            if Task.isCancelled { return [] }
+        func match(_ row: MessageRow, imported: Bool = false) {
             let body = row.searchableText
-            guard let found = body.range(of: term, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) else { continue }
+            guard let found = body.range(of: term, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) else { return }
             let start = body.index(found.lowerBound, offsetBy: -32, limitedBy: body.startIndex) ?? body.startIndex
             let end = body.index(found.upperBound, offsetBy: 64, limitedBy: body.endIndex) ?? body.endIndex
             let excerpt = body[start..<end].split(whereSeparator: \.isWhitespace).joined(separator: " ")
             let title = (start == body.startIndex ? "" : "…") + excerpt + (end == body.endIndex ? "" : "…")
             let source = row.author == row.chat ? row.chat : "\(row.chat) · \(row.author)"
-            let detail = source + " · " + row.date.formatted(dateStyle)
-            let item = Item(id: "message-\(row.location.conversation)-\(row.location.message)", title: title,
+            let detail = [source, imported ? "Grok history" : nil, row.date?.formatted(dateStyle)].compactMap { $0 }.joined(separator: " · ")
+            let item = Item(id: row.location.id, title: title,
                             icon: "text.bubble", detail: detail, target: .message(row.location))
-            matches.append((row.date, item))
+            matches.append((row.date ?? .distantPast, item))
+        }
+        for row in rows {
+            if Task.isCancelled { return [] }
+            match(row)
+        }
+        if !archives.isEmpty, !matches.isEmpty, let liveResults, !Task.isCancelled {
+            await liveResults(matches.sorted { $0.date > $1.date }.map(\.item))
+        }
+        for archive in archives {
+            if Task.isCancelled { return [] }
+            let messages: [ArchivedMessage]
+            if let cached = archive.cached { messages = cached }
+            else { messages = await files.messages(at: archive.url) }
+            for entry in messages.reversed() where !entry.hidden {
+                if Task.isCancelled { return [] }
+                let location = ChatMessageLocation(conversation: archive.id, imported: entry.dedupeKey)
+                // The archive shows its original plain text, including any Markdown punctuation.
+                match(MessageRow(location: location, chat: archive.name, author: entry.heading(botName: archive.name),
+                                 date: entry.timestamp, role: .system, content: entry.text), imported: true)
+            }
         }
         return matches.sorted { $0.date > $1.date }.map(\.item)
     }

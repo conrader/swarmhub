@@ -55,3 +55,34 @@ private func item(_ id: String, enabled: Bool = true) -> QuickSwitcherModel.Item
     #expect(await QuickSwitcherModel.messages(in: store, query: "silent").isEmpty)
     #expect(await QuickSwitcherModel.messages(in: store, query: " ").isEmpty)
 }
+
+@MainActor @Test func quickSwitcherFindsImportedRowsOnDiskWithNoLiveChatRows() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Scout")
+    bot.grokSourceID = "scout"
+    store.bots = [bot]
+    let archive = store.grokHistory.fileURL(for: bot.id)
+    let visible = ArchivedMessage(id: "", seq: 9, role: "assistant", author: "Atlas", text: "Budget *literal*",
+                                  timestamp: nil, hidden: false, channel: "agent", to: "Scout")
+    var hidden = visible
+    hidden.seq = 10
+    hidden.hidden = true
+    try FileManager.default.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try JSONEncoder().encode(GrokHistoryFile(sourceID: "scout", messages: [visible, hidden])).write(to: archive)
+    let files = QuickSwitcherModel.ArchiveFiles()
+    let hits = await QuickSwitcherModel.messages(in: store, query: "*literal*", files: files)
+    #expect(hits.map(\.target) == [.message(.init(conversation: bot.id, imported: "seq:9"))])
+    #expect(hits.first?.detail?.contains("Atlas → Scout") == true)
+    #expect(hits.first?.detail?.contains("Grok history") == true)
+    #expect(!store.grokHistory.isLoaded(bot.id))
+    let page = await GrokHistoryPage.containing("seq:9", cached: nil, url: archive)
+    #expect(page?.rows.map(\.seq) == [9])
+    #expect(page?.earlier == nil && page?.later == nil)
+
+    var revised = visible
+    revised.text = "New budget from the imported file"
+    try JSONEncoder().encode(GrokHistoryFile(sourceID: "scout", messages: [revised])).write(to: archive, options: .atomic)
+    #expect(await QuickSwitcherModel.messages(in: store, query: "New budget", files: files).count == 1)
+    try FileManager.default.removeItem(at: archive)
+    #expect(await QuickSwitcherModel.messages(in: store, query: "New budget", files: files).isEmpty)
+}
