@@ -303,12 +303,22 @@ function renderState() {
   const usage = agent?.session_usage;
   $("usage-heading").hidden = $("agent-usage").hidden = !usage;
   if (usage) {
-    const last = usage.context_tokens.toLocaleString();
-    const windowSize = usage.window_tokens;
-    const current = windowSize > 0
-      ? `${last} of ${windowSize.toLocaleString()} context tokens (${Math.min(100, Math.round(100 * usage.context_tokens / windowSize))}%)`
-      : `${last} tokens in the last model call`;
-    $("agent-usage").textContent = `${current} · ${usage.total_tokens.toLocaleString()} conversation total`;
+    const parts = [];
+    if (Number.isFinite(usage.context_tokens)) {
+      const last = usage.context_tokens.toLocaleString();
+      const windowSize = usage.window_tokens;
+      parts.push(windowSize > 0
+        ? `${last} of ${windowSize.toLocaleString()} context tokens (${Math.min(100, Math.round(100 * usage.context_tokens / windowSize))}%)`
+        : `${last} tokens in the last model call`);
+    }
+    if (Number.isFinite(usage.opencode_cost_usd)) {
+      const cost = usage.opencode_cost_usd;
+      const usd = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 4 });
+      const display = cost < 0.0001 ? "< " + usd.format(0.0001) : usd.format(cost);
+      parts.push(cost > 0 ? `OpenCode estimate ${display}` : "No priced usage reported by OpenCode");
+    }
+    parts.push(`${usage.total_tokens.toLocaleString()} conversation total`);
+    $("agent-usage").textContent = parts.join(" · ");
   } else {
     $("agent-usage").textContent = "";
   }

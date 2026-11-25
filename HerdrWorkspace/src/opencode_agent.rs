@@ -20,6 +20,7 @@ pub mod models;
 
 const PACKAGE: &str =
     r#"{"name":"swarmhub-opencode","version":"0.1.0","type":"module","exports":"./reply.js"}"#;
+const USAGE_ROOT: &str = "SWARMHUB_OPENCODE_USAGE_ROOT";
 const REPLY: &str = include_str!("opencode-reply.js");
 const APPROVALS: &str = include_str!("opencode-approvals.js");
 
@@ -111,6 +112,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = opencode();
         cmd.env_remove(crate::runtimes::MODEL_ENV)
             .env_remove(first_task::ENV)
+            .env_remove(USAGE_ROOT)
             .env("OPENCODE_CONFIG_CONTENT", &config)
             .env("SWARMHUB_OPENCODE_CAPTURE_BIN", &executable)
             .env("SWARMHUB_REPLY_SOCKET", root.join("replies.sock"))
@@ -164,6 +166,40 @@ fn write_plugin(directory: &Path, name: &str, contents: &str) -> std::io::Result
 struct Reply {
     id: String,
     text: String,
+}
+
+#[derive(Deserialize)]
+struct UsageSnapshot {
+    session: String,
+    cost: f64,
+    total_tokens: i64,
+}
+
+pub fn capture_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (journal, launch) = session()?;
+    let snapshot: UsageSnapshot = serde_json::from_str(&read_input(1024)?)?;
+    if !first_task::valid_session(&snapshot.session)
+        || !snapshot.cost.is_finite()
+        || snapshot.cost < 0.0
+        || snapshot.total_tokens < 0
+    {
+        return Err("Invalid OpenCode session usage.".into());
+    }
+    let report = crate::session_usage::SessionUsage {
+        context_tokens: None,
+        window_tokens: None,
+        total_tokens: snapshot.total_tokens,
+        opencode_cost_usd: Some(snapshot.cost),
+    };
+    let db = rusqlite::Connection::open_with_flags(
+        journal, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+    )?;
+    db.busy_timeout(std::time::Duration::from_millis(600))?;
+    db.execute(
+        "UPDATE journal SET usage_thread=?2, session_usage=?3 WHERE launch_key=?1",
+        rusqlite::params![launch, snapshot.session, serde_json::to_string(&report)?],
+    )?;
+    Ok(())
 }
 
 pub fn capture_reply() -> Result<(), Box<dyn std::error::Error>> {

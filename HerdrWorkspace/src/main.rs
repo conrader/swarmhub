@@ -62,6 +62,7 @@ mod routines;
 mod runtimes;
 mod search;
 mod service;
+mod session_usage;
 mod skill_proposals;
 mod skills;
 mod skillshare;

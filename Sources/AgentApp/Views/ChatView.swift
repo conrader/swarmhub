@@ -217,6 +217,8 @@ struct ChatModelButton: View {
                         Text("Next direct turn · \(next)").foregroundStyle(.primary)
                     } else if let percent = usage?.contextPercent {
                         Text("Context \(percent)%").foregroundStyle(.secondary).monospacedDigit()
+                    } else if let cost = usage?.estimatedCost {
+                        Text("Est. \(cost)").foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
                 Image(systemName: "chevron.right").font(.caption2)

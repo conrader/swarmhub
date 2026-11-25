@@ -48,6 +48,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("codex-models") => crate::codex_agent::models(),
         Some("run-desktop") => crate::desktop::run(),
         Some("github-read") => crate::github_project::access::cli(),
+        Some("capture-opencode-usage") => crate::opencode_agent::capture_usage(),
         Some("capture-opencode-reply") => crate::opencode_agent::capture_reply(),
         Some("capture-codex-reply") => {
             crate::codex_agent::capture_reply();

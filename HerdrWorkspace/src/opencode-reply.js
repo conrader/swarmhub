@@ -1,10 +1,10 @@
-import { spawnSync } from "node:child_process";
-import { closeSync, constants, openSync, writeSync } from "node:fs";
+import { execFile, spawnSync } from "node:child_process";
+import { closeSync, constants, openSync, readFileSync, writeSync } from "node:fs";
 import { createConnection } from "node:net";
 import { approvalDesk } from "./approvals.js";
 
 const types = ["session.execution.started", "session.execution.succeeded", "session.execution.failed",
-  "session.execution.interrupted", "session.step.started", "session.step.ended", "session.text.delta", "session.text.ended",
+  "session.usage.updated", "session.execution.interrupted", "session.step.started", "session.step.ended", "session.text.delta", "session.text.ended",
   "permission.asked", "permission.replied", "form.created", "form.replied", "form.cancelled"];
 const inboxTypes = ["session.inbox.enqueued", "session.inbox.delivered", "session.inbox.cancelled"];
 const maxBytes = 128 * 1024;
@@ -66,6 +66,39 @@ function saveReply(executable, id, text) {
   }
 }
 
+// Serialize snapshots off the reply loop. OpenCode has already accumulated the session totals.
+function usageReporter(executable) {
+  let writing = false, latest, saved, retry;
+  function flush() {
+    if (writing || !latest) return;
+    const input = latest;
+    latest = undefined;
+    writing = true;
+    const child = execFile(executable, ["capture-opencode-usage"], { timeout: 2500 }, (error) => {
+      writing = false;
+      if (!error) saved = input;
+      else if (!latest && retry !== input) {
+        retry = input;
+        latest = input;
+      }
+      flush();
+    });
+    child.stdin.on("error", () => {});
+    child.stdin.end(input);
+  }
+  return (session, data) => {
+    const t = data?.tokens;
+    const counts = [t?.input, t?.output, t?.reasoning, t?.cache?.read, t?.cache?.write];
+    if (!Number.isFinite(data?.cost) || data.cost < 0 || !counts.every(n => Number.isSafeInteger(n) && n >= 0)) return;
+    const total_tokens = counts.reduce((sum, n) => sum + n, 0);
+    if (!Number.isSafeInteger(total_tokens)) return;
+    const input = JSON.stringify({ session, cost: data.cost, total_tokens });
+    if (!writing && input === saved) return;
+    latest = input;
+    flush();
+  };
+}
+
 function startPreview(path, key, id, group) {
   let text = "", bytes = 0, ordinal, capped = false, socket, timer;
   const limit = group ? groupPreviewBytes : previewBytes;
@@ -117,6 +150,9 @@ export default {
     const events = process.env.SWARMHUB_OPENCODE_GROUP_PREVIEW === "1" ? [...types, ...inboxTypes] : types;
     let inboxOverflow = false;
     const status = terminalStatus();
+    const usage = usageReporter(executable);
+    const usageRootFile = process.env.SWARMHUB_OPENCODE_USAGE_ROOT;
+    let usageSession;
     const approvals = approvalDesk(ctx, key);
 
     function report(fallback) {
@@ -165,6 +201,10 @@ export default {
         }
         const { sessionID, assistantMessageID } = data;
         const run = running.get(sessionID);
+        if (type === "session.usage.updated") {
+          if (sessionID === usageSession) usage(sessionID, data);
+          continue;
+        }
         if (type.startsWith("session.inbox.")) {
           if (typeof sessionID !== "string" || typeof data.inboxID !== "string") continue;
           const inputId = sessionID + ":" + data.inboxID;
@@ -201,6 +241,11 @@ export default {
           if (running.size >= 16) continue;
           const session = await ctx.session.get({ sessionID }).catch(() => null);
           if (session && !session.parentID) {
+            if (!usageRootFile) usageSession = sessionID;
+            else if (!usageSession) {
+              try { usageSession = readFileSync(usageRootFile, "utf8"); } catch { /* Cost is optional. */ }
+            }
+            if (sessionID === usageSession) usage(sessionID, session);
             running.get(sessionID)?.step?.preview?.close();
             running.set(sessionID, { step: null, waiting: new Map(), inputs: 0 });
             report("idle");

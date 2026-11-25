@@ -1566,6 +1566,8 @@ python3 tests/claude_preview.py "$(command -v hc)" "$PWD/target/debug/swarmhub-h
 SWARMHUB_TEST_FOCUS=opencode SWARMHUB_TEST_OPENCODE_BIN="$(command -v opencode)" python3 tests/smoke.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr" "$(command -v google-chrome)"
 # Verify that the OpenCode V2 model request carries the uploaded screenshot bytes:
 SWARMHUB_TEST_FOCUS=opencode-image SWARMHUB_TEST_OPENCODE_BIN="$(command -v opencode2 || command -v opencode)" python3 tests/smoke.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr"
+# Check session costs from two OpenCode turns against a locally priced fixture model.
+SWARMHUB_TEST_FOCUS=opencode-usage SWARMHUB_TEST_OPENCODE_BIN="$(command -v opencode2 || command -v opencode)" python3 tests/smoke.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr" "$(command -v google-chrome)"
 # Verify OpenCode's permission prompt and the browser terminal handoff:
 SWARMHUB_TEST_FOCUS=opencode-status SWARMHUB_TEST_OPENCODE_BIN="$(command -v opencode)" python3 tests/smoke.py "$(command -v hc)" "$PWD/target/debug/swarmhub-herdr" "$(command -v google-chrome)"
 # Verify the OpenCode approval inbox and its terminal fallback:

@@ -321,7 +321,7 @@ struct SessionData {
     id: String,
 }
 
-fn valid_session(value: &str) -> bool {
+pub(super) fn valid_session(value: &str) -> bool {
     value.starts_with("ses_")
         && (5..=128).contains(&value.len())
         && value.as_bytes()[4..].iter().all(u8::is_ascii_alphanumeric)
@@ -483,7 +483,7 @@ impl ApiSession {
 }
 
 pub(super) fn run(
-    server: Command,
+    mut server: Command,
     mut mini: Command,
     handoff: Handoff,
     model: Option<String>,
@@ -498,12 +498,19 @@ pub(super) fn run(
         .into_iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
+    // The server starts before the API chooses the chat's root. Give its plugin a private,
+    // launch-scoped binding that stays alive as long as Mini, including across model changes.
+    let usage_root = tempfile::NamedTempFile::new().ok();
+    server.env(super::USAGE_ROOT, usage_root.as_ref().map_or(Path::new("/dev/null"), |file| file.path()));
     let (_server, url) = start(server, &password)?;
     let client = std::thread::spawn(move || -> io::Result<()> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
         let session = runtime.block_on(create_session(&url, &password, model.as_deref()))?;
+        if let Some(file) = &usage_root {
+            let _ = fs::write(file.path(), &session.id);
+        }
         let mut attached = Process(
             mini.args(["mini", "--server", url.as_str(), "--session", &session.id])
                 .env_remove("OPENCODE_SERVER_PASSWORD")

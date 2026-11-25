@@ -4,34 +4,38 @@ use serde_json::Value;
 use std::path::Path;
 
 /// Counts from the provider. The latest model call measures context. The cumulative total can exceed its window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SessionUsage {
-    pub context_tokens: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<i64>,
     pub window_tokens: Option<i64>,
     pub total_tokens: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opencode_cost_usd: Option<f64>,
 }
 
 impl SessionUsage {
-    pub(super) fn reported(data: &Value) -> Option<Self> {
+    pub(crate) fn codex(data: &Value) -> Option<Self> {
         let context_tokens = data["last"]["totalTokens"].as_i64().filter(|n| *n >= 0)?;
         let total_tokens = data["total"]["totalTokens"].as_i64().filter(|n| *n >= 0)?;
         let window_tokens = data["modelContextWindow"].as_i64().filter(|n| *n > 0);
         Some(Self {
-            context_tokens,
+            context_tokens: Some(context_tokens),
+            opencode_cost_usd: None,
             window_tokens,
             total_tokens,
         })
     }
 }
 
-pub(super) enum Change {
+pub(crate) enum Change {
     Start(String),
     Close(String),
     Report(String, SessionUsage),
 }
 
 impl Change {
-    pub(super) fn save(self, journal: &Path, key: &str) -> rusqlite::Result<()> {
+    pub(crate) fn save(self, journal: &Path, key: &str) -> rusqlite::Result<()> {
         let db = Connection::open_with_flags(journal, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         // Telemetry shares the reply follower. A busy journal must not stall incoming chat text.
         db.busy_timeout(std::time::Duration::from_millis(60))?;
