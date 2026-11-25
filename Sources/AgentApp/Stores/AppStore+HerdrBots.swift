@@ -341,7 +341,7 @@ extension AppStore {
     /// The person did not write this row: the app did, for the agent (a passed-on message, or the note that starts
     /// the main bot's introduction).
     func isAppWritten(_ message: ChatMessage) -> Bool {
-        message.role == .user && (message.metadata[HerdrBotRelay.Key.kind] != nil || message.metadata[HerdrIntro.Key.kind] != nil)
+        message.role == .user && (message.metadata[GoalKey.attempt] != nil || message.metadata[HerdrBotRelay.Key.kind] != nil || message.metadata[HerdrIntro.Key.kind] != nil)
     }
 
     // MARK: How often

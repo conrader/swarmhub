@@ -61,6 +61,7 @@ extension ChatMessage {
     /// A historical card keeps its quote on the user row so queue recovery and retries
     /// send the same question even if the agent has since moved on.
     var modelText: String {
+        if role == .user, let request = metadata[GoalKey.request] { return request }
         guard role == .user, let quote = metadata[ChoiceReply.quoteKey] else { return content }
         return "In reply to “\(quote)”\n\(content)"
     }

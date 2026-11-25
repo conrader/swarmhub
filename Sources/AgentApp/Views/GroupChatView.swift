@@ -61,7 +61,8 @@ struct GroupChatView: View {
                                  send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
                                  pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                                  reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                                 mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), recipient: group.name)
+                                 mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), recipient: group.name,
+                                 goalCommand: { store.handleGoalCommand($0, in: group) })
         }
                     }
                     .frame(maxWidth: .infinity).glassGroup(spacing: 4)

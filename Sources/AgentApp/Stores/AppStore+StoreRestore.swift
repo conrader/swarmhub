@@ -17,6 +17,9 @@ extension AppStore {
             guard SHA256.hash(data: data) == offer.digest else { throw CocoaError(.fileReadCorruptFile) }
             let file = try StoreRestore.snapshot(data, hideSamples: herdrConfigured)
             guard StoreRestore.entries(in: file, history: grokHistory) == offer.entries else { throw CocoaError(.fileReadCorruptFile) }
+            for bot in file.bots where bot.goal?.state.active == true {
+                bot.goal?.wait("This goal came from a backup. Review the workspace before resuming.")
+            }
             let encoder = JSONEncoder()
             encoder.outputFormatting = .sortedKeys
             let restored = try encoder.encode(file)

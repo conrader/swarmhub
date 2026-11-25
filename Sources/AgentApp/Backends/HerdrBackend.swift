@@ -179,6 +179,19 @@ struct HerdrBackend: AgentBackend {
         return "group-" + digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
+    func goalBlocker(sessionID: String) async throws -> String? {
+        let name = runtimeName(sessionID: sessionID)
+        if !(try await client.approvals(for: name)).isEmpty {
+            return "Review the pending workspace approval, then resume the goal."
+        }
+        let workspace = try await client.workspace()
+        switch client.liveAgent(named: name, in: workspace)?.status?.state {
+        case "blocked": return "Resolve the workspace prompt, then resume the goal."
+        case "working": return "The workspace agent is still working. Review its result before resuming."
+        default: return nil
+        }
+    }
+
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
         let images = try request.images.map { url -> HerdrClient.TaskFile in

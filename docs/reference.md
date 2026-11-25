@@ -43,6 +43,14 @@ Every request carries the server's access token as a bearer token, and the app's
 
 A message is cut to what the bridge accepts: plain text, up to 16 KB for a first task including the bot's instructions.
 
+### Chat commands and goals
+
+Type `/` at the start of a message or enter `/commands` to see the command list. Click a command, or highlight it with the arrow keys and press Tab or Return to insert it. Escape closes the list. Send the edited draft to run the command.
+
+In a writable workspace bot chat, `/goal <objective>` starts a goal. Its panel shows the objective and the latest result. Use `/goal status` to check it and `/goal stop` or **Stop goal** to cancel. SwarmHub schedules one step at a time on that chat’s normal connection. Each finished step reports progress, completion evidence, a blocker, or a failure. Two consecutive steps without new progress pause the goal. Answer any outstanding question or workspace approval, then choose **Resume**.
+
+The Mac saves the goal with the chat. On relaunch, a queued step can run when a turn slot opens. An iteration that may already have reached the workspace waits for you to check its result.
+
 ## Files on disk
 
 The app keeps its data in `~/Library/Application Support/AgentApp/`:

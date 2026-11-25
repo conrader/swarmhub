@@ -11,7 +11,7 @@ struct HerdrChatApprovals: View {
     @State private var decided: Set<Int> = []
 
     var body: some View {
-        let watching = store.isAnswering(bot) || store.herdrPrompts[bot.id] != nil
+        let watching = store.isAnswering(bot) || store.herdrPrompts[bot.id] != nil || bot.goal?.state == .waiting
         VStack(alignment: .leading, spacing: 6) {
             if let request = pending.first {
                 VStack(alignment: .leading, spacing: 8) {

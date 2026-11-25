@@ -231,6 +231,7 @@ import UserNotifications
 
     /// The decoded store becomes this window's state (launch, and the restore of a set-aside store).
     func adoptStoreFile(_ file: StoreFile) {
+        turns.scheduledGoals.removeAll()
         bots = file.bots; groups = file.groups; removedBots = file.removedBots ?? [:]; deletedGroupIDs = file.deletedGroupIDs ?? []
         pendingHerdrEndings = file.pendingHerdrEndings ?? []
         chatScroll.restore(file.scrollPositions)
@@ -399,6 +400,8 @@ import UserNotifications
         let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
+        turn.goalAttempt = user.metadata[GoalKey.attempt].flatMap(UUID.init(uuidString:))
+        assistant.metadata[GoalKey.attempt] = user.metadata[GoalKey.attempt]
         objectWillChange.send(); save()
         let streamToken = turn.token
         let history = chatHistory(conversation, upTo: conversation.messages.contains { $0 === user } ? user : nil, excluding: assistant, inlineFiles: !herdr)

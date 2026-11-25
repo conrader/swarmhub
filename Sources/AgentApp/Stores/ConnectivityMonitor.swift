@@ -93,6 +93,7 @@ extension AppStore {
         startPersonSettings()
         if !bots.isEmpty || !groups.isEmpty {
             recoverInterruptedRounds()
+            recoverGoals()
             resumeRestoredNextMessages()
         }
         // Agents of bots that were removed while their server could not be reached are ended now.

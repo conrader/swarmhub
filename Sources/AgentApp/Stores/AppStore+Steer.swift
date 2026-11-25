@@ -177,6 +177,7 @@ extension AppStore {
         if var activity = row.activity { activity.finish(at: now()); row.activity = activity }
         var metadata = [TurnKey.part: String(number + 1)]
         metadata[TurnKey.forUser] = row.metadata[TurnKey.forUser]
+        metadata[GoalKey.attempt] = row.metadata[GoalKey.attempt]
         let next = ChatMessage(role: .assistant, content: "", isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
         conversation.messages.insert(next, at: index + 1)
         turns.parts[origin.id] = next

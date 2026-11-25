@@ -14,6 +14,11 @@ import Foundation
     var steerAvailable = false
     var groupRun: GroupRun?
     var stopping = false
+    var goalAttempt: UUID?
+    // The workspace interrupt targets an agent session. Keep its slot until both
+    // the local stream and the remote stop request have settled.
+    var goalStopPending = false
+    var endedDuringGoalStop = false
     init(conversation: any Conversation, botID: UUID?, assistant: ChatMessage?, groupRun: GroupRun?) {
         self.conversation = conversation; self.botID = botID; self.assistant = assistant; self.groupRun = groupRun
     }
@@ -82,6 +87,10 @@ extension AppStore {
     /// Frees the slot `token` holds (a no-op once Stop or another end released it).
     func endTurn(_ token: UUID) {
         guard let turn = turn(token: token) else { return }
+        if turn.goalStopPending {
+            turn.endedDuringGoalStop = true
+            return
+        }
         runningTurns[turn.conversation.id] = nil
     }
 
@@ -150,6 +159,18 @@ extension AppStore {
         // The row is `stopped` at once and never extended.
         if let row = turn.assistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
         objectWillChange.send()
+        if let attempt = turn.goalAttempt {
+            if let bot, let goal = bot.goal, goal.attempt == attempt {
+                turns.scheduledGoals.remove(goal.id)
+                bot.goal?.stop()
+                save()
+            }
+            // A goal still checking approvals has no delivery to interrupt.
+            if turn.backend == nil {
+                if let task = turn.task { task.cancel() } else { endTurn(streamToken) }
+                return
+            }
+        }
         guard let bot, let activeBackend = turn.backend ?? (try? backend(for: bot)) else {
             // The task's end frees the slot; a slot without a task is freed here.
             if let task = turn.task { task.cancel() } else { endTurn(streamToken) }
@@ -157,8 +178,10 @@ extension AppStore {
         }
         let taskToCancel = turn.task
         let stoppedAssistantID = turn.assistant?.id
-        let sessionID = turnSessionID(in: conversation, bot: bot)
+        let sessionID = turn.goalAttempt.flatMap { _ in bot.goal?.destination.sessionID } ?? turnSessionID(in: conversation, bot: bot)
+        turn.goalStopPending = turn.goalAttempt != nil
         let server = bot.backend.shortName
+        turns.pendingInterrupts[conversation.id, default: []].insert(streamToken)
         Task {
             do {
                 // Capture the run before cancelling the stream's task, whose termination clears it.
@@ -180,6 +203,13 @@ extension AppStore {
                     presentError(IntentLine.stopFailed.render(server, error.localizedDescription), reason: .stop, bot: bot)
                 }
             }
+            turns.pendingInterrupts[conversation.id]?.remove(streamToken)
+            if turns.pendingInterrupts[conversation.id]?.isEmpty == true { turns.pendingInterrupts[conversation.id] = nil }
+            turn.goalStopPending = false
+            if turn.endedDuringGoalStop {
+                endTurn(streamToken)
+                sendQueuedNextMessage()
+            } else { dispatchQueuedGoals() }
             save()
         }
     }

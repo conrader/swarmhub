@@ -14,6 +14,8 @@ struct AgentRequest: Sendable {
 protocol AgentBackend: Sendable {
     var kind: BackendKind { get }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error>
+    /// Read-only preflight for an autonomous goal step in this session.
+    func goalBlocker(sessionID: String) async throws -> String?
     func cancel(sessionID: String) async throws -> StopOutcome
     func stopTarget(sessionID: String) async throws -> StopTarget
     func requestStop(_ target: StopTarget) async throws -> StopOutcome
@@ -25,6 +27,7 @@ protocol AgentBackend: Sendable {
 }
 
 extension AgentBackend {
+    func goalBlocker(sessionID: String) async throws -> String? { nil }
     func features() async throws -> Set<String> { [] }
     func steer(sessionID: String, text: String) async throws { throw BackendError.unavailable("This bot cannot take a message while it answers.") }
     func stopTarget(sessionID: String) async throws -> StopTarget { .noRunControl }

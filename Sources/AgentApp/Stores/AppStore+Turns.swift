@@ -2,6 +2,10 @@ import Foundation
 
 /// P16 runtime bookkeeping that lives beside the store (memory only).
 @MainActor final class TurnBook {
+    /// Only goals explicitly started here or reconciled on launch may dispatch.
+    var scheduledGoals: Set<UUID> = []
+    /// Older ordinary stops may finish after their local stream releases the slot.
+    var pendingInterrupts: [UUID: Set<UUID>] = [:]
     /// Retry guard: `conversation|member|user row id` while an attempt runs.
     var retryLedger: Set<String> = []
     /// Throttled token autosave.
@@ -38,7 +42,7 @@ extension AppStore {
         // What the agent's server says the turn is waiting for; it goes with the reply into each new part.
         var agentStatus: String?
         for try await event in stream {
-            guard !Task.isCancelled else { break }
+            guard !Task.isCancelled, row.metadata[GoalKey.attempt] == nil || row.turnState != .stopped else { break }
             let nextRow = steerRow(for: event, origin: assistant, row: row)
             if nextRow !== row { committedReplacePrefix = lastFullReplace; row = nextRow }
             if row.metadata[TurnKey.agent] != agentStatus { row.metadata[TurnKey.agent] = agentStatus }
@@ -151,14 +155,34 @@ extension AppStore {
     /// (offline, server unreachable) is sent again by itself: "Reconnecting…".
     func runChatTurn(bot: Bot, conversation: any Conversation, assistant: ChatMessage, history: [(role: String, content: String)], images: [String],
                      systemPrompt: String, backend activeBackend: any AgentBackend, token: UUID, files: [HerdrClient.TaskFile] = []) async {
-        turn(token: token)?.backend = activeBackend
+        guard let slot = turn(token: token) else { return }
         var end: TurnEnd
         var sendFailures = 0
         while true {
+            if let attempt = slot.goalAttempt {
+                guard !slot.stopping, !Task.isCancelled else { end = .stoppedByUser; break }
+                do {
+                    if let reason = try await activeBackend.goalBlocker(sessionID: turnSessionID(in: bot, bot: bot)) {
+                        end = .error(BackendError.unavailable(reason))
+                        break
+                    }
+                } catch {
+                    // Even a transient preflight failure gives the decision back to the person.
+                    end = .error(error)
+                    break
+                }
+                guard isCurrent(token), !slot.stopping, !Task.isCancelled,
+                      bot.goal?.attempt == attempt, goalDestinationMatches(bot) else {
+                    end = .stoppedByUser
+                    break
+                }
+            }
+            slot.backend = activeBackend
             end = await streamChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: systemPrompt,
                                        backend: activeBackend, token: token, files: files)
             if Task.isCancelled { end = .stoppedByUser }
             guard let delay = sendRetryDelay(after: end, failures: sendFailures), isCurrent(token) else { break }
+            if slot.goalAttempt != nil { slot.backend = nil }
             sendFailures += 1
             resetForResend(assistant, status: TurnErrorCopy.reconnecting)
             do { try await sendRetrySleep(delay) } catch { end = .stoppedByUser; break }
@@ -167,7 +191,11 @@ extension AppStore {
         let assistant = endTurnParts(assistant, end: end)
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
+        let waitingForPerson = slot.goalAttempt != nil && herdrWaits(bot).waits
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation)
+        if conversation === bot, isCurrent(token), let attempt = slot.goalAttempt {
+            settleGoalTurn(in: bot, attempt: attempt, row: assistant, outcome: outcome, waitingForPerson: waitingForPerson)
+        }
         endTurn(token)
         let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
