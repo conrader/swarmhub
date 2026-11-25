@@ -154,7 +154,7 @@ The new bot runs on the same server, with the same runtime and model as the main
 
 ### Helpers in the app
 
-A bot is told how to start helpers ([Let an agent start helpers](#let-an-agent-start-helpers)) unless its **Advanced → Helper agents → Can start helper agents** switch is off. Running helpers appear under the bot in the sidebar. In a direct chat, the Coding agents card shows a preview of the latest helper result for the parent session, including after the helper’s terminal closes. Choose Details to read the full reply. **Settings → Advanced → Servers and keys** reads and edits the server's helper settings.
+A bot is told how to start helpers ([Let an agent start helpers](#let-an-agent-start-helpers)) unless its **Advanced → Helper agents → Can start helper agents** switch is off. Running helpers appear under the bot in the sidebar. In a direct chat, the Coding agents card shows a preview of the latest helper result for the parent session, including after the helper’s terminal closes. Choose Details to read the full reply. For a running helper, enter an instruction and choose **Send to** to guide it through its parent chat, or choose **Stop helper** to end the helper session. **Settings → Advanced → Servers and keys** reads and edits the server's helper settings.
 
 ## Install the browser workspace
 

@@ -104,7 +104,7 @@ extension AppStore {
     }
 
     /// Resolve captured card authors, mentions and reply targets before choosing a turn.
-    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil, queueChoice: Bool = false, metadata: [String: String] = [:]) -> Bool {
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil, queueChoice: Bool = false, usesComposerReply: Bool = true, metadata: [String: String] = [:]) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         guard storeRestoreOffer == nil, groups.contains(where: { $0 === group }) else { return false }
         let members = routingMembers(of: group)
@@ -116,7 +116,7 @@ extension AppStore {
         }
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
-        let message = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: sourceMessageID ?? draftReplyIDs[group.id], attachments: attachments)
+        let message = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: sourceMessageID ?? (usesComposerReply ? draftReplyIDs[group.id] : nil), attachments: attachments)
         let mentioned = GroupRouting.mentions(in: text, members: GroupRouting.mentionable(members))
         let source = message.replyToID.flatMap { id in group.messages.first { $0.id == id } }
         guard message.replyToID == nil || source != nil else { errorMessage = "The original group message is unavailable."; return false }
@@ -159,7 +159,7 @@ extension AppStore {
                     else { startGroupMember(bot, in: group, trigger: row, images: images) }
                 }
             }
-            draftReplyIDs[group.id] = nil
+            if usesComposerReply { draftReplyIDs[group.id] = nil }
             return true
         }
         let recipients = targeted ?? GroupRouting.recipients(of: text, members: members)
@@ -180,7 +180,8 @@ extension AppStore {
             message.metadata[TurnWaitCopy.recipients] = targeted.map(\.uuidString).joined(separator: ",")
         }
         captureAttachments(message, readers: recipients)
-        group.messages.append(message); draftReplyIDs[group.id] = nil
+        group.messages.append(message)
+        if usesComposerReply { draftReplyIDs[group.id] = nil }
         if let reason = full ?? (hasWaitingTurn(in: group) ? TurnWaitCopy.behind : nil) { return waitForTurn(message, in: group, reason: reason) }
         return startGroupRound(group, message: message, recipients: recipients, images: images)
     }

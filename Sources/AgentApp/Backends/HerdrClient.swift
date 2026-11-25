@@ -314,7 +314,9 @@ struct HerdrClient: Sendable {
     static func defaultModel(offered: [Template.Model]) -> String? { offered.first?.id }
 
     /// Closes the agent's session; its saved conversation stays in the workspace.
-    func end(_ agent: Agent) async throws {
+    func end(_ agent: Agent) async throws { try await end(agent.ref) }
+
+    func end(_ agent: AgentRef) async throws {
         struct Ended: Decodable {}
         let _: Ended = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/end", [:])
     }
