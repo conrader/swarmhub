@@ -388,3 +388,19 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     await #expect(throws: CancellationError.self) { try await reading.value }
     #expect(MockHTTPProtocol.recorded(host).count == 1)
 }
+
+@Test func steeredRepliesKeepTheirOwnReportedModels() throws {
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let rows = try decoder.decode([HerdrClient.Item].self, from: Data(#"[{"id":2,"kind":"reply","text":"A","codex_model":"model-a","codex_rerouted":false},{"id":4,"kind":"reply","text":"B","codex_model":"model-b","codex_rerouted":true}]"#.utf8))
+    var turn = HerdrTurnFollower(after: 0)
+    turn.take(rows: [rows[0]])
+    #expect(turn.replyModel?.0 == "model-a")
+    #expect(turn.replyModel?.1 == .configured)
+    turn.take(rows: rows)
+    #expect(turn.replyModel?.0 == "model-a, model-b")
+    #expect(turn.replyModel?.1 == .combined)
+    var next = HerdrTurnFollower(after: 2)
+    next.take(rows: rows)
+    #expect(next.replyModel?.1 == .rerouted)
+}

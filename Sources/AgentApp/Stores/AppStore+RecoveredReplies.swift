@@ -161,6 +161,10 @@ extension AppStore {
         answer.isStreaming = false
         answer.turnState = .finished
         answer.deliveryReceipt = nil
+        if let model = reply.codexModel {
+            answer.runSummary = RunSummary(model: model, modelSource: reply.codexRerouted == true ? .rerouted : .configured,
+                                           seconds: answer.runSummary?.seconds, tools: answer.runSummary?.tools ?? answer.activity?.total ?? 0)
+        }
         (earlier.first ?? answer).metadata["herdrJournal"] = "\(serverID):\(reply.id)"
         for part in earlier + [answer] {
             for key in [TurnKey.why, TurnKey.agent, TurnKey.ambiguous, TurnKey.reconnecting, "status"] { part.metadata[key] = nil }

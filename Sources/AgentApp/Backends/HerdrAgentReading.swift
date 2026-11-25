@@ -26,7 +26,15 @@ struct HerdrAgentReading: Equatable, Sendable {
     var model: HerdrClient.Template.Model?
     var modelIsOwn = false
     var usesRecommendation = false
-    var running = Running.none
+    var codexSessionModel: String?
+    private var recordedRunning = Running.none
+    var running: Running {
+        get {
+            if let codexSessionModel { return .model(id: codexSessionModel, label: codexSessionModel) }
+            return recordedRunning
+        }
+        set { recordedRunning = newValue }
+    }
     var session: HerdrClient.AgentRef?
     var core: String?
     var activeTemplate: String?
@@ -62,6 +70,7 @@ struct HerdrAgentReading: Equatable, Sendable {
             else { model = HerdrClient.defaultModel(offered: offered).flatMap { id in offered.first { $0.id == id } } }
         }
         guard let agent else { return }
+        codexSessionModel = agent.codexSessionModel
         vaultSessionStale = agent.vaultSessionStale == true
         autoRestartPending = agent.autoRestartPending == true
         reviewDescription = agent.reviewDescription
@@ -95,7 +104,8 @@ struct HerdrAgentReading: Equatable, Sendable {
 
     /// What the running agent runs on; nil with none running.
     var runningLine: String? {
-        switch running {
+        if let codexSessionModel { return "Codex session model: \(codexSessionModel)." }
+        return switch running {
         case .none: nil
         case .model(_, let label): confirmed ? "Last confirmed model: \(label)." : "Current session started on \(label)."
         case .unstated: "Running on a model it picked itself."
@@ -128,7 +138,8 @@ struct HerdrAgentReading: Equatable, Sendable {
     }
 
     var headerModel: String {
-        switch running {
+        if let codexSessionModel { return "Codex · \(codexSessionModel)" }
+        return switch running {
         case .model(_, let label): confirmed ? "Last confirmed · \(label)" : "Started on \(label)"
         case .unknown, .unstated: activeProgram.map { "\($0) · Model unreported" } ?? "Session model unreported"
         case .none: model.map { "Next direct turn · \(Self.name($0))" } ?? "Model settings"

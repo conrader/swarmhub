@@ -29,7 +29,9 @@ impl SessionUsage {
 }
 
 pub(crate) enum Change {
-    Start(String),
+    Start(String, Option<String>),
+    Configured(String, String),
+    Turn { thread: String, turn: String, rerouted: Option<String> },
     Close(String),
     Report(String, SessionUsage),
 }
@@ -40,16 +42,30 @@ impl Change {
         // Telemetry shares the reply follower. A busy journal must not stall incoming chat text.
         db.busy_timeout(std::time::Duration::from_millis(60))?;
         match self {
-            Self::Start(thread) => {
+            Self::Configured(thread, model) => {
+                db.execute("UPDATE journal SET codex_session_model=?3 WHERE launch_key=?1 AND usage_thread=?2",
+                    params![key, thread, model])?;
+            }
+            Self::Turn { thread, turn, rerouted } => {
+                // Preserve the first setting observed in this turn. Codex can explicitly report a later reroute.
+                db.execute("INSERT INTO codex_turn_models (launch,event,model,rerouted)
+                    SELECT launch_key,?3,coalesce(?4,codex_session_model),?4 IS NOT NULL
+                    FROM journal WHERE launch_key=?1 AND usage_thread=?2
+                      AND coalesce(?4,codex_session_model) IS NOT NULL
+                    ON CONFLICT(launch,event) DO UPDATE SET model=excluded.model, rerouted=1
+                    WHERE excluded.rerouted=1",
+                    params![key, thread, format!("codex:{turn}"), rerouted])?;
+            }
+            Self::Start(thread, model) => {
                 db.execute(
-                    "UPDATE journal SET usage_thread=?2, session_usage=NULL
+                    "UPDATE journal SET usage_thread=?2, session_usage=NULL, codex_session_model=?3
                     WHERE launch_key=?1 AND usage_thread IS NOT ?2",
-                    params![key, thread],
+                    params![key, thread, model],
                 )?;
             }
             Self::Close(thread) => {
                 db.execute(
-                    "UPDATE journal SET usage_thread=NULL, session_usage=NULL
+                    "UPDATE journal SET usage_thread=NULL, session_usage=NULL, codex_session_model=NULL
                     WHERE launch_key=?1 AND usage_thread=?2",
                     params![key, thread],
                 )?;

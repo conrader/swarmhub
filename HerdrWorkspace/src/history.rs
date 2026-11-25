@@ -56,6 +56,10 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     live_reply_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    codex_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    codex_rerouted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reaction: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_to: Option<ReplyQuote>,
@@ -489,8 +493,10 @@ impl History {
                     CASE WHEN kind='reply' AND in_reply_to IS NULL THEN (
                       SELECT count(*) FROM journal followup WHERE followup.in_reply_to=journal.id AND followup.kind='task'
                     ) END,
-                    answers_task, (SELECT substr(text,1,180) FROM journal task WHERE task.id=journal.answers_task)
+                    answers_task, (SELECT substr(text,1,180) FROM journal task WHERE task.id=journal.answers_task),
+                    telemetry.model, telemetry.rerouted
              FROM journal LEFT JOIN workspace_pages ON workspace_pages.id=journal.page_id
+             LEFT JOIN codex_turn_models telemetry ON telemetry.launch=journal.reply_for AND telemetry.event=journal.event_key
              WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND journal.id<?4 AND {}
              ORDER BY journal.id DESC LIMIT 31",
             crate::warm::SHOWN
@@ -516,16 +522,19 @@ impl History {
     ) -> Result<Option<DirectThread>, StoreError> {
         let db = self.db()?;
         let Some(original) = db.query_row(
-            "SELECT id,kind,state,text,detail,at_ms,NULL,NULL,NULL,NULL,NULL,reaction,NULL,NULL,NULL,NULL,NULL
-             FROM journal WHERE id=?1 AND core_id=?2 AND address=?3 AND created_ms=?4 AND kind='reply' AND in_reply_to IS NULL",
+            "SELECT id,kind,state,text,detail,at_ms,NULL,NULL,NULL,NULL,NULL,reaction,NULL,NULL,NULL,NULL,NULL, telemetry.model,telemetry.rerouted
+             FROM journal LEFT JOIN codex_turn_models telemetry ON telemetry.launch=journal.reply_for AND telemetry.event=journal.event_key
+             WHERE id=?1 AND core_id=?2 AND address=?3 AND created_ms=?4 AND kind='reply' AND in_reply_to IS NULL",
             params![root, core, address, created], item,
         ).optional()? else {
             return Ok(None);
         };
         let mut statement = db.prepare(
             "SELECT id,kind,state,text,detail,at_ms,NULL,NULL,NULL,NULL,NULL,reaction,in_reply_to,reply_excerpt,NULL,
-                    answers_task,(SELECT substr(text,1,180) FROM journal task WHERE task.id=journal.answers_task)
-             FROM journal WHERE in_reply_to=?1 AND id<?2 AND core_id=?3 AND address=?4 AND created_ms=?5
+                    answers_task,(SELECT substr(text,1,180) FROM journal task WHERE task.id=journal.answers_task),
+                    telemetry.model,telemetry.rerouted
+             FROM journal LEFT JOIN codex_turn_models telemetry ON telemetry.launch=journal.reply_for AND telemetry.event=journal.event_key
+             WHERE in_reply_to=?1 AND id<?2 AND core_id=?3 AND address=?4 AND created_ms=?5
              ORDER BY id DESC LIMIT 31",
         )?;
         let mut items = statement
@@ -658,7 +667,7 @@ impl History {
 
     pub fn snapshot(&self, id: i64) -> Result<Option<Item>, StoreError> {
         Ok(self.db()?.query_row(
-            "SELECT id, kind, state, text, detail, at_ms, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM journal WHERE kind = 'snapshot' AND id = ?1",
+            "SELECT id, kind, state, text, detail, at_ms, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM journal WHERE kind = 'snapshot' AND id = ?1",
             [id], item,
         ).optional()?)
     }
@@ -845,6 +854,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-helper-followups.sql"),
         include_str!("migrate-command-reviewer.sql"),
         include_str!("migrate-session-usage.sql"),
+        include_str!("migrate-codex-session-model.sql"),
     ]
 }
 
@@ -958,6 +968,8 @@ fn item(row: &Row<'_>) -> rusqlite::Result<Item> {
         page_revision: row.get(8)?,
         page_title: row.get(9)?,
         live_reply_id: row.get(10)?,
+        codex_model: row.get(17)?,
+        codex_rerouted: row.get(18)?,
         reaction: row.get(11)?,
         reply_to: match row.get(12)? {
             Some(id) => Some(ReplyQuote {

@@ -12,6 +12,10 @@
 
 The ten-second jump reported by the user did not recur in the recorded installed-build run. Jump recovered the Infra viewport on that attempt. The timings above measure a synthetic conversation in a debug build. They are observations from this MacBook, not a production performance benchmark.
 
+## Codex model labels
+
+With the standard Codex app-server connection, a MacBook test sent a message to Astra, selected `gpt-6.2-sol` in the bot’s Model picker and sent a second message in the same chat. The header switched to Sol. The earlier reply still showed Astra and the second showed Sol, matching the two workspace journal entries. Both footers retained their labels after quitting and reopening the app. Codex reports a thread setting separately from a per-turn reroute. A protocol fixture supplied a reroute and verified that it affected only the named reply. A browser test checked both labels. Older history without a model report retains its existing attribution.
+
 ## Other exercised paths
 
 - Selected each Details tab on a live Herdr bot. Closed Details, and reopened it through the bot name on 0.8.16. Verified the explicit Details button is available after closing the panel on the candidate.

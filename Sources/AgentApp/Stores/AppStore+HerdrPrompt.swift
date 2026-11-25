@@ -148,7 +148,7 @@ extension AppStore {
         let profiles = (try? await backend.client.profiles()) ?? []
         guard stillWaiting(), !Task.isCancelled else { return }
         let runtime = profiles.flatMap { $0.sessions ?? [] }.first { ($0.core == nil || $0.core == workspace.core) && $0.address == agent.address && $0.createdMs == agent.createdMs }?.runtime
-        let model = runtime?.model ?? runtime?.modelId ?? "Model unreported"
+        let model = agent.codexSessionModel ?? runtime?.model ?? runtime?.modelId ?? "Model unreported"
         let origin = "\(program ?? "Agent") · \(model) · \(agent.address)/\(agent.createdMs)"
         let prompt = HerdrPrompt(origin: origin, reviewDescription: HerdrPrompt.review(for: agent, program: program, question: question), program: program,
                                  needsSignIn: needsSignIn, question: !needsSignIn && question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,

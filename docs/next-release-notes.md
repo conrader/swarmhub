@@ -1,5 +1,6 @@
 # Changes since SwarmHub 0.8.16
 
+- Codex now reports the current session model in the chat header. Each new reply keeps the model setting observed for its turn. A reply marked **Routed to** records an explicit model change for that turn.
 - OpenCode chats show the estimated session cost beside the model. Open **Details → Model → Session usage** to see the estimate and cumulative token count.
 - Codex chats show the percentage of the context window used after a model call. Open **Details → Model → Session usage** for the exact token counts and the conversation total.
 - In **Details → Model → Command reviewer**, choose Claude Haiku, Sonnet or Opus for one bot. When Codex requests shell permission, its command, arguments and working directory go to that reviewer. Read the second opinion in chat, Activity or the workspace browser before choosing **Allow once** or **Deny**.

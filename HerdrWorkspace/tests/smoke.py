@@ -1670,6 +1670,22 @@ def smoke(hc, bridge, chrome=None):
                 assert not request(url + "/archive", False)["archived"]
 
             try:
+                if selected_focus == "codex-model":
+                    agent = request("/api/agents", {"name": "model-qa", "template": "fixture", "task": "Start"}, status=201)
+                    journal = root / "workspace/workspace.sqlite3"
+                    with sqlite3.connect(journal) as db:
+                        launch, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
+                                             (agent["address"], agent["created_ms"])).fetchone()
+                        db.execute("UPDATE journal SET codex_session_model='model-a' WHERE launch_key=?", (launch,))
+                        db.executemany("INSERT INTO codex_turn_models(launch,event,model,rerouted) VALUES(?,?,?,?)",
+                                       [(launch, "codex:first", "model-a", 0), (launch, "codex:second", "model-b", 1)])
+                    for turn in ("first", "second"):
+                        subprocess.run([bridge, "capture-codex-reply"], input=json.dumps({"hook_event_name": "Stop", "turn_id": turn,
+                                       "last_assistant_message": "Reply " + turn}), text=True, check=True,
+                                       env={**os.environ, "SWARMHUB_LAUNCH_KEY": launch, "SWARMHUB_JOURNAL": str(journal)}, capture_output=True)
+                    if chrome:
+                        subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)], check=True, timeout=45)
+                    return
                 if selected_focus == "session-usage":
                     def agent(name):
                         return request("/api/agents", {"name": name, "template": "fixture", "task": "Start"}, status=201)
