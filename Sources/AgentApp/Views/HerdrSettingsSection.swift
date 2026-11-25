@@ -84,7 +84,7 @@ struct HerdrSettingsSection: View {
     private func mainBotPicker(on server: HerdrServer) -> some View {
         let bots = store.herdrBots(on: server).filter { !$0.isReadOnlyArchive && !$0.isDemo }
         let selection = Binding<UUID?>(get: {
-            bots.first(where: store.createsHerdrBots)?.id
+            store.herdrMainBot(on: server)?.id
         }, set: { id in
             if let bot = bots.first(where: { $0.id == id }) {
                 store.setCanManageBots(bot, true)

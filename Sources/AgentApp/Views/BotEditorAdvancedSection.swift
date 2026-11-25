@@ -27,7 +27,7 @@ struct BotEditorAdvancedSection: View {
                         SettingSwitch(title: "Ask me before creating bots", detail: "Off: \(bot.name) may create a bot it is sure you want, and shows it to you to keep or remove.", symbol: "hand.raised.fill", colour: AppColor.sky,
                                       isOn: Binding(get: { store.herdrAsksFirst(bot) }, set: { store.setHerdrAsksFirst($0, for: bot) }))
                     }
-                }
+                }.disabled(bot.isReadOnlyArchive || bot.isDemo)
                 HerdrMessagingSection(bot: bot)
                 // Saved at once, like the agent's other switches; on for every Herdr bot until it is turned off here.
                 SettingSwitch(title: "Can use helpers",

@@ -25,7 +25,7 @@ extension AppStore {
             for other in duplicateHerdrMainBots(of: bot) { other.canManageBots = false }
             bot.canManageBots = false; objectWillChange.send(); save(); return
         }
-        guard bot.backend == .herdr else { return }
+        guard bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo, bots.contains(where: { $0 === bot }) else { return }
         let target = connection(of: bot)
         for other in bots where other.id != bot.id && other.canManageBots && connection(of: other) == target { other.canManageBots = false }
         bot.canManageBots = true; objectWillChange.send(); save()
@@ -42,7 +42,7 @@ extension AppStore {
     }
 
     func flaggedHerdrBots(on server: HerdrServer) -> LazyFilterSequence<[Bot]> {
-        bots.lazy.filter { $0.canManageBots && $0.backend == .herdr && !$0.isReadOnlyArchive && self.herdrServer(for: $0).id == server.id }
+        bots.lazy.filter { $0.canManageBots && $0.backend == .herdr && !$0.isReadOnlyArchive && !$0.isDemo && self.herdrServer(for: $0).id == server.id }
     }
 
     func herdrMainBot(on server: HerdrServer) -> Bot? { flaggedHerdrBots(on: server).first }
