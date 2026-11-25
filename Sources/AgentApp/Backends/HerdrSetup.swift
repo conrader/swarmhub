@@ -31,15 +31,15 @@ enum HerdrProgramName {
         return String(program.dropLast(mark.count))
     }
 
-    /// One label per template, in order: its friendly name, with the template's own name added only where two of
-    /// them would otherwise read the same.
+    /// Include the installed program when the server names its provider instead.
+    /// Two templates for the same program still need their individual template names.
     static func labels(for templates: [HerdrClient.Template]) -> [String: String] {
-        let byLabel = Dictionary(grouping: templates) { $0.label.lowercased() }
+        let byLabel = Dictionary(grouping: templates) { $0.pickerLabel.lowercased() }
         var labels: [String: String] = [:]
         for group in byLabel.values {
             let ambiguous = Set(group.map(\.name)).count > 1
             for template in group {
-                let label = template.label
+                let label = template.pickerLabel
                 labels[template.name] = ambiguous && label != template.name ? "\(label) · \(template.name)" : label
             }
         }
@@ -75,6 +75,9 @@ struct HerdrProgram: Equatable, Identifiable, Sendable {
     var beta = false
     var note: String? = nil
     var deferredModelList: HerdrClient.Template?
+    /// The public provider label can differ from the CLI registered on this machine.
+    var programDetail: String?
+    var pickerLabel: String { programDetail.map { "\(name) · \($0)" } ?? name }
     var id: String { template }
 
     /// The model a bot on this program starts on unless its person chooses another: the first the server offers.
@@ -136,13 +139,14 @@ struct HerdrOffer: Equatable, Sendable {
 
     /// The program's name, with its template while two of the server's programs share that name.
     func label(_ program: HerdrProgram) -> String {
-        programs.filter { $0.name == program.name }.count > 1 ? "\(program.name) · \(program.template)" : program.name
+        programs.filter { $0.pickerLabel.caseInsensitiveCompare(program.pickerLabel) == .orderedSame }.count > 1
+            ? "\(program.pickerLabel) · \(program.template)" : program.pickerLabel
     }
 
     /// The programs' names as a sentence part: "A", "A and B", "A, B and C".
     var names: String {
         var seen: [String] = []
-        for program in programs where !seen.contains(program.name) { seen.append(program.name) }
+        for program in programs where !seen.contains(program.pickerLabel) { seen.append(program.pickerLabel) }
         guard seen.count > 1 else { return seen.first ?? "" }
         return seen.dropLast().joined(separator: ", ") + " and " + seen[seen.count - 1]
     }
@@ -257,7 +261,8 @@ extension HerdrClient {
             if discoverModels, template.takesModel, let listed = try? await models(for: template) { offered = listed }
             programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: offered, modelAgent: template.modelAgent,
                                          beta: template.beta ?? false, note: template.note,
-                                         deferredModelList: !discoverModels && template.discoverModels == true ? template : nil))
+                                         deferredModelList: !discoverModels && template.discoverModels == true ? template : nil,
+                                         programDetail: template.programDetail))
         }
         programs = HerdrOffer.betaLast(programs)
         // Asked once here, so the wizard knows whether to offer the step; a workspace without the route answers 404.

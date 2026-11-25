@@ -100,10 +100,16 @@ The public archive for build 50 contains Apple silicon and Intel executables. Ru
 
 A private MacBook installation started with the executable from the published 0.8.16 ZIP. The archive digest matched the GitHub asset. The test copies used a private bundle identifier, a loopback feed, and disposable signing keys. Sparkle fetched the candidate with the wrong signature and kept build 50. When the trusted key signed the same archive, Sparkle installed it. The installed executable matched the candidate and passed its code signature and launch checks. On the universal release build, the native chat tests also opened an image and played a video offline and restored the 620-message group’s saved position after relaunch. [Repeat the update test](updates.md#rehearsing-without-credentials)
 
+## Adding Antigravity with a bot’s model picker open
+
+The Mac’s installed workspace service reported Antigravity CLI registered. In a private app copy, the driver opened the model picker with Claude available, opened AI settings, and exposed Antigravity to the service in a temporary search path. The released workspace service handled registration. A loopback catalog controlled when the workspace could confirm the new template.
+
+On the baseline, **Add Antigravity CLI** wrote the template while the endpoint was unavailable. Settings showed **Added**. After the endpoint recovered, **Scan again** still left the open bot picker offering only Claude. With the fix, the offline receipt reads **Registered on this Mac**. A successful rescan changes it to **Added** and updates the open picker. [Repeat the native inventory test](agent-qa.md#use-the-real-mac-window)
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
-- From Atlas’s model picker, pressing **Add provider** in the OpenBot preview opened provider settings with a search field and a Gemini entry. SwarmHub’s local model settings put **Manage AIs on this Mac…** below the coding-helper controls. Moving that link beside the bot’s AI choices would shorten the path after installing a new CLI. [OpenBot preview](https://openbot.run/app-preview)
+- From Atlas’s model picker, pressing **Add provider** in the OpenBot preview opened provider settings with a search field and a Gemini entry. SwarmHub now puts **Manage AIs on this Mac…** beside the bot’s own AI choices. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
 - The remote exercise covers a connection loss after delivery. Longer outages, quitting the client while offline and changing credentials in Settings remain separate scenarios.

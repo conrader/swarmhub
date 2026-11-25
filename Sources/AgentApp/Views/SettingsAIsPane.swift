@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsAIsPane: View {
     @EnvironmentObject private var store: AppStore
     @State private var report: HerdrLocalReport?
+    @State private var offeredTemplates: Set<String>?
     @State private var busy = false
     @State private var message = ""
     @State private var failed = false
@@ -31,7 +32,12 @@ struct SettingsAIsPane: View {
                                 Text(program.name).font(.headline)
                                 Spacer()
                                 if program.installed && program.templateWritten == true {
-                                    Label("Added", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+                                    if offeredTemplates?.contains(program.template) == true {
+                                        Label("Added", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+                                    } else {
+                                        Text(offeredTemplates == nil ? "Registered on this Mac" : "Unavailable on server")
+                                            .foregroundStyle(.secondary)
+                                    }
                                 } else if program.installed {
                                     Button("Add AI") { Task { await refresh(adding: program) } }
                                         .buttonStyle(.appleProminent).disabled(busy || report.canAddAi != true)
@@ -68,25 +74,44 @@ struct SettingsAIsPane: View {
         guard service.isPlaced else {
             report = nil; message = "Set up the workspace on this Mac to connect local AIs."; return
         }
+        offeredTemplates = nil
+        let inventory: HerdrLocalReport
         do {
             if let program {
-                report = try await service.addAI(program.id, port: nil)
-                guard report?.program(template: program.template)?.templateWritten == true else {
-                    throw HerdrLocalFailure(kind: "template", message: "The workspace could not register " + program.name + ".")
-                }
-                if let report, let server = localServer(for: report) {
-                    let available = try await store.herdrTemplates(on: server)
-                    guard available.contains(where: { $0.name == program.template }) else {
-                        throw HerdrLocalFailure(kind: "template", message: "The local server could not load the template for " + program.name + ".")
-                    }
-                }
-                store.localAIRevision += 1
-                message = program.name + " added. Choose it in your bot’s Model tab."
+                inventory = try await service.addAI(program.id, port: nil)
             } else {
-                report = try await service.status(port: nil)
+                inventory = try await service.status(port: nil)
+            }
+            try Task.checkCancellation()
+            report = inventory
+        } catch {
+            if Task.isCancelled { return }
+            report = nil
+            failed = true; message = error.localizedDescription
+            return
+        }
+
+        do {
+            if let program, inventory.program(template: program.template)?.templateWritten != true {
+                throw HerdrLocalFailure(kind: "template", message: "The workspace could not register " + program.name + ".")
+            }
+            guard let server = localServer(for: inventory) else {
+                if let program { message = program.name + " registered. Set up this Mac’s workspace to use it in a chat." }
+                return
+            }
+            let available = try await store.herdrTemplates(on: server)
+            try Task.checkCancellation()
+            let names = Set(available.map(\.name))
+            offeredTemplates = names
+            store.localAIRevision += 1
+            if let program {
+                guard names.contains(program.template) else {
+                    throw HerdrLocalFailure(kind: "template", message: "The local server could not load the template for " + program.name + ".")
+                }
+                message = program.name + " added. Choose it in your bot’s Model tab."
             }
         } catch {
-            if program == nil { report = nil }
+            if Task.isCancelled { return }
             failed = true; message = error.localizedDescription
         }
     }

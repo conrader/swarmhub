@@ -113,3 +113,11 @@ To check published media in a bot reply, run the driver from a checkout containi
 ```
 
 It opens the image and plays the clip in the real chat, takes the fixture server offline, switches chats and relaunches the app. The check passes when the previews still work and each file was downloaded once.
+
+To check an AI installed after setup, use a Mac workspace service that supports the `add-ai` command.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --ai-inventory /Applications/SwarmHub.app ~/.local/bin/swarmhub-herdr
+```
+
+The driver opens a bot’s model settings and adds a fixture Antigravity executable to the private home’s search path. It presses **Scan again** and **Add Antigravity CLI** while a loopback workspace is offline. After the workspace comes back, the driver verifies the registration, selects Antigravity in the open bot picker, and checks the saved per-bot preference. A marker detects accidental execution of the fixture CLI.

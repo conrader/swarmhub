@@ -304,6 +304,7 @@ struct HerdrAgentControls: View {
     @State private var showAdvanced = false
     @Environment(\.inspectorStartsAdvanced) private var renderOpen
     /// The server's lists were read (a render passes them in); until then the default entries cannot be named.
+    @State private var templateError: String?
     @State private var listed: Bool
     @State private var switchTarget: HerdrPickerTarget?
     @State private var switching = false
@@ -334,11 +335,14 @@ struct HerdrAgentControls: View {
         let server = store.herdrServer(for: bot), reading = store.herdrAgentReadings[bot.id]
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                GroupHeading(title: "Bot model", detail: listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…")
+                GroupHeading(title: "Bot model", detail: templateError ?? (listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…"))
                 HerdrTemplatePicker(selection: Binding(get: { template }, set: chooseTemplate),
                                     templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default", inInspector: true)
                     .disabled(!loaded)
                     .accessibilityElement(children: .contain).accessibilityLabel("AI program")
+                if server.kind == .local {
+                    SettingsPaneButton(title: "Manage AIs on this Mac…", pane: .ais)
+                }
                 if let effective, effective.takesModel {
                     HerdrModelPicker(model: Binding(get: { model }, set: chooseModel),
                                      program: effective.modelAgent ?? effective.programName, models: models)
@@ -378,9 +382,6 @@ struct HerdrAgentControls: View {
             HerdrHelperModelSection(bot: bot, server: server, templates: templates, preset: preset?.helper)
                 .id("\(bot.id)-\(server.id)")
             Divider()
-            if server.kind == .local {
-                SettingsPaneButton(title: "Manage AIs on this Mac…", pane: .ais)
-            }
             if store.movableHerdrBots(on: server).contains(bot) {
                 SettingBlock(title: "Server", detail: server.name) {
                     Button("Move to another server…") { moveSource = server }.buttonStyle(.bordered)
@@ -415,7 +416,7 @@ struct HerdrAgentControls: View {
             }
         }
         .sheet(item: $moveSource) { HerdrMoveBotsSheet(source: $0, initialBot: bot.id) }
-        .task(id: "\(bot.id)-\(server.id)-\(store.localAIRevision)") {
+        .task(id: "\(bot.id)-\(server.id)-\(server.kind == .local ? store.localAIRevision : 0)") {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot)
             loaded = true
             if preset == nil { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
@@ -440,7 +441,14 @@ struct HerdrAgentControls: View {
     }
 
     private func loadTemplates() async {
-        do { templates = try await store.herdrTemplates(on: store.herdrServer(for: bot)); note = ""; listed = true } catch { templates = []; note = error.localizedDescription }
+        do {
+            let available = try await store.herdrTemplates(on: store.herdrServer(for: bot))
+            try Task.checkCancellation()
+            templates = available; templateError = nil; listed = true
+        } catch {
+            guard !Task.isCancelled else { return }
+            templates = []; templateError = error.localizedDescription; listed = false
+        }
     }
 
     private func loadModels() async {
@@ -616,8 +624,16 @@ struct HerdrTemplatePicker: View {
                     }
                 }
             } else {
-                TileGallery(items: choices, minimum: 150, isSelected: isSelected, name: name, select: select) {
-                    NameTile(name: $0.name, note: $0.note)
+                TileGallery(items: choices, minimum: 150, isSelected: isSelected, name: name, select: select) { choice in
+                    if let template = templates.first(where: { $0.name == choice.id }), let detail = template.programDetail,
+                       choice.name == template.pickerLabel {
+                        VStack(alignment: .leading, spacing: 0) {
+                            NameTile(name: template.label, note: choice.note)
+                            Text(detail).font(.caption).fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        NameTile(name: choice.name, note: choice.note)
+                    }
                 }
             }
             // The chosen program's own sentence when it is in beta.

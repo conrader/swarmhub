@@ -36,6 +36,14 @@ struct HerdrClient: Sendable {
         /// What a choice of this template reads as: the program's friendly name, never the template's own name unless
         /// it names no program. Two choices that would read the same are told apart by `HerdrProgramName.labels`.
         var label: String { programName ?? name }
+
+        /// Some runtimes advertise the provider as their display name (Gemini through Antigravity).
+        var programDetail: String? {
+            guard let program = HerdrProgramName.friendly(display: nil, program: runtime?.harness),
+                  program.caseInsensitiveCompare(label) != .orderedSame else { return nil }
+            return program
+        }
+        var pickerLabel: String { programDetail.map { "\(label) · \($0)" } ?? label }
     }
 
     struct Agent: Decodable, Sendable, Equatable {
