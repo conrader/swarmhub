@@ -275,6 +275,9 @@ struct HerdrBackend: AgentBackend {
                         turn = try await submit(text, files)
                     }
                     delivered = true
+                    if name == backend.agentName, let server = backend.serverID, let text = turn.submittedText {
+                        continuation.yield(.accepted(HerdrDeliveryReceipt(server: server, turn: turn, text: text)))
+                    }
                     if name == backend.agentName { backend.onDirectDelivery?(turn) }
                     _ = backend.accepted.swap(AcceptedRun(sessionID: sessionID, turn: turn))
                     for (source, why) in context.omitted { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }

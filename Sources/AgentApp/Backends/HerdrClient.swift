@@ -136,13 +136,19 @@ struct HerdrClient: Sendable {
     struct Item: Decodable, Sendable, Equatable {
         let id: Int; let kind: String; let text: String
         var state: String? = nil, detail: String? = nil
+        struct Quote: Decodable, Sendable, Equatable { let id: Int }
+        var answerTo: Quote?, replyTo: Quote?
+        var atMs: Int64?
         var pageId: Int?, pageRevision: Int?
-        enum CodingKeys: CodingKey { case id, kind, text, state, detail, pageId, pageRevision }
+        enum CodingKeys: CodingKey { case id, kind, text, state, detail, pageId, pageRevision, answerTo, replyTo, atMs }
         init(id: Int, kind: String, text: String, state: String? = nil, detail: String? = nil) { self.id = id; self.kind = kind; self.text = text; self.state = state; self.detail = detail }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = try c.decode(Int.self, forKey: .id); kind = try c.decode(String.self, forKey: .kind)
             text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
+            answerTo = try c.decodeIfPresent(Quote.self, forKey: .answerTo)
+            replyTo = try c.decodeIfPresent(Quote.self, forKey: .replyTo)
+            atMs = try c.decodeIfPresent(Int64.self, forKey: .atMs)
             pageId = try c.decodeIfPresent(Int.self, forKey: .pageId)
             pageRevision = try c.decodeIfPresent(Int.self, forKey: .pageRevision)
             state = try? c.decodeIfPresent(String.self, forKey: .state); detail = try? c.decodeIfPresent(String.self, forKey: .detail)
@@ -164,6 +170,7 @@ struct HerdrClient: Sendable {
     struct Turn: Sendable, Equatable {
         let core: String; let address: String; let createdMs: UInt64; let after: Int; let launched: Bool
         var steerReference: String? = nil
+        var submittedText: String? = nil
         var afterTool: UInt64 = 0
         /// The server's name for the agent program that answers, for the status lines; nil when it gives none.
         var program: String? = nil
@@ -247,10 +254,13 @@ struct HerdrClient: Sendable {
     }
     func profiles() async throws -> [Profile] { try await get("/api/profiles") }
 
+    struct HistoryPage: Decodable { let items: [Item]; let before: Int? }
+    func historyPage(core: String, address: String, createdMs: UInt64, before: Int? = nil) async throws -> HistoryPage {
+        try await get("/api/history/\(core)/\(address)/\(createdMs)" + (before.map { "?before=\($0)" } ?? ""))
+    }
+
     func history(core: String, address: String, createdMs: UInt64) async throws -> [Item] {
-        struct Page: Decodable { let items: [Item] }
-        let page: Page = try await get("/api/history/\(core)/\(address)/\(createdMs)")
-        return page.items
+        try await historyPage(core: core, address: address, createdMs: createdMs).items
     }
 
     /// What a running turn shows before its reply is saved: the reply so far, when the template publishes one, and
@@ -604,7 +614,7 @@ struct HerdrClient: Sendable {
             try Task.checkCancellation()
             willSubmit()
             let queued = try await message(body, files: files, to: agent, core: core, turnReference: wireReference)
-            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, steerReference: steerReference, afterTool: afterTool, program: current.program(of: agent), queued: queued)
+            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, steerReference: steerReference, submittedText: body, afterTool: afterTool, program: current.program(of: agent), queued: queued)
         }
         status(.starting(program: Self.program(template: template, in: current)))
         try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: !files.isEmpty))
@@ -615,7 +625,7 @@ struct HerdrClient: Sendable {
         if agent.openCodeFirstTask == "uncertain" { throw Failure.unconfirmedDelivery }
         if agent.openCodeFirstTask == "not_sent" { throw Failure.notDelivered("OpenCode did not accept the first task.") }
         if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
-        return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true, steerReference: steerReference, program: current.program(of: agent))
+        return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true, steerReference: steerReference, submittedText: first, program: current.program(of: agent))
     }
 
     /// Starts this bot's agent from `template` (nil: the first the server can start), on `model` when the template

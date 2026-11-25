@@ -128,10 +128,16 @@ A search from a bot with 400 live rows found its saved SwarmHub messages but tim
 
 Switching away initially lost the imported reading position. The corrected candidate restored the group’s selected entry after switching back and the bot’s entry after quitting and relaunching. In a separate MacBook run with 33,000 imported entries (31,879,382 bytes), the group and bot archive results appeared 0.38 and 0.44 seconds after entry of the full phrase. After the driver removed one test archive and relaunched, the affected bot opened at its newest live message. Times are for this synthetic local workspace. [Run the window check](agent-qa.md#use-the-real-mac-window)
 
+## Quitting during a remote reply and reopening offline
+
+In a private MacBook chat, the driver sent a command to a real Codex bot on a second Mac. Once the command started, it disconnected the SSH forward and quit SwarmHub. The remote workspace recorded the completed answer. On the baseline, the chat reopened with the partial text and an **Incomplete** footer. The answer was still missing 32 seconds after reconnection.
+
+With the fix, the chat reopened offline and displayed **Checking the workspace for your reply…**. After the connection returned, the saved answer appeared in the original bubble in 3.93 seconds. The driver checked its ID, text and finished state on disk, then sent another message from the same chat. The remote journal contained exactly two tasks and their two answers. This exercise covered a newly accepted direct message. Older partial replies without a delivery receipt and interrupted split turns require separate recovery evidence.
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
 - From Atlas’s model picker, pressing **Add provider** in the OpenBot preview opened provider settings with a search field and a Gemini entry. SwarmHub now puts **Manage AIs on this Mac…** beside the bot’s own AI choices. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
-- The remote exercise covers a connection loss after delivery. Longer outages, quitting the client while offline and changing credentials in Settings remain separate scenarios.
+- The remote exercises cover connection loss after delivery with SwarmHub open and with an offline relaunch. Changing workspace credentials mid-turn remains untested.

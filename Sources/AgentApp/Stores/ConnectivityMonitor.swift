@@ -92,6 +92,7 @@ extension AppStore {
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
         startPersonSettings()
         if !bots.isEmpty || !groups.isEmpty {
+            recoverAcceptedDirectReplies()
             recoverInterruptedRounds()
             recoverGoals()
             resumeRestoredNextMessages()

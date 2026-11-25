@@ -69,6 +69,8 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     /// P16: the state of the turn whose reply this row holds (nil = written before P16); encoded only when set.
     @Published var turnState: TurnState?
     @Published var runSummary: RunSummary?
+    @Published var checkingSavedReply = false
+    var deliveryReceipt: HerdrDeliveryReceipt?
     @Published var publishedResults: HerdrReplyResults?
     /// P27: the tools this reply ran (bounded); encoded only when set. `lastTextAt` (memory only): when text last arrived.
     @Published var activity: ToolActivity?; @Published var lastTextAt: Date?
@@ -77,7 +79,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
         self.turnState = turnState
     }
-    enum CodingKeys: CodingKey { case id, role, content, createdAt, continuedAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary, publishedResults }
+    enum CodingKeys: CodingKey { case id, role, content, createdAt, continuedAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary, publishedResults, deliveryReceipt }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); role = try c.decode(MessageRole.self, forKey: .role)
@@ -92,6 +94,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         // An unknown value (a newer build's state) must not make the whole store undecodable.
         turnState = (try? c.decodeIfPresent(TurnState.self, forKey: .turnState)) ?? nil
         activity = (try? c.decodeIfPresent(ToolActivity.self, forKey: .activity)) ?? nil
+        deliveryReceipt = try? c.decodeIfPresent(HerdrDeliveryReceipt.self, forKey: .deliveryReceipt)
         publishedResults = try? c.decodeIfPresent(HerdrReplyResults.self, forKey: .publishedResults)
         runSummary = try? c.decodeIfPresent(RunSummary.self, forKey: .runSummary)
         isStreaming = false
@@ -105,6 +108,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
         try c.encodeIfPresent(authorID, forKey: .authorID); try c.encodeIfPresent(turnState, forKey: .turnState)
         try c.encodeIfPresent(activity, forKey: .activity)
+        try c.encodeIfPresent(deliveryReceipt, forKey: .deliveryReceipt)
         try c.encodeIfPresent(publishedResults, forKey: .publishedResults)
         try c.encodeIfPresent(runSummary, forKey: .runSummary)
     }
@@ -214,4 +218,4 @@ enum StopTarget: Sendable, Equatable { case serverRun(String), noRunControl, noA
 enum StopOutcome: Sendable, Equatable { case requested, noRunControl, noActiveRun }
 /// What a backend's stream says about a turn. `replace`: the whole reply text so far, when a snapshot no longer
 /// extends what was streamed. `tool`: a tool started, progressed or finished; the reply keeps these as its activity steps.
-enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), sessionModel(String, RunSummary.ModelSource), journal(String, [Int]), published(String, HerdrPublishedResult), runActivity(seconds: Int, tools: Int), completed, failed(String) }
+enum AgentEvent: Sendable { case accepted(HerdrDeliveryReceipt), token(String), replace(String), status(String), tool(ToolEvent), sessionModel(String, RunSummary.ModelSource), journal(String, [Int]), published(String, HerdrPublishedResult), runActivity(seconds: Int, tools: Int), completed, failed(String) }

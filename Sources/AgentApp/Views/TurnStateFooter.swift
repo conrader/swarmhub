@@ -12,6 +12,7 @@ struct TurnStateFooter: View {
     }
 
     static func text(for message: ChatMessage) -> String? {
+        if message.checkingSavedReply && message.turnState == .incomplete { return "Checking the workspace for your reply…" }
         let empty = message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let base = TurnOutcome.footer(state: message.turnState, why: message.metadata[TurnKey.why], ambiguous: message.metadata[TurnKey.ambiguous] == "1", empty: empty)
         return base
