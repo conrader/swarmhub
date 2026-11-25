@@ -1,5 +1,6 @@
 # Changes since SwarmHub 0.8.16
 
+- Open a coding helper and choose **Promote to bot** to keep its tasks and replies in a permanent chat with the same workspace and model. You can message the new bot while the helper finishes its assignment. The outstanding reply appears in the new chat.
 - Choose **Details → Model → Summarize & start fresh** to give this bot a new session with a summary of the conversation. The chat stays available while the summary is prepared. If you send another message during preparation, the current session keeps running.
 - **Activity → Background job results** on Mac and **Needs attention → Job completions** in the browser now show which bot owns a result, why the job stopped, and whether the bot has received it. On Mac, open the owner’s chat directly from the result. Detailed worker outcomes require workspace 0.2.14.
 - A failed check on a watched public pull request now appears in **Activity** on Mac and **Needs attention** in the browser, including iPhone Safari. Open the failed GitHub check or mark it reviewed across devices. The bot still receives its scheduled follow-up. Requires workspace 0.2.14.

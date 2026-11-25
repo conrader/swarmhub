@@ -231,3 +231,52 @@ private let listingJSON = """
     #expect(working.resultPreview == nil)
     #expect(newest.resultPreview == "build succeeded")
 }
+
+@Test @MainActor func promotionCopiesAllHistoryAndKeepsModelAndParentScope() async throws {
+    let store = helperStore(), parent = Bot(name: "Parent", backend: .herdr)
+    store.bots = [parent, Bot(name: "two", backend: .mock)]
+    let list = try decoded(HerdrClient.Helpers.self, listingJSON)
+    let helper = list.helpers[0], selection = HerdrHelperSelection(botID: parent.id, helperID: helper.id, groupRuntime: "group-parent")
+    let bridge = MockHTTPProtocol.serve { request in
+        if request.url!.path.hasSuffix("/helpers") { return (200, try! JSONSerialization.jsonObject(with: Data(listingJSON.utf8))) }
+        if request.url!.query != nil { return (200, ["items": [["id": 1, "kind": "task", "text": "Original assignment"], ["id": 2, "kind": "task", "text": "Never delivered", "state": "not_sent"]]]) }
+        return (200, ["before": 3, "items": [["id": 4, "kind": "reply", "text": "Full answer", "codex_model": "actual-model"]]])
+    }
+    store.saveHerdrServer(.init(id: HerdrServer.defaultID, name: "Test", kind: .address, address: "http://\(bridge.host)"), token: "t")
+    store.herdrClientSetup = { $0.session = bridge.session }
+    store.herdrHelpers[selection.parent] = list
+    await #expect(throws: (any Error).self) {
+        _ = try await store.promoteHelper(helper, core: "another-core", selection: selection, of: parent)
+    }
+    let promoted = try await store.promoteHelper(helper, core: list.core, selection: selection, of: parent)
+    #expect(promoted.name == "two 2" && store.herdrModel(for: promoted) == "some-model" && store.herdrTemplate(for: promoted) == "one")
+    #expect(promoted.messages.filter { $0.role != .system }.map(\.content) == ["Original assignment", "Full answer"])
+    #expect(promoted.messages.first { $0.role == .assistant }?.runSummary?.model == "actual-model")
+    #expect(try await store.promoteHelper(helper, core: list.core, selection: selection, of: parent) === promoted)
+    #expect(store.bots.count == 3 && store.herdrCarryOver(for: promoted) != nil)
+    let restored = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(promoted))
+    #expect(restored.promotedHelper == promoted.promotedHelper)
+}
+
+@Test @MainActor func promotionBeforeTaskRegistrationCollectsExactlyOneAnswer() async throws {
+    let store = helperStore(), bot = Bot(name: "Sampler", backend: .herdr)
+    store.bots = [bot]
+    let server = store.herdrServer(for: bot)
+    bot.promotedHelper = .init(serverID: server.id, core: "c", session: .init(address: "child", createdMs: 1),
+                               parentID: UUID(), pendingAfter: 0, awaitingTask: "First assignment")
+    bot.messages = [ChatMessage(role: .user, content: "First assignment", metadata: [PromotedHelper.rowKey: "assignment"])]
+    let (host, session) = MockHTTPProtocol.serve { _ in
+        (200, ["items": [["id": 4, "kind": "task", "text": "First assignment"],
+                         ["id": 6, "kind": "reply", "text": "Delayed answer"],
+                         ["id": 9, "kind": "task", "text": "Another job"],
+                         ["id": 10, "kind": "reply", "text": "Unrelated answer"]]])
+    }
+    let client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
+    let workspace = try decoded(HerdrClient.Workspace.self, #"{"core":"c","agents":[],"templates":[]}"#)
+    for _ in 0..<2 { await store.collectPromotedReplies(on: server, workspace: workspace, client: client) }
+    #expect(bot.messages.map(\.content) == ["First assignment", "Delayed answer"])
+    #expect(bot.promotedHelper?.pendingAfter == nil && bot.promotedHelper?.handoffID != nil)
+    let handoff = try #require(await store.herdrCarryHandoff(for: bot.id, status: { _ in }))
+    #expect(store.herdrCarrySource(for: bot)?.lead == handoff.lead)
+    #expect(handoff.lead != GrokHandoff.lead(for: bot.id, origin: .ownChat))
+}
