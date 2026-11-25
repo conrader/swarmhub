@@ -7,8 +7,7 @@
 //!   result is reported.
 //! - One owner: a piece of work (`bot_work`) belongs to the bot that started it until another bot accepts a
 //!   hand-off of it. Only the owner hands it off, and to one bot at a time.
-//! - The limits: so many messages between the same two bots about one piece of work, so many bots a piece of
-//!   work passes through, so many new messages per bot in a while. A reply, an acceptance or a refusal of
+//! - The limits: so many messages between the same two bots about one piece of work and so many new messages per bot in a while. A reply, an acceptance or a refusal of
 //!   something that is still open always goes through, so nothing is left hanging because of a limit.
 //! - A stop ends every exchange the stopped bot is part of, and the bots that waited are told.
 
@@ -436,18 +435,6 @@ pub(crate) fn send(
                 super::name_of(ctx.db, &other)
             )));
         }
-    }
-    if !work.chain.contains(&receiver.id) && work.chain.len() >= ctx.set.chain_bots as usize {
-        let line = format!(
-            "{from}'s message to {name} was not sent: this piece of work has already passed through {} bots, which is the limit. {from} was told to bring it to you.",
-            work.chain.len()
-        );
-        limit_line(ctx, &sender.id, "limit_chain", work.id, &line)?;
-        limit_line(ctx, &receiver.id, "limit_chain", work.id, &line)?;
-        return Ok(Err(format!(
-            "This piece of work has already passed through {} bots, which is the limit, so your message to \"{name}\" was not sent. Work with what you have, and bring the matter to the person: tell them what is still open.",
-            work.chain.len()
-        )));
     }
     let between: u32 = ctx.db.query_row(
         "SELECT count(*) FROM bot_messages WHERE work=?1
@@ -930,6 +917,11 @@ pub(crate) fn untyped(ctx: &Ctx<'_>, outbox: i64, why: &str) -> rusqlite::Result
 
 /// Gives up what has waited too long to be typed.
 pub(crate) fn give_up(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
+    // Outcomes have no recipient acknowledgement command. Close an uncertain
+    // attempt at its deadline without replaying it or claiming it was delivered.
+    let uncertain = ctx.db.execute("UPDATE bot_outbox SET state='failed',detail='The delivery deadline passed without confirmation.'
+        WHERE cause='outcome' AND state='typing' AND delivery_receipt='uncertain' AND give_up_ms<=?1
+          AND NOT EXISTS(SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id)", [ctx.now])?;
     let late: Vec<i64> = ctx
         .db
         .prepare_cached(
@@ -948,7 +940,7 @@ pub(crate) fn give_up(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
             ),
         )?;
     }
-    Ok(late.len())
+    Ok(uncertain + late.len())
 }
 
 /// Takes `bot` out of every exchange it is part of: the person stopped it, turned its messages off, or removed
@@ -1661,6 +1653,22 @@ mod tests {
             ).unwrap();
             assert_eq!(saved, receipt);
         }
+    }
+
+    #[test]
+    fn uncertain_outcome_closes_at_its_cutoff_without_resending() {
+        let (_dir, history) = testing::journal(&["Jarvis", "Infra"]);
+        let set = Settings::default();
+        let ask = sent(&history, T0, &set, "Jarvis", Kind::Ask, "Infra", "fixture").unwrap();
+        closed(&history, T0 + 1, &set, "Infra", ask, Closing::Reply("answer")).unwrap();
+        let deadline = T0 + 100;
+        let id: i64 = history.db().unwrap().query_row("UPDATE bot_outbox SET state='typing',give_up_ms=?1
+            WHERE cause='outcome' RETURNING id", [deadline], |r| r.get(0)).unwrap();
+        testing::at(&history, deadline - 1, &set, |ctx| reconcile_delivery(ctx, id));
+        testing::at(&history, deadline - 1, &set, give_up);
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_outbox WHERE cause='outcome' AND state='typing'"), 1);
+        testing::at(&history, deadline, &set, give_up);
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_outbox WHERE cause='outcome' AND state='failed' AND delivery_receipt='uncertain'"), 1);
     }
 
     #[test]
@@ -2395,17 +2403,32 @@ mod tests {
     }
 
     #[test]
-    fn a_piece_of_work_passes_through_at_most_four_bots_and_follow_ups_stay_in_it() {
-        let (_scratch, history) = testing::journal(&["A", "B", "C", "D", "E"]);
-        let set = Settings::default();
-        let keys: Vec<String> = ["A", "B", "C", "D"]
+    fn fifth_and_later_recipients_join_the_same_work_with_legacy_settings() {
+        let (_scratch, history) = testing::journal(&["A", "B", "C", "Boppy", "Jarvis", "F"]);
+        let set = {
+            let db = history.db().unwrap();
+            db.execute(
+                "INSERT OR REPLACE INTO bot_state(key,value) VALUES('settings',?1)",
+                [r#"{"chain_bots":4,"messages_per_window":2,"pair_messages":2}"#],
+            )
+            .unwrap();
+            Settings::load(&db).unwrap()
+        };
+        assert_eq!((set.pair_messages, set.messages_per_window), (2, 2));
+        assert!(
+            serde_json::to_value(&set)
+                .unwrap()
+                .get("chain_bots")
+                .is_none()
+        );
+        let keys: Vec<String> = ["A", "B", "C", "Boppy"]
             .iter()
             .enumerate()
             .map(|(i, name)| testing::session(&history, name, &format!("t{}", i + 1)))
             .collect();
-        // The person writes to A. A asks B; B, while answering, asks C; C asks D; D may not bring in E.
+        // The person writes to A. A asks B; B, while answering, asks C; C asks Boppy.
         let mut work = None;
-        for (index, pair) in [("A", "B"), ("B", "C"), ("C", "D")].iter().enumerate() {
+        for (index, pair) in [("A", "B"), ("B", "C"), ("C", "Boppy")].iter().enumerate() {
             let sender = testing::bot(&history, pair.0);
             let task = newest_task(&history.db().unwrap(), &keys[index], None).unwrap();
             let ask = testing::at(&history, T0 + index as i64, &set, |ctx| {
@@ -2447,30 +2470,44 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(chain, r#"["a-id","b-id","c-id","d-id"]"#);
-        let d = testing::bot(&history, "D");
+        assert_eq!(chain, r#"["a-id","b-id","c-id","boppy-id"]"#);
+        let boppy = testing::bot(&history, "Boppy");
         let task = newest_task(&history.db().unwrap(), &keys[3], None).unwrap();
-        let refused = testing::at(&history, T0 + 10, &set, |ctx| {
-            send(ctx, &d, task, Kind::Ask, "E", "Help?", "command")
+        let fifth = testing::at(&history, T0 + 10, &set, |ctx| {
+            send(ctx, &boppy, task, Kind::Ask, "Jarvis", "Help?", "command")
         })
-        .unwrap_err();
-        assert!(
-            refused.contains("passed through 4 bots")
-                && refused.contains("bring the matter to the person")
-        );
-        for bot in ["D", "E"] {
-            assert!(
-                lines(&history, bot)
-                    .iter()
-                    .any(|line| line.1.as_deref() == Some("limit_chain")),
-                "{bot}"
+        .unwrap();
+        let owner = testing::bot(&history, "A");
+        let origin = newest_task(&history.db().unwrap(), &keys[0], None).unwrap();
+        let sixth = testing::at(&history, T0 + 10, &set, |ctx| {
+            send(
+                ctx,
+                &owner,
+                origin,
+                Kind::Handoff,
+                "F",
+                "Take it.",
+                "command",
+            )
+        })
+        .unwrap();
+        {
+            let db = history.db().unwrap();
+            for id in [fifth.id, sixth.id] {
+                assert_eq!(message(&db, id).unwrap().unwrap().work, work.unwrap());
+            }
+            let saved = super::work(&db, work.unwrap()).unwrap();
+            assert_eq!(
+                saved.chain,
+                ["a-id", "b-id", "c-id", "boppy-id", "jarvis-id", "f-id"]
             );
+            assert_eq!(saved.owner, owner.id);
         }
         // A bot that is already part of it can be written to again.
         assert!(
             testing::at(&history, T0 + 11, &set, |ctx| send(
                 ctx,
-                &d,
+                &boppy,
                 task,
                 Kind::Ask,
                 "A",
@@ -2479,11 +2516,11 @@ mod tests {
             ))
             .is_ok()
         );
-        // Only the owner hands the work off: D was asked, it does not own it.
+        // Only the owner hands the work off: Boppy was asked, it does not own it.
         assert!(
             testing::at(&history, T0 + 12, &set, |ctx| send(
                 ctx,
-                &d,
+                &boppy,
                 task,
                 Kind::Handoff,
                 "B",
@@ -2493,6 +2530,28 @@ mod tests {
             .unwrap_err()
             .contains("A owns it")
         );
+        closed(&history, T0 + 13, &set, "F", sixth.id, Closing::Accept).unwrap();
+        assert_eq!(
+            super::work(&history.db().unwrap(), work.unwrap())
+                .unwrap()
+                .owner,
+            "f-id"
+        );
+        let too_fast = testing::at(&history, T0 + 14, &set, |ctx| {
+            send(ctx, &boppy, task, Kind::Tell, "F", "Again", "command")
+        })
+        .unwrap_err();
+        assert!(too_fast.contains("in the last"));
+        let later = T0 + seconds(set.window_seconds) + 20;
+        testing::at(&history, later, &set, |ctx| {
+            send(ctx, &boppy, task, Kind::Tell, "Jarvis", "Again", "command")
+        })
+        .unwrap();
+        let too_many = testing::at(&history, later, &set, |ctx| {
+            send(ctx, &boppy, task, Kind::Tell, "Jarvis", "Again", "command")
+        })
+        .unwrap_err();
+        assert!(too_many.contains("exchanged"));
     }
 
     #[test]

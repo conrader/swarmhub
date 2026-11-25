@@ -47,13 +47,18 @@ extension HerdrClient {
         }
     }
 
-    func approvals(for name: String) async throws -> [Approval] {
+    func pendingApprovals() async throws -> [Approval] {
         struct Inbox: Decodable { let pending: [Approval] }
         let inbox: Inbox = try await get("/api/approvals?pending_only=true")
-        guard !inbox.pending.isEmpty else { return [] }
+        return inbox.pending
+    }
+
+    func approvals(for name: String) async throws -> [Approval] {
+        let pending = try await pendingApprovals()
+        guard !pending.isEmpty else { return [] }
         let current = try await workspace()
         guard let agent = liveAgent(named: name, in: current) else { return [] }
-        return inbox.pending.filter {
+        return pending.filter {
             $0.agent == agent.name && $0.core == current.core && $0.address == agent.address &&
                 $0.createdMs == agent.createdMs
         }

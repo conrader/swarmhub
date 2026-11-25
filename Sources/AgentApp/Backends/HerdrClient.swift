@@ -99,6 +99,7 @@ struct HerdrClient: Sendable {
         var botWorkspaces: Bool? = nil
         var routineTransfers: Bool? = nil
         var workspaceRoot: String? = nil
+        var endIfIdle: Bool? = nil
         var codexTurnSteer: Bool? = nil
         var launchAttachments: Bool? = nil
         /// The server's name for the agent program `agent` runs ("Codex"); nil when its template names none.
@@ -285,7 +286,24 @@ struct HerdrClient: Sendable {
         let _: Ended = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/end", [:])
     }
 
-    func endIfIdle(_ agent: Agent, core: String, unusedOnly: Bool = false) async throws {
+    func endIfIdle(_ agent: Agent, core: String, workspace: Workspace, unusedOnly: Bool = false) async throws {
+        if workspace.endIfIdle != true {
+            // Older bridges only expose the exact-session end route. Recheck the
+            // launch, its helpers and any outstanding review before using it.
+            let reviews = try await pendingApprovals()
+            guard !reviews.contains(where: { $0.agent == agent.name }) else {
+                throw Failure.notDelivered("Review the existing session’s approval before switching.")
+            }
+            let live = try await self.workspace()
+            guard live.core == core, let current = liveAgent(named: agent.name, in: live),
+                  current.ref == agent.ref, current.isIdleForRollover,
+                  !unusedOnly || current.warm == true,
+                  !live.agents.contains(where: { $0.isLive && $0.parent == agent.ref }) else {
+                throw Failure.notDelivered("The existing session changed or is busy.")
+            }
+            try await end(current)
+            return
+        }
         struct Ended: Decodable {}
         let _: Ended = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/end-if-idle",
                                       ["expected_core": core, "unused_only": unusedOnly])
@@ -347,7 +365,7 @@ struct HerdrClient: Sendable {
         let current = try await workspace()
         guard let core = current.core, let agent = liveAgent(named: name, in: current), agent.warm == true else { return false }
         guard try await history(core: core, address: agent.address, createdMs: agent.createdMs).allSatisfy({ $0.kind != "task" }) else { return false }
-        try await endIfIdle(agent, core: core, unusedOnly: true)
+        try await endIfIdle(agent, core: core, workspace: current, unusedOnly: true)
         return true
     }
 

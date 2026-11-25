@@ -390,9 +390,13 @@ async fn send_prompt(
         wait.check_outbox(&w.history)?;
         match w.core.send(agent, &typed).await {
             Ok(sent) => {
-                let outcome = if matches!(wait, Wait::Outbox { .. }) {
-                    Ok(sent.delivery)
-                } else { w.core.recover_send(agent, &typed, &prompt, sent).await };
+                let outcome = w.core.recover_send(agent, &typed, &prompt, sent, |has_input| {
+                    // Outbox attempts may have reached the agent. Only press Enter on
+                    // a still-authorized attempt. Never paste its message a second time.
+                    !matches!(wait, Wait::Outbox { .. }) || (has_input
+                        && wait.check_outbox(&w.history).is_ok()
+                        && agent.launch_key().is_some_and(|key| matches!(w.approvals.waits_on(key), Ok(false))))
+                }).await;
                 if let Some(launch) = warm_launch
                     && outcome.as_ref().is_ok_and(|delivery| delivery.started != Some(false))
                 {

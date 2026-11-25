@@ -500,7 +500,7 @@ fn save_settings(history: &crate::history::History, bytes: &[u8]) -> Result<Sett
         for (name, value) in wanted {
             merged[name] = value.clone();
         }
-        let Ok(set) = serde_json::from_value::<Settings>(merged) else {
+        let Ok(set) = Settings::decode(merged) else {
             return Ok(Err(SHAPE.to_owned()));
         };
         if let Some(problem) = set.problem() {
@@ -718,7 +718,10 @@ mod tests {
                 .unwrap()
         };
         let at = crate::history::now();
-        let saved = save_settings(&history, br#"{"timezone":"Asia/Bangkok"}"#).unwrap();
+        let saved = save_settings(&history, br#"{"timezone":"Asia/Bangkok","chain_bots":4}"#).unwrap();
+        assert!(bounds().get("chain_bots").is_none());
+        assert!(serde_json::to_value(&saved).unwrap().get("chain_bots").is_none());
+        assert!(save_settings(&history, br#"{"unknown_limit":4}"#).is_err());
         assert_eq!(saved.timezone, "Asia/Bangkok");
         let expected =
             |at| crate::routines::next_local(at, chrono_tz::Asia::Bangkok, 9, 0, false).unwrap();

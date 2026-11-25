@@ -33,8 +33,8 @@ enum SidebarChat: Identifiable {
         var latest = archive?.timestamp ?? .distantPast
         // Start at the end so older messages need only a date comparison while a reply is streaming.
         for messages in messageLists {
-            for message in messages.reversed() where message.createdAt > latest && message.contributesToSidebarDate {
-                latest = message.createdAt
+            for message in messages.reversed() where message.transcriptDate > latest && message.contributesToSidebarDate {
+                latest = message.transcriptDate
             }
         }
         return latest

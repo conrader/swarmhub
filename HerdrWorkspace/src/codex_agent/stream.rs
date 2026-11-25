@@ -621,14 +621,13 @@ pub(crate) struct ReviewStatus {
 pub(crate) fn review_status(history: &crate::history::History, key: Option<&str>) -> ReviewStatus {
     let Some(key) = key else { return ReviewStatus::default(); };
     let Ok(db) = history.db() else { return ReviewStatus::default(); };
-    let desired = crate::bot_agent_settings::for_launch(&db, key).ok().map(|settings| settings.auto_mode);
+    let Ok(settings) = crate::bot_agent_settings::for_launch(&db, key) else { return ReviewStatus::default(); };
     db.query_row(
-        "SELECT coalesce(?2 != coalesce(launch_auto,0)
-                    OR (?2 AND (codex_sandbox != 'workspace-write' OR codex_policy != 'granular'))
-                    OR (?2 != (codex_reviewer='auto_review')), 0),
+        "SELECT coalesce(launch_auto != ?2,
+                    ?2 OR coalesce(at_ms < ?3, 0)),
                 codex_sandbox,codex_policy,codex_reviewer,codex_review_event
          FROM journal WHERE launch_key=?1",
-        rusqlite::params![key, desired], |row| Ok(ReviewStatus {
+        rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms], |row| Ok(ReviewStatus {
             auto_restart_pending: row.get(0)?,
             codex_sandbox: row.get(1)?,
             codex_policy: row.get(2)?,
@@ -1051,10 +1050,12 @@ mod tests {
         let (_dir, history) = crate::bots::testing::journal(&["Doc"]);
         let key = crate::bots::testing::session(&history, "Doc", "fixture");
         let owner = crate::bots::testing::id_of("Doc");
-        let db = history.db().unwrap();
-        db.execute("INSERT INTO bot_agent_settings(bot,auto_mode) VALUES(?,1)", [&owner]).unwrap();
-        db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=1 WHERE launch_key=?2",
-            rusqlite::params![owner, key]).unwrap();
+        {
+            let db = history.db().unwrap();
+            db.execute("INSERT INTO bot_agent_settings(bot,auto_mode) VALUES(?,1)", [&owner]).unwrap();
+            db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=0 WHERE launch_key=?2",
+                rusqlite::params![owner, key]).unwrap();
+        }
         let mut observed = Follower::default();
         let join = observed.join("doc", 0);
         observed.heard(&json!({"id":join[0]["id"],"result":{"thread":{"id":"doc"},
@@ -1121,13 +1122,19 @@ mod tests {
         history.db().unwrap().execute("UPDATE journal SET parent_bot_id=?1,launch_auto=1,codex_reviewer='user',codex_sandbox='read-only',codex_policy='on-request'
             WHERE launch_key=?2", rusqlite::params![bot,key]).unwrap();
         let current = review_status(&history, Some(&key));
-        assert!(current.auto_restart_pending);
+        assert!(!current.auto_restart_pending);
         assert_eq!(current.codex_reviewer.as_deref(), Some("user"));
         assert_eq!(current.codex_policy.as_deref(), Some("on-request"));
         assert_eq!(current.codex_sandbox.as_deref(), Some("read-only"));
         history.db().unwrap().execute("UPDATE journal SET codex_reviewer='auto_review',
             codex_sandbox='workspace-write',codex_policy='granular' WHERE launch_key=?", [&key]).unwrap();
         assert!(!review_status(&history, Some(&key)).auto_restart_pending);
+        history.db().unwrap().execute("UPDATE bot_agent_settings SET auto_mode=0 WHERE bot=?", [&bot]).unwrap();
+        assert!(review_status(&history, Some(&key)).auto_restart_pending);
+        history.db().unwrap().execute("UPDATE journal SET launch_auto=0 WHERE launch_key=?", [&key]).unwrap();
+        let off = review_status(&history, Some(&key));
+        assert!(!off.auto_restart_pending);
+        assert_eq!(off.codex_reviewer.as_deref(), Some("auto_review"));
     }
 
     #[test]

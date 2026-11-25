@@ -50,6 +50,12 @@ import Testing
         try await waitUntil { store.isIdle(bot) }
         let ids = bot.messages.map(\.id)
         #expect(bot.messages.map(\.content) == ["Question A", "Question B", "FYI", "Answer B"])
+        let selection = MessageSelection()
+        let picked = bot.messages
+        selection.show(rows: picked) { store.copiedMessage($0, botName: bot.name) }
+        for message in picked { selection.toggle(message.id) }
+        #expect(selection.copiedText.components(separatedBy: "\n\n").map { $0.components(separatedBy: "\n").last ?? "" } == ["Question A", "Question B", "FYI", "Answer B"])
+        #expect(store.copiedMessage(placeholder, botName: bot.name).date == placeholder.continuedAt)
         #expect(placeholder.turnState == .finished && placeholder.transcriptDate > steer.createdAt)
         #expect(store.herdrTriggers(of: placeholder, in: bot).map(\.id) == [ids[0]])
         #expect(await backend.calls.all == ["send:Question A", "steer:Question B"])
@@ -69,6 +75,33 @@ import Testing
         #expect(saved.messages.map(\.id) == mergedIDs)
         let disk = try #require(StoreFile.decode(Data(contentsOf: url)).bots.first { $0.id == bot.id })
         #expect(disk.messages.map(\.id) == mergedIDs && disk.messages.map(\.content) == expected)
+    }
+
+    @Test func lateFollowupPrecedesTheNextQuestionAndAnswer() {
+        let question = ChatMessage(role: .user, content: "Next question")
+        let answer = ChatMessage(role: .assistant, content: "Next answer",
+            metadata: [TurnKey.forUser: question.id.uuidString, "herdrJournal": "s:30"])
+        var rows = [ChatMessage(role: .assistant, content: "First answer", metadata: ["herdrJournal": "s:10"]),
+                    question, answer]
+        let followup = ChatMessage(role: .assistant, content: "Earlier follow-up")
+        TranscriptHistory.insert(followup, into: &rows, server: "s", entry: 2, followup: true, journal: 20, receivedAt: .now)
+        #expect(rows.map(\.content) == ["First answer", "Earlier follow-up", "Next question", "Next answer"])
+    }
+
+    @Test func cumulativeCorrectionAtAReceiptUpdatesTheEarlierParagraph() async throws {
+        let (store, bot) = steerStore(ScriptedTurnBackend())
+        let stale = ChatMessage(role: .user, content: "Older wait", metadata: [TurnWaitCopy.key: "waiting"])
+        let draft = ChatMessage(role: .assistant, content: "First draft.", isStreaming: true)
+        let followup = ChatMessage(role: .user, content: "More?", metadata: [SteerKey.steer: "delivered"])
+        let queued = ChatMessage(role: .user, content: "Next question", metadata: [TurnWaitCopy.key: "waiting"])
+        bot.messages = [stale, draft, followup, queued]
+        store.turns.steers[draft.id] = PendingSteer(conversation: bot, bubbles: [followup])
+        let pair = AsyncThrowingStream<AgentEvent, Error>.makeStream()
+        pair.continuation.yield(.replace("Revised first.\n\nSecond paragraph."))
+        pair.continuation.yield(.completed)
+        pair.continuation.finish()
+        _ = try await store.consumeTurn(pair.stream, assistant: draft, bot: bot, cumulativeReplacements: true)
+        #expect(bot.messages.map(\.content) == ["Older wait", "Revised first.", "More?", "Second paragraph.", "Next question"])
     }
 
     @Test(arguments: [true, false]) func groupKeepsEarlierPartsAcrossTokensCumulativeSnapshotsAndTwoReceipts(aggregateDraft: Bool) async throws {

@@ -732,8 +732,6 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
         },
     };
     // A pending desk review can precede the terminal's blocked status.
-    let Some(key) = agent.launch_key() else { return Outcome::Later };
-    if w.approvals.waits_on(key).unwrap_or(true) { return Outcome::Later; }
     let Some(launch) = agent.launch_key() else { return Outcome::Later; };
     if agent.status.as_ref().is_some_and(|status| status.state == "blocked")
         || w.approvals.waits_on(launch).unwrap_or(true)

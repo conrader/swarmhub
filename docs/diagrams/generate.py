@@ -315,7 +315,7 @@ def bots(d):
     d.arrow([(550, 230), (550, 268), (170, 268), (170, 230)], "line", both=True)
     d.chip(360, 272, "message_bot", anchor="middle")
     d.label(570, 262, "Passed on by the app and shown in both chats.", "line", anchor="start")
-    d.label(570, 278, "Limits: 8 messages per pair, 4 bots in a chain, 6 per bot in 10 minutes.", "line", anchor="start")
+    d.label(570, 278, "Limits: 8 messages per pair, 6 per bot in 10 minutes.", "line", anchor="start")
 
     d.zone(24, 400, 1032, 212, "On the Herdr server", note="The agent names only a difficulty. The bridge picks the agent program and the model.", bottom=True)
     d.node(60, 428, 220, 76, "The main bot's agent", ["A terminal in Herdr Core"])

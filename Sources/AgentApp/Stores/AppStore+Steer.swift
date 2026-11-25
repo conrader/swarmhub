@@ -58,7 +58,7 @@ extension AppStore {
             try HerdrClient.TaskFile.validate(files)
         } catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return false }
         captureAttachments(message, readers: [bot.id])
-        insertInActiveTurn(message, in: conversation)
+        insertInActiveTurn(message, in: conversation, after: turn.assistant)
         guard turn.steerAvailable, !turn.stopping, let backend = turn.backend, turn.assistant != nil else {
             message.metadata[SteerKey.steer] = "failed"
             addWarning("The current turn cannot accept this follow-up.", in: conversation, after: message)
@@ -92,8 +92,8 @@ extension AppStore {
     /// Shows the steer bubble and posts it; it waits for the running step to end. A refusal marks it and says why.
     func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil, files: [HerdrClient.TaskFile] = [], slot: ConversationTurn? = nil) {
         let message = bubble ?? ChatMessage(role: .user, content: value, metadata: [SteerKey.steer: "sent"])
-        if bubble == nil { insertInActiveTurn(message, in: conversation) }
         let slot = slot ?? turn(in: conversation)
+        if bubble == nil { insertInActiveTurn(message, in: conversation, after: slot?.assistant) }
         let recipient = slot?.botID
         if let origin = steerOrigin(slot) {
             turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message)
@@ -144,11 +144,13 @@ extension AppStore {
     func steerHeldByTurn(_ bubble: ChatMessage) -> Bool { turns.steers.values.contains { $0.bubbles.contains { $0 === bubble } } }
 
     /// A queued one-to-one turn owns the rows below its waiting message, including its eventual reply.
-    private func insertInActiveTurn(_ message: ChatMessage, in conversation: any Conversation, movingFrom index: Int? = nil) {
+    private func insertInActiveTurn(_ message: ChatMessage, in conversation: any Conversation, after active: ChatMessage?, movingFrom index: Int? = nil) {
         var rows = conversation.messages
+        let lower = active.flatMap { row in rows.firstIndex { $0 === row } }.map { $0 + 1 } ?? rows.endIndex
+        let waiting = conversation is Bot ? rows[lower...].first { $0.metadata[TurnWaitCopy.key] == "waiting" } : nil
         if let index { rows.remove(at: index) }
-        let waiting = conversation is Bot ? rows.firstIndex { $0.metadata[TurnWaitCopy.key] == "waiting" } : nil
-        rows.insert(message, at: waiting ?? rows.endIndex)
+        let insertion = waiting.flatMap { marker in rows.firstIndex { $0 === marker } }
+        rows.insert(message, at: insertion ?? rows.endIndex)
         conversation.messages = rows
     }
 
@@ -167,7 +169,7 @@ extension AppStore {
         if row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, row.activity == nil, row.publishedResults == nil, row.attachments.isEmpty {
             // Reuse the empty placeholder, including its ID and original turn start time.
             row.continuedAt = at
-            insertInActiveTurn(row, in: conversation, movingFrom: index)
+            insertInActiveTurn(row, in: conversation, after: row, movingFrom: index)
             return row
         }
 
@@ -181,7 +183,7 @@ extension AppStore {
         metadata[GoalKey.attempt] = row.metadata[GoalKey.attempt]
         metadata[GroupRouting.contextThrough] = row.metadata[GroupRouting.contextThrough]
         let next = ChatMessage(role: .assistant, content: "", createdAt: at, isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
-        insertInActiveTurn(next, in: conversation)
+        insertInActiveTurn(next, in: conversation, after: row)
         turns.parts[origin.id] = next
         runningTurns.values.first { $0.conversation === conversation && $0.assistant === row }?.assistant = next
         return next

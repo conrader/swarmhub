@@ -164,7 +164,7 @@ private final class ModelBridge: @unchecked Sendable {
             }
             if request.httpMethod == "GET", path == "/api/workspace" {
                 workspaceRequests += 1
-                return (200, ["core": "c", "version": "1", "agents": agents,
+                return (200, ["core": "c", "version": "1", "end_if_idle": true, "agents": agents,
                               "templates": [templateJSON("tpl-claude", program: "Claude Code", models: claudeModels), templateJSON("tpl-codex", program: "Codex", models: codexModels)]])
             }
             if request.httpMethod == "GET", path == "/api/approvals" { return (200, ["pending": []]) }

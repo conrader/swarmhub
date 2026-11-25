@@ -275,7 +275,7 @@ extension AppStore {
                             continue
                         }
                         do {
-                            if let agent { try await client.endIfIdle(agent, core: core) }
+                            if let agent { try await client.endIfIdle(agent, core: core, workspace: workspace) }
                         } catch { failed += 1; continue }
                         guard stillApplies(bot, change) else { continue }
                         if !runningTurns.values.contains(where: { $0.botID == bot.id }) { forgetHerdrAgentState(for: bot) }

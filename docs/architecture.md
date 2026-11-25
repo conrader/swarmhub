@@ -153,7 +153,7 @@ An agent program is a model with a shell. Some rules are checked by code that th
 | --- | --- |
 | A helper uses the owner's per-bot override or the server's difficulty defaults | **Code** (bridge). The command has no option for either. |
 | A helper cannot start helpers; at most `max_running` helpers per agent; a helper is stopped after its answer or when it goes too long without one | **Code** (bridge) |
-| Limits on messages between bots (8, 4, 6 in 10 minutes); **Other bots can message it** | **Code** (Mac app). A message over a limit is not passed on. |
+| Limits on messages between bots (8 per pair per work item, 6 per sender in 10 minutes); **Other bots can message it** | **Code** (Mac app). A message over a limit is not passed on. |
 | Only the main bot creates bots; **Ask me before creating bots**; a bot it asks about waits for **Create** | **Code** (Mac app). A `create_bot` block from another bot is not acted on. |
 | Nothing joins "About you" without **Remember**; only the main bot's proposals are offered | **Code** (Mac app) |
 | A server installs only a signed release that is newer than itself | **Code** (bridge). See [Updates](#updates). |

@@ -8,8 +8,9 @@ import socket
 import stat
 import subprocess
 import sys
+import uuid
 
-STATUS = re.compile(r"[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]{1,44}\.json")
+STATUS = re.compile(r"[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9._-]+\.json")
 DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
@@ -43,6 +44,10 @@ def record(directory, name):
         return json.loads(data)
 
 
+class Gone(Exception):
+    """The recorded process identity has expired."""
+
+
 class Linux:
     def __init__(self):
         self.boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
@@ -50,7 +55,9 @@ class Linux:
     def process(self, pid):
         folder = Path("/proc", str(pid))
         fields = (folder / "stat").read_text().rsplit(")", 1)[1].split()
-        if fields[0] in ("Z", "X", "T", "t") or folder.stat().st_uid != os.geteuid():
+        if fields[0] in ("Z", "X"):
+            raise Gone()
+        if fields[0] in ("T", "t") or folder.stat().st_uid != os.geteuid():
             raise ValueError()
         return int(fields[1]), int(fields[19])
 
@@ -82,16 +89,23 @@ class Darwin:
         text = subprocess.check_output(
             ["/bin/ps", "-ww", "-U", str(os.geteuid()), "-o", "pid=,ppid=,state=,lstart=,comm="],
             env={"LC_ALL": "C"}, timeout=2).decode()
-        self.rows, self.children = {}, {}
+        self.rows, self.children, self.states = {}, {}, {}
         for line in text.splitlines():
             m = re.fullmatch(r"\s*(\d+)\s+(\d+)\s+(\S+)\s+(\w{3} \w{3} [ \d]\d [\d:]{8} \d{4})\s+(.+)", line)
-            if not m or m[3].startswith(("Z", "T")):
-                continue
+            if not m:
+                raise ValueError()
             pid, parent = int(m[1]), int(m[2])
+            self.states[pid] = m[3]
             self.rows[pid] = (parent, m[4], m[5])
             self.children.setdefault(parent, []).append(pid)
 
     def process(self, pid):
+        if pid not in self.rows:
+            raise ProcessLookupError()
+        if self.states[pid].startswith("Z"):
+            raise Gone()
+        if self.states[pid].startswith("T"):
+            raise ValueError()
         return self.rows[pid][:2]
 
     def descendants(self, pid):
@@ -110,9 +124,36 @@ def activity(rec, processes, executables):
         raise ValueError()
 
     def verify():
-        if (rec["boot_id"] != processes.boot or
-                processes.process(pid) != (supervisor, rec["pid_starttime"]) or
-                processes.process(supervisor)[1] != rec["supervisor_starttime"]):
+        boot = rec["boot_id"]
+        if processes.boot is not None:
+            if not isinstance(boot, str) or str(uuid.UUID(boot)) != boot:
+                raise ValueError()
+            if boot != processes.boot:
+                raise Gone()
+        elif boot is not None:
+            raise ValueError()
+        primary_start, supervisor_start = rec["pid_starttime"], rec["supervisor_starttime"]
+        token_type = int if isinstance(processes, Linux) else str
+        tokens = (primary_start, supervisor_start)
+        if any(type(t) is not token_type for t in tokens):
+            raise ValueError()
+        if token_type is int and min(tokens) < 0:
+            raise ValueError()
+        if token_type is str and any(not re.fullmatch(r"[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d [\d:]{8} \d{4}", t) for t in tokens):
+            raise ValueError()
+        try:
+            parent, start = processes.process(pid)
+        except (FileNotFoundError, ProcessLookupError):
+            raise Gone()
+        if start != primary_start:
+            raise Gone()
+        if parent != supervisor:
+            raise ValueError()
+        try:
+            actual_start = processes.process(supervisor)[1]
+        except Gone:
+            raise ValueError()
+        if actual_start != supervisor_start:
             raise ValueError()
 
     verify()
@@ -142,7 +183,7 @@ def activity(rec, processes, executables):
                 raise ValueError()
             pending.extend(processes.descendants(current))
             waiting |= processes.queued(current)
-        except (FileNotFoundError, ProcessLookupError):
+        except (FileNotFoundError, ProcessLookupError, Gone):
             continue  # A short-lived sibling must not hide a live worker.
         except (PermissionError, KeyError, ValueError):
             incomplete = True
@@ -188,11 +229,11 @@ def snapshot(scope):
                                 raise ValueError()
                             if rec.get("tool") != "sb-codejob":
                                 continue
+                            if rec["ended"] is not None or rec["exit_code"] is not None:
+                                continue
                             if (rec["host"] != scope["runner_host"] or rec["agent"] != agent or
                                     rec["log"] != str(folder / (entry.name[:-5] + ".log"))):
                                 raise ValueError()
-                            if rec["ended"] is not None or rec["exit_code"] is not None:
-                                continue
                             workdir = Path(rec["workdir"])
                             if not workdir.is_absolute() or str(workdir) != os.path.realpath(workdir):
                                 raise ValueError()
@@ -203,6 +244,8 @@ def snapshot(scope):
                                 raise ValueError()
                             try:
                                 state, provider = activity(rec, processes, executables)
+                            except Gone:
+                                continue
                             except (OSError, KeyError, ValueError, TypeError, IndexError):
                                 state, provider = "unknown", None
                             # The log basename is unique across same-second launches.

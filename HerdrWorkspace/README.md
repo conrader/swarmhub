@@ -384,10 +384,9 @@ Each of these is checked in the workspace, in one database transaction, before a
 **Limits.** A new ask, tell or hand-off is refused when:
 
 - the same two bots have exchanged `pair_messages` (8) messages about this piece of work, counting every kind in both directions;
-- the piece of work has passed through `chain_bots` (4) bots and the message would bring in one more;
 - the sender has sent `messages_per_window` (6) new messages in the last `window_seconds` (600).
 
-At a limit the sender's command is refused with the instruction to bring the matter to the person. Both bots' histories get one notice for the person (only the sender's, for the third limit). The other bot's agent is not woken. A reply, an acceptance or a refusal of something that is still open always goes through, so a limit leaves nothing hanging.
+At a limit the sender's command is refused with the instruction to bring the matter to the person. Both bots' histories get one notice for the person (only the sender's, for the rate limit). The other bot's agent is not woken. A reply, an acceptance or a refusal of something that is still open always goes through, so a limit leaves nothing hanging.
 
 **Stop.** `POST /api/agents/{address}/{created_ms}/interrupt` (the person's Stop), `…/end` and `POST /api/bots/{id}/stop` end every piece of work in which the bot has something open:
 
@@ -567,7 +566,7 @@ A history line is what a bot's chat shows beside the person's own turns. Lines h
 | --- | --- | --- | --- |
 | `message` | A message between two bots. One line in each bot's history. `text` is the message. | The message's kind: `ask`, `tell`, `handoff`, `reply`, `accept`, `decline` | `direction`: `out` in the history of the bot that wrote it, `in` in the other's. `message`: the message. |
 | `said` | What the bot's agent wrote at the end of a turn the workspace started. `text` is the reply as saved, with any `swarmhub` blocks still in it. | What the turn answered: `ask`, `tell`, `handoff` (a message from another bot), `outcome` (an answer, a report or an ending came back), `checkin`, `promise`, `note` (a note for the main bot), `notice` | `journal`: the id of the reply's row in the session history. `message`, `checkin`, `promise`: what it answered, when there is one. |
-| `notice` | A line from the workspace for the person. | `limit_pair`, `limit_chain`, `limit_rate`, `expired`, `stopped`, `undelivered`, `not_sent`, `checkin_unanswered`, `promise_overdue` | `message`, `checkin`, `promise`: what it is about, when there is one. |
+| `notice` | A line from the workspace for the person. | `limit_pair`, `limit_rate`, `expired`, `stopped`, `undelivered`, `not_sent`, `checkin_unanswered`, `promise_overdue` | `message`, `checkin`, `promise`: what it is about, when there is one. |
 
 - `unread` says that the line should raise the bot's unread mark: every `said` line, and the notices about a limit, an undelivered message, an unanswered check-in and an overdue promise. Messages between bots and the notices `expired` and `stopped` do not, because the bot that was told speaks up itself.
 - `notify` says that it should also raise a notification. It is set on the same lines, except a `said` line with the code `ask` or `tell`, and never for a bot whose `notifications` is off.
@@ -626,7 +625,6 @@ A promise's `state` is `open`, `raised` (due, and the bot was reminded), `overdu
 | `ask_seconds` | 600 | 30 to 86400 | Time to answer an ask. |
 | `handoff_accept_seconds` | 300 | 30 to 86400 | Time to accept a hand-off. |
 | `pair_messages` | 8 | 2 to 64 | Messages between the same two bots about one piece of work. |
-| `chain_bots` | 4 | 2 to 16 | Bots a piece of work passes through. |
 | `messages_per_window` | 6 | 1 to 100 | New messages one bot sends within `window_seconds`. |
 | `window_seconds` | 600 | 60 to 86400 | |
 | `deliver_seconds` | 600 | 60 to 3600 | How long a message waits to be typed before it is given up. |

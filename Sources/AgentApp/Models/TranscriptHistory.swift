@@ -4,6 +4,11 @@ enum TranscriptHistory {
     /// The saved position of new imports (and legacy imports after their one-time merge) is authoritative.
     private static let placed = "herdrHistoryPlaced"
 
+    static func placement(_ row: ChatMessage) -> Date? {
+        guard let value = row.metadata[placed], let seconds = Double(value) else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
     /// Earlier builds appended workspace imports. Their timestamps identify where to merge
     /// them. Local rows keep their saved sequence, including any ambiguous old steer.
     static func restoring(_ rows: [ChatMessage]) -> [ChatMessage] {
@@ -29,10 +34,6 @@ enum TranscriptHistory {
         func sequence(_ key: Substring) -> Int? {
             key.hasPrefix(prefix) ? Int(key.dropFirst(prefix.count)) : nil
         }
-        func placement(_ row: ChatMessage) -> Date? {
-            guard let value = row.metadata[placed], let seconds = Double(value) else { return nil }
-            return Date(timeIntervalSince1970: seconds)
-        }
         var date = receivedAt, index = rows.endIndex, afterEarlierEntry = rows.startIndex
         for (i, saved) in rows.enumerated() {
             if let key = saved.metadata["herdrTeamEntry"], let id = sequence(key[...]) {
@@ -43,7 +44,7 @@ enum TranscriptHistory {
                     if let anchor = placement(saved) {
                         date = anchor.addingTimeInterval(min(0, row.createdAt.timeIntervalSince(saved.createdAt)))
                         index = rows[afterEarlierEntry..<i].firstIndex {
-                            (placement($0) ?? $0.transcriptDate) > date
+                            $0.transcriptDate > date
                         } ?? i
                     }
                     break
@@ -51,7 +52,15 @@ enum TranscriptHistory {
                 afterEarlierEntry = i + 1
             } else if followup, let journal, let ids = saved.metadata["herdrJournal"],
                       let first = ids.split(separator: " ").compactMap(sequence).min() {
-                if first > journal { index = i; break }
+                if first > journal {
+                    // Keep the next locally authored question with its reply.
+                    let trigger = saved.metadata[TurnKey.forUser]
+                    index = rows[afterEarlierEntry..<i].firstIndex {
+                        $0.role == .user && $0.id.uuidString == trigger
+                    } ?? i
+                    date = min(date, rows[index].transcriptDate)
+                    break
+                }
                 afterEarlierEntry = i + 1
             }
         }

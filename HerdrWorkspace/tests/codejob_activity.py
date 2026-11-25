@@ -10,6 +10,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import socketserver
 import subprocess
@@ -79,12 +80,15 @@ def job(root, scope, runner):
     child = None
     try:
         if runner:
-            # Substitute only the process-management and external delivery boundaries.
-            # Never signal process groups, run a real provider, or send completion wakes.
+            # The fixture worker joins before its wrapper exits. Suppress only post-exit
+            # group cleanup and the external completion wake. Keep runner topology.
             launch = """
-import pathlib, runpy, subprocess, sys
+import os, pathlib, runpy, sys
+os.umask(0o077)
 runner = runpy.run_path(str(pathlib.Path(sys.argv[1]).resolve()))
-runner['job_process'].GroupPopen = subprocess.Popen
+def finished(proc):
+    assert proc.poll() is not None
+runner['job_process'].stop_group = finished
 runner['supervise'].__globals__['send_record'] = lambda *a: 'dormant'
 sys.exit(runner['main'](sys.argv[2:]))
 """
@@ -153,30 +157,58 @@ def bridge_reads(binary, root, host):
 
     with socketserver.UnixStreamServer(str(root / "core.sock"), RPC) as core:
         threading.Thread(target=core.serve_forever, daemon=True).start()
-        env = dict(HOME=str(root), PATH="/usr/bin:/bin", HC_SOCKET=core.server_address,
-                   SWARMHUB_DATA_DIR=str(root / "db"), SWARMHUB_PORT="0", SWARMHUB_ACCESS_TOKEN=TOKEN,
-                   SWARMHUB_CODEJOB_HOSTS=json.dumps([host]))
-        bridge = subprocess.Popen([binary], env=env, cwd=root, stdout=subprocess.PIPE, text=True)
         try:
-            url = bridge.stdout.readline().strip().split()[-1].rstrip("/")
-            assert url.startswith("http://127.0.0.1:")
-            def read(state="connected"):
-                peer.update(state=state, target="other@host" if state == "replaced" else "fixture@host")
-                if state == "replaced":
-                    peer["state"] = "connected"
-                before = len(calls)
-                request = urllib.request.Request(url + "/api/workspace?codejobs=true",
-                                                 headers={"Authorization": "Bearer " + TOKEN})
-                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                with opener.open(request, timeout=10) as reply:
-                    roster = json.load(reply)
-                assert len(calls) == before + int(state == "connected")
-                return roster
-            yield read
+            with running_bridge(binary, root, core.server_address, host) as get_roster:
+                def read(state="connected"):
+                    peer.update(state=state, target="other@host" if state == "replaced" else "fixture@host")
+                    if state == "replaced":
+                        peer["state"] = "connected"
+                    before = len(calls)
+                    roster = get_roster()
+                    assert len(calls) == before + int(state == "connected")
+                    return roster
+                yield read
         finally:
-            bridge.terminate()
-            bridge.wait(timeout=5)
             core.shutdown()
+
+
+@contextlib.contextmanager
+def running_bridge(binary, root, endpoint, host):
+    env = dict(HOME=str(root), PATH="/usr/bin:/bin", HC_SOCKET=str(endpoint),
+               SWARMHUB_DATA_DIR=str(root / "db"), SWARMHUB_PORT="0", SWARMHUB_ACCESS_TOKEN=TOKEN,
+               SWARMHUB_CODEJOB_HOSTS=json.dumps([host]))
+    bridge = subprocess.Popen([binary], env=env, cwd=root, stdout=subprocess.PIPE, text=True)
+    try:
+        url = bridge.stdout.readline().strip().split()[-1].rstrip("/")
+        assert url.startswith("http://127.0.0.1:")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        def read():
+            request = urllib.request.Request(url + "/api/workspace?codejobs=true",
+                                             headers={"Authorization": "Bearer " + TOKEN})
+            with opener.open(request, timeout=10) as reply:
+                return json.load(reply)
+        yield read
+    finally:
+        bridge.terminate()
+        bridge.wait(timeout=5)
+
+
+@contextlib.contextmanager
+def local_core_reads(binary, hc, root, host):
+    root.mkdir()
+    endpoint = root / "core.sock"
+    env = dict(HOME=str(root), PATH="/usr/bin:/bin", HC_SOCKET=str(endpoint), HC_SESSION="activity-test",
+               XDG_CONFIG_HOME=str(root / "config"), XDG_STATE_HOME=str(root / "state"),
+               XDG_RUNTIME_DIR=str(root / "run"))
+    (root / "run").mkdir(mode=0o700)
+    def server(action):
+        subprocess.run([hc, "server", action], cwd=root, env=env, check=True, timeout=15, capture_output=True)
+    server("start")
+    try:
+        with running_bridge(binary, root, endpoint, dict(id=host["id"], scope=host["scope"])) as read:
+            yield read
+    finally:
+        server("stop")
 
 
 @contextlib.contextmanager
@@ -197,7 +229,24 @@ def main():
     parser.add_argument("--bridge", type=lambda s: str(Path(s).resolve()))
     parser.add_argument("--runner", type=lambda s: str(Path(s).resolve()))
     parser.add_argument("--write-rosters", type=Path)
+    parser.add_argument("--integration", action="store_true",
+                        help="Require the installed runner, candidate bridge and a private Herdr Core")
+    parser.add_argument("--core", type=lambda s: str(Path(s).resolve()))
     args = parser.parse_args()
+    if args.integration:
+        target = Path(os.environ.get("CARGO_TARGET_DIR", Path(__file__).resolve().parents[1] / "target"))
+        args.bridge = args.bridge or os.environ.get("SWARMHUB_TEST_BRIDGE") or str(target / "debug/swarmhub-herdr")
+        args.runner = args.runner or shutil.which("sb-codejob")
+        args.core = args.core or shutil.which("hc")
+        for name in ("bridge", "runner", "core"):
+            path = getattr(args, name)
+            if not path or not os.access(path, os.X_OK):
+                parser.error("integration requires an executable --" + name)
+            setattr(args, name, str(Path(path).absolute()))
+    if args.core and not args.bridge:
+        parser.error("--core requires --bridge")
+    if args.write_rosters and not args.bridge:
+        parser.error("roster capture requires --bridge")
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp).resolve()
         work = root / "project"
@@ -216,18 +265,26 @@ def main():
                 rosters.append(value)
                 item, = value["codejob_activity"]
                 return item
-            with job(root, scope, args.runner) as (status, gate):
+            native = local_core_reads(args.bridge, args.core, root / "native", host) if args.core else contextlib.nullcontext()
+            with native as local_read, job(root, scope, args.runner) as (status, gate):
                 rec = json.loads(status.read_text())
                 assert rec["primary_tool"] is None and rec["pid_starttime"] and rec["ended"] is None
                 first = snapshot()
                 waiting, = first["jobs"]
                 assert first["complete"] and waiting["state"] in ("wrapper", "queued") and waiting["provider"] is None
+                if sys.platform.startswith("linux"):
+                    assert waiting["state"] == "queued", waiting["state"]
+                if args.runner:
+                    assert os.getsid(rec["pid"]) == rec["pid"] == os.getpgid(rec["pid"])
                 gate.close()
                 wait((work / "working").exists)
                 item = snapshot()
                 working, = item["jobs"]
                 assert item["complete"] and working == dict(waiting, state="working", provider="codex", owner=OWNER)
-                save(status, dict(rec, pid_starttime="stale"))
+                if local_read:
+                    # Real local Core receives the full fixed -c argument, without "on".
+                    assert local_read()["codejob_activity"] == [item]
+                save(status, dict(rec, pid_starttime=None))
                 assert snapshot()["jobs"] == [dict(waiting, state="unknown", provider=None)]
                 save(status, dict(rec, workdir=str(work / "shared")))
                 ambiguous = snapshot()
@@ -239,9 +296,31 @@ def main():
                 assert snapshot()["jobs"] == [working]
             ended = snapshot()
             assert ended["complete"] and ended["jobs"] == []
+            # A supervisor may exit before filling in ended. Restore its last live
+            # record after the fixture exits, then simulate reuse and a previous boot.
+            reused = start_token(os.getpid()) - 1 if sys.platform.startswith("linux") else "Thu Jan  1 00:00:01 1970"
+            for stale in [rec, dict(rec, pid=os.getpid(), pid_starttime=reused)]:
+                save(status, stale)
+                gone = read()["codejob_activity"][0]
+                assert gone["complete"] and not gone["jobs"]
+            for n in range(257):
+                orphan = status.with_name("20261125T060000Z-old-wrapper-%d.json" % n)
+                save(orphan, dict(rec, log=str(orphan.with_suffix(".log"))))
+            after_orphans = read()["codejob_activity"][0]
+            assert after_orphans["complete"] and not after_orphans["jobs"]
+            if sys.platform.startswith("linux"):
+                save(status, dict(rec, boot_id="00000000-0000-4000-8000-000000000000"))
+                gone = read()["codejob_activity"][0]
+                assert gone["complete"] and not gone["jobs"]
         if args.write_rosters:
             args.write_rosters.write_text(json.dumps(rosters))
-        print("PASS: wrapper (%s), live descendant, PID reuse, ambiguous scope, offline, replaced target, recovery, completion" % waiting["state"])
+        print("PASS %s + %s: %s, live descendant, unknown identity, ambiguous scope, completion and 257 orphan records"
+              % ("installed runner" if args.runner else "fixture record",
+                 "workspace GET" if args.bridge else "direct probe", waiting["state"]))
+        if args.bridge:
+            print("PASS remote workspace GET: offline, replaced target and recovery")
+        if args.core:
+            print("PASS local workspace GET: private Herdr Core machine.exec")
 
 
 if __name__ == "__main__":

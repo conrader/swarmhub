@@ -38,7 +38,7 @@ Use the updated app and bridge. At deployment, set `SWARMHUB_CODEJOB_HOSTS` in t
 
 Linux verifies the boot ID, primary and supervisor PID/start ticks, the parent relationship and a live executable in the primary's process tree. macOS uses the runner's C-locale `ps lstart` tokens, parent PID and `ps comm` executable path from a single same-user process snapshot. A visible Linux kernel lock wait can be shown as queued. A shell waiting on a timer, an unrecognized program, or a macOS wrapper with no observed provider is shown as a running wrapper with worker status unconfirmed. Only a verified worker lights the detached badge.
 
-A recorded end or exit removes the job. Missing or reused PIDs, a changed boot or inaccessible process evidence produce unknown status. Missing directories, denied access, an incompatible Core, invalid configuration, a truncated response or a disconnected machine leave coverage incomplete. Other configured hosts can still report activity. Refresh replaces the previous snapshot. The app discards detached activity after a failed workspace read, a closed unwatched forward, or 25 seconds from the start of an observation. Ordinary workspace reads omit the probe. The helper watch requests `GET /api/workspace?codejobs=true`.
+A recorded exit, a changed Linux boot ID or a verifiably gone or reused primary PID removes the job. Missing identity tokens, stopped processes or inaccessible process evidence leave its status unknown. Missing directories, denied access, an incompatible Core, invalid configuration, a truncated response or a disconnected machine leave coverage incomplete. Other configured hosts can still report activity. Refresh replaces the previous snapshot. The app discards detached activity after a failed workspace read, a closed unwatched forward, or 25 seconds from the start of an observation. Ordinary workspace reads omit the probe. The helper watch requests `GET /api/workspace?codejobs=true`.
 
 Host discovery is opt-in, with up to eight entries per bridge. DMT, OVH, Box and Macs need their own verified configuration and readable runner data. The feed covers native Codex and Claude executables, including descendants of shell wrappers. Its record source is sb-codejob primary-job JSON. Managed fixture attempts, sb-macjob completion notifications, model ledgers, review/then phases, arbitrary coding processes and unconfigured machines are outside this feed. The DTO contains a configured host ID, bot UUID, opaque job hash, state and provider. Commands, task labels, paths, logs, prompts and process environments stay off the app wire.
 
@@ -46,7 +46,7 @@ Host discovery is opt-in, with up to eight entries per bridge. DMT, OVH, Box and
 
 On the DMT authoring host, `/usr/local/bin/sb-codejob` resolved to `/usr/local/lib/sb-codejob/sb-codejob` (SHA-256 `222aaa599f96662a9fd8877bfa280d0c1bf13465d824221b132de650dfd1096f`). Its `launch_job` and `supervise` atomically write `<root>/<agent>/<UTC timestamp>-<slug>[-N].json`, then update the same file with `ended` and `exit_code`. The authoring job itself recorded `primary_tool: null` and `kill_guard: shim`. A label or primary tool declaration cannot establish that a worker has started.
 
-From this checkout, the following runs the installed runner's launcher, supervisor and status writer against a temporary home, gated wrapper and harmless compiled worker. The fixture substitutes ordinary child waiting and suppresses completion delivery. The test waits for the real status writer's completion. It reads no production log or credential.
+From this checkout, the following runs the installed runner's launcher, supervisor and status writer against a temporary home, gated wrapper and harmless compiled worker. The fixture uses the installed GroupPopen and checks its process group and session. It suppresses post-exit group cleanup after its child exits and suppresses completion delivery. The test waits for the real status writer's completion. It reads no production log or credential.
 
 ```sh
 python3 HerdrWorkspace/tests/codejob_activity.py --runner "$(command -v sb-codejob)"
@@ -62,11 +62,11 @@ On **mini-m4**, use a logged-in macOS desktop session, Xcode Command Line Tools,
   cargo test --locked --manifest-path HerdrWorkspace/Cargo.toml --bin swarmhub-herdr codejob_activity
   cargo build --locked --manifest-path HerdrWorkspace/Cargo.toml
   python3 HerdrWorkspace/tests/codejob_activity.py \
-    --bridge "$CARGO_TARGET_DIR/debug/swarmhub-herdr" \
+    --integration --bridge "$CARGO_TARGET_DIR/debug/swarmhub-herdr" \
     --write-rosters "$scratch/rosters.json"
   SWARMHUB_CODEJOB_TEST_ROSTERS="$scratch/rosters.json" \
     swift test --filter HerdrCodingAgentTests
 )
 ```
 
-The bridge test starts a scratch journal and a Unix-socket Core stand-in. The stand-in checks the exact machine-exec arguments and runs the shipped probe against temporary records and real local processes. It exercises a waiting wrapper, a working child with no native helper, a reused start token, overlapping owner scope, a disconnected machine, a replaced SSH target, recovery and completion. Add `--runner /absolute/path/to/sb-codejob` on a Mac with the compatible runner installed to use its writer there too. Otherwise the fixture writes the verified JSON shape with local process identity. The Swift test replays those GET responses through the normal client and store refresh, compares two same-name bots' badge states and reads the working row from the rendered Overview.
+The Swift ingestion test captures workspace GET responses using the integration fixture by default. Set `SWARMHUB_TEST_BRIDGE` to the candidate executable when it is outside the debug target directory. Put the compatible runner and `hc` on PATH, or pass their paths with `--runner` and `--core` when capturing rosters separately. The fixture verifies a live worker through a private local Core and checks offline, replaced and recovered remote targets using a separate Core RPC peer. Process-only runs exercise the probe without the workspace HTTP transport.

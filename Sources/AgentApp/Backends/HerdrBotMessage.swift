@@ -80,8 +80,6 @@ struct HerdrBotMessage: Equatable, Sendable {
         case ambiguous
         /// The bot's "Other bots can message it" is off.
         case closed
-        /// The exchange has passed through `HerdrBotRelay.chainLimit` bots, and this would be one more.
-        case tooLong
         /// The sender and this bot have written to each other `HerdrBotRelay.roundLimit` times in this exchange.
         case spent
     }
@@ -94,17 +92,12 @@ struct HerdrBotMessage: Equatable, Sendable {
         return others.filter { line($0.name).compare(wanted, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
     }
 
-    /// The bot `name` means among `others` (every bot of the server but the sender), and whether a message of an
-    /// exchange that has passed through `chain` (bot ids, the sender included) may reach it from `sender`. `rounds`:
-    /// how often each two bots have written to each other in the exchange (`HerdrBotRelay.pair`). A bot that is
-    /// already part of the exchange can be written to again (a follow-up), until the two have written to each other
-    /// `roundLimit` times; a bot that is new to it only while the exchange has room for one more.
-    static func target(named name: String, among others: [Candidate], chain: [String], from sender: String = "", rounds: [String: Int] = [:]) -> Target {
+    /// Resolve the recipient and check how often this pair has exchanged messages.
+    static func target(named name: String, among others: [Candidate], from sender: String = "", rounds: [String: Int] = [:]) -> Target {
         let matches = bots(named: name, among: others)
         guard let match = matches.first else { return .refused(.unknown) }
         guard matches.count == 1 else { return .refused(.ambiguous) }
         if rounds[HerdrBotRelay.pair(sender, match.id), default: 0] >= HerdrBotRelay.roundLimit { return .refused(.spent) }
-        if !chain.contains(match.id), chain.count >= HerdrBotRelay.chainLimit { return .refused(.tooLong) }
         return match.open ? .bot(match.id) : .refused(.closed)
     }
 }
@@ -129,12 +122,12 @@ extension HerdrBotRelay {
 
     /// An exchange starts with what a bot writes after a message of the person, and lasts while bots answer what the
     /// app passed on to them: one piece of work. Within it bots write to each other as the work needs, also to a bot
-    /// that already answered (a follow-up), as Grok Bot's Bots do. Three limits keep it from running by itself for
-    /// ever (`docs/bot-communication.md`): it passes through at most `chainLimit` different bots, the same two bots
+    /// that already answered (a follow-up), as Grok Bot's Bots do. Two limits keep it from running by itself for
+    /// ever (`docs/bot-communication.md`): the same two bots
     /// write to each other at most `roundLimit` times in it (each message with the answer that comes back), and one
     /// bot has at most `messageLimit` messages passed on within `window`. Two bots that keep answering each other
     /// therefore stop after `roundLimit` messages, and only a message of the person starts a new exchange.
-    static let chainLimit = 4, messageLimit = 6, roundLimit = 8
+    static let messageLimit = 6, roundLimit = 8
 
     /// Two bots, whoever of them writes: the key their messages are counted under.
     static func pair(_ one: String, _ other: String) -> String { [one.lowercased(), other.lowercased()].sorted().joined(separator: "+") }
@@ -183,7 +176,6 @@ extension HerdrBotRelay {
         case .unknown: why = "No bot named \"\(name)\" can be written to on this server, so your message was not sent."
         case .ambiguous: why = "More than one bot on this server is named \"\(name)\", so your message was not sent. Tell the person: they have to rename one."
         case .closed: why = "\"\(name)\" does not take messages from other bots, so your message was not sent. Tell the person if you need it: they can allow it in that bot's settings."
-        case .tooLong: why = "This exchange has already passed through \(chainLimit) bots, which is the limit, so your message to \"\(name)\" was not sent. Work with what you have, and tell the person what is still open."
         case .spent: why = "You and \"\(name)\" have written to each other \(roundLimit) times about this, which is the limit, so your message was not sent. Bring the matter to the person: tell them what is still open."
         }
         return "\(appLead)\n\(why)\n\(HerdrBotMessage.roster(names))"

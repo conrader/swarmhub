@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Bot conversations can bring in additional recipients. The workspace still records who participated and enforces the per-pair and per-sender message limits.
+- Mid-answer follow-ups require a running session that supports steering. If the receipt says **Not delivered**, choose **Send as next message** to send it after the answer. Check an unconfirmed receipt before retrying. Follow-ups left waiting by an older app also require an explicit retry.
+
 ## 0.8.15 (build 49)
 
 - **Routines & Webhooks tab:** View, create, edit, pause/resume, test-run, and inspect history for a bot’s routines directly in the right-side Details panel, including Generic, GitHub, and Slack webhooks with JSON filters, one-time secret key rotation, and pending review approval.
@@ -104,7 +107,7 @@ The first release on Herdr Core. Bots from earlier versions do not carry over; t
 - A bot's agent program and model are chosen from what its server lists. The app names no model of its own; a bot without a choice starts on the first model the server lists.
 - Each server has one main bot, marked with a star. It creates bots, at once or after asking you; any other bot asks the main bot.
 - Helper agents: a bot's agent can start helpers, the server's helper settings decide what each difficulty runs on, and helpers show under the bot and open read-only. The server stops a helper after its answer.
-- Bots write to each other by name. The app passes the message and the answer on, both chats show them, and follow-ups are allowed within fixed limits (8 messages between two bots, 4 bots in a chain, 6 messages per bot in ten minutes).
+- Bots write to each other by name. The app passes the message and the answer on, both chats show them, and follow-ups are allowed within fixed limits (8 messages between two bots, 6 messages per bot in ten minutes).
 - A server's skill library (skillshare) is listed in Settings and in a bot's Details, with a switch per skill.
 - A bot's agent starts when its chat opens, so the first message does not wait for the agent program. The chat header says Starting or Ready, and a reply that has no text yet says what it is waiting for. **Keep _name_ ready** (a bot's Details, Model, Advanced) turns it off for one bot.
 - A new app icon, "Crew": three faces, the main bot in front. On macOS 26 the icon follows the Mac's icon style.

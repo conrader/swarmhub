@@ -80,8 +80,6 @@ pub(crate) struct Settings {
     pub handoff_accept_seconds: u64,
     /// Messages between the same two bots about one piece of work.
     pub pair_messages: u32,
-    /// Bots one piece of work may pass through.
-    pub chain_bots: u32,
     /// New messages (ask, tell, hand-off) one bot may send within `window_seconds`.
     pub messages_per_window: u32,
     pub window_seconds: u64,
@@ -109,7 +107,6 @@ impl Default for Settings {
             ask_seconds: 600,
             handoff_accept_seconds: 300,
             pair_messages: 8,
-            chain_bots: 4,
             messages_per_window: 6,
             window_seconds: 600,
             deliver_seconds: 600,
@@ -126,11 +123,10 @@ impl Default for Settings {
 }
 
 /// The lowest and highest value each number may be set to.
-pub(crate) const BOUNDS: [(&str, u64, u64); 13] = [
+pub(crate) const BOUNDS: [(&str, u64, u64); 12] = [
     ("ask_seconds", 30, 86_400),
     ("handoff_accept_seconds", 30, 86_400),
     ("pair_messages", 2, 64),
-    ("chain_bots", 2, 16),
     ("messages_per_window", 1, 100),
     ("window_seconds", 60, 86_400),
     ("deliver_seconds", 60, 3_600),
@@ -160,9 +156,18 @@ impl Settings {
         .optional()
     }
 
+    /// Older clients and persisted settings may include this retired field.
+    /// All other unknown keys still fail validation.
+    fn decode(mut value: serde_json::Value) -> serde_json::Result<Self> {
+        if let Some(fields) = value.as_object_mut() {
+            fields.remove("chain_bots");
+        }
+        serde_json::from_value(value)
+    }
+
     pub(crate) fn load(db: &Connection) -> rusqlite::Result<Self> {
         Ok(Self::saved(db)?
-            .and_then(|text| serde_json::from_str(&text).ok())
+            .and_then(|text| serde_json::from_str(&text).and_then(Self::decode).ok())
             .unwrap_or_default())
     }
 
@@ -896,10 +901,9 @@ mod tests {
             (
                 set.ask_seconds,
                 set.handoff_accept_seconds,
-                set.pair_messages,
-                set.chain_bots
+                set.pair_messages
             ),
-            (600, 300, 8, 4)
+            (600, 300, 8)
         );
         assert_eq!(
             (

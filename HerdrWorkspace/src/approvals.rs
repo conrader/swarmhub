@@ -682,10 +682,12 @@ mod switch_tests {
         use crate::bots::{desk::agent_of, testing};
         let (_dir, history) = testing::journal(&["Boppy"]);
         let key = testing::session(&history, "Boppy", "fixture-terminal");
-        let db = history.db().unwrap();
-        db.execute("UPDATE journal SET launch_runtime=? WHERE launch_key=?",
-            params![r#"{"model":"Gemini Neon","model_id":"gemini"}"#, key]).unwrap();
-        db.execute("UPDATE bots SET model='astra' WHERE id='boppy-id'", []).unwrap();
+        {
+            let db = history.db().unwrap();
+            db.execute("UPDATE journal SET launch_runtime=? WHERE launch_key=?",
+                params![r#"{"model":"Gemini Neon","model_id":"gemini"}"#, key]).unwrap();
+            db.execute("UPDATE bots SET model='astra' WHERE id='boppy-id'", []).unwrap();
+        }
         let bot = testing::bot(&history, "Boppy");
         let live = vec![serde_json::from_value(json!({
             "address":"fixture-terminal","created_ms":42,"name":bot.agent_name,"state":"live",

@@ -718,6 +718,7 @@ impl Core {
         prompt: &str,
         probe: &str,
         sent: TerminalSend,
+        allow_write: impl Fn(bool) -> bool,
     ) -> Result<Delivery, Failure> {
         let TerminalSend { mut delivery, turn } = sent;
         if delivery.started != Some(false) || agent.uses_opencode_api() {
@@ -754,6 +755,9 @@ impl Core {
         let Some(current) = self.still_waiting(agent, turn, &mut delivery).await else {
             return Ok(delivery);
         };
+        if !allow_write(has_input) {
+            return Ok(delivery);
+        }
         if has_input {
             let enter = self.rpc::<serde::de::IgnoredAny>(
                 "terminal.keys",
@@ -1168,13 +1172,14 @@ mod tests {
         started: Option<bool>,
         steps: Vec<(&'static str, Value)>,
     ) -> (Delivery, Vec<Value>) {
-        terminal_send_with_delay(started, steps, Duration::ZERO).await
+        terminal_send_with_policy(started, steps, Duration::ZERO, |_| true).await
     }
 
-    async fn terminal_send_with_delay(
+    async fn terminal_send_with_policy(
         started: Option<bool>,
         steps: Vec<(&'static str, Value)>,
         retry_delay: Duration,
+        allow_write: impl Fn(bool) -> bool,
     ) -> (Delivery, Vec<Value>) {
         let (connect, mut connections) = mpsc::unbounded_channel::<UnixStream>();
         let mut script = vec![(
@@ -1211,7 +1216,7 @@ mod tests {
         let delivery = CONNECTIONS
             .scope(connect, async {
                 let sent = core.send(&agent, &typed).await.unwrap();
-                core.recover_send(&agent, &typed, PROMPT, sent).await.unwrap()
+                core.recover_send(&agent, &typed, PROMPT, sent, allow_write).await.unwrap()
             })
             .await;
         let calls = server.await.unwrap();
@@ -1235,12 +1240,12 @@ mod tests {
 
     #[tokio::test]
     async fn a_swallowed_paste_is_retried_once_and_returns_the_second_delivery() {
-        let (delivery, calls) = terminal_send_with_delay(Some(false), vec![
+        let (delivery, calls) = terminal_send_with_policy(Some(false), vec![
             ("terminal.get", terminal("idle", 3)),
             ("terminal.read", json!({"text":"Antigravity\n> \n\n"})),
             ("terminal.get", terminal("idle", 3)),
             ("terminal.send", json!({"status":"working","started":true,"turn":3})),
-        ], Duration::from_secs(3)).await;
+        ], Duration::from_secs(3), |_| true).await;
         assert_eq!(calls[2]["params"]["lines"], 0);
         assert_eq!(calls[4]["params"]["if"], "idle");
         assert_eq!(delivery.started, Some(true));
@@ -1274,6 +1279,23 @@ mod tests {
             ("terminal.get", terminal("working", 3)),
         ]).await;
         assert_eq!(delivery.started, Some(true));
+    }
+
+    #[tokio::test]
+    async fn an_uncertain_outbox_attempt_can_veto_recovery_at_the_write_boundary() {
+        for (screen, has_input) in [(">", false), (PROMPT, true)] {
+            let mut steps = vec![("terminal.get", terminal("idle", 3)),
+                                 ("terminal.read", json!({"text":screen}))];
+            if has_input { steps.push(("hello", hello(true))); }
+            steps.push(("terminal.get", terminal("idle", 3)));
+            let (delivery, calls) = terminal_send_with_policy(Some(false), steps, Duration::ZERO, |input| {
+                assert_eq!(input, has_input);
+                false
+            }).await;
+            assert_eq!(delivery.started, Some(false));
+            assert_eq!(calls.iter().filter(|c| c["method"] == "terminal.send").count(), 1);
+            assert!(calls.iter().all(|c| c["method"] != "terminal.keys"));
+        }
     }
 
     async fn assert_one_enter(screen: &str) {

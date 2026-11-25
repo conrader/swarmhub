@@ -323,3 +323,34 @@ private final class WarmBridge: @unchecked Sendable {
     await off.warmHerdrAgent(for: ada, replacingUnused: true)?.value
     #expect(quiet.ended == 1 && quiet.launches.count == 1 && off.herdrReadiness[ada.id] == nil)
 }
+
+@Test(arguments: [true, false], [true, false]) func rolloverUsesTheRouteAdvertisedByTheBridge(guarded: Bool, pendingReview: Bool) async throws {
+    let expected = guarded ? "/end-if-idle" : "/end"
+    let http = MockHTTPProtocol.serve { request in
+        let path = request.url?.path ?? ""
+        if path == "/api/workspace" {
+            var roster: [String: Any] = ["core": "fixture", "templates": [], "agents": [
+                ["name": "bot", "address": "t1", "created_ms": 5, "state": "live", "status": ["state": "idle"]]
+            ]]
+            if guarded { roster["end_if_idle"] = true }
+            return (200, roster)
+        }
+        if path == "/api/approvals" {
+            let review: [String: Any] = ["id": 7, "agent": "bot", "provider": "fixture", "tool": "fixture", "cwd": "", "arguments": ""]
+            return (200, ["pending": pendingReview ? [review] : []])
+        }
+        guard path == "/api/agents/t1/5" + expected else { return (404, [:]) }
+        return guarded && pendingReview ? (409, ["error": "Pending review"]) : (200, [:])
+    }
+    let client = HerdrClient(baseURL: URL(string: "http://\(http.host)")!, token: "fixture", session: http.session)
+    let workspace = try await client.workspace()
+    let agent = try #require(workspace.agents.first)
+    do {
+        try await client.endIfIdle(agent, core: "fixture", workspace: workspace)
+        #expect(!pendingReview)
+    } catch {
+        guard pendingReview else { throw error }
+    }
+    let posted = MockHTTPProtocol.recorded(http.host).filter { $0.httpMethod == "POST" }.compactMap { $0.url?.path }
+    #expect(posted == (!guarded && pendingReview ? [] : ["/api/agents/t1/5" + expected]))
+}

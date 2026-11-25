@@ -121,21 +121,18 @@ private func pair(_ one: Bot, _ other: Bot) -> String { HerdrBotRelay.pair(id(on
     // Whom a message reaches.
     typealias Candidate = HerdrBotMessage.Candidate
     let others = [Candidate(id: "b", name: "Legal"), Candidate(id: "c", name: "Tax", open: false), Candidate(id: "d", name: "Ops"), Candidate(id: "e", name: "ops"), Candidate(id: "f", name: "Café")]
-    #expect(HerdrBotMessage.target(named: " legal ", among: others, chain: ["a"]) == .bot("b") && HerdrBotMessage.target(named: "Cafe", among: others, chain: ["a"]) == .bot("f"))
-    #expect(HerdrBotMessage.target(named: "Nobody", among: others, chain: ["a"]) == .refused(.unknown) && HerdrBotMessage.target(named: "Ops", among: others, chain: ["a"]) == .refused(.ambiguous))
-    #expect(HerdrBotMessage.target(named: "Tax", among: others, chain: ["a"]) == .refused(.closed))
-    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["x", "b", "a"]) == .bot("b"), "a bot that already took part can be written to again: a follow-up")
-    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "y"]) == .bot("b") && HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "y", "z"]) == .refused(.tooLong)
-            && HerdrBotMessage.target(named: "Legal", among: others, chain: ["w", "x", "b", "z"]) == .bot("b"), "four different bots at most, and any of the four again")
+    #expect(HerdrBotMessage.target(named: " legal ", among: others) == .bot("b") && HerdrBotMessage.target(named: "Cafe", among: others) == .bot("f"))
+    #expect(HerdrBotMessage.target(named: "Nobody", among: others) == .refused(.unknown) && HerdrBotMessage.target(named: "Ops", among: others) == .refused(.ambiguous))
+    #expect(HerdrBotMessage.target(named: "Tax", among: others) == .refused(.closed))
     let pair = HerdrBotRelay.pair("B", "a")
     #expect(pair == "a+b" && pair == HerdrBotRelay.pair("a", "b") && HerdrBotRelay.rounds(nil).isEmpty && HerdrBotRelay.rounds("a+b:3,a+c:1,junk,x:0") == ["a+b": 3, "a+c": 1] && HerdrBotRelay.joined(rounds: ["a+c": 1, "a+b": 3]) == "a+b:3,a+c:1")
-    #expect(HerdrBotMessage.target(named: "Legal", among: others, chain: ["a", "b"], from: "a", rounds: [pair: HerdrBotRelay.roundLimit - 1]) == .bot("b")
-            && HerdrBotMessage.target(named: "Legal", among: others, chain: ["a", "b"], from: "a", rounds: [pair: HerdrBotRelay.roundLimit]) == .refused(.spent)
-            && HerdrBotMessage.target(named: "Legal", among: others, chain: ["a", "b", "d"], from: "d", rounds: [pair: HerdrBotRelay.roundLimit]) == .bot("b"), "the same two bots write to each other eight times at most; another bot still may")
+    #expect(HerdrBotMessage.target(named: "Legal", among: others, from: "a", rounds: [pair: HerdrBotRelay.roundLimit - 1]) == .bot("b")
+            && HerdrBotMessage.target(named: "Legal", among: others, from: "a", rounds: [pair: HerdrBotRelay.roundLimit]) == .refused(.spent)
+            && HerdrBotMessage.target(named: "Legal", among: others, from: "d", rounds: [pair: HerdrBotRelay.roundLimit]) == .bot("b"), "the same two bots write to each other eight times at most; another bot still may")
     #expect(HerdrBotRelay.roundLimit == 8 && note.contains("write to it again to follow up") && note.contains("at most 8 times about one matter"), "the bots are told that they may follow up, and where it ends")
     let refused = HerdrBotRelay.refusal(.unknown, to: "Nobody", names: ["Legal", "Ops"])
     #expect(refused.hasPrefix("[From SwarmHub]\nNo bot named \"Nobody\"") && refused.hasSuffix(HerdrBotMessage.roster(["Legal", "Ops"])) && HerdrBotMessage.messages(in: refused).isEmpty)
-    for refusal in [HerdrBotMessage.Refusal.ambiguous, .closed, .tooLong, .spent] { #expect(HerdrBotRelay.refusal(refusal, to: "X", names: []).contains("not sent")) }
+    for refusal in [HerdrBotMessage.Refusal.ambiguous, .closed, .spent] { #expect(HerdrBotRelay.refusal(refusal, to: "X", names: []).contains("not sent")) }
     #expect(HerdrBotRelay.ids("A,b,,C") == ["a", "b", "c"] && HerdrBotRelay.joined(["A", "b"]) == "a,b" && HerdrBotRelay.ids(nil).isEmpty)
     #expect(!HerdrBotRelay.mayAsk(replyingTo: [HerdrBotRelay.Key.kind: HerdrBotRelay.message]), "a reply to a bot's message asks for no bot by itself")
     #expect(HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: true).contains("can ask each other for help") && HerdrMessagingSection.caption(bot: "Legal", server: "This Mac", takes: false).hasPrefix("Off: other bots cannot write to Legal"))
@@ -325,17 +322,21 @@ private final class SlowClock: @unchecked Sendable {
     #expect(script.heard("Boppy").count == 3 && script.heard("Legal").count == 2 && script.heard("Tax").count == 2 && replies(boppy).last == "Boppy has the answer.")
 }
 
-/// An exchange passes through four bots at most: the fourth bot's message to a fifth is refused, and the answers
-/// still travel back to the first.
-@MainActor @Test func anExchangePassesThroughFourBotsAtMost() async throws {
-    let (store, script, bots) = exchangeStore(["One", "Two", "Three", "Four", "Five"])
-    let one = try #require(bots["One"]), four = try #require(bots["Four"])
-    say(store, one, "Ask Two: forward to Three: forward to Four: forward to Five: Anyone there?")
+/// Answers travel back through everyone who asked, including the fifth and sixth recipients.
+@MainActor @Test func fifthAndLaterParticipantsReceiveAndAnswer() async throws {
+    let names = ["One", "Two", "Three", "Boppy", "Jarvis", "Six"]
+    let (store, script, bots) = exchangeStore(names)
+    let one = try #require(bots["One"])
+    say(store, one, "Ask Two: forward to Three: forward to Boppy: forward to Jarvis: forward to Six: Anyone there?")
     try await waitUntil { answered(one, relayed(one, HerdrBotRelay.answer).first) && store.bots.allSatisfy { store.isIdle($0) } }
-    #expect(script.heard("Five").isEmpty && relayed(four, HerdrBotRelay.message).first?.metadata[HerdrBotRelay.ExchangeKey.chain]?.split(separator: ",").count == 4)
-    #expect(relayed(four, HerdrBotRelay.notice).first?.content.contains("has already passed through 4 bots") == true)
-    #expect(relayed(one, HerdrBotRelay.answer).map(\.content) == [HerdrBotRelay.reply(from: "Two", "Two has the answer.")] && lines(one).contains("Two wrote to Three before answering One."))
-    #expect(["Two", "Three", "Four"].allSatisfy { script.heard($0).count == 2 } && script.heard("One").count == 2, "every bot answered once it had its own answer")
+    for (index, name) in names.enumerated().dropFirst() {
+        let recipient = try #require(bots[name])
+        let request = try #require(relayed(recipient, HerdrBotRelay.message).first)
+        #expect(HerdrBotRelay.ids(request.metadata[HerdrBotRelay.ExchangeKey.chain]) == names.prefix(index + 1).compactMap { bots[$0].map(id) })
+        #expect(relayed(recipient, HerdrBotRelay.notice).isEmpty)
+    }
+    #expect(relayed(one, HerdrBotRelay.answer).map(\.content) == [HerdrBotRelay.reply(from: "Two", "Two has the answer.")])
+    #expect(names.dropLast().allSatisfy { script.heard($0).count == 2 } && script.heard("Six").count == 1)
 }
 
 /// One bot may have six messages passed on in ten minutes; the seventh is not sent and says so in its chat.

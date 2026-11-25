@@ -397,7 +397,7 @@ import Testing
             let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             let fixture = Process()
             fixture.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            fixture.arguments = [root.appendingPathComponent("HerdrWorkspace/tests/codejob_activity.py").path, "--write-rosters", output.path]
+            fixture.arguments = [root.appendingPathComponent("HerdrWorkspace/tests/codejob_activity.py").path, "--integration", "--write-rosters", output.path]
             let ran = try await runToEnd(fixture)
             try #require(ran.status == 0, "Fixture failed: \(ran.output)")
         }

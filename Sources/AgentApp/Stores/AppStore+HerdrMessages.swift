@@ -31,8 +31,7 @@ enum HerdrMessageLine {
 /// passes the reply back into the sender's chat, so both chats show everything the bots said. A bot that is asked
 /// while it answers another bot's message may write to one further bot first; its own answer then goes back when that
 /// bot has answered. A bot that has its answer may write to the same bot again (a follow-up), as Grok Bot's Bots
-/// hand work to each other and reply later. What keeps an exchange from running by itself is in `HerdrBotRelay`: it
-/// passes through four bots at most, the same two bots write to each other eight times at most, and one bot has six
+/// hand work to each other and reply later. What keeps an exchange from running by itself is in `HerdrBotRelay`. The same two bots write to each other eight times at most, and one bot has six
 /// messages passed on in ten minutes. The person ends an exchange by stopping the bot that is answering.
 extension AppStore {
     // MARK: Who can be written to
@@ -112,7 +111,7 @@ extension AppStore {
             herdrCount(times)
             var metadata = [HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined(chain), HerdrBotRelay.ExchangeKey.waiting: HerdrBotRelay.joined(owed),
                             HerdrBotRelay.ExchangeKey.rounds: HerdrBotRelay.joined(rounds: rounds)]
-            switch HerdrBotMessage.target(named: message.to, among: candidates, chain: chain, from: own, rounds: rounds) {
+            switch HerdrBotMessage.target(named: message.to, among: candidates, from: own, rounds: rounds) {
             case .bot(let id):
                 guard let target = peers.first(where: { Self.herdrID($0) == id }) else { continue }
                 // A bot that already took part is written to again (a follow-up); a new one joins the exchange.

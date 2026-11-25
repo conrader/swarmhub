@@ -33,7 +33,7 @@
   <rect x="309.6" y="258" width="100.7" height="20" rx="6" fill="#33362e"/>
   <text x="317.6" y="272.0" font-family="ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.42" font-weight="400" fill="#f2f2ec" text-anchor="start">message_bot</text>
   <text x="570.0" y="262.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.96" font-weight="500" fill="#a6a99d" text-anchor="start">Passed on by the app and shown in both chats.</text>
-  <text x="570.0" y="278.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.96" font-weight="500" fill="#a6a99d" text-anchor="start">Limits: 8 messages per pair, 4 bots in a chain, 6 per bot in 10 minutes.</text>
+  <text x="570.0" y="278.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.96" font-weight="500" fill="#a6a99d" text-anchor="start">Limits: 8 messages per pair, 6 per bot in 10 minutes.</text>
   <rect x="24" y="400" width="1032" height="212" rx="18" fill="#21231e" stroke="#33362e"/>
   <text x="44.0" y="594.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.42" font-weight="700" fill="#a6a99d" text-anchor="start" letter-spacing="1.1">ON THE HERDR SERVER</text>
   <text x="1036.0" y="594.0" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12.96" font-weight="400" fill="#a6a99d" text-anchor="end">The agent names only a difficulty. The bridge picks the agent program and the model.</text>

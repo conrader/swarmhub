@@ -121,7 +121,7 @@ struct ComposerView: View {
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text(isStreaming ? SteerCopy.placeholder : "Message " + (recipient ?? AppConstants.name) + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(isStreaming && canSteer ? SteerCopy.placeholder : "Message " + (recipient ?? AppConstants.name) + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
                                 .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
                         }
                     }

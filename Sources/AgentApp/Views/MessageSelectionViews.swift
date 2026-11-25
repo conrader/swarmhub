@@ -14,7 +14,7 @@ import SwiftUI
     let characters = TranscriptSelection()
     weak var reader: NSView? { didSet { characters.reader = reader } }
     private var rows: [ChatMessage] = []
-    private var describe: (ChatMessage) -> CopiedMessage = { CopiedMessage(author: "", date: $0.createdAt, text: MessageCopy.body($0.content)) }
+    private var describe: (ChatMessage) -> CopiedMessage = { CopiedMessage(author: "", date: $0.transcriptDate, text: MessageCopy.body($0.content)) }
     private var frames: [UUID: CGRect] = [:], inTranscript = false
     private var monitor: Any?, holders = 0
     private let copyText: (String) -> Void

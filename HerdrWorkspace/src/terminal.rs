@@ -1,4 +1,4 @@
-use crate::{Workspace, same_origin, token_matches};
+use crate::{Workspace, token_matches};
 use axum::{
     Router,
     extract::{
@@ -73,13 +73,45 @@ fn js(content: &'static str) -> ([(header::HeaderName, &'static str); 1], &'stat
     )
 }
 
+// The native web view loads these public assets on its loopback SSH listener.
+pub(super) fn forwarded_resource(path: &str, headers: &HeaderMap) -> bool {
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
+    let Some(host) = host else { return false };
+    let Some((name, port)) = host.rsplit_once(':') else { return false };
+    if !matches!(name, "127.0.0.1" | "localhost") || !port.parse::<u16>().is_ok_and(|p| p > 0 && p.to_string() == port) {
+        return false;
+    }
+    if path.starts_with("/attach/") {
+        return headers.get(header::ORIGIN).is_some_and(|v| v == format!("http://{host}").as_str());
+    }
+    matches!(path, "/chat-terminal" | "/terminal.js" | "/chat-model.js"
+        | "/vendor/xterm.js" | "/vendor/xterm.css" | "/vendor/addon-fit.js")
+}
+
+#[cfg(test)]
+#[test]
+fn forwarded_terminal_accepts_its_assets_and_same_origin_attach() {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::HOST, "127.0.0.1:49152".parse().unwrap());
+    assert!(forwarded_resource("/chat-terminal", &headers));
+    assert!(forwarded_resource("/vendor/xterm.js", &headers));
+    assert!(!forwarded_resource("/api/approvals", &headers));
+    assert!(!forwarded_resource("/attach/t1/5", &headers));
+    headers.insert(header::ORIGIN, "http://127.0.0.1:8787".parse().unwrap());
+    assert!(!forwarded_resource("/attach/t1/5", &headers));
+    headers.insert(header::ORIGIN, "http://127.0.0.1:49152".parse().unwrap());
+    assert!(forwarded_resource("/attach/t1/5", &headers));
+    headers.insert(header::HOST, "external.test:49152".parse().unwrap());
+    assert!(!forwarded_resource("/chat-terminal", &headers));
+}
+
 async fn upgrade(
     State(workspace): State<Workspace>,
     Path((id, created)): Path<(String, u64)>,
     headers: HeaderMap,
     websocket: WebSocketUpgrade,
 ) -> Response {
-    if !same_origin(&headers, workspace.port) {
+    if !forwarded_resource("/attach/", &headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
     websocket

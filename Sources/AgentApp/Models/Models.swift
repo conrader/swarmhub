@@ -48,7 +48,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     let id: UUID; let role: MessageRole; @Published var content: String; let createdAt: Date
     /// First output after a delivered steer when this row reused an empty placeholder.
     var continuedAt: Date?
-    var transcriptDate: Date { continuedAt ?? createdAt }
+    var transcriptDate: Date { continuedAt ?? TranscriptHistory.placement(self) ?? createdAt }
     @Published var isStreaming: Bool; var presentation: MessagePresentation; @Published var metadata: [String: String]
     @Published var reactions: [String]; var replyToID: UUID?; var attachments: [ChatAttachment]
     /// Group chats: the bot that wrote an assistant message (nil = the user, or a one-bot chat).

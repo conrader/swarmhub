@@ -112,7 +112,7 @@ extension AppStore {
                     try checkChoice()
                     if active != nil {
                         guard let core = current.core else { throw HerdrClient.Failure.noTemplate }
-                        do { try await client.endIfIdle(agent, core: core) }
+                        do { try await client.endIfIdle(agent, core: core, workspace: live) }
                         catch {
                             let latest = try await client.workspace()
                             guard latest.core == current.core, client.liveAgent(named: name, in: latest) == nil else { throw error }
