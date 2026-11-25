@@ -21,6 +21,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 mod blocks;
+pub(crate) mod helper_followups;
 mod ci;
 pub(crate) mod completions;
 pub(crate) mod cli;

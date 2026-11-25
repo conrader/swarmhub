@@ -34,7 +34,15 @@ In the first private Mac run, the parent requested a separate compiler helper an
 
 With the candidate and Auto mode enabled for the test bot, the native chat sent the build to one helper. The parent returned “STARTED” and finished its turn. The launch records showed GPT-6.2 Astra for the parent and GPT-6.2 Sol for the compiler helper. The helper built and ran an ARM64 C executable. A controlled 30-second delay kept its final build step observable. During that step a fresh, independent message in the native composer reached the parent. Its reply appeared 3.91 seconds after the composer cleared, while the helper process was still running.
 
-The helper’s answer appeared in the parent chat’s Coding agents card without another message. When its terminal closed, the card kept the result. Pressing Details opened the answer. The workspace recorded one helper and zero workspace approval requests during that run. This exercise covered a direct chat and a helper on the same Mac. It did not measure remote worker latency or automatic continuation of a multi-step parent task.
+The helper’s answer appeared in the parent chat’s Coding agents card without another message. When its terminal closed, the card kept the result. Pressing Details opened the answer. The workspace recorded one helper and zero workspace approval requests during that run. This exercise covered a direct chat and a helper on the same Mac. It did not measure remote worker latency. A separate follow-up exercise is recorded below.
+
+## Continuing after a helper finishes
+
+In an isolated native MacBook chat, the user asked the parent to start a helper, reply “STARTED”, then write the helper’s UUID to a file and report back. The helper slept for 15 seconds and generated the UUID itself. On the baseline the helper answered and the parent stayed idle. After another 40 seconds there was no file or follow-up reply.
+
+On the first candidate the parent tried the new command, but its terminal resolved an older workspace executable on its PATH. The start receipt now supplies the running workspace’s quoted executable path. With the corrected candidate, the parent registered its next step and finished its turn. When the helper answered, the parent wrote the UUID to `verified.txt` and the matching “VERIFIED” reply appeared in the native chat without another user message.
+
+In a second run, the driver sent an independent user request just after “STARTED”. The helper finished while the parent was executing the requested 35-second foreground command. The workspace delivered the helper outcome after the independent reply appeared. The parent then completed the saved next step, and both the file and the chat contained the new UUID. These runs used a local registered Codex bot in Auto mode.
 
 ## Detecting an AI added after setup
 
@@ -69,4 +77,4 @@ A private MacBook workspace held two sample bots and a 620-message group. On ope
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
-- Pending end-to-end coverage includes whether the parent independently takes the next step of a multi-stage task when its helper finishes, and remote or disconnected servers. Read-only visits to Settings do not exercise credential changes or install software.
+- Remote and disconnected servers still need end-to-end coverage. Read-only visits to Settings do not exercise credential changes or install software.

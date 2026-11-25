@@ -947,6 +947,18 @@ pub(crate) fn give_up(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
 /// it. Each piece of work it has something open in is ended as a whole, what was waiting to be typed for it is
 /// not typed, and every bot that waited for an answer is told. Returns how many asks and hand-offs ended.
 pub(crate) fn stop(ctx: &Ctx<'_>, bot: &Bot, why: Why) -> rusqlite::Result<usize> {
+    if matches!(why, Why::Person | Why::Removed) {
+        ctx.db.execute(
+            "UPDATE helper_followups SET cancelled=1 WHERE bot=?1 AND (outbox IS NULL OR outbox IN
+             (SELECT id FROM bot_outbox WHERE bot=?1 AND state IN ('pending','typing')))",
+            [&bot.id],
+        )?;
+        ctx.db.execute(
+            "UPDATE bot_outbox SET state='dropped', detail='The bot was stopped.'
+             WHERE state='pending' AND id IN (SELECT outbox FROM helper_followups WHERE bot=?1 AND cancelled=1)",
+            [&bot.id],
+        )?;
+    }
     let works: Vec<i64> = ctx
         .db
         .prepare_cached(

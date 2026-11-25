@@ -15,6 +15,7 @@ pub(crate) const USAGE: &str = "Helpers (another agent for one task; the workspa
   swarmhub-herdr helper managed KEY -           queue an enrolled fixture job from JSON on stdin
   swarmhub-herdr helper list
   swarmhub-herdr helper wait NAME [--seconds N]   wait for its answer, then print it (default 100 seconds)
+  swarmhub-herdr helper after NAME NEXT_STEP     resume your bot when this assignment finishes
   swarmhub-herdr helper read NAME [--lines N]     its latest answer, or the last N lines of its screen
   swarmhub-herdr helper send NAME TEXT            give it a follow-up
   swarmhub-herdr helper stop NAME                 end it when you no longer need it";
@@ -137,6 +138,13 @@ fn parse(
         "list" => {
             alone(&words, 0)?;
             Command::Call(Action::List)
+        }
+        "after" => {
+            let helper = name(&words)?;
+            if words.len() < 2 {
+                return Err(format!("Give the bot its next step.\n{USAGE}"));
+            }
+            Command::Call(Action::After { name: helper, step: words[1..].join(" ") })
         }
         "read" => {
             alone(&words, 1)?;
