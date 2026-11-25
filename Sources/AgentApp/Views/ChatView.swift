@@ -16,7 +16,7 @@ struct ChatView: View {
         let shown = bot.messages.filter { !$0.isSilent }
         let _ = viewport.show(bot.id, order: shown.map(\.id))
         let appStore = store, botName = bot.name
-        let _ = selection.show(rows: shown) { appStore.copiedMessage($0, botName: botName) }
+        let _ = selection.show(rows: shown, conversation: bot.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: botName) }
         let coding = store.hasActiveCodingAgent(bot)
         let answering = store.isAnswering(bot)
         let session = store.herdrTerminalSession(for: bot)
@@ -78,8 +78,8 @@ struct ChatView: View {
                 // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
                 .floatingBar(edge: .bottom, backing: AppColor.chat) { bottomBar(proxy) }
                 .task(id: bot.id) { await viewport.open(bot.id, model: store.chatScroll, proxy: proxy) }
-                .onChange(of: shown.last?.content) { _, _ in viewport.grew(proxy: proxy) }
-                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
+                .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
+                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy, follow: !selection.characters.holdsScroll) }
                 .onChange(of: store.scrollTarget) { _, target in
                     guard let target else { return }
                     DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center); store.scrollTarget = nil }

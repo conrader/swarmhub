@@ -6,6 +6,7 @@ import SwiftUI
 /// that is, with the bot's switch for it. A group's archive is not handed over and has no such line.
 struct GrokHistoryView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.transcriptSelection) private var selection
     let archiveID: UUID; let count: Int; let ownerName: String
     /// The bot whose agent gets this archive; nil for a group.
     let handoffBotID: UUID?
@@ -19,6 +20,8 @@ struct GrokHistoryView: View {
     }
 
     var body: some View {
+        let rows = expanded ? store.grokHistory.messages(for: archiveID).filter { $0.matches(query.trimmingCharacters(in: .whitespaces)) } : []
+        let _ = selection?.showHistory(archiveID, rows: rows.filter { !$0.hidden })
         VStack(alignment: .leading, spacing: 8) {
             Button { expanded.toggle() } label: {
                 HStack(spacing: 8) {
@@ -34,7 +37,6 @@ struct GrokHistoryView: View {
             if expanded {
                 HStack { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Search Grok history", text: $query).textFieldStyle(.plain) }
                     .font(.system(size: 12)).padding(7).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 7))
-                let rows = store.grokHistory.messages(for: archiveID).filter { $0.matches(query.trimmingCharacters(in: .whitespaces)) }
                 if rows.isEmpty { Text(query.isEmpty ? "No imported messages." : "No matches.").font(.caption).foregroundStyle(.secondary) }
                 LazyVStack(alignment: .leading, spacing: 6) { ForEach(rows) { ArchivedMessageRow(message: $0, botName: ownerName) } }
             }
@@ -90,7 +92,9 @@ private struct ArchivedMessageRow: View {
                 if message.hidden { Text("hidden prompt").font(.system(size: 10)).padding(.horizontal, 5).background(AppColor.raised, in: Capsule()) }
                 if let date = message.timestamp { Text(date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone))).font(.system(size: 10)).foregroundStyle(.tertiary) }
             }
-            Text(message.text).font(.system(size: 12)).textSelection(.enabled).foregroundStyle(message.role == "system" || message.channel != "chat" ? .secondary : .primary)
+            TranscriptRunView(run: .init(value: AttributedString(message.text), offset: 0), style: .caption)
+                .environment(\.transcriptRow, message.hidden ? nil : .history(message.dedupeKey))
+                .font(.system(size: 12)).foregroundStyle(message.role == "system" || message.channel != "chat" ? .secondary : .primary)
         }
         .opacity(message.hidden ? 0.6 : 1)
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)

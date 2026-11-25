@@ -33,12 +33,14 @@ enum ChatCardParser {
 
     /// Optionally recognize tilde fences when inspecting prose without changing saved card indexes.
     /// The renderer can keep prose whitespace for line structure and list indentation.
-    static func parse(_ text: String, includingTildeFences: Bool = false, preservingProseWhitespace: Bool = false) -> [ChatBlock] {
+    static func parse(_ text: String, includingTildeFences: Bool = false, preservingProseWhitespace: Bool = false, interpretCards: Bool = true) -> [ChatBlock] {
         var blocks: [ChatBlock] = []; var prose: [String] = []
         let lines = text.components(separatedBy: "\n"); var index = 0
         func flush() {
             guard !prose.isEmpty else { return }
-            blocks += proseBlocks(prose.joined(separator: "\n"), preservingWhitespace: preservingProseWhitespace)
+            let text = prose.joined(separator: "\n")
+            if interpretCards { blocks += proseBlocks(text, preservingWhitespace: preservingProseWhitespace) }
+            else { appendMarkdown(text, preservingWhitespace: true, to: &blocks) }
             prose = []
         }
         while index < lines.count {
@@ -48,10 +50,10 @@ enum ChatCardParser {
             while index < lines.count, !closesFence(lines[index], mark: fence.mark, length: fence.length) { body.append(lines[index]); index += 1 }
             let closed = index < lines.count
             index += 1
-            blocks.append(fencedBlock(language: fence.info, body: body, closed: closed))
+            blocks.append(interpretCards ? fencedBlock(language: fence.info, body: body, closed: closed) : .code(language: fence.info, body: body.joined(separator: "\n")))
         }
         flush()
-        return markTrailingChoices(blocks, preservingWhitespace: preservingProseWhitespace)
+        return interpretCards ? markTrailingChoices(blocks, preservingWhitespace: preservingProseWhitespace) : blocks
     }
 
     private static func fenceOpening(_ line: String, includingTildeFences: Bool) -> (mark: Character, length: Int, info: String)? {

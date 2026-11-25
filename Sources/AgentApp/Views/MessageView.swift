@@ -91,15 +91,15 @@ struct MessageView: View {
             // A message between bots, on either side of it: one folded row in the colour of the bot whose words it is.
             PassedOnCard(row: passedOn)
         } else if message.role == .system {
-            Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).textSelection(.enabled)
+            Label { literalBody } icon: { Image(systemName: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : "checkmark.circle") }.font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
         } else if let intro = message.metadata[HerdrIntro.Key.kind] {
             // The note that asks the main bot to introduce itself: one line says so, the note is the agent's to read.
             Label(HerdrIntro.caption(bot: store.selectedBot?.name ?? "your bot", again: intro == HerdrIntro.again), systemImage: "hand.wave").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
         } else if message.role == .user, message.metadata[GoalKey.attempt] != nil {
-            Label(message.content, systemImage: "scope").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            Label { literalBody } icon: { Image(systemName: "scope") }.font(.caption).foregroundStyle(.secondary)
         } else if message.role == .user {
             if !message.content.isEmpty {
-                Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
+                UserMessageText(source: message.content).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
                     // The person's own words sit on a wash of the accent, so the two sides of a chat differ by colour, not only by side.
                     .background(message.isSteer || message.isCorrection ? AnyShapeStyle(AppColor.card) : AnyShapeStyle(TintShapeStyle().opacity(0.16)), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .background(AppColor.chat, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -109,7 +109,9 @@ struct MessageView: View {
             OrderedReply(message: message, actionTarget: actionTarget, stepsExpanded: stepsExpanded)
         }
     }
-    private var markdown: AttributedString { (try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.content) }
+    private var literalBody: some View {
+        TranscriptRunView(run: .init(value: AttributedString(message.content), offset: 0), style: .caption)
+    }
 }
 
 /// The small actions under a message (tapback, reply, copy): symbols in a colour that reads at 4.5:1 on the chat
@@ -125,6 +127,24 @@ struct MessageActionStyle: ButtonStyle {
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.16 : hovering ? 0.09 : 0)))
                 .contentShape(Circle()).onHover { hovering = $0 }
+        }
+    }
+}
+
+extension AppStore {
+    /// Materialize an unmounted row only when Copy or Select All needs its text.
+    /// Disclosure labels, card actions and the prompts behind them have their own UI.
+    func transcriptBody(_ message: ChatMessage) -> String {
+        guard message.metadata["herdrExchangeTitle"] == nil, herdrPassedOnRow(message) == nil else { return "" }
+        if message.role != .system, message.metadata[HerdrIntro.Key.kind] != nil { return "" }
+        switch message.role {
+        case .system: return message.content
+        case .user:
+            if message.metadata[GoalKey.attempt] != nil { return message.content }
+            return TranscriptText(user: message.content).string
+        case .assistant:
+            let segments = ReplyLayout.segments(content: message.content, activity: message.activity)
+            return TranscriptText(reply: message.content, segments: segments).string
         }
     }
 }
