@@ -88,6 +88,7 @@ struct HerdrSkillsContent: View {
     let server: HerdrServer
     /// Settings keeps the list in a box of this height; nil lets it grow (the Details panel scrolls as a whole).
     let listHeight: CGFloat?
+    var inInspector = false
     @State private var showSharing = false
     @Environment(\.inspectorStartsAdvanced) private var renderOpen
 
@@ -95,9 +96,9 @@ struct HerdrSkillsContent: View {
         VStack(alignment: .leading, spacing: 12) {
             switch model.phase {
             case .idle: Button("Show skills") { Task { await model.load() } }
-            case .reading: StatusCard(kind: .working, title: "Checking…")
+            case .reading: StatusCard(kind: .working, title: "Checking…", inInspector: inInspector)
             case .unavailable(let why):
-                StatusCard(kind: .warning, title: "The skills could not be loaded", detail: why) { Button("Try again") { Task { await model.load() } }.padding(.top, 4) }
+                StatusCard(kind: .warning, title: "The skills could not be loaded", detail: why, inInspector: inInspector) { Button("Try again") { Task { await model.load() } }.padding(.top, 4) }
             case .ready: if let library = model.library { ready(library) }
             }
         }
@@ -108,9 +109,9 @@ struct HerdrSkillsContent: View {
     @ViewBuilder private func ready(_ library: HerdrSkillLibrary) -> some View {
         if !library.installed || (library.skills.isEmpty && library.problem != nil) {
             // skillshare is missing or not set up: the server's sentence, not an empty list.
-            StatusCard(kind: .warning, title: library.problem ?? "Skills are not set up on this server yet (skillshare is not installed there).") { Button("Try again") { Task { await model.load() } }.padding(.top, 4) }
+            StatusCard(kind: .warning, title: library.problem ?? "Skills are not set up on this server yet (skillshare is not installed there).", inInspector: inInspector) { Button("Try again") { Task { await model.load() } }.padding(.top, 4) }
         } else {
-            if let problem = library.problem { StatusCard(kind: .warning, title: problem) }
+            if let problem = library.problem { StatusCard(kind: .warning, title: problem, inInspector: inInspector) }
             if !library.skills.isEmpty { Text("\(library.enabledCount) of \(library.skills.count) on").font(.callout.weight(.medium)).foregroundStyle(.secondary) }
             if library.skills.isEmpty {
                 Text(HerdrSkillsCopy.empty).font(.callout).foregroundStyle(.secondary)
@@ -163,17 +164,20 @@ struct HerdrSkillsContent: View {
                 }.padding(.horizontal, 10).padding(.vertical, 8).help(skill.name)
             }
         }
-        .background(AppColor.raised, in: RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
+        .background {
+            if inInspector { InspectorSurface() }
+            else { RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous).fill(AppColor.raised) }
+        }
     }
 
     /// What the last switch and sync did; or that the agent programs are behind, with the way to bring them over.
     @ViewBuilder private var status: some View {
         if model.syncing {
-            StatusCard(kind: .working, title: "Updating your bots…")
+            StatusCard(kind: .working, title: "Updating your bots…", inInspector: inInspector)
         } else if let behind = model.behind {
             switch behind {
-            case .waiting: StatusCard(kind: .warning, title: HerdrSkillsCopy.notUpToDate) { Button("Update now") { Task { await model.sync() } }.padding(.top, 4) }
-            case .failed(let line): StatusCard(kind: .warning, title: "Your bots could not be updated", detail: line) { Button("Try again") { Task { await model.sync() } }.padding(.top, 4) }
+            case .waiting: StatusCard(kind: .warning, title: HerdrSkillsCopy.notUpToDate, inInspector: inInspector) { Button("Update now") { Task { await model.sync() } }.padding(.top, 4) }
+            case .failed(let line): StatusCard(kind: .warning, title: "Your bots could not be updated", detail: line, inInspector: inInspector) { Button("Try again") { Task { await model.sync() } }.padding(.top, 4) }
             }
         } else if !model.note.isEmpty {
             Text(model.note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)

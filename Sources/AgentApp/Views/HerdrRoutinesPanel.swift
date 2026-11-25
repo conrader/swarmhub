@@ -6,6 +6,7 @@ struct HerdrRoutinesPanel: View {
     @Environment(\.timeZone) private var timeZone
     @ObservedObject var bot: Bot
     let server: HerdrServer
+    var inInspector = false
 
     @State private var routines: [HerdrClient.Routine]?
     @State private var sessions: HerdrRoutineSessions?
@@ -50,11 +51,11 @@ struct HerdrRoutinesPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             if let actionError {
-                StatusCard(kind: .warning, title: "Routine action failed", detail: actionError) {}
+                StatusCard(kind: .warning, title: "Routine action failed", detail: actionError, inInspector: inInspector) {}
             }
             routineList
             if let sessionError, listError == nil {
-                StatusCard(kind: .warning, title: "Couldn’t check for a live session", detail: sessionError) {
+                StatusCard(kind: .warning, title: "Couldn’t check for a live session", detail: sessionError, inInspector: inInspector) {
                     Button("Try again", action: reload).disabled(busy)
                 }
             } else if routines != nil, listError == nil, liveTarget == nil, !bot.isReadOnlyArchive {
@@ -119,14 +120,14 @@ struct HerdrRoutinesPanel: View {
 
     @ViewBuilder private var routineList: some View {
         if let listError {
-            StatusCard(kind: .warning, title: "Routines unavailable", detail: listError) {
+            StatusCard(kind: .warning, title: "Routines unavailable", detail: listError, inInspector: inInspector) {
                 Button("Try again", action: reload).disabled(busy)
             }
         } else if routines == nil || (visibleRoutines.isEmpty && loading) {
-            StatusCard(kind: .working, title: "Loading routines…") {}
+            StatusCard(kind: .working, title: "Loading routines…", inInspector: inInspector) {}
         } else if visibleRoutines.isEmpty {
             StatusCard(kind: .info, title: "No routines yet",
-                       detail: "Routines send instructions to this bot’s session on a schedule. They run on the workspace server, even when the app is closed.") {}
+                       detail: "Routines send instructions to this bot’s session on a schedule. They run on the workspace server, even when the app is closed.", inInspector: inInspector) {}
         } else {
             ForEach(visibleRoutines) { routine in routineCard(routine) }
         }
@@ -195,7 +196,7 @@ struct HerdrRoutinesPanel: View {
                 }
             }
         }
-        .appleCard(padding: 10)
+        .appleCard(padding: 10, inInspector: inInspector)
     }
 
     private func webhookSettings(_ routine: Routine, source: HerdrClient.RoutineSchedule.Source?) -> some View {
@@ -230,7 +231,7 @@ struct HerdrRoutinesPanel: View {
                 }
             }
             if let revealedKey, revealedKey.routineID == routine.id {
-                StatusCard(kind: .info, title: "New webhook key", detail: "Copy this key before hiding it.") {
+                StatusCard(kind: .info, title: "New webhook key", detail: "Copy this key before hiding it.", inInspector: inInspector) {
                     Text(verbatim: revealedKey.text).font(.system(.caption, design: .monospaced))
                         .fixedSize(horizontal: false, vertical: true)
                     HStack {
@@ -273,7 +274,7 @@ struct HerdrRoutinesPanel: View {
         if !checkins.isEmpty || checkinError != nil && checkinError != listError {
             SettingBlock(title: "Check-ins") {
                 if let checkinError, checkinError != listError {
-                    StatusCard(kind: .warning, title: "Check-ins unavailable", detail: checkinError) {
+                    StatusCard(kind: .warning, title: "Check-ins unavailable", detail: checkinError, inInspector: inInspector) {
                         Button("Try again", action: reload).disabled(busy)
                     }
                 }
@@ -289,7 +290,7 @@ struct HerdrRoutinesPanel: View {
                         if checkin.paused { FactChip(text: "Paused", symbol: "pause") }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .appleCard(padding: 10)
+                    .appleCard(padding: 10, inInspector: inInspector)
                 }
             }
         }

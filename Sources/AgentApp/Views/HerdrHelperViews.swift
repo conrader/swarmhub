@@ -155,7 +155,7 @@ struct HerdrHelperCard: View {
                 }
                 if !helper.runLine.isEmpty { Text(helper.runLine).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading) }
             }
-            .appleCard(padding: 10, selected: selected).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
+            .inspectorCard(padding: 10, selected: selected).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
         }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.task ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
     }

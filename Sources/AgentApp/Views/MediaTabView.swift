@@ -15,7 +15,7 @@ struct MediaTabView: View {
                 HStack(spacing: 10) {
                     Button { store.jump(to: item) } label: {
                         HStack(spacing: 10) {
-                            thumbnail(item).frame(width: 40, height: 40).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 7)).clipShape(RoundedRectangle(cornerRadius: 7))
+                            thumbnail(item).frame(width: 40, height: 40).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 7)).clipShape(RoundedRectangle(cornerRadius: 7))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).font(.caption.weight(.medium)).lineLimit(1)
                                 Text("\(item.kind.rawValue.capitalized) · \(item.date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone)))").font(.caption2).foregroundStyle(.secondary)
@@ -24,7 +24,7 @@ struct MediaTabView: View {
                         }.contentShape(Rectangle())
                     }.buttonStyle(.plain).help("Show in chat")
                     if item.kind == .link, let link = item.url.flatMap(URL.init(string:)) { Button { ExternalLink.open(link) } label: { Image(systemName: "arrow.up.right.square") }.buttonStyle(.plain).foregroundStyle(.secondary).help(link.absoluteString) }
-                }.padding(6).background(AppColor.card, in: RoundedRectangle(cornerRadius: 9))
+                }.inspectorCard(padding: 8)
             }
         }
     }

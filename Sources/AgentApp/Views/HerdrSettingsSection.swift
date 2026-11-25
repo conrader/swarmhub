@@ -308,12 +308,19 @@ struct HerdrAgentControls: View {
     @State private var switchTarget: HerdrPickerTarget?
     @State private var switching = false
     @State private var confirmFresh = false
-    private let preset: Bool
+    struct Preset {
+        let templates: [HerdrClient.Template]
+        let models: [HerdrClient.Template.Model]
+        let helper: HerdrClient.BotAgentSettings
+    }
+    private let preset: Preset?
 
-    /// `templates` and `models` (renders and tests) show a read without making one.
-    init(bot: Bot, templates: [HerdrClient.Template]? = nil, models: [HerdrClient.Template.Model] = []) {
-        self.bot = bot; preset = templates != nil
-        _templates = State(initialValue: templates ?? []); _models = State(initialValue: models); _listed = State(initialValue: templates != nil)
+    init(bot: Bot, preset: Preset? = nil) {
+        self.bot = bot
+        self.preset = preset
+        _templates = State(initialValue: preset?.templates ?? [])
+        _models = State(initialValue: preset?.models ?? [])
+        _listed = State(initialValue: preset != nil)
     }
 
     private var shared: String? { store.defaults.string(forKey: HerdrBackend.templateKey) }
@@ -325,32 +332,29 @@ struct HerdrAgentControls: View {
 
     var body: some View {
         let server = store.herdrServer(for: bot), reading = store.herdrAgentReadings[bot.id]
-        VStack(alignment: .leading, spacing: 22) {
-            SettingBlock(title: "AI", detail: listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…") {
-                HerdrTemplatePicker(selection: Binding(get: { template }, set: { value in
-                    guard loaded, template != value else { return }
-                    template = value
-                    models = []
-                    model = HerdrModelChoice.recommended
-                    store.setHerdrTemplate(value, for: bot)
-                    store.setHerdrModel(model, for: bot)
-                    Task { await loadModels(); await applyChoice() }
-                }), templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default")
-                .disabled(!loaded)
-            }
-            if effective?.takesModel == true {
-                // No choice of its own: the first model the server offers, which the bot's next agent is started on.
-                SettingBlock(title: "Bot model", detail: listed ? nil : "Checking…") {
-                    HerdrModelPicker(model: Binding(get: { model }, set: { value in
-                        guard loaded, value != model else { return }
-                        model = value
-                        store.setHerdrModel(value, for: bot)
-                        Task { await applyChoice() }
-                    }), program: effective?.modelAgent ?? effective?.programName, models: models)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                GroupHeading(title: "Bot model", detail: listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…")
+                HerdrTemplatePicker(selection: Binding(get: { template }, set: chooseTemplate),
+                                    templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default", inInspector: true)
+                    .disabled(!loaded)
+                    .accessibilityElement(children: .contain).accessibilityLabel("AI program")
+                if let effective, effective.takesModel {
+                    HerdrModelPicker(model: Binding(get: { model }, set: chooseModel),
+                                     program: effective.modelAgent ?? effective.programName, models: models)
+                        .tint(Color(nsColor: .secondaryLabelColor))
+                        .disabled(switching)
+                } else if listed, effective != nil {
+                    Text(HerdrAgentReading.programPicks).font(.callout).foregroundStyle(.secondary)
                 }
-                .disabled(switching)
-            } else if listed, effective != nil {
-                SettingBlock(title: "Bot model", detail: HerdrAgentReading.programPicks) { EmptyView() }
+                if let running = reading?.runningLine {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(running)
+                        if let pending = reading?.pendingLine { Text(pending) }
+                    }
+                    .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if reading?.vaultSessionStale == true, let core = reading?.core, let target = reading?.session {
                 SettingBlock(title: "Vault session", detail: "The bridge restarted. Recover the idle session to keep this conversation and request fresh Vault access.") {
@@ -366,15 +370,14 @@ struct HerdrAgentControls: View {
                     }.disabled(restarting || store.herdrBotIsBusy(bot))
                 }
             }
-            if let running = reading?.runningLine {
-                StatusCard(kind: .info, title: running, detail: reading?.pendingLine)
-            }
             if !note.isEmpty { Text(note).font(.callout).textSelection(.enabled) }
-            if store.herdrServer(for: bot).kind == .local {
+            Divider()
+            HerdrHelperModelSection(bot: bot, server: server, templates: templates, preset: preset?.helper)
+                .id("\(bot.id)-\(server.id)")
+            Divider()
+            if server.kind == .local {
                 SettingsPaneButton(title: "Manage AIs on this Mac…", pane: .ais)
             }
-            HerdrHelperModelSection(bot: bot, server: store.herdrServer(for: bot), templates: templates)
-                .id("\(bot.id)-\(store.herdrServer(for: bot).id)")
             if store.movableHerdrBots(on: server).contains(bot) {
                 SettingBlock(title: "Server", detail: server.name) {
                     Button("Move to another server…") { moveSource = server }.buttonStyle(.bordered)
@@ -414,8 +417,25 @@ struct HerdrAgentControls: View {
         .task(id: "\(bot.id)-\(server.id)-\(store.localAIRevision)") {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
             loaded = true
-            if !preset { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
+            if preset == nil { await loadTemplates(); await loadModels(); await store.refreshHerdrAgentReading(for: bot) }
         }
+    }
+
+    private func chooseTemplate(_ value: String) {
+        guard loaded, template != value else { return }
+        template = value
+        models = []
+        model = HerdrModelChoice.recommended
+        store.setHerdrTemplate(value, for: bot)
+        store.setHerdrModel(model, for: bot)
+        Task { await loadModels(); await applyChoice() }
+    }
+
+    private func chooseModel(_ value: String) {
+        guard loaded, value != model else { return }
+        model = value
+        store.setHerdrModel(value, for: bot)
+        Task { await applyChoice() }
     }
 
     private func loadTemplates() async {
@@ -513,7 +533,7 @@ struct HerdrOverviewSection: View {
                     Text("Runs on \(server.name)").font(.headline)
                     if server.place != server.name { Text(server.place).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
                 }.frame(minHeight: 32)
-            }.appleCard(padding: 12)
+            }.inspectorCard()
             if store.createsHerdrBots(bot) {
                 HStack(alignment: .top, spacing: 12) {
                     SymbolTile(symbol: "star.fill", colour: AppColor.clay, size: 32)
@@ -521,7 +541,7 @@ struct HerdrOverviewSection: View {
                         Text("Main bot").font(.headline)
                         Text("It can set up other bots, and other bots ask it.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
-                }.appleCard(padding: 12)
+                }.inspectorCard()
             }
             if let reading = store.herdrAgentReadings[bot.id] {
                 Button { store.infoTab = .model } label: {
@@ -531,7 +551,7 @@ struct HerdrOverviewSection: View {
                     }
                 }.buttonStyle(.plain).help("Change them under Model").accessibilityLabel(reading.summary).accessibilityHint("Opens Model")
                 if let running = reading.runningLine, reading.pendingLine != nil || reading.running == .unstated || reading.running == .unknown {
-                    StatusCard(kind: .info, title: running, detail: reading.pendingLine)
+                    StatusCard(kind: .info, title: running, detail: reading.pendingLine, inInspector: true)
                 } else if case .model(_, let label) = reading.running {
                     Text("Running on \(label) now.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
@@ -551,7 +571,7 @@ struct HerdrOverviewSection: View {
             Text(value).font(.system(size: 13, weight: .semibold)).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
             if isDefault { Text("Default").font(.caption).foregroundStyle(.secondary) }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).appleCard(padding: 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).inspectorCard(padding: 10)
     }
 }
 
@@ -564,18 +584,56 @@ struct HerdrTemplatePicker: View {
     /// The template an empty selection resolves to; nil when the server's list is not read yet.
     let defaultName: String?
     let defaultNote: String
+    var inInspector = false
 
     var body: some View {
         let unlisted = !selection.isEmpty && !templates.contains(where: { $0.name == selection }) ? [NamedChoice(id: selection, name: selection, note: templates.isEmpty ? nil : "No longer offered")] : []
         let labels = HerdrProgramName.labels(for: templates)
         let choices = templates.map { NamedChoice(id: $0.name, name: labels[$0.name] ?? $0.label, note: $0.name == defaultName ? defaultNote : nil) } + unlisted
         if !choices.isEmpty {
-            TileGallery(items: choices, minimum: 150, isSelected: { selection.isEmpty ? $0.id == defaultName : $0.id == selection },
-                        name: { choice in [choice.name, choice.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ") },
-                        select: { selection = $0.id == defaultName ? "" : $0.id }) { NameTile(name: $0.name, note: $0.note) }
+            if inInspector {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(choices) { choice in
+                        let selected = isSelected(choice)
+                        Button { select(choice) } label: {
+                            HStack(spacing: 8) {
+                                Text(choice.name).font(.body.weight(.medium))
+                                if let note = choice.note, !note.isEmpty {
+                                    Text(note).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 4)
+                                if selected {
+                                    Image(systemName: "checkmark").font(.body.weight(.semibold)).accessibilityHidden(true)
+                                }
+                            }
+                            .foregroundStyle(.primary).multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .inspectorCard(padding: 8, selected: selected).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).accessibilityLabel(name(choice))
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+            } else {
+                TileGallery(items: choices, minimum: 150, isSelected: isSelected, name: name, select: select) {
+                    NameTile(name: $0.name, note: $0.note)
+                }
+            }
             // The chosen program's own sentence when it is in beta.
             HerdrProgramNote(note: templates.first(where: { $0.name == (selection.isEmpty ? defaultName : selection) })?.note)
         }
+    }
+
+    private func isSelected(_ choice: NamedChoice) -> Bool {
+        choice.id == (selection.isEmpty ? defaultName : selection)
+    }
+
+    private func name(_ choice: NamedChoice) -> String {
+        [choice.name, choice.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    private func select(_ choice: NamedChoice) {
+        selection = choice.id == defaultName ? "" : choice.id
     }
 }
 
