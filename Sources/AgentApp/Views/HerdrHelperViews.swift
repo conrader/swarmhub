@@ -181,6 +181,10 @@ struct HerdrHelperView: View {
     @State private var helper: HerdrClient.Helper?; @State private var core: String?
     @State private var log: HerdrClient.HelperLog?; @State private var problem = ""
     @StateObject private var reply: ChatMessage
+    @State private var guidance = ""
+    @State private var controlError = ""
+    @State private var stopping = false
+    @State private var stopped = false
     @State private var terminal: HerdrTerminalTarget?
 
     init(bot: Bot, selection: HerdrHelperSelection, helper: HerdrClient.Helper? = nil, core: String? = nil, log: HerdrClient.HelperLog? = nil, groupName: String? = nil, closeOverviewDetails: (() -> Void)? = nil) {
@@ -214,8 +218,8 @@ struct HerdrHelperView: View {
                     if !shown.runLine.isEmpty {
                         FactChip(text: shown.runLine).help(shown.difficultyLine.map { "\(bot.name) called this an \($0.lowercased()), and helpers for those run on \(shown.runLine)." } ?? "The model this helper runs on")
                     }
-                    FactChip(text: unavailable ? "Status unavailable" : (listed == nil ? "Finished" : shown.statusLine))
-                    if listed?.isLive == true && !unavailable {
+                    FactChip(text: stopped ? "Stopped" : unavailable ? "Status unavailable" : (listed == nil ? "Finished" : shown.statusLine))
+                    if listed?.isLive == true && !unavailable && !stopped {
                         Button("Open terminal", systemImage: "terminal") {
                             terminal = HerdrTerminalTarget(agent: shown.ref, title: "\(bot.name) · \(shown.name)")
                         }.buttonStyle(.bordered).controlSize(.small).fixedSize()
@@ -230,6 +234,32 @@ struct HerdrHelperView: View {
                         StatusCard(kind: .info, title: "Helper activity is unavailable.", detail: "Showing the last details received from \(store.herdrServer(for: bot).name).")
                     } else if listed == nil, shown != nil {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
+                    }
+                    if let shown, listed?.isLive == true && !unavailable && !stopped {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                TextField("Guide this helper through \(bot.name)…", text: $guidance)
+                                    .onSubmit { guide(shown) }
+                                    .accessibilityIdentifier("helper.guidance")
+                                Button("Send to \(bot.name)") { guide(shown) }
+                                    .disabled(guidance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                            Button("Stop helper", systemImage: "stop.circle") {
+                                stopping = true
+                                controlError = ""
+                                Task {
+                                    defer { stopping = false }
+                                    do {
+                                        try await store.stopHelper(shown, selection: selection, of: bot)
+                                        stopped = true
+                                        await store.refreshHerdrHelpers(on: store.herdrServer(for: bot).id)
+                                    } catch { controlError = error.localizedDescription }
+                                }
+                            }.buttonStyle(.link).accessibilityIdentifier("helper.stop")
+                        }.disabled(stopping)
+                    }
+                    if !controlError.isEmpty {
+                        Text(controlError).font(.callout).foregroundStyle(AppColor.caution)
                     }
                     part("Task", symbol: "text.bubble.fill", colour: AppColor.sky) {
                         Text(shown?.task ?? log?.tasks.first?.text ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -262,6 +292,16 @@ struct HerdrHelperView: View {
             .task(id: selection) { await follow() }
             .onChange(of: listed) { _, now in if let now { helper = now } }
             .onChange(of: store.herdrHelpers[selection.parent]?.core) { _, now in if let now { core = now } }
+    }
+
+    private func guide(_ helper: HerdrClient.Helper) {
+        guard !stopping, !guidance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if store.guideHelper(helper, selection: selection, of: bot, instruction: guidance) {
+            guidance = ""
+            closeOverviewDetails?()
+        } else {
+            controlError = store.errorMessage ?? "The parent session could not accept this instruction."
+        }
     }
 
     /// One part of what the helper did: a small mark and a heading, and under them the content on its own card.

@@ -421,6 +421,42 @@ extension AppStore {
         open(bot, helper: HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: groupRuntime))
     }
 
+    /// Only send through the session that owns this helper. An obsolete group runtime cannot receive a steer.
+    func guideHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot, instruction: String) -> Bool {
+        let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, selection.botID == bot.id, selection.helperID == helper.id,
+              herdrHelperReads[selection.parent] != .unavailable,
+              herdrHelpers[selection.parent]?.helpers.contains(where: { $0.id == helper.id && $0.isLive }) == true
+        else { return false }
+        let text = "Please steer your helper “\(helper.name)” with this instruction:\n\(words)"
+        if let runtime = selection.groupRuntime {
+            guard let group = groups.first(where: { group in
+                group.memberIDs.contains(bot.id) && HerdrBackend.groupRuntimeName(sessionID: turnSessionID(in: group, bot: bot), botID: bot.id) == runtime
+            }), send(text: text, to: group, recipientIDs: [bot.id], queueChoice: true, usesComposerReply: false) else { return false }
+            open(group)
+        } else {
+            guard send(text: text, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true) else { return false }
+            open(bot)
+        }
+        return true
+    }
+
+    func stopHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot) async throws {
+        let server = herdrServer(for: bot)
+        guard selection.botID == bot.id, selection.helperID == helper.id,
+              let snapshot = herdrHelpers[selection.parent] else {
+            throw BackendError.unavailable("This helper is no longer available.")
+        }
+        let client = try herdrClient(for: server)
+        let current = try await client.helpers(of: snapshot.parent)
+        guard current.core == snapshot.core, current.parent == snapshot.parent,
+              herdrServer(for: bot) == server,
+              current.helpers.contains(where: { $0.ref == helper.ref && $0.isLive }) else {
+            throw BackendError.unavailable("The helper is no longer running in this session.")
+        }
+        try await client.end(helper.ref)
+    }
+
     /// The helper's own session as events (`HerdrEvents.swift`): its tasks, replies, tool calls and the reply it is writing.
     func herdrHelperEvents(_ helper: HerdrClient.AgentRef, of bot: Bot) throws -> AsyncThrowingStream<HerdrEvent, Error> {
         try herdrClient(for: herdrServer(for: bot)).events(of: helper)

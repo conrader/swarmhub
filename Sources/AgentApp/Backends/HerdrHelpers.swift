@@ -2,8 +2,7 @@ import Foundation
 
 /// Helper agents. A bot's agent can hand a task to another agent with `swarmhub-herdr helper start` in its own
 /// shell; the bridge starts it on the runtime and model its policy gives that difficulty, and ends it with the agent
-/// that started it. The app only reads them: which helpers an agent has, and each helper's task, tool calls, replies
-/// and terminal. Foundation only, like the rest of `HerdrClient`.
+/// that started it. This client reads each helper's task, tool calls, replies and terminal. Foundation only, like the rest of `HerdrClient`.
 extension HerdrClient {
     /// An agent as the bridge names one in a path: its terminal's address and creation time.
     struct AgentRef: Codable, Sendable, Hashable { let address: String; let createdMs: UInt64 }

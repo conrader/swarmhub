@@ -128,6 +128,48 @@ private let listingJSON = """
     #expect(store.herdrHelpers.isEmpty)
 }
 
+@MainActor @Test func helperGuidanceSteersItsBusyParentInPlace() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    let list = try decoded(HerdrClient.Helpers.self, listingJSON)
+    let helper = list.helpers[1]
+    store.herdrHelpers[bot.id] = list
+    let selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id)
+    try await startSteerableTurn(store, backend, running: true)
+    store.open(helper, of: bot)
+    #expect(store.guideHelper(helper, selection: selection, of: bot, instruction: "Use the blue render."))
+    try await backend.calls.wait { $0.contains { $0.hasPrefix("steer:") && $0.contains(helper.name) && $0.contains("Use the blue render.") } }
+    #expect(store.showsDirectChat(bot))
+    await backend.end()
+}
+
+@MainActor @Test func groupHelperGuidancePreservesTheGroupDraftAndTargetsItsParent() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    let other = Bot(name: "Reviewer", backend: .mock)
+    store.bots.append(other)
+    let quote = ChatMessage(role: .assistant, content: "Group draft reply target")
+    let group = GroupChat(name: "Render", memberIDs: [bot.id, other.id], messages: [quote])
+    store.groups = [group]
+    store.draftReplyIDs[group.id] = quote.id
+    let runtime = try #require(HerdrBackend.groupRuntimeName(sessionID: store.turnSessionID(in: group, bot: bot), botID: bot.id))
+    let list = try decoded(HerdrClient.Helpers.self, listingJSON)
+    let helper = list.helpers[1]
+    var selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: "retired")
+    store.herdrHelpers[selection.parent] = list
+    #expect(!store.guideHelper(helper, selection: selection, of: bot, instruction: "Wrong session"))
+    selection.groupRuntime = runtime
+    store.herdrHelpers[selection.parent] = list
+    #expect(store.guideHelper(helper, selection: selection, of: bot, instruction: "Review the lighting."))
+    let message = try #require(group.messages.last(where: { $0.role == .user }))
+    #expect(message.content.contains(helper.name) && message.content.contains("Review the lighting."))
+    #expect(message.metadata[TurnWaitCopy.recipients] == bot.id.uuidString && message.replyToID == nil)
+    #expect(store.selectedGroup === group && store.draftReplyIDs[group.id] == quote.id)
+    #expect(bot.messages.isEmpty && other.messages.isEmpty)
+    try await backend.calls.wait { !$0.isEmpty }
+    await backend.end()
+}
+
 /// The helper settings are the server's: the form offers only what the server listed and sends its own field names back.
 @Test func helperSettingsAreEditedWithTheServersOwnChoices() throws {
     let settings = try decoded(HerdrHelperSettings.self, """
