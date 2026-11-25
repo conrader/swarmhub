@@ -931,6 +931,100 @@ def activity_decisions(source_app):
             server.shutdown()
 
 
+def team_pack(source_app, appearance):
+    import Quartz
+    from AppKit import NSRunningApplication
+
+    with private_workspace(source_app) as (app, home, store):
+        bots = [dict(id=str(uuid.uuid4()), name=name, title=role, persona=instructions, backend="Mock")
+                for name, role, instructions in (("ScoutQA", "Tester", "Check the fixtures."),
+                                                ("PatchQA", "Writer", "Write the release notes."))]
+        group = dict(id=str(uuid.uuid4()), name="Release crew", memberIDs=[b["id"] for b in bots], messages=[])
+        store.write_text(json.dumps(dict(version=2, bots=bots, groups=[group])))
+        preferences = home / "Library/Preferences"
+        preferences.mkdir(exist_ok=True, parents=True)
+        domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
+        (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({"appearance": appearance}))
+        destination = home / "SwarmHub Team Pack.json"
+        with open_workspace(app, home) as window:
+            application = attribute(window, "AXParent")
+            pid = ax.AXUIElementGetPid(window, None)[1]
+            command = Quartz.kCGEventFlagMaskCommand
+            shift = Quartz.kCGEventFlagMaskShift
+
+            def key(code, flags=0, text=None):
+                def frontmost():
+                    focused = attribute(ax.AXUIElementCreateSystemWide(), "AXFocusedApplication")
+                    return focused is not None and ax.AXUIElementGetPid(focused, None)[1] == pid
+                if not frontmost():
+                    NSRunningApplication.runningApplicationWithProcessIdentifier_(pid).activateWithOptions_(3)
+                    wait_for("private QA app keyboard focus", frontmost)
+                # The macOS file dialogs forward real keyboard events to the panel service.
+                for down in (True, False):
+                    if not frontmost():
+                        raise RuntimeError("The private QA app lost keyboard focus")
+                    event = Quartz.CGEventCreateKeyboardEvent(None, code, down)
+                    Quartz.CGEventSetFlags(event, flags)
+                    if text:
+                        Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
+                    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+
+            def find_button(title):
+                return next((b for w in attribute(application, "AXWindows") or []
+                             for b in buttons(w) if label(b) == title), None)
+
+            def click(title):
+                wait_for(title, lambda: find_button(title))
+                assert ax.AXUIElementPerformAction(find_button(title), "AXPress") == 0
+
+            def go_to(path):
+                key(5, command | shift)
+                time.sleep(0.4)
+                key(0, command)
+                path = str(path)
+                for i in range(0, len(path), 10):
+                    key(0, text=path[i:i+10])
+                time.sleep(0.4)
+                key(36)
+                time.sleep(0.7)
+
+            wait_for("group row", lambda: any(label(b).startswith("Release crew,") for b in buttons(window)))
+            press(window, "Release crew", sidebar=True)
+            if not find_button("Export Team Pack…"):
+                click("Details")
+            click("Export Team Pack…")
+            wait_for("save dialog", lambda: find_button("Save"))
+            go_to(home)
+            dialog = next(w for w in attribute(application, "AXWindows") if label(w) == "Save")
+            assert any(attribute(e, "AXRole") == "AXPopUpButton" and attribute(e, "AXValue") == home.name
+                       for e in descendants(dialog)), "The Save dialog must point to the scratch folder"
+            click("Save")
+            wait_for("pack export", destination.exists)
+            assert [m["name"] for m in json.loads(destination.read_text())["members"]] == ["ScoutQA", "PatchQA"]
+            key(45, command | shift)
+            click("Import Team Pack…")
+            wait_for("open dialog", lambda: find_button("Open"))
+            go_to(destination)
+            if not find_button("Import group"):
+                click("Open")
+            wait_for("pack preview", lambda: find_button("Import group"))
+            assert len(json.loads(store.read_text())["groups"]) == 1
+            click("Import group")
+            wait_for("group import", lambda: len(json.loads(store.read_text())["groups"]) == 2)
+            saved = json.loads(store.read_text())
+            by_id = {b["id"]: b for b in saved["bots"]}
+            imported_ids = saved["groups"][-1]["memberIDs"]
+            imported = [by_id[i] for i in imported_ids]
+            assert [b["persona"] for b in imported] == [b["persona"] for b in bots]
+            assert all(b["backend"] == "Herdr" and not b["messages"] for b in imported)
+            assert set(imported_ids).isdisjoint(saved["groups"][0]["memberIDs"])
+            wait_for("group preview closed", lambda: not find_button("Import group"))
+            # Quit through the same app after the file panels have relinquished keyboard focus.
+            key(12, command)
+            wait_for("private workspace to quit", lambda: not attribute(application, "AXWindows"), seconds=12)
+            print(f"{appearance}: exported, reviewed and imported a two-bot group through the native file dialogs.")
+
+
 def team_inspector(source_app, appearance):
     token = uuid.uuid4().hex
     bots = [dict(id=str(uuid.uuid4()), name=name, title=title, backend="Herdr")
@@ -1034,6 +1128,9 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity-decisions":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--team-pack":
+        for appearance in ("Dark", "Light"):
+            team_pack(Path(sys.argv[2]).resolve(strict=True), appearance)
     elif len(sys.argv) == 3 and sys.argv[1] == "--team":
         for appearance in ("Dark", "Light"):
             team_inspector(Path(sys.argv[2]).resolve(strict=True), appearance)
@@ -1052,4 +1149,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

@@ -138,13 +138,14 @@ It presents two current permission requests and one from an old session. The dri
 
 The navigation check opens an unread group from Activity, returns to an existing draft, sends it, and watches that bot move from working to unread. Selecting the answer clears its entry. A second selection opens an incomplete reply that still needs attention.
 
-To check the Team inspector in both appearances, run the window driver against its private CI watch and completed handoff.
+To check the Team inspector and Team Pack sharing in both appearances, run the native window driver.
 
 ```sh
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --team /Applications/SwarmHub.app
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --team-pack /Applications/SwarmHub.app
 ```
 
-The driver opens the handoff, checks that another bot has its own activity, then closes and immediately reopens Details. It also checks the rightmost controls at the minimum window size.
+The driver opens the handoff, checks that another bot has its own activity, then closes and immediately reopens Details. It also checks the rightmost controls at the minimum window size. The Team Pack check saves a two-bot group through the macOS file dialog, opens the JSON from New Group, checks that the preview leaves the store untouched and then verifies the imported group and its new bots.
 
 To check replies that arrive while the selected chat is out of view, run the native window driver.
 
