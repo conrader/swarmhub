@@ -76,10 +76,55 @@ struct HerdrTeamRegistrationTests {
         return (store, server, http.host)
     }
 
+    @MainActor @Test func longMainPersonaIsCappedOnlyOnTheRegistrationWire() async throws {
+        let posts = AwaitableLog<Data>()
+        let (store, server, host) = fixture { request in
+            if request.url?.path == "/api/workspace" { return (200, ["core": "c", "agents": [], "templates": []]) }
+            guard request.httpMethod == "POST", request.url?.path == "/api/bots",
+                  let data = request.bodyData else { return (404, [:]) }
+            posts.append(data)
+            guard data.count <= 128 * 1024 else { return (413, [:]) }
+            guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  Set(envelope.keys) == ["bots"], let rows = envelope["bots"] as? [[String: Any]],
+                  rows.allSatisfy({ row in
+                      guard let instructions = row["instructions"] as? String else { return false }
+                      return instructions.utf8.count <= 12 * 1024
+                  }) else { return (422, [:]) }
+            return (200, [:])
+        }
+        let persona = String(repeating: "雪\"\\\n🙂", count: 1_300) + "saved persona tail"
+        let team = (0..<16).map { Bot(name: "Member \($0)", persona: persona, backend: .herdr) }
+        let main = team[15]
+        store.bots = team
+        store.setCanManageBots(main, true)
+        store.aboutYou = String(repeating: "雪", count: 800)
+        store.removedBots[server.id] = ["another-installation"]
+        var backend = try store.herdrBackend(for: main)
+        backend.messageNote = nil
+        backend.roster = nil
+        let fullLaunch = try #require(backend.launchInstructions)
+        #expect(fullLaunch.utf8.count > 12 * 1024)
+
+        #expect(try await store.ensureTeam(server))
+        let bodies = posts.all
+        #expect(bodies.count > 1)
+        let sent = try bodies.flatMap { try rows($0) }
+        let expectedIDs = [main.id.uuidString.lowercased()] + team.dropLast().map { $0.id.uuidString.lowercased() }
+        #expect(sent.compactMap { $0["id"] as? String } == expectedIDs)
+        let instructions = try #require(sent.first?["instructions"] as? String)
+        #expect(instructions == HerdrClient.plain(fullLaunch, bytes: 12 * 1024))
+        #expect(sent.first?["main"] as? Bool == true && team.allSatisfy { store.bridgeCoordinates($0) })
+        #expect(MockHTTPProtocol.recorded(host).compactMap { $0.url?.path } == ["/api/workspace"] + Array(repeating: "/api/bots", count: bodies.count))
+        #expect(main.persona == persona)
+        try store.saveThrowing()
+        let saved = try StoreFile.decode(Data(contentsOf: store.fileURL))
+        #expect(saved.bots.first { $0.id == main.id }?.persona == persona)
+    }
+
     @MainActor @Test func partialRegistrationAndRemovalRetryCommitOnlyAfterSuccess() async throws {
         let posts = AwaitableLog<[String]>()
         let removals = LockedTrace()
-        let rejectSecond = LockedValue(true)
+        let rejectAfterFirst = LockedValue(true)
         let rejectRemoval = LockedValue(true)
         let (store, server, _) = fixture { req in
             let path = req.url?.path ?? ""
@@ -94,7 +139,7 @@ struct HerdrTeamRegistrationTests {
             #expect(req.value(forHTTPHeaderField: "Authorization") == "Bearer fixture")
             #expect(req.value(forHTTPHeaderField: "Origin") == "http://\(req.url!.host!)")
             posts.append(bots.compactMap { $0["id"] as? String })
-            return (posts.all.count == 2 && rejectSecond.current ? 404 : 200, [:])
+            return (posts.all.count >= 2 && rejectAfterFirst.current ? 404 : 200, [:])
         }
         let team = (0..<26).map { Bot(name: "Bot \($0)", persona: String(repeating: "a\"\n", count: 1_300), backend: .herdr) }
         team[2].isHidden = true
@@ -113,6 +158,14 @@ struct HerdrTeamRegistrationTests {
         #expect(store.teamSynced[server.id] == nil && !store.bridgeCoordinates(main))
         #expect(removals.read().isEmpty)
 
+        // A new attempt starts at batch zero, but this directory already accepted batch one.
+        do {
+            _ = try await store.ensureTeam(server)
+            Issue.record("An acknowledged batch must rule out legacy fallback on retry")
+        } catch HerdrClient.Failure.http(404, _) {}
+        #expect(posts.all.count == 3 && posts.all.last == posts.all.first)
+        #expect(store.teamSynced[server.id] == nil && !store.bridgeCoordinates(main))
+
         // Delete a member confirmed by the first batch and transfer the role before retrying.
         let deleted = main.id.uuidString.lowercased()
         store.bots.removeAll { $0 === main }
@@ -120,7 +173,7 @@ struct HerdrTeamRegistrationTests {
         store.setCanManageBots(team[0], true)
         store.setCanManageBots(main, true) // A stale editor or pending decision for the deleted manager.
         #expect(!store.createsHerdrBots(main) && store.createsHerdrBots(team[0]))
-        _ = rejectSecond.swap(false)
+        _ = rejectAfterFirst.swap(false)
         do {
             _ = try await store.ensureTeam(server)
             Issue.record("A removal failure must fail the sync")
@@ -245,6 +298,51 @@ struct HerdrTeamRegistrationTests {
         let again = try await store.ensureTeam(server)
         #expect(!first && !again && !store.bridgeCoordinates(bot))
         #expect(MockHTTPProtocol.recorded(host).compactMap { $0.url?.path } == ["/api/workspace", "/api/bots"])
+    }
+
+    @MainActor @Test(arguments: [0, 503])
+    func firstRegistration404AfterTransientFailureResumesLegacySends(_ firstStatus: Int) async throws {
+        let status = LockedValue(firstStatus)
+        let message = "Check whether my first message arrived on the old bridge."
+        let (store, server, host) = fixture { request in
+            switch request.url?.path {
+            case "/api/workspace": return (200, ["core": "c", "agents": [], "templates": [["name": "fixture"]]])
+            case "/api/bots":
+                if status.current == 0 { return (0, URLError(.networkConnectionLost)) }
+                return (status.current, [:])
+            case "/api/profiles": return (200, [Any]())
+            case "/api/agents":
+                let body = request.bodyData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let task = body?["task"] as? String
+                #expect(task?.contains(HerdrBotMessage.marker) == true && task?.hasSuffix(message) == true)
+                return (201, ["address": "t1", "created_ms": 1, "state": "live", "name": "fixture"])
+            case "/api/history/c/t1/1":
+                return (200, ["items": [["id": 1, "kind": "task", "text": message],
+                                        ["id": 2, "kind": "reply", "text": "Received"]]])
+            default: return (404, [:])
+            }
+        }
+        let bot = Bot(name: "Legacy", backend: .herdr)
+        store.bots = [bot]
+        await store.syncTeam(server)
+        let pendingKey = "herdrTeamPendingMembers.\(server.id)"
+        #expect(store.defaults.stringArray(forKey: pendingKey) == [bot.id.uuidString.lowercased()])
+        #expect(store.teamErrors[server.id] != nil && !store.bridgeCoordinates(bot))
+
+        _ = status.swap(404)
+        store.launchWorkEnabled = true
+        let request = AgentRequest(sessionID: "fixture", systemPrompt: "", messages: [("user", message)])
+        let stream = try await store.herdrBackend(for: bot).send(request)
+        var reply = ""
+        for try await event in stream {
+            if case .replace(let text) = event { reply = text }
+        }
+        #expect(reply == "Received")
+        let cached = try await store.ensureTeam(server)
+        #expect(!cached && !store.bridgeCoordinates(bot))
+        #expect(store.defaults.object(forKey: pendingKey) == nil && store.teamErrors[server.id] == nil)
+        let posts = MockHTTPProtocol.recorded(host).filter { $0.httpMethod == "POST" }
+        #expect(posts.compactMap { $0.url?.path } == ["/api/bots", "/api/bots", "/api/agents"])
     }
 
     @MainActor @Test func deletionAfterLostRegistrationResponseCleansUpOnlyTheAttemptedBot() async throws {

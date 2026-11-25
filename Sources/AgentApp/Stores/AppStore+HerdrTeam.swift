@@ -61,6 +61,7 @@ extension AppStore {
         let local = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
         let owned = ownedTeam(server)
         let pendingKey = "herdrTeamPendingMembers.\(server.id)"
+        let partialKey = "herdrTeamPartialRegistration.\(server.id)"
         let pending = Set(defaults.stringArray(forKey: pendingKey) ?? [])
         guard !local.isEmpty || !owned.isEmpty || !pending.isEmpty else { return false }
         let main = herdrMainBot(on: server)?.id
@@ -68,8 +69,10 @@ extension AppStore {
             var backend = try herdrBackend(for: bot)
             backend.messageNote = nil
             backend.roster = nil
+            // The bridge limits decoded instructions independently of its JSON body limit.
+            let instructions = HerdrClient.plain(backend.launchInstructions ?? "", bytes: 12 * 1024)
             return HerdrClient.TeamMember(id: bot.id.uuidString.lowercased(), name: String(bot.name.prefix(40)), agentName: backend.agentName,
-                template: backend.template ?? "", model: backend.model ?? "", instructions: backend.launchInstructions ?? "",
+                template: backend.template ?? "", model: backend.model ?? "", instructions: instructions,
                 projects: backend.projects.map(\.id), main: main == bot.id,
                 takesMessages: herdrTakesMessages(bot), takesInitiative: takesInitiative(bot), notifications: bot.notificationsEnabled)
         }
@@ -95,6 +98,14 @@ extension AppStore {
                 }
                 do { try await client.registerTeam(batch) }
                 catch let failure as HerdrClient.Failure {
+                    if case .http(404, _) = failure, index == 0, owned.isEmpty, !defaults.bool(forKey: partialKey) {
+                        // A lost first response left uncertain IDs. No batch was acknowledged,
+                        // and this bridge has no directory, so resume legacy coordination.
+                        defaults.removeObject(forKey: pendingKey)
+                        teamSynced[server.id] = (members, now(), false)
+                        if teamErrors[server.id] != nil { teamErrors[server.id] = nil }
+                        return false
+                    }
                     // The router and its transactional handler make these definitive refusals.
                     switch failure {
                     case .unauthorized, .refusedHost, .http(400..<500, _):
@@ -102,13 +113,10 @@ extension AppStore {
                         savePendingMembers(outstanding, key: pendingKey)
                     default: break
                     }
-                    if case .http(404, _) = failure, index == 0, owned.isEmpty, pending.isEmpty {
-                        // Older bridges have no directory. Cache that capability for the usual poll interval.
-                        teamSynced[server.id] = (members, now(), false)
-                        return false
-                    }
                     throw failure
                 }
+                // Even on the next attempt, a 404 after an acknowledged upsert is a sync error.
+                if index == 0 && owned.isEmpty { defaults.set(true, forKey: partialKey) }
             }
             var forgotten = Set<String>()
             for removed in removals.sorted() {
@@ -122,6 +130,7 @@ extension AppStore {
             defaults.set(Array(owned.union(ids).subtracting(forgotten)), forKey: "herdrTeamMembers.\(server.id)")
             outstanding.subtract(ids.union(forgotten))
             savePendingMembers(outstanding, key: pendingKey)
+            defaults.removeObject(forKey: partialKey)
             teamSynced[server.id] = (members, now(), true)
             return true
         }
