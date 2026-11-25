@@ -73,6 +73,14 @@
     if (!$("takeover")) {
       window.chatModelTerminal = {
         ready: () => state.ready,
+        // Measure the actual renderer at this window's font scale. The sheet
+        // includes the web heading, status and dialog padding above these rows.
+        heightForRows: rows => {
+          const screen = host.querySelector(".xterm-screen");
+          const cell = screen?.getBoundingClientRect().height / terminal.rows;
+          if (!(cell > 0)) return null;
+          return Math.ceil(innerHeight - host.clientHeight + rows * cell);
+        },
         closed: () => session !== state || state.ended || socket.readyState >= WebSocket.CLOSING,
         key: key => sendBytes(state, encoder.encode(key)),
         promptLine: () => {
