@@ -207,6 +207,19 @@ extension HerdrClient {
         }
 
         let id: Int64
+        var enabled: Bool? = nil
+        var controlRevision: Int64? = nil
+        var trigger: String? = nil
+        var lastOutcome: String? = nil
+        var bot: String? = nil
+        var title: String {
+            switch schedule.kind {
+            case "ci": "CI check #\(id)"
+            case "daily": "Daily check-in #\(id)"
+            case "interval": "Recurring check-in #\(id)"
+            default: "Scheduled check-in #\(id)"
+            }
+        }
         let what: String
         let paused: Bool
         let schedule: Schedule
@@ -259,7 +272,15 @@ extension HerdrClient {
     func botCheckins(_ id: UUID) async throws -> [BotCheckin] {
         struct Plans: Decodable { let checkins: [BotCheckin] }
         let plans: Plans = try await get("/api/bots/\(id.uuidString.lowercased())/checkins")
-        return plans.checkins
+        return plans.checkins.filter { $0.bot == nil || $0.bot?.lowercased() == id.uuidString.lowercased() }
+    }
+
+    func setCheckin(_ item: BotCheckin, for owner: UUID, enabled: Bool) async throws -> BotCheckin {
+        guard let revision = item.controlRevision, item.bot?.lowercased() == owner.uuidString.lowercased() else {
+            throw BackendError.unavailable("Refresh the check-in before changing it.")
+        }
+        return try await post("/api/bots/\(owner.uuidString.lowercased())/checkins/\(item.id)/enabled",
+                              ["revision": revision, "enabled": enabled])
     }
 
     private func postRoutine<T: Decodable>(_ path: String, _ body: some Encodable) async throws -> T {
@@ -325,9 +346,11 @@ struct HerdrRoutineSessions: Sendable {
     }
 }
 
-func routinesForBot(_ routines: [HerdrClient.Routine], agentName: String, sessions: HerdrRoutineSessions?) -> [HerdrClient.Routine] {
-    routines.filter {
-        $0.state != .archived && (HerdrRoutineSessions.matches($0.agent, agentName) || sessions?.contains($0) == true)
+func routinesForBot(_ routines: [HerdrClient.Routine], agentName: String, sessions: HerdrRoutineSessions?, owner: UUID? = nil) -> [HerdrClient.Routine] {
+    routines.filter { routine in
+        guard routine.state != .archived else { return false }
+        if let owner, let recorded = routine.ownerBot { return recorded == owner }
+        return HerdrRoutineSessions.matches(routine.agent, agentName) || sessions?.contains(routine) == true
     }
 }
 

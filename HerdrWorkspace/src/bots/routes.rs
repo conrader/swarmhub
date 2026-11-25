@@ -43,6 +43,7 @@ pub(crate) fn routes() -> Router<Workspace> {
         .route("/api/bots/{id}/read", post(read))
         .route("/api/bots/{id}/exchanges", get(exchanges))
         .route("/api/bots/{id}/checkins", get(checkins).post(plan))
+        .route("/api/bots/{id}/checkins/{checkin}/enabled", post(checkin_enabled))
         .route("/api/bots/{id}/checkins/{checkin}/cancel", post(cancel))
         .route("/api/bots/{id}/promises", get(promises))
         .route(
@@ -353,7 +354,11 @@ async fn checkins(
         let all = wants_all(&which);
         let (found, set) = for_bot(&w, &id, |ctx, bot| {
             Ok((
-                plans::checkins(ctx.db, Some(&bot.id), all)?,
+                plans::checkins(ctx.db, Some(&bot.id), all)?.into_iter().map(|item| {
+                    let mut value = json!(item);
+                    value["trigger"] = json!(item.schedule.words(ctx));
+                    value
+                }).collect::<Vec<_>>(),
                 ctx.set.clone(),
             ))
         })?;
@@ -380,6 +385,24 @@ async fn plan(State(w): State<Workspace>, Path(id): Path<String>, bytes: Bytes) 
         })?
         .map_err(|why| refusal(StatusCode::CONFLICT, "refused", &why))?;
         Ok((StatusCode::CREATED, Json(json!({"checkin":planned}))).into_response())
+    })())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckinControl { enabled: bool, revision: i64 }
+
+async fn checkin_enabled(State(w): State<Workspace>, Path((id, checkin)): Path<(String,i64)>, bytes: Bytes) -> Response {
+    answered((|| {
+        let change: CheckinControl = body(&bytes, "Specify enabled and the check-in revision.")?;
+        let updated = for_bot(&w, &id, |ctx, bot| {
+            Ok(plans::set_enabled(ctx, &bot.id, checkin, change.enabled, change.revision)?.map(|item| {
+                let mut value = json!(item);
+                value["trigger"] = json!(item.schedule.words(ctx));
+                value
+            }))
+        })?.map_err(|why| refusal(StatusCode::CONFLICT, "checkin_changed", why))?;
+        Ok(Json(updated).into_response())
     })())
 }
 

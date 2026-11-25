@@ -1,0 +1,5 @@
+BEGIN IMMEDIATE;
+ALTER TABLE bot_checkins ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1));
+ALTER TABLE bot_checkins ADD COLUMN control_revision INTEGER NOT NULL DEFAULT 0;
+PRAGMA user_version = 69;
+COMMIT;

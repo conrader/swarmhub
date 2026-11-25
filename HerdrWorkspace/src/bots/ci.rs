@@ -124,7 +124,7 @@ fn failed_check(runs: &[Value], sha: &str) -> Option<u64> {
 
 fn settle(ctx: &Ctx<'_>, id: i64, bot: &str, url: &str, outcome: &Outcome) -> rusqlite::Result<()> {
     // Recheck inside the transaction: a person may have cancelled or paused it while GitHub was answering.
-    let owned = "id=?1 AND bot=?2 AND state='planned' AND json_extract(schedule,'$.failure') IS NULL AND EXISTS(SELECT 1 FROM bots WHERE id=?2 AND removed_ms IS NULL AND takes_initiative)";
+    let owned = "id=?1 AND bot=?2 AND enabled AND state='planned' AND json_extract(schedule,'$.failure') IS NULL AND EXISTS(SELECT 1 FROM bots WHERE id=?2 AND removed_ms IS NULL AND takes_initiative)";
     match outcome {
         Outcome::Waiting => {}
         Outcome::Failed(link) => {
@@ -164,9 +164,9 @@ fn settle(ctx: &Ctx<'_>, id: i64, bot: &str, url: &str, outcome: &Outcome) -> ru
 }
 
 /// Reserve all active watches for the first due PR in one transaction.
-fn reserve(ctx: &Ctx<'_>) -> rusqlite::Result<Vec<(i64, String, String)>> {
+fn reserve(ctx: &Ctx<'_>) -> rusqlite::Result<Vec<(i64, String, String, i64)>> {
     let active = "FROM bot_checkins c JOIN bots b ON b.id=c.bot
-        WHERE b.removed_ms IS NULL AND b.takes_initiative AND c.state='planned'
+        WHERE b.removed_ms IS NULL AND b.takes_initiative AND c.enabled AND c.state='planned'
         AND json_extract(c.schedule,'$.kind')='ci' AND json_extract(c.schedule,'$.failure') IS NULL";
     let first: Option<String> = ctx.db.query_row(&format!(
         "SELECT json_extract(c.schedule,'$.url') {active} AND c.next_ms<=?1 ORDER BY c.next_ms,c.id LIMIT 1"),
@@ -175,7 +175,7 @@ fn reserve(ctx: &Ctx<'_>) -> rusqlite::Result<Vec<(i64, String, String)>> {
         return Ok(Vec::new());
     };
     let mut statement = ctx.db.prepare_cached(&format!(
-        "SELECT c.id,c.bot,c.created_ms {active} AND json_extract(c.schedule,'$.url')=?1"
+        "SELECT c.id,c.bot,c.created_ms,c.control_revision {active} AND json_extract(c.schedule,'$.url')=?1"
     ))?;
     let records = statement
         .query_map([&url], |r| {
@@ -183,11 +183,12 @@ fn reserve(ctx: &Ctx<'_>) -> rusqlite::Result<Vec<(i64, String, String)>> {
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut batch = Vec::new();
-    for (id, bot, created) in records {
+    for (id, bot, created, revision) in records {
         if ctx.now - created > 7 * 86_400_000 {
             settle(
                 ctx,
@@ -201,7 +202,7 @@ fn reserve(ctx: &Ctx<'_>) -> rusqlite::Result<Vec<(i64, String, String)>> {
                 "UPDATE bot_checkins SET next_ms=?2 WHERE id=?1",
                 params![id, ctx.now + 300_000],
             )?;
-            batch.push((id, bot, url.clone()));
+            batch.push((id, bot, url.clone(), revision));
         }
     }
     Ok(batch)
@@ -220,12 +221,14 @@ pub(super) async fn serve(history: History) {
         // Reserve a single PR, grouping all interested bots. The lease also bounds retries after a restart.
         let batch = super::write(&history, reserve);
         if let Ok(batch) = batch
-            && let Some((_, _, url)) = batch.first()
+            && let Some((_, _, url, _)) = batch.first()
         {
             let outcome = inspect(&client, url).await;
             let _ = super::write(&history, |ctx| {
-                for (id, bot, url) in &batch {
-                    settle(ctx, *id, bot, url, &outcome)?;
+                for (id, bot, url, revision) in &batch {
+                    let current: bool = ctx.db.query_row("SELECT EXISTS(SELECT 1 FROM bot_checkins
+                        WHERE bot=?1 AND id=?2 AND control_revision=?3 AND enabled)", params![bot,id,revision], |r| r.get(0))?;
+                    if current { settle(ctx, *id, bot, url, &outcome)?; }
                 }
                 Ok(())
             });

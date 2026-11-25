@@ -10,7 +10,7 @@ struct HerdrRoutinesPanel: View {
 
     @State private var routines: [HerdrClient.Routine]?
     @State private var sessions: HerdrRoutineSessions?
-    @State private var checkins: [HerdrClient.BotCheckin] = []
+    @State private var checkins: [HerdrClient.BotCheckin]?
     @State private var listError: String?
     @State private var sessionError: String?
     @State private var checkinError: String?
@@ -43,7 +43,7 @@ struct HerdrRoutinesPanel: View {
     }
 
     private var agentName: String { HerdrBackend.agentName(botName: bot.name, botID: bot.id) }
-    private var visibleRoutines: [Routine] { routinesForBot(routines ?? [], agentName: agentName, sessions: sessions) }
+    private var visibleRoutines: [Routine] { routinesForBot(routines ?? [], agentName: agentName, sessions: sessions, owner: bot.id) }
     private var busy: Bool { loading || changing }
     private var liveTarget: HerdrClient.AgentRef? { bot.isReadOnlyArchive ? nil : sessions?.liveTarget }
 
@@ -51,7 +51,7 @@ struct HerdrRoutinesPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             if let actionError {
-                StatusCard(kind: .warning, title: "Routine action failed", detail: actionError, inInspector: inInspector) {}
+                StatusCard(kind: .warning, title: "Schedule action failed", detail: actionError, inInspector: inInspector) {}
             }
             routineList
             if let sessionError, listError == nil {
@@ -62,7 +62,6 @@ struct HerdrRoutinesPanel: View {
                 Text("Send this bot a message to start a session, then refresh to create a routine.")
                     .font(.callout).foregroundStyle(.secondary)
             }
-            checkinSection
         }
         .task(id: refresh) { await load() }
         .onDisappear {
@@ -123,13 +122,48 @@ struct HerdrRoutinesPanel: View {
             StatusCard(kind: .warning, title: "Routines unavailable", detail: listError, inInspector: inInspector) {
                 Button("Try again", action: reload).disabled(busy)
             }
-        } else if routines == nil || (visibleRoutines.isEmpty && loading) {
-            StatusCard(kind: .working, title: "Loading routines…", inInspector: inInspector) {}
-        } else if visibleRoutines.isEmpty {
-            StatusCard(kind: .info, title: "No routines yet",
-                       detail: "Routines send instructions to this bot’s session on a schedule. They run on the workspace server, even when the app is closed.", inInspector: inInspector) {}
-        } else {
-            ForEach(visibleRoutines) { routine in routineCard(routine) }
+        }
+        if let checkinError {
+            StatusCard(kind: .warning, title: "Check-ins unavailable", detail: checkinError, inInspector: inInspector) {
+                Button("Try again", action: reload).disabled(busy)
+            }
+        }
+        if loading || (routines == nil && listError == nil) || (checkins == nil && checkinError == nil) {
+            ProgressView("Loading schedules…").controlSize(.small)
+        } else if listError == nil, sessionError == nil, checkinError == nil, visibleRoutines.isEmpty, checkins?.isEmpty == true {
+            Text("No routines or check-ins yet.").foregroundStyle(.secondary)
+        }
+        ForEach(visibleRoutines) { routine in
+            ScheduleDisclosure(title: routine.name, kind: "Routine", next: routine.nextAt.map { routineDate($0, in: timeZone) },
+                               enabled: routine.state == .active, locked: busy || bot.isReadOnlyArchive || listError != nil,
+                               setEnabled: { enabled in
+                change { update(try await $0.controlRoutine(routine.id, enabled ? .resume : .pause)) }
+            }) {
+                routineCard(routine)
+            }
+        }
+        ForEach(checkins ?? []) { item in
+            ScheduleDisclosure(title: item.title, kind: "Check-in",
+                               next: item.paused ? nil : item.nextMs.map { routineDate($0, in: timeZone) },
+                               enabled: item.enabled ?? !item.paused,
+                               locked: busy || bot.isReadOnlyArchive || item.controlRevision == nil || checkinError != nil,
+                               setEnabled: { enabled in
+                change { client in
+                    let updated = try await client.setCheckin(item, for: bot.id, enabled: enabled)
+                    if let index = checkins?.firstIndex(where: { $0.id == updated.id }) { checkins?[index] = updated }
+                }
+            }) {
+                Text(item.what).textSelection(.enabled)
+                Text(item.trigger ?? item.schedule.url ?? item.schedule.kind)
+                Text(item.enabled == false ? "Paused" : item.paused ? "Bot initiative is off" : "Scheduled")
+                if let outcome = item.lastOutcome { Text("Last outcome · " + outcome) }
+                Button("Cancel check-in", role: .destructive) {
+                    change { client in
+                        let _: HerdrClient.TeamOK = try await client.post("/api/bots/\(bot.id.uuidString.lowercased())/checkins/\(item.id)/cancel", [:])
+                        checkins?.removeAll { $0.id == item.id }
+                    }
+                }.disabled(busy || bot.isReadOnlyArchive)
+            }
         }
     }
 
@@ -147,6 +181,7 @@ struct HerdrRoutinesPanel: View {
                     FactChip(text: "Active", colour: AppColor.good)
                 }
             }
+            Text(routine.task).textSelection(.enabled)
             Text(routine.schedule.summary(in: timeZone)).font(.callout).foregroundStyle(.secondary)
             if let next = routine.nextAt {
                 Text("Next run \(routineDate(next, in: timeZone))").font(.caption).foregroundStyle(.secondary)
@@ -270,32 +305,6 @@ struct HerdrRoutinesPanel: View {
         NSPasteboard.general.writeObjects([item])
     }
 
-    @ViewBuilder private var checkinSection: some View {
-        if !checkins.isEmpty || checkinError != nil && checkinError != listError {
-            SettingBlock(title: "Check-ins") {
-                if let checkinError, checkinError != listError {
-                    StatusCard(kind: .warning, title: "Check-ins unavailable", detail: checkinError, inInspector: inInspector) {
-                        Button("Try again", action: reload).disabled(busy)
-                    }
-                }
-                ForEach(checkins) { checkin in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(checkin.what).font(.callout.weight(.medium))
-                        if checkin.schedule.kind == "ci", let url = checkin.schedule.url {
-                            Text("Watching CI").font(.caption).foregroundStyle(.secondary)
-                            Text(url).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                        } else if let next = checkin.nextMs {
-                            Text("Next check-in \(routineDate(next, in: timeZone))").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if checkin.paused { FactChip(text: "Paused", symbol: "pause") }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .appleCard(padding: 10, inInspector: inInspector)
-                }
-            }
-        }
-    }
-
     private func client() throws -> HerdrClient { try store.herdrClient(for: server) }
 
     private func reload() {
@@ -313,7 +322,7 @@ struct HerdrRoutinesPanel: View {
             async let plans: Void = loadCheckins(client)
             _ = await (list, bindings, plans)
         } catch {
-            if !Task.isCancelled { listError = error.localizedDescription }
+            if !Task.isCancelled { listError = error.localizedDescription; checkinError = error.localizedDescription }
         }
     }
 
@@ -355,7 +364,7 @@ struct HerdrRoutinesPanel: View {
             checkinError = nil
         } catch HerdrClient.Failure.http(404, _) {
             // An older workspace or a bot that has not joined its team yet.
-            if !Task.isCancelled { checkins = []; checkinError = nil }
+            if !Task.isCancelled { checkinError = "This server could not list check-ins for this bot." }
         } catch {
             if !Task.isCancelled { checkinError = error.localizedDescription }
         }
@@ -377,8 +386,41 @@ struct HerdrRoutinesPanel: View {
         Task {
             defer { changing = false }
             do { try await operation(client()) }
-            catch { actionError = error.localizedDescription }
+            catch { actionError = error.localizedDescription; refresh += 1 }
         }
+    }
+}
+
+struct ScheduleDisclosure<Detail: View>: View {
+    let title: String
+    let kind: String
+    let next: String?
+    let enabled: Bool
+    let locked: Bool
+    let setEnabled: (Bool) -> Void
+    @ViewBuilder var detail: () -> Detail
+    @State var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button { open.toggle() } label: {
+                    HStack {
+                        Image(systemName: open ? "chevron.down" : "chevron.right").accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title).font(.callout.weight(.semibold)).lineLimit(2)
+                            Text([kind, next.map { "Next " + $0 }].compactMap { $0 }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityValue(open ? "Expanded" : "Collapsed")
+                Toggle(title, isOn: Binding(get: { enabled }, set: setEnabled))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    .accessibilityLabel(title + " enabled").disabled(locked)
+            }
+            if open { detail() }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
