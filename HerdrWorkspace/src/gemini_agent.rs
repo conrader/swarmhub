@@ -30,6 +30,7 @@ use std::{
 };
 
 mod sign_in;
+pub(crate) mod startup;
 pub(crate) mod status;
 
 /// What follows this program's path in each hook's command.
@@ -61,7 +62,7 @@ fn gemini() -> Command {
 
 /// `swarmhub-herdr run-gemini`: starts Gemini CLI in this terminal with the hooks that report to SwarmHub.
 pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
-    session()?;
+    let (journal, key) = session()?;
     let mut args: Vec<OsString> = env::args_os().skip(2).collect();
     if args
         .first()
@@ -81,6 +82,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("The workspace binary needs a UTF-8 path without control characters.")?;
     install_hooks(&folder, exe)?;
     let tty = crate::opencode_agent::terminal_path().unwrap_or_default();
+    startup::register(&journal, &key, Path::new(&tty));
     let mut command = gemini();
     command
         .env_remove(crate::runtimes::MODEL_ENV)
@@ -89,7 +91,9 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         .env("GEMINI_CLI_TRUST_WORKSPACE", "true")
         .env(status::TTY_ENV, tty);
     // Leave signing in, permissions and sandboxing to Gemini CLI.
-    Err(command.args(args).exec().into())
+    let error = command.args(args).exec();
+    startup::finish(&journal, &key);
+    Err(error.into())
 }
 
 /// Whether SwarmHub made this folder for a bot: it carries the empty marker file (`core::bot_workspace`).
@@ -221,7 +225,10 @@ fn handle() -> Result<(), ()> {
     };
     let mut saved = Ok(());
     match event.hook_event_name.as_str() {
-        "SessionStart" => status::remember(&journal, &key),
+        "SessionStart" => {
+            startup::finish(&journal, &key);
+            status::remember(&journal, &key);
+        }
         // Clearing the conversation ends a session and starts the next one in the same terminal.
         "SessionEnd" if event.reason.as_deref() != Some("clear") => {
             status::forget(&journal, &key);

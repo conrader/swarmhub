@@ -81,7 +81,7 @@ struct SetupAIChecks: View {
                 Spacer()
                 if let again, checks.contains(where: { check in
                     switch check.state {
-                    case .asks, .failed, .unready: true
+                    case .asks, .signIn, .failed, .unready: true
                     default: false
                     }
                 }) {
@@ -114,6 +114,11 @@ struct SetupAIChecks: View {
             line(symbol: "checkmark.circle.fill", colour: AppColor.good, title: check.name, detail: WizardCopy.aiReady, inline: true)
         case .failed(let why):
             line(symbol: "exclamationmark.triangle.fill", colour: AppColor.caution, title: "\(check.name): \(WizardCopy.aiFailed)", detail: why)
+        case .signIn:
+            HStack {
+                line(symbol: "key", colour: AppColor.caution, title: check.name, detail: "Sign in to use this AI")
+                Button("Sign in here") { answer(check) }
+            }
         case .unready:
             HStack {
                 line(symbol: "terminal", colour: AppColor.sky, title: check.name, detail: "Still starting")

@@ -19,7 +19,7 @@ const FOLDER: &str = "gemini-terminals";
 const KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const SWEEP: usize = 512;
 
-fn line(state: &str, kind: Option<&str>) -> String {
+pub(super) fn line(state: &str, kind: Option<&str>) -> String {
     match kind {
         Some(kind) => format!("\x1b]7501;state={state}:kind={kind}\x1b\\"),
         None => format!("\x1b]7501;state={state}\x1b\\"),

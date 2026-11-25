@@ -645,6 +645,7 @@ async fn start(
         tier.model
     );
     let template_name = template.name.clone();
+    crate::gemini_agent::startup::watch(&w.core, w.history.file(), &helper_key, template);
     let stays = format!(
         "It is stopped {} seconds after it answers unless you send it a follow-up first, or after {} seconds without an answer; an answer stays readable.",
         policy.stop_after_seconds, policy.stop_unanswered_after_seconds

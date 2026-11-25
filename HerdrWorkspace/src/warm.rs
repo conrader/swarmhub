@@ -270,7 +270,7 @@ fn mark(history: &History, launch: i64, column: &str) -> Result<(), StoreError> 
 /// How far an agent's start has come, as `/api/workspace`, the event stream and the answer to a launch say it.
 #[derive(Serialize, Default, Debug, PartialEq)]
 pub(crate) struct Start {
-    /// A task sent now is typed at once. `false` only for a warm agent whose program has not reported yet.
+    /// A task sent now is typed at once. `false` for a blocked terminal or a warm program that has not reported yet.
     ready: bool,
     /// Started without a task, and none has reached it yet.
     pub(crate) warm: bool,
@@ -297,13 +297,14 @@ impl Start {
                 .optional()
                 .ok()?
         });
+        let blocked = terminal.status.as_ref().is_some_and(|s| s.state == "blocked");
         match waits {
             None => Self {
-                ready: true,
+                ready: !blocked,
                 ..Self::default()
             },
             Some((started, untried)) => Self {
-                ready: terminal.reported(),
+                ready: !blocked && terminal.reported(),
                 warm: true,
                 warm_ends_ms: idle_limit_now()
                     .filter(|_| untried)
@@ -323,7 +324,7 @@ fn not_ready() -> Failure {
 /// Whether a task for this agent would have to wait: it started warm, has had no task, and has not reported.
 pub(crate) fn starting(history: &History, agent: &Terminal) -> bool {
     let start = Start::of(history, agent);
-    start.warm && !start.ready
+    start.warm && !agent.reported()
 }
 
 /// Waits until the agent's program has reported its status once, as Core does before a launch's first task.

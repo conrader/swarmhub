@@ -207,6 +207,7 @@ extension AppStore {
     }
 
     func forgetHerdrAgentState(for bot: Bot) {
+        for groupID in herdrPromptBook.groupSignIns.keys { herdrPromptBook.groupSignIns[groupID]?[bot.id] = nil }
         helperListingFailures = helperListingFailures.filter { $0.key.botID != bot.id }
         helperGroupNames = helperGroupNames.filter { $0.key.botID != bot.id }
         herdrStreamingParents = herdrStreamingParents.filter { $0.botID != bot.id }

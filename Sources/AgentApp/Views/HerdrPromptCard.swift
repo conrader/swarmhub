@@ -57,7 +57,7 @@ struct HerdrPromptCard: View {
                 .frame(maxHeight: 190).fixedSize(horizontal: false, vertical: true)
                 .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .accessibilityLabel("What its terminal shows: \(prompt.question)")
-            } else if prompt.agent != nil {
+            } else if prompt.agent != nil && !prompt.needsSignIn {
                 Text(HerdrPrompt.unread).font(.caption).foregroundStyle(.secondary)
             }
         }

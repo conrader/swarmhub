@@ -154,8 +154,8 @@ const PROGRAMS: [Program; 5] = [
         template: "swarmhub-gemini",
         wrapper: "run-gemini",
         description: "Gemini CLI (beta) with replies saved to SwarmHub",
-        how: "Install Gemini CLI with npm install -g @google/gemini-cli, then open Terminal, type gemini, and sign in.",
-        first_time: "Sign in to Gemini CLI in Terminal before its first chat; a bot cannot answer the sign-in question. SwarmHub keeps a small settings file, .gemini/settings.json, in each private workspace it creates, so the app can show Gemini’s steps and save its replies. Gemini CLI mentions these hooks once in its terminal and runs them; they only report what Gemini does.",
+        how: "Install Gemini CLI with npm install -g @google/gemini-cli, then check it in setup.",
+        first_time: "Choose Sign in here in setup or chat if Gemini asks you to sign in. SwarmHub keeps a small settings file, .gemini/settings.json, in each private workspace it creates, so the app can show Gemini’s steps and save its replies. Gemini CLI mentions these hooks once in its terminal and runs them; they only report what Gemini does.",
     },
     Program {
         id: "antigravity",

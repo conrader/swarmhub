@@ -53,6 +53,28 @@ private final class PromptBridge: @unchecked Sendable {
 
     private let blocked = HerdrTurnStatus.blocked(program: "Agent One")
 
+    @Test func refusedSignInAppearsInItsChatWhileTheMessageCanBeRetried() {
+        let (store, bot, peer, _) = makeStore()
+        let group = GroupChat(name: "Review", memberIDs: [bot.id, peer.id])
+        store.groups = [group]
+        let ref = HerdrClient.AgentRef(address: "t9", createdMs: 20)
+        let failure = HerdrClient.Failure.signInRequired(ref, "Gemini")
+        let row = ChatMessage(role: .assistant, content: "")
+        group.messages.append(row)
+        store.finishTurn(.error(failure), assistant: row, bot: bot, in: group)
+        #expect(row.turnState == .notSent && row.metadata[TurnKey.why] == "sign-in required" && store.errorMessage == nil)
+        #expect(store.herdrPrompt(for: bot, in: group)?.agent == ref)
+        #expect(store.herdrPrompt(for: peer, in: group) == nil && store.herdrPrompt(for: bot, in: nil) == nil)
+        store.forgetHerdrAgentState(for: bot)
+        #expect(store.herdrPrompt(for: bot, in: group) == nil)
+
+        let direct = ChatMessage(role: .assistant, content: "")
+        bot.messages.append(direct)
+        store.finishTurn(.error(failure), assistant: direct, bot: bot, in: bot)
+        #expect(store.herdrPrompt(for: bot, in: nil)?.actionTitle == "Sign in here")
+        #expect(direct.turnState == .notSent && store.errorMessage == nil)
+    }
+
     @Test func aWaitingAgentIsRaisedOnceAsUnreadAndANotification() async throws {
         let (store, bot, _, notices) = makeStore()
         #expect(store.herdrPrompts[bot.id] == nil && !bot.isUnread && !store.needsAttention(bot))

@@ -221,6 +221,8 @@ extension AppStore {
         assistant.metadata[TurnKey.why] = outcome.state == .finished ? nil : outcome.why
         assistant.metadata[TurnKey.ambiguous] = outcome.ambiguous ? "1" : nil
         switch end {
+        case .error(HerdrClient.Failure.signInRequired(let agent, let program)):
+            showSignIn(for: bot, in: conversation as? GroupChat, agent: agent, program: program)
         case .failedByAgent(let text) where alert: presentError(alertPrefix + text, reason: .agent, bot: bot)
         // A dropped or timed-out connection is the row's footer and warning line, never the alert.
         case .error(let error) where alert && !TransientNetwork.isTransient(error): presentError(alertPrefix + error.localizedDescription, reason: .send, bot: bot)

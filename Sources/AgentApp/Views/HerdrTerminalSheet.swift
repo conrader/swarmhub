@@ -72,6 +72,56 @@ struct HerdrTerminalSheet: View {
     }
 }
 
+/// The wizard has a connection and a setup terminal before the user has created any bots.
+struct SetupSignInSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let check: HerdrAICheck
+    let agent: HerdrClient.AgentRef
+    let server: HerdrServer
+    let key: String?
+    let signedIn: () -> Void
+    @State private var terminal: (url: URL, token: String)?
+    @State private var error: String?
+
+    var body: some View {
+        let title = "Sign in to " + check.name
+        TerminalSheetLayout(heading: title) {
+            if error != nil { Button("Open in Terminal") { store.answerInTerminal(check) } }
+            Button("Done") { dismiss() }
+        } content: {
+            if let error { Text(error).foregroundStyle(AppColor.caution).textSelection(.enabled) }
+            if let terminal {
+                TerminalSurface(url: terminal.url, token: terminal.token, agent: agent, name: title,
+                                target: nil, confirmed: {}, failed: { error = $0 })
+            } else if error == nil { ProgressView("Connecting…") }
+        }
+        .task {
+            do {
+                let client = try store.herdrClient(for: server, token: key)
+                let url = try await client.connectedBaseURL().appendingPathComponent("chat-terminal")
+                let name = HerdrAICheck.agentName(template: check.template)
+                while !Task.isCancelled {
+                    let workspace = try await client.workspace()
+                    guard let live = workspace.agents.first(where: { $0.isLive && $0.ref == agent && $0.name == name && $0.template == check.template }) else {
+                        throw BackendError.unavailable("The sign-in session ended. Close this window and check the AI again.")
+                    }
+                    try Task.checkCancellation()
+                    if live.status?.state == "idle" {
+                        try await client.end(live)
+                        try Task.checkCancellation()
+                        signedIn()
+                        dismiss()
+                        return
+                    }
+                    if terminal == nil { terminal = (url, client.token) }
+                    try await Task.sleep(for: .seconds(1))
+                }
+            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        }
+    }
+}
+
 struct TerminalSheetLayout<Controls: View, Content: View>: View {
     let heading: String
     @ViewBuilder var controls: () -> Controls

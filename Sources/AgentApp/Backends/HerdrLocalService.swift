@@ -220,6 +220,7 @@ struct HerdrAICheck: Equatable, Identifiable, Sendable {
         case ready
         /// It waits at a question. `screen`: what its terminal shows; `agent`: the terminal to answer it in.
         case asks(screen: String, agent: HerdrClient.AgentRef)
+        case signIn(HerdrClient.AgentRef)
         case unready(HerdrClient.AgentRef)
         case failed(String)
     }
@@ -261,6 +262,9 @@ extension HerdrClient {
             while true {
                 guard let now = try await workspace().agents.first(where: { $0.ref == agent.ref }), now.isLive else {
                     return .failed("It stopped while it was starting. Open Terminal and start it once by hand to see why.")
+                }
+                if now.status?.state == "blocked", now.status?.kind?.lowercased() == "auth" {
+                    return .signIn(agent.ref)
                 }
                 if now.status?.state == "blocked" || clock.now >= deadline {
                     let output = (try? await screen(of: agent.ref)) ?? ""
