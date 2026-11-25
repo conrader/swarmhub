@@ -125,6 +125,19 @@ import Testing
         #expect(store.herdrCarryOver(for: f.writer) == nil)
     }
 
+    @Test func movingAStaleDuplicateDoesNotGiveItTheMainRole() async throws {
+        let f = Fixture()
+        f.analyst.canManageBots = true
+        let record = try await f.move([f.analyst], stop: false)
+        #expect(f.store.herdrServer(for: f.analyst) == f.destination)
+        #expect(f.store.herdrMainBot(on: f.destination) == nil)
+        #expect(f.store.herdrMainBot(on: f.source) === f.main)
+        try await f.store.undoHerdrMove(record)
+        #expect(f.store.herdrServer(for: f.analyst) == f.source)
+        #expect(!f.store.createsHerdrBots(f.analyst))
+        #expect(f.store.herdrMainBot(on: f.source) === f.main)
+    }
+
     @Test func explicitChoiceAndUndoRestoreAllOriginalSettings() async throws {
         let f = Fixture(), store = f.store
         store.defaults.set("codex-local", forKey: HerdrBackend.templateKey)

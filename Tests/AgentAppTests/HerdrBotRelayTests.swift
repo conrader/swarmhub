@@ -104,19 +104,44 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     #expect(BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: "Jarvis", server: "This Mac").contains("Jarvis is the main bot") && BotEditorAdvancedSection.mainBotCaption(bot: "Boppy", isMain: false, main: nil, server: "This Mac").contains("has no main bot yet"))
 }
 
-@MainActor @Test func mainBotStarUsesTheSameOwnerAsTheServerRelay() {
+@MainActor @Test func removingAServerLeavesOneBotWithTheStarAndCreationActions() throws {
     let (store, jarvis, boppy) = relayStore()
-    // A stale duplicate flag or an archived group must never produce a second star.
-    boppy.canManageBots = true
+    let local = store.herdrServers[0]
+    let box = HerdrServer(id: "box", name: "Box", kind: .address, address: HerdrServer.loopback(port: 8788))
+    store.saveHerdrServer(box, token: "t")
+    store.setHerdrServer(box.id, for: boppy)
+    store.setCanManageBots(boppy, true)
+    store.setHerdrModel("own-model", for: boppy)
+    store.setHerdrAsksFirst(true, for: boppy)
+    boppy.messages = [ChatMessage(role: .assistant, content: block(#"{"op":"create_bot","name":"Research"}"#))]
+    let pending = try #require(store.pendingHerdrBots(for: boppy).first)
+    #expect(store.herdrMainBotLabel(boppy) == "Main bot of Box" && store.createsHerdrBots(jarvis))
+
     let archive = Bot(name: "Archive", backend: .herdr)
     archive.archivedMembers = ["Old bot"]
     archive.canManageBots = true
     store.bots.insert(archive, at: 0)
-    #expect(store.herdrMainBotLabel(archive) == nil)
+    store.removeHerdrServer(box)
+    #expect(jarvis.canManageBots && boppy.canManageBots)
+    #expect(store.herdrMainBot(on: local) === jarvis)
+    #expect(store.herdrMainBotLabel(archive) == nil && !store.createsHerdrBots(archive))
     #expect(store.herdrMainBotLabel(jarvis) == "Main bot of This Mac")
-    #expect(store.herdrMainBotLabel(boppy) == nil)
-    store.setCanManageBots(boppy, true)
+    #expect(store.herdrMainBotLabel(boppy) == nil && !store.createsHerdrBots(boppy))
+    #expect(store.setupHerdrBots(on: local).filter(\.isMain).map(\.id) == [jarvis.id])
+    let backend = try store.herdrBackend(for: boppy)
+    #expect(backend.creationNote == nil && backend.askNote == HerdrBotAsk.note(main: jarvis.name))
+    #expect(store.pendingHerdrBots(for: boppy).isEmpty)
+    #expect(store.createHerdrBot(pending, manager: boppy) == nil)
+
+    var fields = BotEditorFields(bot: boppy, store: store)
+    #expect(!fields.canManage)
+    fields.apply(to: boppy, store: store, avatarTouched: false)
+    #expect(boppy.canManageBots && store.herdrMainBot(on: local) === jarvis)
+    fields.canManage = true
+    fields.apply(to: boppy, store: store, avatarTouched: false)
     #expect(store.herdrMainBotLabel(jarvis) == nil && store.herdrMainBotLabel(boppy) == "Main bot of This Mac")
+    #expect(try store.herdrBackend(for: boppy).creationNote == AppStore.herdrCreationNoteAsking)
+    #expect(store.herdrModel(for: boppy) == "own-model")
     store.setCanManageBots(boppy, false)
     #expect(store.herdrMainBotLabel(boppy) == nil)
 }
@@ -125,6 +150,7 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
 /// told, and its reply to that answer starts nothing new.
 @MainActor @Test func aRequestIsPassedOnAndABotTheMainBotDecidedIsCreatedAtOnce() async throws {
     let (store, jarvis, boppy) = relayStore()
+    boppy.canManageBots = true // A stale flag must still take the request through Jarvis.
     ask(store, boppy, for: "Legal")
     try await waitUntil { answered(boppy, passedOn(boppy, HerdrBotRelay.outcome).first) && store.isIdle(boppy) && store.isIdle(jarvis) }
     let request = try #require(passedOn(jarvis, HerdrBotRelay.request).first)

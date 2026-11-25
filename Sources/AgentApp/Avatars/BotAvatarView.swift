@@ -59,9 +59,6 @@ struct BotAvatar: View {
                 HerdrMainBotStar(label: mainBotLabel, size: min(14, max(10, size * 0.25)))
                     .padding(2).background(AppColor.raised, in: Circle())
                     .accessibilityIdentifier("avatar.mainBotStar")
-                    // Sidebar buttons announce the role alongside their own name and status.
-                    .accessibilityHidden(motion == .list)
-                    .allowsHitTesting(false)
             }
         }
         .onAppear { report(look, mode) }

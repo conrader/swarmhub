@@ -130,7 +130,7 @@ extension AppStore {
               targets.allSatisfy({ !herdrMovesCleaning.contains($0.id) }) else { throw HerdrMoveError.selectionChanged }
 
         var skipped: [String] = []
-        var mainAvailable = herdrMainBot(on: destination) == nil
+        let mainAvailable = herdrMainBot(on: destination) == nil
         var names: [UUID: [String]] = [:]
         var warmStarts: [Task<Void, Never>] = []
         let changes = targets.compactMap { bot -> HerdrServerMoveRecord.Change? in
@@ -149,8 +149,8 @@ extension AppStore {
             else if case .one(_, let chosen) = mapping { model = chosen }
             else if match != nil, offered[template.name]?.contains(where: { $0.id == before.model }) == true { model = before.model }
             else { model = HerdrModelChoice.recommended }
-            let isMain = bot.canManageBots && mainAvailable
-            if isMain { mainAvailable = false }
+            let wasMain = createsHerdrBots(bot)
+            let isMain = wasMain && mainAvailable
             names[bot.id] = agentNames
             if let warming = herdrWarming[bot.id] { warmStarts.append(warming) }
             let launch = sourceWorkspace?.core.flatMap { core in
@@ -158,7 +158,7 @@ extension AppStore {
                     .map { HerdrAgentLaunch(server: source.id, core: core, address: $0.address, createdMs: $0.createdMs) }
             }
             return .init(botID: bot.id, name: bot.name, before: before, after: .init(template: template.name, model: model),
-                         projects: herdrProjects(for: bot), wasMain: bot.canManageBots, isMain: isMain,
+                         projects: herdrProjects(for: bot), wasMain: wasMain, isMain: isMain,
                          carryOver: herdrCarryOver(for: bot), sourceLaunch: launch, messageCount: bot.messages.count,
                          skippedCarry: herdrMoveSkipsCarry(bot))
         }
@@ -169,10 +169,11 @@ extension AppStore {
             record.receipts = try await stageRoutines(record, workspace: workspace, destination: destinationWorkspace)
             try Task.checkCancellation()
             try checkHerdrMoveServers(source: source, destination: destination)
-            guard changes.allSatisfy({ change in
+            guard !changes.contains(where: \.isMain) || herdrMainBot(on: destination) == nil,
+                  changes.allSatisfy({ change in
                 guard let bot = byID[change.botID] else { return false }
                 return bots.contains(bot) && herdrServer(for: bot) == source && !herdrBotIsBusy(bot)
-                    && herdrMoveChoice(for: bot) == change.before && bot.canManageBots == change.wasMain
+                    && herdrMoveChoice(for: bot) == change.before && createsHerdrBots(bot) == change.wasMain
             }) else { throw HerdrMoveError.selectionChanged }
             try applyHerdrMoveRoles(changes.compactMap { change in byID[change.botID].map { ($0, change.isMain) } })
         } catch {
@@ -212,7 +213,7 @@ extension AppStore {
         let current = movableHerdrBots(on: record.destination)
         let targets = try record.changes.map { change in
             guard let bot = current.first(where: { $0.id == change.botID }), latestHerdrMoves[bot.id] == record.id,
-                  herdrMoveChoice(for: bot) == change.after, herdrProjects(for: bot).isEmpty, bot.canManageBots == change.isMain else {
+                  herdrMoveChoice(for: bot) == change.after, herdrProjects(for: bot).isEmpty, createsHerdrBots(bot) == change.isMain else {
                 throw HerdrMoveError.undoUnavailable
             }
             guard !herdrMovesCleaning.contains(bot.id), !herdrBotIsBusy(bot) else { throw HerdrMoveError.undoBusy }

@@ -236,7 +236,7 @@ import SwiftUI
         write(other[1], await png(AnyView(SettingsSimplePane().background(AppColor.panel)), store, HeadlessSetup.settingsSize))
         let editor = NSSize(width: 560, height: 1_500)
         func advanced(_ bot: Bot) -> AnyView {
-            AnyView(BotEditorAdvancedSection(bot: bot, fields: .constant(BotEditorFields(bot: bot))).padding(.horizontal, 32).padding(.vertical, 24)
+            AnyView(BotEditorAdvancedSection(bot: bot, fields: .constant(BotEditorFields(bot: bot, store: store))).padding(.horizontal, 32).padding(.vertical, 24)
                 .frame(width: editor.width, height: editor.height, alignment: .top).background(AppColor.panel))
         }
         for (name, bot) in [(other[2], jarvis), (other[3], infra)] { write(name, await png(advanced(bot), store, editor)) }

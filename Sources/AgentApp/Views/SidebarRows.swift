@@ -89,7 +89,7 @@ struct BotRow: View {
                 Spacer(minLength: 4)
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
-        }.buttonStyle(.plain).accessibilityValue(Text(verbatim: main ?? "")).contextMenu {
+        }.buttonStyle(.plain).contextMenu {
             SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection) { botToDelete = bot }
         }
     }
