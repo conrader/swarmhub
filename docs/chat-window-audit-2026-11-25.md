@@ -238,6 +238,14 @@ On the MacBook, the driver sent a message in a private chat and opened **Sign in
 
 A simulated provider completion closed the setup terminal automatically and the wizard showed Ready. The workspace integration test also finished a simulated sign-in, retried the message and checked that the initial and blocked follow-ups never reached the provider. The trials did not authorize a live Google account.
 
+## Summarize a chat and continue in a fresh session
+
+The website offered a one-click summary before restarting. Previously, the Mac’s **Start fresh** action explicitly cleared the current chat handoff. Opening a new session preserved the visible transcript while the new agent lacked the current conversation’s decisions.
+
+In a private MacBook window connected to a second Mac, the tester gave Codex a random release codeword. Its first reply was only “ACK”. The tester pressed **Summarize & start fresh** in the Model panel, waited for the confirmation, quit the app and reopened the same chat. Asked for the release codeword without including it in the question, a different Codex session returned the exact codeword. The original messages remained visible. The workspace journal recorded the original reply, a separate summary session and the new direct session.
+
+Swift regression tests also exercise concurrent messages. A locally sent message can finish while the summary is being prepared. A completed turn from another workspace client also invalidates an in-flight summary. In both cases the original session stays available.
+
 ## Interrupted background work and delivery to the bot
 
 A restart test intermittently reported an interrupted job. Holding its supervisor before provider registration past the test’s two-second lease reproduced an interruption with `lease_expired` and zero provider invocations. The earlier failure recorded only the verdict, so its cause is still unknown. The workspace had the worker reason, but its completion inbox omitted it.
