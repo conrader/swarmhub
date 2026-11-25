@@ -82,6 +82,12 @@ With the fix, the chat showed **Reconnecting to the workspace…** while the com
 
 A second exercise used the SSH connection managed by SwarmHub. The driver terminated the app’s own SSH forward after the command started. SwarmHub opened a replacement forward automatically. The reply to the 12-second command was visible 14.9 seconds after the disconnect. A follow-up received its answer in 9.8 seconds. Both tasks appeared exactly once in the remote journal.
 
+## Opening a bot’s media again while its workspace is offline
+
+A private copy of the Mac app opened a saved bot reply containing a PNG and an MP4. A loopback server served the same authenticated download routes used for published results. On the baseline, the chat fetched both files again when the user switched away and back. With the server returning HTTP 503, both previews offered **Retry preview**. Quitting and opening the chat again produced two more failed requests.
+
+On the fixed build, the native driver opened the image preview sheet and pressed the inline video player’s play control online, after reopening the chat offline, and after relaunching the app offline. The video control reported playing in each run. The server received one download request per file across the entire exercise. Media that has never been downloaded, or has been evicted from the bounded Mac cache, requires the workspace to be reachable. [Repeat the Mac media test](agent-qa.md#use-the-real-mac-window)
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)

@@ -105,3 +105,11 @@ To check whether a long group chat survives a restart, run the same driver with 
 ```
 
 The driver copies the app to a temporary directory, gives it a private bundle identifier and seeds a temporary home with a 620-message group. It opens the saved middle message, jumps to the end, quits, reopens, pages back and quits again. The final launch checks that the earlier page is visible. The script also checks every saved message ID.
+
+To check published media in a bot reply, run the driver from a checkout containing the PNG and MP4 fixtures.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --media-reopen /Applications/SwarmHub.app
+```
+
+It opens the image and plays the clip in the real chat, takes the fixture server offline, switches chats and relaunches the app. The check passes when the previews still work and each file was downloaded once.

@@ -62,3 +62,56 @@ import Testing
         player.pause()
     }
 }
+
+@Test func publishedMediaReopensFromDiskOnlyForTheOriginalWorkspaceAndAccount() async throws {
+    let store = temporaryStore()
+    let directory = store.deletingLastPathComponent().appending(path: "cache")
+    defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let message = UUID(), bytes = Data([1, 2, 3])
+    let server = HerdrServer(id: "studio", name: "Studio", kind: .ssh, address: HerdrServer.loopback(port: 8787), sshHost: "qa-studio")
+    let item = try #require(HerdrPublishedResult(.init(id: 9, kind: "artifact", text: "", detail: "render.png")))
+    let online = MockHTTPProtocol.serve { _ in (200, bytes) }
+    let offline = MockHTTPProtocol.serve { _ in (503, ["error": "offline"]) }
+    let first = HerdrClient(baseURL: URL(string: "http://\(online.host)")!, token: "a", session: online.session)
+    var next = HerdrClient(baseURL: URL(string: "http://\(offline.host)")!, token: "a", session: offline.session)
+    let saved = try await PublishedMediaCache(directory: directory).data(for: item, in: message, storeURL: store, server: server, client: first)
+    #expect(saved == bytes)
+    let reopened = PublishedMediaCache(directory: directory)
+    #expect(try await reopened.data(for: item, in: message, storeURL: store, server: server, client: next) == bytes)
+    #expect(MockHTTPProtocol.recorded(offline.host).isEmpty)
+
+    var moved = server
+    moved.sshHost = "another-studio"
+    let unavailable = HerdrClient.Failure.http(503, "offline")
+    await #expect(throws: unavailable) { try await reopened.data(for: item, in: message, storeURL: store, server: moved, client: next) }
+    next = HerdrClient(baseURL: next.baseURL, token: "another-account", session: offline.session)
+    await #expect(throws: unavailable) { try await reopened.data(for: item, in: message, storeURL: store, server: server, client: next) }
+    #expect(MockHTTPProtocol.recorded(offline.host).count == 2)
+}
+
+@Test func publishedMediaCacheEvictsOlderPreviewsAndStillReturnsOversizedDownloads() async throws {
+    let store = temporaryStore()
+    let directory = store.deletingLastPathComponent().appending(path: "cache")
+    defer { try? FileManager.default.removeItem(at: directory.deletingLastPathComponent()) }
+    let message = UUID()
+    let http = MockHTTPProtocol.serve { request in
+        let count = request.url?.path.contains("/3/") == true ? 12 : 4
+        return (200, Data(repeating: 1, count: count))
+    }
+    let server = HerdrServer(id: "qa", name: "QA", kind: .address, address: "http://\(http.host)")
+    let client = HerdrClient(baseURL: URL(string: server.address)!, token: "token", session: http.session)
+    let cache = PublishedMediaCache(directory: directory, byteLimit: 6)
+    func read(_ id: Int) async throws -> Data {
+        let item = try #require(HerdrPublishedResult(.init(id: id, kind: "artifact", text: "", detail: "file.mp4")))
+        return try await cache.data(for: item, in: message, storeURL: store, server: server, client: client)
+    }
+    #expect(try await read(1).count == 4)
+    // Give the first entry a distinct age even on a coarse file-system clock.
+    let old = try #require(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first)
+    try FileManager.default.setAttributes([.modificationDate: Date.distantPast], ofItemAtPath: old.path)
+    #expect(try await read(2).count == 4)
+    #expect(try await read(3).count == 12)
+    #expect(try await read(2).count == 4)
+    #expect(try await read(1).count == 4)
+    #expect(MockHTTPProtocol.recorded(http.host).compactMap { $0.url?.path } == [1, 2, 3, 1].map { "/api/library/files/\($0)/download" })
+}
