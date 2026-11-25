@@ -417,8 +417,7 @@ extension AppStore {
 
     /// Shows the helper's read-only view in place of its bot's chat; opening the bot (or any chat) shows the chat again.
     func open(_ helper: HerdrClient.Helper, of bot: Bot, groupRuntime: String? = nil) {
-        open(bot)
-        openHerdrHelper = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: groupRuntime)
+        open(bot, helper: HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: groupRuntime))
     }
 
     /// The helper's own session as events (`HerdrEvents.swift`): its tasks, replies, tool calls and the reply it is writing.

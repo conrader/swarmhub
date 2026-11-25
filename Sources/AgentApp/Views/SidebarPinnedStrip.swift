@@ -64,6 +64,7 @@ private struct PinnedBotTile: View {
             }.onHover { hovering = $0 }
         }.buttonStyle(.plain)
             .accessibilityLabel([bot.name, "pinned", main, coding ? "coding agent active" : nil].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityValue(bot.isUnread ? "Unread" : "")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .contextMenu { SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection, requestDelete: requestDelete) }
     }
@@ -84,6 +85,7 @@ private struct PinnedGroupTile: View {
                                  halo: selected ? AppColor.selection : AppColor.sidebar, probe: "group:\(group.id)")
             }.onHover { hovering = $0 }
         }.buttonStyle(.plain)
+            .accessibilityValue(group.isUnread ? "Unread" : "")
             .accessibilityLabel("\(group.name), pinned").accessibilityAddTraits(selected ? .isSelected : [])
             .contextMenu { SidebarChatMenu(chat: .group(group), askNewSection: askNewSection, requestDelete: requestDelete) }
     }

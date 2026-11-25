@@ -302,16 +302,20 @@ extension AppStore {
             settleGoalTurn(in: bot, attempt: attempt, row: assistant, outcome: outcome, waitingForPerson: waitingForPerson)
         }
         endTurn(token)
-        let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
-            if conversation === bot, selectedGroup != nil || selectedBot?.id != bot.id { bot.unreadCount += 1 }
-            AvatarReactions.shared.completed(bot)
-            notifyIfNeeded(bot: bot, message: displayLine(assistant))
-        }
+        if outcome.state == .finished { directReplyArrived(assistant, from: bot) }
         save()
         sendQueuedNextMessage()
         // The main bot's decided bots are created, and requests for bots are passed between bots.
         if conversation === bot { herdrReplyEnded(assistant, from: bot, finished: outcome.state == .finished) }
+    }
+
+    /// Live and recovered direct replies share the same unread and notification rules.
+    func directReplyArrived(_ reply: ChatMessage, from bot: Bot) {
+        guard !reply.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !SilentReply.isSilent(SwarmhubBlock.visibleText(reply.finalText)) else { return }
+        if !showsDirectChat(bot) { bot.unreadCount += 1 }
+        AvatarReactions.shared.completed(bot)
+        notifyIfNeeded(bot: bot, message: displayLine(reply))
     }
 
     /// One attempt of a turn: the stream, and how it ended.

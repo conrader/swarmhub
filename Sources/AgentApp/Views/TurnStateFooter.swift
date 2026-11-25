@@ -36,6 +36,6 @@ extension AppStore {
         // An agent that waits for an answer in its terminal needs the person, whatever its last reply says.
         if herdrPrompts[bot.id] != nil { return true }
         guard let last = bot.messages.last(where: { $0.role == .assistant }), !last.isStreaming else { return false }
-        return last.turnState == .notSent || last.turnState == .incomplete
+        return last.turnState == .notSent || (last.turnState == .incomplete && !last.checkingSavedReply)
     }
 }

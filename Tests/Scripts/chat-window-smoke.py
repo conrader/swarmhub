@@ -244,6 +244,7 @@ def verify_media(window):
 def steer_reopen(source_app):
     import base64
     import hashlib
+    import Quartz
 
     token = uuid.uuid4().hex
     bots = []
@@ -277,18 +278,29 @@ def steer_reopen(source_app):
             dict(id=2, kind="reply", text=prefix + "\n\n" + answer if index else answer)]
         bots.append(dict(id=str(uuid.uuid4()), name=name, backend="Herdr", messages=rows))
 
+    owner = bots[0]
+    parent = dict(address="session-0", created_ms=50)
+    agent = dict(**parent, name=owner["name"].lower() + "-" + owner["id"][:6], state="live")
+    helper = dict(address="worker", created_ms=51, name="RenderQA", state="live",
+                  status={"state": "working"}, task="Verify the render.")
     online = False
     submissions = []
 
     class History(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path not in answers:
-                self.send_error(404)
-                return
             if self.headers.get("Authorization") != "Bearer " + token or not online:
                 self.send_error(503)
                 return
-            data = json.dumps({"items": answers[self.path]}).encode()
+            if self.path in answers:
+                body = {"items": answers[self.path]}
+            elif self.path.split("?")[0] == "/api/workspace":
+                body = dict(core="qa", templates=[], agents=[agent, dict(helper, parent=parent)])
+            elif self.path == "/api/agents/session-0/50/helpers":
+                body = dict(core="qa", parent=parent, helpers=[helper])
+            else:
+                self.send_error(404)
+                return
+            data = json.dumps(body).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
@@ -307,17 +319,72 @@ def steer_reopen(source_app):
                 if attribute(e, "AXRole") in ("AXStaticText", "AXTextArea")}
 
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), History) as server:
-        store.write_text(json.dumps({"version": 2, "bots": bots}))
+        reader = dict(id=str(uuid.uuid4()), name="ReadingQA", backend="Herdr",
+                      messages=[dict(id=str(uuid.uuid4()), createdAt=800000001, role="assistant", content="Still reading this chat.")])
+        store.write_text(json.dumps({"version": 2, "bots": bots + [reader], "sidebar": {"pinned": [bots[1]["id"]]}}))
+        def unread_counts():
+            return [b.get("unreadCount", 0) for b in json.loads(store.read_text())["bots"] if b["name"] != reader["name"]]
+
+        def unread_badge(window, name):
+            return any(name + "," in label(b) and attribute(b, "AXValue") == "Unread" for b in buttons(window))
+
         Thread(target=server.serve_forever, daemon=True).start()
         try:
             for launch in range(2):
                 with open_workspace(app, home, f"http://127.0.0.1:{server.server_port}", token) as window:
                     if launch == 0:
+                        press(window, bots[0]["name"], sidebar=True)
                         wait_for("offline recovery footer", lambda: "Checking the workspace for your reply…" in text_positions(window))
+                        if any("Needs attention" in label(b) and owner["name"] in label(b) for b in buttons(window)):
+                            raise RuntimeError("The sidebar flagged an automatically recovering reply for user action")
+                        press(window, reader["name"], sidebar=True)
+                        wait_for("reading another conversation", lambda: "Still reading this chat." in text_positions(window))
+                        def composer():
+                            return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message"), None)
+
+                        draft = "Keep this draft while the bots finish."
+                        field = composer()
+                        if field is None or ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
+                            raise RuntimeError("Could not focus the foreground chat composer")
+                        pid = ax.AXUIElementGetPid(field, None)[1]
+                        for pressed in (True, False):
+                            event = Quartz.CGEventCreateKeyboardEvent(None, 0, pressed)
+                            Quartz.CGEventKeyboardSetUnicodeString(event, len(draft), draft)
+                            Quartz.CGEventPostToPid(pid, event)
+                        wait_for("foreground draft", lambda: attribute(composer(), "AXValue") == draft)
                         online = True
-                    for bot in bots:
+                        wait_for("both replies saved", lambda: all(
+                            any(m.get("turnState") == "finished" and m["content"] == "Updated " + bot["name"] for m in bot["messages"])
+                            for bot in json.loads(store.read_text())["bots"] if bot["name"] != reader["name"]), seconds=15)
+                        if unread_counts() != [1, 1]:
+                            raise RuntimeError(f"Both replies arrived in the background. Saved unread counts: {unread_counts()}")
+                        for bot in bots:
+                            wait_for("unread sidebar badge on " + bot["name"], lambda: unread_badge(window, bot["name"]))
+                        if "Still reading this chat." not in text_positions(window):
+                            raise RuntimeError("A recovered answer switched the foreground chat")
+
+                        field = composer()
+                        if field is None or attribute(field, "AXValue") != draft or not attribute(field, "AXFocused"):
+                            raise RuntimeError("Reply recovery interrupted the foreground draft")
+
+                        def helper_button():
+                            return next((label(b) for b in buttons(window) if label(b).startswith("Helper RenderQA,")), None)
+
+                        wait_for("coding helper in the sidebar", helper_button, seconds=25)
+                        press(window, helper_button())
+                        back = "Back to " + owner["name"]
+                        wait_for("coding helper details", lambda: any(label(b) == back for b in buttons(window)))
+                        if not unread_badge(window, owner["name"]) or unread_counts() != [1, 1]:
+                            raise RuntimeError("Opening a helper cleared its parent chat’s unread answer")
+                        press(window, back)
+                    else:
+                        if unread_counts() != [0, 1]:
+                            raise RuntimeError(f"Unread state changed on restart: {unread_counts()}")
+                        wait_for("restored unread badge", lambda: unread_badge(window, bots[1]["name"]))
+                    for bot in (bots[:1] if launch == 0 else bots):
                         name = bot["name"]
-                        press(window, name, sidebar=True)
+                        if launch:
+                            press(window, name, sidebar=True)
                         guidance, answer = "Use blue for " + name, "Updated " + name
 
                         def correct_order():
@@ -325,12 +392,15 @@ def steer_reopen(source_app):
                             return positions.get(guidance) and positions.get(answer) and positions[guidance][1] <= positions[answer][0]
 
                         wait_for("saved answer below " + guidance, correct_order, seconds=15)
+                        wait_for("cleared unread badge on " + name, lambda: not unread_badge(window, name))
                     online = False
         finally:
             server.shutdown()
+        if unread_counts() != [0, 0]:
+            raise RuntimeError(f"Opening the chats left unread replies: {unread_counts()}")
         if submissions:
             raise RuntimeError(f"Recovery submitted work: {submissions}")
-        print("Verified both recovered answers beneath their guidance, including after a second offline launch.")
+        print("Verified reply order, unread badges for pinned and unpinned chats, helper navigation and offline relaunch.")
 
 
 def media_reopen(source_app):

@@ -108,10 +108,17 @@ private let listingJSON = """
     let list = try decoded(HerdrClient.Helpers.self, listingJSON)
     store.herdrHelpers[jarvis.id] = list
     store.open(other)
+    jarvis.unreadCount = 1
     store.open(list.helpers[1], of: jarvis)
+    #expect(!store.showsDirectChat(jarvis) && jarvis.unreadCount == 1)
+    store.directReplyArrived(ChatMessage(role: .assistant, content: "The build is ready."), from: jarvis)
+    #expect(jarvis.unreadCount == 2)
     #expect(store.selectedBot === jarvis && store.openHerdrHelper == HerdrHelperSelection(botID: jarvis.id, helperID: "t32/1794843765312"))
     #expect(store.isOpen(list.helpers[1], of: jarvis) && !store.isOpen(list.helpers[0], of: jarvis) && !store.isOpen(list.helpers[1], of: other))
     store.open(jarvis)
+    #expect(store.showsDirectChat(jarvis) && !jarvis.isUnread)
+    store.directReplyArrived(ChatMessage(role: .assistant, content: "Here is the log."), from: jarvis)
+    #expect(!jarvis.isUnread)
     #expect(store.openHerdrHelper == nil && store.selectedBot === jarvis, "opening the bot shows its chat again")
     // A bot that was deleted takes its helpers off the screen at the next read; a server with no token shows none.
     store.bots = [other]; store.herdrHelpers[other.id] = list

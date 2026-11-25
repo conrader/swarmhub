@@ -72,7 +72,8 @@ extension AppStore {
 
     /// Once per prompt: the chat is marked unread unless the person is looking at it, and a notification says who waits.
     private func raiseHerdrPrompt(_ prompt: HerdrPrompt, for bot: Bot, in group: GroupChat?) {
-        let looking = openConversation?.id == (group?.id ?? bot.id) && (NSApp?.isActive ?? false)
+        let showingChat = group.map { selectedGroup?.id == $0.id } ?? showsDirectChat(bot)
+        let looking = showingChat && (NSApp?.isActive ?? false)
         if !looking {
             if let group { markUnread(group) }
             else if !bot.manualUnread { bot.manualUnread = true; objectWillChange.send(); save() }

@@ -140,6 +140,14 @@ Two private MacBook chats exercised the **Send into the current answer** button 
 
 On the patched app, the answer appeared below the accepted instruction in both runs, about four seconds after reconnecting. The earlier progress stayed above the follow-up, and sending another message produced one more answer. Each workspace journal contained two ordinary tasks and two replies across the exercise. Live guidance went into the original task. [Repeat the offline window check](agent-qa.md#use-the-real-mac-window)
 
+## Seeing background answers from another chat
+
+The Mac window driver opened a third chat while two bot replies were pending on a loopback workspace. When the workspace returned, both answers appeared on disk, but both unread counts were zero. The open conversation gave the user no indication that the other bots had finished.
+
+With the fix, the third chat kept its draft and keyboard focus. Each completed bot gained one unread mark, exposed in the sidebar for both a pinned tile and a regular row. Opening the coding helper beneath the regular row kept its parent unread. Returning to the parent cleared that mark. The other bot stayed unread through an offline relaunch and cleared when opened.
+
+In a separate run with a real Codex session on a second Mac, the driver steered an active command, disconnected the workspace, quit the MacBook app and reopened another bot’s chat offline. The original bot showed an unread badge 4.61 seconds after reconnection. Opening it showed the final answer below the accepted guidance and cleared the badge. The next message received a reply. The workspace recorded two ordinary tasks for the full exercise. [Repeat the sidebar and recovery check](agent-qa.md#use-the-real-mac-window)
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)

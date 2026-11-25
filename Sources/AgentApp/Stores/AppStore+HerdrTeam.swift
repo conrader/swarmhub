@@ -180,12 +180,12 @@ extension AppStore {
                             createdAt: Date(timeIntervalSince1970: Double(item.atMs) / 1000), metadata: metadata)
                         TranscriptHistory.insert(row, into: &bot.messages, server: server.id, entry: item.id,
                             followup: item.code == "direct_followup", journal: item.journal, receivedAt: now())
-                        if item.unread, selectedGroup != nil || selectedBot?.id != bot.id { bot.unreadCount += 1 }
+                        if item.unread, !row.isSilent, !showsDirectChat(bot) { bot.unreadCount += 1 }
                         if item.notify { notifyIfNeeded(bot: bot, message: item.text) }
                         if item.kind == "said", item.code != "direct_followup", createsHerdrBots(bot) { herdrReplyEnded(row, from: bot, finished: true) }
                         changed = true
                     }
-                    if selectedGroup == nil, selectedBot?.id == bot.id { selectedRead = max(selectedRead, item.id) }
+                    if showsDirectChat(bot) { selectedRead = max(selectedRead, item.id) }
                 }
                 if !held { cursor = item.id }
             }
@@ -195,7 +195,7 @@ extension AppStore {
             if held || !page.more || cursor != page.items.last?.id { break }
         } while !Task.isCancelled
         let readThrough = max(cursor, selectedRead)
-        if let bot = selectedBot, selectedGroup == nil, bot.backend == .herdr, herdrServer(for: bot) == server, isIdle(bot), readThrough > 0 {
+        if let bot = selectedBot, showsDirectChat(bot), bot.backend == .herdr, herdrServer(for: bot) == server, isIdle(bot), readThrough > 0 {
             let readKey = "herdrTeamRead.\(server.id).\(bot.id)"
             if readThrough > defaults.integer(forKey: readKey) {
                 let _: HerdrClient.TeamOK = try await client.post("/api/bots/\(bot.id.uuidString.lowercased())/read", ["through": readThrough])

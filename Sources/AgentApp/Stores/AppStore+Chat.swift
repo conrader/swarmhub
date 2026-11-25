@@ -49,12 +49,16 @@ extension AppStore {
 
     func markUnread(_ bot: Bot) { bot.manualUnread = true; objectWillChange.send(); save() }
 
+    func showsDirectChat(_ bot: Bot) -> Bool {
+        selectedBot?.id == bot.id && selectedGroup == nil && openHerdrHelper?.botID != bot.id
+    }
+
     /// Selecting a chat clears both the automatic unread count and the manual flag.
     /// `remember: false` (ui-smoke) leaves the chat restored at the next launch unchanged.
-    func open(_ bot: Bot, remember: Bool = true) {
-        selectedBot = bot; selectedGroup = nil; openHerdrHelper = nil
+    func open(_ bot: Bot, remember: Bool = true, helper: HerdrHelperSelection? = nil) {
+        selectedBot = bot; selectedGroup = nil; openHerdrHelper = helper
         if remember { rememberSelection(bot: bot) }
-        if bot.unreadCount != 0 || bot.manualUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }
+        if helper == nil, bot.isUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }
     }
 
     /// Media tab → the message in the chat.

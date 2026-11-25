@@ -89,7 +89,7 @@ struct BotRow: View {
                 Spacer(minLength: 4)
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
-        }.buttonStyle(.plain).contextMenu {
+        }.buttonStyle(.plain).accessibilityValue(bot.isUnread ? "Unread" : "").contextMenu {
             SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection) { botToDelete = bot }
         }
     }
@@ -123,7 +123,7 @@ struct GroupRow: View {
                 if group.isMuted { Image(systemName: "bell.slash").font(.system(size: 10)).foregroundStyle(.tertiary) }
                 if group.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
-        }.buttonStyle(.plain).contextMenu {
+        }.buttonStyle(.plain).accessibilityValue(group.isUnread ? "Unread" : "").contextMenu {
             SidebarChatMenu(chat: .group(group), askNewSection: askNewSection) { botToDelete = group }
         }
     }
