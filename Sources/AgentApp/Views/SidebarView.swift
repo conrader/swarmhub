@@ -17,9 +17,21 @@ struct SidebarView: View {
             HStack(spacing: 8) {
                 Spacer(minLength: ChromeMetrics.lightsClearance)
                 HideSidebarButton()
-                Button { store.showingCommandPalette = true } label: { RoundSidebarLabel(symbol: "magnifyingglass") }
+                Button { store.showingCommandPalette = true } label: {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "magnifyingglass")
+                            Text("Search")
+                            Text(AppCommand.quickSwitcher.shortcutText).foregroundStyle(.secondary)
+                        }.font(.caption).padding(.horizontal, 8).frame(height: 24)
+                            .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 6))
+                            .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator) }
+                            .fixedSize()
+                        RoundSidebarLabel(symbol: "magnifyingglass")
+                    }
+                }
                     .buttonStyle(.plain).help("Search (\(AppCommand.quickSwitcher.shortcutText))")
-                    .accessibilityLabel("Search").chromeProbe("search")
+                    .accessibilityLabel("Search").chromeProbe("search").layoutPriority(1)
                 Menu {
                     Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
                     Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }

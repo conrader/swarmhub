@@ -21,13 +21,21 @@ struct InfoPanel: View {
             if store.visibleInfoTab(for: bot) == .overview { identity }
             ScrollView { panelContent.padding(14).frame(maxWidth: .infinity, alignment: .leading) }
         }.frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal, maxWidth: ChromeMetrics.infoWidth.max)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(AppColor.panel)
     }
 
     @ViewBuilder private var panelContent: some View {
         switch store.visibleInfoTab(for: bot) {
         case .overview: overview
         case .model: HerdrAgentControls(bot: bot, preset: modelPreset).id(bot.id)
+        case .team:
+            let server = store.herdrServer(for: bot)
+            VStack(alignment: .leading, spacing: 18) {
+                HerdrTeamActivity(bot: bot)
+                HerdrHelpersSection(bot: bot)
+                Button(store.startsHerdrHelpers(bot) ? "Helper instructions on" : "Helper instructions off") { store.editingBot = bot }
+                    .help("Edit this bot’s helper instructions in Advanced settings")
+            }.id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
         case .routines:
             let server = store.herdrServer(for: bot)
             HerdrRoutinesPanel(bot: bot, server: server, inInspector: true)
@@ -66,7 +74,7 @@ struct InfoPanel: View {
             }
             if bot.backend == .herdr {
                 HerdrOverviewSection(bot: bot)
-                HerdrTeamActivity(bot: bot)
+                Button("Team activity", systemImage: AgentInfoTab.team.symbol) { store.openInfoTab(.team) }
                 HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
                 HerdrActiveHelpersSection()
                 HerdrHelpersSection(bot: bot)

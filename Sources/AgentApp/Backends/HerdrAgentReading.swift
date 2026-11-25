@@ -30,6 +30,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     var session: HerdrClient.AgentRef?
     var core: String?
     var activeTemplate: String?
+    private var activeProgram: String?
     var confirmed = false
     var vaultSessionStale = false
     var autoRestartPending = false
@@ -66,6 +67,7 @@ struct HerdrAgentReading: Equatable, Sendable {
         reviewDescription = agent.reviewDescription
         self.session = agent.ref; activeTemplate = agent.template
         let session = profiles.lazy.flatMap { $0.sessions ?? [] }.first { (core == nil || $0.core == nil || core == $0.core) && $0.address == agent.address && $0.createdMs == agent.createdMs }
+        activeProgram = session?.runtime?.displayName ?? session?.runtime?.harness ?? usable.first { $0.name == agent.template }?.label
         guard let session else { running = .unknown; return }
         guard let id = session.runtime?.modelId, !id.isEmpty else { running = .unstated; return }
         // The label the server's list gives the id; a session saved by id alone repeats the id as its label.
@@ -128,7 +130,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     var headerModel: String {
         switch running {
         case .model(_, let label): confirmed ? "Last confirmed · \(label)" : "Started on \(label)"
-        case .unknown, .unstated: "Session model unreported"
+        case .unknown, .unstated: activeProgram.map { "\($0) · Model unreported" } ?? "Session model unreported"
         case .none: model.map { "Next direct turn · \(Self.name($0))" } ?? "Model settings"
         }
     }

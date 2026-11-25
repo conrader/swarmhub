@@ -176,6 +176,36 @@ The workspace can also acknowledge an interrupt while reporting that its agent i
 
 The native regression includes a saved group request that was waiting for stop confirmation when the app closed. It checks the warning while offline, the unread badge after reconnecting, and the final text and identity of the group reply after relaunch. [Repeat the recovery check](agent-qa.md#use-the-real-mac-window)
 
+## Comparing the Mac workspace with swarmhub.org
+
+In Chromium, the driver stepped through the release notes, failed CI check, daily brief and new bot proposal examples on the live home page. It opened Patch’s Overview, Team and Skills and switched the preview between dark and light. The walkthroughs use sample data. [Interactive workspace](https://swarmhub.org/#workspace) · [Advertised features](https://swarmhub.org/features/)
+
+The Mac app now uses the preview’s chat, sidebar, panel and card colors. The header puts the bot’s role beneath its name and gives the model control a button outline. The separate lines for a running model and a pending change still fit. The two captures show a native 980 × 620 pt workspace with sample chats. [Dark appearance](screenshots/dark/workspace-compact.png) · [Light appearance](screenshots/light/workspace-compact.png)
+
+| Website workflow | How it was checked |
+| --- | --- |
+| Hand off work and review the result | In a private Mac window, opened Team, read a completed exchange and a scheduled CI watch from a loopback workspace. Switching to another bot cleared both. An earlier version only requested open exchanges. [Bot-to-bot trials](bot-communication-results.md) |
+| Review CI failures and scheduled work | Workspace tests cover polling the watched PR head, waking once on failure, cancellation, and scheduling. The Team window check uses a recorded-shape watch. No live GitHub Actions failure was triggered for this test. |
+| Create a specialist and inspect a helper | A live Codex bot on a second Mac created ReleaseReader and presented a separate Payments proposal in the Mac app. The saved workspace contained ReleaseReader and the Payments proposal still offered Create. The Swift suite covered helper policies and separate coding model choices. |
+| Steer, approve and continue a chat | Real Codex direct and group trials above cover steering, approvals, interruption and recovery. The Mac window tests also covered 620 saved group messages, inline image and video playback, and search in live and imported history. |
+| Use local or SSH projects, shared skills, MCP and hooks | The workspace suite covered project scoping. The skillshare integration test used a scratch library and local Git repositories for previews, installation, updates, synchronization and removal. The bridge and Chrome integration test used an isolated Core and exercised desktop and mobile viewport widths. |
+| Choose a provider, use goals, import history and update | The Swift suite covered per-bot model changes, goals, Gemini beta registration and Grok import. In one MacBook chat, Codex saved a random codeword, then Claude returned it after a provider change. The remote journal confirmed both launches and two replies. Discovery on the MacBook reported Claude, Codex and Antigravity CLI. Signed-in Gemini CLI and OpenRouter chats and a physical Intel Mac were outside this pass. See the signed update rehearsal above. |
+
+The features page also advertises several workflows beyond the four home-page examples. These checks record the limits of this pass.
+
+| Additional website promise | Status in this checkout |
+| --- | --- |
+| Unified attention queue and keyboard decisions | Activity leads to pending direct and group approval cards. The real Mac trials approved from the owning chat. Keyboard decisions directly inside Activity still need implementation. |
+| Scoped rules and cross-model command review | The bridge supports expiring exact-read approvals. The review and execution of a risky terminal command by a separately selected reviewer was not verified. |
+| Paste screenshots into four providers | Image intake, local previews and media recovery were tested. Recognition of a pasted image by all four signed-in providers remains unverified. |
+| Routines, webhooks and Pages | The Mac has a routines editor and artifact library. Workspace and Swift suites exercise these paths. This pass did not use an external webhook service. |
+| Context and spend limits, interactive helpers | The Mac exposes goals and read-only helper sessions. Live cost accounting, per-goal spend ceilings and promotion of a running helper were not demonstrated. |
+| SSH bootstrap, iPhone approvals and Team Packs | The two-Mac runs used an existing SSH connection. The iOS directory on main contains design and Keychain starting material. A native iPhone approval and a multi-bot pack round trip remain outstanding. |
+
+On the first Mac build, closing Details, immediately reopening it and switching bots could leave the inspector closed. A resizable Mac split view now keeps the panel open through the sequence. The window driver repeated it in both appearances and checked the Media and Close controls at the minimum window size.
+
+The same native test pass found a keyboard search issue. In a list of 21 results, scrolling the keyboard highlight under a stationary pointer could change the result selected by Return. A failing run opened message 133 after ten Down Arrow presses from message 148. The fixed run opened message 138, then navigated to imported group and bot messages. [Repeat the Mac checks](agent-qa.md#use-the-real-mac-window)
+
 ## Product comparison and remaining checks
 
 

@@ -9,7 +9,9 @@ enum ChromeMetrics {
     static let lightsClearance: CGFloat = 81
     /// The chat and group headers' horizontal padding; the show-sidebar item sits after `lightsClearance - headerPadding`.
     static let headerPadding: CGFloat = 20
-    /// Today's Details/Members panel width, kept by both right-column mechanisms.
+    /// The chat can share the 980 pt window with both side columns.
+    static let chatWidthWithInspector: CGFloat = 350
+    /// The resizable Details or Members column.
     static let infoWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (300, 330, 380)
 }
 
@@ -123,41 +125,15 @@ struct ShowDetailsItem: View {
     }
 }
 
-/// How the Details/Members column opens and closes; the smoke reports which one is live.
-enum RightColumnMechanism: String {
-    case inspector, transition
-    static let current = RightColumnMechanism.inspector
-}
-
-/// The right column slides like the sidebar: SwiftUI's inspector, or a trailing move as the fallback.
-/// Reduce Motion: no slide.
-struct RightColumn<Panel: View>: ViewModifier {
-    @Binding var isPresented: Bool
-    var mechanism = RightColumnMechanism.current
-    @ViewBuilder let panel: () -> Panel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        let motion: Animation? = reduceMotion ? nil : .smooth(duration: 0.25)
-        switch mechanism {
-        case .inspector:
-            content.ignoresSafeArea(.container, edges: .top)
-                .inspector(isPresented: $isPresented) {
-                    panel().inspectorColumnWidth(min: ChromeMetrics.infoWidth.min, ideal: ChromeMetrics.infoWidth.ideal, max: ChromeMetrics.infoWidth.max)
-                        .ignoresSafeArea(.container, edges: .top)
-                }
-                .animation(motion, value: isPresented)
-        case .transition:
-            HStack(spacing: 0) {
-                content
-                if isPresented { HStack(spacing: 0) { Divider(); panel() }.transition(reduceMotion ? .identity : .move(edge: .trailing)) }
-            }.animation(motion, value: isPresented)
-        }
-    }
-}
-
 extension View {
-    func rightColumn<Panel: View>(isPresented: Binding<Bool>, @ViewBuilder panel: @escaping () -> Panel) -> some View {
-        modifier(RightColumn(isPresented: isPresented, panel: panel))
+    /// Keep the conversation mounted while the inspector opens, closes or changes bots.
+    func rightColumn<Panel: View>(isPresented: Binding<Bool>, @ViewBuilder panel: () -> Panel) -> some View {
+        HSplitView {
+            self
+            if isPresented.wrappedValue {
+                panel().frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal,
+                              maxWidth: ChromeMetrics.infoWidth.max)
+            }
+        }.ignoresSafeArea(.container, edges: .top)
     }
 }

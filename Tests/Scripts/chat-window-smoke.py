@@ -821,11 +821,110 @@ def message_search(source_app):
         print("Verified live and imported search, archive paging, restored positions, and recovery from a missing archive.")
 
 
+def team_inspector(source_app, appearance):
+    token = uuid.uuid4().hex
+    bots = [dict(id=str(uuid.uuid4()), name=name, title=title, backend="Herdr")
+            for name, title in (("Patch", "Releases and pull requests"), ("Scout", "Build verification"))]
+    owners = {b["id"]: b["name"] for b in bots}
+    watch = "Watch public PR 142"
+    exchange = dict(id=7, kind="ask", state="answered", text="Verified three changes for the release.",
+                    **{"from": {"name": "Patch"}, "to": {"name": "Scout"}})
+
+    class Team(BaseHTTPRequestHandler):
+        def do_GET(self):
+            parts = self.path.split("/")
+            body = None
+            if self.headers.get("Authorization") == "Bearer " + token:
+                if self.path.split("?")[0] == "/api/workspace":
+                    body = dict(core="qa", agents=[], templates=[])
+                elif len(parts) == 5 and parts[2] == "bots" and parts[3] in owners:
+                    patch = owners[parts[3]] == "Patch"
+                    body = {"exchanges": {"exchanges": []},
+                            "exchanges?all=1": {"exchanges": [exchange] if patch else []},
+                            "promises": {"promises": []},
+                            "checkins": {"checkins": [dict(id=6, what=watch, paused=False,
+                                schedule=dict(kind="ci", url="https://github.com/example/tool/pull/142"))] if patch else []}
+                            }.get(parts[4])
+            if body is None:
+                self.send_error(404)
+                return
+            data = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            if self.path == "/api/bots" and self.headers.get("Authorization") == "Bearer " + token:
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+            else:
+                self.send_error(404)
+
+        def log_message(self, *args):
+            pass
+
+    with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Team) as server:
+        preferences = home / "Library/Preferences"
+        preferences.mkdir(exist_ok=True, parents=True)
+        domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
+        (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({"appearance": appearance}))
+        bots[0]["messages"] = [dict(id=str(uuid.uuid4()), role=role, content=text, createdAt=800000010 + index)
+                               for index, (role, text) in enumerate((
+                                   ("user", "Check the changes in this release with Scout."),
+                                   ("assistant", "Scout verified the three changes. I’m watching pull request 142 for a failed check.")))]
+        store.write_text(json.dumps(dict(version=2, groups=[], bots=bots)))
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as w:
+                def element(title):
+                    return next((e for e in descendants(w) if str(attribute(e, "AXValue") or "") == title
+                                 or label(e) == title), None)
+
+                wait_for("Patch sidebar row", lambda: any(label(b).startswith("Patch,") for b in buttons(w)))
+                press(w, "Patch", sidebar=True)
+                if not element("Team"):
+                    press(w, "Details")
+                press(w, "Team")
+                import Quartz
+                size = ax.AXValueCreate(ax.kAXValueCGSizeType, Quartz.CGSizeMake(980, 620))
+                assert ax.AXUIElementSetAttributeValue(w, "AXSize", size) == 0
+                wait_for("Patch’s scheduled CI watch", lambda: element(watch))
+                def right_edge(e):
+                    x = ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1].x
+                    width = ax.AXValueGetValue(attribute(e, "AXSize"), ax.kAXValueCGSizeType, None)[1].width
+                    return x + width
+
+                assert right_edge(element("Media")) <= right_edge(w) and right_edge(element("Close")) <= right_edge(w)
+                wait_for("completed exchange", lambda: element("Recent exchanges"))
+                disclosure = next(e for e in descendants(w) if "Patch → Scout" in label(e))
+                assert ax.AXUIElementPerformAction(disclosure, "AXPress") == 0
+                wait_for("completed handoff text", lambda: element(exchange["text"]))
+                assert not element("Stop open exchanges")
+                press(w, "Scout", sidebar=True)
+                wait_for("Scout’s empty activity", lambda: element("No open handoffs, check-ins or promises."))
+                assert not element(watch) and not element(exchange["text"])
+                press(w, "Close")
+                wait_for("Details opener", lambda: element("Details"))
+                press(w, "Details")
+                wait_for("restored Team panel", lambda: element("No open handoffs, check-ins or promises."))
+                press(w, "Patch", sidebar=True)
+                wait_for("restored CI watch", lambda: element(watch))
+                print("Verified the Team tab, completed exchanges, CI watches, bot switching and reopening Details.")
+        finally:
+            server.shutdown()
+
+
 if __name__ == "__main__":
     if not ax.AXIsProcessTrusted():
         raise SystemExit("This test needs macOS Accessibility access.")
     if len(sys.argv) == 3 and sys.argv[1] == "--group-restart":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--team":
+        for appearance in ("Dark", "Light"):
+            team_inspector(Path(sys.argv[2]).resolve(strict=True), appearance)
     elif len(sys.argv) == 3 and sys.argv[1] == "--steer-reopen":
         steer_reopen(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
@@ -841,4 +940,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

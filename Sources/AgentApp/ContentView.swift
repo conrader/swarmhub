@@ -31,12 +31,12 @@ struct ContentView: View {
         } detail: {
             Group {
                 if let group = store.selectedGroup {
-                    GroupChatView(group: group).id(group.id).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
+                    GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
                     HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: 500)
                 } else if let bot = store.selectedBot {
-                    ChatView(bot: bot).id(bot.id).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
+                    ChatView(bot: bot).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
                 } else {
                     SetupEmptyState()
                         .overlay(alignment: .topLeading) {

@@ -88,7 +88,7 @@ struct ActivityRow: View {
             Text(ActivityCopy.liveLine(activity, since: message.createdAt, lastText: message.lastTextAt, now: now, status: reported)).monospacedDigit()
                 .accessibilityIdentifier("reply.status")
             if said == nil, phase == .working, let preview = activity?.current?.preview {
-                Text(preview).font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+                Text(preview).font(.caption.monospaced()).foregroundStyle(AppColor.mark).lineLimit(1).truncationMode(.middle)
             }
         } else if let shown, let summary = ActivityCopy.summary(shown, since: range == nil ? message.createdAt : shown.steps.first?.startedAt ?? message.createdAt) {
             Text(summary).monospacedDigit()

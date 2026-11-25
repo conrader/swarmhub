@@ -87,7 +87,7 @@ struct HerdrBotRequest: Equatable, Sendable {
     static func note(shapes: [String], colours: [String], asksFirst: Bool = false) -> String {
         let decision = asksFirst
             ? "The person has chosen to confirm every new bot: whatever \"decision\" says, the app shows them your request with Create and Dismiss, so say that you proposed the bot, not that it exists."
-            : "\"decision\" is \"\(decidedWord)\" when you have decided the bot should exist (the person asked you for it, or you judge it clearly worth having): the app creates it at once. Use \"\(askWord)\" when the person should decide: the app shows them your request with Create and Dismiss, so say that you proposed the bot, not that it exists."
+            : "\"decision\" is \"\(decidedWord)\" when you have decided the bot should exist (the person asked you for it, or you judge it clearly worth having): the app creates it at once. Use \"\(askWord)\" for a role that would handle payments, credentials, access grants or production changes, and whenever the person should decide: the app shows them your request with Create and Dismiss, so say that you proposed the bot, not that it exists."
         return """
         You are the main bot here: the only bot that can have SwarmHub, the app the person is chatting from, create \
         another bot. Propose a bot when it serves a specific need the person has described. To create one, settle its name and purpose, then end your reply with one fenced block like this:

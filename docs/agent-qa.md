@@ -130,6 +130,14 @@ To exercise cross-chat navigation and watch a working bot finish in Activity, ru
 
 It opens an unread group from Activity, returns to an existing draft, sends it, and watches that bot move from working to unread. Selecting the answer clears its entry. A second selection opens an incomplete reply that still needs attention.
 
+To check the Team inspector in both appearances, run the window driver against its private CI watch and completed handoff.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --team /Applications/SwarmHub.app
+```
+
+The driver opens the handoff, checks that another bot has its own activity, then closes and immediately reopens Details. It also checks the rightmost controls at the minimum window size.
+
 To check replies that arrive while the selected chat is out of view, run the native window driver.
 
 ```sh

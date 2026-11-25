@@ -69,7 +69,7 @@ struct BotTintPair: Equatable, Sendable {
     let fill: RGB, ink: RGB
 
     /// How strongly a card is washed and outlined with `fill`.
-    static let wash = 0.13, border = 0.38
+    static let wash = 0.13, border = 0.40
     /// Below this a colour counts as grey.
     static let greyChroma = 0.10
     /// What a grey avatar gets, light to dark: cream for a white one, a warm stone for a mid grey, umber for a black one.
@@ -102,8 +102,8 @@ struct BotTintPair: Equatable, Sendable {
 /// what a control or a card looks like on each of them.
 enum Palette {
     typealias Pair = (light: UInt32, dark: UInt32)
-    static let sidebar: Pair = (0xF2F1E8, 0x181915), chat: Pair = (0xFDFCF8, 0x1E1F1B), panel: Pair = (0xF8F7F0, 0x21231E)
-    static let card: Pair = (0xFFFFFF, 0x282A23), raised: Pair = (0xEFEDE3, 0x2E3029)
+    static let sidebar: Pair = (0xF1EFE8, 0x131411), chat: Pair = (0xFAF9F5, 0x181915), panel: Pair = (0xF5F3EC, 0x151612)
+    static let card: Pair = (0xFFFFFF, 0x20221C), raised: Pair = (0xFFFFFF, 0x21231D)
     static let separator: Pair = (0xDDDACD, 0x3B3D34), selection: Pair = (0xE5E3D6, 0x35372F)
     /// The line around a control that is not chosen (a tile, a switch that is off), and the mark inside one that is.
     static let outline: Pair = (0x858272, 0x7E8172)
@@ -112,7 +112,7 @@ enum Palette {
     /// What is written or drawn on a fill of the accent: white on a light window, charcoal on a dark one, where the
     /// accents are brighter. Either reads at 4.5:1 on Clay, Sage and Graphite.
     static let onAccent: Pair = (0xFFFFFF, 0x181915)
-    static let clay: Pair = (0xB35F2B, 0xC4763F), sage: Pair = (0x55784F, 0x7FA079)
+    static let clay: Pair = (0xB84A1E, 0xD97A3E), sage: Pair = (0x55784F, 0x7FA079)
     /// Graphite follows the text colour.
     static let graphite: Pair = (0x262821, 0xF7F7F2)
     /// The system's own accents, near enough to derive a tint from; the app draws the system's colour itself.

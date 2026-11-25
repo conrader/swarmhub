@@ -25,23 +25,23 @@ struct ChatView: View {
                 ShowSidebarItem()
                 BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: answering, probe: "chat_header",
                           hasActiveCodingAgent: coding, mainBotLabel: store.herdrMainBotLabel(bot))
-                Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
-                if bot.backend == .herdr, !bot.isReadOnlyArchive {
-                    ChatModelButton(reading: store.herdrAgentReadings[bot.id]) { store.openInfoTab(.model) }
-                }
-                // Whether its agent is running: ready for a message, or still starting. Nothing while it answers.
-                if bot.backend == .herdr, !bot.isReadOnlyArchive {
-                    let helpers = store.startsHerdrHelpers(bot)
-                    Button(helpers ? "Helper instructions on" : "Helper instructions off") { store.editingBot = bot }
-                        .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        .help("Edit this bot’s helper instructions in Advanced settings")
-                }
+                Button { store.showInfo.toggle() } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(bot.name).font(.system(size: 14, weight: .semibold))
+                        if !bot.title.isEmpty, bot.title != Bot.placeholderTitle {
+                            Text(verbatim: bot.title).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.lineLimit(1)
+                }.buttonStyle(.plain).accessibilityLabel(bot.name)
                 if bot.backend == .herdr, !answering, let readiness = store.herdrReadiness[bot.id],
                    readiness != .ready || store.herdrPresence(for: bot)?.isActive != true {
                     HerdrReadinessMark(readiness: readiness).transition(.opacity).id(readiness.word)
                 }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
-                Spacer()
+                Spacer(minLength: 2)
+                if bot.backend == .herdr, !bot.isReadOnlyArchive {
+                    ChatModelButton(reading: store.herdrAgentReadings[bot.id]) { store.openInfoTab(.model) }
+                }
                 if let session {
                     Button("Terminal", systemImage: "terminal") { terminal = HerdrTerminalTarget(agent: session) }
                         .buttonStyle(.bordered).controlSize(.small).fixedSize()
@@ -221,8 +221,7 @@ struct ChatModelButton: View {
             .lineLimit(1)
             .font(.caption)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .buttonStyle(.bordered).controlSize(.small)
         .accessibilityIdentifier("chat.bot.model")
         .accessibilityHint("Open this bot’s model settings")
         .help(reading?.summary ?? "Open this bot’s model settings")
