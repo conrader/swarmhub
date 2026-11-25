@@ -75,6 +75,33 @@ import Testing
         #expect((markX - 4 ... markX + 4).allSatisfy { pixel(inherited, x: $0, y: centerY) == raised })
     }
 
+    @Test(arguments: [ColorScheme.light, .dark])
+    func inspectorSelectionMovesBetweenNeutralRows(scheme: ColorScheme) async throws {
+        let clay = AppTheme.accentColor(for: "Clay")
+        // 300 pt inspector less its two 14 pt body insets. The canvas adds 12 pt on each side.
+        let size = NSSize(width: 296, height: 140)
+        func render(_ selection: String) async throws -> NSBitmapImageRep {
+            let picker = HerdrTemplatePicker(selection: .constant(selection), templates: [claude, codex],
+                                             defaultName: claude.name, defaultNote: "Default", inInspector: true)
+            return try await snapshot(picker.tint(clay), size: size, scheme: scheme)
+        }
+        let inherited = try await render("")
+        let explicit = try await render(codex.name)
+        // Sample the body of each row, between its words and its checkmark.
+        let x = 205
+        let rows = tileRows(in: inherited, x: x)
+        try #require(rows.count == 2)
+        #expect(tileRows(in: explicit, x: x) == rows)
+        let first = rows[0].lowerBound + rows[0].count / 2
+        let second = rows[1].lowerBound + rows[1].count / 2
+        #expect(pixel(inherited, x: x, y: first) == pixel(explicit, x: x, y: second))
+        #expect(pixel(inherited, x: x, y: second) == pixel(explicit, x: x, y: first))
+        let a = try #require(pixel(explicit, x: x, y: first)?.usingColorSpace(.sRGB))
+        let b = try #require(pixel(explicit, x: x, y: second)?.usingColorSpace(.sRGB))
+        let difference = max(abs(a.redComponent - b.redComponent), abs(a.greenComponent - b.greenComponent), abs(a.blueComponent - b.blueComponent))
+        #expect(difference > 0 && difference < 0.35, "Selection should leave a light tint on the neutral control surface")
+    }
+
     @Test func wrappingTitlesAndNotesGrowOnlyTheirOwnRow() async throws {
         let choices = [
             NamedChoice(id: "long", name: "A model with a much longer name", note: "A note that also needs room to wrap"),

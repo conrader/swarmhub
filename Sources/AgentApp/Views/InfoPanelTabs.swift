@@ -48,14 +48,13 @@ struct InfoTabBar: View {
         return Button { select(tab) } label: {
             VStack(spacing: 2) {
                 Image(systemName: tab.symbol).font(.system(size: style == .symbolOnly ? 14 : 13)).frame(height: 17)
-                if style == .symbolCaption { Text(tab.caption).font(.system(size: 9, weight: selected ? .semibold : .regular)).lineLimit(1).fixedSize() }
+                if style == .symbolCaption { Text(tab.caption).font(.system(size: 11, weight: selected ? .semibold : .regular)).lineLimit(1).fixedSize() }
             }
-            .padding(.horizontal, style == .symbolOnly ? 8 : 6).frame(height: style == .symbolOnly ? 28 : 36)
+            .padding(.horizontal, style == .symbolOnly ? 8 : 4).frame(height: style == .symbolOnly ? 28 : 36)
             .contentShape(Rectangle())
-            // The tab that is shown is filled with the accent, like the chosen pane in System Settings.
-            .background(selected ? AnyShapeStyle(TintShapeStyle()) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .background { if selected { InspectorSurface(selected: true) } }
         }
-        .buttonStyle(.plain).foregroundStyle(selected ? AnyShapeStyle(AppColor.onAccent) : AnyShapeStyle(.secondary))
+        .buttonStyle(.plain).foregroundStyle(selected ? .primary : .secondary)
         .help(tab.rawValue).accessibilityLabel(tab.rawValue).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

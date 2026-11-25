@@ -22,7 +22,7 @@ struct ArtifactLibraryView: View {
             }
             ForEach(records) { artifact in row(artifact) }
             if !records.isEmpty {
-                Text("Removing access stops future sends. Content a chat already received stays in that chat.").font(.caption2).foregroundStyle(.tertiary)
+                Text("Removing access stops future sends. Content a chat already received stays in that chat.").font(.caption).foregroundStyle(.secondary)
             }
             if let problem { Text(problem).font(.caption).foregroundStyle(.red) }
         }
@@ -66,7 +66,7 @@ struct ArtifactLibraryView: View {
                     }.menuStyle(.borderlessButton).fixedSize()
                 }
             }.buttonStyle(.link).font(.caption)
-        }.padding(8).frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
+        }.inspectorCard(padding: 8)
     }
 
     private func perform(_ action: () throws -> Void) {

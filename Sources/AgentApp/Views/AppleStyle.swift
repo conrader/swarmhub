@@ -353,6 +353,7 @@ struct StatusCard<Extra: View>: View {
     let kind: Kind
     let title: String
     var detail: String? = nil
+    var inInspector = false
     @ViewBuilder var extra: () -> Extra
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -367,7 +368,10 @@ struct StatusCard<Extra: View>: View {
             Spacer(minLength: 0)
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(kind == .working || kind == .info ? 0.09 : 0.16), in: RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
+        .background {
+            if inInspector { InspectorSurface() }
+            else { RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous).fill(tint.opacity(kind == .working || kind == .info ? 0.09 : 0.16)) }
+        }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: kind)
         .accessibilityElement(children: .combine)
     }
@@ -387,7 +391,9 @@ struct StatusCard<Extra: View>: View {
 }
 
 extension StatusCard where Extra == EmptyView {
-    init(kind: Kind, title: String, detail: String? = nil) { self.init(kind: kind, title: title, detail: detail) { EmptyView() } }
+    init(kind: Kind, title: String, detail: String? = nil, inInspector: Bool = false) {
+        self.init(kind: kind, title: title, detail: detail, inInspector: inInspector) { EmptyView() }
+    }
 }
 
 /// Text to copy as it is (a command, a key): monospaced, selectable, with a Copy button that says it copied.

@@ -38,7 +38,8 @@ import SwiftUI
     /// for the person, both ready, no AI program on this Mac; and Settings after the service was removed.
     static let thisMac = ["herdr-mac-offer", "herdr-mac-offer-core-there", "herdr-mac-fetching", "herdr-mac-installing", "herdr-mac-port-busy", "herdr-mac-ai-checking",
                           "herdr-mac-ai-asks", "herdr-mac-ai-ready", "herdr-mac-no-ai", "herdr-mac-removed"]
-    static let names = wizard + other + skills + projects + statuses + updates + thisMac + HeadlessSkillLibraryShots.names
+    static let inspector = ["herdr-model-tab-narrow", "herdr-routines-details", "herdr-media-details"]
+    static let names = inspector + wizard + other + skills + projects + statuses + updates + thisMac + HeadlessSkillLibraryShots.names
 
     /// What the service on a Mac says, for the shots: both AI programs found, or neither.
     static func localReport(found: Bool) -> HerdrLocalReport {
@@ -277,7 +278,9 @@ import SwiftUI
         write(other[8], await png(pane(HerdrHelperPolicySection(server: server, named: true, preset: read), policySize), store, policySize))
 
         // A bot asks the main bot for a bot. Jarvis created one on its own decision (Remove, Keep) and left another to the person.
-        let boppy = Bot(name: "Boppy", title: "Product", persona: "You look after the product.", backend: .herdr)
+        // The Overview renders in separate processes for light and dark. Its avatar derives from this ID.
+        let boppy = Bot(id: UUID(uuidString: "00000000-0000-4000-8000-000000000016")!, name: "Boppy", title: "Product",
+                        persona: "You look after the product.", backend: .herdr)
         let legal = Bot(name: "Legal", title: "Created by Jarvis", persona: "You review the contracts people send to the company and say what to change.", backend: .herdr)
         store.bots = [jarvis, boppy, legal, infra]
         for bot in [boppy, legal] { store.setHerdrServer(server.id, for: bot) }
@@ -312,21 +315,57 @@ import SwiftUI
         let models = offered["starter-one"] ?? []
         store.herdrAgentReadings[jarvis.id] = HerdrAgentReading(templates: programs, ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: models, agent: running, profiles: [launched])
         store.herdrAgentReadings[boppy.id] = HerdrAgentReading(templates: programs, ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: models)
-        let tab = NSSize(width: 360, height: 700)
-        write(other[12], await png(AnyView(VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: jarvis, templates: programs, models: models) }.padding(14)
-            .frame(width: tab.width, height: tab.height, alignment: .top).background(AppColor.panel)), store, tab))
+        let panel = NSSize(width: 360, height: 800)
+        // Keep this bot's explicit Codex selection distinct from the default Claude row.
+        // The helper has its own model and the running session reports its reviewer.
+        do {
+            let fixture = SetupPreview.makeStore(backendFactory: { _ in MockBackend() })
+            fixture.defaults.set(AppTheme.defaultAccent, forKey: "accent")
+            fixture.saveHerdrServer(server, token: nil)
+            let bot = Bot(name: "Research", backend: .herdr)
+            fixture.bots = [bot]
+            fixture.setHerdrServer(server.id, for: bot)
+            fixture.selectedBot = bot
+            let templates = programs.map { program in
+                var template = program
+                template.models = offered[program.name]
+                return template
+            }
+            let codex = templates[1], botModels = codex.models ?? []
+            fixture.setHerdrTemplate(codex.name, for: bot)
+            fixture.setHerdrModel("server-model-b", for: bot)
+            let session = HerdrClient.Agent(address: "t9", name: "research", state: "live", createdMs: 77,
+                                           template: codex.name, status: nil, codexReviewer: "auto_review")
+            let profile = HerdrClient.Profile(id: 1, runtimeName: "research", sessions: [
+                .init(address: "t9", createdMs: 77, runtime: .init(harness: "Codex", provider: nil, model: "Server model B", modelId: "server-model-b"))
+            ])
+            fixture.herdrAgentReadings[bot.id] = HerdrAgentReading(templates: templates, ownTemplate: codex.name, sharedTemplate: nil,
+                ownModel: "server-model-b", offered: botModels, agent: session, profiles: [profile])
+            let helper = HerdrClient.BotAgentSettings(choice: .init(template: templates[0].name, model: "server-model-a"), autoMode: true)
+            let preset = HerdrAgentControls.Preset(templates: templates, models: botModels, helper: helper)
+            fixture.infoTab = .model
+            let modelPanel = AnyView(InfoPanel(bot: bot, modelPreset: preset))
+            write(other[12], await png(modelPanel, fixture, panel))
+            write(inspector[0], await png(modelPanel, fixture, NSSize(width: ChromeMetrics.infoWidth.min, height: panel.height)))
+            fixture.infoTab = .routines
+            write(inspector[1], await png(AnyView(InfoPanel(bot: bot)), fixture, panel))
+            fixture.infoTab = .media
+            bot.messages = [ChatMessage(role: .user, content: "Review https://example.com/project/brief", createdAt: Date(timeIntervalSince1970: 1_780_000_000))]
+            write(inspector[2], await png(AnyView(InfoPanel(bot: bot).environment(\.timeZone, TimeZone(secondsFromGMT: 0)!)), fixture, panel))
+        }
         store.selectedBot = boppy; store.infoTab = .overview
         write(other[13], await png(AnyView(InfoPanel(bot: boppy)), store, NSSize(width: 360, height: 720)))
         let listless = [HerdrClient.Template(name: "starter-three", description: nil, error: nil, runtime: .init(harness: "Another agent", provider: nil, model: nil))]
-        write(other[14], await png(AnyView(VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: boppy, templates: listless) }.padding(14)
-            .frame(width: tab.width, height: 520, alignment: .top).background(AppColor.panel)), store, NSSize(width: tab.width, height: 520)))
+        store.infoTab = .model
+        let noList = HerdrAgentControls.Preset(templates: listless, models: [], helper: .init(choice: nil, autoMode: false))
+        write(other[14], await png(AnyView(InfoPanel(bot: boppy, modelPreset: noList)), store, panel))
         // The server's skill library in Settings, state by state, and in a bot's Details.
         let skillStates = skillModels(), skillsSize = NSSize(width: 570, height: 1_180)
         for (name, model) in zip(skills.dropLast(), skillStates) {
             write(name, await png(pane(HerdrSkillsSection(server: server, named: true, preset: model), skillsSize), store, skillsSize))
         }
-        let panel = NSSize(width: 360, height: 900)
-        write(skills[5], await png(AnyView(ScrollView { HerdrSkillsPanel(bot: jarvis, preset: skillStates[5]).padding(14) }.frame(width: panel.width, height: panel.height).background(AppColor.panel)), store, panel))
+        store.selectedBot = jarvis; store.infoTab = .skills
+        write(skills[5], await png(AnyView(InfoPanel(bot: jarvis, skillsPreset: skillStates[5])), store, NSSize(width: panel.width, height: 900)))
         await HeadlessSkillLibraryShots.render(store: store, server: server, bot: jarvis, write: write, png: png)
 
         // Project servers: the wizard's last step state by state, the Projects part of Settings, and a bot's Details.

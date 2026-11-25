@@ -43,3 +43,29 @@ JSONL
 ```
 
 Replay a run with `"$app" --agent-qa /tmp/swarmhub-replay < /path/to/run/replay.jsonl`. For one finding, pipe the first lines of the replay through its recorded step number. Compare the new state and screenshots to the original. Invalid commands return an error event and count separately from failed checks. Agent-reported suggestions alone leave the exit code at zero.
+
+## Details inspector screenshots on mini-m4
+
+On mini-m4, use a logged-in desktop session and a checkout containing the 0.8.16 inspector commit. From its repository root, run this block in zsh. It builds the debug executable from that checkout and renders both appearances from the synthetic HeadlessHerdrShots store. Allow the Herdr fixture set to finish in each appearance.
+
+```sh
+(
+  set -eu
+  SWARMHUB_BUILD_CONFIGURATION=debug ./scripts/build.sh
+  app="$(cat .build/agentapp-bin-path)/AgentApp"
+  shots="$(mktemp -d /tmp/swarmhub-details.XXXXXX)"
+  "$app" --render-setup "$shots/dark" --only herdr
+  "$app" --render-setup "$shots/light" --only herdr --light
+  for mode in dark light; do
+    for shot in herdr-model-tab herdr-model-tab-narrow herdr-model-no-list herdr-model-overview herdr-routines-details herdr-skills-details herdr-media-details; do
+      test -s "$shots/$mode/$shot.png"
+    done
+    sips -g pixelWidth -g pixelHeight "$shots/$mode/herdr-model-tab"{,-narrow}.png
+  done
+  open "$shots"
+)
+```
+
+Compare `herdr-model-tab.png` (360 × 800 pt, 720 × 1600 px) with `herdr-model-tab-narrow.png` (300 × 800 pt, 600 × 1600 px). Claude carries the Default label. Codex carries the checkmark and uses Server model B. The helper uses Claude with Server model A. Auto is on for new sessions, and the separate reviewer line describes the running session. The no-list fixture shows a program that chooses its own model and Auto off. The other four tabs show the bot’s identity, a routine retry with the fixture’s keyless server, a skill list and a chat link.
+
+For keyboard, contrast and VoiceOver QA, use the running app on the Mac. Open a test Herdr bot’s Details, drag the column to its minimum width and enable Keyboard navigation in System Settings → Keyboard. Tab through the header, program rows, model menus, Auto switch and Advanced disclosure. Use Space to activate a row or switch and the arrow keys and Return in a menu. With VoiceOver (Command-F5), check the selected tab, the checked program, the Default label and the switch’s name and value. In System Settings → Accessibility → Display, turn on Increase contrast and check the focus ring, row borders, checkmark and secondary text in both appearances.

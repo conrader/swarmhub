@@ -412,7 +412,7 @@ private struct SelectedBotDetails: View {
         }
         let visible = try await mountedText(host)
         #expect(visible.contains(label))
-        #expect(visible.contains("Coding model") && visible.contains("Auto mode"))
+        #expect(visible.contains("Bot model") && visible.contains("Helper model") && visible.contains("Auto mode for new sessions"))
         #expect(visible.contains(bot == codex ? "Opus 5.5" : "Server settings by difficulty"))
     }
     #expect(choice(store, codex) == "tpl-codex|gpt-6.2-sol-mini")

@@ -65,7 +65,7 @@ struct LibraryHero: View {
                 Label(behind, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .appleCard(padding: compact ? 14 : 18)
+        .appleCard(padding: compact ? 14 : 18, inInspector: compact)
     }
 
     @ViewBuilder private var action: some View {
@@ -111,7 +111,7 @@ struct LibraryCountTiles: View {
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading).appleCard(padding: compact ? 9 : 12).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
+                    .frame(maxWidth: .infinity, alignment: .leading).appleCard(padding: compact ? 9 : 12, inInspector: compact).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
                 }
                 .buttonStyle(.plain).help(count == nil ? "\(kind.title) could not be read." : kind.explained)
                 .accessibilityElement(children: .ignore).accessibilityLabel(count.map { kind.counted($0) } ?? "\(kind.title): could not be read").accessibilityAddTraits(.isButton)
@@ -136,11 +136,11 @@ struct HerdrSkillsEntry: View {
         VStack(alignment: .leading, spacing: 12) {
             switch model.phase {
             case .idle: Button("Show skills") { Task { await model.load() } }
-            case .reading: StatusCard(kind: .working, title: "Checking…")
+            case .reading: StatusCard(kind: .working, title: "Checking…", inInspector: compact)
             case .unavailable(let why):
-                StatusCard(kind: .warning, title: "The library could not be loaded", detail: why) { Button("Try again") { Task { await model.load() } }.padding(.top, 4) }
+                StatusCard(kind: .warning, title: "The library could not be loaded", detail: why, inInspector: compact) { Button("Try again") { Task { await model.load() } }.padding(.top, 4) }
             case .older:
-                HerdrSkillsContent(model: legacy, server: server, listHeight: nil)
+                HerdrSkillsContent(model: legacy, server: server, listHeight: nil, inInspector: compact)
                 Label(HerdrLibraryCopy.fallback, systemImage: "arrow.up.circle").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             case .ready: if let library = model.library { ready(library) }
             }
@@ -154,9 +154,9 @@ struct HerdrSkillsEntry: View {
     @ViewBuilder private func ready(_ library: HerdrLibrary) -> some View {
         LibraryHero(library: library, work: model.work, behind: model.behind, compact: compact, sync: { Task { await model.sync() } }, reload: { Task { await model.load() } })
         if library.installed {
-            if let note = library.note { StatusCard(kind: .warning, title: note) }
+            if let note = library.note { StatusCard(kind: .warning, title: note, inInspector: compact) }
             if !library.unread.isEmpty, library.waitingCount > 0 {
-                StatusCard(kind: .warning, title: "Part of the library could not be read", detail: HerdrLibraryCopy.unread(library.unread))
+                StatusCard(kind: .warning, title: "Part of the library could not be read", detail: HerdrLibraryCopy.unread(library.unread), inInspector: compact)
             }
             LibraryCountTiles(library: library, minimum: compact ? 140 : 92, compact: compact) { kind in model.kind = kind; model.area = .library; showLibrary = true }
             HStack(spacing: 10) {

@@ -3,33 +3,36 @@ import SwiftUI
 struct InfoPanel: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
+    var modelPreset: HerdrAgentControls.Preset? = nil
+    var skillsPreset: HerdrSkillsModel? = nil
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Details").font(.system(size: 14, weight: .semibold))
+                Text("Details").font(.headline).accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }
                     .buttonStyle(.plain).help("Close").accessibilityLabel("Close")
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
-            Rectangle().fill(AppColor.separator).frame(height: 0.5)
+            Divider()
             InfoTabBar(tabs: store.infoTabs(for: bot), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
-            Rectangle().fill(AppColor.separator).frame(height: 0.5)
+            Divider()
             if store.visibleInfoTab(for: bot) == .overview { identity }
             ScrollView { panelContent.padding(14).frame(maxWidth: .infinity, alignment: .leading) }
-        }.frame(minWidth: 300, idealWidth: 330, maxWidth: 380).background(AppColor.panel)
+        }.frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal, maxWidth: ChromeMetrics.infoWidth.max)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     @ViewBuilder private var panelContent: some View {
         switch store.visibleInfoTab(for: bot) {
         case .overview: overview
-        case .model: HerdrAgentControls(bot: bot).id(bot.id)
+        case .model: HerdrAgentControls(bot: bot, preset: modelPreset).id(bot.id)
         case .routines:
             let server = store.herdrServer(for: bot)
-            HerdrRoutinesPanel(bot: bot, server: server)
+            HerdrRoutinesPanel(bot: bot, server: server, inInspector: true)
                 .id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
-        case .skills: HerdrSkillsPanel(bot: bot)
+        case .skills: HerdrSkillsPanel(bot: bot, preset: skillsPreset)
         case .media: MediaTabView(bot: bot)
         }
     }
