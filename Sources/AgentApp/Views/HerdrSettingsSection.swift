@@ -114,7 +114,7 @@ struct HerdrSettingsSection: View {
                     }
                     ReadyMadeServerNote()
                 }
-            }
+            }.disabled(adding)
             HerdrServerFields(draft: $draft, submit: add).disabled(adding).frame(maxWidth: AppleMetrics.column)
             HStack(spacing: 10) {
                 Button("Connect and add", action: add).buttonStyle(.appleProminent).controlSize(.large).disabled(adding || draft.problem != nil)
@@ -154,6 +154,7 @@ struct HerdrSettingsSection: View {
             }
             let result = await store.testSetupHerdr(draft, serverID: server?.id)
             guard self.draft == draft else { return }
+            addResult = ""
             switch result {
             case .connected(let server, let key, _):
                 store.saveHerdrServer(server, token: key)

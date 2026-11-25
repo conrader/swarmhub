@@ -160,7 +160,7 @@ struct SetupFlow: Equatable {
     var herdrFailure: String? {
         switch herdrOutcome {
         case .failed(let line): line
-        case .sshSetupAvailable(let server, let problem): problem.line(for: server)
+        case .sshSetupAvailable(let server, let problem) where herdrTested == herdr: problem.line(for: server)
         default: nil
         }
     }
