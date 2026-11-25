@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Drive the native SwarmHub QA window on a logged-in Mac with PyObjC and Accessibility access."""
 
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import plistlib
 import re
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 
 import ApplicationServices as ax
 
@@ -82,8 +89,6 @@ def main(pid):
     command = subprocess.check_output(["ps", "-p", str(pid), "-o", "command="], text=True)
     if "--agent-qa-window" not in command.split():
         raise SystemExit("Choose the PID of a fresh --agent-qa-window instance.")
-    if not ax.AXIsProcessTrusted():
-        raise SystemExit("This test needs macOS Accessibility access.")
     app = ax.AXUIElementCreateApplication(pid)
     wait_for("workspace window", lambda: attribute(app, "AXWindows"))
     window = attribute(app, "AXWindows")[0]
@@ -109,7 +114,91 @@ def main(pid):
     print("Earlier history, bot switching and per-chat reply drafts verified.")
 
 
+
+def group_restart(source_app):
+    from AppKit import NSRunningApplication
+
+    with tempfile.TemporaryDirectory(prefix="SwarmHub-group-qa-") as scratch:
+        base = Path(scratch)
+        app = base / "GroupQA.app"
+        subprocess.run(["ditto", source_app, app], check=True)
+        info = app / "Contents/Info.plist"
+        plist = plistlib.loads(info.read_bytes())
+        plist["CFBundleIdentifier"] = "com.konrad.agentapp.group-qa." + uuid.uuid4().hex
+        info.write_bytes(plistlib.dumps(plist))
+        subprocess.run(["codesign", "--force", "--sign", "-", app], check=True)
+
+        home = base / "home"
+        store = home / "Library/Application Support/AgentApp/store.json"
+        store.parent.mkdir(parents=True)
+        bots = [{"id": str(uuid.uuid4()), "name": name, "backend": "Mock"} for name in ("Mira", "Patch")]
+        group_id = str(uuid.uuid4()).upper()
+        messages = []
+        for number in range(1, 621):
+            message = {"id": str(uuid.uuid4()).upper(), "role": "user", "createdAt": 800000000 + number,
+                       "content": f"QA message {number} in this group. " + "Context from a previous session. " * 4}
+            if number % 2:
+                message.update(role="assistant", authorID=bots[(number // 2) % 2]["id"])
+            messages.append(message)
+        group = {"id": group_id, "name": "Release crew", "memberIDs": [bot["id"] for bot in bots], "messages": messages}
+        store.write_text(json.dumps({"version": 2, "groups": [group], "bots": bots,
+                                     "scrollPositions": {group_id: messages[311]["id"]}}))
+
+        @contextmanager
+        def open_group():
+            environment = dict(os.environ, HOME=str(home), CFFIXED_USER_HOME=str(home),
+                               SWARMHUB_DISABLE_UPDATES="1", SWARMHUB_SERVICE_HOME=str(home))
+            process = subprocess.Popen([app / "Contents/MacOS/AgentApp", "-setupState", "skipped",
+                                        "-herdrBaseURL", "http://127.0.0.1:1"], env=environment)
+            try:
+                application = ax.AXUIElementCreateApplication(process.pid)
+                windows = lambda: attribute(application, "AXWindows") or []
+                wait_for("private workspace", windows, seconds=15)
+                window = windows()[0]
+                def group_button():
+                    return next((b for b in buttons(window) if "Release crew" in label(b)), None)
+                wait_for("group in sidebar", group_button)
+                if ax.AXUIElementPerformAction(group_button(), "AXPress") != 0:
+                    raise RuntimeError("Could not open the group")
+                yield window
+            finally:
+                if process.poll() is None:
+                    instance = NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
+                    if instance:
+                        instance.terminate()
+                    try:
+                        process.wait(timeout=8)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                        raise RuntimeError("Private workspace did not quit normally")
+
+        with open_group() as window:
+            wait_for("saved group message 312", lambda: 312 in visible_messages(window))
+            press(window, "Jump to latest message")
+            wait_for("newest group message", lambda: 620 in visible_messages(window))
+        with open_group() as window:
+            wait_for("newest group message after relaunch", lambda: 620 in visible_messages(window))
+            press(window, "Earlier messages")
+            wait_for("earlier page", lambda: max(visible_messages(window), default=620) < 620)
+        saved = json.loads(store.read_text())
+        if [m["id"].upper() for m in saved["groups"][0]["messages"]] != [m["id"] for m in messages]:
+            raise RuntimeError("Saved group history changed during restart")
+        anchor = saved.get("scrollPositions", {}).get(group_id)
+        anchor_number = next((i for i, m in enumerate(messages, 1) if m["id"] == anchor), None)
+        if not anchor_number or anchor_number == 620:
+            raise RuntimeError("Earlier page position was not saved")
+        with open_group() as window:
+            wait_for("earlier page after relaunch", lambda: anchor_number in visible_messages(window))
+        print(f"Verified 620 group messages across two restarts, including saved message {anchor_number}.")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: python3 chat-window-smoke.py QA_PROCESS_ID")
-    main(int(sys.argv[1]))
+    if not ax.AXIsProcessTrusted():
+        raise SystemExit("This test needs macOS Accessibility access.")
+    if len(sys.argv) == 3 and sys.argv[1] == "--group-restart":
+        group_restart(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 2:
+        main(int(sys.argv[1]))
+    else:
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | --group-restart /path/to/SwarmHub.app")
