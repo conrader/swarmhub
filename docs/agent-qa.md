@@ -128,7 +128,15 @@ To exercise cross-chat navigation and watch a working bot finish in Activity, ru
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --activity /Applications/SwarmHub.app
 ```
 
-It opens an unread group from Activity, returns to an existing draft, sends it, and watches that bot move from working to unread. Selecting the answer clears its entry. A second selection opens an incomplete reply that still needs attention.
+To test keyboard decisions inside Activity, run the companion check with a private workspace.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --activity-decisions /Applications/SwarmHub.app
+```
+
+It presents two current permission requests and one from an old session. The driver inspects each current request’s arguments and records which request ID and decision the server receives.
+
+The navigation check opens an unread group from Activity, returns to an existing draft, sends it, and watches that bot move from working to unread. Selecting the answer clears its entry. A second selection opens an incomplete reply that still needs attention.
 
 To check the Team inspector in both appearances, run the window driver against its private CI watch and completed handoff.
 

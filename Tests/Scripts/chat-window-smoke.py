@@ -821,6 +821,86 @@ def message_search(source_app):
         print("Verified live and imported search, archive paging, restored positions, and recovery from a missing archive.")
 
 
+def activity_decisions(source_app):
+    import Quartz
+    from threading import Thread
+
+    owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
+    reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
+    agent = dict(name="patch-" + owner["id"][:6], address="session", created_ms=80, state="live")
+    token = str(uuid.uuid4())
+    pending = [dict(id=i, agent=agent["name"], provider="Codex", tool=tool, cwd="/qa",
+                    arguments="argument-" + str(i), core="qa", address="session", created_ms=created)
+               for i, tool, created in [(1, "Read", 80), (2, "Bash", 80), (3, "Previous", 79)]]
+    decisions = []
+
+    class Inbox(BaseHTTPRequestHandler):
+        def reply(self, body):
+            data = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            route = self.path.split("?")[0]
+            if self.headers.get("Authorization") != "Bearer " + token:
+                self.send_error(403)
+            elif route == "/api/workspace":
+                self.reply(dict(core="qa", agents=[agent], templates=[]))
+            elif route == "/api/approvals":
+                self.reply(dict(pending=[r for r in pending if r["id"] not in dict(decisions)]))
+            else:
+                self.send_error(404)
+
+        def do_POST(self):
+            if self.path.startswith("/api/approvals/") and self.headers.get("Authorization") == "Bearer " + token:
+                request_id = int(self.path.split("/")[-1])
+                decision = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                decisions.append((request_id, decision))
+                self.reply(dict(id=request_id))
+            else:
+                self.send_error(404)
+
+        def log_message(self, *args):
+            pass
+
+    with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Inbox) as server:
+        store.write_text(json.dumps(dict(version=2, bots=[reader, owner], groups=[])))
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                press(window, "ReaderQA", sidebar=True)
+                press(window, "Activity")
+
+                def sheet():
+                    return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
+
+                def names():
+                    return [label(b) for b in buttons(sheet())] if sheet() else []
+
+                pid = ax.AXUIElementGetPid(window, None)[1]
+                for request_id, tool, decision, key in [(2, "Bash", "deny", 51), (1, "Read", "approve", 36)]:
+                    inspect = "Inspect " + tool + " request"
+                    wait_for(inspect, lambda: inspect in names())
+                    assert "Inspect Previous request" not in names()
+                    press(sheet(), inspect)
+                    wait_for("matching command details", lambda: any(
+                        attribute(e, "AXValue") == "argument-" + str(request_id) for e in descendants(sheet())))
+                    for down in (True, False):
+                        event = Quartz.CGEventCreateKeyboardEvent(None, key, down)
+                        Quartz.CGEventSetFlags(event, Quartz.kCGEventFlagMaskCommand)
+                        Quartz.CGEventPostToPid(pid, event)
+                    wait_for("exact keyboard decision", lambda: (request_id, decision) in decisions)
+                    assert sheet()
+                assert decisions == [(2, "deny"), (1, "approve")]
+                wait_for("both requests cleared", lambda: names() == ["Done"])
+                print("Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
+        finally:
+            server.shutdown()
+
+
 def team_inspector(source_app, appearance):
     token = uuid.uuid4().hex
     bots = [dict(id=str(uuid.uuid4()), name=name, title=title, backend="Herdr")
@@ -922,6 +1002,8 @@ if __name__ == "__main__":
         raise SystemExit("This test needs macOS Accessibility access.")
     if len(sys.argv) == 3 and sys.argv[1] == "--group-restart":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--activity-decisions":
+        activity_decisions(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--team":
         for appearance in ("Dark", "Light"):
             team_inspector(Path(sys.argv[2]).resolve(strict=True), appearance)
@@ -940,4 +1022,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

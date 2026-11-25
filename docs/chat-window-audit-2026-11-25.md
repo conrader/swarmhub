@@ -195,7 +195,7 @@ The features page also advertises several workflows beyond the four home-page ex
 
 | Additional website promise | Status in this checkout |
 | --- | --- |
-| Unified attention queue and keyboard decisions | Activity leads to pending direct and group approval cards. The real Mac trials approved from the owning chat. Keyboard decisions directly inside Activity still need implementation. |
+| Unified attention queue and keyboard decisions | Activity leads to pending direct and group approval cards. Keyboard decisions also work inside Activity. With another chat open, the two-Mac driver inspected the shell arguments and pressed ⌘Return or ⌘Delete on separate runs. The workspace received each decision. |
 | Scoped rules and cross-model command review | The bridge supports expiring exact-read approvals. The review and execution of a risky terminal command by a separately selected reviewer was not verified. |
 | Paste screenshots into four providers | Image intake, local previews and media recovery were tested. Recognition of a pasted image by all four signed-in providers remains unverified. |
 | Routines, webhooks and Pages | The Mac has a routines editor and artifact library. Workspace and Swift suites exercise these paths. This pass did not use an external webhook service. |
