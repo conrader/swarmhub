@@ -27,6 +27,21 @@ import Testing
         #expect(store.selectedGroup === group)
     }
 
+    @Test func importedPlacementSurvivesReloadAndTracksCorrections() throws {
+        let row = ChatMessage(role: .user, content: "Imported", createdAt: Date(timeIntervalSince1970: 10),
+                              metadata: ["herdrHistoryPlaced": "20"])
+        #expect(row.transcriptDate.timeIntervalSince1970 == 20)
+        let restored = try JSONDecoder().decode(ChatMessage.self, from: JSONEncoder().encode(row))
+        #expect(restored.transcriptDate == row.transcriptDate)
+        restored.metadata["herdrHistoryPlaced"] = "30"
+        #expect(restored.transcriptDate.timeIntervalSince1970 == 30)
+        restored.continuedAt = Date(timeIntervalSince1970: 40)
+        #expect(restored.transcriptDate.timeIntervalSince1970 == 40)
+        restored.continuedAt = nil
+        restored.metadata["herdrHistoryPlaced"] = "legacy"
+        #expect(restored.transcriptDate == restored.createdAt)
+    }
+
     @Test func timestampsWinOverArrayOrderAndDraftsNoticesAndEmptyRepliesDoNotMoveChats() {
         let store = store()
         let a = Bot(name: "A", messages: [message(300), message(100)])

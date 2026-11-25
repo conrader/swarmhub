@@ -289,3 +289,18 @@ The release archive was built from commit `2ac70b0a6cf011c4f499ed08f431d297215fa
 The built-in exploration completed 29 steps with zero failed checks in the signed app. It captured both appearances at 980 × 620 points. The 0.16-second timing is one observation from a fixture. A matched OpenBot comparison and a 50-agent run remain outstanding.
 
 Gatekeeper accepted the universal build and Apple's stapler validated its ticket. The public key from the shipped 0.8.16 archive verified the new app ZIP and the workspace manifest. All three workspace binary digests matched. During the private Sparkle rehearsal, build 50 rejected a signature made with a different key and installed the trusted fixture on quit. The rehearsal changes bundle IDs, version numbers and keys to isolate it from the installed app.
+
+## Switching between 50 conversations on a MacBook
+
+The native window driver opened 50 idle bots with 96 short messages each. On every switch it pressed Next Chat and checked that the destination’s last message intersected the scroll viewport. It wrote a draft in one conversation, checked the adjacent conversation’s empty composer, and verified the saved draft on each return. Each run visited all 50 chats four times.
+
+| Release build tested | Run | Median | 95th percentile | Slowest |
+| --- | --- | ---: | ---: | ---: |
+| Signed 0.8.17 candidate, build 51 | First | 215.4 ms | 235.1 ms | 286.6 ms |
+| Candidate with sidebar and text layout changes | Second | 199.8 ms | 216.4 ms | 252.3 ms |
+| Same candidate | Third | 201.9 ms | 218.8 ms | 247.2 ms |
+| Signed 0.8.17 candidate, build 51 | Fourth | 219.7 ms | 242.7 ms | 280.1 ms |
+
+Both builds ran in private copies of the app. The timings end at the native Accessibility observation. They do not measure display frame presentation or latency while 50 agents generate replies. In a separate window, a formatted paragraph changed height from 130 pt to 301 pt when the window narrowed, then returned to 130 pt when widened. A 620-message group reopened twice with its reading position intact. The background-reply check recovered the expected message order and unread badges after relaunch. [Repeat the test](agent-qa.md#use-the-real-mac-window)
+
+The same MacBook launched the notarized OpenBot 0.79.0 desktop release with a disposable profile. Continuing from its language picker opened an email sign-in screen. Measuring a 50-conversation OpenBot workspace requires a test session. [OpenBot 0.79.0](https://github.com/nightly-labs/openbot/releases/tag/v0.79.0)
