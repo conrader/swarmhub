@@ -88,6 +88,12 @@ A private copy of the Mac app opened a saved bot reply containing a PNG and an M
 
 On the fixed build, the native driver opened the image preview sheet and pressed the inline video player’s play control online, after reopening the chat offline, and after relaunching the app offline. The video control reported playing in each run. The server received one download request per file across the entire exercise. Media that has never been downloaded, or has been evicted from the bounded Mac cache, requires the workspace to be reachable. [Repeat the Mac media test](agent-qa.md#use-the-real-mac-window)
 
+## Upgrading from the public 0.8.16 executable
+
+The public archive for build 50 contains Apple silicon and Intel executables. Running the existing release packaging script against the merged fixes on an Apple silicon Mac produced an arm64-only archive. The corrected release path produced a universal executable. Both slices reported macOS 14.0 as their minimum system. The app launch check passed natively and under Rosetta. Physical Intel hardware was not used.
+
+A private MacBook installation started with the executable from the published 0.8.16 ZIP. The archive digest matched the GitHub asset. The test copies used a private bundle identifier, a loopback feed, and disposable signing keys. Sparkle fetched the candidate with the wrong signature and kept build 50. When the trusted key signed the same archive, Sparkle installed it. The installed executable matched the candidate and passed its code signature and launch checks. On the universal release build, the native chat tests also opened an image and played a video offline and restored the 620-message group’s saved position after relaunch. [Repeat the update test](updates.md#rehearsing-without-credentials)
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)

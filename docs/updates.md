@@ -131,18 +131,29 @@ For whoever publishes SwarmHub. A release is built on the Mac that holds the key
    export SWARMHUB_SIGN_IDENTITY='Developer ID Application: Your Name (TEAMID)'
    export SWARMHUB_NOTARY_PROFILE='swarmhub-notary'
    ./scripts/package-workspace.sh        # only for a new workspace server
+   tag="v$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
    SWARMHUB_WORKSPACE_NOTES='One or two sentences on what the new workspace changes.' \
-   ./scripts/release.sh v<version>
+   ./scripts/release.sh "$tag"
    ```
 
    On a Mac, `package-workspace.sh` builds both macOS programs from the one Mac, signs each with the Developer ID and the hardened runtime, sends them to Apple to be notarized, and only then writes their fragments. A fragment holds the size and SHA-256 of the signed file, so do not sign a program again afterwards; run the script again instead. Without `SWARMHUB_SIGN_IDENTITY` it signs nothing, and without the notarization settings it skips Apple's check; it says so in either case.
 
-   `release.sh` refuses to start if anything is missing, then builds, signs, notarizes and staples the app, writes the appcast with the release notes, writes and signs the workspace manifest, and checks every signature against the key in `Info.plist`. Without new programs in `dist/workspace` it carries the published workspace manifest over unchanged. It uploads nothing.
+   `release.sh` refuses to start if anything is missing, then builds, signs, notarizes and staples the app, writes the appcast with the release notes, writes and signs the workspace manifest, and checks every signature against the key in `Info.plist`. Without new programs in `dist/workspace` it carries the published workspace manifest over unchanged. Apple receives the notarization submission here. GitHub publication happens in step 8.
 
    Before it prints the command that publishes, it says which kinds of machine the workspace manifest has a program for, and warns when one of the three is missing: servers of that kind will not be offered the update, and This Mac cannot be set up on a kind of Mac that has no program. It does not publish a macOS program that is signed ad-hoc or not at all, signed by another team than the app, or signed without the hardened runtime.
 8. Push the commit and the tag, then run the `gh release create …` command the script printed. The release must be the **latest** one: the app's feed and the servers' feed are its assets (`appcast.xml`, the app archive, `workspace-manifest.json`, `workspace-manifest.json.sig`, the workspace programs).
 
+9. From the release checkout, verify the public feed using the previous installation’s feed URL and trusted key.
+
+   ```sh
+   python3 scripts/verify-published-update.py /Applications/SwarmHub.app/Contents/Info.plist
+   ```
+
+   The verifier downloads the offered ZIP, checks its size and Sparkle signature, and compares the app identifier, version and build inside it with the release checkout.
+
 Do not change a file after it is signed.
+
+Release packaging builds one app executable for Apple silicon and Intel, verifies both slices, then signs the bundle. The signed workspace programs remain separate downloads for each server architecture.
 
 ### Rehearsing without credentials
 
@@ -151,6 +162,16 @@ Tests/Scripts/update-rehearsal.sh
 ```
 
 This runs a real update with nothing of yours: two scratch builds with their own bundle identifier and home folder, a throwaway key in a file, and a feed on the Mac's loopback address. The older build must refuse an archive signed with a stranger's key and then install the properly signed one when it quits. The scratch app opens hidden. It takes a few minutes.
+
+To test the upgrade from a specific published version on a logged-in Mac, supply its original app ZIP. The rehearsal keeps the original executable and version in a scratch copy, gives both copies a private app identity and uses a throwaway signing key.
+
+```sh
+SWARMHUB_REHEARSAL_BASELINE_ZIP="/path/to/published-SwarmHub.zip" \
+SWARMHUB_REHEARSAL_CANDIDATE_ZIP="/path/to/candidate-SwarmHub.zip" \
+Tests/Scripts/update-rehearsal.sh
+```
+
+Omit the candidate ZIP to build from the checkout. The test checks that the older app fetches the archive with the incorrect signature, keeps the old build, and installs the same candidate under the trusted signature. It compares the installed executable with the candidate and verifies its code signature and launch. Use the release checks above for the production identity, notarization and public feed.
 
 `HerdrWorkspace/tests/update_smoke.py` does the same for a server: an isolated Herdr Core, a workspace on its own port and data folder, a local releases folder and a throwaway key. It covers an unsigned release, a damaged program, a program that reports the wrong version, an update, a replay, going back, an update handed over by an app, a version that cannot start and a version that hangs.
 
