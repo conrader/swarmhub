@@ -87,6 +87,7 @@ private struct NativeRun: NSViewRepresentable {
         if view.value != run.value || view.style != style {
             view.value = run.value
             view.style = style
+            view.measuredSizes.removeAll(keepingCapacity: true)
             view.highlight(nil)
             view.textStorage?.setAttributedString(style.render(run.value))
         }
@@ -103,12 +104,18 @@ private struct NativeRun: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: TranscriptTextView, context: Context) -> CGSize? {
         guard let container = view.textContainer, let layout = view.layoutManager else { return nil }
         let width = max(1, proposal.width ?? CGFloat.greatestFiniteMagnitude)
+        if let size = view.measuredSizes[width] { return size }
         let original = container.containerSize
         defer { container.containerSize = original }
         container.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        return CGSize(width: min(width, ceil(used.width)), height: max(ceil(used.height), ceil(style.font.ascender - style.font.descender)))
+        let size = CGSize(width: min(width, ceil(used.width)), height: max(ceil(used.height), ceil(style.font.ascender - style.font.descender)))
+        if view.value == run.value && view.style == style {
+            if view.measuredSizes.count >= 8 { view.measuredSizes.removeAll(keepingCapacity: true) }
+            view.measuredSizes[width] = size
+        }
+        return size
     }
 }
 
@@ -120,6 +127,7 @@ final class TranscriptTextView: NSTextView {
     var style: TranscriptFont?
     var value: AttributedString?
 
+    fileprivate var measuredSizes: [CGFloat: CGSize] = [:]
     private var painted: NSRange?
 
     /// AppKit's inactive text views can suppress the selection fill. Keep their actual

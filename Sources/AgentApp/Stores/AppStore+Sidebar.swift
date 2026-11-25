@@ -42,8 +42,12 @@ enum SidebarChat: Identifiable {
 }
 
 extension AppStore {
+    var unhiddenChats: [SidebarChat] {
+        bots.filter { !$0.isHidden }.map(SidebarChat.bot) + groups.filter { !$0.isHidden }.map(SidebarChat.group)
+    }
+
     var sidebarChats: [SidebarChat] {
-        let chats = bots.filter { !$0.isHidden }.map(SidebarChat.bot) + groups.filter { !$0.isHidden }.map(SidebarChat.group)
+        let chats = unhiddenChats
         // Preserve the existing order for equal timestamps and chats without any messages.
         var dated: [(index: Int, chat: SidebarChat, date: Date)] = []
         for (index, chat) in chats.enumerated() {
