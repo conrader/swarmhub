@@ -58,7 +58,7 @@ import Testing
         #expect(store.copiedMessage(placeholder, botName: bot.name).date == placeholder.continuedAt)
         #expect(placeholder.turnState == .finished && placeholder.transcriptDate > steer.createdAt)
         #expect(store.herdrTriggers(of: placeholder, in: bot).map(\.id) == [ids[0]])
-        #expect(await backend.calls.all == ["send:Question A", "steer:Question B"])
+        #expect(backend.calls.all == ["send:Question A", "steer:Question B"])
 
         let reopened = AppStore(storeURL: url, autoStart: false, keyStore: store.keyStore, defaults: store.defaults)
         reopened.herdrClientSetup = { $0.session = http.session }
@@ -124,7 +124,9 @@ import Testing
         await backend.emit(.replace("First."), .replace(aggregateDraft ? "First.\n\nSecond." : "Second."))
         try await waitUntil { group.messages.last?.content == "Second." }
         let second = try #require(group.messages.last)
-        #expect(group.messages.suffix(5).map(\.id) == [original.id, steerB.id, otherQuestion.id, unrelated.id, second.id])
+        let actualIDs: [UUID] = group.messages.suffix(5).map(\.id)
+        let expectedIDs: [UUID] = [original.id, steerB.id, otherQuestion.id, unrelated.id, second.id]
+        #expect(actualIDs == expectedIDs)
         #expect(store.send(text: "Question C", to: group))
         let steerC = try #require(group.messages.last)
         try await waitUntil { steerC.metadata[SteerKey.steer] == "delivered" }
