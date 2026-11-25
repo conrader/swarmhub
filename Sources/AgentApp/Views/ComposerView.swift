@@ -22,7 +22,11 @@ struct ComposerView: View {
     var wantsFocus = false; var tookFocus: () -> Void = {}
     /// Who the message goes to (a bot's or a group's name), for the placeholder.
     var recipient: String? = nil
-    @State private var importing = false; @State private var pasteMonitor: Any?; @FocusState private var focused: Bool
+    var goalCommand: (SlashCommand) -> String? = { _ in "Goals require a writable workspace bot chat." }
+    @State private var slashMenu = SlashMenu()
+    @State private var commandNotice: String?
+    @State private var noticeDraft: String?
+    @State private var importing = false; @State private var editorMonitor: Any?; @FocusState private var focused: Bool
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
     private var suggestions: [String] {
         guard !mentionNames.isEmpty, let partial = GroupRouting.typedMention(in: text) else { return [] }
@@ -30,7 +34,25 @@ struct ComposerView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !suggestions.isEmpty {
+            if !slashMenu.choices(for: text).isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(slashMenu.choices(for: text), id: \.self) { command in
+                        let selected = command == slashMenu.selection(for: text)
+                        Button { insert(command) } label: {
+                            HStack {
+                                Text(command.rawValue).bold()
+                                Text(command.usage)
+                            }
+                            .padding(6).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(selected ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                        .accessibilityLabel(command.rawValue + " " + command.usage)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                        .accessibilityHint("Insert into message")
+                    }
+                }.font(.callout).accessibilityElement(children: .contain).accessibilityLabel("Chat commands")
+            } else if !suggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(suggestions, id: \.self) { name in
                         Button { text = GroupRouting.complete(text, with: name) } label: { Text("@" + name).font(.system(size: 12, weight: .medium)).padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 24, alignment: .leading).contentShape(Rectangle()) }
@@ -58,7 +80,7 @@ struct ComposerView: View {
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus") }.composerSlot("composer_manage") }
                 input.chromeProbe("composer_input")
                 if isStreaming && hasContent {
-                    Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
+                    Button(action: submit) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
                         .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(canSteer ? "Send now, into this answer" : "Send when this answer ends")
                         .disabled(!reading.isEmpty).composerSlot("composer_steer")
                 }
@@ -67,11 +89,12 @@ struct ComposerView: View {
                         .buttonStyle(ComposerRoundButtonStyle(prominent: true)).help("Stop")
                         .composerSlot("composer_send")
                 } else {
-                    Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)) }
+                    Button(action: submit) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)) }
                         .buttonStyle(ComposerRoundButtonStyle(prominent: true)).disabled(!hasContent || !reading.isEmpty)
                         .composerSlot("composer_send")
                 }
             }
+            if let commandNotice, noticeDraft == text { Text(commandNotice).font(.callout).textSelection(.enabled) }
             if let hint { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, ComposerMetrics.control + ComposerMetrics.spacing) }
         }.padding(8).glassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous), tint: AppColor.raised.opacity(AppGlass.surfaceTint))
             .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: 768)
@@ -80,7 +103,11 @@ struct ComposerView: View {
                 let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
                 attach(urls); scoped.forEach { $0.stopAccessingSecurityScopedResource() }
             }
-            .onAppear(perform: installPasteMonitor).onDisappear { removePasteMonitor() }
+            .onAppear(perform: installEditorMonitor).onDisappear { removeEditorMonitor() }
+            .onChange(of: text) { _, draft in
+                slashMenu.reset()
+                if draft != noticeDraft { commandNotice = nil }
+            }
             .onAppear(perform: takeFocus).onChange(of: wantsFocus) { _, _ in takeFocus() }
     }
 
@@ -101,13 +128,43 @@ struct ComposerView: View {
                         }
                     }
                     .padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset).focused($focused)
+                    .accessibilityLabel("Message")
+                    .accessibilityHint(slashMenu.selection(for: text).map { "Selected " + $0.rawValue + ". Use the arrows to choose, then Tab or Return to insert." } ?? "Type / to list chat commands.")
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.shift) { return .ignored }
                         if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
-                        if reading.isEmpty { send() }; return .handled
+                        if reading.isEmpty { submit() }; return .handled
                     }
-                    .onKeyPress(.tab) { guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
+                    .onKeyPress(.tab) {
+                        guard let first = suggestions.first else { return .ignored }
+                        text = GroupRouting.complete(text, with: first)
+                        return .handled
+                    }
             }
+    }
+
+    private func insert(_ command: SlashCommand.Name) {
+        commandNotice = nil
+        text = command.insertion
+        focused = true
+    }
+
+    private func submit() {
+        if let choice = slashMenu.selection(for: text) { insert(choice); return }
+        commandNotice = nil
+        switch ComposerSubmission(draft: text, hasAttachments: !attachments.isEmpty) {
+        case .message: send()
+        case .edit(let draft, let hint):
+            slashMenu.reset()
+            text = draft
+            commandNotice = hint
+            focused = true
+        case .notice(let notice): commandNotice = notice
+        case .goal(let command):
+            commandNotice = goalCommand(command)
+            if commandNotice == nil || command == .status { text = "" }
+        }
+        noticeDraft = text
     }
 
     /// The window that asked (the setup wizard) is still closing, and a field only takes the keyboard in the key
@@ -117,11 +174,31 @@ struct ComposerView: View {
         Task { @MainActor in try? await Task.sleep(for: .milliseconds(300)); focused = true; tookFocus() }
     }
 
-    /// TextEditor handles text paste itself, so files/images on the pasteboard are intercepted at key-down.
-    private func installPasteMonitor() {
-        guard pasteMonitor == nil else { return }
-        pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard focused, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, event.charactersIgnoringModifiers == "v",
+    /// Intercept menu keys before NSTextView uses them for caret movement, tabbing
+    /// or newline insertion. Text paste and input-method composition stay in the editor.
+    private func installEditorMonitor() {
+        guard editorMonitor == nil else { return }
+        editorMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard focused, event.window?.isKeyWindow == true, let editor = event.window?.firstResponder as? NSTextView,
+                  !editor.hasMarkedText() else { return event }
+            let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+            if modifiers.isEmpty, let choice = slashMenu.selection(for: text) {
+                switch event.keyCode {
+                case 125, 126: // Down, Up
+                    _ = slashMenu.move(event.keyCode == 125 ? 1 : -1, draft: text)
+                    if let selected = slashMenu.selection(for: text) {
+                        NSAccessibility.post(element: editor, notification: .announcementRequested,
+                                             userInfo: [.announcement: selected.rawValue + " " + selected.usage,
+                                                        .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+                    }
+                case 36, 76, 48: // Return, keypad Enter, Tab
+                    if !event.isARepeat { insert(choice) }
+                case 53: slashMenu.dismiss(text)
+                default: return event
+                }
+                return nil
+            }
+            guard modifiers == .command, event.charactersIgnoringModifiers == "v",
                   let item = PasteboardAttachments.item() else { return event }
             switch item {
             case .files(let urls): attach(urls)
@@ -130,7 +207,7 @@ struct ComposerView: View {
             return nil
         }
     }
-    private func removePasteMonitor() { if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }; pasteMonitor = nil }
+    private func removeEditorMonitor() { if let editorMonitor { NSEvent.removeMonitor(editorMonitor) }; editorMonitor = nil }
 }
 
 /// The composer row's geometry (`ComposerLayoutTests` checks it on rendered pixels).
