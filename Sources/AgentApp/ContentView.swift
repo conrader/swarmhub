@@ -37,7 +37,17 @@ struct ContentView: View {
                     ChatView(bot: bot).id(bot.id).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
                 } else {
                     SetupEmptyState()
-                        .overlay(alignment: .top) { if store.sidebarHidden { WindowDragArea().frame(height: ChromeMetrics.titleRow).chromeProbe("empty_strip") } }
+                        .overlay(alignment: .topLeading) {
+                            if store.sidebarHidden {
+                                HStack {
+                                    ShowSidebarItem()
+                                    Spacer()
+                                }
+                                .padding(.horizontal, ChromeMetrics.headerPadding)
+                                .frame(height: ChromeMetrics.titleRow)
+                                .windowDragStrip(probe: "empty_strip")
+                            }
+                        }
                 }
             }.disabled(store.storeRestoreOffer != nil).ignoresSafeArea(.container, edges: .top)
             .overlay(alignment: .top) { StoreRestorePrompt() }

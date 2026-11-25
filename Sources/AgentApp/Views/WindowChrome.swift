@@ -105,6 +105,7 @@ struct ShowSidebarItem: View {
                 Color.clear.frame(width: ChromeMetrics.lightsClearance - ChromeMetrics.headerPadding, height: 1)
                 Button { store.sidebarHidden = false } label: { Image(systemName: "sidebar.left").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24).contentShape(Rectangle()) }
                     .buttonStyle(.plain).help("Show sidebar").accessibilityLabel("Show sidebar").chromeProbe("show_sidebar")
+                ReviewUpdatesButton(compact: true)
             }
         }
     }
