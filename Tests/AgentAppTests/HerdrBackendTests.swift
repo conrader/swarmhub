@@ -164,3 +164,84 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool) async
     #expect(MockHTTPProtocol.recorded(host).filter { $0.httpMethod == "POST" }.map { $0.url!.path } ==
             ["/api/agents/doc/7/messages", "/api/agents/doc/7/steer"])
 }
+
+@Test(arguments: ["Claude", "Codex", "legacy Codex", "renamed Claude"])
+func nextMessageWaitsForCoreAfterThePreviousReplyIsSaved(provider: String) async throws {
+    let harness = provider.lowercased().contains("claude") ? "Claude" : "Codex"
+    let program = provider == "renamed Claude" ? "Codex" : harness
+    let legacy = provider == "legacy Codex"
+    let ready = LockedValue(false)
+    let (host, session) = MockHTTPProtocol.serve { request in
+        switch request.url?.path {
+        case "/api/workspace":
+            let agent: [String: Any] = ["address": "p", "name": "bot", "created_ms": 7,
+                "state": "live", "template": "tpl", "status": ["state": ready.current ? "idle" : "working"]]
+            var roster: [String: Any] = ["core": "c", "templates": [["name": "tpl", "runtime": ["harness": harness, "display_name": program]]],
+                "agents": [agent], "bridge": ["api": legacy ? 2 : 3, "version": legacy ? "0.2.12" : "0.2.13"]]
+            if !legacy { roster["codex_turn_steer"] = true }
+            return (200, roster)
+        case "/api/history/c/p/7": return (200, ["items": [["id": 23, "kind": "reply", "text": "Prior answer"]]])
+        case "/api/history/c/p/7/draft": return (200, ["tools": []])
+        case "/api/agents/p/7/messages": return (200, ["queued": false])
+        default: return (404, [:])
+        }
+    }
+    var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "fixture", session: session)
+    client.agentCheckInterval = .milliseconds(5)
+    let sender = client
+    let task = Task { try await sender.deliver("Next question", name: "bot", template: "tpl") }
+    defer { task.cancel() }
+    try await MockHTTPProtocol.log(host).wait { $0.count >= 2 }
+    #expect(MockHTTPProtocol.recorded(host).allSatisfy { $0.url?.path == "/api/workspace" })
+    _ = ready.swap(true)
+    let turn = try await task.value
+    #expect(turn.after == 23 && turn.program == program)
+    let posts = MockHTTPProtocol.recorded(host).filter { $0.httpMethod == "POST" }
+    #expect(posts.count == 1)
+    let data = try #require(posts.first?.bodyData)
+    let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: String])
+    #expect(body["text"] == "Next question" && body["expected_core"] == "c")
+    #expect(body["turn_reference"] == turn.steerReference)
+    #expect((turn.steerReference != nil) == (provider == "Codex"))
+}
+
+@Test(arguments: ["replaced", "blocked", "lost status", "timeout"])
+func busyDeliveryNeverPostsOnAnUnconfirmedSession(outcome: String) async throws {
+    let first = LockedValue(true)
+    let (host, session) = MockHTTPProtocol.serve { _ in
+        let initial = first.swap(false)
+        let agent: [String: Any] = ["address": "p", "name": "bot", "created_ms": !initial && outcome == "replaced" ? 2 : 1,
+            "state": "live", "status": ["state": initial ? "working" : outcome == "replaced" ? "idle" : outcome]]
+        return (200, ["core": "c", "templates": [], "agents": [agent]])
+    }
+    var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "fixture", session: session)
+    client.agentCheckInterval = .milliseconds(1)
+    if outcome == "timeout" { client.busyWaitLimit = .zero }
+    do {
+        _ = try await client.deliver("Next question", name: "bot", template: nil)
+        Issue.record("The workspace did not confirm the original session was ready")
+    } catch let failure as HerdrClient.Failure {
+        if outcome == "blocked" { #expect(failure == .waitingAtPrompt) }
+        else if case .notDelivered = failure {} else { Issue.record("Unexpected failure: \(failure)") }
+    }
+    #expect(MockHTTPProtocol.recorded(host).allSatisfy { $0.url?.path == "/api/workspace" })
+}
+
+@Test func stoppingAWaitForAnotherWorkspaceTaskDoesNotInterruptIt() async throws {
+    let id = UUID(), name = HerdrBackend.agentName(botName: "Ada", botID: id)
+    let (host, session) = MockHTTPProtocol.serve { _ in
+        (200, ["core": "c", "templates": [], "agents": [
+            ["name": name, "address": "p", "created_ms": 1, "state": "live", "status": ["state": "working"]]]])
+    }
+    var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "fixture", session: session)
+    client.agentCheckInterval = .milliseconds(5)
+    let backend = HerdrBackend(client: client, botName: "Ada", botID: id, template: nil)
+    let stream = try await backend.send(.init(sessionID: id.uuidString, systemPrompt: "", messages: [("user", "Wait")]))
+    let consumer = Task { for try await _ in stream {} }
+    defer { consumer.cancel() }
+    try await MockHTTPProtocol.log(host).wait { $0.count >= 2 }
+    #expect(try await backend.cancel(sessionID: id.uuidString) == .noActiveRun)
+    consumer.cancel()
+    _ = await consumer.result
+    #expect(MockHTTPProtocol.recorded(host).allSatisfy { $0.httpMethod == "GET" })
+}

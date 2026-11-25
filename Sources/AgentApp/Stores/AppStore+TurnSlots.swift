@@ -221,7 +221,7 @@ extension AppStore {
             if turn.endedDuringGoalStop {
                 endTurn(streamToken)
                 sendQueuedNextMessage()
-            } else { dispatchQueuedGoals() }
+            } else { sendQueuedNextMessage() }
             save()
         }
     }

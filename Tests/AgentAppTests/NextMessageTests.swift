@@ -23,10 +23,10 @@ import Testing
 
     await backend.emit(step(.completed), .token("Done."), .completed); await backend.end(stream: 1)
     try await backend.calls.wait { $0.contains("send:fix it") }
-    #expect(bubble.metadata[SteerKey.steer] == "sentNext")
-    #expect(SteerCopy.caption(bubble) == "It did not get into that answer, so it was sent as your next message")
+    #expect(bubble.metadata[SteerKey.explicitNext] == "1" && !bubble.isSteer)
+    #expect(SteerCopy.caption(bubble) == "Requested as the next message")
     let users = bot.messages.filter { $0.role == .user }
-    #expect(users.map(\.content) == ["go", "fix it", "fix it"])
+    #expect(users.map(\.content) == ["go", "fix it"])
     #expect(users.last?.isSteer == false, "the resend is a normal message")
     #expect(bot.messages.last?.role == .assistant && bot.messages.last?.isStreaming == true)
     await backend.emit(.token("Fixed."), .completed); await backend.end()
@@ -41,7 +41,7 @@ import Testing
     bot.messages = [ChatMessage(role: .user, content: "go"), ChatMessage(role: .assistant, content: "ok"), bubble]
     #expect(store.sendAsNextMessage(bubble))
     try await backend.calls.wait { $0.contains("send:later") }
-    #expect(bubble.metadata[SteerKey.steer] == "sentNext")
+    #expect(bubble.metadata[SteerKey.explicitNext] == "1" && !bubble.isSteer)
     await backend.end(); try await waitUntil { !store.anyTurnRunning }
 }
 
@@ -74,7 +74,7 @@ import Testing
 
     await backend.emit(.token("After."), .completed); await backend.end(stream: 1)
     try await waitUntil { await backend.streamCount == 2 }
-    #expect(bubble.metadata[SteerKey.steer] == "sentNext")
+    #expect(bubble.metadata[SteerKey.explicitNext] == "1" && !bubble.isSteer)
     #expect(group.messages.filter { $0.role == .user && !$0.isSteer }.map(\.content) == ["@DMT hello", "@DMT shorter"])
     await backend.emit(.token("Shorter."), .completed); await backend.end()
     try await waitUntil { !store.anyTurnRunning }

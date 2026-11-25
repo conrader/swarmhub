@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.8.16 (build 50)
 
-- Bot conversations can bring in additional recipients. The workspace still records who participated and enforces the per-pair and per-sender message limits.
-- Mid-answer follow-ups require a running session that supports steering. If the receipt says **Not delivered**, choose **Send as next message** to send it after the answer. Check an unconfirmed receipt before retrying. Follow-ups left waiting by an older app also require an explicit retry.
+- Use `/goal` in a bot chat to keep working toward an objective across replies. Check its progress or stop it from the same chat.
+- Add guidance to a running Codex answer and see its delivery receipt. On providers and workspaces without live steering, an ordinary follow-up waits as the next message. If an attempted steer fails, choose **Send as next message**. Check the conversation before retrying an unconfirmed delivery.
+- Move bots between servers and transfer their routines. Check-ins and routines can be paused and resumed. Each server keeps one Main bot, including after a move.
+- Overview shows live helpers and detached coding workers. SSH connections can use a different local port when the workspace port is occupied.
+- Select and copy text across transcript rows. Replies stay in conversation order as they stream, including after mid-answer guidance.
+- Larger bot teams register in batches. Bot conversations can include additional recipients while keeping the per-pair and per-sender limits.
+- Requires workspace server 0.2.13 for scoped Codex steering, routine transfers, detached worker activity and the in-app terminal on an alternate SSH port. On upgrade, older unconfirmed bot asks keep their original deadlines. An overdue ask can expire and notify the asking bot on startup.
 
 ## 0.8.15 (build 49)
 

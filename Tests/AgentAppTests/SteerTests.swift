@@ -31,10 +31,13 @@ import Testing
     #expect(!store.canSteer(in: bot))
     #expect(store.send(text: "and then this"), "sending during the turn is accepted, not refused")
     let waiting = try #require(bot.messages.first { $0.content == "and then this" })
-    #expect(store.canSendAsNextMessage(waiting) && !store.hasWaitingTurn(in: bot))
+    #expect(waiting.metadata[TurnWaitCopy.key] == "waiting" && store.hasWaitingTurn(in: bot))
     await backend.emit(.token("Done."), .completed); await backend.end()
+    try await backend.calls.wait { $0.contains("send:and then this") }
+    await backend.emit(.token("Second reply."), .completed); await backend.end()
     try await waitUntil { store.isIdle(bot) }
-    #expect(await backend.calls.all == ["send:go"])
+    #expect(await backend.calls.all == ["send:go", "send:and then this"])
+    #expect(bot.messages.filter { $0.role == .user }.map(\.id) == [bot.messages[0].id, waiting.id])
 }
 
 @MainActor @Test func attachmentAndReplyReachTheActiveTurn() async throws {
@@ -75,6 +78,25 @@ import Testing
 // MARK: A steer the box hands back
 
 // MARK: Groups
+
+@MainActor @Test func anUnsupportedGroupFollowUpWaitsForItsOriginalRecipient() async throws {
+    let backend = ScriptedTurnBackend(steerless: true)
+    let (store, first) = steerStore(backend), second = Bot(name: "Other")
+    store.bots.append(second)
+    let group = try #require(store.createGroup(name: "Team", memberIDs: [first.id, second.id]))
+    #expect(store.send(text: "@Steer first question", to: group))
+    try await backend.calls.wait { $0.count == 1 }
+    #expect(store.send(text: "@Steer second question", to: group))
+    let row = try #require(group.messages.first { $0.content == "@Steer second question" })
+    #expect(row.metadata[TurnWaitCopy.recipients] == first.id.uuidString && row.metadata[TurnWaitCopy.key] == "waiting")
+    #expect(await backend.streamCount == 1)
+    await backend.emit(.token("First reply"), .completed); await backend.end()
+    try await backend.calls.wait { $0.count == 2 }
+    await backend.emit(.token("Second reply"), .completed); await backend.end()
+    try await waitUntil { store.isIdle(group) }
+    #expect(group.messages.filter { $0.role == .user && $0.content == row.content }.map(\.id) == [row.id])
+    #expect(group.messages.last { $0.role == .assistant }?.authorID == first.id)
+}
 
 @MainActor @Test func aGroupSteerIsQueuedAndTheMemberContinuesBelowIt() async throws {
     let backend = ScriptedTurnBackend()
@@ -174,6 +196,7 @@ import Testing
     let (store, bot) = steerStore(backend)
     store.defaults.set(false, forKey: HerdrBackend.botSteerKey(bot.id))
     #expect(store.herdrSteers(bot))
+    #expect(store.defaults.object(forKey: HerdrBackend.botSteerKey(bot.id)) != nil)
     let question = "Which fixture folders?"
     let source = ChatMessage(role: .assistant, content: "```choices-multiple\n\(question)\n- A\n- B\n```")
     bot.messages = [source]

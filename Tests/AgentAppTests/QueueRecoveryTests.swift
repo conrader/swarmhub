@@ -61,7 +61,7 @@ import Testing
         try await backend.calls.wait { $0.contains("send:second correction") }
         await backend.emit(.token("Two."), .completed); await backend.end()
         try await waitUntil { !store.anyTurnRunning && store.turns.nextMessages.isEmpty }
-        #expect(bot.messages.filter { $0.metadata[SteerKey.steer] == "sentNext" }.count == 2)
+        #expect(bot.messages.filter { $0.metadata[SteerKey.explicitNext] == "1" && !$0.isSteer }.count == 2)
         // Sent entries are never sent again.
         let again = ScriptedTurnBackend()
         let (third, _) = reopen(url, again)
@@ -93,6 +93,32 @@ import Testing
         #expect(store.turns.nextMessages.map(\.bubble.content) == ["second correction"])
         #expect(bot.messages.first { $0.id == bubbles[0].id }?.metadata[SteerKey.steer] == "failed")
         original.turns.nextMessages = []; await first.end(); try await waitUntil { !original.anyTurnRunning }
+    }
+
+    @Test func unsupportedTurnQueueResumesOnceWithoutReplayingPreUpgradeGuidance() async throws {
+        let url = temporaryStore(), first = ScriptedTurnBackend(steerless: true)
+        let (original, bot) = steerStore(first, url: url)
+        try await startSteerableTurn(original, first, running: false)
+        let legacy = ChatMessage(role: .user, content: "Old guidance")
+        bot.messages.append(legacy)
+        #expect(original.waitForTurn(legacy, in: bot, reason: SteerCopy.afterTurn))
+        #expect(original.send(text: "Next question"))
+        original.save()
+
+        let backend = ScriptedTurnBackend(), (store, restored) = reopen(url, backend)
+        #expect(store.turns.nextMessages.map(\.bubble.content) == ["Next question"])
+        let old = try #require(restored.messages.first { $0.id == legacy.id })
+        #expect(store.canSendAsNextMessage(old))
+        restored.messages.first { $0.role == .assistant }?.turnState = .finished
+        store.resumeRestoredNextMessages()
+        try await backend.calls.wait { $0.contains("send:Next question") }
+        await backend.end()
+        try await waitUntil { store.isIdle(restored) }
+        #expect(backend.calls.all == ["send:Next question"])
+        #expect(restored.messages.filter { $0.content == "Next question" }.count == 1)
+        original.turns.nextMessages = []
+        await first.end()
+        try await waitUntil { original.isIdle(bot) }
     }
 
     @Test func aRefusedLedgerWriteQueuesNothing() async throws {

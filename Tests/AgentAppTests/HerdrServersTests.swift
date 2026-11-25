@@ -79,6 +79,43 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
         #expect(try await client.connectedBaseURL().port == port)
     }
 
+    /// Exercise URLSession on the wire. A URLProtocol mock only sees the headers before Foundation sends them.
+    @Test func alternateForwardPortPassesLegacyHostAndOriginChecks() async throws {
+        let process = Process(), output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", """
+            from http.server import BaseHTTPRequestHandler, HTTPServer
+            class Bridge(BaseHTTPRequestHandler):
+                def do_POST(self):
+                    host = self.server.bridge_host
+                    ok = (self.headers.get('Host') == host and self.headers.get('Origin') == 'http://' + host
+                          and self.headers.get('Authorization') == 'Bearer fixture')
+                    self.send_response(200 if ok else 403)
+                    self.end_headers()
+                def log_message(self, *args): pass
+            with HTTPServer(('127.0.0.1', 0), Bridge) as occupied, HTTPServer(('127.0.0.1', 0), Bridge) as server:
+                server.timeout = 10
+                server.bridge_host = '127.0.0.1:' + str(occupied.server_port)
+                print(occupied.server_port, server.server_port, flush=True)
+                server.handle_request()
+            """]
+        process.standardOutput = output
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let ports = String(decoding: output.fileHandleForReading.availableData, as: UTF8.self)
+            .split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+        let bridgePort = try #require(ports.first), forwardPort = try #require(ports.last)
+        #expect(bridgePort != forwardPort && !HerdrTunnels.isFree(port: bridgePort))
+        var client = HerdrClient(baseURL: URL(string: HerdrServer.loopback(port: bridgePort))!, token: "fixture")
+        client.forwardedHost = "127.0.0.1:\(bridgePort)"
+        client.prepare = { forwardPort }
+        let response = try await client.raw(client.request("/api/bots", method: "POST", body: Data("{}".utf8), timeout: 5))
+        #expect(response.status == 200)
+    }
+
     @Test func sshForwardRetriesOnlyOnceOnBindFailures() async {
         let stderr = """
             bind [127.0.0.1]:8787: Address already in use

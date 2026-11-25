@@ -62,7 +62,8 @@ pub(crate) const VERSION: &str = match option_env!("SWARMHUB_BRIDGE_VERSION") {
 /// was added or changed. Level 1 is the first published server: it says what it is, can update itself, and holds
 /// the bots an app registers (`bots`). Level 2 adds the whole skillshare library: its five kinds, previews, installing
 /// after an audit, updating and removing, its Git repository, and project libraries (`skillshare`).
-pub(crate) const API: u32 = 2;
+/// Level 3 adds scoped Codex steering, detached activity and routine transfers.
+pub(crate) const API: u32 = 3;
 /// The oldest app level this server still serves. It goes up only when something an older app relies on is removed.
 pub(crate) const API_MIN: u32 = 1;
 /// The release key (Ed25519, base64): the Mac app's `SUPublicEDKey`. A check build may be given a throwaway one.

@@ -64,7 +64,8 @@ extension AppStore {
         do {
             try Task.checkCancellation()
             let member = GroupRouting.Member(id: bot.id, name: bot.name)
-            let members = routingMembers(of: group), messages = readableMessages(group.messages, for: bot.id)
+            let members = routingMembers(of: group)
+            let messages = readableMessages(group.messages, for: bot.id).filter { $0.metadata[TurnWaitCopy.key] != "waiting" }
             let herdr = activeBackend as? HerdrBackend
             let files = herdr == nil ? [] : try trigger.attachments.map(attachmentEncoder.taskFile(for:))
             let context: String

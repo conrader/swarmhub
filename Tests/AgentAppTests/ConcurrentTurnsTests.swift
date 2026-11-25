@@ -115,7 +115,7 @@ import Testing
         try await backends[0].calls.wait { $0.contains("send:after Alpha") }
         await reply("A2.", backends[0]); await reply("B2.", backends[1])
         try await waitUntil { !store.anyTurnRunning && store.turns.nextMessages.isEmpty }
-        #expect(bubbles.allSatisfy { $0.metadata[SteerKey.steer] == "sentNext" })
+        #expect(bubbles.allSatisfy { $0.metadata[SteerKey.explicitNext] == "1" && !$0.isSteer })
     }
 
     @Test func aRestartWithTwoTurnsInFlightRecoversBoth() async throws {

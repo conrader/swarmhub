@@ -197,7 +197,7 @@ def main(hc, builds):
             lacks = [entry["feature"] for entry in workspace["bridge"].pop("unsupported")]
             assert lacks == ([] if sys.platform == "linux" else ["agent_desktop"]), lacks
             assert code == 200 and workspace["bridge"] == {
-                "version": "0.2.0", "api": 2, "api_min": 1, "target": TARGET, "updates": True}, workspace
+                "version": "0.2.0", "api": 3, "api_min": 1, "target": TARGET, "updates": True}, workspace
             assert "agent" in cli("ls")
             shown = subprocess.run([str(program), "version"], capture_output=True, text=True).stdout
             bridge = workspace["bridge"]

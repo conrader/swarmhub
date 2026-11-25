@@ -102,6 +102,9 @@ struct HerdrClient: Sendable {
         var endIfIdle: Bool? = nil
         var codexTurnSteer: Bool? = nil
         var launchAttachments: Bool? = nil
+        func launchTemplate(named name: String?) -> Template? {
+            templates.first { $0.error == nil && (name == nil || $0.name == name) }
+        }
         /// The server's name for the agent program `agent` runs ("Codex"); nil when its template names none.
         func program(of agent: Agent) -> String? { templates.first { $0.name == agent.template }?.programName }
     }
@@ -167,7 +170,7 @@ struct HerdrClient: Sendable {
             switch self {
             case .invalidURL: "The server address is not valid. Use http://127.0.0.1:8787, or the port you forwarded."
             case .unauthorized: "The server did not accept the access key. Open Settings → Servers and check the connection."
-            case .refusedHost: "The server only answers on its own computer. Forward its port to this Mac, with the same port number."
+            case .refusedHost: "The workspace refused the connection address. For an older workspace over SSH, free its matching local port or update the workspace."
             case .http(_, let message): message
             case .noTemplate: "This server has no AI this bot can run on. Choose one in its Details, under Model."
             case .ended: "The bot stopped before it replied. Send your message again."
@@ -188,6 +191,7 @@ struct HerdrClient: Sendable {
     /// Between two reads of a session while waiting for its reply, and between two looks at the agent's status.
     var pollInterval: Duration = .milliseconds(400)
     var agentCheckInterval: Duration = .seconds(2)
+    var busyWaitLimit: Duration = .seconds(300)
     /// Runs before every request. A server reached over SSH opens its port forward here when it is not up
     /// (`HerdrTunnels.ensure`) and returns its current loopback port.
     var prepare: (@Sendable () async throws -> Int)? = nil
@@ -250,8 +254,9 @@ struct HerdrClient: Sendable {
     /// tells the agent about them in its first task itself.
     /// `task` nil starts the agent ahead of time (`"warm": true`): its program starts and waits, and its first task
     /// is the first message sent to it (`deliver`). A bridge that cannot do that refuses the launch.
-    func launch(name: String, template: String, task: String?, profileID: Int?, modelID: String? = nil, projects: [Int] = [], workspaceID: UUID? = nil, files: [TaskFile] = [], expectedCore: String? = nil) async throws -> Agent {
+    func launch(name: String, template: String, task: String?, profileID: Int?, modelID: String? = nil, projects: [Int] = [], workspaceID: UUID? = nil, files: [TaskFile] = [], expectedCore: String? = nil, turnReference: String? = nil) async throws -> Agent {
         var body: [String: Any] = ["name": name, "template": template]
+        if let turnReference { body["turn_reference"] = turnReference }
         if let task { body["task"] = task } else { body["warm"] = true }
         if let profileID { body["profile_id"] = profileID }
         if let modelID { body["model_id"] = modelID }
@@ -311,9 +316,12 @@ struct HerdrClient: Sendable {
 
     /// Types `text` into the agent. True when the bridge kept it instead, for an agent that was started ahead of
     /// time and is not ready yet: it is saved there, typed as soon as the agent is ready, and never typed twice.
-    @discardableResult func message(_ text: String, to agent: Agent) async throws -> Bool {
+    @discardableResult func message(_ text: String, to agent: Agent, expectedCore: String? = nil, turnReference: String? = nil) async throws -> Bool {
         struct Delivery: Decodable { let status: String?; let queued: Bool? }
-        let delivery: Delivery = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/messages", ["text": text])
+        var body = ["text": text]
+        body["expected_core"] = expectedCore
+        body["turn_reference"] = turnReference
+        let delivery: Delivery = try await post("/api/agents/\(agent.address)/\(agent.createdMs)/messages", body)
         return delivery.queued == true
     }
 
@@ -329,6 +337,33 @@ struct HerdrClient: Sendable {
     func liveAgent(named name: String, in workspace: Workspace) -> Agent? {
         let live = workspace.agents.filter { $0.isLive && $0.parent == nil }
         return live.first { $0.name == name } ?? live.first { Self.suffix(of: $0.name) == Self.suffix(of: name) }
+    }
+
+    /// The Stop hook can save the last reply before Core releases the terminal. A bot ask or routine
+    /// can also own it. Only poll the original session, before reading the history cursor or posting.
+    func workspaceForDelivery(name: String, status: @Sendable (HerdrTurnStatus) -> Void) async throws -> Workspace {
+        let initial = try await workspace()
+        guard let agent = liveAgent(named: name, in: initial), agent.status?.state == "working" else { return initial }
+        return try await waitForIdle(agent, name: name, core: initial.core, status: status).workspace
+    }
+
+    private func waitForIdle(_ agent: Agent, name: String, core: String?, status: @Sendable (HerdrTurnStatus) -> Void) async throws -> (workspace: Workspace, agent: Agent) {
+        status(.waitingForIdle)
+        let deadline = ContinuousClock.now + busyWaitLimit
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: agentCheckInterval)
+            let current = try await workspace()
+            guard core == current.core, let live = liveAgent(named: name, in: current), live.ref == agent.ref else {
+                throw Failure.notDelivered("The workspace session changed while the message was waiting.")
+            }
+            switch live.status?.state {
+            case "working": continue
+            case "idle", "done": return (current, live)
+            case "blocked": throw Failure.waitingAtPrompt
+            default: throw Failure.notDelivered("The workspace could not confirm the session was ready.")
+            }
+        }
+        throw Failure.notDelivered("The workspace session is still busy.")
     }
 
     /// What became of a start ahead of time.
@@ -399,11 +434,13 @@ struct HerdrClient: Sendable {
         }
     }
 
-    func message(_ text: String, files: [TaskFile], to agent: Agent, core: String) async throws -> Bool {
-        guard !files.isEmpty else { return try await message(text, to: agent) }
+    func message(_ text: String, files: [TaskFile], to agent: Agent, core: String, turnReference: String? = nil) async throws -> Bool {
+        guard !files.isEmpty else { return try await message(text, to: agent, expectedCore: core, turnReference: turnReference) }
         struct Delivery: Decodable { let queued: Bool? }
         let path = "/api/agents/\(agent.address)/\(agent.createdMs)/messages/with-files"
-        let delivery: Delivery = try await postFileTask(path, ["text": text, "expected_core": core], files: files)
+        var body = ["text": text, "expected_core": core]
+        body["turn_reference"] = turnReference
+        let delivery: Delivery = try await postFileTask(path, body, files: files)
         return delivery.queued == true
     }
 
@@ -445,7 +482,7 @@ struct HerdrClient: Sendable {
         var clean = String(String.UnicodeScalarView(text.replacingOccurrences(of: "\r\n", with: "\n").unicodeScalars.filter {
             $0 == "\n" || $0 == "\t" || $0.properties.generalCategory != .control
         }))
-        while clean.utf8.count > bytes { clean.removeLast() }
+        while clean.utf8.count > max(0, bytes) { clean.removeLast() }
         return clean
     }
 
@@ -483,36 +520,47 @@ struct HerdrClient: Sendable {
     func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil,
                  once: [(marker: String, note: String)] = [], changing: [(lead: String, note: String)] = [],
                  projects: [HerdrBotProject] = [], files: [TaskFile] = [], workspaceID: UUID? = nil, resync: Bool = false, synced: @Sendable () -> Void = {},
-                 status: @Sendable (HerdrTurnStatus) -> Void = { _ in }) async throws -> Turn {
+                 willSubmit: @Sendable () -> Void = {}, status: @Sendable (HerdrTurnStatus) -> Void = { _ in }) async throws -> Turn {
         try Self.validateMessage(text)
         try TaskFile.validate(files)
         var text = Self.plain(text, bytes: Int.max)
-        let current = try await workspace()
+        let current = try await workspaceForDelivery(name: name, status: status)
         if !files.isEmpty, current.attachments != true {
             throw BackendError.unavailable("This server cannot receive attachments. Update its workspace and Herdr Core, then try again.")
         }
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the server. Start it there, then try again.") }
         var active = liveAgent(named: name, in: current)
-        let program = active.flatMap(current.program(of:)) ?? Self.program(template: template, in: current)
+        let runtimeTemplate: Template?
+        if let active { runtimeTemplate = current.templates.first { $0.name == active.template } }
+        else { runtimeTemplate = current.launchTemplate(named: template) }
         var steerReference: String?
-        if program == "Codex", current.codexTurnSteer == true {
+        var wireReference: String?
+        var reservedBytes = 0
+        if runtimeTemplate?.runtime?.harness?.lowercased() == "codex", current.codexTurnSteer == true {
             let reference = UUID().uuidString
             let marked = "[SwarmHub turn \(reference)]\n" + text
             // Keep the normal turn usable when it occupies the full first-message budget.
             if marked.utf8.count <= min(Self.messageBytes, Self.firstMessageBudget(instructions: instructions, hasFiles: !files.isEmpty)) {
                 steerReference = reference
-                text = marked
+                if (current.bridge?.api ?? 0) >= 3 {
+                    wireReference = reference
+                    reservedBytes = marked.utf8.count - text.utf8.count
+                } else {
+                    text = marked
+                }
             }
         }
         if active == nil, !files.isEmpty, current.launchAttachments != true {
             try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: true))
-            active = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), workspaceID: workspaceID, in: current)
+            let started = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), workspaceID: workspaceID, in: current)
+            if started.status?.state == "working" {
+                active = try await waitForIdle(started, name: name, core: core, status: status).agent
+            } else {
+                active = started
+            }
         }
         if let agent = active {
             if agent.status?.state == "blocked" { throw Failure.waitingAtPrompt }
-            if agent.status?.state == "working" {
-                throw Failure.notDelivered("This session already has an active turn. The follow-up was not sent.")
-            }
             // Started ahead of time and not ready yet: the bridge keeps the message and types it when the agent is.
             if agent.isStarting { status(.starting(program: current.program(of: agent))) }
             let saved = try await history(core: core, address: agent.address, createdMs: agent.createdMs)
@@ -537,18 +585,21 @@ struct HerdrClient: Sendable {
                 try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: !files.isEmpty))
                 body = Self.firstTask(text, instructions: instructions)
             } else {
-                let budget = (files.isEmpty ? Self.taskBytes : 12 * 1024) - text.utf8.count - 2
+                let budget = (files.isEmpty ? Self.taskBytes : 12 * 1024) - text.utf8.count - reservedBytes - 2
                 let prefix = Self.plain(notes.joined(separator: "\n\n"), bytes: min(Self.instructionsBytes, budget))
                 body = prefix.isEmpty ? text : prefix + "\n\n" + text
             }
             if !files.isEmpty { try Self.validateMessage(body, limit: 12 * 1024) }
-            let queued = try await message(body, files: files, to: agent, core: core)
+            try Task.checkCancellation()
+            willSubmit()
+            let queued = try await message(body, files: files, to: agent, core: core, turnReference: wireReference)
             return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, steerReference: steerReference, afterTool: afterTool, program: current.program(of: agent), queued: queued)
         }
         status(.starting(program: Self.program(template: template, in: current)))
         try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: !files.isEmpty))
         let first = Self.firstTask(text, instructions: instructions)
-        let agent = try await start(name: name, template: template, model: model, task: first, projects: projects.map(\.id), workspaceID: workspaceID, files: files, in: current)
+        willSubmit()
+        let agent = try await start(name: name, template: template, model: model, task: first, projects: projects.map(\.id), workspaceID: workspaceID, files: files, turnReference: wireReference, in: current)
         if resync { synced() }
         if agent.openCodeFirstTask == "uncertain" { throw Failure.unconfirmedDelivery }
         if agent.openCodeFirstTask == "not_sent" { throw Failure.notDelivered("OpenCode did not accept the first task.") }
@@ -559,9 +610,8 @@ struct HerdrClient: Sendable {
     /// Starts this bot's agent from `template` (nil: the first the server can start), on `model` when the template
     /// takes one, with `task` as its first task, or with none (ahead of time, `launch`).
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
-    func start(name: String, template: String?, model: String?, task: String?, projects: [Int], workspaceID: UUID? = nil, files: [TaskFile] = [], in current: Workspace) async throws -> Agent {
-        let usable = current.templates.filter { $0.error == nil }
-        guard let chosen = usable.first(where: { $0.name == template }) ?? (template == nil ? usable.first : nil) else { throw Failure.noTemplate }
+    func start(name: String, template: String?, model: String?, task: String?, projects: [Int], workspaceID: UUID? = nil, files: [TaskFile] = [], turnReference: String? = nil, in current: Workspace) async throws -> Agent {
+        guard let chosen = current.launchTemplate(named: template) else { throw Failure.noTemplate }
         let known = try await profiles().first { $0.runtimeName == name || Self.suffix(of: $0.runtimeName) == Self.suffix(of: name) }
         // A bot with no model of its own starts on the first one the server offers for the template (`defaultModel`):
         // the model the app shows for it. Only a template with no list leaves the choice to the agent program.
@@ -572,13 +622,12 @@ struct HerdrClient: Sendable {
                 ? HerdrModelChoice.suggested(program: chosen.modelAgent ?? chosen.programName, offered: offered)?.id
                 : Self.defaultModel(offered: offered)
         }
-        return try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: task, profileID: known?.id, modelID: modelID, projects: projects, workspaceID: current.botWorkspaces == true ? workspaceID : nil, files: files, expectedCore: current.core)
+        return try await launch(name: known?.runtimeName ?? name, template: chosen.name, task: task, profileID: known?.id, modelID: modelID, projects: projects, workspaceID: current.botWorkspaces == true ? workspaceID : nil, files: files, expectedCore: current.core, turnReference: turnReference)
     }
 
     /// The server's name for the agent program a bot's next agent starts ("Codex"); nil when the server names none.
     static func program(template: String?, in workspace: Workspace) -> String? {
-        let usable = workspace.templates.filter { $0.error == nil }
-        return (usable.first { $0.name == template } ?? (template == nil ? usable.first : nil))?.programName
+        workspace.launchTemplate(named: template)?.programName
     }
 
     /// What goes in front of a message to a running agent: `reminder` always, each of `once` only while no saved task

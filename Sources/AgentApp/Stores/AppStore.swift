@@ -424,15 +424,20 @@ import UserNotifications
             bot.goal = goal
         }
         conversation.messages.append(user)
+        let accepted: Bool
         if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) {
-            guard waitForTurn(user, in: conversation, reason: reason) else {
-                if revised != nil { bot.goal = previousGoal; if let goal = previousGoal, goal.state == .queued { turns.scheduledGoals.insert(goal.id) } }
-                return false
-            }
-            return true
+            accepted = waitForTurn(user, in: conversation, reason: reason)
+        } else {
+            accepted = startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         }
-        startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
-        return true
+        if !accepted {
+            conversation.messages.removeAll { $0 === user }
+            if revised != nil {
+                bot.goal = previousGoal
+                if let goal = previousGoal, goal.state == .queued { turns.scheduledGoals.insert(goal.id) }
+            }
+        }
+        return accepted
     }
     func validateHerdrDraft(_ text: String, attachments: [ChatAttachment], bot: Bot? = nil) -> Bool {
         do {
@@ -448,11 +453,11 @@ import UserNotifications
 
     /// Starts the turn answering `user`, a row of `conversation`. The reply goes right under it and the turn sends the
     /// chat only up to it: messages queued after it wait below and go in their own turns.
-    func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
+    func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) -> Bool {
         let herdr = activeBackend is HerdrBackend
         let files: [HerdrClient.TaskFile]
         do { files = herdr ? try user.attachments.map(attachmentEncoder.taskFile(for:)) : [] }
-        catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return }
+        catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return false }
         let assistant = ChatMessage(role: .assistant, content: "", createdAt: now(), isStreaming: true, metadata: [TurnKey.forUser: user.id.uuidString], turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
@@ -465,6 +470,7 @@ import UserNotifications
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: herdr ? [] : images, systemPrompt: bot.outboundPersona,
                                     backend: activeBackend, token: streamToken, files: files)
         }
+        return true
     }
     func notifyIfNeeded(bot: Bot, message: String) {
         guard !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }

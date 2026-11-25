@@ -9,7 +9,6 @@ struct QueuedNextMessage {
     var kind: NextMessageRecord.Kind = .steer
     var anchorID: UUID
     var restored = false
-    /// uxfix3: queued by the app (a steer the run could no longer read), not by the user's button; the user's Stop takes it back.
     init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false) {
         self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored
     }
@@ -17,7 +16,7 @@ struct QueuedNextMessage {
 
 /// P32 item 9: a steer that was not delivered ("failed") offers "Send as next message". Its text goes out as a normal
 /// message in the same chat, thread or group: at once when nothing runs, else once the running turn or round ends.
-/// The failed bubble stays where it was and says what happened to it.
+/// The original user row becomes the trigger for its own turn.
 extension AppStore {
     /// Shown under a failed steer bubble that is not already waiting (a "next" left over from a quit counts as failed).
     func canSendAsNextMessage(_ bubble: ChatMessage) -> Bool {
@@ -29,7 +28,7 @@ extension AppStore {
     /// "Send as next message" pressed. False when the bubble is not a failed steer or its chat can't send.
     @discardableResult func sendAsNextMessage(_ bubble: ChatMessage) -> Bool {
         guard canSendAsNextMessage(bubble), let conversation = conversation(containing: bubble.id) else { return false }
-        bubble.metadata["explicitNext"] = "1"
+        bubble.metadata[SteerKey.explicitNext] = "1"
         bubble.metadata[SteerKey.steer] = "next"
         guard enqueueNextMessage(QueuedNextMessage(conversation: conversation, bubble: bubble)) else { bubble.metadata[SteerKey.steer] = "failed"; return false }
         objectWillChange.send(); save()
@@ -44,11 +43,12 @@ extension AppStore {
     /// P39: per chat. Each chat's oldest entry goes once that chat has no turn and the turn limits allow it; a chat's later
     /// entries wait behind its first, and a restored entry holds its own chat only.
     func sendQueuedNextMessage() {
+        guard storeRestoreOffer == nil else { return }
         defer { dispatchQueuedGoals() }
         var held: Set<UUID> = []; var index = 0
         while index < turns.nextMessages.count {
             let next = turns.nextMessages[index], key = next.conversation.id
-            guard !held.contains(key), !next.restored, isIdle(next.conversation), turnCapacityProblem(for: waitingBots(next)) == nil else {
+            guard !held.contains(key), !next.restored, isIdle(next.conversation), turns.pendingInterrupts[key] == nil, turnCapacityProblem(for: waitingBots(next)) == nil else {
                 held.insert(key); index += 1; continue
             }
             guard recordNextMessage(next, .submitting) else { break }
@@ -57,9 +57,8 @@ extension AppStore {
                 // Local rows are saved before dispatch is retired. A crash before this save
                 // leaves a submitting record which recovery exposes as uncertain.
                 save()
-                guard recordNextMessage(next, .sent) else { continue }
-                if next.kind != .turn { next.bubble.metadata[SteerKey.steer] = "sentNext" }
-                held.insert(key); objectWillChange.send(); save(); continue
+                guard !turns.saveFailing, recordNextMessage(next, .sent) else { continue }
+                held.insert(key); continue
             }
             recordNextMessage(next, .removed)
             if next.kind == .turn { giveBackBubble(next) } else { next.bubble.metadata[SteerKey.steer] = "failed" }
@@ -68,37 +67,39 @@ extension AppStore {
     }
 
     private func startNextMessage(_ next: QueuedNextMessage) -> Bool {
-        let text = next.bubble.content
+        let user = next.bubble
+        guard next.conversation.messages.contains(where: { $0 === user }) else { return false }
+        let images: [String]
+        do { images = try user.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
+        catch { presentError(error.localizedDescription, reason: .attachment); return false }
         if let group = next.conversation as? GroupChat {
             guard groups.contains(where: { $0 === group }) else { return false }
-            guard next.kind == .turn else {
-                let ids = queuedRecipients(next.bubble, in: group)
-                return !ids.isEmpty && send(text: text, attachments: next.bubble.attachments, to: group, recipientIDs: ids,
-                                           sourceMessageID: next.bubble.replyToID, metadata: next.bubble.metadata.filter { $0.key == ChoiceReply.quoteKey || $0.key == ChoiceReply.cardKey })
-            }
-            let recipients = queuedRecipients(next.bubble, in: group)
-            guard !recipients.isEmpty else { return false }
-            endWait(next.bubble, in: group)
-            return startGroupRound(group, message: next.bubble, recipients: recipients)
+            let recipients = queuedRecipients(user, in: group)
+            guard !recipients.isEmpty, recipients.allSatisfy({ (try? validateArtifactAccess(user, botID: $0)) != nil }) else { return false }
+            prepareQueuedRow(next)
+            return startGroupRound(group, message: user, recipients: recipients, images: images)
         }
         guard let bot = next.conversation as? Bot, bots.contains(where: { $0 === bot }), !bot.isReadOnlyArchive,
-              let activeBackend = try? backend(for: bot) else { return false }
-        let user: ChatMessage
+              let activeBackend = try? backend(for: bot),
+              (try? validateArtifactAccess(user, botID: bot.id)) != nil else { return false }
+        if let attempt = user.metadata[GoalKey.attempt],
+           bot.goal?.attempt?.uuidString != attempt || !goalDestinationMatches(bot) { return false }
+        prepareQueuedRow(next)
+        return startChatTurn(bot: bot, conversation: next.conversation, user: user, images: images, backend: activeBackend)
+    }
+
+    private func prepareQueuedRow(_ next: QueuedNextMessage) {
+        let conversation = next.conversation, row = next.bubble
         if next.kind == .turn {
-            user = next.bubble
-            if let attempt = user.metadata[GoalKey.attempt],
-               bot.goal?.attempt?.uuidString != attempt || !goalDestinationMatches(bot) { return false }
-            guard (try? validateArtifactAccess(user, botID: bot.id)) != nil else { return false }
-            endWait(user, in: next.conversation)
-        } else {
-            user = ChatMessage(role: .user, content: text, metadata: next.bubble.metadata.filter { $0.key == ChoiceReply.quoteKey || $0.key == ChoiceReply.cardKey },
-                               replyToID: next.bubble.replyToID, attachments: next.bubble.attachments)
-            guard (try? validateArtifactAccess(user, botID: bot.id)) != nil else { return false }
-            next.conversation.messages.append(user)
+            endWait(row, in: conversation)
+            return
         }
-        let images = (try? user.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))) ?? []
-        startChatTurn(bot: bot, conversation: next.conversation, user: user, images: images, backend: activeBackend)
-        return true
+        // Keep the ID, quote, recipients and attachments when a failed steer becomes a normal turn.
+        // Older sentNext receipts have a separate user row and still stay out of model history.
+        row.metadata[SteerKey.steer] = nil
+        conversation.messages.removeAll { $0 === row }
+        let index = conversation.messages.firstIndex { $0.metadata[TurnWaitCopy.key] == "waiting" }
+        conversation.messages.insert(row, at: index ?? conversation.messages.endIndex)
     }
 
     /// The bots a queued entry would start a turn for (its chat's owner, or the group members it names).
@@ -135,7 +136,15 @@ extension AppStore {
         if let index = conversation.messages.firstIndex(where: { $0 === user }) {
             conversation.messages.insert(ChatMessage(role: .system, content: reason, metadata: [TurnWaitCopy.key: "line"]), at: index + 1)
         }
-        replyTo = nil; objectWillChange.send(); save()
+        objectWillChange.send(); save()
+        if turns.saveFailing {
+            turns.nextMessages.removeAll { $0.id == next.id }
+            endWait(user, in: conversation)
+            conversation.messages.removeAll { $0 === user }
+            recordNextMessage(next, .removed)
+            return false
+        }
+        replyTo = nil
         return true
     }
 
@@ -153,6 +162,7 @@ extension AppStore {
 enum TurnWaitCopy {
     static let recipients = "queuedRecipientIDs"
     static let key = "turnWait"
+    static let afterAnswer = "Queued as the next message after this answer."
     static let behind = "Waiting: an earlier message in this chat goes first."
     static let notSent = "Not sent: it was still waiting for a free turn."
 }

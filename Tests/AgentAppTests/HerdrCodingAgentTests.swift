@@ -175,6 +175,31 @@ import Testing
         #expect(!store.herdrHelperOverview.confirmedEmpty, "empty streams cannot confirm the workspace roster or detached activity")
     }
 
+    @Test func overviewDistinguishesOlderWorkspacesFromIncompleteActivityReads() async {
+        let api = LockedValue(2), malformed = LockedValue(false)
+        let http = MockHTTPProtocol.serve { _ in
+            var body: [String: Any] = ["core": "c", "agents": [], "templates": [],
+                                        "bridge": ["version": api.current == 2 ? "0.2.12" : "0.2.13", "api": api.current]]
+            if malformed.current { body["codejob_activity"] = "bad feed" }
+            return (200, body)
+        }
+        let store = makeStore()
+        store.bots = [Bot(name: "Owner", backend: .herdr)]
+        let server = HerdrServer(id: HerdrServer.defaultID, name: "Fixture", kind: .address, address: "http://\(http.host)")
+        store.saveHerdrServer(server, token: "fixture")
+        store.herdrClientSetup = { $0.session = http.session }
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.withoutDetachedActivity == [server])
+        #expect(store.herdrHelperOverview.unavailable.isEmpty && store.herdrHelperOverview.confirmedEmpty)
+        _ = malformed.swap(true)
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.unavailable == [server])
+        _ = api.swap(3)
+        _ = malformed.swap(false)
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.unavailable == [server] && !store.herdrHelperOverview.confirmedEmpty)
+    }
+
     @Test func overviewRequiresSuccessfulReadsBeforeReportingNoActiveHelpers() async throws {
         let store = makeStore()
         let open = Bot(name: "Open", backend: .herdr), remote = Bot(name: "Remote", backend: .herdr)

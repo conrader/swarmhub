@@ -178,10 +178,10 @@ import Testing
     #expect(bridge.sent[0].route == "launch-with-files" && !store.canSteer(in: bot), "the turn the chat does not show takes no steer")
     #expect(store.send(text: "Second"))
     let row = try #require(bot.messages.first { $0.content == "Second" })
-    #expect(row.metadata[SteerKey.steer] == "failed" && store.canSendAsNextMessage(row))
+    #expect(row.metadata[TurnWaitCopy.key] == "waiting" && store.hasWaitingTurn(in: bot))
     #expect(bridge.sent.count == 1)
     bridge.release("It stood at question 5.")
     try await waitUntil { store.runningTurns.isEmpty }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message"])
-    #expect(bridge.sent[1].text.hasSuffix("First") && store.turns.nextMessages.isEmpty)
+    #expect(bridge.sent.map(\.route) == ["launch-with-files", "message", "message"])
+    #expect(bridge.sent[1].text.hasSuffix("First") && bridge.sent[2].text.hasSuffix("Second") && store.turns.nextMessages.isEmpty)
 }

@@ -50,7 +50,7 @@ import SwiftUI
 
     private func indexRows() {
         rows = history.map { .history($0.dedupeKey) } + messages.map { .message($0) }
-        order = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element, $0.offset) })
+        order = Dictionary(rows.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
         if let range, order[range.anchor.row] == nil || order[range.head.row] == nil { clear() }
         else if range != nil { repaint() }
     }

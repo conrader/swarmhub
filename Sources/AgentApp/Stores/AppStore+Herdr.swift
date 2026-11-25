@@ -279,8 +279,8 @@ extension AppStore {
         defaults.set(try? JSONEncoder().encode(record), forKey: "herdr.confirmed.\(bot.id)")
     }
 
-    /// Steer is the default: a message sent while the agent answers goes into that answer.
-    func herdrSteers(_ bot: Bot) -> Bool { defaults.removeObject(forKey: HerdrBackend.botSteerKey(bot.id)); return true }
+    /// The retired preference is ignored. Each accepted turn advertises its own steering capability.
+    func herdrSteers(_ bot: Bot) -> Bool { true }
 
     /// Ends the bot's running agent, so its next message starts a fresh one on the chosen runtime and model.
     /// Returns whether an agent was running. The chat stays; the agent's own memory of it does not.

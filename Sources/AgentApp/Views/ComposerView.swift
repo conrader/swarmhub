@@ -26,6 +26,15 @@ struct ComposerView: View {
     @State private var noticeDraft: String?
     @State private var importing = false; @State private var editorMonitor: Any?; @FocusState private var focused: Bool
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
+    private var placeholder: String {
+        if isStreaming && canSteer { return SteerCopy.placeholder }
+        if isStreaming && mentionNames.isEmpty { return "Queue the next message…" }
+        return "Message " + (recipient ?? AppConstants.name) + "…"
+    }
+    private var followUpHelp: String {
+        if !mentionNames.isEmpty { return "Send follow-up to the selected group members" }
+        return canSteer ? "Send into the current answer" : "Queue as the next message"
+    }
     private var suggestions: [String] {
         guard !mentionNames.isEmpty, let partial = GroupRouting.typedMention(in: text) else { return [] }
         return Array(GroupRouting.suggestions(for: partial, names: mentionNames).prefix(6))
@@ -79,7 +88,7 @@ struct ComposerView: View {
                 input.chromeProbe("composer_input")
                 if isStreaming && hasContent {
                     Button(action: submit) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help("Send into the current answer")
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(followUpHelp)
                         .disabled(!reading.isEmpty).composerSlot("composer_steer")
                 }
                 if isStreaming {
@@ -93,7 +102,7 @@ struct ComposerView: View {
                 }
             }
             if let commandNotice, noticeDraft == text { Text(commandNotice).font(.callout).textSelection(.enabled) }
-            if let hint { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, ComposerMetrics.control + ComposerMetrics.spacing) }
+            if let hint, hint != SteerCopy.hint || canSteer { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, ComposerMetrics.control + ComposerMetrics.spacing) }
         }.padding(8).glassSurface(in: RoundedRectangle(cornerRadius: 16, style: .continuous), tint: AppColor.raised.opacity(AppGlass.surfaceTint))
             .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: 768)
             .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -121,7 +130,7 @@ struct ComposerView: View {
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text(isStreaming && canSteer ? SteerCopy.placeholder : "Message " + (recipient ?? AppConstants.name) + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(placeholder).font(.body).foregroundStyle(.tertiary).lineLimit(1)
                                 .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
                         }
                     }

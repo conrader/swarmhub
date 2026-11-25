@@ -328,7 +328,7 @@ extension AppStore {
         if isIdle(bot) { return send(text: text, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true, metadata: metadata) }
         let message = ChatMessage(role: .user, content: text, metadata: metadata)
         bot.messages.append(message)
-        return waitForTurn(message, in: bot, reason: SteerCopy.afterTurn)
+        return waitForTurn(message, in: bot, reason: TurnWaitCopy.afterAnswer)
     }
 
     /// The caption over a message the app passed on, so it does not read as the person's own.

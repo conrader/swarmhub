@@ -1,8 +1,7 @@
 import Foundation
 
-/// Bubble metadata: `steer` on a queued steer (sent → queued → delivered | failed; failed → next → sentNext after
-/// "Send as next message"), `correction` on a message that an older build sent after a steer was handed back.
-enum SteerKey { static let steer = "steer", correction = "correction" }
+/// A steer keeps its receipt until an explicit resend converts its row to a normal user message.
+enum SteerKey { static let steer = "steer", correction = "correction", explicitNext = "explicitNext" }
 
 /// The plain words.
 enum SteerCopy {
@@ -25,7 +24,7 @@ enum SteerCopy {
         default: break
         }
         switch message.metadata[SteerKey.steer] {
-        case nil: return nil
+        case nil: return message.metadata[SteerKey.explicitNext] == "1" ? "Requested as the next message" : nil
         case "sent": return "Accepted · sending to current turn…"
         case "queued": return "Accepted · delivery unconfirmed"
         case "uncertain": return "Delivery unconfirmed"
@@ -58,13 +57,19 @@ extension AppStore {
             try HerdrClient.TaskFile.validate(files)
         } catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return false }
         captureAttachments(message, readers: [bot.id])
-        insertInActiveTurn(message, in: conversation, after: turn.assistant)
         guard turn.steerAvailable, !turn.stopping, let backend = turn.backend, turn.assistant != nil else {
-            message.metadata[SteerKey.steer] = "failed"
-            addWarning("The current turn cannot accept this follow-up.", in: conversation, after: message)
-            objectWillChange.send(); save()
+            conversation.messages.append(message)
+            if !waitForTurn(message, in: conversation, reason: TurnWaitCopy.afterAnswer) {
+                // Other recipients in a group send may already have accepted their copies.
+                guard conversation is GroupChat else { return false }
+                message.metadata[SteerKey.steer] = "failed"
+                conversation.messages.append(message)
+                addWarning("The message could not be queued.", in: conversation, after: message)
+                save()
+            }
             return true
         }
+        insertInActiveTurn(message, in: conversation, after: turn.assistant)
         noteFirstSteer()
         message.metadata[SteerKey.steer] = "sent"
         deliverSteer(message.modelText.trimmingCharacters(in: .whitespacesAndNewlines), into: conversation,

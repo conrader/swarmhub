@@ -661,6 +661,7 @@ async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result
         }
     };
     let launch = crate::Launch {
+        turn_reference: None,
         name,
         template: template.name.clone(),
         task: String::new(),

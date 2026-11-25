@@ -21,7 +21,14 @@ struct HerdrActiveHelpersSection: View {
                         Text("sb-codejob · \(row.id.host) · \(row.id.job.prefix(8))")
                     }.inspectorCard(padding: 8)
                 }
-                if overview.confirmedEmpty { Text(overview.disconnected.isEmpty ? "No active helpers or detached workers." : "No active helpers or detached workers on connected workspaces.") }
+                if overview.confirmedEmpty {
+                    Text(overview.withoutDetachedActivity.isEmpty
+                         ? (overview.disconnected.isEmpty ? "No active helpers or detached workers." : "No active helpers or detached workers on connected workspaces.")
+                         : "No active helpers or reported detached workers on connected workspaces.")
+                }
+                ForEach(overview.withoutDetachedActivity) { server in
+                    Text("Update the workspace on \(server.name) to see detached workers.")
+                }
                 ForEach(overview.unattributed, id: \.server.id) { item in
                     Text("Live helpers in other sessions on \(item.server.name): \(item.count)")
                 }

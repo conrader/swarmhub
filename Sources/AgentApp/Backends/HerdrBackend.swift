@@ -38,6 +38,8 @@ struct HerdrBackend: AgentBackend {
         var target: StopTarget { .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)") }
     }
     private let accepted = LockedValue<AcceptedRun?>(nil)
+    /// While a new send is reading the roster, Stop must leave an earlier workspace task alone.
+    private let preparingSession = LockedValue<String?>(nil)
     private let groupSends = GroupSendTasks()
     /// True from the start of a turn that may hand the bot's earlier conversation over until that step has ended:
     /// meanwhile the turn takes no steer (`features`), so a message the person sends then waits its turn instead of
@@ -50,8 +52,6 @@ struct HerdrBackend: AgentBackend {
     /// The bot's own instructions, given once to each agent it starts. Beside them the app sends only its notes
     /// below and, for an imported bot, the earlier conversation (`handoff`).
     let instructions: String?
-    /// A message sent while the agent answers is typed into the running agent (steer), which reads it as soon as it
-    /// can. An unsupported steer retains an unsent receipt in chat.
     var coordinate: (@Sendable () async throws -> Bool)?
     var confirmation: HerdrModelConfirmation?
     var serverID: String?
@@ -187,13 +187,12 @@ struct HerdrBackend: AgentBackend {
 
     func goalBlocker(sessionID: String) async throws -> String? {
         let name = runtimeName(sessionID: sessionID)
+        let workspace = try await client.workspaceForDelivery(name: name, status: { _ in })
         if !(try await client.approvals(for: name)).isEmpty {
             return "Review the pending workspace approval, then resume the goal."
         }
-        let workspace = try await client.workspace()
         switch client.liveAgent(named: name, in: workspace)?.status?.state {
         case "blocked": return "Resolve the workspace prompt, then resume the goal."
-        case "working": return "The workspace agent is still working. Review its result before resuming."
         default: return nil
         }
     }
@@ -214,13 +213,15 @@ struct HerdrBackend: AgentBackend {
         let name = runtimeName(sessionID: sessionID)
         try HerdrClient.validateMessage(text)
         try HerdrClient.TaskFile.validate(files)
+        _ = preparingSession.swap(sessionID)
+        _ = accepted.swap(nil)
         var configured = self
         if name == agentName, try await coordinate?() == true {
             configured.roster = nil
             configured.messageNote = Self.teamNote
         }
+        try Task.checkCancellation()
         let backend = configured
-        _ = accepted.swap(nil)
         _ = handingOver.swap(name == agentName && (handoff != nil || prepareDirect != nil))
         return AsyncThrowingStream { continuation in
             let produce: @Sendable () async -> Void = {
@@ -233,6 +234,14 @@ struct HerdrBackend: AgentBackend {
                         await starting.settled()
                     }
                     continuation.yield(.status(HerdrTurnStatus.sending.code))
+                    let report: @Sendable (HerdrTurnStatus) -> Void = { status in
+                        switch status {
+                        case .waitingForIdle: _ = backend.preparingSession.swap(sessionID)
+                        case .sending, .starting, .readingHistory: _ = backend.preparingSession.swap(nil)
+                        default: break
+                        }
+                        continuation.yield(.status(status.code))
+                    }
                     // The agent reads the bot's earlier conversation first, once per agent session (`HerdrHandoff.swift`).
                     // A handoff that fails does not hold the message back: it goes as it always did, and the source hears why.
                     var missed: [(HerdrHandoffSource, String)] = []
@@ -241,18 +250,19 @@ struct HerdrBackend: AgentBackend {
                         if let prepare = backend.prepareDirect { sources = try await prepare() }
                         else { sources = [backend.handoff].compactMap { $0 } }
                         for source in sources {
-                            if let why = try await backend.handOver(source, status: { _ = continuation.yield(.status($0.code)) }) {
+                            if let why = try await backend.handOver(source, status: report) {
                                 missed.append((source, why))
                             }
                         }
                         _ = backend.handingOver.swap(false)
                         if !sources.isEmpty { continuation.yield(.status(HerdrTurnStatus.sending.code)) }
                     }
+                    _ = backend.preparingSession.swap(sessionID)
                     let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: backend.managementReminder(for: text),
                                                                 once: backend.notes, changing: backend.rosters,
                                                                 projects: backend.projects, files: files, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
-                                                                status: { continuation.yield(.status($0.code)) })
+                                                                willSubmit: { _ = backend.preparingSession.swap(nil) }, status: report)
                     delivered = true
                     _ = backend.accepted.swap(AcceptedRun(sessionID: sessionID, turn: turn))
                     for (source, why) in missed { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
@@ -364,10 +374,11 @@ struct HerdrBackend: AgentBackend {
     /// The bot's running agent, as `address/created`; an agent that is not running has nothing to stop.
     func stopTarget(sessionID: String) async throws -> StopTarget {
         if let accepted = accepted.current, accepted.sessionID == sessionID { return accepted.target }
+        if preparingSession.current == sessionID { return .noActiveRun }
         // The bridge may have accepted the message before its HTTP response reached this stream.
         let workspace = try await client.workspace()
         if let accepted = accepted.current, accepted.sessionID == sessionID { return accepted.target }
-        guard let core = workspace.core,
+        guard preparingSession.current != sessionID, let core = workspace.core,
               let agent = client.liveAgent(named: runtimeName(sessionID: sessionID), in: workspace) else { return .noActiveRun }
         return .serverRun("\(core)/\(agent.address)/\(agent.createdMs)")
     }

@@ -60,8 +60,8 @@ struct ChatGoalTests {
         let other = addGoalBot(store, "Other"), bot = addGoalBot(store, "Owner")
         #expect(store.handleGoalCommand(.start("Verify the fixture"), in: bot) == nil)
         let first = try #require(bot.goal?.attempt)
-        #expect(store.handleGoalCommand(.start("clarification"), in: bot) == nil)
-        #expect(bot.messages.contains { $0.content == "clarification" && $0.metadata[SteerKey.steer] == "failed" })
+        #expect(store.handleGoalCommand(.start("clarification"), in: bot)?.contains("cannot take live guidance") == true)
+        #expect(!bot.messages.contains { $0.content == "clarification" })
         #expect(store.handleGoalCommand(.status, in: bot)?.contains("Verify the fixture") == true)
         store.open(other, remember: false)
         try await waitUntil { await backend.requests.count == 1 }

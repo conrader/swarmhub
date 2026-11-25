@@ -33,6 +33,7 @@ struct HerdrCodejobRead {
     let server: HerdrServer
     let hosts: [HerdrClient.CodejobActivity.Host]?
     let observed: ContinuousClock.Instant
+    var unsupported = false
 
     // Use the beginning of the request. A delayed reply cannot renew an old observation.
     var isFresh: Bool { ContinuousClock.now - observed < .seconds(25) }
@@ -60,6 +61,7 @@ struct HerdrHelperOverview {
 
     var rows: [Row] = []
     var codejobs: [HerdrCodejobRow] = []
+    var withoutDetachedActivity: [HerdrServer] = []
     var unavailableCodejobHosts: [String] = []
     var checking: [HerdrServer] = []
     var unavailable: [HerdrServer] = []
@@ -177,6 +179,10 @@ extension AppStore {
                 checking.insert(server.id)
                 continue
             }
+            if read.unsupported {
+                result.withoutDetachedActivity.append(server)
+                continue
+            }
             guard read.isFresh, let hosts = read.hosts else {
                 unavailable.insert(server.id)
                 continue
@@ -281,7 +287,11 @@ extension AppStore {
         let observed = ContinuousClock.now
         let workspace = try? await client?.workspace(includingCodejobs: true)
         guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
-        herdrCodejobReads[server.id] = HerdrCodejobRead(server: server, hosts: workspace?.codejobActivity?.hosts, observed: observed)
+        // A successful older roster predates detached activity. Malformed data, a failed GET,
+        // or an omitted feed from a level-3 bridge still counts as an incomplete observation.
+        let unsupported = workspace.map { ($0.bridge?.api ?? 0) < 3 && $0.codejobActivity == nil } ?? false
+        herdrCodejobReads[server.id] = HerdrCodejobRead(server: server, hosts: workspace?.codejobActivity?.hosts,
+                                                       observed: observed, unsupported: unsupported)
         let group = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
         var results: [HerdrHelperParent: HelperPollResult] = [:]
         var targets: [(HerdrHelperParent, HerdrClient.Agent?)] = []

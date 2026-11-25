@@ -3,6 +3,12 @@ import Testing
 @testable import AgentApp
 
 struct TranscriptRangeTests {
+    @MainActor @Test func duplicateStoredRowIDsCanBeIndexed() {
+        let selection = TranscriptSelection(), chat = UUID(), duplicate = UUID()
+        selection.show(chat, rows: [duplicate, duplicate, UUID()], body: { String($0) })
+        #expect(!selection.hasText)
+    }
+
     @Test func partialRunsAreSymmetricAndKeepUnicodeIntact() {
         let row = TranscriptRowID.message(UUID())
         let order = [row: 0]

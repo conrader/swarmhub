@@ -11,6 +11,9 @@ extension AppStore {
         switch command {
         case .start(let objective):
             if bot.goal?.state.active == true {
+                if let turn = turn(in: bot), !turn.steerAvailable || turn.stopping {
+                    return "This goal step cannot take live guidance. Wait for it to finish before updating the goal."
+                }
                 return send(text: objective, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true)
                     ? nil : "The goal update could not be submitted."
             }

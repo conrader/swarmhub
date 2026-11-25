@@ -775,6 +775,7 @@ async fn workspace_state(State(w): State<Workspace>, Query(query): Query<Workspa
 struct Launch {
     name: String,
     template: String,
+    turn_reference: Option<String>,
     /// The first task. Left out with `warm`.
     #[serde(default)]
     task: String,
@@ -850,7 +851,7 @@ async fn launch_agent(
 ) -> Result<CreatedLaunch, ApiError> {
     if !body.warm {
         core::validate_task(&body.task)?;
-    } else if !body.task.is_empty() {
+    } else if !body.task.is_empty() || body.turn_reference.is_some() {
         return Err(Failure::Input(
             "Leave out the task to start an agent ahead of it, or leave out warm to start it with the task.",
         )
@@ -992,13 +993,14 @@ async fn launch_agent(
         let directory = folder.as_deref().ok_or(Failure::Input("This bot needs a workspace folder for attachments."))?;
         Some(task_files::stage_launch_files(directory, &files)?)
     };
-    let first_task = staged.as_ref().map(|(_, suffix)| format!("{}{}", body.task, suffix));
+    let task = runtime_task(&body.task, body.turn_reference.as_deref())?;
+    let first_task = staged.as_ref().map(|(_, suffix)| format!("{task}{suffix}"));
     // A warm agent reads the same words around its first message. Check now that a message still fits.
     let message = warm::first_message(
         if body.warm {
             "A first message."
         } else {
-            first_task.as_deref().unwrap_or(&body.task)
+            first_task.as_deref().unwrap_or(&task)
         },
         &instructions,
         &hints,
@@ -1240,6 +1242,7 @@ async fn output(
 #[serde(deny_unknown_fields)]
 struct Message {
     text: String,
+    turn_reference: Option<String>,
     reply_to: Option<ReplyTarget>,
     expected_core: Option<String>,
 }
@@ -1361,11 +1364,49 @@ async fn steer_files(State(w): State<Workspace>, Path(target): Path<(String, u64
     steer_turn(w, target, body, files).await
 }
 
+fn validate_turn_reference(reference: &str) -> Result<(), Failure> {
+    if reference.len() == 36 && reference.bytes().enumerate().all(|(i, c)| {
+        if matches!(i, 8 | 13 | 18 | 23) { c == b'-' } else { c.is_ascii_hexdigit() }
+    }) {
+        Ok(())
+    } else {
+        Err(Failure::Input("Invalid turn reference."))
+    }
+}
+
+/// The provider must see the reference to match an in-progress turn. Keep the journal's task text verbatim.
+fn runtime_task(text: &str, reference: Option<&str>) -> Result<String, Failure> {
+    match reference {
+        Some(reference) => {
+            validate_turn_reference(reference)?;
+            let marked = format!("[SwarmHub turn {reference}]\n{text}");
+            core::validate_task(&marked)?;
+            Ok(marked)
+        }
+        None => Ok(text.to_owned()),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn scoped_turn_keeps_the_journal_text_separate_from_the_runtime_input() {
+    let reference = "ec7b6242-eed2-4d59-84a3-e8daa44c9f64";
+    let task = "Review the changes";
+    let message: Message = serde_json::from_value(json!({"text": task, "turn_reference": reference})).unwrap();
+    let launch: Launch = serde_json::from_value(json!({"name": "bot", "template": "codex", "task": task,
+        "turn_reference": reference})).unwrap();
+    for (saved, scope) in [(&message.text, &message.turn_reference), (&launch.task, &launch.turn_reference)] {
+        assert_eq!(saved, task);
+        assert_eq!(runtime_task(saved, scope.as_deref()).unwrap(), format!("[SwarmHub turn {reference}]\n{task}"));
+    }
+    assert_eq!(runtime_task(task, None).unwrap(), task);
+    assert!(runtime_task(task, Some("invalid")).is_err());
+    assert!(runtime_task(&"a".repeat(16_384), Some(reference)).is_err());
+}
+
 async fn steer_turn(w: Workspace, (address, created): (String, u64), body: Steer, files: Vec<groups::Upload>) -> Result<Response, ApiError> {
     core::validate_task(&body.text)?;
-    if body.reference.len() != 36 || !body.reference.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-') {
-        return Err(Failure::Input("Invalid turn reference.").into());
-    }
+    validate_turn_reference(&body.reference)?;
     let hello = w.core.identify().await?;
     if body.expected_core != hello.core.id || (!files.is_empty() && !hello.supports("terminal.put")) {
         return Err(ApiError::Conflict("The selected workspace cannot receive this follow-up."));
@@ -1422,7 +1463,8 @@ async fn send_message(
     } else {
         None
     };
-    let text = stage_message(&w, &agent, &hello.core.id, &body.text, &files).await?;
+    let task = runtime_task(&body.text, body.turn_reference.as_deref())?;
+    let text = stage_message(&w, &agent, &hello.core.id, &task, &files).await?;
     const INTRO: &str = "The user is replying to this excerpt from your earlier message (a JSON string for context):";
     let base = quote
         .as_ref()

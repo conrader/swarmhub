@@ -64,7 +64,7 @@ extension AppStore {
                 }
                 let index = conversation.messages.firstIndex { $0 === anchor }
                 let legacyWait = index.flatMap { conversation.messages.indices.contains($0 + 1) ? conversation.messages[$0 + 1] : nil }
-                if record.kind == .steer && anchor.metadata["explicitNext"] != "1" ||
+                if record.kind == .steer && anchor.metadata[SteerKey.explicitNext] != "1" ||
                     record.kind == .turn && legacyWait?.metadata[TurnWaitCopy.key] == "line" && legacyWait?.content == SteerCopy.afterTurn {
                     endWait(anchor, in: conversation)
                     anchor.metadata[SteerKey.steer] = "failed"
@@ -84,7 +84,11 @@ extension AppStore {
                     try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
                 case .turn:
                     guard anchor.metadata[TurnWaitCopy.key] == "waiting", anchor.content == record.text else {
-                        endWait(anchor, in: conversation)
+                        if anchor.metadata[TurnWaitCopy.key] == "waiting" {
+                            endWait(anchor, in: conversation)
+                            addWarning("The queued message changed before it could be sent.", in: conversation, after: anchor)
+                            save()
+                        }
                         try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
                     }
                     bubble = anchor
