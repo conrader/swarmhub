@@ -10,6 +10,7 @@ struct BotAvatar: View {
     var facing: AvatarFacing = .right; var isWaiting = false
     var isSelected = false
     var hasActiveCodingAgent = false
+    var mainBotLabel: String? = nil
     @ObservedObject private var settings = AvatarMotionSettings.shared
     @ObservedObject private var activity = AvatarActivity.shared
     @ObservedObject private var reactions = AvatarReactions.shared
@@ -52,6 +53,13 @@ struct BotAvatar: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if reduceMotion && isWorking && !hasActiveCodingAgent { Circle().fill(Color(nsColor: .systemGreen)).frame(width: 7, height: 7).offset(x: 1, y: 1) }
+        }
+        .overlay(alignment: .topLeading) {
+            if let mainBotLabel {
+                HerdrMainBotStar(label: mainBotLabel, size: min(14, max(10, size * 0.25)))
+                    .padding(2).background(AppColor.raised, in: Circle())
+                    .accessibilityIdentifier("avatar.mainBotStar")
+            }
         }
         .onAppear { report(look, mode) }
         .onChange(of: mode) { _, next in report(look, next) }

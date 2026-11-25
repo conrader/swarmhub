@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The small star a Herdr server's main bot wears beside its name: in the sidebar, the chat header and its Overview.
+/// The star that identifies a Herdr server's main bot on its avatar and in settings.
 /// `label` says whose main bot it is ("Main bot of This Mac"), as the tooltip and for VoiceOver.
 struct HerdrMainBotStar: View {
     let label: String; var size: CGFloat = 10

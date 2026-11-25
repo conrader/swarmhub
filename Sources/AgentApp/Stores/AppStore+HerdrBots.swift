@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bots that create bots. Each server has one main bot: the Herdr bot there whose `canManageBots` flag is on
+/// Bots that create bots. Each server's main bot is its first non-archived Herdr bot with `canManageBots` on
 /// (`setCanManageBots` keeps it to one bot per server). On Herdr a bot
 /// is only this app's record, so the main bot does nothing on the server: it asks in its reply (`HerdrBotRequest`).
 /// A request it marked "decided" is created at once; any other waits above the composer for Create or Dismiss, and so
@@ -34,12 +34,19 @@ extension AppStore {
     }
 
     /// `bot` is its server's main bot.
-    func createsHerdrBots(_ bot: Bot) -> Bool { bot.backend == .herdr && bot.canManageBots && !bot.isReadOnlyArchive }
+    func createsHerdrBots(_ bot: Bot) -> Bool {
+        bot.canManageBots && herdrMainBot(on: herdrServer(for: bot)) === bot
+    }
 
-    func herdrMainBot(on server: HerdrServer) -> Bot? { herdrBots(on: server).first { createsHerdrBots($0) } }
+    func herdrMainBot(on server: HerdrServer) -> Bot? {
+        bots.first { $0.canManageBots && $0.backend == .herdr && !$0.isReadOnlyArchive && herdrServer(for: $0).id == server.id }
+    }
 
     /// "Main bot of This Mac" for a server's main bot, which wears a star (`HerdrMainBotStar`); nil for every other bot.
-    func herdrMainBotLabel(_ bot: Bot) -> String? { createsHerdrBots(bot) ? "Main bot of \(herdrServer(for: bot).name)" : nil }
+    func herdrMainBotLabel(_ bot: Bot) -> String? {
+        guard createsHerdrBots(bot) else { return nil }
+        return "Main bot of \(herdrServer(for: bot).name)"
+    }
 
     /// Stores whether this main bot needs the user's confirmation before it creates a bot.
     static func herdrAsksFirstKey(_ botID: UUID) -> String { "herdrAsksFirst.\(botID.uuidString.lowercased())" }

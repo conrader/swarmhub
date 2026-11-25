@@ -207,13 +207,16 @@ struct TileGallery<Item: Identifiable, Label: View>: View {
 }
 
 /// Measures every tile at its column width to give each row the height of its tallest tile.
-private struct TileRows: Layout {
+struct TileRows: Layout {
     let minimum: CGFloat
-    private let spacing: CGFloat = 8
+    /// Pinned chats keep a full row's column width even when the last row has fewer chats.
+    var centeredColumns: Int? = nil
+    var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard !subviews.isEmpty else { return .zero }
-        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? minimum
+        let idealColumns = CGFloat(centeredColumns ?? 1)
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? (idealColumns * minimum + (idealColumns - 1) * spacing)
         return CGSize(width: width, height: frames(in: width, subviews: subviews).last?.maxY ?? 0)
     }
 
@@ -225,16 +228,21 @@ private struct TileRows: Layout {
     }
 
     private func frames(in width: CGFloat, subviews: Subviews) -> [CGRect] {
-        guard !subviews.isEmpty else { return [] }
-        let columns = max(1, Int((width + spacing) / (minimum + spacing)))
-        let tileWidth = (width - CGFloat(columns - 1) * spacing) / CGFloat(columns)
-        let measure = ProposedViewSize(width: tileWidth, height: nil)
+        frames(in: width, count: subviews.count) { index, tileWidth in
+            subviews[index].sizeThatFits(ProposedViewSize(width: tileWidth, height: nil)).height
+        }
+    }
+
+    func frames(in width: CGFloat, count: Int, heightAt: (Int, CGFloat) -> CGFloat) -> [CGRect] {
+        let columns = centeredColumns ?? max(1, Int((width + spacing) / (minimum + spacing)))
+        let tileWidth = max(0, (width - CGFloat(columns - 1) * spacing) / CGFloat(columns))
         var y: CGFloat = 0
-        return stride(from: 0, to: subviews.count, by: columns).flatMap { start in
-            let row = subviews[start..<min(start + columns, subviews.count)]
-            let height = row.map { $0.sizeThatFits(measure).height }.max() ?? 0
+        return stride(from: 0, to: count, by: columns).flatMap { start in
+            let row = start..<min(start + columns, count)
+            let height = row.map { heightAt($0, tileWidth) }.max() ?? 0
+            let leading = centeredColumns == nil ? 0 : CGFloat(columns - row.count) * (tileWidth + spacing) / 2
             let frames = (0..<row.count).map { column in
-                CGRect(x: CGFloat(column) * (tileWidth + spacing), y: y, width: tileWidth, height: height)
+                CGRect(x: leading + CGFloat(column) * (tileWidth + spacing), y: y, width: tileWidth, height: height)
             }
             y += height + spacing
             return frames

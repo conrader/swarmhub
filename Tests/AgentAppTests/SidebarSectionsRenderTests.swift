@@ -3,6 +3,89 @@ import SwiftUI
 import Testing
 @testable import AgentApp
 
+@MainActor @Test(arguments: [240, 280, 320])
+func pinnedRowsCenterTheirOccupiedTiles(sidebarWidth: Int) throws {
+    let inset = SidebarMetrics.listInset
+    let width = CGFloat(sidebarWidth) - 2 * inset
+    let tileWidth = (width - 8) / 3
+    for count in 0...SidebarOrganisation.maxPinned {
+        let tiles = SidebarPinnedStrip.layout.frames(in: width, count: count) { _, proposedWidth in
+            #expect(abs(proposedWidth - tileWidth) < 0.001)
+            return 100
+        }
+        #expect(tiles.count == count)
+        for start in stride(from: 0, to: tiles.count, by: 3) {
+            let row = tiles[start..<min(start + 3, count)]
+            let first = try #require(row.first), last = try #require(row.last)
+            #expect(abs(inset + (first.minX + last.maxX) / 2 - CGFloat(sidebarWidth) / 2) < 0.001)
+            for tile in row {
+                #expect(abs(tile.width - tileWidth) < 0.001 && tile.height == 100)
+                #expect(tile.minY == CGFloat(start / 3) * 104)
+                #expect(tile.minX >= -0.001 && tile.maxX <= width + 0.001)
+            }
+            for (left, right) in zip(row, row.dropFirst()) {
+                #expect(abs(right.minX - left.maxX - 4) < 0.001)
+            }
+        }
+    }
+}
+
+/// Keep both buttons mounted across the transfer. The only magenta ink in this fixture is the role star.
+@MainActor @Test func mainBotStarMovesBetweenPinnedAndRegularAvatars() async throws {
+    _ = NSApplication.shared
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let pinned = Bot(name: "Pinned", backend: .herdr, avatarName: .faceMint)
+    let regular = Bot(name: "Regular", backend: .herdr, avatarName: .faceMint)
+    let group = GroupChat(name: "Group", memberIDs: [pinned.id, regular.id])
+    store.bots = [pinned, regular]
+    store.groups = [group]
+    store.selectedBot = nil
+    store.selectedGroup = nil
+    let size = CGSize(width: 300, height: 200)
+    let view = VStack(spacing: 0) {
+        SidebarPinnedStrip(chats: [.bot(pinned), .group(group)], askNewSection: { _ in }, requestDelete: { _ in })
+        BotRow(bot: regular, drafts: store.drafts, selected: false, botToDelete: .constant(nil))
+    }
+    .frame(width: size.width, height: size.height, alignment: .top)
+    .environmentObject(store).tint(Color(nsColor: .magenta)).background(Color.white)
+    let host = NSHostingView(rootView: view)
+    let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    defer { window.close() }
+
+    func starColumns() async throws -> IndexSet {
+        try await Task.sleep(for: .milliseconds(100))
+        host.layoutSubtreeIfNeeded()
+        let image = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: image)
+        let scale = CGFloat(image.pixelsWide) / size.width
+        var columns = IndexSet()
+        for x in 0..<image.pixelsWide {
+            for y in 0..<image.pixelsHigh {
+                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if color.redComponent > 0.8 && color.blueComponent > 0.8 && color.greenComponent < 0.3 {
+                    columns.insert(Int(CGFloat(x) / scale))
+                    break
+                }
+            }
+        }
+        return columns
+    }
+
+    store.setCanManageBots(pinned, true)
+    let first = try await starColumns()
+    // The pinned mark starts at x=71; its group neighbour starts at x=173.
+    #expect(first.count >= 6 && first.allSatisfy { (70...92).contains($0) })
+    store.setCanManageBots(regular, true)
+    let next = try await starColumns()
+    // The regular row's mark starts at x=12, before its name.
+    #expect(next.count >= 5 && next.allSatisfy { (12...29).contains($0) })
+    store.setCanManageBots(regular, false)
+    let cleared = try await starColumns()
+    #expect(cleared.isEmpty)
+}
+
 /// The sidebar with nothing organised, then with pins, two sections and a fold, rendered offscreen for review and
 /// written to `$TMPDIR/AgentAppSnapshots-sidebar/`. Synthetic bots only.
 @MainActor @Test func theOrganisedSidebarRenders() async throws {

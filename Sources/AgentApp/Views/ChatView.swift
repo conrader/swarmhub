@@ -23,9 +23,9 @@ struct ChatView: View {
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
-                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: answering, probe: "chat_header", hasActiveCodingAgent: coding)
+                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: answering, probe: "chat_header",
+                          hasActiveCodingAgent: coding, mainBotLabel: store.herdrMainBotLabel(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
-                if let main = store.herdrMainBotLabel(bot) { HerdrMainBotStar(label: main, size: 11) }
                 // A Herdr bot's model by the server's name for it: the running agent's, else the one its next agent starts on.
                 if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model \(bot.name) runs on") }
                 // Whether its agent is running: ready for a message, or still starting. Nothing while it answers.
