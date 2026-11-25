@@ -83,13 +83,15 @@ import Testing
     #expect(MockHTTPProtocol.recorded(host).filter { $0.httpMethod == "POST" }.count == 1)
 }
 
-@Test @MainActor func groupDeliveryAndStopAreIndependentOfTheDirectSession() async throws {
+@Test(arguments: [false, true])
+@MainActor func groupDeliveryAndStopAreIndependentOfTheDirectSession(stopBeforePost: Bool) async throws {
     let bot = Bot(name: "Runs", backend: .herdr), group = GroupChat(name: "Group", memberIDs: [])
     let directName = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
     let sessionID = GroupRouting.sessionID(group: group.id, bot: bot.id)
-    let unknown = HerdrClient(baseURL: URL(string: "https://test.invalid")!, token: "fixture")
-    let groupName = HerdrBackend(client: unknown, botName: bot.name, botID: bot.id, template: nil).runtimeName(sessionID: sessionID)
+    let groupName = try #require(HerdrBackend.groupRuntimeName(sessionID: sessionID, botID: bot.id))
     #expect(groupName != directName)
+    let pauseNextRequest = LockedValue(false)
+    let gate = AwaitableLog<String>()
     let groupPosted = LockedValue(false)
     let canFinish = LockedValue(false)
     let (host, session) = MockHTTPProtocol.serve { request in
@@ -98,27 +100,53 @@ import Testing
             return (200, ["core": "test-core", "templates": [], "agents": [
                 ["name": directName, "address": "t1", "created_ms": 3, "state": "live"],
                 ["name": groupName, "address": "t2", "created_ms": 4, "state": "live"]]])
+        case "/api/history/test-core/t2/4/draft":
+            _ = pauseNextRequest.swap(stopBeforePost)
+            return (200, ["tools": []])
         case "/api/agents/t2/4/messages":
             _ = groupPosted.swap(true)
             return (200, ["queued": false])
         case "/api/history/test-core/t2/4":
-            return (200, ["items": groupPosted.current && canFinish.current ? [["id": 9, "kind": "reply", "text": "Group answer"]] : []])
+            guard groupPosted.current else { return (200, ["items": []]) }
+            gate.append("following reply")
+            return (200, ["items": canFinish.current ? [["id": 9, "kind": "reply", "text": "Group answer"]] : []])
         default: return (200, [:])
         }
     }
     var client = HerdrClient(baseURL: URL(string: "https://\(host)")!, token: "fixture", session: session)
+    client.prepare = {
+        if pauseNextRequest.swap(false) {
+            // The pre-send draft read is complete. Hold preparation of the message POST.
+            gate.append("preparing message")
+            // A shared connection can finish preparing even after its caller has been cancelled.
+            try await Task { try await gate.wait { $0.contains("released") } }.value
+        }
+        return 443
+    }
     client.following = .polling
     client.pollInterval = .milliseconds(1)
     let backend = HerdrBackend(client: client, botName: bot.name, botID: bot.id, template: nil)
     let groupStream = try await backend.send(.init(sessionID: sessionID, systemPrompt: "", messages: [("user", "Group question")]))
     let listener = Task { for try await _ in groupStream {} }
-    defer { listener.cancel() }
-    try await waitUntil { (try? await backend.stopTarget(sessionID: sessionID)) == .serverRun("test-core/t2/4") }
+    defer { gate.append("released"); listener.cancel() }
+    if stopBeforePost {
+        try await gate.wait { $0.contains("preparing message") }
+    } else {
+        // The first reply poll follows the group's acknowledged message POST.
+        try await gate.wait { $0.contains("following reply") }
+    }
+    #expect(try await backend.stopTarget(sessionID: bot.id.uuidString) == .serverRun("test-core/t1/3"))
+    #expect(try await backend.stopTarget(sessionID: sessionID) == .serverRun("test-core/t2/4"))
     #expect(try await backend.cancel(sessionID: sessionID) == .requested)
     _ = canFinish.swap(true)
+    gate.append("released")
     try await listener.value
     let posts = MockHTTPProtocol.recorded(host).filter { $0.httpMethod == "POST" }.compactMap { $0.url?.path }
-    #expect(posts == ["/api/agents/t2/4/messages", "/api/agents/t2/4/interrupt"])
+    if stopBeforePost {
+        #expect(posts == ["/api/agents/t2/4/interrupt"])
+    } else {
+        #expect(posts == ["/api/agents/t2/4/messages", "/api/agents/t2/4/interrupt"])
+    }
 }
 
 @Test @MainActor func composerAttachmentDraftsFollowTheConversationAndOverlongTextStaysUnsent() throws {

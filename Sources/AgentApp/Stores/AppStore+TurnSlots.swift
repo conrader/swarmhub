@@ -159,9 +159,14 @@ extension AppStore {
         let stoppedAssistantID = turn.assistant?.id
         let sessionID = turnSessionID(in: conversation, bot: bot)
         let server = bot.backend.shortName
+        if conversation is GroupChat, let herdr = activeBackend as? HerdrBackend {
+            // Stop an upcoming send as well as one already preparing its request.
+            taskToCancel?.cancel()
+            herdr.cancelGroupSend(sessionID: sessionID)
+        }
         Task {
             do {
-                // Capture the run before cancelling the stream's task, whose termination clears it.
+                // Backends that clear their run on stream termination need the target captured first.
                 let target = try await activeBackend.stopTarget(sessionID: sessionID)
                 taskToCancel?.cancel()
                 didCancelLocalStream?()
