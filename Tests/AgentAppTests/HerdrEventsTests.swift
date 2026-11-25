@@ -93,6 +93,38 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     #expect(throws: HerdrClient.Failure.ended) { try quiet.ended() }
 }
 
+@Test func aRejectedClaudeLoginEndsTheSubmittedTurnAndLeavesInteractivePromptsAlone() async throws {
+    let lines = "  ⎿ Not logged in · Please run /login\n❯ Once fixed, resend your message\n? for shortcuts"
+    let inspected = Heard<String>()
+    let served = MockHTTPProtocol.serve { request in
+        inspected.add(request.url?.path ?? "")
+        return (200, ["text": lines])
+    }
+    var client = HerdrClient(baseURL: URL(string: "http://\(served.host)")!, token: "test")
+    client.session = served.session
+    var follower = HerdrTurnFollower(after: 10, program: "Claude")
+    let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+    func blocked(_ kind: String) throws -> HerdrClient.Agent {
+        try decoder.decode(HerdrClient.Agent.self, from: Data(#"{"address":"t2","created_ms":6,"name":"test","state":"live","status":{"state":"blocked","kind":"\#(kind)"}}"#.utf8))
+    }
+    let now = ContinuousClock.now
+    follower.take(agent: try blocked("auth"))
+    follower.take(rows: [.init(id: 11, kind: "task", text: "hello", state: "pending")])
+    try await follower.checkRejectedLogin(using: client, now: now)
+    #expect(inspected.all.isEmpty)
+    follower.take(agent: try blocked("permission"))
+    follower.take(rows: [.init(id: 11, kind: "task", text: "hello", state: "sent")])
+    try await follower.checkRejectedLogin(using: client, now: now)
+    #expect(inspected.all.isEmpty)
+    follower.take(agent: try blocked("auth"))
+    await #expect(throws: HerdrClient.Failure.notDelivered("Claude needs you to sign in. Open its terminal and run /login.")) {
+        try await follower.checkRejectedLogin(using: client, now: now)
+    }
+    #expect(inspected.all == ["/api/agents/t2/6/output"])
+    #expect(!HerdrPrompt.requestsResendAfterLogin("Not logged in · Please run /login\n❯ Open browser"))
+    #expect(HerdrPrompt.actionable(kind: "auth", screen: "Sign in\n? for shortcuts"))
+}
+
 @Suite struct HerdrTurnFollowerTests {
     private let task = HerdrClient.Item(id: 11, kind: "task", text: "do it", state: "start_not_observed")
 

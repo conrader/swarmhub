@@ -59,6 +59,7 @@ import UserNotifications
     @Published var herdrAgentPresence: [UUID: HerdrAgentPresence] = [:]
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
     /// panel and the chat header show it by name.
+    var herdrReadingUpdated: [UUID: ContinuousClock.Instant] = [:]
     @Published var herdrAgentReadings: [UUID: HerdrAgentReading] = [:]
     /// Whether each Herdr bot's agent is running, and ready for a message or still starting (`AppStore+HerdrWarm.swift`):
     /// the chat header says it. `herdrWarming`: the starts ahead of time that are on their way, by bot; a message to

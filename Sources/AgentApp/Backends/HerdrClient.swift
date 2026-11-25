@@ -718,6 +718,7 @@ struct HerdrClient: Sendable {
                         return try follower.ended()
                     }
                     follower.take(agent: agent)
+                    try await follower.checkRejectedLogin(using: self, now: clock.now)
                     let verdict = follower.judgeAgent(now: clock.now)
                     emit(follower.drain())
                     if case .failed(let failure) = verdict { throw failure }

@@ -204,6 +204,18 @@ extension AppStore {
         backend.handoff = grokHandoffSource(for: bot) ?? herdrCarrySource(for: bot)
         if launchWorkEnabled && !bot.isDemo && !bot.isReadOnlyArchive {
             let server = herdrServer(for: bot), template = herdrTemplate(for: bot), model = herdrModel(for: bot)
+            let botID = bot.id
+            backend.onDirectDelivery = { [weak self] turn in
+                Task { @MainActor in
+                    guard let self, let bot = self.bots.first(where: { $0.id == botID }), self.herdrServer(for: bot) == server else { return }
+                    let session = HerdrClient.AgentRef(address: turn.address, createdMs: turn.createdMs)
+                    let last = self.herdrAgentReadings[bot.id]
+                    guard last?.core != turn.core || last?.session != session else { return }
+                    self.herdrReadingUpdated[bot.id] = .now
+                    self.herdrAgentReadings[bot.id] = nil
+                    await self.refreshHerdrAgentReading(for: bot)
+                }
+            }
             backend.prepareDirect = { [weak self, weak bot] workspace in
                 guard let self, let bot else { throw CancellationError() }
                 return try await self.prepareDirectModel(bot: bot, server: server, template: template, model: model, in: workspace)
@@ -253,6 +265,7 @@ extension AppStore {
         let shared = defaults.string(forKey: HerdrBackend.templateKey)
         let model = herdrModel(for: bot)
         let presence = herdrAgentPresence[bot.id]
+        let started = ContinuousClock.now
         var reading = try? await client.agentReading(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id), ownTemplate: template,
                                                      sharedTemplate: shared, ownModel: model)
         guard server == herdrServer(for: bot), model == herdrModel(for: bot),
@@ -263,6 +276,10 @@ extension AppStore {
             reading?.confirmed = true
         }
         if let reading {
+            if let newer = herdrReadingUpdated[bot.id], newer > started {
+                return requireFresh ? nil : herdrAgentReadings[bot.id]
+            }
+            herdrReadingUpdated[bot.id] = started
             if herdrAgentReadings[bot.id] != reading { herdrAgentReadings[bot.id] = reading }
             if let presence, presence.session != reading.session, herdrAgentPresence[bot.id] == presence {
                 herdrAgentPresence[bot.id] = nil

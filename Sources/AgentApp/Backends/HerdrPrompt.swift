@@ -8,6 +8,7 @@ struct HerdrPrompt: Equatable, Sendable {
     var reviewDescription: String? = nil
     /// The server's name for the agent program ("Codex"); nil when it gave none.
     var program: String?
+    var needsSignIn = false
     var question = ""
     /// The terminal to answer in, once the server's list was read.
     var agent: HerdrClient.AgentRef?
@@ -16,16 +17,32 @@ struct HerdrPrompt: Equatable, Sendable {
     /// How many lines of the terminal the chat shows: enough for a command and its choices.
     static let lines = 16
 
-    var title: String { "\(program ?? "The agent") is waiting for your answer" }
+    var title: String {
+        needsSignIn ? "Sign in to " + (program ?? "the agent") : "\(program ?? "The agent") is waiting for your answer"
+    }
+    var actionTitle: String { needsSignIn ? "Sign in here" : "Answer here" }
+    var detailText: String { needsSignIn ? "Open the terminal to finish signing in." : Self.detail }
     static let detail = "It asked this in its terminal and does nothing until you answer there."
     static let unread = "Nothing could be read from its terminal. Open it to see what it asks."
     /// The bot's line in the sidebar while it waits and no turn says so itself.
     static let sidebar = "Waiting for your answer"
     /// What the notification says; the bot's name is its title.
-    var notice: String { "\(program ?? "Its agent") is asking a question and waits for your answer." }
+    var notice: String { needsSignIn ? title : "\(program ?? "Its agent") is asking a question and waits for your answer." }
+
+    /// Claude can reject the submitted message and put a resend instruction in its empty composer.
+    /// An interactive login dialog can still resume, so leave it running until the provider explicitly asks for a resend.
+    static func requestsResendAfterLogin(_ screen: String) -> Bool {
+        let lines = screen.lowercased().components(separatedBy: "\n").suffix(16)
+        return lines.contains { $0.contains("not logged in") && $0.contains("/login") }
+            && lines.contains { line in
+                let prompt = line.trimmingCharacters(in: .whitespaces)
+                return prompt.first == "❯" && prompt.dropFirst().trimmingCharacters(in: .whitespaces) == "once fixed, resend your message"
+            }
+    }
 
     /// The question as the chat shows it (`HerdrAICheck.question`): the lines with words, without the frames.
     static func actionable(kind: String?, screen: String) -> Bool {
+        if kind?.lowercased() == "auth" { return true }
         let text = question(from: screen).lowercased()
         let tail = text.split(separator: "\n").suffix(3)
         if tail.contains(where: { $0.contains("? for shortcuts") || $0.contains("for help with commands") }),
@@ -40,7 +57,7 @@ struct HerdrPrompt: Equatable, Sendable {
         if text.contains("esc to cancel") && text.contains("yes") && text.contains("no") { return true }
         guard let kind else { return false }
         // "auth": a program that asks how to sign in. "question": one that asks the person something itself.
-        return ["permission", "permission_request", "trust", "trust_dialog", "input_request", "user_input", "approval", "auth", "question"].contains(kind.lowercased())
+        return ["permission", "permission_request", "trust", "trust_dialog", "input_request", "user_input", "approval", "question"].contains(kind.lowercased())
     }
 
     static func review(for agent: HerdrClient.Agent, program: String?, question: String) -> String? {

@@ -120,7 +120,7 @@ extension AppStore {
         let model = runtime?.model ?? runtime?.modelId ?? "Model unreported"
         let origin = "\(program ?? "Agent") · \(model) · \(agent.address)/\(agent.createdMs)"
         let prompt = HerdrPrompt(origin: origin, reviewDescription: HerdrPrompt.review(for: agent, program: program, question: question), program: program,
-                                 question: question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,
+                                 needsSignIn: agent.status?.kind?.lowercased() == "auth", question: question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,
                                  since: old?.agent == agent.ref ? old?.since ?? now() : now())
         if prompt != old { herdrPrompts[id] = prompt }
         if old?.agent != agent.ref { raiseHerdrPrompt(prompt, for: bot, in: group) }

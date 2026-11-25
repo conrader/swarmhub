@@ -34,13 +34,13 @@ struct HerdrPromptCard: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(group == nil ? prompt.title : "\(bot.name) · \(prompt.title)").font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 4) {
-                        Text(HerdrPrompt.detail)
+                        Text(prompt.detailText)
                         Text("Since") + Text(" ") + Text(prompt.since, style: .time) + Text(".")
                     }.font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 if let agent = prompt.agent {
-                    Button("Answer here") { terminal = true }
+                    Button(prompt.actionTitle) { terminal = true }
                         .buttonStyle(.appleProminent).accessibilityIdentifier("chat.prompt.answer")
                         .sheet(isPresented: $terminal) {
                             HerdrTerminalSheet(bot: bot, agent: agent, group: group)

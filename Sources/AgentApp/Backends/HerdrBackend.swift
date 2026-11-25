@@ -88,6 +88,7 @@ struct HerdrBackend: AgentBackend {
     var onProjectsSynced: (@Sendable () -> Void)? = nil
     /// Hears, while a turn runs, the agent's helpers as the stream reports them and whether the stream is delivering
     /// (`HerdrClient.LiveNote`): the bot's helper rows then need no polling of their own.
+    var onDirectDelivery: (@Sendable (HerdrClient.Turn) -> Void)?
     var onLive: (@Sendable (HerdrClient.LiveNote, String?) -> Void)? = nil
     /// Set while the app is starting this bot's agent ahead of time (`AppStore+HerdrWarm.swift`): `settled` returns
     /// when that start has gone through or failed. A message waits for it, so it finds the agent instead of starting
@@ -274,6 +275,7 @@ struct HerdrBackend: AgentBackend {
                         turn = try await submit(text, files)
                     }
                     delivered = true
+                    if name == backend.agentName { backend.onDirectDelivery?(turn) }
                     _ = backend.accepted.swap(AcceptedRun(sessionID: sessionID, turn: turn))
                     for (source, why) in context.omitted { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))

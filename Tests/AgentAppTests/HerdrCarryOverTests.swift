@@ -105,10 +105,14 @@ import Testing
     var backend = try store.herdrBackend(for: bot)
     backend.coordinate = nil
     bridge.seed(agent: backend.agentName, template: "old-provider")
+    let previous = try #require(await store.refreshHerdrAgentReading(for: bot))
+    #expect(previous.activeTemplate == "old-provider")
     for prompt in ["When was it?", "Thanks"] {
         let stream = try await backend.send(.init(sessionID: bot.id.uuidString, systemPrompt: "", messages: [(role: "user", content: prompt)], images: []))
         for try await _ in stream {}
     }
+    try await waitUntil { store.herdrAgentReadings[bot.id]?.activeTemplate == "tpl-one" }
+    #expect(store.herdrAgentReadings[bot.id]?.session != previous.session)
     let posts = bridge.sent
     #expect(posts.filter { $0.route == "end" }.count == 1)
     let handoffs = posts.filter { !$0.files.isEmpty }
