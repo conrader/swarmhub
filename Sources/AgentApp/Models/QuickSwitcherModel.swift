@@ -4,10 +4,10 @@ import Foundation
 /// over enabled rows and stop at the ends; Return opens the highlighted row.
 struct QuickSwitcherModel: Equatable {
     struct Item: Identifiable, Equatable {
-        enum Target: Equatable { case bot(UUID), group(UUID), message(ChatMessageLocation), command(AppCommand), setup }
+        enum Target: Equatable { case bot(UUID), group(UUID), message(ChatMessageLocation), page(WorkspacePageLink), findPages, command(AppCommand), setup }
         var id: String; var title: String; var icon: String; var detail: String? = nil; var shortcut: String? = nil; var isEnabled = true; var target: Target
         /// Commands come after a divider.
-        var isCommand: Bool { switch target { case .bot, .group, .message: false; case .command, .setup: true } }
+        var isCommand: Bool { switch target { case .bot, .group, .message, .page: false; case .command, .findPages, .setup: true } }
     }
 
     private(set) var items: [Item] = []
@@ -39,6 +39,7 @@ struct QuickSwitcherModel: Equatable {
         let date: Date?
         let role: MessageRole
         let content: String
+        var publications: HerdrReplyResults? = nil
 
         /// The text someone can read in the transcript, including prose before tool steps.
         var searchableText: String {
@@ -70,7 +71,7 @@ struct QuickSwitcherModel: Equatable {
                 } else { body = message.content }
                 let location = ChatMessageLocation(conversation: id, message: message.id)
                 rows.append(MessageRow(location: location, chat: name, author: store.copyAuthor(message, botName: name),
-                                       date: message.transcriptDate, role: message.role, content: body))
+                                       date: message.transcriptDate, role: message.role, content: body, publications: message.publishedResults))
             }
         }
         let archives = store.bots.compactMap { $0.grokSourceID == nil ? nil : ($0.id, $0.name) }
@@ -106,7 +107,19 @@ struct QuickSwitcherModel: Equatable {
                                 timeZone: TimeZone, liveResults: (@MainActor @Sendable ([Item]) -> Void)?) async -> [Item] {
         let dateStyle = Date.FormatStyle(date: .abbreviated, time: .shortened, timeZone: timeZone)
         var matches: [(date: Date, item: Item)] = []
+        var foundPages = Set<String>()
         func match(_ row: MessageRow, imported: Bool = false) {
+            if let publications = row.publications {
+                for page in publications.items where page.kind == .page && page.title.localizedStandardContains(term) {
+                    guard let pageID = page.pageID else { continue }
+                    let link = WorkspacePageLink(serverID: publications.serverID, pageID: pageID, revision: page.revision, title: page.title)
+                    if foundPages.insert(link.id).inserted {
+                        let detail = ["Page", row.chat, page.revision.map { "Revision \($0)" }].compactMap { $0 }.joined(separator: " · ")
+                        let item = Item(id: link.id, title: page.title, icon: "doc.richtext", detail: detail, target: .page(link))
+                        matches.append((date: row.date ?? .distantPast, item: item))
+                    }
+                }
+            }
             let body = row.searchableText
             guard let found = body.range(of: term, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) else { return }
             let start = body.index(found.lowerBound, offsetBy: -32, limitedBy: body.startIndex) ?? body.startIndex

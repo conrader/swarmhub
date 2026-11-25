@@ -5,9 +5,13 @@ struct MediaTabView: View {
     @Environment(\.timeZone) private var timeZone
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
+    @State private var browsingPages = false
     var body: some View {
         let items = MediaExtractor.items(in: bot)
         VStack(alignment: .leading, spacing: 6) {
+            if bot.backend == .herdr && !bot.isDemo {
+                Button("Browse published Pages…") { browsingPages = true }
+            }
             // P38: saved documents first; the chat's images, files and links below.
             if !bot.isDemo { ArtifactLibraryView(bot: bot).padding(.bottom, 12); Text("In this chat").font(.headline) }
             if items.isEmpty { Text("Images, files and links shared in this chat will appear here.").foregroundStyle(.secondary) }
@@ -26,6 +30,9 @@ struct MediaTabView: View {
                     if item.kind == .link, let link = item.url.flatMap(URL.init(string:)) { Button { ExternalLink.open(link) } label: { Image(systemName: "arrow.up.right.square") }.buttonStyle(.plain).foregroundStyle(.secondary).help(link.absoluteString) }
                 }.inspectorCard(padding: 8)
             }
+        }
+        .sheet(isPresented: $browsingPages) {
+            WorkspacePageLibrary(serverID: store.herdrServer(for: bot).id, query: "")
         }
     }
     @ViewBuilder private func thumbnail(_ item: MediaItem) -> some View {

@@ -28,6 +28,15 @@ struct HerdrPublishedResult: Identifiable, Codable, Sendable, Equatable {
     }
 }
 
+struct WorkspacePageLink: Hashable, Identifiable, Sendable {
+    let serverID: String
+    let pageID: Int
+    let revision: Int?
+    let title: String
+
+    var id: String { "page-\(serverID)-\(pageID)-\(revision.map(String.init) ?? "latest")" }
+}
+
 extension HerdrClient {
     struct Approval: Decodable, Identifiable, Equatable, Sendable {
         let id: Int
@@ -81,6 +90,20 @@ extension HerdrClient {
     func decide(_ approval: Approval, _ decision: Decision) async throws {
         struct Accepted: Decodable { let id: Int }
         let _: Accepted = try await send(request("/api/approvals/\(approval.id)", method: "POST", body: try JSONEncoder().encode(decision.rawValue)))
+    }
+
+    struct PageSummary: Decodable, Identifiable, Sendable {
+        let id: Int
+        let title: String
+        let pinned: Bool?
+    }
+
+    func workspacePages(matching term: String) async throws -> [PageSummary] {
+        guard !term.isEmpty else { return try await get("/api/pages") }
+        var components = URLComponents()
+        components.queryItems = [URLQueryItem(name: "kind", value: "pages"), URLQueryItem(name: "q", value: term)]
+        let query = (components.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B")
+        return try await get("/api/search?" + query)
     }
 
     struct PublishedPage: Decodable { let title, markdown: String }

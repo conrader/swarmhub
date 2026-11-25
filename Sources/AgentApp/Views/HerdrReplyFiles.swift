@@ -72,7 +72,11 @@ private struct PublishedResultRow: View {
                 file = try PublishedLocalFile(data: data, title: item.title)
             } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
-        .sheet(isPresented: $showing) { HerdrResultSheet(messageID: messageID, serverID: serverID, item: item, preview: file) }
+        .sheet(isPresented: $showing) {
+            if item.kind == .page, let id = item.pageID {
+                WorkspacePageReader(link: .init(serverID: serverID, pageID: id, revision: item.revision, title: item.title))
+            } else { HerdrResultSheet(messageID: messageID, serverID: serverID, item: item, preview: file) }
+        }
     }
 }
 
@@ -85,22 +89,19 @@ private struct HerdrResultSheet: View {
     let preview: PublishedLocalFile?
     @State private var downloaded: PublishedLocalFile?
     private var file: URL? { (preview ?? downloaded)?.url }
-    @State private var page: HerdrClient.PublishedPage?
     @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(page?.title ?? item.title).font(.headline)
+                Text(item.title).font(.headline)
                 Spacer()
                 if let file { Button("Save a copy…") { save(file) } }
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             if let error { Text(error).foregroundStyle(AppColor.caution).textSelection(.enabled) }
             if let file { HerdrFilePreview(url: file) }
-            else if let page {
-                ScrollView { ProseBlock(text: page.markdown).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }
-            } else if error == nil { ProgressView("Opening…") }
+            else if error == nil { ProgressView("Opening…") }
             Spacer(minLength: 0)
         }.padding().frame(minWidth: 480, idealWidth: 640, minHeight: 360, idealHeight: 480)
         .task { await load() }
@@ -110,14 +111,9 @@ private struct HerdrResultSheet: View {
     private func load() async {
         guard file == nil else { return }
         do {
-            if let id = item.pageID, item.kind == .page {
-                guard let server = store.herdrServer(id: serverID) else { throw BackendError.unavailable("The server that published this result is no longer configured.") }
-                page = try await store.herdrClient(for: server).publishedPage(id: id, revision: item.revision)
-            } else {
-                let data = try await store.publishedReplyFile(item, messageID: messageID, serverID: serverID)
-                try Task.checkCancellation()
-                downloaded = try PublishedLocalFile(data: data, title: item.title)
-            }
+            let data = try await store.publishedReplyFile(item, messageID: messageID, serverID: serverID)
+            try Task.checkCancellation()
+            downloaded = try PublishedLocalFile(data: data, title: item.title)
         } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
 
