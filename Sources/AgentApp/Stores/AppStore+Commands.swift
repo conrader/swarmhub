@@ -1,7 +1,8 @@
 import Foundation
 
 extension AppStore {
-    var visibleChatCount: Int { sidebarLayout.navigationOrder.count }
+    // Pinning and folding affect availability. Message recency only affects order.
+    var visibleChatCount: Int { SidebarLayout.make(chats: unhiddenChats, organisation: sidebar).navigationOrder.count }
 
     /// Match sidebar order (pinned first, then open sections; folded rows are skipped), skip hidden conversations, and wrap at either end.
     func moveChatSelection(by offset: Int) {

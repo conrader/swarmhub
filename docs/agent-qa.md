@@ -98,6 +98,14 @@ python3 Tests/Scripts/chat-window-smoke.py "$qa_pid"
 
 The smoke test requires PyObjC’s ApplicationServices module and macOS Accessibility access. It measures text inside the window as it restores the saved message, jumps to the end and switches between bots. Run it against a freshly opened sample window. Quit that instance to discard the session.
 
+To measure switching through a larger roster, use an app built in Release configuration and a logged-in Mac with Accessibility access.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-switch-latency.py /Applications/SwarmHub.app /tmp/chat-switches.json
+```
+
+The driver opens a disposable workspace with 50 idle bots and 96 messages per bot. It uses the Next Chat shortcut to visit the entire roster four times. Each timer stops when the last message of the destination chat is exposed by Accessibility and intersects the scroll viewport. During each pass the driver edits one chat’s draft, checks the adjacent composer is empty, and on the next visit verifies the original draft. The JSON includes all 200 timings and 12 stationary observations of the same row. Run both builds on the same Mac in alternating order. These numbers measure native Accessibility response. Use the streaming benchmark above for captured frame timings.
+
 To check whether a long group chat survives a restart, run the same driver with a packaged app.
 
 ```sh
