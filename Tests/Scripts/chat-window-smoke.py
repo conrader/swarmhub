@@ -48,6 +48,14 @@ def press(window, title, sidebar=False):
     raise RuntimeError(f"Button unavailable: {title}")
 
 
+def enter_draft(field, text):
+    if field is None or ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
+        raise RuntimeError("Could not focus the composer")
+    if ax.AXUIElementSetAttributeValue(field, "AXSelectedText", text) != 0:
+        raise RuntimeError("Could not enter the draft")
+    wait_for("draft in the composer", lambda: attribute(field, "AXValue") == text)
+
+
 def bounds(element):
     position = attribute(element, "AXPosition")
     size = attribute(element, "AXSize")
@@ -354,11 +362,7 @@ def steer_reopen(source_app):
 
                         draft = "Keep this draft while the bots finish."
                         field = composer()
-                        if field is None or ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
-                            raise RuntimeError("Could not focus the foreground chat composer")
-                        if ax.AXUIElementSetAttributeValue(field, "AXSelectedText", draft) != 0:
-                            raise RuntimeError("Could not enter the foreground chat draft")
-                        wait_for("foreground draft", lambda: attribute(composer(), "AXValue") == draft)
+                        enter_draft(field, draft)
                         online = True
                         wait_for("both replies saved", lambda: all(
                             any(m.get("turnState") == "finished" and m["content"] == "Updated " + bot["name"] for m in bot["messages"])
@@ -442,18 +446,8 @@ def workspace_activity(source_app):
             def composer():
                 return next((e for e in descendants(window) if label(e) == "Message" and attribute(e, "AXRole") == "AXTextArea"), None)
 
-            def enter(text):
-                field = composer()
-                if ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
-                    raise RuntimeError("Could not focus the composer")
-                pid = ax.AXUIElementGetPid(field, None)[1]
-                for down in (True, False):
-                    event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
-                    Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
-                    Quartz.CGEventPostToPid(pid, event)
-
             press(window, reader["name"], sidebar=True)
-            enter("Keep my draft")
+            enter_draft(composer(), "Keep my draft")
             press(window, "Activity")
             target = "Release team, The release notes are ready"
             wait_for("unread group and interrupted bot", lambda: target in names() and "BuildQA, Reply is incomplete" in names())
@@ -510,13 +504,7 @@ def window_unread(source_app):
                     previous = len(snapshot().get("messages", []))
                     field = next(e for e in descendants(window)
                                  if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
-                    if ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
-                        raise RuntimeError("Could not focus the composer")
-                    text = f"Reply while {state}."
-                    for down in (True, False):
-                        event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
-                        Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
-                        Quartz.CGEventPostToPid(pid, event)
+                    enter_draft(field, f"Reply while {state}.")
                     wait_for("enabled send control", lambda: any(label(b) == "Send message" and attribute(b, "AXEnabled") for b in buttons(window)))
                     press(window, "Send message")
                     if state == "minimized":
@@ -811,10 +799,13 @@ def message_search(source_app):
                 started = time.monotonic()
                 if keyboard:
                     import Quartz
+                    if ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
+                        raise RuntimeError("Could not focus the search field")
                     pid = ax.AXUIElementGetPid(field, None)[1]
                     for key in [125] * down + [36]:  # Down Arrow, then Return.
                         for pressed in (True, False):
                             event = Quartz.CGEventCreateKeyboardEvent(None, key, pressed)
+                            Quartz.CGEventSetFlags(event, 0)
                             Quartz.CGEventPostToPid(pid, event)
                         time.sleep(0.06)
                 elif ax.AXUIElementPerformAction(result(), "AXPress") != 0:
@@ -922,6 +913,8 @@ def activity_decisions(source_app):
                     assert sheet()
                 assert decisions == [(2, "deny"), (1, "approve")]
                 wait_for("both requests cleared", lambda: names() == ["Done"])
+                press(sheet(), "Done")
+                wait_for("Activity dismissed", lambda: not sheet())
                 print("Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
         finally:
             server.shutdown()
