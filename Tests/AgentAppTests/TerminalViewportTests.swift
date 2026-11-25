@@ -6,7 +6,10 @@ import WebKit
 
 /// Run on a logged-in Mac with swift test --filter TerminalViewportTests.
 @MainActor struct TerminalViewportTests {
-    @Test func wrappedPromptFitsAndResizesTheMockPTY() async throws {
+    @Test(.enabled("Display unavailable: AppKit reports no screens for the terminal viewport fixture.") {
+        await MainActor.run { !NSScreen.screens.isEmpty }
+    })
+    func wrappedPromptFitsAndResizesTheMockPTY() async throws {
         let web = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("HerdrWorkspace/web")
         let view = WKWebView()

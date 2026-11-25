@@ -94,7 +94,8 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         #expect(store.herdrHelpers[background.id]?.helpers.map(\.ref) == [helper.ref])
         #expect(store.hasActiveCodingAgent(background) && store.isWorking(background))
         #expect(store.herdrHelperOverview.rows.first?.bot === background)
-        #expect(store.herdrHelperOverview.unavailable.contains { $0.id == serverID }, "an older bridge still supplies native helpers")
+        #expect(store.herdrHelperOverview.withoutDetachedActivity.map(\.id) == [serverID])
+        #expect(!store.herdrHelperOverview.unavailable.contains { $0.id == serverID }, "an older bridge still supplies native helpers")
         #expect(store.herdrTerminalSession(for: background) == parent)
         let own = try #require(store.herdrTerminalSession(for: ownAgent))
         #expect(own == HerdrClient.AgentRef(address: "own", createdMs: 4))
@@ -202,10 +203,13 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
             return (200, body)
         }
         let store = makeStore()
-        store.bots = [Bot(name: "Owner", backend: .herdr)]
+        let owner = Bot(name: "Owner", backend: .herdr)
+        store.bots = [owner]
+        store.open(owner)
         let server = HerdrServer(id: HerdrServer.defaultID, name: "Fixture", kind: .address, address: "http://\(http.host)")
         store.saveHerdrServer(server, token: "fixture")
         store.herdrClientSetup = { $0.session = http.session }
+        #expect(store.herdrHelperWatch() == [server.id: false])
         await store.refreshHerdrHelpers(on: server.id)
         #expect(store.herdrHelperOverview.withoutDetachedActivity == [server])
         #expect(store.herdrHelperOverview.unavailable.isEmpty && store.herdrHelperOverview.confirmedEmpty)

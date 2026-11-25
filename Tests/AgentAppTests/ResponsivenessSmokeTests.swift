@@ -116,9 +116,8 @@ private func distribution(_ samples: [Double]) -> [String: Any] {
     let byID = Dictionary(uniqueKeysWithValues: zip(bots.map(\.id), backends))
     let fixture = report.deletingPathExtension()
     try FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: false)
-    let defaults = try #require(UserDefaults(suiteName: fixture.appending(path: "defaults").path))
     let store = AppStore(storeURL: fixture.appending(path: "store.json"), autoStart: false,
-                         backendFactory: { byID[$0.id]! }, keyStore: InMemoryKeyStore(), defaults: defaults)
+                         backendFactory: { byID[$0.id]! }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.grokBotPresent = false
     store.bots = bots
     store.open(bots[0], remember: false)
