@@ -1,5 +1,18 @@
 import Foundation
 
+extension ChatMessage {
+    var contributesToSidebarDate: Bool {
+        guard role != .system else { return false }
+        if !attachments.isEmpty { return true }
+        // Ordinary prose on the first line remains visible regardless of later control fences.
+        // NO_REPLY is the one silent marker that starts with a letter.
+        if let first = content.first, first.isASCII, first.isLetter, first != "N", first != "n" { return true }
+        guard !isSilent else { return false }
+        let visible = role == .assistant ? SwarmhubBlock.visibleText(content) : content
+        return !visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 /// One conversation in the sidebar's shared, most-recent-message-first list.
 enum SidebarChat: Identifiable {
     case bot(Bot), group(GroupChat)
@@ -20,9 +33,8 @@ enum SidebarChat: Identifiable {
         var latest = archive?.timestamp ?? .distantPast
         // Start at the end so older messages need only a date comparison while a reply is streaming.
         for messages in messageLists {
-            for message in messages.reversed() where message.createdAt > latest && message.role != .system && !message.isSilent {
-                let text = message.role == .assistant ? SwarmhubBlock.visibleText(message.content) : message.content
-                if !message.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { latest = message.createdAt }
+            for message in messages.reversed() where message.createdAt > latest && message.contributesToSidebarDate {
+                latest = message.createdAt
             }
         }
         return latest

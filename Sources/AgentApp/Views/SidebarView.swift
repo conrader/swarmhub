@@ -32,7 +32,6 @@ struct SidebarView: View {
                     .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
             SidebarUpdateButton()
-            // Worked out once per pass: the body reruns on every streamed token.
             let layout = store.sidebarLayout
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
