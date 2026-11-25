@@ -76,25 +76,17 @@ extension AppStore {
         return source
     }
 
-    /// The handoff as it goes out now: the archive read and laid out off the main actor. When the older part has no
-    /// summary yet and one may be made unasked (`grokSummaryAllowed`), it is made, or the one being made is waited
-    /// for, at most `turnWait`. Without a new one the handoff goes with the summary there is, however old, or with the
-    /// recent part and the full transcript alone.
+    /// Use the current archive and any cached summary immediately. The compactor saves newer summaries independently.
     func grokHandoff(for botID: UUID, status: @escaping @Sendable (HerdrTurnStatus) -> Void) async -> HerdrHandoff? {
         guard let bot = bots.first(where: { $0.id == botID }), grokHandoffIsOn(for: bot) else { return nil }
         let name = bot.name
         guard let draft = await grokHandoffDraft(for: bot) else { return nil }
-        var summary: GrokHandoffCache? = draft.cache
+        let summary = draft.cache
         if draft.plan.needsSummary, grokSummaryAllowed(draft, botID: botID) {
-            status(.summarising)
-            if let making = grokSummary(for: bot, draft: draft, limit: grokHandoffs.summaryLimit),
-               let made = await Self.waited(making, upTo: grokHandoffs.turnWait) {
-                summary = made
-            }
+            _ = grokSummary(for: bot, draft: draft, limit: grokHandoffs.summaryLimit)
         }
-        let used = summary
         let rendered = await Task.detached(priority: .userInitiated) {
-            GrokHandoff.render(draft.transcript, plan: draft.plan, summary: used, botName: name)
+            GrokHandoff.render(draft.transcript, plan: draft.plan, summary: summary, botName: name)
         }.value
         return GrokHandoff.package(rendered, archiveID: botID)
     }

@@ -149,16 +149,6 @@ extension AppStore {
         }.value
         var summary: GrokHandoffCache? = nil
         if let kept, let oldest = plan.older.first, kept.through >= oldest.seq { summary = kept }
-        if plan.needsSummary, let pieces = GrokHandoff.parts(of: plan.older, botName: name), pieces.texts.count <= GrokHandoff.unaskedParts,
-           let client = try? herdrClient(for: herdrServer(for: bot)) {
-            status(.summarising)
-            let template = herdrTemplate(for: bot), model = herdrModel(for: bot)
-            if let written = try? await client.summarise(pieces.files, name: HerdrClient.compactorName(for: botID), template: template, model: model, limit: grokHandoffs.turnWait) {
-                let made = GrokHandoffCache(summary: written, from: pieces.from, through: pieces.through, messages: pieces.messages,
-                                            template: template ?? "", model: model, madeAt: now())
-                if !made.summary.isEmpty { summary = made; grokHandoffs.carrySummaries[botID] = made }
-            }
-        }
         let used = summary
         let rendered = await Task.detached(priority: .userInitiated) {
             GrokHandoff.render(transcript, plan: plan, summary: used, botName: name, origin: .ownChat)

@@ -68,13 +68,12 @@ import Testing
     #expect(store.send(text: "Where were we?"))
     try await waitUntil { store.runningTurns.isEmpty && replies(bot) == 3 && store.herdrCarryOver(for: bot) == nil }
     let sent = bridge.sent.filter { $0.route != "end" }
-    try #require(sent.map(\.route) == ["launch", "message", "launch-with-files", "message"])
+    try #require(sent.map(\.route) == ["launch", "message", "launch-with-files"])
     let handed = sent[2]
-    #expect(handed.text.contains(GrokHandoff.lead(for: bot.id, origin: .ownChat)) && handed.text.contains("this bot already had with the person in this chat") && !handed.text.contains("Where were we?"))
+    #expect(handed.text.contains(GrokHandoff.lead(for: bot.id, origin: .ownChat)) && handed.text.hasSuffix("Where were we?"))
     #expect(handed.files.keys.sorted() == ["conversation-full.md", "conversation-so-far.md"])
     let file = try #require(handed.files["conversation-so-far.md"])
     #expect(file.contains("Plan the launch for Friday") && file.contains("Still you?") && !file.contains("Where were we?"))
-    #expect(sent[3].text.hasSuffix("Where were we?") && !sent[3].text.contains(GrokHandoff.lead(for: bot.id, origin: .ownChat)))
     #expect(systemLines(bot).contains("Ada read the earlier messages in this chat: all 4 messages"))
     // Once: the next message is the person's alone, and so is the first one of an agent started after that.
     #expect(store.send(text: "Good."))
@@ -113,7 +112,7 @@ import Testing
     let posts = bridge.sent
     #expect(posts.filter { $0.route == "end" }.count == 1)
     let handoffs = posts.filter { !$0.files.isEmpty }
-    #expect(handoffs.count == 2, "both the imported archive and the current conversation travel once")
+    #expect(handoffs.count == 1, "both the imported archive and the current conversation travel once")
     #expect(handoffs.contains { $0.files["conversation-full.md"]?.contains("Friday.") == true })
     #expect(posts.filter { $0.text.hasSuffix("When was it?") }.count == 1)
     #expect(posts.last?.text.hasSuffix("Thanks") == true)
@@ -147,7 +146,7 @@ import Testing
 
     #expect(waited && !store.modelSwitchPending(bot))
     let posts = bridge.sent
-    #expect(posts.map(\.route) == ["end", "launch-with-files", "message"])
+    #expect(posts.map(\.route) == ["end", "launch-with-files"])
     #expect(posts.first { $0.route == "launch-with-files" }?.files["conversation-so-far.md"]?.contains("Build passed.") == true)
     #expect(posts.last?.text.hasSuffix("Run the tests") == true)
 }
@@ -208,8 +207,8 @@ import Testing
     for try await _ in stream {}
 
     let delta = Array(bridge.sent.dropFirst(beforeCount))
-    #expect(delta.map(\.route) == ["end", "launch-with-files", "message"])
+    #expect(delta.map(\.route) == ["end", "launch-with-files"])
     #expect(delta[1].files["conversation-so-far.md"]?.contains("Ready to run.") == true)
-    #expect(delta[2].text.hasSuffix("Run the tests"))
+    #expect(delta[1].text.hasSuffix("Run the tests"))
     #expect(!store.autoSwitchPending(bot))
 }

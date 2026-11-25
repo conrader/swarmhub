@@ -244,7 +244,7 @@ struct HerdrBackend: AgentBackend {
                     }
                     // The agent reads the bot's earlier conversation first, once per agent session (`HerdrHandoff.swift`).
                     // A handoff that fails does not hold the message back: it goes as it always did, and the source hears why.
-                    var missed: [(HerdrHandoffSource, String)] = []
+                    var context = QuestionContext(text: text, files: files)
                     if name == backend.agentName {
                         let sources: [HerdrHandoffSource]
                         if let prepare = backend.prepareDirect {
@@ -252,23 +252,34 @@ struct HerdrBackend: AgentBackend {
                             let workspace = try await backend.client.workspaceForDelivery(name: name, status: report)
                             sources = try await prepare(workspace)
                         } else { sources = [backend.handoff].compactMap { $0 } }
-                        for source in sources {
-                            if let why = try await backend.handOver(source, status: report) {
-                                missed.append((source, why))
-                            }
-                        }
+                        context = try await backend.questionContext(text: text, files: files, sources: sources)
                         _ = backend.handingOver.swap(false)
                         if !sources.isEmpty { continuation.yield(.status(HerdrTurnStatus.sending.code)) }
                     }
                     _ = backend.preparingSession.swap(sessionID)
-                    let turn = try await backend.client.deliver(text, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
+                    @Sendable func submit(_ payload: String, _ attachments: [HerdrClient.TaskFile]) async throws -> HerdrClient.Turn {
+                        try await backend.client.deliver(payload, name: name, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
                                                                 reminder: backend.managementReminder(for: text),
                                                                 once: backend.notes, changing: backend.rosters,
-                                                                projects: backend.projects, files: files, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
+                                                                projects: backend.projects, files: attachments, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
                                                                 willSubmit: { _ = backend.preparingSession.swap(nil) }, status: report)
+                    }
+                    let turn: HerdrClient.Turn
+                    do {
+                        turn = try await submit(context.text, context.files)
+                    } catch HerdrClient.Failure.http(let code, let reason) where [413, 422].contains(code) && context.files.count > files.count {
+                        // The server refused these optional files before delivery. Keep the original request intact.
+                        context.omitted += context.included.map { ($0.0, "The server said: " + reason) }
+                        context.included.removeAll()
+                        try Task.checkCancellation()
+                        turn = try await submit(text, files)
+                    }
                     delivered = true
                     _ = backend.accepted.swap(AcceptedRun(sessionID: sessionID, turn: turn))
-                    for (source, why) in missed { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
+                    for (source, handoff, attached) in context.included {
+                        source.delivered?(HerdrHandoffReceipt(launch: backend.launch(of: turn), handoff: handoff, withFiles: attached))
+                    }
+                    for (source, why) in context.omitted { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     // Read the launch model from this exact session. Following the answer proceeds concurrently.

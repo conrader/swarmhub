@@ -39,19 +39,19 @@ struct GrokHandoffRecord: Codable, Equatable, Sendable {
 enum GrokHandoffCopy {
     static func switchLabel(_ bot: String) -> String { "Hand this history over to \(bot)" }
     static func switchHelp(_ bot: String) -> String {
-        "On: \(bot) reads this conversation before its next reply whenever its agent starts anew, so it can carry on. It is sent to \(bot)’s server. Off: \(bot) does not get it."
+        "On: \(bot) receives this conversation with your first message in each new session. It is sent to \(bot)’s server. Off: \(bot) does not get it."
     }
     static let tryAgain = "Try again", trySummary = "Try summary again"
     static func off(_ bot: String) -> String { "Not handed over to \(bot): switched off" }
-    static func pending(_ bot: String) -> String { "\(bot) reads this before its next reply" }
+    static func pending(_ bot: String) -> String { "\(bot) receives this history with your next message" }
     static func preparing(_ older: Int) -> String { "Preparing handover: summarising \(older) older messages…" }
     static let noSummary = "the summary of the older part could not be made"
     static let tooLong = "the older part is too long to summarise unasked"
     static let newer = "lines added since go to its next agent"
 
     /// In the chat, once: the agent has the conversation, or only the excerpt a server without files can take.
-    static func read(_ bot: String) -> String { "\(bot) has read its Grok history" }
-    static func readExcerpt(_ bot: String) -> String { "\(bot) was given an excerpt of its Grok history: its server takes no files" }
+    static func read(_ bot: String) -> String { "\(bot) received its Grok history" }
+    static func readExcerpt(_ bot: String) -> String { "\(bot) received an excerpt of its Grok history" }
 
     /// "Handed over to Ada · summary of 268 + last 120 messages · 3 May 2026 at 14:02", then what else is worth knowing.
     static func handedOver(_ bot: String, record: GrokHandoffRecord, when: String, notes: [String] = []) -> String {
@@ -77,7 +77,7 @@ enum GrokHandoffCopy {
     /// Details → Advanced → New conversation: a bot that is handed its Grok history does not start with nothing.
     static func newConversation(_ bot: String, readsHistory: Bool) -> String {
         readsHistory
-            ? "Start \(bot) anew. It reads its Grok history again before its next reply; switch that off under Grok history at the top of its chat. Earlier messages stay visible here."
+            ? "Start \(bot) anew. Its next message includes its Grok history. You can change this under Grok history at the top of its chat. Earlier messages stay visible here."
             : "Start \(bot) with empty context. Earlier messages stay visible here."
     }
 }
