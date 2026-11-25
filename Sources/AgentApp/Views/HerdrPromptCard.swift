@@ -11,7 +11,7 @@ struct HerdrPromptCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let prompt = store.herdrPrompts[group?.id ?? bot.id]
+        let prompt = store.herdrPrompt(for: bot, in: group)
         Group {
             if let prompt { card(prompt).transition(.opacity.combined(with: .move(edge: .bottom))) }
         }
@@ -47,6 +47,7 @@ struct HerdrPromptCard: View {
                         }
                 }
             }
+            if let origin = prompt.origin { Text(origin).font(.caption).textSelection(.enabled) }
             if let review = prompt.reviewDescription { Text(review).font(.caption) }
             if !prompt.question.isEmpty {
                 ScrollView(.vertical) {

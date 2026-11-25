@@ -10,7 +10,7 @@ actor ScriptedTurnBackend: AgentBackend {
     private let stopFails: Bool, steerFails: Bool, steerless: Bool, steerError: BackendError
     /// `steerless`: a runtime without `run_steer` (uxfix1: a message typed during its turn waits for the turn to end).
     /// `steerError`: what a failing steer throws; uxfix3: a refusal meaning the run is over goes as the next message by itself.
-    init(stopFails: Bool = false, steerFails: Bool = false, steerless: Bool = false, steerError: BackendError = .http(500, "steer broke (steer_failed)")) {
+    init(stopFails: Bool = false, steerFails: Bool = false, steerless: Bool = false, steerError: BackendError = .http(409, "steer broke (steer_failed)")) {
         self.stopFails = stopFails; self.steerFails = steerFails; self.steerless = steerless; self.steerError = steerError
     }
 
@@ -29,6 +29,10 @@ actor ScriptedTurnBackend: AgentBackend {
         if holdSteer { calls.append("steer-held:\(text)"); await withCheckedContinuation { steerWaiters.append($0) } }
         if steerFails { calls.append("steer-failed:\(text)"); throw steerError }
         calls.append("steer:\(text)")
+    }
+    func steer(sessionID: String, text: String, files: [HerdrClient.TaskFile]) async throws {
+        for file in files { calls.append("file:\(file.name):\(String(decoding: file.data, as: UTF8.self))") }
+        try await steer(sessionID: sessionID, text: text)
     }
     func stopTarget(sessionID: String) async throws -> StopTarget { .serverRun("run-\(streams.count)") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {

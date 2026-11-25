@@ -39,7 +39,7 @@ struct SlashCommandTests {
         #expect(ComposerSubmission(draft: "/goal write tests", hasAttachments: false) == .goal(.start("write tests")))
         #expect(ComposerSubmission(draft: "/goal stop", hasAttachments: false) == .goal(.stop))
         #expect(ComposerSubmission(draft: "/goal status", hasAttachments: false) == .goal(.status))
-        #expect(ComposerSubmission(draft: "/goal write tests", hasAttachments: true) == .notice("Remove the attachments to use a goal command."))
+        #expect(ComposerSubmission(draft: "/goal write tests", hasAttachments: true) == .goal(.start("write tests")))
         for text in ["@someone /goal", "/goal x\ny", "/goal/tests", "meet the goal", "/var/log"] {
             #expect(ComposerSubmission(draft: text, hasAttachments: false) == .message)
         }

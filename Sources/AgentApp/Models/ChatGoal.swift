@@ -35,7 +35,8 @@ struct ChatGoal: Codable, Equatable {
         let sessionID: String
     }
     let id: UUID
-    let objective: String
+    var initialAttachments: [ChatAttachment]?
+    var objective: String
     let destination: Destination
     var state = State.queued
     var iteration = 0

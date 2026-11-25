@@ -22,11 +22,16 @@ protocol AgentBackend: Sendable {
     func testConnection() async throws -> String
     /// What the running agent can do; `run_steer` means a message sent mid-turn reaches it.
     func features() async throws -> Set<String>
+    func steer(sessionID: String, text: String, files: [HerdrClient.TaskFile]) async throws
     /// Adds guidance to the running turn.
     func steer(sessionID: String, text: String) async throws
 }
 
 extension AgentBackend {
+    func steer(sessionID: String, text: String, files: [HerdrClient.TaskFile]) async throws {
+        guard files.isEmpty else { throw BackendError.unavailable("This backend cannot attach files to the current turn.") }
+        try await steer(sessionID: sessionID, text: text)
+    }
     func goalBlocker(sessionID: String) async throws -> String? { nil }
     func features() async throws -> Set<String> { [] }
     func steer(sessionID: String, text: String) async throws { throw BackendError.unavailable("This bot cannot take a message while it answers.") }

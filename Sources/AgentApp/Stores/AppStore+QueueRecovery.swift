@@ -49,12 +49,27 @@ extension AppStore {
                     try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
                 }
                 if record.state == .submitting || record.state == .uncertain {
+                    if record.kind == .steer || anchor.metadata[TurnWaitCopy.key] == "waiting" {
+                        endWait(anchor, in: conversation)
+                        anchor.metadata[SteerKey.steer] = "uncertain"
+                        save()
+                    }
                     let warning = ReconcileNote.uncertainQueuePrefix + record.text
                     if !conversation.messages.contains(where: { $0.content == warning }) {
                         conversation.messages.append(ReconcileNote.line(warning))
                     }
                     // Retain the text and operation ID durably; never silently replay an uncertain send.
                     try journal().put(with(record, state: .uncertain), kind: Self.nextMessageKind, id: record.id.uuidString)
+                    continue
+                }
+                let index = conversation.messages.firstIndex { $0 === anchor }
+                let legacyWait = index.flatMap { conversation.messages.indices.contains($0 + 1) ? conversation.messages[$0 + 1] : nil }
+                if record.kind == .steer && anchor.metadata["explicitNext"] != "1" ||
+                    record.kind == .turn && legacyWait?.metadata[TurnWaitCopy.key] == "line" && legacyWait?.content == SteerCopy.afterTurn {
+                    endWait(anchor, in: conversation)
+                    anchor.metadata[SteerKey.steer] = "failed"
+                    try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString)
+                    save()
                     continue
                 }
                 let bubble: ChatMessage
@@ -89,41 +104,11 @@ extension AppStore {
         var changed = false
         let conversations: [any Conversation] = bots.map { $0 as any Conversation } + groups.map { $0 as any Conversation }
         for conversation in conversations {
-            var reply: ChatMessage?
-            var hasReplyContent = false
-            var queued: [ChatMessage] = []
-
-            func settleQueued() {
-                guard !queued.isEmpty else { return }
-                let state = reply?.turnState == .finished && hasReplyContent ? "delivered" : "failed"
-                for bubble in queued { bubble.metadata[SteerKey.steer] = state }
+            for row in conversation.messages where ["sent", "queued"].contains(row.metadata[SteerKey.steer] ?? "") {
+                guard !turns.inFlightSteers.contains(row.id), !steerHeldByTurn(row) else { continue }
+                row.metadata[SteerKey.steer] = "uncertain"
                 changed = true
-                queued.removeAll()
             }
-
-            for row in conversation.messages {
-                switch row.role {
-                case .assistant:
-                    let part = row.metadata[TurnKey.part].flatMap(Int.init)
-                    let previousPart = reply?.metadata[TurnKey.part].flatMap(Int.init)
-                    let continuesReply = part.map { $0 > 1 && previousPart == $0 - 1 } == true
-                        && reply?.authorID == row.authorID && reply?.metadata[TurnKey.forUser] == row.metadata[TurnKey.forUser]
-                    if !continuesReply { settleQueued(); hasReplyContent = false }
-                    reply = row
-                    hasReplyContent = hasReplyContent || !row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || row.publishedResults?.items.isEmpty == false
-                case .user:
-                    switch row.metadata[SteerKey.steer] {
-                    case "sent" where !turns.inFlightSteers.contains(row.id): row.metadata[SteerKey.steer] = "failed"; changed = true
-                    case "queued" where !steerHeldByTurn(row): queued.append(row)
-                    case nil where row.metadata[TurnWaitCopy.key] != "waiting":
-                        settleQueued(); reply = nil; hasReplyContent = false
-                    default: break
-                    }
-                case .system: break
-                }
-            }
-            settleQueued()
         }
         guard changed else { return }
         let preserveRestoreUndo = restoreUndoRevision != nil && restoreUndoRevision == storeRevision

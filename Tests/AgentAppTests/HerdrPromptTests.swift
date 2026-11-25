@@ -151,6 +151,29 @@ private final class PromptBridge: @unchecked Sendable {
         #expect(store.herdrPrompts[group.id] == nil && notices.sent.count == 1)
     }
 
+    @Test func concurrentGroupTurnsKeepTheirOwnPermissionPrompts() {
+        let (store, primary, other, _) = makeStore()
+        store.herdrClientSetup = nil
+        let group = GroupChat(name: "Review", memberIDs: [primary.id, other.id])
+        store.groups = [group]
+        store.beginTurn(in: group, bot: primary, assistant: nil)
+        let second = ConversationTurn(conversation: group, botID: other.id, assistant: nil, groupRun: nil)
+        store.runningTurns[second.token] = second
+        for (bot, address) in [(primary, "t1"), (other, "t2")] {
+            store.herdrTurnStatus(blocked, for: bot, in: group)
+            let id = store.herdrPromptID(for: bot, in: group)
+            store.herdrPrompts[id] = HerdrPrompt(program: bot.name, question: "Allow fixture?",
+                                                  agent: .init(address: address, createdMs: 1), since: Date())
+        }
+        #expect(store.herdrPrompt(for: primary, in: group)?.agent.address == "t1")
+        #expect(store.herdrPrompt(for: other, in: group)?.agent.address == "t2")
+        store.herdrTurnStatus(nil, for: primary, in: group)
+        #expect(store.herdrPrompt(for: primary, in: group) == nil)
+        #expect(store.herdrPrompt(for: other, in: group)?.agent.address == "t2")
+        group.memberIDs.removeAll { $0 == other.id }
+        #expect(store.herdrPromptAnswer(for: other, in: group) == nil)
+    }
+
     @Test func theChatShowsWhatTheTerminalAsks() async throws {
         let (store, bot, _, _) = makeStore()
         let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
@@ -233,4 +256,54 @@ private final class PromptBridge: @unchecked Sendable {
         store.herdrReadiness[bot.id] = nil
         #expect(store.herdrPrompts[bot.id] == nil)
     }
+}
+
+@MainActor @Test func boppyShowsTheInterBotLaunchOnItsPromptWhileAstraIsPending() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Boppy", backend: .herdr)
+    let id = bot.id.uuidString.lowercased(), name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+    let requests = AwaitableLog<String>()
+    let http = MockHTTPProtocol.serve { req in
+        let path = req.url?.path ?? ""
+        requests.append("\(req.httpMethod ?? "") \(path)")
+        switch path {
+        case "/api/workspace":
+            let agent: [String: Any] = ["name":name, "address":"fixture", "created_ms":9, "state":"live", "template":"runner",
+                                        "status":["state":"blocked", "kind":"permission"]]
+            let template: [String: Any] = ["name":"runner", "runtime":["harness":"Gemini"], "model_agent":"fixture",
+                                           "models":[["id":"astra", "label":"Astra"]]]
+            return (200, ["core":"fixture-core", "agents":[agent], "templates":[template]])
+        case "/api/profiles":
+            let launch: [String: Any] = ["core":"fixture-core", "address":"fixture", "created_ms":9,
+                                         "runtime":["harness":"Gemini", "model":"Gemini Neon", "model_id":"neon"]]
+            return (200, [["id":1, "runtime_name":name, "sessions":[launch]]])
+        case "/api/agents/fixture/9/output":
+            return (200, ["text":"Would you like to run the following command?\nSSH directory listing (fixture)\n1. Allow once\n2. Deny"])
+        case "/api/bots": return (200, ["bots":[]])
+        case "/api/bots/history":
+            let item: [String: Any] = ["id":1,"bot":id,"kind":"message","text":"Doc sent Boppy the archive question.",
+                                       "at_ms":1000,"unread":true,"notify":false]
+            return (200, ["items":[item],"more":false])
+        case "/api/approvals":
+            return (200, ["pending":[["id":7,"agent":name,"provider":"Gemini","tool":"SSH fixture","cwd":"/fixture",
+                                      "arguments":"archive","core":"fixture-core","address":"fixture","created_ms":9,"launch_model":"Gemini Neon"]]])
+        default: return (404, [:])
+        }
+    }
+    let server = HerdrServer(id: HerdrServer.defaultID, name: "Fixture", kind: .address, address: "http://\(http.host)")
+    store.saveHerdrServer(server, token: "fixture")
+    store.herdrClientSetup = { $0.session = http.session }
+    store.bots = [bot]
+    store.setHerdrModel("astra", for: bot)
+    await store.syncTeam(server)
+    #expect(bot.messages.contains { $0.content == "Doc sent Boppy the archive question." })
+    let reading = try #require(await store.refreshHerdrAgentReading(for: bot, requireFresh: true))
+    #expect(reading.short == "Gemini Neon" && reading.pendingLine?.contains("next new direct turn") == true)
+    #expect(reading.model?.id == "astra")
+    store.herdrTurnStatus(.blocked(program: "Gemini"), for: bot)
+    try await waitUntil { store.herdrPrompts[bot.id]?.origin?.contains("Gemini Neon · fixture/9") == true }
+    let reviews = try await store.herdrClient(for: server).approvals(for: name)
+    #expect(reviews.map(\.launchModel) == ["Gemini Neon"])
+    #expect(store.modelSwitchPending(bot))
+    #expect(requests.all.allSatisfy { !$0.hasPrefix("POST /api/agents/") && !$0.hasPrefix("POST /api/approvals") })
 }

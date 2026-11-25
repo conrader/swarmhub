@@ -2,7 +2,7 @@ import Foundation
 
 extension AppStore {
     /// The composer passes its own conversation before any steer, queue or attachment delivery.
-    func handleGoalCommand(_ command: SlashCommand, in conversation: any Conversation) -> String? {
+    func handleGoalCommand(_ command: SlashCommand, in conversation: any Conversation, attachments: [ChatAttachment] = []) -> String? {
         guard openConversation === conversation, openHerdrHelper == nil,
               let bot = conversation as? Bot, bots.contains(where: { $0 === bot }),
               bot.backend == .herdr, !bot.isDemo, !bot.isReadOnlyArchive, persistenceEnabled, storeRestoreOffer == nil
@@ -10,11 +10,16 @@ extension AppStore {
 
         switch command {
         case .start(let objective):
-            guard bot.goal?.state.active != true else { return "This chat already has a goal. Stop it before starting another." }
-            let goal = ChatGoal(objective: objective, destination: goalDestination(for: bot))
+            if bot.goal?.state.active == true {
+                return send(text: objective, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true)
+                    ? nil : "The goal update could not be submitted."
+            }
+            guard attachments.isEmpty else { return "Start the goal, then attach files to a follow-up." }
+            var goal = ChatGoal(objective: objective, destination: goalDestination(for: bot))
             // Check the full first delivery while the person still has their draft.
+            goal.initialAttachments = attachments.isEmpty ? nil : attachments
             let probe = UUID()
-            guard validateHerdrDraft(goal.request(for: probe), attachments: [], bot: bot) else { return "The goal could not be sent. Check the message length." }
+            guard validateHerdrDraft(goal.request(for: probe), attachments: attachments, bot: bot) else { return "The goal could not be sent. Check the message length." }
             let previous = bot.goal
             bot.goal = goal
             save()
@@ -23,7 +28,10 @@ extension AppStore {
             sendQueuedNextMessage()
         case .status:
             guard let goal = bot.goal else { return "This chat has no goal. Type /goal followed by an objective." }
-            let state = goal.state == .running && herdrWaits(bot).waits ? "Waiting for you" : goal.state.rawValue.capitalized
+            let state: String
+            if let attempt = goal.attempt, turns.nextMessages.contains(where: { $0.conversation === bot && $0.bubble.metadata[GoalKey.attempt] == attempt.uuidString }) { state = "Waiting for capacity" }
+            else if goal.state == .running && herdrWaits(bot).waits { state = "Waiting for you" }
+            else { state = goal.state.rawValue.capitalized }
             return "\(state) · \(goal.objective)"
         case .stop:
             guard let goal = bot.goal, goal.state.active else { return "This chat has no active goal." }
@@ -47,6 +55,11 @@ extension AppStore {
     func stopGoal(in bot: Bot) {
         guard let goal = bot.goal, goal.state.active else { return }
         let ownedTurn = goal.attempt != nil && turn(in: bot)?.goalAttempt == goal.attempt
+        if let attempt = goal.attempt {
+            let pending = turns.nextMessages.filter { $0.conversation === bot && $0.bubble.metadata[GoalKey.attempt] == attempt.uuidString }
+            turns.nextMessages.removeAll { next in pending.contains { $0.id == next.id } }
+            pending.forEach(giveBack)
+        }
         bot.goal?.stop()
         turns.scheduledGoals.remove(goal.id)
         save()
@@ -75,6 +88,7 @@ extension AppStore {
                 save()
                 continue
             }
+            let files = goal.initialAttachments ?? []
             let token = goal.begin()
             bot.goal = goal
             // Commit ownership before scheduling anything that can reach the workspace.
@@ -83,9 +97,9 @@ extension AppStore {
                 bot.goal?.wait("The iteration could not be saved.")
                 continue
             }
-            let sent = send(text: "Goal step \(goal.iteration) · \(goal.objective)", bot: bot, conversation: bot, replyToID: nil,
+            let sent = send(text: "Goal step \(goal.iteration) · \(goal.objective)", attachments: files, bot: bot, conversation: bot, replyToID: nil,
                             metadata: [GoalKey.request: goal.request(for: token), GoalKey.attempt: token.uuidString])
-            if !sent {
+            if sent { bot.goal?.initialAttachments = nil; save() } else {
                 bot.goal?.wait("The iteration could not start. Check this chat before resuming.")
                 save()
             }

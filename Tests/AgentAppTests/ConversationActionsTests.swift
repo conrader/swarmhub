@@ -95,14 +95,15 @@ import Testing
         let bTarget = ConversationActionTarget.group(groupID: group.id, botID: b.id)
         let card = try #require(ChatCardParser.parse(explicit.content).first)
 
-        #expect(!store.performCardAction(target: aTarget, sourceID: explicit.id, index: 0, expected: card, choice: .option("One")))
+        #expect(store.performCardAction(target: aTarget, sourceID: explicit.id, index: 0, expected: card, choice: .option("One")))
+        try await waitUntil { !store.anyTurnRunning }
         #expect(!store.answerInferredChoice(target: bTarget, source: inferred, shownContent: inferred.content, answer: .option("Yes")))
         #expect(!store.answerInferredChoice(target: aTarget, source: latest, shownContent: latest.content, answer: .option("Yes")))
         #expect(store.answerInferredChoice(target: bTarget, source: latest, shownContent: latest.content, answer: .other(" Wait until Monday. ")))
         try await waitUntil { !store.anyTurnRunning }
-        #expect(backend.sent.all.count == 1 && backend.sent.all.first?.session.contains(b.id.uuidString.lowercased()) == true)
-        #expect(group.messages.filter { $0.role == .user }.map(\.content) == ["Wait until Monday."])
-        #expect(group.messages.first { $0.role == .user }?.replyToID == latest.id)
+        #expect(backend.sent.all.count == 2 && backend.sent.all.last?.session.contains(b.id.uuidString.lowercased()) == true)
+        #expect(group.messages.filter { $0.role == .user }.map(\.content) == ["One", "Wait until Monday."])
+        #expect(group.messages.last { $0.role == .user }?.replyToID == latest.id)
     }
 
     @Test func groupChoiceTargetsAuthorDespiteSelectedPrivateBot() async throws {

@@ -74,7 +74,8 @@ enum ComposerSubmission: Equatable {
         case nil: self = .message
         case .commands?: self = .edit("/", hint: nil)
         case .goalUsage?: self = .edit("/goal ", hint: "Enter an objective after /goal.")
-        case _ where hasAttachments: self = .notice("Remove the attachments to use a goal command.")
+        case .stop?: self = .goal(.stop)
+        case .status?: self = .goal(.status)
         case let command?: self = .goal(command)
         }
     }

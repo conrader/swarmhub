@@ -264,7 +264,7 @@ pub(crate) struct Start {
     /// A task sent now is typed at once. `false` only for a warm agent whose program has not reported yet.
     ready: bool,
     /// Started without a task, and none has reached it yet.
-    warm: bool,
+    pub(crate) warm: bool,
     /// When the workspace ends this warm agent unless a task is sent first.
     #[serde(skip_serializing_if = "Option::is_none")]
     warm_ends_ms: Option<i64>,

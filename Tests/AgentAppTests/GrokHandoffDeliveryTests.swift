@@ -144,11 +144,11 @@ private let answering: @Sendable (String) -> String? = { task in task.contains("
     #expect(try await made.features().isEmpty, "while the agent reads the conversation")
     bridge.release("It stood at question 120.")
     try await reading.value
-    #expect(try await made.features() == ["run_steer"] && bridge.sent.map(\.route) == ["launch-with-files", "message"])
-    // A bot without a handoff takes steers from the start, as it always did.
+    #expect(try await made.features().isEmpty && bridge.sent.map(\.route) == ["launch-with-files", "message"])
+    // An older workspace has no live-steer transport, with or without handoff.
     let plain = backend(HandoffBridge(), id: id, handoff: nil)
     _ = try await plain.send(AgentRequest(sessionID: id.uuidString, systemPrompt: "", messages: [(role: "user", content: "Hello")]))
-    #expect(try await plain.features() == ["run_steer"])
+    #expect(try await plain.features().isEmpty)
 }
 
 @Test func withoutAHandoffAndInAGroupTheMessageGoesAsItAlwaysDid() async throws {

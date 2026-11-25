@@ -16,6 +16,9 @@ struct HerdrChatApprovals: View {
             if let request = pending.first {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(request.provider) requests \(HerdrClient.Approval.visible(request.tool))").font(.headline)
+                    if let address = request.address, let created = request.createdMs {
+                        Text("\(request.launchModel ?? "Model unreported") · \(address)/\(created)").font(.caption)
+                    }
                     Text(HerdrClient.Approval.visible(request.cwd)).font(.caption).textSelection(.enabled)
                     ScrollView {
                         Text(HerdrClient.Approval.visible(request.arguments)).font(.body.monospaced()).textSelection(.enabled)

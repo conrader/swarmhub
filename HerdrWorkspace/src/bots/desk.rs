@@ -429,8 +429,8 @@ fn explain(error: ApiError) -> String {
 }
 
 /// Where the running agent of `bot` is among Core's terminals: one this workspace started, under the bot's name.
-fn agent_of(w: &Workspace, core_id: &str, agents: &[Terminal], bot: &Bot) -> Option<usize> {
-    let db = w.history.db().ok()?;
+pub(crate) fn agent_of(history: &crate::history::History, core_id: &str, agents: &[Terminal], bot: &Bot) -> Option<usize> {
+    let db = history.db().ok()?;
     agents.iter().position(|agent| {
         agent.require_live().is_ok() && agent.launch_key().is_some_and(|key| {
             let here: bool = db
@@ -709,7 +709,7 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     let (Ok(hello), Ok(mut agents)) = (w.core.identify().await, w.core.agents().await) else {
         return Outcome::Later;
     };
-    let agent = match agent_of(w, &hello.core.id, &agents, &bot) {
+    let agent = match agent_of(&w.history, &hello.core.id, &agents, &bot) {
         Some(index) => agents.swap_remove(index),
         None => match start(w, &bot, None).await {
             Ok(agent) => agent,
@@ -723,15 +723,16 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
             Err(why) => return Outcome::Failed(format!("its agent could not be started: {why}")),
         },
     };
-    // An agent at a prompt would take the text for the prompt's answer.
-    if agent
-        .status
-        .as_ref()
-        .is_some_and(|status| status.state == "blocked")
+    // A pending desk review can precede the terminal's blocked status.
+    let Some(key) = agent.launch_key() else { return Outcome::Later };
+    if w.approvals.waits_on(key).unwrap_or(true) { return Outcome::Later; }
+    let Some(launch) = agent.launch_key() else { return Outcome::Later; };
+    if agent.status.as_ref().is_some_and(|status| status.state == "blocked")
+        || w.approvals.waits_on(launch).unwrap_or(true)
     {
         return Outcome::Later;
     }
-    let key = agent.launch_key().unwrap_or_default().to_owned();
+    let key = launch.to_owned();
     // An agent that started before its bot was registered has not read the notes: they go in front, once.
     let unread = bot.noted_launch.as_deref() != Some(key.as_str());
     let mut text = if unread {

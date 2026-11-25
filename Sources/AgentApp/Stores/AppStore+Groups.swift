@@ -97,15 +97,10 @@ extension AppStore {
         return ids.compactMap { id in bots.first { $0.id == id } }
     }
 
-    /// The composer in a group: `@Name` picks recipients (none = everyone). Members answer one after another
-    /// in member order, each in its own group session with the transcript since its last reply as context.
-    /// While a member answers, the text steers that member's run instead.
-    /// `recipientIDs` (a card's author) overrides the mentions and never steers; `sourceMessageID` is the card.
-    /// One round at a time per group; direct chats with the same bots stay free. At the turn limit the composer's
-    /// message and choice replies wait as the group's next messages. Draft sends are refused.
+    /// Resolve captured card authors, mentions and reply targets before choosing a turn.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil, queueChoice: Bool = false, metadata: [String: String] = [:]) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        guard isIdle(group) else { return recipientIDs == nil && steer(text: text, attachments: attachments, group: group) }
+        guard storeRestoreOffer == nil, groups.contains(where: { $0 === group }) else { return false }
         let members = routingMembers(of: group)
         guard !members.isEmpty else { errorMessage = "Add bots to this group first."; return false }
         if let recipientIDs, recipientIDs.isEmpty || !recipientIDs.allSatisfy({ id in members.contains { $0.id == id } }) { return false }
@@ -116,7 +111,55 @@ extension AppStore {
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
         let message = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
-        let recipients = recipientIDs ?? GroupRouting.recipients(of: text, members: members)
+        let mentioned = GroupRouting.mentions(in: text, members: GroupRouting.mentionable(members))
+        let source = message.replyToID.flatMap { id in group.messages.first { $0.id == id } }
+        guard message.replyToID == nil || source != nil else { errorMessage = "The original group message is unavailable."; return false }
+        if message.metadata[ChoiceReply.quoteKey] == nil, let source {
+            message.metadata[ChoiceReply.quoteKey] = String(SwarmhubBlock.visibleText(source.content).suffix(1200))
+        }
+        let targeted = recipientIDs ?? (!mentioned.isEmpty ? mentioned : source?.authorID.map { [$0] })
+        if !isIdle(group) {
+            let active = runningTurns.values.filter { $0.conversation === group }
+            let ids = targeted ?? (active.count == 1 ? active.compactMap(\.botID) : [])
+            guard !ids.isEmpty, ids.allSatisfy({ id in members.contains { $0.id == id } }) else {
+                errorMessage = "Choose a group member for this follow-up."
+                return false
+            }
+            let recipients = ids.compactMap { id in bots.first { $0.id == id } }
+            do {
+                for bot in recipients {
+                    try validateArtifactAccess(message, botID: bot.id)
+                    if bot.backend == .herdr, !validateGroupDraft(message.modelText, attachments: attachments, bot: bot) { return false }
+                }
+            } catch { presentError(error.localizedDescription, reason: .attachment); return false }
+            // Per-recipient receipts distinguish a live steer from a new turn or capacity wait.
+            for bot in recipients {
+                let row = ChatMessage(role: .user, content: text, metadata: message.metadata,
+                                      replyToID: message.replyToID, attachments: attachments)
+                row.metadata[TurnWaitCopy.recipients] = bot.id.uuidString
+                if let turn = active.first(where: { $0.botID == bot.id }) {
+                    guard steer(row, bot: bot, turn: turn) else { return false }
+                } else {
+                    captureAttachments(row, readers: [bot.id])
+                    group.messages.append(row)
+                    if let reason = turnCapacityProblem(for: [bot]) {
+                        if !waitForTurn(row, in: group, reason: reason) {
+                            row.metadata[SteerKey.steer] = "failed"
+                            group.messages.append(row)
+                            addWarning("The capacity wait could not be saved.", in: group, after: row)
+                            save()
+                        }
+                    }
+                    else { startGroupMember(bot, in: group, trigger: row, images: images) }
+                }
+            }
+            replyTo = nil
+            return true
+        }
+        let recipients = targeted ?? GroupRouting.recipients(of: text, members: members)
+        guard recipients.allSatisfy({ id in members.contains { $0.id == id } }) else { return false }
+        do { for id in recipients { try validateArtifactAccess(message, botID: id) } }
+        catch { presentError(error.localizedDescription, reason: .attachment); return false }
         for bot in bots where recipients.contains(bot.id) && bot.backend == .herdr {
             guard validateGroupDraft(message.modelText, attachments: attachments, bot: bot) else { return false }
         }
@@ -127,13 +170,25 @@ extension AppStore {
             return false
         }
         steerHint = nil
-        if let recipientIDs {
-            message.metadata[TurnWaitCopy.recipients] = recipientIDs.map(\.uuidString).joined(separator: ",")
+        if let targeted {
+            message.metadata[TurnWaitCopy.recipients] = targeted.map(\.uuidString).joined(separator: ",")
         }
         captureAttachments(message, readers: recipients)
         group.messages.append(message); replyTo = nil
         if let reason = full ?? (hasWaitingTurn(in: group) ? TurnWaitCopy.behind : nil) { return waitForTurn(message, in: group, reason: reason) }
         return startGroupRound(group, message: message, recipients: recipients, images: images)
+    }
+
+    private func startGroupMember(_ bot: Bot, in group: GroupChat, trigger: ChatMessage, images: [String]) {
+        let run = GroupRun(groupID: group.id)
+        let slot = ConversationTurn(conversation: group, botID: bot.id, assistant: nil, groupRun: run)
+        runningTurns[slot.token] = slot
+        save()
+        slot.task = Task {
+            await groupTurn(bot: bot, group: group, run: run, token: slot.token, images: images, trigger: trigger)
+            endTurn(slot.token)
+            sendQueuedNextMessage()
+        }
     }
 
     private func validateGroupDraft(_ text: String, attachments: [ChatAttachment], bot: Bot) -> Bool {
@@ -156,48 +211,14 @@ extension AppStore {
         let images = images ?? ((try? message.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))) ?? [])
         group.round = GroupRound(userMessageID: message.id, remaining: recipients, active: nil)
         let run = GroupRun(groupID: group.id)
-        let turn = beginTurn(in: group, bot: nil, assistant: nil, groupRun: run)
+        let first = recipients.first.flatMap { id in bots.first { $0.id == id } }
+        let turn = beginTurn(in: group, bot: first, assistant: nil, groupRun: run)
         let token = turn.token
         objectWillChange.send(); save()
         turn.task = Task { [weak self] in
             await self?.runGroupRound(group: group, run: run, token: token, recipients: recipients, images: images, trigger: message)
         }
         return true
-    }
-
-    /// Text typed while a member answers steers that member's running turn. Never Stop here (it would end the whole
-    /// round); the reply continues below the bubble once the steer lands. What cannot steer (a member that holds
-    /// messages, between members, attachments) waits as the group's next message and goes when the round ends.
-    func steer(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let turn = turn(in: group), turn.steerAvailable, attachments.isEmpty, !value.isEmpty,
-           let bot = turn.botID.flatMap({ id in bots.first { $0.id == id } }), let activeBackend = try? backend(for: bot) {
-            noteFirstSteer()
-            deliverSteer(value, into: group, sessionID: turnSessionID(in: group, bot: bot), backend: activeBackend)
-            return true
-        }
-        return queueAfterRound(text: text, attachments: attachments, group: group)
-    }
-
-    /// The message goes into the group now and waits there as its next message (`waitForTurn`); the running
-    /// round is never stopped. Mentions are checked as for a send.
-    func queueAfterRound(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
-        let members = routingMembers(of: group)
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty, !members.isEmpty else { return false }
-        let ambiguous = GroupRouting.ambiguousMentions(in: text, members: members)
-        guard ambiguous.isEmpty else {
-            errorMessage = "More than one member is called \(ambiguous.joined(separator: ", ")). Pick one from the @ list (it adds the #id)."; return false
-        }
-        do { _ = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
-        steerHint = nil
-        let recipients = GroupRouting.recipients(of: text, members: members)
-        for bot in bots where recipients.contains(bot.id) && bot.backend == .herdr {
-            guard validateGroupDraft(text, attachments: attachments, bot: bot) else { return false }
-        }
-        let message = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)
-        captureAttachments(message, readers: recipients)
-        group.messages.append(message)
-        return waitForTurn(message, in: group, reason: SteerCopy.afterTurn)
     }
 
     func notifyIfNeeded(group: GroupChat, bot: Bot, message: String) {

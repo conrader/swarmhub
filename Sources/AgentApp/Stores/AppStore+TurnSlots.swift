@@ -15,6 +15,7 @@ import Foundation
     var groupRun: GroupRun?
     var stopping = false
     var goalAttempt: UUID?
+    var guidanceReceipts: [UUID: Task<Void, Never>] = [:]
     // The workspace interrupt targets an agent session. Keep its slot until both
     // the local stream and the remote stop request have settled.
     var goalStopPending = false
@@ -64,6 +65,7 @@ extension AppStore {
 
     func turn(in conversation: any Conversation) -> ConversationTurn? {
         runningTurns[conversation.id].flatMap { $0.conversation === conversation ? $0 : nil }
+            ?? runningTurns.values.first { $0.conversation === conversation }
     }
     func turn(token: UUID) -> ConversationTurn? { runningTurns.values.first { $0.token == token } }
     func isCurrent(_ token: UUID) -> Bool { turn(token: token) != nil }
@@ -91,7 +93,7 @@ extension AppStore {
             turn.endedDuringGoalStop = true
             return
         }
-        runningTurns[turn.conversation.id] = nil
+        if let key = runningTurns.first(where: { $0.value === turn })?.key { runningTurns[key] = nil }
     }
 
     /// Sets the running turn's steer flag (the composer of that chat reads it).
@@ -148,14 +150,17 @@ extension AppStore {
     func stop() { if let conversation = openConversation { stop(conversation) } }
 
     func stop(_ conversation: any Conversation) {
-        guard let turn = turn(in: conversation), !turn.stopping else { return }
+        for turn in runningTurns.values.filter({ $0.conversation === conversation && !$0.stopping }) { stop(turn) }
+    }
+
+    private func stop(_ turn: ConversationTurn) {
+        let conversation = turn.conversation
         // The slot stays until the turn's task ends (`endTurn`), as the one app-wide slot did before P39.
         turn.stopping = true; turn.groupRun?.stopped = true
         let streamToken = turn.token
         let bot = turn.botID.flatMap { id in bots.first { $0.id == id } }
         turn.assistant?.isStreaming = false; turn.steerAvailable = false
         herdrStopWaitingExchanges(in: conversation)
-        holdSteersAtStop(in: conversation, origin: streamingTurnOrigin(in: conversation))
         // The row is `stopped` at once and never extended.
         if let row = turn.assistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
         objectWillChange.send()

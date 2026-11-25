@@ -24,8 +24,6 @@ import Foundation
     var inFlightSteers: Set<UUID> = []
     /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
     var nextMessages: [QueuedNextMessage] = []
-    /// uxfix3: steer bubbles of a turn the user stopped: offered as the next message, never sent by themselves.
-    var stoppedSteers: Set<UUID> = []
 }
 
 /// One stream consumer and one `finishTurn` for both send paths (a bot's chat and a group).
@@ -71,7 +69,9 @@ extension AppStore {
                 // An agent that waits in its terminal is raised to the person, with what it asks.
                 herdrTurnStatus(HerdrTurnStatus(code: value), for: bot, in: group)
                 // A bot's own turn takes no steer while its agent is handed an earlier conversation (`AppStore+GrokHandoff.swift`).
-                if group == nil { await steerFollowsBackend(of: bot, at: HerdrTurnStatus(code: value)) }
+                if let slot = runningTurns.values.first(where: { $0.assistant === row }) {
+                    await steerFollowsBackend(slot, bot: bot)
+                }
                 objectWillChange.send()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
@@ -188,7 +188,11 @@ extension AppStore {
             do { try await sendRetrySleep(delay) } catch { end = .stoppedByUser; break }
             if Task.isCancelled { end = .stoppedByUser; break }
         }
+        setSteerAvailable(false, token: token)
         let assistant = endTurnParts(assistant, end: end)
+        // Acknowledgement can cross the final stream event. Keep the next goal
+        // iteration from taking an older snapshot of the objective.
+        for receipt in Array(slot.guidanceReceipts.values) { await receipt.value }
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let waitingForPerson = slot.goalAttempt != nil && herdrWaits(bot).waits

@@ -51,7 +51,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     /// `offered`: the models the server lists for the resolved template. `agent` and `profiles`: the bot's live agent
     /// and the server's profiles, which hold what each session was launched with.
     init(templates usable: [HerdrClient.Template], ownTemplate: String?, sharedTemplate: String?, ownModel: String?, offered: [HerdrClient.Template.Model],
-         agent: HerdrClient.Agent? = nil, profiles: [HerdrClient.Profile] = []) {
+         agent: HerdrClient.Agent? = nil, profiles: [HerdrClient.Profile] = [], core: String? = nil) {
         (runtime, runtimeIsOwn) = Self.template(own: ownTemplate, shared: sharedTemplate, in: usable)
         if runtime?.takesModel == true {
             if ownModel == HerdrModelChoice.recommended {
@@ -65,7 +65,7 @@ struct HerdrAgentReading: Equatable, Sendable {
         autoRestartPending = agent.autoRestartPending == true
         reviewDescription = agent.reviewDescription
         self.session = agent.ref; activeTemplate = agent.template
-        let session = profiles.lazy.flatMap { $0.sessions ?? [] }.first { $0.address == agent.address && $0.createdMs == agent.createdMs }
+        let session = profiles.lazy.flatMap { $0.sessions ?? [] }.first { (core == nil || $0.core == nil || core == $0.core) && $0.address == agent.address && $0.createdMs == agent.createdMs }
         guard let session else { running = .unknown; return }
         guard let id = session.runtime?.modelId, !id.isEmpty else { running = .unstated; return }
         // The label the server's list gives the id; a session saved by id alone repeats the id as its label.
@@ -95,7 +95,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     var runningLine: String? {
         switch running {
         case .none: nil
-        case .model(_, let label): confirmed ? "Last confirmed model: \(label)." : "Started on \(label)."
+        case .model(_, let label): confirmed ? "Last confirmed model: \(label)." : "Current session started on \(label)."
         case .unstated: "Running on a model it picked itself."
         case .unknown: "Running, but the server does not say on which model."
         }
@@ -110,12 +110,12 @@ struct HerdrAgentReading: Equatable, Sendable {
     var pendingLine: String? {
         if changesProgram, let runtime {
             let next = [runtime.label, model.map(Self.name)].compactMap { $0 }.joined(separator: " · ")
-            return "Next reply: \(next). Your chat stays here."
+            return "Next new direct turn: \(next). Your chat stays here."
         }
         guard let model else { return nil }
         switch running {
-        case .model(let id, _) where id != model.id: return "\(Self.name(model)) will answer your next message."
-        case .unstated: return "\(Self.name(model)) will answer your next message."
+        case .model(let id, _) where id != model.id: return "\(Self.name(model)) will answer your next new direct turn."
+        case .unstated: return "\(Self.name(model)) will answer your next new direct turn."
         default: return nil
         }
     }
@@ -149,7 +149,7 @@ extension HerdrClient {
         let agent = liveAgent(named: agentName, in: current)
         // The profiles only matter for a running agent, and a failed read of them leaves its model unknown, not wrong.
         let saved = agent == nil ? [] : ((try? await profiles()) ?? [])
-        var reading = HerdrAgentReading(templates: usable, ownTemplate: ownTemplate, sharedTemplate: sharedTemplate, ownModel: ownModel, offered: offered, agent: agent, profiles: saved)
+        var reading = HerdrAgentReading(templates: usable, ownTemplate: ownTemplate, sharedTemplate: sharedTemplate, ownModel: ownModel, offered: offered, agent: agent, profiles: saved, core: current.core)
         reading.core = current.core
         if let agent, let core = current.core, current.templates.first(where: { $0.name == agent.template })?.modelAgent == "OpenCode",
            let live = try? await sessionModel(agent.ref, core: core), let id = live.effective {

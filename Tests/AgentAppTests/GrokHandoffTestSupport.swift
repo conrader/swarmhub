@@ -155,6 +155,7 @@ final class HandoffBridge: @unchecked Sendable {
                                                 "bot_workspaces": true, "agents": agents, "templates": [template]]
                 return (200, workspace)
             }
+            if method == "GET", path == "/api/approvals" { return (200, ["pending": []]) }
             if method == "GET", path == "/api/profiles" { return (200, [Any]()) }
             if path.hasPrefix("/api/bot-agent-settings/") {
                 if method == "POST", let data = request.bodyData,
@@ -190,7 +191,7 @@ final class HandoffBridge: @unchecked Sendable {
             if method == "POST", pieces.count >= 5, pieces[1] == "agents" {
                 let key = "\(pieces[2])/\(pieces[3])", action = pieces[4...].joined(separator: "/")
                 let agent = name(of: key)
-                if action == "end" {
+                if action == "end" || action == "end-if-idle" {
                     posts.append(Sent(route: "end", agent: agent, text: ""))
                     agents.removeAll { Self.key($0) == key }
                     return (200, [String: Any]())

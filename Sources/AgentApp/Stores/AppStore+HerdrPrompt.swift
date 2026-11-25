@@ -16,9 +16,24 @@ struct HerdrPromptBook {
 /// the app's notifications are on). When the agent moves again the prompt goes; the next one is raised anew.
 /// Nothing here answers the question: the person does, in the agent's own terminal.
 extension AppStore {
+    func herdrPromptID(for bot: Bot, in group: GroupChat?) -> UUID {
+        guard let group else { return bot.id }
+        return runningTurns.first { key, turn in
+            key != group.id && turn.conversation === group && turn.botID == bot.id
+        }?.key ?? group.id
+    }
+
+    func herdrPrompt(for bot: Bot, in group: GroupChat?) -> HerdrPrompt? {
+        if let group {
+            guard groups.contains(group), group.memberIDs.contains(bot.id),
+                  herdrWaits(bot, in: group).waits else { return nil }
+        }
+        return herdrPrompts[herdrPromptID(for: bot, in: group)]
+    }
+
     /// The agent program's name when `bot`'s agent waits at a prompt; nil when it does not.
     func herdrWaits(_ bot: Bot, in group: GroupChat? = nil) -> (program: String?, waits: Bool) {
-        if let wait = herdrPromptBook.turnWaits[group?.id ?? bot.id], wait.botID == bot.id {
+        if let wait = herdrPromptBook.turnWaits[herdrPromptID(for: bot, in: group)], wait.botID == bot.id {
             return (wait.program.isEmpty ? nil : wait.program, true)
         }
         if group == nil, case .blocked(let program)? = herdrReadiness[bot.id] { return (program, true) }
@@ -27,15 +42,18 @@ extension AppStore {
 
     /// A running turn of `bot` reported what it waits for (`consumeTurn`); nil when the turn ended.
     func herdrTurnStatus(_ status: HerdrTurnStatus?, for bot: Bot, in group: GroupChat? = nil) {
-        let id = group?.id ?? bot.id
+        let id = herdrPromptID(for: bot, in: group)
         if case .blocked(let program)? = status { herdrPromptBook.turnWaits[id] = (bot.id, program ?? "") }
-        else { herdrPromptBook.turnWaits[id] = nil }
+        else {
+            guard herdrPromptBook.turnWaits[id]?.botID == bot.id else { return }
+            herdrPromptBook.turnWaits[id] = nil
+        }
         herdrPromptCheck(bot, in: group)
     }
 
     /// Makes or removes `bot`'s prompt as its agent now waits or not. A new prompt is raised, once, and read.
     func herdrPromptCheck(_ bot: Bot, in group: GroupChat? = nil) {
-        let id = group?.id ?? bot.id
+        let id = herdrPromptID(for: bot, in: group)
         guard herdrWaits(bot, in: group).waits, bot.backend == .herdr, bots.contains(bot),
               group.map(groups.contains) != false else {
             if herdrPrompts[id] != nil { herdrPrompts[id] = nil }
@@ -48,7 +66,7 @@ extension AppStore {
     func herdrPromptsFollowReadiness() {
         let ids = Set(herdrReadiness.keys).union(herdrPrompts.keys)
         for bot in bots where ids.contains(bot.id) { herdrPromptCheck(bot) }
-        let conversations = Set(bots.map(\.id) + groups.map(\.id))
+        let conversations = Set(bots.map(\.id) + groups.map(\.id)).union(runningTurns.keys)
         for id in herdrPrompts.keys where !conversations.contains(id) { herdrPrompts[id] = nil }
     }
 
@@ -67,8 +85,11 @@ extension AppStore {
 
     /// Reads what the waiting agent's terminal shows. A server that cannot be read leaves the prompt as it is.
     func refreshHerdrPrompt(for bot: Bot, in group: GroupChat? = nil) async {
-        let id = group?.id ?? bot.id
-        func stillWaiting() -> Bool { herdrWaits(bot, in: group).waits && bots.contains(bot) && group.map(groups.contains) != false }
+        let id = herdrPromptID(for: bot, in: group)
+        func stillWaiting() -> Bool {
+            herdrPromptID(for: bot, in: group) == id && herdrWaits(bot, in: group).waits && bots.contains(bot)
+                && group.map { groups.contains($0) && $0.memberIDs.contains(bot.id) } != false
+        }
         guard stillWaiting(), let backend = try? herdrBackend(for: bot),
               herdrPromptBook.refreshing.insert(id).inserted else { return }
         defer {
@@ -93,7 +114,12 @@ extension AppStore {
         let old = herdrPrompts[id]
         let question = HerdrPrompt.question(from: screen)
         let program = workspace.program(of: agent) ?? herdrWaits(bot, in: group).program
-        let prompt = HerdrPrompt(reviewDescription: HerdrPrompt.review(for: agent, program: program, question: question), program: program,
+        let profiles = (try? await backend.client.profiles()) ?? []
+        guard stillWaiting(), !Task.isCancelled else { return }
+        let runtime = profiles.flatMap { $0.sessions ?? [] }.first { ($0.core == nil || $0.core == workspace.core) && $0.address == agent.address && $0.createdMs == agent.createdMs }?.runtime
+        let model = runtime?.model ?? runtime?.modelId ?? "Model unreported"
+        let origin = "\(program ?? "Agent") · \(model) · \(agent.address)/\(agent.createdMs)"
+        let prompt = HerdrPrompt(origin: origin, reviewDescription: HerdrPrompt.review(for: agent, program: program, question: question), program: program,
                                  question: question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,
                                  since: old?.agent == agent.ref ? old?.since ?? now() : now())
         if prompt != old { herdrPrompts[id] = prompt }
@@ -102,7 +128,7 @@ extension AppStore {
 
     /// How the person gets to the terminal of `bot`'s waiting agent; nil until the agent is known.
     func herdrPromptAnswer(for bot: Bot, in group: GroupChat? = nil) -> HerdrPromptAnswer? {
-        guard let agent = herdrPrompts[group?.id ?? bot.id]?.agent else { return nil }
+        guard let agent = herdrPrompt(for: bot, in: group)?.agent else { return nil }
         return herdrTerminalAnswer(for: bot, agent: agent)
     }
 

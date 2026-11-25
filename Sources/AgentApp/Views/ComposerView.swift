@@ -1,9 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Text, attachments (paperclip, drag-and-drop on the chat, paste) and Send/Stop. While a turn streams, Send never
-/// stops it (uxfix1): it steers the turn when the server supports `run_steer`, else the message waits and goes when the
-/// turn ends. Stop stays a separate button.
+/// The active composer submits guidance to its current turn. Stop is a separate control.
 struct ComposerView: View {
     @Binding var text: String; @Binding var attachments: [ChatAttachment]
     let isStreaming: Bool; var canSteer = false
@@ -81,7 +79,7 @@ struct ComposerView: View {
                 input.chromeProbe("composer_input")
                 if isStreaming && hasContent {
                     Button(action: submit) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(canSteer ? "Send now, into this answer" : "Send when this answer ends")
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help("Send into the current answer")
                         .disabled(!reading.isEmpty).composerSlot("composer_steer")
                 }
                 if isStreaming {
@@ -123,7 +121,7 @@ struct ComposerView: View {
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text(isStreaming ? (canSteer ? SteerCopy.placeholder : SteerCopy.queuePlaceholder) : "Message " + (recipient ?? AppConstants.name) + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(isStreaming ? SteerCopy.placeholder : "Message " + (recipient ?? AppConstants.name) + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
                                 .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
                         }
                     }

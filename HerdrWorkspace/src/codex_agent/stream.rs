@@ -208,7 +208,7 @@ pub(super) fn start(journal: &Path, key: &str, exe: &str, hooks: &[String]) -> O
     }
     let launcher = std::process::id();
     forget_ended(&folder);
-    let socket = folder.join(format!("{launcher}.sock"));
+    let socket = note_path(journal, key).with_extension("sock");
     if socket
         .to_str()
         .is_none_or(|path| path.contains(char::is_whitespace))
@@ -383,8 +383,8 @@ pub async fn run() -> Result<(), Failed> {
                 let requests = match message {
                     Some(text) => {
                         let requests = follower.heard(&text);
-                        if follower.reviewer.is_some() || follower.review_event.is_some() {
-                            save_review(&journal, &feed.key, follower.reviewer.take(), follower.review_event.take());
+                        if follower.reviewer.is_some() || follower.review_event.is_some() || follower.sandbox.is_some() || follower.policy.is_some() {
+                            save_review(&journal, &feed.key, follower.reviewer.take(), follower.review_event.take(), follower.sandbox.take(), follower.policy.take());
                         }
                         if let Some((turn, answer)) = follower.completed.take()
                             && let Err(error) = super::save_reply(&journal, &feed.key, Some(&turn), &answer)
@@ -515,6 +515,51 @@ async fn connect(socket: &Path) -> Option<Connection> {
     }
 }
 
+/// The client puts a unique reference in the first user input of its turn. A follow-up
+/// may only address that same input on this launch's private app server.
+fn matching_turn<'a>(thread: &'a Value, reference: &str) -> Option<&'a str> {
+    if other_conversation(thread) { return None; }
+    let turn = thread["turns"].as_array()?.last()?;
+    let marker = format!("[SwarmHub turn {reference}]");
+    let first = turn["items"].as_array()?.iter().find(|item| item["type"] == "userMessage")?;
+    (turn["status"] == "inProgress" && first["content"].as_array()?.iter().any(|part|
+        part["text"].as_str().is_some_and(|text| text.lines().any(|line| line == marker))))
+        .then(|| turn["id"].as_str()).flatten()
+}
+
+async fn rpc(connection: &mut Connection, id: u64, method: &str, params: Value) -> Result<Value, crate::ApiError> {
+    use crate::{ApiError, core::Failure};
+    connection.send(Message::text(json!({"id":id,"method":method,"params":params}).to_string()))
+        .await.map_err(|_| Failure::Uncertain)?;
+    while let Some(Ok(message)) = connection.next().await {
+        if let Message::Text(text) = message
+            && let Ok(reply) = serde_json::from_str::<Value>(&text)
+            && reply.get("method").is_none() && reply["id"] == id {
+            return reply.get("result").cloned().ok_or(ApiError::Conflict("The current turn refused the follow-up."));
+        }
+    }
+    Err(Failure::Uncertain.into())
+}
+
+pub(crate) async fn steer(journal: &Path, key: &str, reference: &str, text: &str) -> Result<(), crate::ApiError> {
+    use crate::{ApiError, core::Failure};
+    timeout(Duration::from_secs(15), async {
+        let socket = note_path(journal, key).with_extension("sock");
+        let mut connection = connect(&socket).await.ok_or(ApiError::Conflict("This launch cannot receive live guidance."))?;
+        let threads = rpc(&mut connection, 1, "thread/loaded/list", json!({})).await?;
+        for thread in threads["data"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            let read = rpc(&mut connection, 2, "thread/read", json!({"threadId":thread,"includeTurns":true})).await?;
+            if let Some(turn) = matching_turn(&read["thread"], reference) {
+                let result = rpc(&mut connection, 3, "turn/steer", json!({
+                    "threadId":thread,"expectedTurnId":turn,"input":[{"type":"text","text":text}]
+                })).await?;
+                return if result["turnId"] == turn { Ok(()) } else { Err(Failure::Uncertain.into()) };
+            }
+        }
+        Err(ApiError::Conflict("The intended turn is no longer available."))
+    }).await.map_err(|_| Failure::Uncertain)?
+}
+
 /// A line for whoever set `SWARMHUB_CODEX_STREAM_LOG`; otherwise standard error goes nowhere.
 fn note(text: &str) {
     eprintln!("codex-stream {}: {text}", std::process::id());
@@ -533,6 +578,8 @@ struct Reply {
 #[derive(Default)]
 struct Follower {
     last_id: u64,
+    sandbox: Option<&'static str>,
+    policy: Option<&'static str>,
     reviewer: Option<&'static str>,
     review_event: Option<&'static str>,
     /// Requests to join a conversation that have no answer yet, by request id, with the tries so far.
@@ -565,6 +612,8 @@ struct Heard {
 #[derive(Default, serde::Serialize)]
 pub(crate) struct ReviewStatus {
     auto_restart_pending: bool,
+    codex_sandbox: Option<String>,
+    codex_policy: Option<String>,
     codex_reviewer: Option<String>,
     codex_review_event: Option<String>,
 }
@@ -574,24 +623,28 @@ pub(crate) fn review_status(history: &crate::history::History, key: Option<&str>
     let Ok(db) = history.db() else { return ReviewStatus::default(); };
     let desired = crate::bot_agent_settings::for_launch(&db, key).ok().map(|settings| settings.auto_mode);
     db.query_row(
-        "SELECT launch_auto,codex_reviewer,codex_review_event FROM journal WHERE launch_key=?",
-        [key], |row| {
-            let launch: Option<bool> = row.get(0)?;
-            Ok(ReviewStatus {
-                auto_restart_pending: desired.is_some_and(|saved| saved != launch.unwrap_or(false)),
-                codex_reviewer: row.get(1)?,
-                codex_review_event: row.get(2)?,
-            })
-        }
+        "SELECT coalesce(?2 != coalesce(launch_auto,0)
+                    OR (?2 AND (codex_sandbox != 'workspace-write' OR codex_policy != 'granular'))
+                    OR (?2 != (codex_reviewer='auto_review')), 0),
+                codex_sandbox,codex_policy,codex_reviewer,codex_review_event
+         FROM journal WHERE launch_key=?1",
+        rusqlite::params![key, desired], |row| Ok(ReviewStatus {
+            auto_restart_pending: row.get(0)?,
+            codex_sandbox: row.get(1)?,
+            codex_policy: row.get(2)?,
+            codex_reviewer: row.get(3)?,
+            codex_review_event: row.get(4)?,
+        }),
     ).unwrap_or_default()
 }
 
 // Store only classifications derived from Codex's authenticated session, never command arguments or reasons.
-fn save_review(journal: &Path, key: &str, reviewer: Option<&str>, event: Option<&str>) {
+fn save_review(journal: &Path, key: &str, reviewer: Option<&str>, event: Option<&str>, sandbox: Option<&str>, policy: Option<&str>) {
     if let Ok(db) = rusqlite::Connection::open_with_flags(journal,rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE) {
         let _ = db.execute("UPDATE journal SET codex_reviewer=coalesce(?2,codex_reviewer),
-            codex_review_event=coalesce(?3,codex_review_event) WHERE launch_key=?1",
-            rusqlite::params![key,reviewer,event]);
+            codex_review_event=coalesce(?3,codex_review_event),codex_sandbox=coalesce(?4,codex_sandbox),
+            codex_policy=coalesce(?5,codex_policy) WHERE launch_key=?1",
+            rusqlite::params![key,reviewer,event,sandbox,policy]);
     }
 }
 
@@ -872,6 +925,19 @@ impl Follower {
                 vec![leave]
             }
             Some(result) => {
+                self.sandbox = match result["sandbox"]["type"].as_str() {
+                    Some("readOnly") => Some("read-only"),
+                    Some("workspaceWrite") => Some("workspace-write"),
+                    Some("dangerFullAccess") => Some("danger-full-access"),
+                    _ => None,
+                };
+                self.policy = match result["approvalPolicy"].as_str() {
+                    Some("on-request") => Some("on-request"),
+                    Some("never") => Some("never"),
+                    Some("untrusted") => Some("untrusted"),
+                    _ if result["approvalPolicy"].get("granular").is_some() => Some("granular"),
+                    _ => None,
+                };
                 self.reviewer = match result["approvalsReviewer"].as_str() {
                     Some("user") => Some("user"),
                     Some("auto_review" | "guardian_subagent") => Some("auto_review"),
@@ -980,6 +1046,71 @@ mod tests {
         follower
     }
 
+    #[tokio::test]
+    async fn archive_listing_prompt_and_followup_use_separate_rpc_messages() {
+        let (_dir, history) = crate::bots::testing::journal(&["Doc"]);
+        let key = crate::bots::testing::session(&history, "Doc", "fixture");
+        let owner = crate::bots::testing::id_of("Doc");
+        let db = history.db().unwrap();
+        db.execute("INSERT INTO bot_agent_settings(bot,auto_mode) VALUES(?,1)", [&owner]).unwrap();
+        db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=1 WHERE launch_key=?2",
+            rusqlite::params![owner, key]).unwrap();
+        let mut observed = Follower::default();
+        let join = observed.join("doc", 0);
+        observed.heard(&json!({"id":join[0]["id"],"result":{"thread":{"id":"doc"},
+            "sandbox":{"type":"readOnly"},"approvalPolicy":"on-request","approvalsReviewer":"user"}}).to_string());
+        let approval = json!({"id":99,"method":"item/commandExecution/requestApproval",
+            "params":{"threadId":"doc","turnId":"running","itemId":"item","startedAtMs":1,
+                      "command":"fixture SSH listing of one archived project directory","cwd":"/fixture","time":"10:49:13"}});
+        assert!(observed.heard(&approval.to_string()).is_empty());
+        save_review(history.file(), &key, observed.reviewer, observed.review_event, observed.sandbox, observed.policy);
+        let current = review_status(&history, Some(&key));
+        assert!(current.auto_restart_pending);
+        assert_eq!(current.codex_review_event.as_deref(), Some("human_requested"));
+        let (next, _) = crate::codex_agent::auto_configs(true, &[]);
+        assert!(next.iter().any(|setting| setting == r#"approvals_reviewer="auto_review""#));
+        let short = tempfile::tempdir_in("/tmp").unwrap();
+        let path = short.path().join("test.sock");
+        let socket = tokio::net::UnixListener::bind(&path).unwrap();
+        fs::create_dir_all(folder(history.file())).unwrap();
+        std::os::unix::fs::symlink(&path, note_path(history.file(), &key).with_extension("sock")).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = socket.accept().await.unwrap();
+            let mut peer = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let mut calls = Vec::new();
+            while let Some(Ok(Message::Text(msg))) = peer.next().await {
+                let req: Value = serde_json::from_str(&msg).unwrap();
+                let method = req["method"].as_str().unwrap();
+                calls.push(method.to_owned());
+                let result = match method {
+                    "initialize" => json!({}),
+                    "initialized" => continue,
+                    "thread/loaded/list" => json!({"data":["doc"]}),
+                    "thread/read" => {
+                        peer.send(Message::text(approval.to_string())).await.unwrap();
+                        json!({"thread":{"turns":[{"id":"running","status":"inProgress","items":[
+                            {"type":"userMessage","content":[{"text":"[SwarmHub turn fixture]\nCheck the archive"}]}]}]}})
+                    }
+                    "turn/steer" => {
+                        assert_eq!(req["params"], json!({"threadId":"doc","expectedTurnId":"running",
+                            "input":[{"type":"text","text":"Include the manifest"}]}));
+                        json!({"turnId":"running"})
+                    }
+                    _ => panic!("Unexpected RPC: {method}"),
+                };
+                peer.send(Message::text(json!({"id":req["id"],"result":result}).to_string())).await.unwrap();
+                if method == "turn/steer" { break; }
+            }
+            calls
+        });
+        steer(history.file(), &key, "fixture", "Include the manifest").await.unwrap();
+        let after = review_status(&history, Some(&key));
+        assert!(after.auto_restart_pending);
+        assert_eq!(after.codex_reviewer.as_deref(), Some("user"));
+        assert_eq!(after.codex_review_event.as_deref(), Some("human_requested"));
+        assert_eq!(server.await.unwrap().last().unwrap(), "turn/steer");
+    }
+
     #[test]
     fn saved_auto_is_pending_on_a_legacy_launch_and_respects_the_effective_reviewer_after_restart() {
         let (_dir, history) = crate::bots::testing::journal(&["Vised"]);
@@ -987,11 +1118,16 @@ mod tests {
         let bot = crate::bots::testing::id_of("Vised");
         history.db().unwrap().execute("INSERT INTO bot_agent_settings(bot,auto_mode) VALUES(?,1)", [&bot]).unwrap();
         assert!(review_status(&history, Some(&key)).auto_restart_pending);
-        history.db().unwrap().execute("UPDATE journal SET parent_bot_id=?1,launch_auto=1,codex_reviewer='user'
+        history.db().unwrap().execute("UPDATE journal SET parent_bot_id=?1,launch_auto=1,codex_reviewer='user',codex_sandbox='read-only',codex_policy='on-request'
             WHERE launch_key=?2", rusqlite::params![bot,key]).unwrap();
         let current = review_status(&history, Some(&key));
-        assert!(!current.auto_restart_pending);
+        assert!(current.auto_restart_pending);
         assert_eq!(current.codex_reviewer.as_deref(), Some("user"));
+        assert_eq!(current.codex_policy.as_deref(), Some("on-request"));
+        assert_eq!(current.codex_sandbox.as_deref(), Some("read-only"));
+        history.db().unwrap().execute("UPDATE journal SET codex_reviewer='auto_review',
+            codex_sandbox='workspace-write',codex_policy='granular' WHERE launch_key=?", [&key]).unwrap();
+        assert!(!review_status(&history, Some(&key)).auto_restart_pending);
     }
 
     #[test]

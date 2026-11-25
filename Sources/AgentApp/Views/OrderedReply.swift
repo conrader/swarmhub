@@ -26,7 +26,7 @@ struct OrderedReply: View {
             ActivityRow(message: message, expanded: stepsExpanded)
         }
         let shownContent = message.content
-        if let actionTarget, !message.isStreaming, message.turnState == nil || message.turnState == .finished,
+        if let actionTarget,
            let options = ChatChoiceInference.options(in: shownContent) {
             let status = store.choiceStatus(message, target: actionTarget, key: ChatChoiceInference.answerKey,
                                             binary: ChoiceReply.isYesNo(options.map(\.label)))

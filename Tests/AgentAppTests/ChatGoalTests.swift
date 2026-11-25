@@ -60,7 +60,8 @@ struct ChatGoalTests {
         let other = addGoalBot(store, "Other"), bot = addGoalBot(store, "Owner")
         #expect(store.handleGoalCommand(.start("Verify the fixture"), in: bot) == nil)
         let first = try #require(bot.goal?.attempt)
-        #expect(store.handleGoalCommand(.start("duplicate"), in: bot) != nil)
+        #expect(store.handleGoalCommand(.start("clarification"), in: bot) == nil)
+        #expect(bot.messages.contains { $0.content == "clarification" && $0.metadata[SteerKey.steer] == "failed" })
         #expect(store.handleGoalCommand(.status, in: bot)?.contains("Verify the fixture") == true)
         store.open(other, remember: false)
         try await waitUntil { await backend.requests.count == 1 }
@@ -286,4 +287,31 @@ struct ChatGoalTests {
         #expect(ChatGoal.Report.read(line, for: token) == nil)
         #expect(ChatGoal.Report.read("I think we are done.", for: token) == nil)
     }
+}
+
+@MainActor @Test func deliveredGoalGuidanceSurvivesTheEndOfItsIteration() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    #expect(store.handleGoalCommand(.start("Inspect the archive fixture"), in: bot) == nil)
+    let attempt = try #require(bot.goal?.attempt)
+    try await waitUntil { store.canSteer(in: bot) }
+    await backend.holdSteers()
+    let file = ChatAttachment(id: UUID(), kind: .text, name: "manifest.txt", mimeType: "text/plain", byteCount: 3, text: "one")
+    #expect(store.handleGoalCommand(.start("Include the manifest"), in: bot, attachments: [file]) == nil)
+    try await backend.calls.wait { $0.contains("steer-held:Include the manifest") }
+    let report = ChatGoal.Report(iteration: attempt, outcome: .progress, evidence: "Fixture inspected")
+    let data = try JSONEncoder().encode(report)
+    await backend.emit(.replace(String(decoding: data, as: UTF8.self)), .completed)
+    await backend.end()
+    try await waitUntil { !store.canSteer(in: bot) }
+    #expect(await backend.streamCount == 1)
+    await backend.releaseSteers()
+    try await waitUntil { await backend.streamCount == 2 }
+    #expect(bot.goal?.objective.contains("Include the manifest") == true)
+    #expect(bot.goal?.objective.contains("manifest.txt") == true)
+    #expect((await backend.calls.all).last?.contains("Include the manifest") == true)
+    #expect(store.handleGoalCommand(.stop, in: bot) == nil)
+    await backend.end()
+    try await waitUntil { store.isIdle(bot) }
+    #expect(bot.goal?.state == .stopped && store.turns.nextMessages.isEmpty)
 }
