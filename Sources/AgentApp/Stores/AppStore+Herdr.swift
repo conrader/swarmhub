@@ -169,6 +169,9 @@ extension AppStore {
             let server = herdrServer(for: bot), id = bot.id
             backend.coordinate = { [weak self] in
                 do { return try await self?.ensureTeam(server) ?? false }
+                catch let failure as HerdrClient.Failure where failure == .unauthorized || failure == .refusedHost {
+                    throw failure
+                }
                 catch {
                     if await self?.teamPreviouslyRegistered(id, on: server) == true { return true }
                     throw error

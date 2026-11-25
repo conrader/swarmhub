@@ -22,7 +22,7 @@ extension AppStore {
     /// Makes `bot` its server's main bot (and takes the role from any other bot there), or takes the role from it.
     func setCanManageBots(_ bot: Bot, _ on: Bool) {
         guard on else { bot.canManageBots = false; objectWillChange.send(); save(); return }
-        guard bot.backend == .herdr else { return }
+        guard bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo, bots.contains(where: { $0 === bot }) else { return }
         let target = connection(of: bot)
         for other in bots where other.id != bot.id && other.canManageBots && connection(of: other) == target { other.canManageBots = false }
         bot.canManageBots = true; objectWillChange.send(); save()
@@ -34,9 +34,13 @@ extension AppStore {
     }
 
     /// `bot` is its server's main bot.
-    func createsHerdrBots(_ bot: Bot) -> Bool { bot.backend == .herdr && bot.canManageBots && !bot.isReadOnlyArchive }
+    func createsHerdrBots(_ bot: Bot) -> Bool {
+        bot.canManageBots && herdrMainBot(on: herdrServer(for: bot)) === bot
+    }
 
-    func herdrMainBot(on server: HerdrServer) -> Bot? { herdrBots(on: server).first { createsHerdrBots($0) } }
+    func herdrMainBot(on server: HerdrServer) -> Bot? {
+        herdrBots(on: server).first { $0.canManageBots && !$0.isReadOnlyArchive && !$0.isDemo }
+    }
 
     /// "Main bot of This Mac" for a server's main bot, which wears a star (`HerdrMainBotStar`); nil for every other bot.
     func herdrMainBotLabel(_ bot: Bot) -> String? { createsHerdrBots(bot) ? "Main bot of \(herdrServer(for: bot).name)" : nil }

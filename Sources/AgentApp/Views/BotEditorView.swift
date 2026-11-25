@@ -56,7 +56,7 @@ struct BotEditorView: View {
                 Button(SimpleCopy.save) { save() }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }.controlSize(.large).padding(16)
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
-            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(avatarSeed: newAvatarSeed)
+            fields = bot.map { BotEditorFields(bot: $0, isMain: store.createsHerdrBots($0)) } ?? .newAgent(avatarSeed: newAvatarSeed)
             if bot == nil { nameFocused = true }
         }
         .task {
@@ -122,6 +122,7 @@ struct BotEditorFields {
     var hidden = false, notifications = true
     /// The bot is its server's main bot.
     var canManage = false
+    private var initialCanManage = false
 
     init() {}
     /// A new agent runs on Herdr.
@@ -131,10 +132,11 @@ struct BotEditorFields {
         fields.avatar = .mark(shape: mark.shape, colour: mark.colour)
         return fields
     }
-    init(bot: Bot) {
+    init(bot: Bot, isMain: Bool? = nil) {
         name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled
-        canManage = bot.canManageBots
+        canManage = isMain ?? bot.canManageBots
+        initialCanManage = canManage
     }
 
     @MainActor func apply(to bot: Bot, store: AppStore, avatarTouched: Bool) {
@@ -143,6 +145,7 @@ struct BotEditorFields {
         if bot.isHidden != hidden { store.setHidden(bot, hidden) }
         bot.notificationsEnabled = notifications
         let manages = canManage && bot.backend == .herdr
-        if bot.canManageBots != manages { store.setCanManageBots(bot, manages) }
+        // Settings can transfer the role while this editor is open.
+        if manages != initialCanManage { store.setCanManageBots(bot, manages) }
     }
 }

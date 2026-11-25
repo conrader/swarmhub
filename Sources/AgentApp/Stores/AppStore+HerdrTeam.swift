@@ -14,6 +14,11 @@ extension AppStore {
         Set(defaults.stringArray(forKey: "herdrTeamMembers.\(server.id)") ?? [])
     }
 
+    private func savePendingMembers(_ ids: Set<String>, key: String) {
+        if ids.isEmpty { defaults.removeObject(forKey: key) }
+        else { defaults.set(Array(ids), forKey: key) }
+    }
+
     func teamPreviouslyRegistered(_ id: UUID, on server: HerdrServer) -> Bool {
         ownedTeam(server).contains(id.uuidString.lowercased())
     }
@@ -50,60 +55,96 @@ extension AppStore {
 
     func ensureTeam(_ server: HerdrServer) async throws -> Bool {
         guard persistenceEnabled else { return false }
-        if let task = teamRegistrations[server.id] { return try await task.value }
-        let task = Task { try await registerTeam(server) }
-        teamRegistrations[server.id] = task
-        defer { teamRegistrations[server.id] = nil }
-        return try await task.value
-    }
-
-    private func registerTeam(_ server: HerdrServer) async throws -> Bool {
+        // A poll and a first send share the writes. After waiting, check the current roster.
+        // A bot may have been added or promoted while the earlier request was in flight.
+        while let task = teamRegistrations[server.id] { _ = try await task.value }
         let local = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
-        var owned = ownedTeam(server)
-        guard !local.isEmpty || !owned.isEmpty else { return false }
-        let client = try herdrClient(for: server)
-        var members = try local.map { bot in
+        let owned = ownedTeam(server)
+        let pendingKey = "herdrTeamPendingMembers.\(server.id)"
+        let pending = Set(defaults.stringArray(forKey: pendingKey) ?? [])
+        guard !local.isEmpty || !owned.isEmpty || !pending.isEmpty else { return false }
+        let main = herdrMainBot(on: server)?.id
+        let members = try local.map { bot in
             var backend = try herdrBackend(for: bot)
             backend.messageNote = nil
             backend.roster = nil
             return HerdrClient.TeamMember(id: bot.id.uuidString.lowercased(), name: String(bot.name.prefix(40)), agentName: backend.agentName,
-                template: backend.template ?? "", model: backend.model ?? "", instructions: HerdrClient.plain(backend.launchInstructions ?? "", bytes: 12 * 1024),
-                projects: backend.projects.map(\.id), main: herdrMainBot(on: server)?.id == bot.id,
+                template: backend.template ?? "", model: backend.model ?? "", instructions: backend.launchInstructions ?? "",
+                projects: backend.projects.map(\.id), main: main == bot.id,
                 takesMessages: herdrTakesMessages(bot), takesInitiative: takesInitiative(bot), notifications: bot.notificationsEnabled)
         }
-        let desired = members
-        if let cached = teamSynced[server.id], cached.0 == desired, now().timeIntervalSince(cached.1) < 300 { return cached.2 }
-        if !members.isEmpty {
-            // Resolve recommendations from the same catalogue as an ordinary chat launch.
-            let workspace = try await client.workspace()
-            var offered: [String: [HerdrClient.Template.Model]] = [:]
-            for index in members.indices where members[index].model == HerdrModelChoice.recommended || members[index].model.isEmpty {
-                let member = members[index]
-                guard let template = workspace.templates.first(where: { $0.error == nil && (member.template.isEmpty || $0.name == member.template) }), template.takesModel else { continue }
-                if offered[template.name] == nil { offered[template.name] = try await client.models(for: template) }
-                let choices = offered[template.name] ?? []
-                members[index].model = member.model == HerdrModelChoice.recommended
-                    ? HerdrModelChoice.suggested(program: template.modelAgent ?? template.programName, offered: choices)?.id ?? "@provider-default"
-                    : HerdrClient.defaultModel(offered: choices) ?? "@provider-default"
-            }
-            do { try await client.registerTeam(members) }
-            catch HerdrClient.Failure.http(404, _) where owned.isEmpty {
-                teamSynced[server.id] = (desired, now(), false)
-                return false
-            }
-        }
         let ids = Set(members.map(\.id))
-        let key = "herdrTeamMembers.\(server.id)"
-        owned.formUnion(ids)
-        defaults.set(Array(owned), forKey: key)
-        for removed in owned.subtracting(ids).intersection(removedBots[server.id] ?? []) {
-            do { let _: HerdrClient.TeamOK = try await client.post("/api/bots/\(removed)/remove", [:]) }
-            catch HerdrClient.Failure.http(404, _) { /* Already removed on the bridge. */ }
-            owned.remove(removed)
-            defaults.set(Array(owned), forKey: key)
+        let removals = owned.union(pending).subtracting(ids).intersection(removedBots[server.id] ?? [])
+        if pending.isDisjoint(with: ids), removals.isEmpty, let cached = teamSynced[server.id],
+           cached.0 == members, now().timeIntervalSince(cached.1) < 300 { return cached.2 }
+
+        // A partial write also invalidates a previous success if the user later reverts an edit.
+        teamSynced[server.id] = nil
+        let task = Task {
+            defer { teamRegistrations[server.id] = nil }
+            let client = try herdrClient(for: server)
+            var outstanding = pending
+            let batches = try await teamBatches(members, client: client)
+            for (index, batch) in batches.enumerated() {
+                // On a lost response the bridge may have committed. Remember which local IDs
+                // might need explicit removal, without enabling coordinated chat for them yet.
+                let added = Set(batch.ids).subtracting(owned).subtracting(outstanding)
+                if !added.isEmpty {
+                    outstanding.formUnion(added)
+                    savePendingMembers(outstanding, key: pendingKey)
+                }
+                do { try await client.registerTeam(batch) }
+                catch let failure as HerdrClient.Failure {
+                    // The router and its transactional handler make these definitive refusals.
+                    switch failure {
+                    case .unauthorized, .refusedHost, .http(400..<500, _):
+                        outstanding.subtract(added)
+                        savePendingMembers(outstanding, key: pendingKey)
+                    default: break
+                    }
+                    if case .http(404, _) = failure, index == 0, owned.isEmpty, pending.isEmpty {
+                        // Older bridges have no directory. Cache that capability for the usual poll interval.
+                        teamSynced[server.id] = (members, now(), false)
+                        return false
+                    }
+                    throw failure
+                }
+            }
+            var forgotten = Set<String>()
+            for removed in removals.sorted() {
+                // A restore or move can change local membership while the upserts are in flight.
+                guard removedBots[server.id]?.contains(removed) == true,
+                      !herdrBots(on: server).contains(where: { !$0.isReadOnlyArchive && $0.id.uuidString.lowercased() == removed }) else { continue }
+                do { let _: HerdrClient.TeamOK = try await client.post("/api/bots/\(removed)/remove", [:]) }
+                catch HerdrClient.Failure.http(404, _) { /* Already removed on the bridge. */ }
+                forgotten.insert(removed)
+            }
+            defaults.set(Array(owned.union(ids).subtracting(forgotten)), forKey: "herdrTeamMembers.\(server.id)")
+            outstanding.subtract(ids.union(forgotten))
+            savePendingMembers(outstanding, key: pendingKey)
+            teamSynced[server.id] = (members, now(), true)
+            return true
         }
-        teamSynced[server.id] = (desired, now(), true)
-        return true
+        teamRegistrations[server.id] = task
+        return try await task.value
+    }
+
+    private func teamBatches(_ desired: [HerdrClient.TeamMember], client: HerdrClient) async throws -> [HerdrClient.TeamRegistrationBatch] {
+        guard !desired.isEmpty else { return [] }
+        var members = desired
+        // Resolve recommendations from the same catalogue as an ordinary chat launch.
+        let workspace = try await client.workspace()
+        var offered: [String: [HerdrClient.Template.Model]] = [:]
+        for index in members.indices where members[index].model == HerdrModelChoice.recommended || members[index].model.isEmpty {
+            let member = members[index]
+            guard let template = workspace.templates.first(where: { $0.error == nil && (member.template.isEmpty || $0.name == member.template) }), template.takesModel else { continue }
+            if offered[template.name] == nil { offered[template.name] = try await client.models(for: template) }
+            let choices = offered[template.name] ?? []
+            members[index].model = member.model == HerdrModelChoice.recommended
+                ? HerdrModelChoice.suggested(program: template.modelAgent ?? template.programName, offered: choices)?.id ?? "@provider-default"
+                : HerdrClient.defaultModel(offered: choices) ?? "@provider-default"
+        }
+        return try HerdrClient.teamRegistrationBatches(members)
     }
 
     private func importTeamHistory(_ client: HerdrClient, server: HerdrServer) async throws {
