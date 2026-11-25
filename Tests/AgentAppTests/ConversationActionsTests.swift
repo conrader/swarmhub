@@ -3,6 +3,37 @@ import Testing
 @testable import AgentApp
 
 @MainActor struct ConversationActionsTests {
+    @Test(arguments: [true, false]) func queuedChoiceKeepsCardAndRecipient(serverCap: Bool) async throws {
+        let backend = GroupBackend(name: "Author")
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
+                             keyStore: InMemoryKeyStore(), defaults: namedDefaults())
+        store.setTotalTurnLimit(serverCap ? 4 : 1)
+        store.setPerConnectionTurnLimit(1)
+        let blocker = Bot(name: "Busy"), author = Bot(name: "Author"), other = Bot(name: "Other")
+        store.bots = [blocker, author, other]
+        let turn = store.beginTurn(in: blocker, bot: blocker, assistant: nil)
+        let card = ChatMessage(role: .assistant, content: serverCap ? "Should I start?" : "```choices\nPick\n- One\n- Two\n```", authorID: author.id)
+        let group = GroupChat(name: "Team", memberIDs: [author.id, other.id], messages: [card])
+        store.groups = [group]
+        let target = ConversationActionTarget.group(groupID: group.id, botID: author.id)
+        func click() throws -> Bool {
+            if serverCap {
+                return store.answerInferredChoice(target: target, source: card, expected: try #require(ChatChoiceInference.options(in: card.content)), answer: .option("Yes"))
+            }
+            return store.performCardAction(target: target, sourceID: card.id, index: 0,
+                expected: try #require(ChatCardParser.parse(card.content).first), choice: .option("One"))
+        }
+        #expect(try click())
+        #expect(try !click())
+        #expect(store.errorMessage == nil && store.turns.nextMessages.count == 1)
+        #expect(group.messages.last?.content == (serverCap ? "Waiting: 1 reply is already running on this server." : "Waiting: 1 reply is already running."))
+        store.endTurn(turn.token)
+        store.sendQueuedNextMessage()
+        try await waitUntil { !store.anyTurnRunning }
+        #expect(group.messages.filter { $0.role == .user }.map(\.replyToID) == [card.id])
+        #expect(backend.sent.all.count == 1 && backend.sent.all[0].session.contains(author.id.uuidString.lowercased()))
+    }
+
     @Test func inferredChoiceSendsTheMarkerAndExpiresImmediately() async throws {
         let backend = GroupBackend(name: "Infra")
         let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())

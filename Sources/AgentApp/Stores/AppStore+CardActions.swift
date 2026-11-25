@@ -56,12 +56,15 @@ extension AppStore {
         guard blocks.indices.contains(index), blocks[index] == expected else {
             errorMessage = "This card changed. Review the current version before answering it."; return false
         }
+        let queueChoice: Bool
         let key: String, text: String, value: String
         switch expected {
         case .choices(_, let options):
             guard canAnswerChoice(source, bot: bot, in: conversation), let reply = choice?.text(options: options) else { return false }
+            queueChoice = true
             key = "picked.\(index)"; text = reply; value = reply
         case .draft(let original):
+            queueChoice = false
             key = "draftSent.\(index)"
             if let editedDraft, editedDraft != original {
                 // JSON preserves the exact field values, including line breaks and whitespace in the body.
@@ -76,22 +79,22 @@ extension AppStore {
             }
         default: return false
         }
-        return sendCardReply(text, bot: bot, in: conversation, source: source, key: key, value: value)
+        return sendCardReply(text, bot: bot, in: conversation, source: source, key: key, value: value, queueChoice: queueChoice)
     }
 
     @discardableResult func answerInferredChoice(target: ConversationActionTarget, source: ChatMessage, expected: [ChatChoiceOption], answer: ChatChoiceAnswer) -> Bool {
         guard let (bot, conversation) = actionConversation(target), canAnswerChoice(source, bot: bot, in: conversation),
               ChatChoiceInference.options(in: source.content) == expected,
               let reply = answer.text(options: expected.map(\.reply)) else { return false }
-        return sendCardReply(reply, bot: bot, in: conversation, source: source, key: ChatChoiceInference.answerKey, value: reply)
+        return sendCardReply(reply, bot: bot, in: conversation, source: source, key: ChatChoiceInference.answerKey, value: reply, queueChoice: true)
     }
 
-    private func sendCardReply(_ text: String, bot: Bot, in conversation: any Conversation, source: ChatMessage, key: String, value: String) -> Bool {
+    private func sendCardReply(_ text: String, bot: Bot, in conversation: any Conversation, source: ChatMessage, key: String, value: String, queueChoice: Bool) -> Bool {
         guard source.metadata[key] == nil else { return false }
         let accepted = if let group = conversation as? GroupChat {
-            send(text: text, to: group, recipientIDs: [bot.id], sourceMessageID: source.id)
+            send(text: text, to: group, recipientIDs: [bot.id], sourceMessageID: source.id, queueChoice: queueChoice)
         } else {
-            send(text: text, bot: bot, conversation: conversation, replyToID: source.id)
+            send(text: text, bot: bot, conversation: conversation, replyToID: source.id, waitWhenFull: queueChoice)
         }
         if accepted { source.metadata[key] = value; save() }
         return accepted

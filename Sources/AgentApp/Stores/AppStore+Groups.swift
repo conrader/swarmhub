@@ -103,7 +103,7 @@ extension AppStore {
     /// `recipientIDs` (a card's author) overrides the mentions and never steers; `sourceMessageID` is the card.
     /// One round at a time per group; direct chats with the same bots stay free. At the turn limit the composer's
     /// message waits as the group's next message (a card's send is refused).
-    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil) -> Bool {
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil, queueChoice: Bool = false) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         guard isIdle(group) else { return recipientIDs == nil && steer(text: text, attachments: attachments, group: group) }
         let members = routingMembers(of: group)
@@ -120,9 +120,12 @@ extension AppStore {
             guard validateGroupDraft(text, attachments: attachments, bot: bot) else { return false }
         }
         let full = turnCapacityProblem(for: recipients.compactMap { id in bots.first { $0.id == id } })
-        if let full, recipientIDs != nil { errorMessage = full; return false }
+        if let full, recipientIDs != nil, !queueChoice { errorMessage = full; return false }
         steerHint = nil
         let message = ChatMessage(role: .user, content: text, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
+        if let recipientIDs {
+            message.metadata[TurnWaitCopy.recipients] = recipientIDs.map(\.uuidString).joined(separator: ",")
+        }
         captureAttachments(message, readers: recipients)
         group.messages.append(message); replyTo = nil
         if let reason = full ?? (hasWaitingTurn(in: group) ? TurnWaitCopy.behind : nil) { return waitForTurn(message, in: group, reason: reason) }

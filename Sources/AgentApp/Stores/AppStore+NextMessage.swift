@@ -72,8 +72,10 @@ extension AppStore {
         if let group = next.conversation as? GroupChat {
             guard groups.contains(where: { $0 === group }) else { return false }
             guard next.kind == .turn else { return send(text: text, to: group) }
+            let recipients = queuedRecipients(next.bubble, in: group)
+            guard !recipients.isEmpty else { return false }
             endWait(next.bubble, in: group)
-            return startGroupRound(group, message: next.bubble, recipients: GroupRouting.recipients(of: text, members: routingMembers(of: group)))
+            return startGroupRound(group, message: next.bubble, recipients: recipients)
         }
         guard let bot = next.conversation as? Bot, bots.contains(where: { $0 === bot }), !bot.isReadOnlyArchive,
               let activeBackend = try? backend(for: bot) else { return false }
@@ -91,8 +93,17 @@ extension AppStore {
     /// The bots a queued entry would start a turn for (its chat's owner, or the group members it names).
     private func waitingBots(_ next: QueuedNextMessage) -> [Bot] {
         guard let group = next.conversation as? GroupChat else { return (next.conversation as? Bot).map { [$0] } ?? [] }
-        let ids = GroupRouting.recipients(of: next.bubble.content, members: routingMembers(of: group))
+        let ids = queuedRecipients(next.bubble, in: group)
         return ids.compactMap { id in bots.first { $0.id == id } }
+    }
+
+    private func queuedRecipients(_ bubble: ChatMessage, in group: GroupChat) -> [UUID] {
+        let members = routingMembers(of: group)
+        if let pinned = bubble.metadata[TurnWaitCopy.recipients] {
+            let ids = pinned.components(separatedBy: ",").compactMap(UUID.init(uuidString:))
+            return ids.allSatisfy { id in members.contains { $0.id == id } } ? ids : []
+        }
+        return GroupRouting.recipients(of: bubble.content, members: members)
     }
 
     // MARK: P39 turn limit
@@ -121,6 +132,7 @@ extension AppStore {
 
 /// P39 6: the line under a message that waits for a free turn.
 enum TurnWaitCopy {
+    static let recipients = "queuedRecipientIDs"
     static let key = "turnWait"
     static let behind = "Waiting: an earlier message in this chat goes first."
     static let notSent = "Not sent: it was still waiting for a free turn."
