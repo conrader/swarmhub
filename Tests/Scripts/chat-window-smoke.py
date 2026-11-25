@@ -40,6 +40,8 @@ def buttons(window):
 def press(window, title, sidebar=False):
     for button in buttons(window):
         name = label(button)
+        if sidebar:
+            name = name.removeprefix("Needs attention, ")
         if (name.startswith(title + ",") if sidebar else name == title):
             if ax.AXUIElementPerformAction(button, "AXPress") == 0:
                 return
@@ -237,6 +239,98 @@ def verify_media(window):
     wait_for("image preview sheet", lambda: any(label(b) == "Done" for b in buttons(window)))
     press(window, "Done")
     wait_for("image preview closed", lambda: all(label(b) != "Done" for b in buttons(window)))
+
+
+def steer_reopen(source_app):
+    import base64
+    import hashlib
+
+    token = uuid.uuid4().hex
+    bots = []
+    answers = {}
+    for index, name in enumerate(("BeforeOutputQA", "AfterSplitQA")):
+        def row(role, text, **fields):
+            return dict(id=str(uuid.uuid4()).upper(), role=role, createdAt=800000000 + len(rows), content=text, **fields)
+
+        rows = []
+        question = row("user", "Check the rendering.")
+        rows.append(question)
+        prefix = "The render has started." if index else "Up"
+        original = row("assistant", prefix, metadata={"for": question["id"]}, turnState="incomplete")
+        rows.append(original)
+        guidance = "Use blue for " + name
+        rows.append(row("user", guidance, metadata={"steer": "delivered", "partOrigin": original["id"]}))
+        answer = "Updated " + name
+        if index:
+            original.update(turnState="finished")
+            original["metadata"].update(part="1", partOrigin=original["id"])
+            pending = row("assistant", "Still rendering.", turnState="incomplete",
+                          metadata={"for": question["id"], "part": "2", "partOrigin": original["id"]})
+            rows.append(pending)
+        else:
+            pending = original
+        address = "session-" + str(index)
+        pending["deliveryReceipt"] = dict(server="default", core="qa", address=address, createdMs=50, after=0,
+                                          taskDigest=base64.b64encode(hashlib.sha256(question["content"].encode()).digest()).decode())
+        answers["/api/history/qa/" + address + "/50"] = [
+            dict(id=1, kind="task", text=question["content"]),
+            dict(id=2, kind="reply", text=prefix + "\n\n" + answer if index else answer)]
+        bots.append(dict(id=str(uuid.uuid4()), name=name, backend="Herdr", messages=rows))
+
+    online = False
+    submissions = []
+
+    class History(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path not in answers:
+                self.send_error(404)
+                return
+            if self.headers.get("Authorization") != "Bearer " + token or not online:
+                self.send_error(503)
+                return
+            data = json.dumps({"items": answers[self.path]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            if self.path.startswith("/api/agents"):
+                submissions.append(self.path)
+            self.send_error(503)
+
+        def log_message(self, *args):
+            pass
+
+    def text_positions(window):
+        return {str(attribute(e, "AXValue") or label(e)): bounds(e) for e in descendants(window)
+                if attribute(e, "AXRole") in ("AXStaticText", "AXTextArea")}
+
+    with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), History) as server:
+        store.write_text(json.dumps({"version": 2, "bots": bots}))
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            for launch in range(2):
+                with open_workspace(app, home, f"http://127.0.0.1:{server.server_port}", token) as window:
+                    if launch == 0:
+                        wait_for("offline recovery footer", lambda: "Checking the workspace for your reply…" in text_positions(window))
+                        online = True
+                    for bot in bots:
+                        name = bot["name"]
+                        press(window, name, sidebar=True)
+                        guidance, answer = "Use blue for " + name, "Updated " + name
+
+                        def correct_order():
+                            positions = text_positions(window)
+                            return positions.get(guidance) and positions.get(answer) and positions[guidance][1] <= positions[answer][0]
+
+                        wait_for("saved answer below " + guidance, correct_order, seconds=15)
+                    online = False
+        finally:
+            server.shutdown()
+        if submissions:
+            raise RuntimeError(f"Recovery submitted work: {submissions}")
+        print("Verified both recovered answers beneath their guidance, including after a second offline launch.")
 
 
 def media_reopen(source_app):
@@ -496,6 +590,8 @@ if __name__ == "__main__":
         raise SystemExit("This test needs macOS Accessibility access.")
     if len(sys.argv) == 3 and sys.argv[1] == "--group-restart":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--steer-reopen":
+        steer_reopen(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--message-search":
         message_search(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--media-reopen":
@@ -505,4 +601,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

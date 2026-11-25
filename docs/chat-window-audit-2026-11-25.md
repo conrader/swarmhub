@@ -132,7 +132,13 @@ Switching away initially lost the imported reading position. The corrected candi
 
 In a private MacBook chat, the driver sent a command to a real Codex bot on a second Mac. Once the command started, it disconnected the SSH forward and quit SwarmHub. The remote workspace recorded the completed answer. On the baseline, the chat reopened with the partial text and an **Incomplete** footer. The answer was still missing 32 seconds after reconnection.
 
-With the fix, the chat reopened offline and displayed **Checking the workspace for your reply…**. After the connection returned, the saved answer appeared in the original bubble in 3.93 seconds. The driver checked its ID, text and finished state on disk, then sent another message from the same chat. The remote journal contained exactly two tasks and their two answers. This exercise covered a newly accepted direct message. Older partial replies without a delivery receipt and interrupted split turns require separate recovery evidence.
+With the fix, the chat reopened offline and displayed **Checking the workspace for your reply…**. After the connection returned, the saved answer appeared in the original bubble in 3.93 seconds. The driver checked its ID, text and finished state on disk, then sent another message from the same chat. The remote journal contained exactly two tasks and their two answers. This exercise covered a newly accepted direct message. Older partial replies without a delivery receipt still lack enough information to identify the task on its workspace.
+
+## Steering a remote bot before quitting
+
+Two private MacBook chats exercised the **Send into the current answer** button while Codex was running a command on a second Mac. In the first run, the app quit immediately after the workspace accepted the follow-up. On the baseline, the saved answer appeared above the instruction that produced it. In the second run, the follow-up asked Codex to start a second command. The driver waited for that command to start before quitting. The workspace had the answer, but the baseline still showed an empty incomplete reply 32 seconds after reconnecting.
+
+On the patched app, the answer appeared below the accepted instruction in both runs, about four seconds after reconnecting. The earlier progress stayed above the follow-up, and sending another message produced one more answer. Each workspace journal contained two ordinary tasks and two replies across the exercise. Live guidance went into the original task. [Repeat the offline window check](agent-qa.md#use-the-real-mac-window)
 
 ## Product comparison and remaining checks
 

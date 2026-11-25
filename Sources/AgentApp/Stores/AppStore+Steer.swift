@@ -142,6 +142,7 @@ extension AppStore {
         if bubble == nil { insertInActiveTurn(message, in: conversation, after: slot?.assistant) }
         let recipient = slot?.botID
         if let origin = steerOrigin(slot) {
+            message.metadata[TurnReplyText.origin] = origin.uuidString
             turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message)
         }
         let goalID = (conversation as? Bot)?.goal.flatMap { $0.state.active ? $0.id : nil }
@@ -215,28 +216,34 @@ extension AppStore {
         let conversation = pending.conversation
         guard conversation.messages.contains(where: { $0 === anchor }),
               let index = conversation.messages.firstIndex(where: { $0 === row }) else { return nil }
-        let at = now()
+        let next = replyPartAfterGuidance(row, origin: origin.id.uuidString, at: now())
+        insertInActiveTurn(next, in: conversation, after: row, movingFrom: next === row ? index : nil)
+        if next !== row {
+            turns.parts[origin.id] = next
+            runningTurns.values.first { $0.conversation === conversation && $0.assistant === row }?.assistant = next
+        }
+        return next
+    }
+
+    /// Live and restored turns use the same part IDs, tool history and delivery receipt.
+    func replyPartAfterGuidance(_ row: ChatMessage, origin: String, at: Date) -> ChatMessage {
         if row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, row.activity == nil, row.publishedResults == nil, row.attachments.isEmpty {
-            // Reuse the empty placeholder, including its ID and original turn start time.
             row.continuedAt = at
-            insertInActiveTurn(row, in: conversation, after: row, movingFrom: index)
             return row
         }
 
-        row.deliveryReceipt = nil
         let number = Int(row.metadata[TurnKey.part] ?? "1") ?? 1
-        row.metadata[TurnReplyText.origin] = origin.id.uuidString
+        row.metadata[TurnReplyText.origin] = origin
         row.metadata[TurnKey.part] = String(number)
         row.isStreaming = false; row.turnState = .finished; row.metadata[TurnKey.why] = nil; row.metadata["status"] = nil; row.metadata[TurnKey.agent] = nil
         if var activity = row.activity, activity.current == nil { activity.finish(at: at); row.activity = activity }
-        var metadata = [TurnKey.part: String(number + 1), TurnReplyText.origin: origin.id.uuidString]
+        var metadata = [TurnKey.part: String(number + 1), TurnReplyText.origin: origin]
         metadata[TurnKey.forUser] = row.metadata[TurnKey.forUser]
         metadata[GoalKey.attempt] = row.metadata[GoalKey.attempt]
         metadata[GroupRouting.contextThrough] = row.metadata[GroupRouting.contextThrough]
         let next = ChatMessage(role: .assistant, content: "", createdAt: at, isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
-        insertInActiveTurn(next, in: conversation, after: row)
-        turns.parts[origin.id] = next
-        runningTurns.values.first { $0.conversation === conversation && $0.assistant === row }?.assistant = next
+        next.deliveryReceipt = row.deliveryReceipt
+        row.deliveryReceipt = nil
         return next
     }
 

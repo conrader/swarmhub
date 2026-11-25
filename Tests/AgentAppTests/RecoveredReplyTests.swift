@@ -41,6 +41,57 @@ import Testing
         #expect(result.publishedResults?.items.map(\.title) == ["view.png"])
     }
 
+    enum QuitPoint: CaseIterable { case beforeOutput, afterCommentary, afterSplit }
+
+    @Test(arguments: QuitPoint.allCases) func confirmedGuidanceRestoresBeforeLaterQuestions(at quit: QuitPoint) async throws {
+        let url = temporaryStore()
+        let (store, bot) = steerStore(ScriptedTurnBackend(), url: url)
+        let question = ChatMessage(role: .user, content: "first")
+        let prefix = quit == .afterCommentary ? "Bl" : "Before the correction."
+        let original = ChatMessage(role: .assistant, content: quit == .beforeOutput ? "" : prefix,
+            metadata: [TurnKey.forUser: question.id.uuidString], turnState: .incomplete)
+        original.deliveryReceipt = receipt
+        let first = ChatMessage(role: .user, content: "use red", metadata: [SteerKey.steer: "delivered"])
+        let latest = ChatMessage(role: .user, content: "use blue", metadata: [SteerKey.steer: "delivered"])
+        let separate = ChatMessage(role: .user, content: "new task")
+        let other = ChatMessage(role: .user, content: "other guidance", metadata: [SteerKey.steer: "delivered"])
+        var rows = [question, original, first, latest]
+        let pending: ChatMessage
+        if quit == .afterSplit {
+            pending = store.replyPartAfterGuidance(original, origin: original.id.uuidString, at: .now)
+            pending.content = "Partial"
+            rows.append(pending)
+            #expect(original.deliveryReceipt == nil && pending.deliveryReceipt == receipt)
+        } else { pending = original }
+        bot.messages = rows + [separate, other]
+        let final = quit == .afterSplit ? prefix + "\n\nBlue" : "Blue"
+        let http = MockHTTPProtocol.serve { request in
+            guard request.httpMethod == "GET", request.url?.path == "/api/history/core/terminal/50" else { return (400, [:]) }
+            return (200, ["items": [["id": 7, "kind": "task", "text": "first"], ["id": 8, "kind": "reply", "text": final]]])
+        }
+        store.saveHerdrServer(HerdrServer(id: receipt.server, name: "Fixture", kind: .address, address: "http://\(http.host)"), token: "test")
+        store.save()
+        let reopened = AppStore(storeURL: url, autoStart: false, keyStore: store.keyStore, defaults: store.defaults)
+        reopened.herdrClientSetup = { $0.session = http.session }
+        let saved = try #require(reopened.bots.first { $0.id == bot.id })
+        let restored = try #require(saved.messages.first { $0.id == pending.id })
+        #expect(await !reopened.checkRecoveredReply(receipt, bot: saved, row: restored))
+        let disk = try #require(StoreFile.decode(Data(contentsOf: url)).bots.first { $0.id == bot.id })
+        #expect(saved.messages.allSatisfy { !$0.isStreaming })
+        let i = try #require(disk.messages.firstIndex { $0.id == latest.id })
+        let answer = disk.messages[i + 1]
+        #expect(answer.content == "Blue" && answer.turnState == .finished && answer.deliveryReceipt == nil)
+        #expect(disk.messages[i + 2].id == separate.id && disk.messages.last?.id == other.id)
+        #expect(disk.messages.allSatisfy { $0.turnState != .incomplete })
+        if quit == .beforeOutput {
+            #expect(answer.id == original.id && disk.messages.count == 6)
+        } else {
+            #expect(disk.messages[1].id == original.id && disk.messages[1].content == prefix && disk.messages.count == 7)
+            #expect(TurnReplyText.complete(answer, in: disk) == prefix + "\n\nBlue")
+            if quit == .afterSplit { #expect(answer.id == pending.id) }
+        }
+    }
+
     @Test func aLaterTaskCannotSupplyTheAnswer() {
         let first = HerdrClient.Item(id: 7, kind: "task", text: "first")
         let second = HerdrClient.Item(id: 8, kind: "task", text: "second")
