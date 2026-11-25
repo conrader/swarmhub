@@ -107,6 +107,8 @@ does all of this on a Mac for real, with a job name, folders and a release key o
 
 The SwarmHub Mac app chats with the same agents through this bridge. Keep the bridge running on the machine that runs Herdr Core. The app keeps a list of Herdr servers, and each bot runs on one of them.
 
+The Mac app can also show independently launched sb-codejob workers in Overview and on their bot's avatar. [Configure authorized activity sources and run the isolated checks](../docs/detached-activity.md).
+
 ### Connect a server
 
 The setup window opens on first launch; later, use **Settings → Set up…** or **Settings → Advanced → Servers and keys → Add a Herdr server**. Choose where Herdr runs:

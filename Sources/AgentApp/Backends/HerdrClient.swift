@@ -91,6 +91,7 @@ struct HerdrClient: Sendable {
 
     struct Workspace: Decodable, Sendable {
         let core: String?; let version: String?; let agents: [Agent]; let templates: [Template]
+        var codejobActivity: CodejobActivity? = nil
         /// What the workspace server says it is (`HerdrUpdates.swift`); `version` above is Herdr Core's. A server
         /// from before it said so sends none.
         var bridge: HerdrBridgeInfo? = nil
@@ -225,7 +226,9 @@ struct HerdrClient: Sendable {
 
     // MARK: Requests
 
-    func workspace() async throws -> Workspace { try await get("/api/workspace") }
+    func workspace(includingCodejobs: Bool = false) async throws -> Workspace {
+        try await get(includingCodejobs ? "/api/workspace?codejobs=true" : "/api/workspace")
+    }
     func profiles() async throws -> [Profile] { try await get("/api/profiles") }
 
     func history(core: String, address: String, createdMs: UInt64) async throws -> [Item] {

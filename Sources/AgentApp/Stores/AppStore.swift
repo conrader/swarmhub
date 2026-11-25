@@ -37,6 +37,7 @@ import UserNotifications
     var teamRegistrations: [String: Task<Bool, Error>] = [:]
     var teamSynced: [String: ([HerdrClient.TeamMember], Date, Bool)] = [:]
     @Published var teamErrors: [String: String] = [:]
+    @Published var herdrCodejobReads: [String: HerdrCodejobRead] = [:]
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
     /// The bots whose running turn is on the bridge's event stream, which owns their helper lists during the turn.
     var herdrStreamingParents: Set<HerdrHelperParent> = []

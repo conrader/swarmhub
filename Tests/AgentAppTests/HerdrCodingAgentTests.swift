@@ -75,6 +75,8 @@ import Testing
         #expect(store.selectedBot === open)
         #expect(store.herdrHelpers[background.id]?.helpers.map(\.ref) == [helper.ref])
         #expect(store.hasActiveCodingAgent(background) && store.isWorking(background))
+        #expect(store.herdrHelperOverview.rows.first?.bot === background)
+        #expect(store.herdrHelperOverview.unavailable.contains { $0.id == serverID }, "an older bridge still supplies native helpers")
         #expect(store.herdrTerminalSession(for: background) == parent)
         let own = try #require(store.herdrTerminalSession(for: ownAgent))
         #expect(own == HerdrClient.AgentRef(address: "own", createdMs: 4))
@@ -169,7 +171,8 @@ import Testing
         #expect(store.herdrHelpers[second.id]?.helpers == [changed])
         let gone = HerdrClient.Helper(address: "ended", createdMs: 3, name: "Old helper", state: "gone")
         store.herdrLive(.helpers(list([gone])), botID: first.id)
-        #expect(!store.herdrHelperOverview.confirmedEmpty, "empty streams cannot confirm a workspace roster")
+        #expect(store.herdrHelperOverview.rows.isEmpty)
+        #expect(!store.herdrHelperOverview.confirmedEmpty, "empty streams cannot confirm the workspace roster or detached activity")
     }
 
     @Test func overviewRequiresSuccessfulReadsBeforeReportingNoActiveHelpers() async throws {
@@ -177,6 +180,8 @@ import Testing
         let open = Bot(name: "Open", backend: .herdr), remote = Bot(name: "Remote", backend: .herdr)
         store.bots = [open, remote]
         store.open(open)
+        let local = store.herdrServer(for: open)
+        store.herdrCodejobReads[local.id] = .init(server: local, hosts: [], observed: .now)
         store.herdrLive(.helpers(list([helper])), botID: open.id)
         store.helperRosters[store.herdrServer(for: open).id] = .available(unattributed: 0)
         let group = GroupChat(name: "Review team", memberIDs: [remote.id])
@@ -191,7 +196,7 @@ import Testing
                 let attempts = MockHTTPProtocol.recorded(request.url?.host ?? "").filter { $0.url?.path == "/api/workspace" }.count
                 switch attempts {
                 case 1:
-                    return (200, ["core": "r", "templates": [], "agents": [
+                    return (200, ["core": "r", "codejob_activity": [], "templates": [], "agents": [
                         ["address": "p", "created_ms": 1, "name": remoteName, "state": "live"],
                         ["address": "child", "created_ms": 2, "name": "child", "state": "live", "parent": ["address": "p", "created_ms": 1]],
                         ["address": "g", "created_ms": 3, "name": groupName, "state": "live"],
@@ -199,7 +204,7 @@ import Testing
                     ]])
                 case 2: return (0, URLError(.cannotConnectToHost))
                 case 3: return (401, [:])
-                default: return (200, ["core": "r", "templates": [], "agents": []])
+                default: return (200, ["core": "r", "codejob_activity": [], "templates": [], "agents": []])
                 }
             }
             if request.url?.path == "/api/agents/p/1/helpers" {
@@ -381,6 +386,77 @@ import Testing
         #expect(try lightPixels(in: headerTerminal, of: live) == 0)
         #expect(try lightPixels(in: headerTerminal, of: ended) == 0)
         #expect(try lightPixels(in: headerTerminal, of: own) > 30)
+    }
+
+    // Normal GET responses captured by HerdrWorkspace/tests/codejob_activity.py.
+    @Test func detachedRecordIngestion() async throws {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: output) }
+        let supplied = ProcessInfo.processInfo.environment["SWARMHUB_CODEJOB_TEST_ROSTERS"].map { URL(fileURLWithPath: $0) }
+        if supplied == nil {
+            let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            let fixture = Process()
+            fixture.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            fixture.arguments = [root.appendingPathComponent("HerdrWorkspace/tests/codejob_activity.py").path, "--write-rosters", output.path]
+            let ran = try await runToEnd(fixture)
+            try #require(ran.status == 0, "Fixture failed: \(ran.output)")
+        }
+        let source = try Data(contentsOf: supplied ?? output)
+        let values = try #require(JSONSerialization.jsonObject(with: source) as? [[String: Any]])
+        let responses = try values.map { try JSONSerialization.data(withJSONObject: $0) }
+        #expect(responses.count == 8)
+        let http = MockHTTPProtocol.serve { request in
+            guard request.httpMethod == "GET", request.url?.path == "/api/workspace",
+                  request.url?.query == "codejobs=true" else { return (404, [:]) }
+            let index = MockHTTPProtocol.recorded(request.url?.host ?? "").count - 1
+            return responses.indices.contains(index) ? (200, responses[index]) : (503, [:])
+        }
+        let store = makeStore()
+        let owner = Bot(id: try #require(UUID(uuidString: "00112233-4455-6677-8899-aabbccddeeff")), name: "Swarmhub", backend: .herdr)
+        let other = Bot(id: try #require(UUID(uuidString: "ffeeddcc-bbaa-9988-7766-554433221100")), name: owner.name, backend: .herdr)
+        store.bots = [other, owner]
+        store.open(other)
+        let server = HerdrServer(id: HerdrServer.defaultID, name: "Fixture", kind: .address, address: "http://\(http.host)")
+        store.saveHerdrServer(server, token: "fixture")
+        store.herdrClientSetup = { $0.session = http.session }
+
+        var workingID: HerdrCodejobRow.ID?
+        for index in responses.indices {
+            await store.refreshHerdrHelpers(on: server.id)
+            let overview = store.herdrHelperOverview
+            #expect(overview.rows.isEmpty && store.herdrTerminalSession(for: owner) == nil)
+            #expect(!store.hasActiveCodingAgent(other) && store.selectedBot === other)
+            #expect(store.hasActiveCodingAgent(owner) == [1, 6].contains(index))
+            #expect(store.isWorking(owner) == [1, 6].contains(index))
+            switch index {
+            case 0, 1, 2, 6:
+                let row = try #require(overview.codejobs.first)
+                #expect(overview.codejobs.count == 1 && row.bot === owner && row.id.host == "fixture-host")
+                if let workingID { #expect(row.id == workingID) } else { workingID = row.id }
+                if index == 0 { #expect([.wrapper, .queued].contains(row.job.state)) }
+                if index == 1 || index == 6 { #expect(row.job.description == "Codex working") }
+                if index == 2 { #expect(row.job.state == .unknown) }
+                if index == 1 {
+                    let section = HerdrActiveHelpersSection().environmentObject(store).padding().background(AppColor.chat)
+                    let png = try #require(await SnapshotRenderer.png(section, size: NSSize(width: 420, height: 160), scale: 2))
+                    let image = try #require(NSBitmapImageRep(data: png)?.cgImage)
+                    let words = try await recognizedLines(in: image).joined(separator: " ")
+                    #expect(words.localizedCaseInsensitiveContains("Codex working"))
+                }
+                if index == 6, let read = store.herdrCodejobReads[server.id] {
+                    store.herdrCodejobReads[server.id] = .init(server: server, hosts: read.hosts, observed: .now - .seconds(26))
+                    #expect(!store.hasActiveCodingAgent(owner) && store.herdrHelperOverview.codejobs.isEmpty)
+                    #expect(!store.herdrHelperOverview.confirmedEmpty)
+                }
+            case 3...5:
+                #expect(overview.codejobs.isEmpty && !overview.confirmedEmpty && !overview.unavailableCodejobHosts.isEmpty)
+            default:
+                #expect(overview.confirmedEmpty)
+            }
+        }
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.unavailable == [server] && !store.herdrHelperOverview.confirmedEmpty)
+        #expect(MockHTTPProtocol.recorded(http.host).count == 9)
     }
 
     private func lightPixels(in region: CGRect, of image: CGImage) throws -> Int {

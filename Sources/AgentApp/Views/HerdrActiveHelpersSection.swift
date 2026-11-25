@@ -9,18 +9,28 @@ struct HerdrActiveHelpersSection: View {
         let overview = store.herdrHelperOverview
         if overview.hasBots {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Active workspace helpers").font(.headline).accessibilityAddTraits(.isHeader)
-                    .help("Helper agents reported by the Herdr workspaces for your bots.")
+                Text("Helpers and detached workers").font(.headline).accessibilityAddTraits(.isHeader)
+                    .help("Workspace helpers and detached sb-codejob workers reported for your bots.")
                 ForEach(overview.rows) { row in
                     ActiveHelperRow(bot: row.bot, groupName: row.groupName, helper: row.helper) { details = row }
                 }
-                if overview.confirmedEmpty { Text(overview.disconnected.isEmpty ? "No active workspace helpers." : "No active helpers on connected workspaces.") }
+                ForEach(overview.codejobs) { row in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("\(row.bot.name) · \(row.job.description)", systemImage: "terminal")
+                            .font(.callout.weight(.medium)).foregroundStyle(.primary)
+                        Text("sb-codejob · \(row.id.host) · \(row.id.job.prefix(8))")
+                    }.inspectorCard(padding: 8)
+                }
+                if overview.confirmedEmpty { Text(overview.disconnected.isEmpty ? "No active helpers or detached workers." : "No active helpers or detached workers on connected workspaces.") }
                 ForEach(overview.unattributed, id: \.server.id) { item in
                     Text("Live helpers in other sessions on \(item.server.name): \(item.count)")
                 }
                 ForEach(overview.disconnected) { server in Text("\(server.name) is disconnected.") }
+                ForEach(overview.unavailableCodejobHosts.indices, id: \.self) { index in
+                    Text("Detached activity incomplete on \(overview.unavailableCodejobHosts[index]).")
+                }
                 ForEach(overview.checking) { server in Text("Checking \(server.name)…") }
-                ForEach(overview.unavailable) { server in Text("Couldn’t read all helper activity on \(server.name).") }
+                ForEach(overview.unavailable) { server in Text("Couldn’t read all coding activity on \(server.name).") }
             }
             .font(.caption).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
