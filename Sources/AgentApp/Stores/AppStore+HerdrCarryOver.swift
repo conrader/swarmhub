@@ -18,6 +18,7 @@ extension AppStore {
         var failedFor: HerdrAgentLaunch? = nil
         var failures = 0
         var at: Date
+        var summaryEndsAt: String? = nil
     }
 
     static func herdrCarryOverKey(_ botID: UUID) -> String { "herdrCarryOver.\(botID.uuidString.lowercased())" }
@@ -27,8 +28,11 @@ extension AppStore {
     }
 
     func setHerdrCarryOver(_ state: HerdrCarryOver?, for bot: Bot) {
+        if state?.summaryEndsAt == nil, herdrCarryOver(for: bot)?.summaryEndsAt != nil {
+            try? FileManager.default.removeItem(at: chatSummaryURL(bot.id))
+        }
         if let state { defaults.set(try? JSONEncoder().encode(state), forKey: Self.herdrCarryOverKey(bot.id)) }
-        else { defaults.removeObject(forKey: Self.herdrCarryOverKey(bot.id)); grokHandoffs.carrySummaries[bot.id] = nil }
+        else { defaults.removeObject(forKey: Self.herdrCarryOverKey(bot.id)) }
     }
 
     /// The handoff has ended in the turn that is running (read, or nothing to read): the note goes, and the turn
@@ -40,13 +44,14 @@ extension AppStore {
 
     /// The bot is gone: nothing of this is kept.
     func forgetHerdrCarryOver(_ botID: UUID) {
+        try? FileManager.default.removeItem(at: chatSummaryURL(botID))
         defaults.removeObject(forKey: Self.herdrCarryOverKey(botID))
         defaults.removeObject(forKey: "herdr.confirmed.\(botID)")
         clearModelSwitch(botID)
         clearAutoSwitch(botID)
         defaults.removeObject(forKey: Self.herdrMoveSkipsCarryKey(botID))
         latestHerdrMoves[botID] = nil
-        grokHandoffs.carrySummaries[botID] = nil; grokHandoffs.carried.remove(botID)
+        grokHandoffs.carried.remove(botID)
     }
 
     /// The bot's next agent can be handed its chat: it runs on a server, and no imported conversation is handed
@@ -71,8 +76,7 @@ extension AppStore {
     /// bot's next agent reads its chat first.
     func armHerdrCarryOver(for changed: [Bot], running: [UUID: HerdrAgentLaunch]) {
         for bot in changed where herdrCarryApplies(to: bot) {
-            grokHandoffs.carrySummaries[bot.id] = nil
-            setHerdrCarryOver(HerdrCarryOver(old: running[bot.id], at: now()), for: bot)
+            setHerdrCarryOver(HerdrCarryOver(old: running[bot.id], at: now(), summaryEndsAt: herdrCarryOver(for: bot)?.summaryEndsAt), for: bot)
         }
     }
 
@@ -133,27 +137,30 @@ extension AppStore {
         return source
     }
 
-    /// The chat as it goes to the fresh agent. A long chat's older part is summarised by a one-off agent of the bot's
-    /// own program and model (`HerdrClient.summarise`), for at most as long as a turn waits for a summary; without
-    /// one the handoff goes with the recent part and the whole chat to search. An older part that would take the
-    /// one-off agent several rounds is not summarised. nil when nothing was said: the message goes as it always did.
+    /// Prepare the new session’s context off the main actor. An explicit restart reads the saved
+    /// summary even after quitting the app. Newer exchanges and the searchable transcript travel with it.
     func herdrCarryHandoff(for botID: UUID, status: @escaping @Sendable (HerdrTurnStatus) -> Void) async -> HerdrHandoff? {
-        guard let bot = bots.first(where: { $0.id == botID }), herdrCarryOver(for: bot) != nil else { return nil }
+        guard let bot = bots.first(where: { $0.id == botID }), let state = herdrCarryOver(for: bot) else { return nil }
         let lines = herdrCarryLines(of: bot), name = bot.name
         guard !lines.isEmpty else { endHerdrCarryOver(for: bot); return nil }
-        let kept = grokHandoffs.carrySummaries[botID]
-        // The secret filter reads every message: off the main actor, like an imported conversation's.
-        let (transcript, plan) = await Task.detached(priority: .userInitiated) { () -> (GrokHandoff.Transcript, GrokHandoff.Plan) in
+        let url = chatSummaryURL(botID)
+        return await Task.detached(priority: .userInitiated) {
             let transcript = GrokHandoff.Transcript(lines)
-            return (transcript, GrokHandoff.plan(transcript, botName: name, summarisedThrough: kept?.through))
+            var summary: GrokHandoffCache?
+            var plan = GrokHandoff.plan(transcript, botName: name)
+            if let last = state.summaryEndsAt,
+               let line = transcript.lines.first(where: { $0.id == last }),
+               let saved = GrokHandoffCache.load(url), line.seq == saved.through {
+                summary = saved
+                let spoken = transcript.spoken
+                // Preserve the usual size limit if many new messages arrived after the summary.
+                let through = max(line.seq, plan.older.last?.seq ?? line.seq)
+                plan.older = spoken.filter { $0.seq <= through }
+                plan.recent = spoken.filter { $0.seq > through }
+            }
+            let rendered = GrokHandoff.render(transcript, plan: plan, summary: summary, botName: name, origin: .ownChat)
+            return GrokHandoff.package(rendered, archiveID: botID, origin: .ownChat)
         }.value
-        var summary: GrokHandoffCache? = nil
-        if let kept, let oldest = plan.older.first, kept.through >= oldest.seq { summary = kept }
-        let used = summary
-        let rendered = await Task.detached(priority: .userInitiated) {
-            GrokHandoff.render(transcript, plan: plan, summary: used, botName: name, origin: .ownChat)
-        }.value
-        return GrokHandoff.package(rendered, archiveID: botID, origin: .ownChat)
     }
 
     /// A fresh agent has replied to the handoff: it has the chat, so nothing more is handed over until the bot's
@@ -179,6 +186,9 @@ extension AppStore {
 /// The lines in a bot's chat about its fresh agent reading the chat so far.
 enum HerdrCarryCopy {
     static func read(_ bot: String, summarised: Bool, older: Int, recent: Int, withFiles: Bool) -> String {
+        if summarised && recent == 0 {
+            return "\(bot) received a summary of the earlier messages in this chat"
+        }
         guard withFiles else { return "\(bot) received the last part of this conversation: its server takes no files" }
         let what = summarised && older > 0 ? "a summary of \(older) older messages and the last \(recent)" : (older > 0 ? "the last \(recent) messages, with the older ones to search" : "all \(recent) messages")
         return "\(bot) read the earlier messages in this chat: \(what)"

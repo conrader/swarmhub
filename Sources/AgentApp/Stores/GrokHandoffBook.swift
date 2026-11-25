@@ -22,9 +22,6 @@ struct GrokHandoffRecord: Codable, Equatable, Sendable {
     var queue: [String: Task<Void, Never>] = [:]
     /// Each bot's `GrokHandoffState` as last read from or written to its file.
     var states: [UUID: GrokHandoffState] = [:]
-    /// The summary made of the older part of a bot's own chat, kept until its fresh agent has read the chat
-    /// (`AppStore+HerdrCarryOver.swift`), so that a second try does not make it again.
-    var carrySummaries: [UUID: GrokHandoffCache] = [:]
     /// The bots whose chat was handed over (or found empty) in the turn that is running: that turn takes steers
     /// again once the hidden step has ended (`AppStore.steerFollowsBackend`).
     var carried: Set<UUID> = []

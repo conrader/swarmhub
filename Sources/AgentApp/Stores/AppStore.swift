@@ -71,6 +71,7 @@ import UserNotifications
     /// Waiting terminal prompts, keyed by the bot or group conversation ID.
     @Published var herdrPrompts: [UUID: HerdrPrompt] = [:]
     var herdrPromptBook = HerdrPromptBook()
+    @Published var summarizingChats: Set<UUID> = []
     var herdrWarming: [UUID: Task<Void, Never>] = [:]
     @Published var localAIRevision = 0
     var localServiceSetupInProgress = false

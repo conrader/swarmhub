@@ -397,6 +397,20 @@ struct HerdrAgentControls: View {
                     LabeledContent("Conversation total", value: "\(usage.totalTokens.formatted()) tokens")
                 }
             }
+            if bot.messages.contains(where: { $0.role == .assistant && !$0.isStreaming && $0.presentation == .text }) {
+                Button(store.summarizingChats.contains(bot.id) ? "Preparing chat summary…" : "Summarize & start fresh") {
+                    note = ""
+                    Task {
+                        do {
+                            try await store.summarizeAndStartFresh(bot)
+                            note = "Summary ready. Your next message continues in a fresh session."
+                            await store.refreshHerdrAgentReading(for: bot)
+                        } catch { note = error.localizedDescription }
+                    }
+                }
+                .disabled(restarting || switching || store.herdrBotIsBusy(bot) || store.summarizingChats.contains(bot.id))
+                .help("Keep your messages and give the new session a summary of this chat.")
+            }
             Divider()
             HerdrHelperModelSection(bot: bot, server: server, templates: templates, preset: preset?.helper)
                 .id("\(bot.id)-\(server.id)")
@@ -416,7 +430,7 @@ struct HerdrAgentControls: View {
                             .disabled(switching || store.isAnswering(bot))
                     }
                     SettingBlock(title: "New conversation", detail: GrokHandoffCopy.newConversation(bot.name, readsHistory: store.grokHandoffIsOn(for: bot))) {
-                        Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isAnswering(bot))
+                        Button(HerdrAgentReading.startFresh) { confirmFresh = true }.disabled(restarting || switching || store.isAnswering(bot) || store.summarizingChats.contains(bot.id))
                     }
                     // It is started when its chat opens, so the first message does not wait for it.
                     let ahead = store.herdrStartsAhead(for: bot)

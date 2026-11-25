@@ -108,7 +108,10 @@ extension AppStore {
                     }
                     // Save the handoff before ending the old launch, so an interrupted start can resume it.
                     let old = current.core.map { HerdrAgentLaunch(server: server.id, core: $0, address: agent.address, createdMs: agent.createdMs) }
-                    if !skipsCarry { setHerdrCarryOver(HerdrCarryOver(old: old, at: now()), for: bot) }
+                    if !skipsCarry {
+                        let summaryEnd = herdrCarryOver(for: bot)?.summaryEndsAt
+                        setHerdrCarryOver(HerdrCarryOver(old: old, at: now(), summaryEndsAt: summaryEnd), for: bot)
+                    }
                     try checkChoice()
                     if active != nil {
                         guard let core = current.core else { throw HerdrClient.Failure.noTemplate }
