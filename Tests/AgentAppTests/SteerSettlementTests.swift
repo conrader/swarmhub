@@ -113,10 +113,16 @@ import Testing
         let bubble = try #require(group.messages.last)
         try await waitUntil { bubble.metadata[SteerKey.steer] == "delivered" }
 
+        group.messages.append(ChatMessage(role: .assistant, content: "Other member finished", authorID: other.id))
         await backend.emit(.replace("42 km."), .completed)
         await backend.end()
         try await waitUntil { store.isIdle(group) }
         #expect(bubble.metadata[SteerKey.steer] == "delivered")
+        let next = ChatMessage(role: .user, content: "Next question")
+        let context = try GroupRouting.herdrContext(for: .init(id: bot.id, name: bot.name), groupName: group.name,
+            members: store.routingMembers(of: group), messages: group.messages + [next], current: next, limit: 8_000, userName: "Tester")
+        #expect(context.contains("Other: Other member finished") && !context.contains("42 km."))
+        #expect(context.hasSuffix("Tester: Next question"))
     }
 
     @Test func reopeningSettlesOrphanedSteersAndSavesTheirStates() throws {

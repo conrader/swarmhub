@@ -26,36 +26,19 @@ import Foundation
     var nextMessages: [QueuedNextMessage] = []
 }
 
-/// Tracks the wire snapshot separately from the text visible in the current part.
-private struct TurnStreamText {
-    var snapshot: String
-    var frozenPrefixes: [String] = []
-
-    mutating func freeze(parts: [ChatMessage]) {
-        // Herdr can follow individual drafts before returning all saved replies joined
-        // by blank lines. Token streams can instead continue the same snapshot verbatim.
-        let journalText = parts.map(\.content).filter { !$0.isEmpty }.joined(separator: "\n\n")
-        frozenPrefixes = [snapshot, journalText].filter { !$0.isEmpty }.sorted { $0.count > $1.count }
-    }
-
-    func remainder(of text: String) -> String {
-        guard let prefix = frozenPrefixes.first(where: { text.hasPrefix($0) }) else { return text }
-        let tail = text.dropFirst(prefix.count)
-        return String(tail.hasPrefix("\n\n") ? tail.dropFirst(2) : tail)
-    }
-}
-
 /// One stream consumer and one `finishTurn` for both send paths (a bot's chat and a group).
 extension AppStore {
     /// Reads the stream into `assistant` (and the parts a delivered steer opens after it, `endTurnParts`). Returns how it ended; throws what the backend threw (and cancellation).
-    func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot, group: GroupChat? = nil) async throws -> TurnEnd {
+    func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot, group: GroupChat? = nil, cumulativeReplacements: Bool = false) async throws -> TurnEnd {
         var completed = false; var failure: String?
         var launchModel: String?
         var finalJournal: String?
         var activitySummary: (seconds: Int, tools: Int)?
         // A delivered steer moves the rest of the reply into a new row below its bubble.
         var row = assistant
-        var streamText = TurnStreamText(snapshot: row.content)
+        // A final snapshot may only finish a word or add punctuation. Show that edit
+        // on the draft until more text establishes that a continuation really began.
+        var singleEdit: (before: String, after: String)?
         // A tool can finish after text has crossed a receipt. Update the part that owns its start.
         var earlierParts: [ChatMessage] = []
         defer {
@@ -69,20 +52,45 @@ extension AppStore {
             guard !Task.isCancelled, row.metadata[GoalKey.attempt] == nil || row.turnState != .stopped else { break }
             // Herdr emits the journal IDs just before its final snapshot. An intervening save
             // must not mark a draft as already containing the final journal text.
+            let savedSnapshot = finalJournal != nil
             if case .replace = event, let ids = finalJournal {
                 assistant.metadata["herdrJournal"] = ids
                 finalJournal = nil
             }
             var continued = false
-            if let pending = turns.steers[assistant.id], pending.bubbles.contains(where: { $0.metadata[SteerKey.steer] == "delivered" }) {
-                let hasNewOutput: Bool
+            let pending = turns.steers[assistant.id]?.bubbles.contains { $0.metadata[SteerKey.steer] == "delivered" } == true
+            var addition = ""
+            switch event {
+            case .token(let token): addition = token
+            case .replace(let text):
+                if pending || !earlierParts.isEmpty {
+                    addition = TurnReplyText.replace(text, parts: earlierParts + [row],
+                        cumulative: cumulativeReplacements, saved: savedSnapshot, pending: pending)
+                } else { row.content = text }
+            default: break
+            }
+            if pending {
+                var hasNewOutput: Bool
                 switch event {
-                case .token(let token): hasNewOutput = !token.isEmpty
-                case .replace(let text):
-                    let visible = streamText.remainder(of: text)
-                    guard !visible.isEmpty, text != streamText.snapshot else { continue }
-                    if visible == row.content { streamText.snapshot = text; continue }
-                    hasNewOutput = true
+                case .replace, .token:
+                    if let edit = singleEdit, row.content != edit.after { singleEdit = nil }
+                    if let edit = singleEdit, !addition.isEmpty {
+                        addition = String(edit.after.dropFirst(edit.before.count)) + addition
+                        row.content = edit.before
+                        singleEdit = nil
+                    } else if case .replace = event, addition.count == 1, !row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        let before = row.content
+                        row.content += addition
+                        singleEdit = (before, row.content)
+                        addition = ""
+                    }
+                    if !addition.isEmpty {
+                        let text = row.content + addition
+                        let cut = ChatCardParser.steerBoundary(in: text, after: row.content) ?? text.endIndex
+                        row.content = String(text[..<cut])
+                        addition = String(text[cut...])
+                    }
+                    hasNewOutput = !addition.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 case .tool(let tool):
                     hasNewOutput = tool.phase == .started && ToolActivity.isShown(tool.name)
                         && !(tool.callID.map { id in row.activity?.steps.contains { $0.callID == id } == true } ?? false)
@@ -90,12 +98,15 @@ extension AppStore {
                     hasNewOutput = row.publishedResults?.items.contains { $0.id == result.id } != true
                 default: hasNewOutput = false
                 }
+                if hasNewOutput, addition.isEmpty, ChatCardParser.steerBoundary(in: row.content, after: row.content) == nil {
+                    hasNewOutput = false
+                }
                 if hasNewOutput, let next = continueAfterSteer(origin: assistant, row: row) {
                     if next !== row {
                         earlierParts.append(row)
-                        streamText.freeze(parts: earlierParts)
                     }
                     row = next
+                    singleEdit = nil
                     continued = true
                 }
             }
@@ -103,16 +114,14 @@ extension AppStore {
             // Anything the server sends again ends a reconnect.
             if case .status = event {} else if row.metadata[TurnKey.reconnecting] != nil { row.metadata[TurnKey.reconnecting] = nil; objectWillChange.send() }
             switch event {
-            case .token(let token):
-                streamText.snapshot += token
-                row.content += token
-                if !token.isEmpty { row.lastTextAt = now() }
-                objectWillChange.send(); autosaveIfDue()
-            case .replace(let text):
-                streamText.snapshot = text
-                let remainder = streamText.remainder(of: text)
-                row.content = remainder
-                row.lastTextAt = remainder.isEmpty ? nil : now()
+            case .token, .replace:
+                if case .replace = event, !earlierParts.isEmpty, row.content.isEmpty,
+                   row.metadata[TurnReplyText.separator] == nil, addition.hasPrefix("\n\n") {
+                    row.metadata[TurnReplyText.separator] = "\n\n"
+                    addition.removeFirst(2)
+                }
+                if !addition.isEmpty { row.content += addition }
+                row.lastTextAt = row.content.isEmpty ? nil : now()
                 objectWillChange.send(); autosaveIfDue()
             case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
             case .status(let value) where HerdrTurnStatus(code: value) != nil:
@@ -284,7 +293,7 @@ extension AppStore {
                 let flags = try? await activeBackend.features()
                 setSteerAvailable(flags?.contains("run_steer") == true, token: token)
             }
-            end = try await consumeTurn(stream, assistant: assistant, bot: bot)
+            end = try await consumeTurn(stream, assistant: assistant, bot: bot, cumulativeReplacements: activeBackend is HerdrBackend)
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
         } catch { end = .error(error) }

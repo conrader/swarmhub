@@ -70,16 +70,20 @@ extension AppStore {
             let context: String
             if let herdr {
                 let limit = groupMessageBudget(herdr, hasFiles: !files.isEmpty)
+                assistant.metadata[GroupRouting.contextThrough] = trigger.id.uuidString
                 context = try GroupRouting.herdrContext(for: member, groupName: group.name, members: members,
                     messages: messages, current: trigger, limit: limit, userName: userName)
             } else {
+                let lastVisible = messages.last { !$0.isSteer && ($0.role == .user || $0.role == .assistant && !$0.content.isEmpty) }
+                let through = trigger.metadata[ChoiceReply.cardKey] == nil ? lastVisible ?? trigger : trigger
+                assistant.metadata[GroupRouting.contextThrough] = through.id.uuidString
                 context = GroupRouting.context(for: member, groupName: group.name, members: members,
                     messages: messages, current: trigger.id, userName: userName)
             }
             let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.outboundPersona,
                 messages: [(role: "user", content: context)], images: herdr == nil ? images : [], files: files))
             if isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
-            end = try await consumeTurn(stream, assistant: assistant, bot: bot, group: group)
+            end = try await consumeTurn(stream, assistant: assistant, bot: bot, group: group, cumulativeReplacements: herdr != nil)
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
         } catch { end = .error(error) }

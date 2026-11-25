@@ -165,11 +165,11 @@ private final class PromptBridge: @unchecked Sendable {
             store.herdrPrompts[id] = HerdrPrompt(program: bot.name, question: "Allow fixture?",
                                                   agent: .init(address: address, createdMs: 1), since: Date())
         }
-        #expect(store.herdrPrompt(for: primary, in: group)?.agent.address == "t1")
-        #expect(store.herdrPrompt(for: other, in: group)?.agent.address == "t2")
+        #expect(store.herdrPrompt(for: primary, in: group)?.agent?.address == "t1")
+        #expect(store.herdrPrompt(for: other, in: group)?.agent?.address == "t2")
         store.herdrTurnStatus(nil, for: primary, in: group)
         #expect(store.herdrPrompt(for: primary, in: group) == nil)
-        #expect(store.herdrPrompt(for: other, in: group)?.agent.address == "t2")
+        #expect(store.herdrPrompt(for: other, in: group)?.agent?.address == "t2")
         group.memberIDs.removeAll { $0 == other.id }
         #expect(store.herdrPromptAnswer(for: other, in: group) == nil)
     }

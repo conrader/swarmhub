@@ -78,7 +78,7 @@ extension AppStore {
     /// the reply addresses to other bots are delivered, or refused back to it; and when the reply answers another
     /// bot's message, it is passed back to that bot, unless this bot wrote to a further bot first. A reply that did
     /// not finish (the person stopped it, or it failed) sends nothing and ends the exchange it was part of.
-    func herdrMessagesEnded(_ reply: ChatMessage, from bot: Bot, triggers: [ChatMessage], finished: Bool) {
+    func herdrMessagesEnded(_ text: String, from bot: Bot, triggers: [ChatMessage], finished: Bool) {
         let part = herdrExchangePart(in: triggers), owed = herdrOwed(by: part)
         guard finished else { herdrExchangeBroke(at: bot, owed: owed, line: HerdrMessageLine.unfinished); return }
         let own = Self.herdrID(bot)
@@ -87,10 +87,10 @@ extension AppStore {
         let rounds = HerdrBotRelay.rounds(part?.metadata[HerdrBotRelay.ExchangeKey.rounds])
         let peers = herdrPeers(of: bot), open = peers.filter(herdrTakesMessages).map(\.name)
         let candidates = peers.map { HerdrBotMessage.Candidate(id: Self.herdrID($0), name: $0.name, open: herdrTakesMessages($0)) }
-        var messages = HerdrBotMessage.messages(in: reply.content)
+        var messages = HerdrBotMessage.messages(in: text)
         // A bot that answers another bot's message and still addresses that bot with a block has put its answer
         // there: those words go back with the reply, not as a new message.
-        var answer = [HerdrBotRelay.visible(reply.content)]
+        var answer = [HerdrBotRelay.visible(text)]
         if let asker = owed.last {
             messages.removeAll { message in
                 guard HerdrBotMessage.bots(named: message.to, among: candidates).map(\.id) == [asker] else { return false }

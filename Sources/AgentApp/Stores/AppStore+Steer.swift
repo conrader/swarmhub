@@ -58,7 +58,7 @@ extension AppStore {
             try HerdrClient.TaskFile.validate(files)
         } catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return false }
         captureAttachments(message, readers: [bot.id])
-        conversation.messages.append(message)
+        insertInActiveTurn(message, in: conversation)
         guard turn.steerAvailable, !turn.stopping, let backend = turn.backend, turn.assistant != nil else {
             message.metadata[SteerKey.steer] = "failed"
             addWarning("The current turn cannot accept this follow-up.", in: conversation, after: message)
@@ -92,7 +92,7 @@ extension AppStore {
     /// Shows the steer bubble and posts it; it waits for the running step to end. A refusal marks it and says why.
     func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil, files: [HerdrClient.TaskFile] = [], slot: ConversationTurn? = nil) {
         let message = bubble ?? ChatMessage(role: .user, content: value, metadata: [SteerKey.steer: "sent"])
-        if bubble == nil { conversation.messages.append(message) }
+        if bubble == nil { insertInActiveTurn(message, in: conversation) }
         let slot = slot ?? turn(in: conversation)
         let recipient = slot?.botID
         if let origin = steerOrigin(slot) {
@@ -143,6 +143,15 @@ extension AppStore {
     /// The bubble still belongs to a running turn's steer bookkeeping.
     func steerHeldByTurn(_ bubble: ChatMessage) -> Bool { turns.steers.values.contains { $0.bubbles.contains { $0 === bubble } } }
 
+    /// A queued one-to-one turn owns the rows below its waiting message, including its eventual reply.
+    private func insertInActiveTurn(_ message: ChatMessage, in conversation: any Conversation, movingFrom index: Int? = nil) {
+        var rows = conversation.messages
+        if let index { rows.remove(at: index) }
+        let waiting = conversation is Bot ? rows.firstIndex { $0.metadata[TurnWaitCopy.key] == "waiting" } : nil
+        rows.insert(message, at: waiting ?? rows.endIndex)
+        conversation.messages = rows
+    }
+
     /// Called on new visible output. A receipt alone (or a replay of the same snapshot)
     /// doesn't create a reply. Multiple confirmations before any output share a continuation.
     func continueAfterSteer(origin: ChatMessage, row: ChatMessage) -> ChatMessage? {
@@ -155,25 +164,24 @@ extension AppStore {
         guard conversation.messages.contains(where: { $0 === anchor }),
               let index = conversation.messages.firstIndex(where: { $0 === row }) else { return nil }
         let at = now()
-        if row.content.isEmpty, row.activity == nil, row.publishedResults == nil, row.attachments.isEmpty {
+        if row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, row.activity == nil, row.publishedResults == nil, row.attachments.isEmpty {
             // Reuse the empty placeholder, including its ID and original turn start time.
             row.continuedAt = at
-            var messages = conversation.messages
-            messages.remove(at: index)
-            messages.append(row)
-            conversation.messages = messages
+            insertInActiveTurn(row, in: conversation, movingFrom: index)
             return row
         }
 
         let number = Int(row.metadata[TurnKey.part] ?? "1") ?? 1
+        row.metadata[TurnReplyText.origin] = origin.id.uuidString
         row.metadata[TurnKey.part] = String(number)
         row.isStreaming = false; row.turnState = .finished; row.metadata[TurnKey.why] = nil; row.metadata["status"] = nil; row.metadata[TurnKey.agent] = nil
         if var activity = row.activity, activity.current == nil { activity.finish(at: at); row.activity = activity }
-        var metadata = [TurnKey.part: String(number + 1)]
+        var metadata = [TurnKey.part: String(number + 1), TurnReplyText.origin: origin.id.uuidString]
         metadata[TurnKey.forUser] = row.metadata[TurnKey.forUser]
         metadata[GoalKey.attempt] = row.metadata[GoalKey.attempt]
+        metadata[GroupRouting.contextThrough] = row.metadata[GroupRouting.contextThrough]
         let next = ChatMessage(role: .assistant, content: "", createdAt: at, isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
-        conversation.messages.append(next)
+        insertInActiveTurn(next, in: conversation)
         turns.parts[origin.id] = next
         runningTurns.values.first { $0.conversation === conversation && $0.assistant === row }?.assistant = next
         return next

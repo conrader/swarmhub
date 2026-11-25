@@ -7,6 +7,7 @@ enum GroupRouting {
     static let defaultUserName = "Konrad"
     /// Upper bound for the context sent with one bot's turn.
     static let contextLimit = 8_000
+    static let contextThrough = "groupContextThrough"
 
     struct Member: Equatable { var id: UUID; var name: String }
 
@@ -86,12 +87,28 @@ enum GroupRouting {
         } else {
             transcript = messages[...]
         }
-        let start = (transcript.lastIndex { $0.role == .assistant && $0.authorID == bot.id && !$0.content.isEmpty }).map { $0 + 1 } ?? transcript.startIndex
+        // A continuation is output from the same request. Rows posted by other members
+        // while it was running have never been sent to this member. A moved placeholder
+        // has no row left at its original position, but still names its trigger.
+        var start = transcript.startIndex
+        if let last = transcript.lastIndex(where: { $0.authorID == bot.id && $0.role == .assistant && !$0.content.isEmpty }) {
+            let reply = transcript[last]
+            start = last + 1
+            let previous = transcript[...last]
+            if let seen = reply.metadata[contextThrough], let index = previous.firstIndex(where: { $0.id.uuidString == seen }) {
+                start = index + 1
+            } else if let trigger = reply.metadata[TurnKey.forUser], reply.continuedAt != nil || reply.metadata[TurnKey.part] != nil {
+                // Earlier builds saved the trigger and parts, but no context boundary.
+                let origin = previous.lastIndex { $0.authorID == bot.id && $0.metadata[TurnKey.forUser] == trigger
+                    && $0.metadata[TurnKey.part] == "1" && $0.continuedAt == nil }
+                if let index = origin ?? previous.firstIndex(where: { $0.id.uuidString == trigger }) { start = index + 1 }
+            }
+        }
         let lines: [(label: Int, line: String, files: String?)] = transcript[start...].compactMap { message in
             let isCurrent = current != nil && message.id == current
             let files = isCurrent ? AttachmentEncoder.compose(text: "", attachments: message.attachments) : ""
             let text = (isCurrent ? message.modelText : message.outgoingText).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty || !files.isEmpty, !message.isSteer, message.role != .system else { return nil }
+            guard !text.isEmpty || !files.isEmpty, !message.isSteer, message.role != .system, !(message.role == .assistant && message.authorID == bot.id) else { return nil }
             let author = message.role == .user ? userName : message.authorID.flatMap { names[$0] } ?? "Bot"
             return (author.count + 1, text.isEmpty ? "\(author):" : "\(author): \(text)", files.isEmpty ? nil : files)
         }

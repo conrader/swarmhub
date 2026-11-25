@@ -3,7 +3,7 @@ import Testing
 @testable import AgentApp
 
 @MainActor struct TranscriptOrderTests {
-    @Test func textOnlySteerSurvivesFinalSnapshotReloadAndRepeatedHistoryPages() async throws {
+    @Test(arguments: [-3_600_000, 3_600_000]) func textOnlySteerSurvivesFinalSnapshotReloadAndRepeatedHistoryPages(clockSkew: Int) async throws {
         let url = temporaryStore()
         let backend = ScriptedTurnBackend()
         let (store, bot) = steerStore(backend, url: url)
@@ -16,9 +16,9 @@ import Testing
             case "/api/bots": return (200, ["bots": []])
             case "/api/bots/history":
                 let entries: [[String: Any]] = [
-                    ["id": 1, "bot": id, "kind": "said", "journal": 80, "text": "Yesterday", "at_ms": 1_000, "unread": false, "notify": false],
-                    ["id": 2, "bot": id, "kind": "message", "text": "FYI", "at_ms": 43_890_000, "unread": false, "notify": false],
-                    ["id": 3, "bot": id, "kind": "said", "code": "direct_followup", "journal": 90, "text": "Answer B", "at_ms": 43_920_000, "unread": false, "notify": false]]
+                    ["id": 1, "bot": id, "kind": "said", "journal": 80, "text": "Yesterday", "at_ms": 1_000 + clockSkew, "unread": false, "notify": false],
+                    ["id": 2, "bot": id, "kind": "message", "text": "FYI", "at_ms": 43_890_000 + clockSkew, "unread": false, "notify": false],
+                    ["id": 3, "bot": id, "kind": "said", "code": "direct_followup", "journal": 90, "text": "Answer B", "at_ms": 43_920_000 + clockSkew, "unread": false, "notify": false]]
                 return (200, ["items": request.url?.query?.hasPrefix("after=0&") == true ? entries : [], "more": false])
             default: return (404, [:])
             }
@@ -86,25 +86,125 @@ import Testing
         let steerB = try #require(group.messages.last)
         try await waitUntil { steerB.metadata[SteerKey.steer] == "delivered" }
         let unrelated = ChatMessage(role: .assistant, content: "Independent reply", authorID: other.id)
-        group.messages.append(unrelated)
+        let otherQuestion = ChatMessage(role: .user, content: "@Other independent question")
+        group.messages.append(contentsOf: [otherQuestion, unrelated])
         await backend.emit(.replace("First."), .replace(aggregateDraft ? "First.\n\nSecond." : "Second."))
         try await waitUntil { group.messages.last?.content == "Second." }
         let second = try #require(group.messages.last)
-        #expect(group.messages.suffix(4).map(\.id) == [original.id, steerB.id, unrelated.id, second.id])
+        #expect(group.messages.suffix(5).map(\.id) == [original.id, steerB.id, otherQuestion.id, unrelated.id, second.id])
         #expect(store.send(text: "Question C", to: group))
         let steerC = try #require(group.messages.last)
         try await waitUntil { steerC.metadata[SteerKey.steer] == "delivered" }
-        await backend.emit(.replace("First.\n\nSecond."), .status(TurnErrorCopy.reconnecting))
+        await backend.emit(.replace("First.\n\nSecond."), .replace("First."), .status(TurnErrorCopy.reconnecting))
         try await waitUntil { store.turn(in: group)?.assistant?.metadata[TurnKey.reconnecting] == "1" }
-        #expect(group.messages.last === steerC && second.isStreaming, "a cumulative replay adds no new row")
-        await backend.emit(.token("Third."), .journal("fixture", [1, 2]), .replace("First.\n\nSecond.Third."), .completed)
+        #expect(group.messages.last === steerC && second.isStreaming && second.content == "Second.", "a cumulative replay adds no new row")
+        await backend.emit(.token("Third."))
+        if !aggregateDraft { await backend.emit(.replace("Second.Third.")) }
+        await backend.emit(.journal("fixture", [1, 2]), .replace("First.\n\nSecond.Third."), .completed)
         await backend.end()
         try await waitUntil { store.isIdle(group) }
-        let expected = ["@Steer question A", "First.", "Question B", "Independent reply", "Second.", "Question C", "Third."]
+        let expected = ["@Steer question A", "First.", "Question B", "@Other independent question", "Independent reply", "Second.", "Question C", "Third."]
         #expect(group.messages.filter { !$0.isSilent }.map(\.content) == expected)
         #expect(group.messages.last?.authorID == bot.id && group.messages.last?.metadata[TurnKey.forUser] == group.messages.first?.id.uuidString)
         let saved = try #require(StoreFile.decode(Data(contentsOf: url)).groups.first)
         #expect(saved.messages.map(\.id) == group.messages.map(\.id) && saved.messages.map(\.content) == expected)
+        #expect(store.send(text: "@Steer next", to: group))
+        try await backend.calls.wait { $0.contains { $0.contains("@Steer next") } }
+        let context = try #require(backend.calls.all.last)
+        #expect(context.contains("@Other independent question") && context.contains("Other: Independent reply"))
+        #expect(!context.contains("Steer: Second.") && !context.contains("Question C"))
+        await backend.emit(.completed); await backend.end()
+        try await waitUntil { store.isIdle(group) }
+    }
+
+    @Test func correctedJournalUpdatesEarlierPartsWithoutRepeatingTheDraft() async throws {
+        let url = temporaryStore(), backend = ScriptedTurnBackend()
+        let (store, bot) = steerStore(backend, url: url)
+        try await startSteerableTurn(store, backend, running: false)
+        #expect(store.send(text: "Question B"))
+        try await waitUntil { bot.messages.last?.metadata[SteerKey.steer] == "delivered" }
+        await backend.emit(.replace("Before.\n\nAnswer B"))
+        try await waitUntil { bot.messages.last?.content == "Answer B" }
+        #expect(bot.messages.map(\.content) == ["go", "Before.", "Question B", "Answer B"])
+        await backend.emit(.journal("fixture", [10, 11]), .replace("Revised first paragraph.\n\nAnswer B"), .completed)
+        await backend.end()
+        try await waitUntil { store.isIdle(bot) }
+        let expected = ["go", "Revised first paragraph.", "Question B", "Answer B"]
+        #expect(bot.messages.map(\.content) == expected)
+        let saved = try #require(StoreFile.decode(Data(contentsOf: url)).bots.first)
+        #expect(saved.messages.map(\.content) == expected && saved.messages[1].metadata["herdrJournal"] == "fixture:10 fixture:11")
+    }
+
+    @Test func lateReceiptAndOneCharacterFinalEditKeepOneReply() async throws {
+        let backend = ScriptedTurnBackend()
+        let (store, bot) = steerStore(backend)
+        #expect(store.send(text: "A"))
+        try await waitUntil { store.canSteer(in: bot) }
+        await backend.holdSteers()
+        #expect(store.send(text: "B"))
+        try await backend.calls.wait { $0.contains("steer-held:B") }
+        await backend.emit(.replace("Already visible"))
+        try await waitUntil { bot.messages[1].content == "Already visible" }
+        await backend.releaseSteers()
+        try await waitUntil { bot.messages.last?.metadata[SteerKey.steer] == "delivered" }
+        await backend.emit(.replace("Already visible."), .journal("fixture", [10]), .replace("Already visible."), .completed)
+        await backend.end()
+        try await waitUntil { store.isIdle(bot) }
+        #expect(bot.messages.map(\.content) == ["A", "Already visible.", "B"])
+        #expect(bot.messages[1].metadata["herdrJournal"] == "fixture:10")
+    }
+
+    @Test(arguments: [true, false]) func completedTurnDeliversFencedMessageExactlyOnce(steerInsideBlock: Bool) async throws {
+        let backend = ScriptedTurnBackend()
+        let (store, bot) = steerStore(backend)
+        let peer = Bot(name: "Peer", backend: .herdr)
+        store.bots.append(peer)
+        let opening = "```swarmhub\n" + #"{"op":"message_bot","to":"Peer","message":"#
+        let closing = #""Please check."}"# + "\n```\n"
+        let block = opening + closing
+        let draft = steerInsideBlock ? opening : block
+        #expect(store.send(text: "A"))
+        try await waitUntil { store.canSteer(in: bot) }
+        await backend.emit(.token(draft))
+        try await waitUntil { bot.messages[1].content == draft }
+        #expect(store.send(text: "B"))
+        try await waitUntil { bot.messages.last?.metadata[SteerKey.steer] == "delivered" }
+        await backend.emit(.token((steerInsideBlock ? closing : "") + "Answer B."), .completed)
+        await backend.end(stream: 1)
+        let delivery = "send:" + HerdrBotRelay.message(from: bot.name, "Please check.")
+        try await backend.calls.wait { $0.contains(delivery) }
+        #expect(backend.calls.all == ["send:A", "steer:B", delivery])
+        #expect(bot.messages.filter { $0.role != .system }.map(\.content) == ["A", block, "B", "Answer B."])
+        #expect(peer.messages.filter { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.message }.count == 1)
+        await backend.emit(.failed("Fixture ended"), stream: 2); await backend.end(stream: 2)
+        try await waitUntil { store.isIdle(peer) }
+    }
+
+    @Test func reopenedMultipartReplyOffersItsStructuredRequestsOnce() throws {
+        let url = temporaryStore()
+        let (store, bot) = steerStore(ScriptedTurnBackend(), url: url)
+        store.setCanManageBots(bot, true)
+        let trigger = ChatMessage(role: .user, content: "Propose changes")
+        let block = """
+        ```swarmhub
+        [{"op":"create_bot","name":"Scout"},{"op":"set_model","bots":"all","model":"fixture"},
+        """
+        bot.messages = [
+            trigger,
+            ChatMessage(role: .assistant, content: block, metadata: [TurnKey.forUser: trigger.id.uuidString, TurnKey.part: "1"], turnState: .finished),
+            ChatMessage(role: .user, content: "Continue", metadata: [SteerKey.steer: "delivered"]),
+            ChatMessage(role: .assistant, content: "\n" + #"{"op":"about_you","add":"Uses metric."}]"# + "\n```",
+                        metadata: [TurnKey.forUser: trigger.id.uuidString, TurnKey.part: "2"], turnState: .finished)
+        ]
+        store.save()
+        let reopened = AppStore(storeURL: url, autoStart: false, keyStore: store.keyStore, defaults: store.defaults)
+        let main = try #require(reopened.bots.first)
+        let requests = reopened.pendingHerdrBots(for: main)
+        #expect(requests.map(\.request.name) == ["Scout"])
+        #expect(reopened.pendingHerdrModels(for: main).map(\.request.model) == ["fixture"])
+        #expect(reopened.pendingAboutYou(for: main).map(\.text) == ["Uses metric."])
+        reopened.dismissHerdrBot(try #require(requests.first))
+        #expect(reopened.pendingHerdrBots(for: main).isEmpty)
     }
 
     @Test func oldStoreRepairsTaggedImportsAndPreservesAmbiguousLocalReplies() throws {
