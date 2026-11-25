@@ -5,6 +5,8 @@ struct ContentView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.controlActiveState) private var windowActivity
+    @State private var readingWindow = UUID()
     @State private var pendingCommand: AppCommand?
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private var hasCompetingVaultSheet: Bool {
@@ -57,7 +59,11 @@ struct ContentView: View {
             if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.dismissError() } }
         }
         .environment(\.timeZone, store.personDisplayZone)
-         .task { if store.storeRestoreOffer == nil { continueLaunch() } }
+        .onChange(of: windowActivity, initial: true) { _, activity in
+            store.workspaceFocusChanged(readingWindow, focused: activity == .key)
+        }
+        .onDisappear { store.workspaceFocusChanged(readingWindow, focused: false) }
+        .task { if store.storeRestoreOffer == nil { continueLaunch() } }
         .onChange(of: store.storeRestoreOffer) { _, offer in
             if offer == nil { continueLaunch() }
         }

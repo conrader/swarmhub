@@ -403,6 +403,84 @@ def steer_reopen(source_app):
         print("Verified reply order, unread badges for pinned and unpinned chats, helper navigation and offline relaunch.")
 
 
+def window_unread(source_app):
+    from AppKit import NSRunningApplication
+    import Quartz
+
+    with private_workspace(source_app) as (app, home, store):
+        bot = dict(id=str(uuid.uuid4()), name="WindowQA", backend="Mock")
+        group = dict(id=str(uuid.uuid4()), name="Window team", memberIDs=[bot["id"]])
+        store.write_text(json.dumps(dict(version=2, bots=[bot], groups=[group])))
+
+        with open_workspace(app, home) as window:
+            pid = ax.AXUIElementGetPid(window, None)[1]
+            running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+            application = attribute(window, "AXParent")
+            finder = next(iter(NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.finder")), None)
+            for state in ("minimized", "hidden", "another app is active", "Settings is open", "Search is open"):
+                for name, collection in ((bot["name"], "bots"), (group["name"], "groups")):
+                    press(window, name, sidebar=True)
+                    def snapshot():
+                        return json.loads(store.read_text())[collection][0]
+
+                    previous = len(snapshot().get("messages", []))
+                    field = next(e for e in descendants(window)
+                                 if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
+                    if ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
+                        raise RuntimeError("Could not focus the composer")
+                    text = f"Reply while {state}."
+                    for down in (True, False):
+                        event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+                        Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
+                        Quartz.CGEventPostToPid(pid, event)
+                    wait_for("enabled send control", lambda: any(label(b) == "Send message" and attribute(b, "AXEnabled") for b in buttons(window)))
+                    press(window, "Send message")
+                    if state == "minimized":
+                        if ax.AXUIElementSetAttributeValue(window, "AXMinimized", True) != 0:
+                            raise RuntimeError("Could not minimize the workspace")
+                        wait_for("workspace minimized", lambda: attribute(window, "AXMinimized"))
+                    elif state == "hidden":
+                        if ax.AXUIElementSetAttributeValue(application, "AXHidden", True) != 0:
+                            raise RuntimeError("Could not hide the workspace app")
+                        wait_for("app hidden", lambda: attribute(application, "AXHidden"))
+                    elif state == "another app is active":
+                        if finder is None or not finder.activateWithOptions_(3):
+                            raise RuntimeError("Could not switch to Finder")
+                        wait_for("Finder in front", lambda: not attribute(application, "AXFrontmost"))
+                    elif state == "Search is open":
+                        press(window, "Search")
+                        def sheet():
+                            return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
+                        wait_for("Search sheet", sheet)
+                    else:
+                        press(window, "Settings")
+                        def other_window():
+                            return next((w for w in attribute(application, "AXWindows") or []
+                                         if w != window and attribute(w, "AXMain")), None)
+                        wait_for("Settings in front", other_window)
+                    def finished():
+                        return any(m.get("turnState") == "finished" for m in snapshot().get("messages", [])[previous:])
+
+                    wait_for(f"{name} reply saved while {state}", finished)
+                    if snapshot().get("unreadCount", 0) != 1:
+                        raise RuntimeError(f"{name} reply finished while {state}, unread count {snapshot().get('unreadCount', 0)}")
+                    if state == "minimized":
+                        ax.AXUIElementSetAttributeValue(window, "AXMinimized", False)
+                    elif state == "hidden":
+                        ax.AXUIElementSetAttributeValue(application, "AXHidden", False)
+                    elif state == "Search is open":
+                        press(sheet(), "Done")
+                    elif state == "Settings is open":
+                        if ax.AXUIElementPerformAction(attribute(other_window(), "AXCloseButton"), "AXPress") != 0:
+                            raise RuntimeError("Could not close Settings")
+                    running.activateWithOptions_(3)
+                    ax.AXUIElementPerformAction(window, "AXRaise")
+                    wait_for("workspace restored", lambda: attribute(application, "AXFrontmost") and attribute(window, "AXMain")
+                             and not attribute(window, "AXMinimized"))
+                    wait_for("chat read on return", lambda: snapshot().get("unreadCount") == 0)
+                    print(f"{name} reply stayed unread while {state} and cleared on return.")
+
+
 def media_reopen(source_app):
     fixture = Path(__file__).resolve().parents[1] / "Fixtures/chat-media"
     files = {"/api/library/files/51/download": "render.png", "/api/library/files/52/download": "clip.mp4"}
@@ -662,6 +740,8 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--steer-reopen":
         steer_reopen(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--window-unread":
+        window_unread(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--message-search":
         message_search(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--media-reopen":
@@ -671,4 +751,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --window-unread) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

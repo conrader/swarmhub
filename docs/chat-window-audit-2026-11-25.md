@@ -148,7 +148,17 @@ With the fix, the third chat kept its draft and keyboard focus. Each completed b
 
 In a separate run with a real Codex session on a second Mac, the driver steered an active command, disconnected the workspace, quit the MacBook app and reopened another bot’s chat offline. The original bot showed an unread badge 4.61 seconds after reconnection. Opening it showed the final answer below the accepted guidance and cleared the badge. The next message received a reply. The workspace recorded two ordinary tasks for the full exercise. [Repeat the sidebar and recovery check](agent-qa.md#use-the-real-mac-window)
 
+## Replies arriving while the selected chat is out of view
+
+A MacBook test sent messages in a private direct chat and group. Minimizing the window, hiding the app or opening Settings before the reply finished left both conversations with zero unread replies. The saved transcript contained each answer.
+
+On the patched app, all ten combinations of direct or group chat and minimized window, hidden app, foreground Finder, Settings or Search passed. Each reply stayed unread until the chat window regained focus. Returning to that window cleared the mark without requiring another click on the conversation. [Repeat the window check](agent-qa.md#use-the-real-mac-window)
+
+In a separate real Codex run on a second Mac, the driver steered a running command, disconnected the workspace, quit the MacBook app and reopened it offline. It kept the same chat selected and minimized its window. The finished answer was saved and marked unread 4.30 seconds after the forward was restored. Bringing the window back cleared the count and showed the answer underneath the guidance. The next message also received its answer. The server journal recorded two ordinary requests and two final replies.
+
 ## Product comparison and remaining checks
+
+- Opening **Threads** in OpenBot’s interactive preview showed three counts for **Needs you**, **Working** and **Waiting**, with a task title and status for each example. A cross-bot view of completed work and decisions would help SwarmHub users who currently check individual conversations. This comparison used the preview’s sample tasks. [OpenBot preview](https://openbot.run/app-preview)
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)

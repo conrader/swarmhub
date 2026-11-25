@@ -49,8 +49,33 @@ extension AppStore {
 
     func markUnread(_ bot: Bot) { bot.manualUnread = true; objectWillChange.send(); save() }
 
+    private var workspaceIsFrontmost: Bool {
+        focusedWorkspaceWindows.map { !$0.isEmpty } ?? !launchWorkEnabled
+    }
+
+    func workspaceFocusChanged(_ id: UUID, focused: Bool) {
+        if focusedWorkspaceWindows == nil { focusedWorkspaceWindows = [] }
+        if !focused {
+            focusedWorkspaceWindows?.remove(id)
+            return
+        }
+        guard focusedWorkspaceWindows?.insert(id).inserted == true else { return }
+        // Refocusing reads arriving replies but preserves a deliberate Mark Unread.
+        if let group = selectedGroup, group.unreadCount > 0 {
+            group.unreadCount = 0
+            save()
+        } else if let bot = selectedBot, showsDirectChat(bot), bot.unreadCount > 0 {
+            bot.unreadCount = 0
+            save()
+        }
+    }
+
+    func showsGroupChat(_ group: GroupChat) -> Bool {
+        workspaceIsFrontmost && selectedGroup?.id == group.id
+    }
+
     func showsDirectChat(_ bot: Bot) -> Bool {
-        selectedBot?.id == bot.id && selectedGroup == nil && openHerdrHelper?.botID != bot.id
+        workspaceIsFrontmost && selectedBot?.id == bot.id && selectedGroup == nil && openHerdrHelper?.botID != bot.id
     }
 
     /// Selecting a chat clears both the automatic unread count and the manual flag.
