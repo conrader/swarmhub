@@ -204,9 +204,9 @@ extension AppStore {
         backend.handoff = grokHandoffSource(for: bot) ?? herdrCarrySource(for: bot)
         if launchWorkEnabled && !bot.isDemo && !bot.isReadOnlyArchive {
             let server = herdrServer(for: bot), template = herdrTemplate(for: bot), model = herdrModel(for: bot)
-            backend.prepareDirect = { [weak self, weak bot] in
+            backend.prepareDirect = { [weak self, weak bot] workspace in
                 guard let self, let bot else { throw CancellationError() }
-                return try await self.prepareDirectModel(bot: bot, server: server, template: template, model: model)
+                return try await self.prepareDirectModel(bot: bot, server: server, template: template, model: model, in: workspace)
             }
         }
         backend.steers = herdrSteers(bot)

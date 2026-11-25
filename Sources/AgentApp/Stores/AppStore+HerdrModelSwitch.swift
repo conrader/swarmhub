@@ -45,7 +45,7 @@ extension AppStore {
 
     /// Called inside the direct turn, after an outstanding warm start and before either history or user input.
     /// Reconcile the live session as well as newly changed choices: older app versions only saved the preference.
-    func prepareDirectModel(bot: Bot, server: HerdrServer, template: String?, model: String) async throws -> [HerdrHandoffSource] {
+    func prepareDirectModel(bot: Bot, server: HerdrServer, template: String?, model: String, in current: HerdrClient.Workspace) async throws -> [HerdrHandoffSource] {
         func checkChoice() throws {
             try Task.checkCancellation()
             guard server == herdrServer(for: bot), template == herdrTemplate(for: bot), model == herdrModel(for: bot) else {
@@ -60,7 +60,6 @@ extension AppStore {
         let client = try herdrClient(for: server)
         let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
         do {
-            let current = try await client.workspace()
             if let agent = client.liveAgent(named: name, in: current) {
                 let staleAuto = agent.autoRestartPending == true && current.program(of: agent) == "Codex"
                 if !pending && !staleAuto && template == nil && model.isEmpty {

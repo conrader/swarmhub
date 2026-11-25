@@ -1,8 +1,15 @@
 # SwarmHub 0.8.16 isolated candidate
 
-The candidate ref is `refs/heads/candidate/verify-final`. The incremental bundle starts at `816b9f3578b54e41d7fbfb7651170fb7854a944a`. The companion `final.sha` identifies the bundled commit. Native verification remains open.
+The post-review candidate is on `candidate/v0816-postreview`, based on the native findings commit `b5664340` and release fixes `093dbd1f`. The earlier `candidate/verify-final` bundle starts at `816b9f3578b54e41d7fbfb7651170fb7854a944a`.
 
-## Final review on `cde33491`
+## Post-review checks
+
+- Direct sends wait for the same Core and agent session before passing its roster to model preparation. Rollover still rereads the launch and checks helpers and approvals before replacing it. Delivery reads the roster again after any handoff. The new Swift test `pendingModelSwitchWaitsForIdleAfterTheReplyIsSaved` seeds a saved reply, holds the previous session in `working`, and checks the pending choice, Stop target and steering availability. Releasing the session must produce one end, one handoff containing that reply and one follow-up.
+- Workspace 0.2.0 / API 1 (`7feafcf9`) and 0.2.12 / API 2 (`11aa5f26`) both accept `expected_core` on plain messages. An offline Rust check compiled each revision’s strict `Message` and `ReplyTarget` declarations, decoded `{"text":"Follow up","expected_core":"c"}` and verified that adding the newer `turn_reference` field is rejected. Both plain-message handlers check the supplied Core ID. Git line history traces the message schema at 0.2.12 to `f5240a85`. The existing client encoding is compatible.
+- On Linux, all eight tests in `scripts/test_workspace_manifest.py` passed, as did `git diff --check`. This host has no Swift toolchain. On mini-m4, run `swift build`, `swift test --filter pendingModelSwitchWaitsForIdleAfterTheReplyIsSaved` and the full Swift suite, including the inherited draft, Grok handoff, helper rollover, detached ingestion and terminal viewport regressions.
+- Live verification remains open for plain sends on 0.2.12 and API 1, real Claude and Codex queued follow-ups, Stop during the idle wait, approval handling and API-3 Codex steering with a clean journal. The candidate also awaits native Rust and Python suites, the legacy SSH forward, detached integration capture and the 0.2.12 → 0.2.13 update and rollback rehearsal.
+
+## Release fixes on `093dbd1f` following review of `cde33491`
 
 - App 0.8.16 is build 50. Workspace 0.2.13 reports API level 3 and serves app levels back to 1. The app still accepts workspace API level 1 and later compatible levels.
 - Ordinary follow-ups wait in the message queue when live steering is unavailable. A refused steer offers **Send as next message** on its existing row. An uncertain steer stays visible for review. New turns wait up to five minutes for the same busy workspace session before reading the history cursor and posting. A changed session or an expired wait leaves the message unsent.

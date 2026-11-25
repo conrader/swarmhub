@@ -120,6 +120,38 @@ import Testing
     #expect(bot.messages.contains { $0.content == "Friday." })
 }
 
+@Test @MainActor func pendingModelSwitchWaitsForIdleAfterTheReplyIsSaved() async throws {
+    let bridge = HandoffBridge()
+    bridge.agentState = "idle"
+    let (store, bot) = try handoffStore(bridge)
+    bot.messages = [ChatMessage(role: .user, content: "Check the build"), ChatMessage(role: .assistant, content: "Build passed.")]
+    store.setHerdrTemplate("tpl-one", for: bot)
+    store.launchWorkEnabled = true
+    var backend = try store.herdrBackend(for: bot)
+    backend.coordinate = nil
+    bridge.seed(agent: backend.agentName, template: "old-provider", rows: [("task", "Check the build"), ("reply", "Build passed.")])
+    bridge.setState("working", for: backend.agentName)
+
+    let session = bot.id.uuidString
+    let stream = try await backend.send(.init(sessionID: session, systemPrompt: "", messages: [("user", "Run the tests")]))
+    var waited = false
+    for try await event in stream {
+        if case .status(let code) = event, code == HerdrTurnStatus.waitingForIdle.code {
+            waited = true
+            #expect(store.modelSwitchPending(bot) && bridge.sent.isEmpty)
+            #expect(try await backend.stopTarget(sessionID: session) == .noActiveRun)
+            #expect(try await backend.features().isEmpty)
+            bridge.setState("idle", for: backend.agentName)
+        }
+    }
+
+    #expect(waited && !store.modelSwitchPending(bot))
+    let posts = bridge.sent
+    #expect(posts.map(\.route) == ["end", "launch-with-files", "message"])
+    #expect(posts.first { $0.route == "launch-with-files" }?.files["conversation-so-far.md"]?.contains("Build passed.") == true)
+    #expect(posts.last?.text.hasSuffix("Run the tests") == true)
+}
+
 @Test @MainActor func startingFreshOrForgettingABotClearsPendingModelSwitchAndCarryOver() async throws {
     let bridge = HandoffBridge()
     let (store, bot) = try handoffStore(bridge)
@@ -132,7 +164,9 @@ import Testing
     store.setHerdrCarryOver(nil, for: bot)
     store.clearModelSwitch(bot.id)
     let server = store.herdrServer(for: bot)
-    let sources = try await store.prepareDirectModel(bot: bot, server: server, template: store.herdrTemplate(for: bot), model: store.herdrModel(for: bot))
+    let workspace = try await store.herdrClient(for: server).workspace()
+    let sources = try await store.prepareDirectModel(bot: bot, server: server, template: store.herdrTemplate(for: bot),
+                                                     model: store.herdrModel(for: bot), in: workspace)
     #expect(sources.isEmpty && store.herdrCarryOver(for: bot) == nil && !store.modelSwitchPending(bot))
 
     // Deleting/forgetting a bot removes its model-switch and confirmation defaults too.

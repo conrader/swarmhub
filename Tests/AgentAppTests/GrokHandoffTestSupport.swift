@@ -74,6 +74,14 @@ final class HandoffBridge: @unchecked Sendable {
     }
     var liveNames: [String] { lock.withLock { agents.compactMap { $0["name"] as? String } } }
 
+    func setState(_ state: String, for name: String) {
+        lock.withLock {
+            if let index = agents.firstIndex(where: { $0["name"] as? String == name }) {
+                agents[index]["status"] = ["state": state]
+            }
+        }
+    }
+
     func client() -> HerdrClient {
         let (host, session) = MockHTTPProtocol.serve { [self] in answer($0) }
         var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
@@ -225,6 +233,7 @@ final class HandoffBridge: @unchecked Sendable {
     store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Test", kind: .address, address: client.baseURL.absoluteString), token: "t")
     store.herdrClientSetup = { made in
         made.session = client.session; made.following = .polling; made.pollInterval = client.pollInterval; made.agentCheckInterval = client.agentCheckInterval
+        made.busyWaitLimit = client.busyWaitLimit
     }
     let bot = Bot(id: botID, name: "Ada", backend: .herdr)
     store.bots = [bot]; store.selectedBot = bot

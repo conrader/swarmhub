@@ -280,8 +280,10 @@ private final class ModelBridge: @unchecked Sendable {
 
     store.endTurn(turn.token)
     bridge.finish(name(remote))
+    let client = try store.herdrClient(for: server)
     for bot in [infra, remote] {
-        let sources = try await store.prepareDirectModel(bot: bot, server: server, template: store.herdrTemplate(for: bot), model: store.herdrModel(for: bot))
+        let sources = try await store.prepareDirectModel(bot: bot, server: server, template: store.herdrTemplate(for: bot),
+                                                         model: store.herdrModel(for: bot), in: client.workspace())
         #expect(sources.count == 1 && bridge.ended.contains(name(bot)) && !store.modelSwitchPending(bot))
     }
     store.doneWithHerdrModels(record)
@@ -312,15 +314,16 @@ private final class ModelBridge: @unchecked Sendable {
         #expect([jarvis, legal].allSatisfy { store.modelSwitchPending($0) && store.herdrCarryOver(for: $0)?.old != nil })
         #expect([jarvis, legal].allSatisfy { store.herdrModel(for: $0) == "gpt-6.2-sol" })
 
+        let client = try store.herdrClient(for: server)
         for bot in [jarvis, legal] {
             await #expect(throws: HerdrClient.Failure.notDelivered("The existing session is busy. The saved choice will apply at a safe launch.")) {
-                _ = try await store.prepareDirectModel(bot: bot, server: server, template: codex.name, model: "gpt-6.2-sol")
+                _ = try await store.prepareDirectModel(bot: bot, server: server, template: codex.name, model: "gpt-6.2-sol", in: client.workspace())
             }
             #expect(store.modelSwitchPending(bot) && store.herdrCarryOver(for: bot)?.old != nil)
         }
         #expect(bridge.ended == [infraName])
         bridge.stop("Working helper")
-        let sources = try await store.prepareDirectModel(bot: jarvis, server: server, template: codex.name, model: "gpt-6.2-sol")
+        let sources = try await store.prepareDirectModel(bot: jarvis, server: server, template: codex.name, model: "gpt-6.2-sol", in: client.workspace())
         #expect(sources.count == 1)
         #expect(bridge.ended == [infraName, jarvisName])
         #expect(!store.modelSwitchPending(jarvis))
