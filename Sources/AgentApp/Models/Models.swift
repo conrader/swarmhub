@@ -67,8 +67,12 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     let id: UUID; let role: MessageRole; @Published var content: String; let createdAt: Date
     /// First output after a delivered steer when this row reused an empty placeholder.
     var continuedAt: Date?
-    var transcriptDate: Date { continuedAt ?? TranscriptHistory.placement(self) ?? createdAt }
-    @Published var isStreaming: Bool; var presentation: MessagePresentation; @Published var metadata: [String: String]
+    private(set) var historyPlacement: Date?
+    var transcriptDate: Date { continuedAt ?? historyPlacement ?? createdAt }
+    @Published var isStreaming: Bool; var presentation: MessagePresentation
+    @Published var metadata: [String: String] {
+        didSet { historyPlacement = TranscriptHistory.placement(in: metadata) }
+    }
     @Published var reactions: [String]; var replyToID: UUID?; var attachments: [ChatAttachment]
     /// Group chats: the bot that wrote an assistant message (nil = the user, or a one-bot chat).
     var authorID: UUID?
@@ -83,6 +87,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = [], authorID: UUID? = nil, turnState: TurnState? = nil) {
         self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.isStreaming = isStreaming
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
+        historyPlacement = TranscriptHistory.placement(in: metadata)
         self.turnState = turnState
     }
     enum CodingKeys: CodingKey { case id, role, content, createdAt, continuedAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary, publishedResults, deliveryReceipt }
@@ -93,6 +98,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         continuedAt = try c.decodeIfPresent(Date.self, forKey: .continuedAt)
         presentation = try c.decodeIfPresent(MessagePresentation.self, forKey: .presentation) ?? .text
         metadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+        historyPlacement = TranscriptHistory.placement(in: metadata)
         reactions = try c.decodeIfPresent([String].self, forKey: .reactions) ?? []
         replyToID = try c.decodeIfPresent(UUID.self, forKey: .replyToID)
         attachments = try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []

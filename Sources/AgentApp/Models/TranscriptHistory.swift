@@ -4,8 +4,8 @@ enum TranscriptHistory {
     /// The saved position of new imports (and legacy imports after their one-time merge) is authoritative.
     private static let placed = "herdrHistoryPlaced"
 
-    static func placement(_ row: ChatMessage) -> Date? {
-        guard let value = row.metadata[placed], let seconds = Double(value) else { return nil }
+    static func placement(in metadata: [String: String]) -> Date? {
+        guard let value = metadata[placed], let seconds = Double(value) else { return nil }
         return Date(timeIntervalSince1970: seconds)
     }
 
@@ -50,7 +50,7 @@ enum TranscriptHistory {
                     index = i
                     // A delayed page can contain genuine older history. Measure its age
                     // against a known server entry, whose placement is on the Mac clock.
-                    if let anchor = placement(saved) {
+                    if let anchor = saved.historyPlacement {
                         date = anchor.addingTimeInterval(min(0, row.createdAt.timeIntervalSince(saved.createdAt)))
                         index = rows[afterEarlierEntry..<i].firstIndex {
                             $0.transcriptDate > date
