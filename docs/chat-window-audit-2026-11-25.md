@@ -114,6 +114,14 @@ In a separate Sparkle rehearsal, the executable from the public 0.8.16 build 50 
 
 The public feed offered app 0.8.16 build 50 and workspace 0.2.13. The verifier checked the app signature with the installed app’s trusted key and downloaded all three workspace programs to check them against their signed manifest. Giving it the staged 0.2.14 manifest correctly failed. Release preparation previously treated a network error as an absent workspace feed, which could drop these programs from an app-only release. Preparation now stops on an unreadable feed and on a missing signature for an existing manifest.
 
+## Finding a saved message from the sidebar
+
+In a private native Mac chat, the driver opened a group and confirmed that “Review the competitor brief” was visible in its transcript. In sidebar **Search**, entering the name of the fixture bot returned that bot. Entering “competitor brief” returned an empty list. The sheet offered only **Done**. The switcher currently searches bot names, group names and actions. A user trying to recover an older message cannot find it this way.
+
+In OpenBot’s interactive preview, the driver opened **Search OpenBot** and entered the same phrase. The list included one message from Atlas, highlighted the matching words and showed the surrounding text and time. [OpenBot preview](https://openbot.run/app-preview)
+
+A SwarmHub improvement would let people select a matching message and open its position in the saved transcript. A regression check should include a message outside the initially rendered history window.
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
