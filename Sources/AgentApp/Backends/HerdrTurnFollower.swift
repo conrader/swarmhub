@@ -110,6 +110,17 @@ struct HerdrTurnFollower: Sendable {
     // MARK: What it means
 
     var replyIDs: [Int] { replies.map(\.id) }
+    var replyModel: (String, RunSummary.ModelSource)? {
+        let items = replies
+        guard items.contains(where: { $0.codexModel != nil }) else { return nil }
+        var names: [String] = []
+        for item in items {
+            let name = item.codexModel ?? "Unreported"
+            if !names.contains(name) { names.append(name) }
+        }
+        guard names.count == 1 else { return (names.joined(separator: ", "), .combined) }
+        return (names[0], items.allSatisfy { $0.codexRerouted == true } ? .rerouted : .configured)
+    }
     private var replies: [HerdrClient.Item] { rows.values.filter { $0.kind == "reply" }.sorted { $0.id < $1.id } }
     private var answered: String { replies.map(\.text).joined(separator: "\n\n") }
 

@@ -299,7 +299,8 @@ function renderState() {
   $("agent-runtime").textContent = config?.runtime?.harness || (hasSelection ? "Not recorded" : "—");
   $("agent-provider").textContent = config?.runtime?.provider || (hasSelection ? "Not specified" : "—");
   $("agent-model").textContent = config?.runtime?.model || (hasSelection ? "Not specified" : "—");
-  $("agent-model").title = config?.runtime?.model_id || "";
+  if (agent?.codex_session_model) $("agent-model").textContent = agent.codex_session_model;
+  $("agent-model").title = agent?.codex_session_model || config?.runtime?.model_id || "";
   const usage = agent?.session_usage;
   $("usage-heading").hidden = $("agent-usage").hidden = !usage;
   if (usage) {
@@ -602,6 +603,11 @@ function historyRow(entry, canRemember = false, imported = false, path = null, o
     : page ? "Page" : artifact ? "Generated file" : attachment ? "Attached file" : deliveryLabel[entry.state] || entry.state;
     const time = document.createElement("time");
     meta.append(heading);
+    if (reply && entry.codex_model) {
+      const model = document.createElement("span");
+      model.textContent = (entry.codex_rerouted ? "Routed to " : "Session setting · ") + entry.codex_model;
+      meta.append(model);
+    }
     if (!imported || entry.at_ms > 0) {
       time.dateTime = new Date(entry.at_ms).toISOString();
       time.textContent = displayDate(entry.at_ms);

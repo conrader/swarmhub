@@ -307,6 +307,12 @@ extension AppStore {
             let direct = workspace.flatMap { client?.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: $0) }
             if let workspace, previousPresence[bot.id] == herdrAgentPresence[bot.id] {
                 presence[bot.id] = HerdrAgentPresence(server: server, agent: direct)
+                if let direct, var reading = herdrAgentReadings[bot.id], reading.session == direct.ref,
+                   reading.core == workspace.core, reading.codexSessionModel != direct.codexSessionModel {
+                    reading.codexSessionModel = direct.codexSessionModel
+                    herdrReadingUpdated[bot.id] = .now
+                    herdrAgentReadings[bot.id] = reading
+                }
                 readiness[bot.id] = .some(HerdrAgentReadiness(direct, in: workspace))
             }
             let names = groupHelperParents(of: bot)

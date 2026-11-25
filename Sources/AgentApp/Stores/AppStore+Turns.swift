@@ -178,7 +178,9 @@ extension AppStore {
                     save()
                 }
             case .journal(let server, let ids): finalJournal = ids.map { "\(server):\($0)" }.joined(separator: " ")
-            case .sessionModel(let name, let source): sessionModel = (name, source)
+            case .sessionModel(let name, let source):
+                // A slower launch-profile read may finish after the reply with turn-specific evidence.
+                if source.describesReply || sessionModel?.source.describesReply != true { sessionModel = (name, source) }
             case .published(let server, let result):
                 var saved = row.publishedResults ?? HerdrReplyResults(serverID: server, items: [])
                 if !saved.items.contains(where: { $0.id == result.id }) {

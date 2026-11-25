@@ -17,7 +17,7 @@ import Testing
             }
             if request.url?.query == "before=10" {
                 return (200, ["items": [["id": 7, "kind": "task", "text": "first"], ["id": 8, "kind": "artifact", "detail": "view.png"],
-                                        ["id": 9, "kind": "reply", "text": "finished"]]])
+                                        ["id": 9, "kind": "reply", "text": "finished", "codex_model": "model-z", "codex_rerouted": true]]])
             }
             return (200, ["before": 10, "items": [["id": 10, "kind": "task", "text": "other"],
                                                   ["id": 11, "kind": "reply", "text": "wrong answer"]]])
@@ -49,6 +49,7 @@ import Testing
         #expect(disk.unreadCount == 1)
         #expect(disk.messages.map(\.id) == bot.messages.map(\.id))
         let result = try #require(disk.messages.first { $0.id == row.id })
+        #expect(result.runSummary?.line == "Routed to model-z")
         #expect(result.content == "finished" && result.turnState == .finished && result.deliveryReceipt == nil)
         #expect(result.metadata["herdrJournal"] == "\(receipt.server):9")
         #expect(result.publishedResults?.items.map(\.title) == ["view.png"])

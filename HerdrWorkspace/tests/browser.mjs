@@ -2307,6 +2307,13 @@ try {
     await evaluate('document.getElementById("library-close").click(); document.getElementById("details-toggle").click()');
     await check('!document.getElementById("results-folder-detail").hidden && document.getElementById("results-folder-path").textContent.includes("/workspace/results/")');
     console.log("Chrome automatic result collection passed.");
+  } else if (focus === "codex-model") {
+    const row = '[...document.querySelectorAll("#agents button")].find(b => b.querySelector("strong")?.textContent === "model-qa")';
+    await check(`!!${row}`);
+    await evaluate(`${row}.click()`);
+    await check('document.getElementById("agent-model").textContent === "model-a"');
+    await check('[...document.querySelectorAll(".reply-item")].some(row => row.textContent.includes("Reply first") && row.textContent.includes("Session setting · model-a"))');
+    await check('[...document.querySelectorAll(".reply-item")].some(row => row.textContent.includes("Reply second") && row.textContent.includes("Routed to model-b"))');
   } else if (focus === "opencode-usage") {
     const row = '[...document.querySelectorAll("#agents button")].find(b => b.querySelector("strong")?.textContent === "cost-qa")';
     await check(`!!${row}`);

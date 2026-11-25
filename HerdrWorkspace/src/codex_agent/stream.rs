@@ -384,9 +384,10 @@ pub async fn run() -> Result<(), Failed> {
                 let requests = match message {
                     Some(text) => {
                         let requests = follower.heard(&text);
-                        if let Some(change) = follower.usage.take()
-                            && let Err(error) = change.save(&journal, &feed.key) {
-                            note(&format!("Could not save Codex session usage: {error}"));
+                        for change in [follower.usage.take(), follower.model_change.take()].into_iter().flatten() {
+                            if let Err(error) = change.save(&journal, &feed.key) {
+                                note(&format!("Could not save Codex session telemetry: {error}"));
+                            }
                         }
                         if let Some(command) = follower.command.take() {
                             feed.show_command(&command).await;
@@ -588,6 +589,8 @@ struct Follower {
     launch_key: String,
     command: Option<crate::tool_activity::Frame>,
     usage: Option<usage::Change>,
+    model_change: Option<usage::Change>,
+    models: HashMap<String, String>,
     last_id: u64,
     sandbox: Option<&'static str>,
     policy: Option<&'static str>,
@@ -624,6 +627,8 @@ struct Heard {
 pub(crate) struct LaunchStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     session_usage: Option<usage::SessionUsage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    codex_session_model: Option<String>,
     auto_restart_pending: bool,
     codex_sandbox: Option<String>,
     codex_policy: Option<String>,
@@ -638,11 +643,12 @@ pub(crate) fn launch_status(history: &crate::history::History, key: Option<&str>
     db.query_row(
         "SELECT coalesce(launch_auto != ?2,
                     ?2 OR coalesce(at_ms < ?3, 0)),
-                codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage
+                codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage,codex_session_model
          FROM journal WHERE launch_key=?1",
         rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms], |row| Ok(LaunchStatus {
             session_usage: row.get::<_, Option<String>>(5)?.and_then(|value| serde_json::from_str(&value).ok()),
             auto_restart_pending: row.get(0)?,
+            codex_session_model: row.get(6)?,
             codex_sandbox: row.get(1)?,
             codex_policy: row.get(2)?,
             codex_reviewer: row.get(3)?,
@@ -659,6 +665,10 @@ fn save_review(journal: &Path, key: &str, reviewer: Option<&str>, event: Option<
             codex_policy=coalesce(?5,codex_policy) WHERE launch_key=?1",
             rusqlite::params![key,reviewer,event,sandbox,policy]);
     }
+}
+
+fn model_id(value: &Value) -> Option<&str> {
+    value.as_str().filter(|id| crate::runtimes::ModelAgent::Codex.accepts(id))
 }
 
 fn other_conversation(thread: &Value) -> bool {
@@ -702,6 +712,18 @@ impl Follower {
             self.last_id,
             json!({"id":self.last_id,"method":method,"params":params}),
         )
+    }
+
+    fn configured(&mut self, thread: &str, value: Option<&str>) {
+        if let Some(model) = value {
+            if self.models.len() >= REMEMBERED && !self.models.contains_key(thread) { self.models.clear(); }
+            self.models.insert(thread.to_owned(), model.to_owned());
+            self.model_change = Some(usage::Change::Configured(thread.to_owned(), model.to_owned()));
+        }
+    }
+
+    fn activate(&mut self, thread: &str) {
+        self.usage = Some(usage::Change::Start(thread.to_owned(), self.models.get(thread).cloned()));
     }
 
     fn join(&mut self, thread: &str, tries: u8) -> Vec<Value> {
@@ -775,7 +797,26 @@ impl Follower {
         }
         let params = message.params;
         let thread = params["threadId"].as_str().unwrap_or_default();
+        // Never infer a turn's execution model from the launch arguments. The protocol supplies
+        // a thread setting, and occasionally an explicit reroute that applies to just this turn.
+        if self.joined.contains(thread) {
+            let turn = match method.as_str() {
+                "turn/started" => params["turn"]["id"].as_str(),
+                "item/started" | "item/completed" if params["item"]["type"] == "agentMessage" => params["turnId"].as_str(),
+                "model/rerouted" if model_id(&params["toModel"]).is_some() => params["turnId"].as_str(),
+                _ => None,
+            };
+            if let Some(turn) = turn.filter(|id| super::valid_turn(id)) {
+                self.model_change = Some(usage::Change::Turn {
+                    thread: thread.to_owned(), turn: turn.to_owned(),
+                    rerouted: model_id(&params["toModel"]).filter(|_| method == "model/rerouted").map(str::to_owned),
+                });
+            }
+        }
         match method.as_str() {
+            "thread/settings/updated" if self.joined.contains(thread) => {
+                self.configured(thread, model_id(&params["threadSettings"]["model"]));
+            }
             "item/autoApprovalReview/completed" if self.joined.contains(thread) && params["decisionSource"] == "agent" => {
                 self.review_event = match params["review"]["status"].as_str() {
                     Some("approved") => Some("auto_approved"),
@@ -789,17 +830,19 @@ impl Follower {
                     if other_conversation(&params["thread"]) {
                         self.skip(id);
                     } else {
-                        self.usage = Some(usage::Change::Start(id.to_owned()));
+                        self.configured(id, model_id(&params["thread"]["model"]));
+                        self.activate(id);
                     }
                 }
             }
             "thread/status/changed" if params["status"]["type"] == "active" => {
                 if self.joined.contains(thread) {
-                    self.usage = Some(usage::Change::Start(thread.to_owned()));
+                    self.activate(thread);
                 }
                 return self.join(thread, 0);
             }
             "thread/closed" => {
+                self.models.remove(thread);
                 if self.joined.remove(thread) {
                     self.usage = Some(usage::Change::Close(thread.to_owned()));
                 }
@@ -812,7 +855,7 @@ impl Follower {
                 }
             }
             "turn/started" if self.joined.contains(thread) => {
-                self.usage = Some(usage::Change::Start(thread.to_owned()));
+                self.activate(thread);
                 self.final_by_thread.remove(thread);
                 self.clear(thread);
             }
@@ -976,7 +1019,10 @@ impl Follower {
                     self.final_by_thread.clear();
                 }
                 if result["thread"]["status"]["type"] == "active" {
-                    self.usage = Some(usage::Change::Start(thread.clone()));
+                    self.activate(&thread);
+                }
+                if result["thread"]["id"].as_str() == Some(thread.as_str()) {
+                    self.configured(&thread, model_id(&result["thread"]["model"]).or_else(|| model_id(&result["model"])));
                 }
                 self.joined.insert(thread);
                 Vec::new()
@@ -1088,6 +1134,39 @@ mod tests {
         let none = follower.heard(&json!({"id":id,"result":{"thread":{"id":THREAD,"ephemeral":false,"parentThreadId":null}}}).to_string());
         assert!(none.is_empty() && follower.joined.contains(THREAD));
         follower
+    }
+
+    #[test]
+    fn codex_model_snapshots_survive_settings_changes_and_only_reroute_the_named_reply() {
+        let (_dir, history) = crate::bots::testing::journal(&["Doc"]);
+        let key = crate::bots::testing::session(&history, "Doc", "t1");
+        let mut follower = joined();
+        let mut observe = |method: &str, params: Value| {
+            follower.heard(&note(method, params));
+            for change in [follower.usage.take(), follower.model_change.take()].into_iter().flatten() {
+                change.save(history.file(), &key).unwrap();
+            }
+        };
+        let start = |id: &str| json!({"threadId":THREAD,"turn":{"id":id}});
+        observe("thread/started", json!({"thread":{"id":THREAD,"model":"model-a"}}));
+        observe("turn/started", start("one"));
+        observe("thread/settings/updated", json!({"threadId":THREAD,"threadSettings":{"model":"model-b"}}));
+        observe("item/completed", json!({"threadId":THREAD,"turnId":"one","item":{"type":"agentMessage"}}));
+        observe("model/rerouted", json!({"threadId":"child","turnId":"one","toModel":"foreign"}));
+        observe("turn/started", start("two"));
+        observe("model/rerouted", json!({"threadId":THREAD,"turnId":"two","toModel":"model-c"}));
+        observe("thread/started", json!({"thread":{"id":"child","parentThreadId":THREAD,"model":"model-d"}}));
+        assert_eq!(launch_status(&history, Some(&key)).codex_session_model.as_deref(), Some("model-b"));
+        for turn in ["one", "two", "older"] {
+            super::super::save_reply(history.file(), &key, Some(turn), "Answer").unwrap();
+        }
+        let page = json!(history.page("core", "t1", 42, None).unwrap());
+        let replies: Vec<_> = page["items"].as_array().unwrap().iter().filter(|row| row["kind"]=="reply").collect();
+        assert_eq!((replies[0]["codex_model"].as_str(), replies[0]["codex_rerouted"].as_bool()), (Some("model-a"), Some(false)));
+        assert_eq!((replies[1]["codex_model"].as_str(), replies[1]["codex_rerouted"].as_bool()), (Some("model-c"), Some(true)));
+        assert!(replies[2].get("codex_model").is_none());
+        observe("thread/closed", json!({"threadId":THREAD}));
+        assert!(launch_status(&history, Some(&key)).codex_session_model.is_none());
     }
 
     #[test]

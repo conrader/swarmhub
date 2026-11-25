@@ -33,18 +33,24 @@ enum BotAvatarName: String, Codable, CaseIterable, Identifiable {
 }
 
 struct RunSummary: Codable, Equatable, Sendable {
-    enum ModelSource: String, Codable, Sendable { case launch, confirmation }
+    enum ModelSource: String, Codable, Sendable {
+        case launch, confirmation, configured, rerouted, combined
+        var describesReply: Bool { self == .configured || self == .rerouted || self == .combined }
+    }
     let model: String?
     var modelSource: ModelSource? = nil
-    let seconds: Int
+    let seconds: Int?
     let tools: Int
 
     var line: String {
-        let elapsed = seconds < 1 ? "<1 s" : "\(seconds) s"
+        let elapsed = seconds.map { $0 < 1 ? "<1 s" : "\($0) s" }
         let session = model.map { name in
             switch modelSource {
             case .launch: "Started on \(name)"
             case .confirmation: "Last confirmed · \(name)"
+            case .configured: "Session setting · \(name)"
+            case .rerouted: "Routed to \(name)"
+            case .combined: "Models in replies · \(name)"
             case nil: "Session model · \(name)"
             }
         }

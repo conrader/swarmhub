@@ -73,6 +73,7 @@ struct HerdrClient: Sendable {
         var vaultSessionStale: Bool?
         var autoRestartPending: Bool?
         var sessionUsage: SessionUsage? = nil
+        var codexSessionModel: String? = nil
         var codexSandbox: String?
         var codexPolicy: String?
         var codexReviewer: String?
@@ -163,8 +164,9 @@ struct HerdrClient: Sendable {
         struct Quote: Decodable, Sendable, Equatable { let id: Int }
         var answerTo: Quote?, replyTo: Quote?
         var atMs: Int64?
+        var codexModel: String?, codexRerouted: Bool?
         var pageId: Int?, pageRevision: Int?
-        enum CodingKeys: CodingKey { case id, kind, text, state, detail, pageId, pageRevision, answerTo, replyTo, atMs }
+        enum CodingKeys: CodingKey { case id, kind, text, state, detail, pageId, pageRevision, answerTo, replyTo, atMs, codexModel, codexRerouted }
         init(id: Int, kind: String, text: String, state: String? = nil, detail: String? = nil) { self.id = id; self.kind = kind; self.text = text; self.state = state; self.detail = detail }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -173,6 +175,8 @@ struct HerdrClient: Sendable {
             answerTo = try c.decodeIfPresent(Quote.self, forKey: .answerTo)
             replyTo = try c.decodeIfPresent(Quote.self, forKey: .replyTo)
             atMs = try c.decodeIfPresent(Int64.self, forKey: .atMs)
+            codexModel = try c.decodeIfPresent(String.self, forKey: .codexModel)
+            codexRerouted = try c.decodeIfPresent(Bool.self, forKey: .codexRerouted)
             pageId = try c.decodeIfPresent(Int.self, forKey: .pageId)
             pageRevision = try c.decodeIfPresent(Int.self, forKey: .pageRevision)
             state = try? c.decodeIfPresent(String.self, forKey: .state); detail = try? c.decodeIfPresent(String.self, forKey: .detail)
@@ -720,7 +724,7 @@ struct HerdrClient: Sendable {
 
     func replyWithActivity(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (HerdrTurnStatus) -> Void,
                            tool: @Sendable (ToolCall, Bool) -> Void, partial: @Sendable (String) -> Void,
-                           live: @Sendable (LiveNote) -> Void, published: @Sendable (HerdrPublishedResult) -> Void = { _ in }) async throws -> (text: String, tools: Int, ids: [Int]) {
+                           live: @Sendable (LiveNote) -> Void, published: @Sendable (HerdrPublishedResult) -> Void = { _ in }) async throws -> (text: String, tools: Int, ids: [Int], model: (String, RunSummary.ModelSource)?) {
         var follower = HerdrTurnFollower(after: turn.after, afterTool: turn.afterTool, quietLimit: quietLimit, program: turn.program, starting: turn.starting)
         func emit(_ steps: [HerdrTurnFollower.Step]) {
             for step in steps {
@@ -733,10 +737,10 @@ struct HerdrClient: Sendable {
             }
         }
         defer { live(.following(false)) }
-        if following == .stream, let reply = try await streamedReply(to: turn, follower: &follower, emit: emit, live: live) { return (reply, follower.toolCount, follower.replyIDs) }
+        if following == .stream, let reply = try await streamedReply(to: turn, follower: &follower, emit: emit, live: live) { return (reply, follower.toolCount, follower.replyIDs, follower.replyModel) }
         live(.following(false))
         let reply = try await polledReply(to: turn, follower: &follower, emit: emit)
-        return (reply, follower.toolCount, follower.replyIDs)
+        return (reply, follower.toolCount, follower.replyIDs, follower.replyModel)
     }
 
     /// What a turn tells its bot beside the reply: the agent's helpers as the stream reports them, and whether the

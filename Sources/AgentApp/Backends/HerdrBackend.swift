@@ -315,6 +315,7 @@ struct HerdrBackend: AgentBackend {
                     if let server = backend.serverID, !reply.ids.isEmpty {
                         continuation.yield(.journal(server, reply.ids))
                     }
+                    if let (model, source) = reply.model { continuation.yield(.sessionModel(model, source)) }
                     continuation.yield(.replace(reply.text))
                     continuation.yield(.runActivity(seconds: Int(started.duration(to: .now).components.seconds), tools: reply.tools))
                     continuation.yield(.completed)
