@@ -103,7 +103,12 @@ struct SidebarView: View {
                 }.padding(.leading, 5).padding(.trailing, 14)
                     .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
             }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
-            Spacer()
+            Spacer(minLength: 2)
+            Button { store.showingActivity = true } label: {
+                Label("Activity", systemImage: AppCommand.activity.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(height: SidebarMetrics.roundButton)
+            }.buttonStyle(.plain).help("Workspace activity (\(AppCommand.activity.shortcutText))")
         }.padding(.horizontal, SidebarMetrics.listInset + 4).frame(height: SidebarMetrics.bottomBar)
     }
 

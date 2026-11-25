@@ -9,7 +9,7 @@ enum AgentInfoTab: String, CaseIterable {
 
 /// Menu items, the quick switcher and the shortcut reference share the same actions and bindings.
 enum AppCommand: String, CaseIterable, Identifiable {
-    case settings, newAgent, newGroup, importTemplate, quickSwitcher
+    case settings, newAgent, newGroup, importTemplate, quickSwitcher, activity
     case toggleSidebar, toggleInfo, hiddenChats
     case overview, media, members, model, routines, skills
     case previousChat, nextChat, agentSettings, stopResponse, keyboardShortcuts
@@ -22,6 +22,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .newGroup: "New Group…"
         case .importTemplate: "Import Template…"
         case .quickSwitcher: "Quick Switcher…"
+        case .activity: "Activity"
         case .toggleSidebar: "Show or Hide Sidebar"
         case .toggleInfo: "Show or Hide Details"
         case .hiddenChats: "Show or Hide Hidden Chats"
@@ -45,6 +46,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .newGroup, .members: "person.3"
         case .importTemplate: "square.and.arrow.down"
         case .quickSwitcher: "magnifyingglass"
+        case .activity: "list.bullet.rectangle"
         case .toggleSidebar: "sidebar.left"
         case .toggleInfo, .overview: "info.circle"
         case .hiddenChats: "eye.slash"
@@ -63,7 +65,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .settings, .keyboardShortcuts: "App"
         case .newAgent, .newGroup, .importTemplate: "File"
         case .toggleSidebar, .toggleInfo, .hiddenChats, .overview, .media, .members, .model, .routines, .skills: "View"
-        case .quickSwitcher, .previousChat, .nextChat: "Navigate"
+        case .quickSwitcher, .activity, .previousChat, .nextChat: "Navigate"
         case .agentSettings, .stopResponse: "Chat"
         }
     }
@@ -73,6 +75,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .newAgent, .newGroup: "n"
         case .importTemplate: "o"
         case .quickSwitcher: "k"
+        case .activity: "a"
         case .toggleSidebar: "s"
         case .toggleInfo: "i"
         case .hiddenChats: "h"
@@ -90,7 +93,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
     }
     var modifiers: EventModifiers {
         switch self {
-        case .newGroup, .importTemplate, .toggleInfo, .hiddenChats: [.command, .shift]
+        case .activity, .newGroup, .importTemplate, .toggleInfo, .hiddenChats: [.command, .shift]
         case .toggleSidebar: [.command, .control]
         case .previousChat, .nextChat, .agentSettings: [.command, .option]
         default: .command
@@ -120,7 +123,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
 
     @MainActor func isEnabled(in store: AppStore) -> Bool {
         if self == .settings || self == .keyboardShortcuts { return true }
-        guard !store.showingNewBot, !store.showingNewGroup, !store.showingTemplateImport, !store.showingGrokImport,
+        guard !store.showingActivity, !store.showingNewBot, !store.showingNewGroup, !store.showingTemplateImport, !store.showingGrokImport,
               store.editingBot == nil, store.errorMessage == nil else { return false }
         switch self {
         case .agentSettings: return store.selectedGroup == nil && store.selectedBot != nil
@@ -164,6 +167,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .newGroup: store.showingNewGroup = true
         case .importTemplate: store.showingTemplateImport = true
         case .quickSwitcher: store.showingCommandPalette = true
+        case .activity: store.showingActivity = true
         case .toggleSidebar: store.sidebarHidden.toggle()
         case .toggleInfo: store.showInfo.toggle()
         case .hiddenChats: store.sidebarHidden = false; store.showingHiddenBots.toggle()
@@ -213,6 +217,7 @@ struct AppCommands: Commands {
         }
         CommandMenu("Navigate") {
             command(.quickSwitcher)
+            command(.activity)
             Divider()
             command(.previousChat)
             command(.nextChat)

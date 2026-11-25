@@ -1,0 +1,152 @@
+import SwiftUI
+
+struct WorkspaceActivityItem: Identifiable {
+    enum Section: String, CaseIterable {
+        case attention = "Needs attention", working = "Working", queued = "Queued", unread = "Unread"
+    }
+
+    let chat: SidebarChat
+    let section: Section
+    let detail: String
+    var id: UUID { chat.id }
+}
+
+extension AppStore {
+    func workspaceActivity(inboxes: [String: WorkspaceApprovalInbox] = [:]) -> [WorkspaceActivityItem] {
+        let chats = bots.filter { !$0.isHidden }.map(SidebarChat.bot) + groups.filter { !$0.isHidden }.map(SidebarChat.group)
+        return chats.compactMap { activityItem(for: $0, inboxes: inboxes) }.sorted {
+            $0.chat.displayName.localizedStandardCompare($1.chat.displayName) == .orderedAscending
+        }
+    }
+
+    private func activityItem(for chat: SidebarChat, inboxes: [String: WorkspaceApprovalInbox]) -> WorkspaceActivityItem? {
+        func item(_ section: WorkspaceActivityItem.Section, _ detail: String) -> WorkspaceActivityItem {
+            WorkspaceActivityItem(chat: chat, section: section, detail: detail)
+        }
+
+        let conversation: any Conversation
+        switch chat {
+        case .bot(let bot):
+            conversation = bot
+            if let request = approvals(for: bot, in: nil, inboxes: inboxes).first {
+                return item(.attention, "Review " + HerdrClient.Approval.visible(request.tool))
+            }
+            if let prompt = herdrPrompts[bot.id] { return item(.attention, prompt.title) }
+            if let goal = bot.goal, goal.state == .waiting { return item(.attention, goal.detail.isEmpty ? goal.objective : goal.detail) }
+            if !pendingHerdrBots(for: bot).isEmpty { return item(.attention, "Review a bot request") }
+            if !pendingHerdrModels(for: bot).isEmpty { return item(.attention, "Review a model change") }
+        case .group(let group):
+            conversation = group
+            for member in members(of: group) {
+                if let request = approvals(for: member, in: group, inboxes: inboxes).first {
+                    return item(.attention, "\(member.name) · Review " + HerdrClient.Approval.visible(request.tool))
+                }
+                if let prompt = herdrPrompt(for: member, in: group) { return item(.attention, "\(member.name) · \(prompt.title)") }
+            }
+        }
+
+        if let last = conversation.messages.last(where: { $0.role == .assistant }) {
+            if last.needsTurnAttention {
+                if last.turnState == .notSent, last.metadata[TurnKey.ambiguous] == "1" { return item(.attention, "Delivery unconfirmed") }
+                return item(.attention, last.turnState == .notSent ? "Message wasn’t sent" : "Reply is incomplete")
+            }
+            if last.checkingSavedReply && last.turnState == .incomplete { return item(.working, "Checking for a saved reply") }
+        }
+        if isStreaming(in: conversation) {
+            let line: String?
+            switch chat {
+            case .bot(let bot): line = workingLine(for: bot)
+            case .group(let group): line = workingLine(for: group)
+            }
+            return item(.working, line ?? "Answer in progress")
+        }
+        if case .bot(let bot) = chat {
+            if hasActiveCodingAgent(bot) { return item(.working, "Coding activity") }
+            if let goal = bot.goal, goal.state == .running { return item(.working, goal.objective) }
+            if let goal = bot.goal, goal.state == .queued { return item(.queued, goal.objective) }
+        }
+        if turns.nextMessages.contains(where: { $0.conversation === conversation }) { return item(.queued, "Message waiting to be sent") }
+        guard chat.isUnread else { return nil }
+        let preview = SidebarFragment.text(messages: conversation.messages, draft: nil, isWorking: false,
+                                           archiveNewest: grokHistory.newestVisible(for: chat.id))
+        return item(.unread, preview.isEmpty ? "Marked unread" : preview)
+    }
+}
+
+struct WorkspaceActivityView: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.workspaceApprovals) private var inboxes
+    @Environment(\.dismiss) private var dismiss
+    @State private var items: [WorkspaceActivityItem] = []
+
+    private struct ActivitySection: Identifiable {
+        let id: WorkspaceActivityItem.Section
+        let rows: [WorkspaceActivityItem]
+    }
+
+    private var sections: [ActivitySection] {
+        WorkspaceActivityItem.Section.allCases.compactMap { section in
+            let rows = items.filter { $0.section == section }
+            return rows.isEmpty ? nil : ActivitySection(id: section, rows: rows)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }.padding()
+            Divider()
+            ForEach(inboxes.values.filter(\.unavailable).map(\.server).sorted { $0.id < $1.id }) { server in
+                Label("Can’t check approvals on \(server.name)", systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
+            }
+            Group {
+                if items.isEmpty {
+                    ContentUnavailableView("No chat activity", systemImage: AppCommand.activity.icon,
+                                           description: Text("Chats with pending work or unread messages appear here."))
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(sections) { section in
+                                HStack {
+                                    Text(section.id.rawValue).font(.headline)
+                                    Text("\(section.rows.count)").foregroundStyle(.secondary).monospacedDigit()
+                                }.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+                                    .padding(.top, 10)
+                                ForEach(section.rows) { row in
+                                    Button {
+                                        store.open(row.chat)
+                                        dismiss()
+                                    } label: {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(row.chat.displayName).font(.body.weight(.medium))
+                                                Text(row.detail).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                                            }
+                                            Spacer()
+                                            if row.chat.isUnread && row.section != .unread {
+                                                Circle().fill(.tint).frame(width: 7, height: 7)
+                                            }
+                                            Image(systemName: "chevron.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                                        }.padding(6).contentShape(Rectangle())
+                                    }.buttonStyle(.plain).accessibilityLabel("\(row.chat.displayName), \(row.detail)")
+                                        .accessibilityValue(row.chat.isUnread ? "Unread" : "")
+                                }
+                            }
+                        }.padding(.horizontal).padding(.bottom)
+                    }
+                }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.frame(width: 440, height: 420)
+        .task(id: inboxes) {
+            // Messages and remote helper snapshots can change independently of the store's published lists.
+            while !Task.isCancelled {
+                items = store.workspaceActivity(inboxes: inboxes)
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+    }
+}

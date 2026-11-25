@@ -44,3 +44,47 @@ import Testing
         #expect(Set(bindings).count == bindings.count)
     }
 }
+
+@Suite @MainActor struct WorkspaceActivityTests {
+    @Test func activityLinksWorkToItsOwnChat() throws {
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false,
+                             keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let coder = Bot(name: "Coder", backend: .mock), reader = Bot(name: "Reader", backend: .mock)
+        let hidden = Bot(name: "Hidden", backend: .mock)
+        let group = GroupChat(name: "Release", memberIDs: [coder.id])
+        store.bots = [coder, reader, hidden]
+        store.groups = [group]
+        store.open(reader)
+        let turn = store.beginTurn(in: group, bot: coder, assistant: nil)
+        let queued = ChatMessage(role: .user, content: "Compile")
+        store.turns.nextMessages = [QueuedNextMessage(conversation: reader, bubble: queued)]
+        hidden.isHidden = true
+        hidden.manualUnread = true
+        reader.unreadCount = 1
+
+        func item(_ id: UUID) -> WorkspaceActivityItem? { store.workspaceActivity().first { $0.id == id } }
+        #expect(item(group.id)?.section == .working)
+        #expect(item(reader.id)?.section == .queued)
+        #expect(item(coder.id) == nil && item(hidden.id) == nil)
+        store.herdrPromptBook.turnWaits[group.id] = (coder.id, "Codex")
+        store.herdrPrompts[group.id] = HerdrPrompt(program: "Codex", since: .now)
+        #expect(item(group.id)?.section == .attention)
+        #expect(item(group.id)?.detail.contains(coder.name) == true)
+        store.herdrPrompts[group.id] = nil
+        store.herdrPromptBook.turnWaits[group.id] = nil
+        store.endTurn(turn.token)
+        store.turns.nextMessages = []
+        #expect(item(reader.id)?.section == .unread)
+        #expect(item(group.id) == nil)
+        let reply = ChatMessage(role: .assistant, content: "Interrupted")
+        reply.turnState = .incomplete
+        group.messages = [reply]
+        #expect(item(group.id)?.section == .attention)
+        reply.checkingSavedReply = true
+        #expect(item(group.id)?.section == .working)
+        reply.checkingSavedReply = false
+        reply.turnState = .finished
+        store.open(try #require(item(reader.id)).chat)
+        #expect(store.workspaceActivity().isEmpty)
+    }
+}

@@ -1,5 +1,6 @@
 # Changes since SwarmHub 0.8.16
 
+- Open **Activity** in the sidebar to find chats that need attention, see work in progress, and jump to unread answers. You can also press ⇧⌘A with the sidebar hidden.
 - Reopen a long chat at your saved reading position or jump straight to the latest message. Reply drafts stay with the bot or group where you wrote them.
 - Send a follow-up while a bot starts. Codex can use it in the current answer, including when the bot is loading your earlier chat. For a workspace without live steering, it stays queued as the next message.
 - Click the model in the chat header to open that bot’s settings. When you change providers, the next message carries the conversation forward. The header shows which model answered and whether a change is pending.

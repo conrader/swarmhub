@@ -11,7 +11,7 @@ struct ContentView: View {
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private var hasCompetingVaultSheet: Bool {
         (store.showingNewBot && store.herdrConfigured) || store.showingTemplateImport || store.showingGrokImport
-            || store.showingNewGroup || store.editingBot != nil || store.showingCommandPalette || store.modalErrorMessage != nil
+            || store.showingNewGroup || store.editingBot != nil || store.showingCommandPalette || store.showingActivity || store.modalErrorMessage != nil
     }
 
     private func continueLaunch() {
@@ -84,6 +84,8 @@ struct ContentView: View {
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
+        .sheet(isPresented: $store.showingActivity) { WorkspaceActivityView() }
+        .modifier(WorkspaceApprovalReader())
         .modifier(HerdrVaultPrompts(anotherSheet: hasCompetingVaultSheet))
         .alert("Something went wrong", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.dismissError() } })) { Button("OK") { store.dismissError() } } message: { Text(store.modalErrorMessage ?? "") }
     }

@@ -29,7 +29,7 @@ struct HerdrPublishedResult: Identifiable, Codable, Sendable, Equatable {
 }
 
 extension HerdrClient {
-    struct Approval: Decodable, Identifiable, Sendable {
+    struct Approval: Decodable, Identifiable, Equatable, Sendable {
         let id: Int
         var launchModel: String? = nil
         let agent, provider, tool, cwd, arguments: String
@@ -54,14 +54,22 @@ extension HerdrClient {
     }
 
     func approvals(for name: String) async throws -> [Approval] {
+        try await approvals(for: Set([name]))[name] ?? []
+    }
+
+    func approvals(for names: Set<String>) async throws -> [String: [Approval]] {
         let pending = try await pendingApprovals()
-        guard !pending.isEmpty else { return [] }
+        guard !pending.isEmpty else { return [:] }
         let current = try await workspace()
-        guard let agent = liveAgent(named: name, in: current) else { return [] }
-        return pending.filter {
-            $0.agent == agent.name && $0.core == current.core && $0.address == agent.address &&
-                $0.createdMs == agent.createdMs
+        var matches: [String: [Approval]] = [:]
+        for name in names {
+            guard let agent = liveAgent(named: name, in: current) else { continue }
+            let rows = pending.filter {
+                $0.agent == agent.name && $0.core == current.core && $0.address == agent.address && $0.createdMs == agent.createdMs
+            }
+            if !rows.isEmpty { matches[name] = rows }
         }
+        return matches
     }
 
     enum Decision: String { case approve, deny }
