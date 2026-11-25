@@ -161,7 +161,7 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool, outco
     client.pollInterval = .milliseconds(10)
     client.agentCheckInterval = .milliseconds(10)
     var configured = HerdrBackend(client: client, botName: bot.name, botID: bot.id, template: "codex")
-    configured.prepareDirect = { _ in [] }
+    configured.prepareDirect = { _, _ in [] }
     let backend = configured
     let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
                          keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())

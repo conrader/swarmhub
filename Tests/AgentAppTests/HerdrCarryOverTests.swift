@@ -123,7 +123,7 @@ import Testing
     #expect(bot.messages.contains { $0.content == "Friday." })
 }
 
-@Test @MainActor func pendingModelSwitchWaitsForIdleAfterTheReplyIsSaved() async throws {
+@Test(arguments: [false, true]) @MainActor func pendingModelSwitchWaitsForIdleAfterTheReplyIsSaved(becameBusyDuringPreparation: Bool) async throws {
     let bridge = HandoffBridge()
     bridge.agentState = "idle"
     let (store, bot) = try handoffStore(bridge)
@@ -133,7 +133,16 @@ import Testing
     var backend = try store.herdrBackend(for: bot)
     backend.coordinate = nil
     bridge.seed(agent: backend.agentName, template: "old-provider", rows: [("task", "Check the build"), ("reply", "Build passed.")])
-    bridge.setState("working", for: backend.agentName)
+    let name = backend.agentName
+    if becameBusyDuringPreparation {
+        let original = try #require(backend.prepareDirect)
+        backend.prepareDirect = { snapshot, report in
+            bridge.setState("working", for: name)
+            return try await original(snapshot, report)
+        }
+    } else {
+        bridge.setState("working", for: name)
+    }
 
     let session = bot.id.uuidString
     let stream = try await backend.send(.init(sessionID: session, systemPrompt: "", messages: [("user", "Run the tests")]))

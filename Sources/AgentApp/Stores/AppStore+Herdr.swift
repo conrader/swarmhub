@@ -216,9 +216,9 @@ extension AppStore {
                     await self.refreshHerdrAgentReading(for: bot)
                 }
             }
-            backend.prepareDirect = { [weak self, weak bot] workspace in
+            backend.prepareDirect = { [weak self, weak bot] workspace, status in
                 guard let self, let bot else { throw CancellationError() }
-                return try await self.prepareDirectModel(bot: bot, server: server, template: template, model: model, in: workspace)
+                return try await self.prepareDirectModel(bot: bot, server: server, template: template, model: model, in: workspace, status: status)
             }
         }
         backend.steers = herdrSteers(bot)
