@@ -60,7 +60,6 @@ struct InfoPanel: View {
 
     private var overview: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HerdrActiveHelpersSection()
             let instructions = bot.outboundPersona.trimmingCharacters(in: .whitespacesAndNewlines)
             if !instructions.isEmpty, instructions != Bot.defaultPersona {
                 BotInstructions(text: instructions).id(bot.id)
@@ -69,6 +68,7 @@ struct InfoPanel: View {
                 HerdrOverviewSection(bot: bot)
                 HerdrTeamActivity(bot: bot)
                 HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
+                HerdrActiveHelpersSection()
                 HerdrHelpersSection(bot: bot)
             }
             groups

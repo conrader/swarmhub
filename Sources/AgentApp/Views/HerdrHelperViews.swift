@@ -36,7 +36,7 @@ struct HerdrHelperRow: View {
             .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(SidebarMetrics.selectionWash)) : hovering ? AnyShapeStyle(AppColor.selection.opacity(0.6)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
             .overlay(alignment: .leading) { if selected { Capsule().fill(.tint).frame(width: 3, height: 18).padding(.leading, 3.5).accessibilityHidden(true) } }
             .onHover { hovering = $0 }
-        }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.task ?? "")")
+        }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.assignment ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
     }
 
@@ -117,10 +117,10 @@ struct HerdrHelpersSection: View {
         if let list = store.herdrHelpers[bot.id], !list.helpers.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Helpers").font(.headline); Spacer()
+                    Text("\(bot.name)’s helper sessions").font(.headline); Spacer()
                     Text(Self.count(list)).font(.caption).foregroundStyle(.secondary)
                 }
-                ForEach(list.helpers) { helper in
+                ForEach(list.helpers.filter { !$0.hasOpenTask }) { helper in
                     HerdrHelperCard(helper: helper, selected: store.isOpen(helper, of: bot)) { store.open(helper, of: bot) }
                 }
                 Text("\(bot.name) hands parts of its work to helpers.\(list.stopAfterSeconds.map { " Each one leaves \(HerdrHelperPolicyDraft.delayLabel($0)) after it answers." } ?? "")")
@@ -150,13 +150,13 @@ struct HerdrHelperCard: View {
                     Spacer(minLength: 4)
                     Text(helper.statusLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if let task = helper.task, !task.isEmpty {
+                if let task = helper.assignment, !task.isEmpty {
                     Text(task).font(.callout).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                 }
                 if !helper.runLine.isEmpty { Text(helper.runLine).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading) }
             }
             .inspectorCard(padding: 10, selected: selected).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
-        }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.task ?? "")")
+        }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.assignment ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
     }
 }
@@ -169,14 +169,17 @@ struct HerdrHelperView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     let selection: HerdrHelperSelection
+    let groupName: String?
+    let closeOverviewDetails: (() -> Void)?
     /// The helper and its Core as last listed, and its log as last read (a render passes all three in).
     @State private var helper: HerdrClient.Helper?; @State private var core: String?
     @State private var log: HerdrClient.HelperLog?; @State private var problem = ""
     @StateObject private var reply: ChatMessage
     @State private var terminal: HerdrTerminalTarget?
 
-    init(bot: Bot, selection: HerdrHelperSelection, helper: HerdrClient.Helper? = nil, core: String? = nil, log: HerdrClient.HelperLog? = nil) {
+    init(bot: Bot, selection: HerdrHelperSelection, helper: HerdrClient.Helper? = nil, core: String? = nil, log: HerdrClient.HelperLog? = nil, groupName: String? = nil, closeOverviewDetails: (() -> Void)? = nil) {
         self.bot = bot; self.selection = selection
+        self.groupName = groupName; self.closeOverviewDetails = closeOverviewDetails
         _helper = State(initialValue: helper); _core = State(initialValue: core); _log = State(initialValue: log)
         _reply = StateObject(wrappedValue: ChatMessage(role: .assistant, content: log?.latestReply(answered: helper?.answered == true) ?? ""))
     }
@@ -188,13 +191,17 @@ struct HerdrHelperView: View {
         let unavailable = store.herdrHelperReads[selection.parent] == .unavailable
         VStack(spacing: 0) {
             HStack(spacing: 11) {
-                ShowSidebarItem()
-                Button { store.open(bot) } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle()) }
-                    .buttonStyle(.plain).help("Back to \(bot.name)").accessibilityLabel("Back to \(bot.name)")
+                if let closeOverviewDetails {
+                    Button("Done", action: closeOverviewDetails)
+                } else {
+                    ShowSidebarItem()
+                    Button { store.open(bot) } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle()) }
+                        .buttonStyle(.plain).help("Back to \(bot.name)").accessibilityLabel("Back to \(bot.name)")
+                }
                 if let shown { HerdrHelperGlyph(helper: shown).font(.system(size: 15, weight: .semibold)) }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(shown?.name ?? "Helper").font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                    Text("Helper of \(bot.name)").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text([bot.name, groupName ?? selection.groupRuntime].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if let shown {

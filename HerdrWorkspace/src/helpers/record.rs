@@ -48,6 +48,8 @@ pub(super) struct View {
     /// A follow-up assignment. The original task stays available to existing clients.
     #[serde(skip_serializing_if = "Option::is_none")]
     current_task: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) open_task: Option<bool>,
     started_ms: i64,
     /// `live` in the HTTP list. For the agent's commands also `finished`, `gone` (Core no longer has the
     /// terminal), `starting` (no terminal yet) and `failed` (it never got one).
@@ -270,7 +272,11 @@ pub(super) fn views(
          ) ORDER BY h.launch DESC",
     )?;
     let mut latest_task = db.prepare(
-        "SELECT at_ms,state,CASE WHEN id!=?1 THEN text END FROM journal
+        "SELECT at_ms,state,
+                (SELECT text FROM journal sent WHERE sent.kind='task' AND sent.id>?1
+                 AND sent.core_id=?2 AND sent.address=?3 AND sent.created_ms=?4
+                 AND sent.state!='not_sent' ORDER BY sent.id DESC LIMIT 1)
+         FROM journal
          WHERE kind='task' AND (id=?1 OR (core_id=?2 AND address=?3 AND created_ms=?4))
          ORDER BY id DESC LIMIT 1",
     )?;
@@ -338,6 +344,7 @@ pub(super) fn views(
             difficulty: row.get(9)?,
             task: row.get(5)?,
             current_task,
+            open_task: None,
             started_ms: row.get(6)?,
             state,
             status: terminal
@@ -853,6 +860,12 @@ mod tests {
         let listed = views(&history, "core", &parent, &everyone, 50, 0).unwrap();
         assert_eq!(listed.len(), 1);
         assert!(listed[0].live() && listed[0].name == "tests");
+        let (missed, _) = history
+            .start_task("core", &everyone[1], "Undelivered follow-up", None, false, &[])
+            .unwrap();
+        history.db().unwrap().execute("UPDATE journal SET state='not_sent' WHERE id=?1", [missed]).unwrap();
+        let listed = views(&history, "core", &parent, &everyone, 50, 0).unwrap();
+        assert_eq!(listed[0].current_task.as_deref(), Some("And the folders?"));
     }
 
     #[test]

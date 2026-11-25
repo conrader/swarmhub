@@ -29,6 +29,10 @@ import UserNotifications
     /// Each direct or group session's last helper listing, its read state, and the helper open in the detail column.
     @Published var herdrHelpers: [HerdrHelperParent: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
     @Published var herdrHelperReads: [HerdrHelperParent: HerdrHelperRead] = [:]
+    @Published var helperRosters: [String: HerdrHelperRoster] = [:]
+    @Published var helperGroupNames: [HerdrHelperParent: String] = [:]
+    var helperListingFailures: [HerdrHelperParent: Int] = [:]
+    var cachedServerList: (json: String?, legacy: String?, servers: [HerdrServer])?
     var teamPolling: Task<Void, Never>?
     var teamRegistrations: [String: Task<Bool, Error>] = [:]
     var teamSynced: [String: ([HerdrClient.TeamMember], Date, Bool)] = [:]

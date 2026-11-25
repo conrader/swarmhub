@@ -97,6 +97,7 @@ async fn follow(
         tools: Vec::new(),
         agent: Value::Null,
         helpers: Value::Null,
+        helper_failures: 0,
         queue,
         w,
     };
@@ -153,6 +154,7 @@ struct Stream {
     tools: Vec<(u64, bool)>,
     agent: Value,
     helpers: Value,
+    helper_failures: u8,
     queue: mpsc::Sender<Event>,
 }
 
@@ -267,7 +269,7 @@ impl Stream {
                 changed = journal.changed() => if changed.is_err() { return Err(Over) },
                 () = own.notified() => { sleep(SETTLE).await; agent_changed = true }
                 () = children.notified() => { sleep(SETTLE).await; helpers_changed = true }
-                _ = recheck.tick() => { agent_changed = true; helpers_changed = !self.no_helpers() }
+                _ = recheck.tick() => { agent_changed = true; helpers_changed = self.helper_failures > 0 || !self.no_helpers() }
             }
             // Saved rows go first: the hook saves the reply before the reply so far is cleared, and a reader
             // must not see the text vanish before the row that replaces it.
@@ -479,10 +481,10 @@ impl Stream {
     }
 
     async fn helpers(&mut self) -> Result<(), Over> {
-        // As in the initial snapshot, null means the listing could not be read.
-        // An authoritative empty list is an object with helpers: [].
-        let listing = self.listing().await.unwrap_or(Value::Null);
-        if listing != self.helpers {
+        let read = self.listing().await;
+        if let Some(listing) = helper_update(read, &mut self.helper_failures)
+            && listing != self.helpers
+        {
             self.send(event("helpers", &listing)).await?;
             self.helpers = listing;
         }
@@ -490,9 +492,29 @@ impl Stream {
     }
 }
 
+// Older clients clear their rows on null. Tolerate transient failures just as the app poll does.
+fn helper_update(listing: Option<Value>, failures: &mut u8) -> Option<Value> {
+    if listing.is_some() {
+        *failures = 0;
+        return listing;
+    }
+    *failures = failures.saturating_add(1);
+    (*failures >= 5).then_some(Value::Null)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helper_updates_distinguish_transient_failure_from_empty_and_unavailable() {
+        let mut failures = 0;
+        let empty = json!({ "helpers": [] });
+        for _ in 0..4 { assert_eq!(helper_update(None, &mut failures), None); }
+        assert_eq!(helper_update(Some(empty.clone()), &mut failures), Some(empty));
+        for _ in 0..4 { assert_eq!(helper_update(None, &mut failures), None); }
+        assert_eq!(helper_update(None, &mut failures), Some(Value::Null));
+    }
 
     fn draft(id: &str, text: &str) -> Option<Draft> {
         Some(Draft {

@@ -17,6 +17,8 @@ extension HerdrClient {
         var template: String? = nil; var model: String? = nil; var modelLabel: String? = nil; var difficulty: String? = nil; var task: String? = nil
         /// The latest follow-up when the workspace includes it. Older listings carry only the launch task.
         var currentTask: String? = nil
+        var openTask: Bool? = nil
+        var assignment: String? { currentTask ?? task }
         /// `live`, `finished`, or `gone` when Core no longer has the terminal.
         let state: String
         var status: Agent.Status? = nil
@@ -27,7 +29,7 @@ extension HerdrClient {
         var id: String { "\(address)/\(createdMs)" }
         var ref: AgentRef { AgentRef(address: address, createdMs: createdMs) }
         var isLive: Bool { state == "live" }
-        var hasOpenTask: Bool { isLive && answered != true }
+        var hasOpenTask: Bool { isLive && answered != true && (openTask ?? !["blocked", "error", "done"].contains(status?.state ?? "")) }
         var isWorking: Bool { isLive && status?.state == "working" }
 
         /// A few words on what the helper is doing.
@@ -39,7 +41,7 @@ extension HerdrClient {
                 case "blocked": "Waiting for an answer in its terminal"
                 case "error": "Reported an error"
                 case "done" where answered != true: "Finishing"
-                default: answered == true ? "Answered" : (status?.state?.capitalized ?? "Starting")
+                default: answered == true ? "Answered" : "Starting"
                 }
             case "finished": answered == true ? "Finished" : "Stopped without an answer"
             default: "Gone"
@@ -48,7 +50,7 @@ extension HerdrClient {
 
         /// The model the helper runs on, by its label: the server's, else the one the app saw for that id, else the id.
         var runLine: String { [modelLabel, HerdrModelNames.label(model), model].compactMap { $0 }.first { !$0.isEmpty } ?? "" }
-        var taskLine: String { (task ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        var taskLine: String { (assignment ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ") }
         /// "Easy task": how hard the bot said the task is, for the helper's own view.
         var difficultyLine: String? { difficulty.flatMap { $0.isEmpty ? nil : "\($0.prefix(1).uppercased())\($0.dropFirst()) task" } }
     }

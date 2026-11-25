@@ -13,7 +13,12 @@ extension AppStore {
 
     /// The saved servers; with none saved, the one this install has always had (`HerdrServerList.servers`).
     var herdrServers: [HerdrServer] {
-        HerdrServerList.servers(json: defaults.string(forKey: HerdrServer.listKey), legacyAddress: defaults.string(forKey: HerdrServerList.legacyAddressKey))
+        let json = defaults.string(forKey: HerdrServer.listKey)
+        let legacy = defaults.string(forKey: HerdrServerList.legacyAddressKey)
+        if let cachedServerList, cachedServerList.json == json, cachedServerList.legacy == legacy { return cachedServerList.servers }
+        let servers = HerdrServerList.servers(json: json, legacyAddress: legacy)
+        cachedServerList = (json, legacy, servers)
+        return servers
     }
 
     func saveHerdrServers(_ servers: [HerdrServer]) {

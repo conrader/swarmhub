@@ -770,6 +770,7 @@ pub(crate) async fn listing(
     if !helpers.is_empty() {
         let catalog = crate::runtimes::Catalog::load(w.history.file());
         for helper in &mut helpers {
+            helper.open_task = Some(helper.working());
             helper.model_label = catalog.model_label(&helper.template, &helper.model);
         }
     }

@@ -265,7 +265,7 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     store.herdrLive(.following(true), botID: bot.id); store.herdrLive(.helpers(list), botID: bot.id)
     #expect(store.herdrHelpers[bot.id] == list && store.herdrStreaming.contains(bot.id), "the stream owns the bot's helper list")
     store.herdrLive(.helpers(nil), botID: bot.id)
-    #expect(store.herdrHelpers[bot.id] == nil, "helpers the stream no longer lists leave the screen")
+    #expect(store.herdrHelpers[bot.id] == list, "a missing listing leaves the last snapshot visible for the poll")
     store.herdrLive(.helpers(list), botID: bot.id); store.herdrLive(.following(false), botID: bot.id)
     #expect(!store.herdrStreaming.contains(bot.id) && store.herdrHelperWatch()[store.herdrServer(for: bot).id] == true,
             "after the turn the poll looks after them again")

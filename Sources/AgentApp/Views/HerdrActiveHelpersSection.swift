@@ -3,6 +3,8 @@ import SwiftUI
 struct HerdrActiveHelpersSection: View {
     @EnvironmentObject private var store: AppStore
 
+    @State private var details: HerdrHelperOverview.Row?
+
     var body: some View {
         let overview = store.herdrHelperOverview
         if overview.hasBots {
@@ -10,21 +12,31 @@ struct HerdrActiveHelpersSection: View {
                 Text("Active workspace helpers").font(.headline).accessibilityAddTraits(.isHeader)
                     .help("Helper agents reported by the Herdr workspaces for your bots.")
                 ForEach(overview.rows) { row in
-                    ActiveHelperRow(bot: row.bot, helper: row.helper) { store.open(row.helper, of: row.bot, groupRuntime: row.id.groupRuntime) }
+                    ActiveHelperRow(bot: row.bot, groupName: row.groupName, helper: row.helper) { details = row }
                 }
-                if overview.confirmedEmpty { Text("No active workspace helpers.") }
+                if overview.confirmedEmpty { Text(overview.disconnected.isEmpty ? "No active workspace helpers." : "No active helpers on connected workspaces.") }
+                ForEach(overview.unattributed, id: \.server.id) { item in
+                    Text("Live helpers in other sessions on \(item.server.name): \(item.count)")
+                }
+                ForEach(overview.disconnected) { server in Text("\(server.name) is disconnected.") }
                 ForEach(overview.checking) { server in Text("Checking \(server.name)…") }
                 ForEach(overview.unavailable) { server in Text("Couldn’t read all helper activity on \(server.name).") }
             }
             .font(.caption).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("overview.activeHelpers")
+            .sheet(item: $details) { row in
+                HerdrHelperView(bot: row.bot, selection: row.id, helper: row.helper,
+                                core: store.herdrHelpers[row.id.parent]?.core, groupName: row.groupName) { details = nil }
+                    .frame(minWidth: 600, minHeight: 420)
+            }
         }
     }
 }
 
 private struct ActiveHelperRow: View {
     @ObservedObject var bot: Bot
+    let groupName: String?
     let helper: HerdrClient.Helper
     let openDetails: () -> Void
     @State private var expanded = false
@@ -33,13 +45,13 @@ private struct ActiveHelperRow: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
                 HerdrHelperGlyph(helper: helper)
-                Text("\(bot.name) · \(helper.name)").font(.callout.weight(.medium)).foregroundStyle(.primary)
+                Text([bot.name, groupName, helper.name].compactMap { $0 }.joined(separator: " · ")).font(.callout.weight(.medium)).foregroundStyle(.primary)
                 Spacer(minLength: 4)
                 Button("Details", action: openDetails).buttonStyle(.link)
-                    .accessibilityLabel("Details for \(helper.name), helper of \(bot.name)")
+                    .accessibilityLabel("Details for \(helper.name), helper of \(bot.name)\(groupName.map { " in " + $0 } ?? "")")
             }
             Text(helper.statusLine)
-            if let task = helper.currentTask ?? helper.task, !task.isEmpty {
+            if let task = helper.assignment, !task.isEmpty {
                 Button { expanded.toggle() } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.caption2)

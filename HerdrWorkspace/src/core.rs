@@ -1368,7 +1368,7 @@ mod workspace_tests {
 
     #[test]
     fn a_crash_before_the_marker_recovers_an_empty_private_folder() {
-        use std::os::unix::fs::DirBuilderExt;
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         let root = tempfile::tempdir().unwrap();
         let recovered = root.path().join("agent-recover");
         let existing = root.path().join("agent-existing");
@@ -1377,7 +1377,9 @@ mod workspace_tests {
         builder.mode(0o700).create(&recovered).unwrap();
         builder.create(&existing).unwrap();
         std::fs::write(existing.join("user-file"), "keep").unwrap();
-        builder.mode(0o755).create(&shared).unwrap();
+        builder.create(&shared).unwrap();
+        // mkdir applies the runner's umask. Establish the shared-directory precondition explicitly.
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let folder = bot_workspace_at(root.path(), None, "recover").unwrap();
         assert_eq!(
