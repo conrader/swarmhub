@@ -72,6 +72,12 @@ For the window test, copies of the released and candidate apps used a private id
 
 A private MacBook workspace held two sample bots and a 620-message group. On opening the group, the normal native window showed its saved message 312. Jump to latest showed message 620. After quitting and launching again, the group reopened at 620. The driver paged back and quit. The third launch restored message 593, the position saved by the previous one. Every message ID was present and in order after the second quit. The fixture exercises local group history with a real app restart. [Repeat the window test](agent-qa.md#use-the-real-mac-window)
 
+## Sending a correction while the bot starts
+
+The MacBook driver paused a private workspace’s SSH forward, pressed Send on a request to run a command and return a unique word, then submitted a different word through the same chat composer. Both presses cleared the input before the forward resumed.
+
+On the baseline, the second button read **Queue as the next message**. The workspace recorded two tasks and replied with each word in turn. On the candidate, **Send follow-up when the bot starts** accepted the correction in a chat with an imported history fixture. The remote Codex command ran, the workspace recorded one task, and its only reply used the corrected word. The chat showed **Delivered**. A repeat on the final build asked the bot to include the project name from the imported conversation. Its only reply combined the correction’s unique word with the archived name, and the native window displayed that reply and its receipt.
+
 ## Losing the server connection during a command
 
 A native MacBook chat sent a command to an isolated Codex workspace on a second Mac over SSH. The command created a marker, slept for 12 seconds and returned a unique reply. After the marker appeared, the driver closed the data tunnel for 16 seconds. An independent connection could still read the workspace journal.
@@ -98,5 +104,6 @@ A private MacBook installation started with the executable from the published 0.
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
+- From Atlas’s model picker, pressing **Add provider** in the OpenBot preview opened provider settings with a search field and a Gemini entry. SwarmHub’s local model settings put **Manage AIs on this Mac…** below the coding-helper controls. Moving that link beside the bot’s AI choices would shorten the path after installing a new CLI. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
 - The remote exercise covers a connection loss after delivery. Longer outages, quitting the client while offline and changing credentials in Settings remain separate scenarios.

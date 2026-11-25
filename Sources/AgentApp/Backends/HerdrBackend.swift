@@ -4,8 +4,8 @@ import Foundation
 /// An agent that Herdr Core runs in a terminal (Claude Code, Codex, or any other template), reached through the
 /// SwarmHub bridge (`HerdrClient`). The agent program keeps its own conversation, model, tools and permissions, so
 /// only the newest user message is sent (after the bot's own instructions, once, when an agent starts):
-/// The bridge receives the newest user message and its attachments. A bot that came with an earlier conversation is
-/// the one exception: each agent it starts reads that conversation first, in a turn of its own (`HerdrHandoff`).
+/// The bridge receives the newest user message and its attachments, including any earlier conversation
+/// that this agent needs alongside the question (`HerdrHandoff`).
 /// The reply is saved by the agent's Stop hook when its
 /// turn ends. Until then the reply so far is shown as it is written: Claude Code, Codex and OpenCode all publish it
 /// through the bridge, and both report their tool calls through hooks, which become the reply's activity steps.
@@ -366,7 +366,14 @@ struct HerdrBackend: AgentBackend {
     }
 
     /// Nothing while the bot's earlier conversation is being handed over: that turn is not the person's to steer.
-    func features() async throws -> Set<String> { steers && !handingOver.current && accepted.current?.turn.steerReference != nil ? ["run_steer"] : [] }
+    /// Nil while the workspace is still deciding how this turn will run.
+    var acceptedTurnSteering: Bool? {
+        guard steers else { return false }
+        guard !handingOver.current, let run = accepted.current else { return nil }
+        return run.turn.steerReference != nil
+    }
+
+    func features() async throws -> Set<String> { acceptedTurnSteering == true ? ["run_steer"] : [] }
 
     func steer(sessionID: String, text: String) async throws {
         try await steer(sessionID: sessionID, text: text, files: [])

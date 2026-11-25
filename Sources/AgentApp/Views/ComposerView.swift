@@ -4,7 +4,7 @@ import SwiftUI
 /// The active composer submits guidance to its current turn. Stop is a separate control.
 struct ComposerView: View {
     @Binding var text: String; @Binding var attachments: [ChatAttachment]
-    let isStreaming: Bool; var canSteer = false
+    let isStreaming: Bool; var canSteer = false; var awaitingSteer = false
     /// P28 D2: a one-time caption under the composer after the first steer.
     var hint: String? = nil
     let send: () -> Void; let stop: () -> Void
@@ -28,11 +28,13 @@ struct ComposerView: View {
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
     private var placeholder: String {
         if isStreaming && canSteer { return SteerCopy.placeholder }
+        if isStreaming && awaitingSteer { return "Add a follow-up…" }
         if isStreaming && mentionNames.isEmpty { return "Queue the next message…" }
         return "Message " + (recipient ?? AppConstants.name) + "…"
     }
     private var followUpHelp: String {
         if !mentionNames.isEmpty { return "Send follow-up to the selected group members" }
+        if awaitingSteer { return "Send follow-up when the bot starts" }
         return canSteer ? "Send into the current answer" : "Queue as the next message"
     }
     private var suggestions: [String] {

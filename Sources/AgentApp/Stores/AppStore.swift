@@ -473,6 +473,7 @@ import UserNotifications
         let assistant = ChatMessage(role: .assistant, content: "", createdAt: now(), isStreaming: true, metadata: [TurnKey.forUser: user.id.uuidString], turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
+        turn.awaitingSteerCapability = (activeBackend as? HerdrBackend)?.steers == true
         turn.goalAttempt = user.metadata[GoalKey.attempt].flatMap(UUID.init(uuidString:))
         assistant.metadata[GoalKey.attempt] = user.metadata[GoalKey.attempt]
         objectWillChange.send(); save()

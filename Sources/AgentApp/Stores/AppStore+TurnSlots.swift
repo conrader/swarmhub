@@ -1,6 +1,12 @@
 import CoreFoundation
 import Foundation
 
+/// Group rounds can reuse a slot for successive replies, and retry can reuse a row in a new slot.
+struct StartupSteerTarget: Equatable {
+    let turn: UUID
+    let reply: UUID
+}
+
 /// The running turn of one conversation (a bot's chat or a group). Chats never share a slot, so a long reply blocks
 /// only its own chat.
 @MainActor final class ConversationTurn {
@@ -12,6 +18,9 @@ import Foundation
     var botID: UUID?; var assistant: ChatMessage?
     /// The running turn takes steer messages (`run_steer`).
     var steerAvailable = false
+    var awaitingSteerCapability = false
+    var startupTarget: StartupSteerTarget? { assistant.map { StartupSteerTarget(turn: token, reply: $0.id) } }
+    var lastSteerDelivery: Task<Void, Never>?
     var groupRun: GroupRun?
     var stopping = false
     var goalAttempt: UUID?
