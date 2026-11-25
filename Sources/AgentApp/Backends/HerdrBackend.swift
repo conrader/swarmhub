@@ -242,8 +242,7 @@ struct HerdrBackend: AgentBackend {
                         }
                         continuation.yield(.status(status.code))
                     }
-                    // The agent reads the bot's earlier conversation first, once per agent session (`HerdrHandoff.swift`).
-                    // A handoff that fails does not hold the message back: it goes as it always did, and the source hears why.
+                    // Optional history belongs to this turn, alongside the user's question.
                     var context = QuestionContext(text: text, files: files)
                     if name == backend.agentName {
                         let sources: [HerdrHandoffSource]
@@ -276,9 +275,6 @@ struct HerdrBackend: AgentBackend {
                     }
                     delivered = true
                     _ = backend.accepted.swap(AcceptedRun(sessionID: sessionID, turn: turn))
-                    for (source, handoff, attached) in context.included {
-                        source.delivered?(HerdrHandoffReceipt(launch: backend.launch(of: turn), handoff: handoff, withFiles: attached))
-                    }
                     for (source, why) in context.omitted { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
@@ -308,6 +304,9 @@ struct HerdrBackend: AgentBackend {
                                                                published: { result in
                                                                    if let serverID = backend.serverID { continuation.yield(.published(serverID, result)) }
                                                                })
+                    for (source, handoff, attached) in context.included {
+                        source.delivered?(HerdrHandoffReceipt(launch: backend.launch(of: turn), handoff: handoff, withFiles: attached))
+                    }
                     if let server = backend.serverID, !reply.ids.isEmpty {
                         continuation.yield(.journal(server, reply.ids))
                     }
