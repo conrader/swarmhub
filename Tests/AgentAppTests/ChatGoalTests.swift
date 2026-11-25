@@ -55,6 +55,45 @@ private actor GoalBackend: AgentBackend {
 }
 
 struct ChatGoalTests {
+    @Test @MainActor func cappedGoalStopsAtItsLastStepAndKeepsTheResult() async throws {
+        let backend = GoalBackend(), store = goalStore(backend)
+        let bot = addGoalBot(store, "Owner")
+        #expect(store.handleGoalCommand(.start("Check the fixture", stepLimit: 1), in: bot) == nil)
+        try await waitUntil { await backend.requests.count == 1 }
+        let token = try #require(bot.goal?.attempt)
+        #expect(store.handleGoalCommand(.start("Replace it", stepLimit: 5), in: bot) != nil)
+        try await backend.report(.progress, "Fixture inspected", for: token, step: 0)
+        try await waitUntil { bot.goal?.state == .stopped }
+        #expect(bot.goal?.detail.contains("Fixture inspected") == true)
+        #expect(store.handleGoalCommand(.status, in: bot)?.contains("Steps: 1 of 1") == true)
+        let goal = try #require(bot.goal)
+        let restored = try JSONDecoder().decode(ChatGoal.self, from: JSONEncoder().encode(goal))
+        #expect(restored.stepLimit == 1)
+        store.recoverGoals()
+        store.sendQueuedNextMessage()
+        #expect(await backend.requests.count == 1)
+    }
+
+    @Test @MainActor func recoveredGoalAtLimitStartsNoExtraTurnAndOldGoalsRemainUnlimited() throws {
+        let store = goalStore(GoalBackend())
+        let bot = addGoalBot(store, "Owner")
+        var capped = ChatGoal(objective: "Inspect", destination: store.goalDestination(for: bot), stepLimit: 1)
+        let token = capped.begin()
+        capped.finish(.init(iteration: token, outcome: .complete, evidence: "Checked the last item"))
+        #expect(capped.state == .completed)
+        capped.state = .queued
+        bot.goal = capped
+        store.recoverGoals()
+        store.sendQueuedNextMessage()
+        #expect(bot.goal?.state == .stopped && bot.goal?.iteration == 1)
+        var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(capped)) as? [String: Any])
+        legacy.removeValue(forKey: "stepLimit")
+        var restored = try JSONDecoder().decode(ChatGoal.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(restored.stepLimit == nil)
+        let reachedLimit = restored.stopAtStepLimit()
+        #expect(!reachedLimit)
+    }
+
     @Test @MainActor func goalProgressContinuesInOriginalChatAndCompletionNeedsEvidence() async throws {
         let backend = GoalBackend(), store = goalStore(backend)
         let other = addGoalBot(store, "Other"), bot = addGoalBot(store, "Owner")

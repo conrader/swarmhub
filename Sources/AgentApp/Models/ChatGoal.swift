@@ -39,16 +39,28 @@ struct ChatGoal: Codable, Equatable {
     var objective: String
     let destination: Destination
     var state = State.queued
+    var stepLimit: Int?
+    var stepProgress: String? { stepLimit.map { "Steps: \(iteration) of \($0)" } }
     var iteration = 0
     var attempt: UUID?
     var detail = ""
     private var stalls = 0
     private var progressEvidence: [String] = []
 
-    init(objective: String, destination: Destination) {
+    init(objective: String, destination: Destination, stepLimit: Int? = nil) {
         id = UUID()
         self.objective = objective
+        self.stepLimit = stepLimit
         self.destination = destination
+    }
+
+    /// Check immediately before each automatic dispatch, including steps restored from disk.
+    mutating func stopAtStepLimit() -> Bool {
+        guard let stepLimit, iteration >= stepLimit else { return false }
+        state = .stopped
+        attempt = nil
+        detail = "Step limit reached." + (detail.isEmpty ? "" : " " + detail)
+        return true
     }
 
     mutating func begin() -> UUID {
@@ -94,6 +106,7 @@ struct ChatGoal: Codable, Equatable {
             }
             state = .queued
         }
+        if state == .queued, stopAtStepLimit() { return }
         if state == .queued, stalls >= 2 {
             wait("Two steps produced no new progress. " + detail)
         }
