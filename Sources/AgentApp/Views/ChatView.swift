@@ -84,11 +84,7 @@ struct ChatView: View {
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
-                .onChange(of: store.scrollTarget) { _, target in
-                    guard let target else { return }
-                    viewport.jump(to: target)
-                    store.scrollTarget = nil
-                }
+                .onChange(of: store.scrollTarget, initial: true) { _, target in viewport.reveal(target, in: store) }
             }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }

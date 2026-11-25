@@ -396,11 +396,71 @@ def ai_inventory(source_app, service_binary):
             print("Antigravity discovered, registered offline, and available in the original bot picker after one rescan.")
 
 
+def message_search(source_app):
+    with private_workspace(source_app) as (app, home, store):
+        bot, group = str(uuid.uuid4()), str(uuid.uuid4())
+
+        def messages(start, markers):
+            rows = []
+            if start == 0:
+                markers.update({n: "shared lookup term" for n in range(128, 149)})
+            for number in range(start, start + 400):
+                text = f"QA message {number}. " + markers.get(number, "Context from an earlier conversation. " * 3)
+                rows.append({"id": str(uuid.uuid4()), "role": "user", "createdAt": 800000000 + number, "content": text})
+            return rows
+
+        store.write_text(json.dumps({
+            "version": 2, "bots": [{"id": bot, "name": "LookupQA", "backend": "Mock",
+                                     "messages": messages(0, {37: "original project brief", 88: "revised project brief"})}],
+            "groups": [{"id": group, "name": "Launch QA", "memberIDs": [bot],
+                        "messages": messages(400, {452: "the competitor brief"})}]}))
+        with open_workspace(app, home) as window:
+            wait_for("fixture bot", lambda: any(label(b).startswith("LookupQA,") for b in buttons(window)))
+            press(window, "LookupQA", sidebar=True)
+            wait_for("newest bot row", lambda: 399 in visible_messages(window))
+
+            def search(term, target, keyboard=False, down=0):
+                press(window, "Search")
+                sheet = lambda: next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
+                wait_for("search sheet", sheet)
+                panel = sheet()
+                field = next(e for e in descendants(panel) if attribute(e, "AXRole") == "AXTextField")
+                if ax.AXUIElementSetAttributeValue(field, "AXValue", "Context from an earlier") != 0:
+                    raise RuntimeError("Could not start a broad search")
+                if ax.AXUIElementSetAttributeValue(field, "AXValue", term) != 0:
+                    raise RuntimeError("Could not enter the search phrase")
+                result = lambda: next((b for b in buttons(panel) if f"QA message {target + down}." in label(b)), None)
+                wait_for("message search result", result)
+                if any("Context from an earlier" in label(b) for b in buttons(panel)):
+                    raise RuntimeError("An earlier query overwrote the final results")
+                started = time.monotonic()
+                if keyboard:
+                    import Quartz
+                    pid = ax.AXUIElementGetPid(field, None)[1]
+                    for key in [125] * down + [36]:  # Down Arrow, then Return.
+                        for pressed in (True, False):
+                            event = Quartz.CGEventCreateKeyboardEvent(None, key, pressed)
+                            Quartz.CGEventPostToPid(pid, event)
+                        time.sleep(0.06)
+                elif ax.AXUIElementPerformAction(result(), "AXPress") != 0:
+                    raise RuntimeError("Could not open the matching message")
+                wait_for(f"message {target} in viewport", lambda: not sheet() and target in visible_messages(window))
+                print(f"Opened visible message {target} in {time.monotonic() - started:.2f}s")
+
+            search("competitor brief", 452)
+            search("original project brief", 37)
+            search("revised project brief", 88, keyboard=True)
+            search("shared lookup term", 138, keyboard=True, down=10)
+            print("Search opened saved group and bot messages outside the initial page, including a second result in the same chat.")
+
+
 if __name__ == "__main__":
     if not ax.AXIsProcessTrusted():
         raise SystemExit("This test needs macOS Accessibility access.")
     if len(sys.argv) == 3 and sys.argv[1] == "--group-restart":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--message-search":
+        message_search(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--media-reopen":
         media_reopen(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 4 and sys.argv[1] == "--ai-inventory":
@@ -408,4 +468,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

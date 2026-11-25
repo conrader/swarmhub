@@ -106,6 +106,14 @@ To check whether a long group chat survives a restart, run the same driver with 
 
 The driver copies the app to a temporary directory, gives it a private bundle identifier and seeds a temporary home with a 620-message group. It opens the saved middle message, jumps to the end, quits, reopens, pages back and quits again. The final launch checks that the earlier page is visible. The script also checks every saved message ID.
 
+To check saved-message search on the Mac, run the driver against the candidate app.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --message-search /Applications/SwarmHub.app
+```
+
+The driver opens a private workspace with 400 bot messages and 400 group messages. It replaces a broad search with a specific phrase, opens the result and checks the message’s position against the visible scroll area. It repeats the lookup across chats and within one chat, using both a click and Return.
+
 To check published media in a bot reply, run the driver from a checkout containing the PNG and MP4 fixtures.
 
 ```sh

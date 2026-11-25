@@ -72,6 +72,7 @@ struct GroupChatView: View {
                     .frame(maxWidth: .infinity).glassGroup(spacing: 4)
                     .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, action: viewport.latest).alignmentGuide(.top) { $0[.bottom] } }
                 }
+                .onChange(of: store.scrollTarget, initial: true) { _, target in viewport.reveal(target, in: store) }
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }

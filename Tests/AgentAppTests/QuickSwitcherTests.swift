@@ -34,3 +34,24 @@ private func item(_ id: String, enabled: Bool = true) -> QuickSwitcherModel.Item
     #expect(model.selection?.target == .bot(store.bots[0].id), "Return opens Atlas")
     model.update(QuickSwitcherModel.items(in: store, query: "zzzz-nothing")); #expect(model.selection == nil)
 }
+
+@MainActor @Test func quickSwitcherSearchesSavedMessageTextAndKeepsItsDestination() async {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Forge")
+    let group = GroupChat(name: "Launch", memberIDs: [bot.id])
+    let older = ChatMessage(role: .user, content: String(repeating: "context ", count: 150) + "Résumé for release")
+    let newer = ChatMessage(role: .assistant, content: "Here is the **résumé** for release.", createdAt: older.createdAt.addingTimeInterval(10), authorID: bot.id)
+    bot.messages = [older, ChatMessage(role: .assistant, content: "[SILENT]")]
+    group.messages = [newer]
+    store.bots = [bot]
+    store.groups = [group]
+
+    let hits = await QuickSwitcherModel.messages(in: store, query: "  RESUME  ")
+    #expect(hits.map(\.target) == [.message(.init(conversation: group.id, message: newer.id)),
+                                   .message(.init(conversation: bot.id, message: older.id))])
+    #expect(hits.first?.detail?.contains("Launch · Forge") == true)
+    #expect(hits.last?.title.hasPrefix("…") == true && hits.last?.title.contains("Résumé for release") == true)
+    #expect(await QuickSwitcherModel.messages(in: store, query: "résumé for release").count == 2)
+    #expect(await QuickSwitcherModel.messages(in: store, query: "silent").isEmpty)
+    #expect(await QuickSwitcherModel.messages(in: store, query: " ").isEmpty)
+}

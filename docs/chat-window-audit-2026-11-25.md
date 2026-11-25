@@ -118,9 +118,9 @@ The public feed offered app 0.8.16 build 50 and workspace 0.2.13. The verifier c
 
 In a private native Mac chat, the driver opened a group and confirmed that “Review the competitor brief” was visible in its transcript. In sidebar **Search**, entering the name of the fixture bot returned that bot. Entering “competitor brief” returned an empty list. The sheet offered only **Done**. The switcher currently searches bot names, group names and actions. A user trying to recover an older message cannot find it this way.
 
-In OpenBot’s interactive preview, the driver opened **Search OpenBot** and entered the same phrase. The list included one message from Atlas, highlighted the matching words and showed the surrounding text and time. [OpenBot preview](https://openbot.run/app-preview)
+In OpenBot’s interactive preview, the driver opened **Search OpenBot** and entered the same phrase. The list included a message from Atlas, highlighted the matching words and showed the surrounding text and time. Starting from Forge, selecting this message under **Messages** opened the Atlas conversation with the matching reply visible. [OpenBot preview](https://openbot.run/app-preview)
 
-A SwarmHub improvement would let people select a matching message and open its position in the saved transcript. A regression check should include a message outside the initially rendered history window.
+On the patched Mac app, **Search** returns message excerpts with the chat, author and time. In an 800-message private workspace the driver searched from a bot chat, opened group message 452, switched directly to bot message 37 and then found message 88 in that same chat. Each target was outside the current page. The check measured each row against the visible scroll area. In one run those three rows appeared within 0.52–0.68 seconds of selection. A fourth query returned 21 hits. Ten Down Arrow presses and Return opened the eleventh result. The sidebar lookup covers SwarmHub bot and group messages. Imported Grok history has its own search in the archive. [Run the window check](agent-qa.md#use-the-real-mac-window)
 
 ## Product comparison and remaining checks
 
