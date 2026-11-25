@@ -35,10 +35,20 @@ if [ -n "$(git -C "$ROOT_DIR" status --porcelain -- HerdrWorkspace)" ] && [ "${S
   exit 1
 fi
 cd "$ROOT_DIR/HerdrWorkspace"
-if [ "$(uname -s)" != Darwin ]; then
+if [ "$(uname -s)" = Linux ]; then
+  case "$(uname -m)" in
+    x86_64|aarch64) RUST_TARGET="$(uname -m)-unknown-linux-musl" ;;
+    *) echo "Unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
+  esac
+  # A static musl build also runs on distributions with an older glibc than the build host.
   # shellcheck disable=SC2086
-  cargo build --release --locked ${SWARMHUB_CARGO_FLAGS:-}
-  BUILT="$ROOT_DIR/HerdrWorkspace/target/release/swarmhub-herdr"
+  cargo build --release --locked --target "$RUST_TARGET" ${SWARMHUB_CARGO_FLAGS:-}
+  BUILT="${CARGO_TARGET_DIR:-target}/$RUST_TARGET/release/swarmhub-herdr"
+  ELF_HEADERS="$(LC_ALL=C readelf --program-headers --dynamic "$BUILT")"
+  if printf '%s\n' "$ELF_HEADERS" | grep -Eq 'INTERP|\(NEEDED\)'; then
+    echo "Linux release contains a dynamic loader or shared-library dependency." >&2
+    exit 1
+  fi
   NAME="$("$BUILT" version --json | python3 -c 'import json,sys; said=json.load(sys.stdin); print("swarmhub-herdr-%s-%s" % (said["version"], said["target"]))')"
   mkdir -p "$ROOT_DIR/dist/workspace"
   cp "$BUILT" "$ROOT_DIR/dist/workspace/$NAME"
