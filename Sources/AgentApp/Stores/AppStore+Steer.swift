@@ -7,6 +7,7 @@ enum SteerKey { static let steer = "steer", correction = "correction", explicitN
 enum SteerCopy {
     /// Sent before the correction's text (never shown in the bubble).
     static let lead = "(Correction while you were answering:)"
+    static let startupWait = "Waiting for the bot to start. If this answer cannot take follow-ups, this sends next."
     static let placeholder = "Add to this answer…"
     static let hint = "Follow-ups go to the current turn. Check the receipt below your message."
     /// Legacy automatic wait caption, used to recover old queues.
@@ -25,7 +26,7 @@ enum SteerCopy {
         }
         switch message.metadata[SteerKey.steer] {
         case nil: return message.metadata[SteerKey.explicitNext] == "1" ? "Requested as the next message" : nil
-        case "sent": return "Accepted · sending to current turn…"
+        case "sent": return "Sending to the current answer…"
         case "queued": return "Accepted · delivery unconfirmed"
         case "uncertain": return "Delivery unconfirmed"
         case "failed": return "Not delivered"
@@ -59,7 +60,8 @@ extension AppStore {
         captureAttachments(message, readers: [bot.id])
         guard turn.steerAvailable, !turn.stopping, let backend = turn.backend, turn.assistant != nil else {
             conversation.messages.append(message)
-            if !waitForTurn(message, in: conversation, reason: TurnWaitCopy.afterAnswer) {
+            let target = turn.awaitingSteerCapability && !turn.stopping ? turn.startupTarget : nil
+            if !waitForTurn(message, in: conversation, reason: target == nil ? TurnWaitCopy.afterAnswer : SteerCopy.startupWait, startupTarget: target) {
                 // Other recipients in a group send may already have accepted their copies.
                 guard conversation is GroupChat else { return false }
                 message.metadata[SteerKey.steer] = "failed"
@@ -75,6 +77,45 @@ extension AppStore {
         deliverSteer(message.modelText.trimmingCharacters(in: .whitespacesAndNewlines), into: conversation,
                      sessionID: turnSessionID(in: conversation, bot: bot), backend: backend, bubble: message, files: files, slot: turn)
         return true
+    }
+
+    /// A workspace without live steering keeps the original queue entry and its recipient.
+    func keepStartupFollowUpsQueued(for turn: ConversationTurn) {
+        guard let target = turn.startupTarget else { return }
+        for index in turns.nextMessages.indices where turns.nextMessages[index].startupTarget == target {
+            let next = turns.nextMessages[index]
+            turns.nextMessages[index].startupTarget = nil
+            let rows = next.conversation.messages
+            if let position = rows.firstIndex(where: { $0 === next.bubble }),
+               rows.indices.contains(position + 1), rows[position + 1].metadata[TurnWaitCopy.key] == "line" {
+                rows[position + 1].content = TurnWaitCopy.afterAnswer
+            }
+        }
+    }
+
+    func deliverStartupFollowUps(to bot: Bot, turn: ConversationTurn) {
+        guard !turn.stopping, let backend = turn.backend, let reply = turn.assistant, let target = turn.startupTarget else { return }
+        let conversation = turn.conversation
+        for next in turns.nextMessages where next.startupTarget == target && next.conversation === conversation {
+            let message = next.bubble
+            guard let index = conversation.messages.firstIndex(where: { $0 === message }),
+                  recordNextMessage(next, .submitting) else { return }
+            turns.nextMessages.removeAll { $0.id == next.id }
+            endWait(message, in: conversation)
+            do {
+                let files = try message.attachments.map(attachmentEncoder.taskFile(for:))
+                insertInActiveTurn(message, in: conversation, after: reply, movingFrom: index)
+                message.metadata[SteerKey.steer] = "sent"
+                deliverSteer(message.modelText.trimmingCharacters(in: .whitespacesAndNewlines), into: conversation,
+                             sessionID: turnSessionID(in: conversation, bot: bot), backend: backend, bubble: message,
+                             files: files, slot: turn, queued: next)
+            } catch {
+                message.metadata[SteerKey.steer] = "failed"
+                addWarning(error.localizedDescription, in: conversation, after: message)
+                save()
+                if !turns.saveFailing { recordNextMessage(next, .removed) }
+            }
+        }
     }
 
     func noteFirstSteer() {
@@ -95,7 +136,7 @@ extension AppStore {
     // MARK: Queued
 
     /// Shows the steer bubble and posts it; it waits for the running step to end. A refusal marks it and says why.
-    func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil, files: [HerdrClient.TaskFile] = [], slot: ConversationTurn? = nil) {
+    func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil, files: [HerdrClient.TaskFile] = [], slot: ConversationTurn? = nil, queued: QueuedNextMessage? = nil) {
         let message = bubble ?? ChatMessage(role: .user, content: value, metadata: [SteerKey.steer: "sent"])
         let slot = slot ?? turn(in: conversation)
         if bubble == nil { insertInActiveTurn(message, in: conversation, after: slot?.assistant) }
@@ -106,7 +147,9 @@ extension AppStore {
         let goalID = (conversation as? Bot)?.goal.flatMap { $0.state.active ? $0.id : nil }
         turns.inFlightSteers.insert(message.id)
         objectWillChange.send(); save()
+        let preceding = slot?.lastSteerDelivery
         let delivery = Task {
+            await preceding?.value
             defer {
                 turns.inFlightSteers.remove(message.id)
                 slot?.guidanceReceipts[message.id] = nil
@@ -141,7 +184,9 @@ extension AppStore {
                 addWarning(error.localizedDescription, in: conversation, after: message)
             }
             objectWillChange.send(); save()
+            if let queued, !turns.saveFailing { recordNextMessage(queued, .sent) }
         }
+        slot?.lastSteerDelivery = delivery
         if slot?.goalAttempt != nil { slot?.guidanceReceipts[message.id] = delivery }
     }
 

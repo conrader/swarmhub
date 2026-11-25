@@ -153,9 +153,9 @@ extension AppStore {
                 agentStatus = value; row.metadata[TurnKey.agent] = value
                 // An agent that waits in its terminal is raised to the person, with what it asks.
                 herdrTurnStatus(HerdrTurnStatus(code: value), for: bot, in: group)
-                // A bot's own turn takes no steer while its agent is handed an earlier conversation (`AppStore+GrokHandoff.swift`).
+                // Live guidance must target the user's active runtime turn.
                 if let slot = runningTurns.values.first(where: { $0.assistant === row }) {
-                    await steerFollowsBackend(slot, bot: bot)
+                    await steerFollowsBackend(slot, bot: bot, status: HerdrTurnStatus(code: value))
                 }
                 objectWillChange.send()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
@@ -314,7 +314,7 @@ extension AppStore {
         var end: TurnEnd
         do {
             let stream = try await activeBackend.send(.init(sessionID: turnSessionID(in: conversation, bot: bot), systemPrompt: systemPrompt, messages: history, images: images, files: files))
-            if isCurrent(token) {
+            if !(activeBackend is HerdrBackend), isCurrent(token) {
                 let flags = try? await activeBackend.features()
                 setSteerAvailable(flags?.contains("run_steer") == true, token: token)
             }

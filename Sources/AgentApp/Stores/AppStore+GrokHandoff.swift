@@ -151,13 +151,31 @@ extension AppStore {
 
     /// The real transport learns its steer capability after the provider accepts the
     /// user turn. Handoff, startup and blocked statuses can all change the answer.
-    func steerFollowsBackend(_ running: ConversationTurn, bot: Bot) async {
+    func steerFollowsBackend(_ running: ConversationTurn, bot: Bot, status: HerdrTurnStatus?) async {
         guard !running.stopping, let active = running.backend else { return }
         let token = running.token
-        let flags = try? await active.features()
-        guard isCurrent(token), !running.stopping, running.botID == bot.id else { return }
-        let available = flags?.contains("run_steer") == true
+        let available: Bool
+        if let herdr = active as? HerdrBackend {
+            let capability = herdr.acceptedTurnSteering
+            if capability == false { keepStartupFollowUpsQueued(for: running) }
+            // The bridge can accept the task before Codex has started its referenced turn.
+            switch status {
+            case .working, .blocked:
+                running.awaitingSteerCapability = capability == nil
+                available = capability == true
+            case .finishing, .failing:
+                running.awaitingSteerCapability = false
+                available = false
+            default:
+                running.awaitingSteerCapability = capability != false
+                available = false
+            }
+        } else {
+            available = (try? await active.features())?.contains("run_steer") == true
+            guard isCurrent(token), !running.stopping, running.botID == bot.id else { return }
+        }
         setSteerAvailable(available, token: token)
+        if available { deliverStartupFollowUps(to: bot, turn: running) }
         if available { grokHandoffs.carried.remove(bot.id) }
     }
 

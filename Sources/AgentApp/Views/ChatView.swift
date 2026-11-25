@@ -164,7 +164,7 @@ struct ChatView: View {
     private var composer: some View {
         // The main bot's "+" menu: its one action writes a request for a new bot into the composer.
         AttachmentComposer(intake: intake) { attachments in
-                     ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
+                     ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), awaitingSteer: store.turn(in: bot)?.awaitingSteerCapability == true, hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
                      send: send, stop: { store.stop(bot) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],

@@ -8,6 +8,8 @@ struct QueuedNextMessage {
     let bubble: ChatMessage
     var kind: NextMessageRecord.Kind = .steer
     var anchorID: UUID
+    /// Only the original live reply may take this waiting message as guidance. Relaunch uses the normal queue.
+    var startupTarget: StartupSteerTarget?
     var restored = false
     init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false) {
         self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored
@@ -129,9 +131,10 @@ extension AppStore {
     // MARK: P39 turn limit
 
     /// The user's message is already in `conversation`; it waits there with one line until a turn may start.
-    func waitForTurn(_ user: ChatMessage, in conversation: any Conversation, reason: String) -> Bool {
+    func waitForTurn(_ user: ChatMessage, in conversation: any Conversation, reason: String, startupTarget: StartupSteerTarget? = nil) -> Bool {
         user.metadata[TurnWaitCopy.key] = "waiting"
-        let next = QueuedNextMessage(conversation: conversation, bubble: user, kind: .turn)
+        var next = QueuedNextMessage(conversation: conversation, bubble: user, kind: .turn)
+        next.startupTarget = startupTarget
         guard enqueueNextMessage(next) else { user.metadata[TurnWaitCopy.key] = nil; conversation.messages.removeAll { $0 === user }; return false }
         if let index = conversation.messages.firstIndex(where: { $0 === user }) {
             conversation.messages.insert(ChatMessage(role: .system, content: reason, metadata: [TurnWaitCopy.key: "line"]), at: index + 1)

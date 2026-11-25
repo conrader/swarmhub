@@ -174,9 +174,9 @@ import Testing
     let (store, bot) = try handoffStore(bridge, lines: handoffConversation(exchanges: 5))
     #expect(store.herdrSteers(bot), "this bot takes steers")
     #expect(store.send(text: "First"))
-    try await waitUntil { bridge.sent.count == 1 }
-    #expect(bridge.sent[0].route == "launch-with-files" && !store.canSteer(in: bot), "the turn the chat does not show takes no steer")
     #expect(store.send(text: "Second"))
+    try await waitUntil { bot.messages.contains { $0.content == TurnWaitCopy.afterAnswer } }
+    #expect(bridge.sent.map(\.route) == ["launch-with-files"] && !store.canSteer(in: bot))
     let row = try #require(bot.messages.first { $0.content == "Second" })
     #expect(row.metadata[TurnWaitCopy.key] == "waiting" && store.hasWaitingTurn(in: bot))
     #expect(bridge.sent.count == 1)
@@ -189,15 +189,18 @@ import Testing
 @Test @MainActor func importedHistoryDoesNotOccupyTheCodexTurnOrQueueItsSteers() async throws {
     let bridge = HandoffBridge()
     bridge.codexSteer = true
+    bridge.agentState = "working"
     bridge.holds = { $0.hasSuffix("First question") }
     let (store, bot) = try handoffStore(bridge, lines: handoffConversation(exchanges: 5))
     #expect(store.send(text: "First question"))
-    try await waitUntil { store.canSteer(in: bot) }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files"])
+    // Both corrections arrive in the same UI cycle, before the workspace has accepted the first task.
     #expect(store.send(text: "One more detail"))
-    try await waitUntil { bot.messages.contains { $0.content == "One more detail" && $0.metadata[SteerKey.steer] == "delivered" } }
-    #expect(bridge.sent.map(\.route) == ["launch-with-files", "steer"])
-    #expect(!store.hasWaitingTurn(in: bot))
+    #expect(store.send(text: "Use the revised date"))
+    #expect(store.turns.nextMessages.count == 2 && bridge.sent.isEmpty)
+    try await waitUntil { bot.messages.filter { $0.metadata[SteerKey.steer] == "delivered" }.count == 2 }
+    #expect(bridge.sent.map(\.route) == ["launch-with-files", "steer", "steer"])
+    #expect(bridge.sent.suffix(2).map(\.text) == ["One more detail", "Use the revised date"])
+    #expect(!store.hasWaitingTurn(in: bot) && !bot.messages.contains { $0.metadata[TurnWaitCopy.key] != nil })
     bridge.release("Answer with the detail.")
     try await waitUntil { store.runningTurns.isEmpty }
 }

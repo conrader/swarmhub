@@ -57,7 +57,10 @@ extension AppStore {
             group.messages.append(assistant)
         }
         if runningTurns[group.id]?.token == token { group.activeMemberID = bot.id }
-        if let turn = turn(token: token) { turn.botID = bot.id; turn.assistant = assistant; turn.backend = activeBackend }
+        if let turn = turn(token: token) {
+            turn.botID = bot.id; turn.assistant = assistant; turn.backend = activeBackend
+            turn.awaitingSteerCapability = (activeBackend as? HerdrBackend)?.steers == true
+        }
         objectWillChange.send(); save()
         let sessionID = turnSessionID(in: group, bot: bot)
         var end: TurnEnd
@@ -83,7 +86,7 @@ extension AppStore {
             }
             let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.outboundPersona,
                 messages: [(role: "user", content: context)], images: herdr == nil ? images : [], files: files))
-            if isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
+            if herdr == nil, isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
             end = try await consumeTurn(stream, assistant: assistant, bot: bot, group: group, cumulativeReplacements: herdr != nil)
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser

@@ -9,7 +9,7 @@ import Testing
 @Test func bubbleCopyPerPath() {
     func caption(_ metadata: [String: String]) -> String? { SteerCopy.caption(ChatMessage(role: .user, content: "x", metadata: metadata)) }
     #expect(caption([:]) == nil)
-    #expect(caption(["steer": "sent"]) == "Accepted · sending to current turn…")
+    #expect(caption(["steer": "sent"]) == "Sending to the current answer…")
     #expect(caption(["steer": "queued"]) == "Accepted · delivery unconfirmed")
     #expect(caption(["steer": "delivered"]) == "Delivered")
     #expect(caption(["steer": "failed"]) == "Not delivered")
