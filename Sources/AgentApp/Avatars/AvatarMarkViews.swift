@@ -18,7 +18,7 @@ struct AvatarMarkView: View {
                 AvatarStillMark(type: type, colourHex: hex, size: size, facing: facing).equatable().transition(.opacity)
             } else {
                 AvatarLiveMark(type: type, colourHex: hex, size: size, seed: AvatarKitMap.kitSeed(seed),
-                               facing: facing, playback: AvatarMotion.playback(mode: mode, context: context, calm: calm, isSelected: isSelected)).transition(.opacity)
+                               facing: facing, playback: AvatarMotion.playback(mode: mode, context: context, calm: calm, isSelected: isSelected)).equatable().transition(.opacity)
             }
         }
         .frame(width: size, height: size)
@@ -57,7 +57,7 @@ struct AvatarStillMark: View, Equatable {
 
 /// The live layer: Libraries.dev's original animation rig, flat shading and a content gaze target.
 /// While one exists the shared clock runs; it stops when the last one leaves.
-struct AvatarLiveMark: View {
+struct AvatarLiveMark: View, Equatable {
     let type: BotAvatarType; let colourHex: String; let size: CGFloat; let seed: Double
     let facing: AvatarFacing; let playback: AvatarPlayback
 
@@ -79,7 +79,7 @@ extension AvatarFacing {
 }
 
 /// Selects the library's ready-made states and tap gesture; contains no animation curves or pose overrides.
-struct AvatarPlayback {
+struct AvatarPlayback: Equatable {
     let state: BotAvatarState; let jump: BotAvatarJumpConfig; let speed: Double; let reaction: Int; let scenario: String
 }
 

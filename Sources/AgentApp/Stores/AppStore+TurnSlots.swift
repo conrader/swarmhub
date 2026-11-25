@@ -141,6 +141,7 @@ extension AppStore {
     func stop(_ conversation: any Conversation) {
         guard let turn = turn(in: conversation), !turn.stopping else { return }
         // The slot stays until the turn's task ends (`endTurn`), as the one app-wide slot did before P39.
+        turns.textBuffers[conversation.id]?.flush()
         turn.stopping = true; turn.groupRun?.stopped = true
         let streamToken = turn.token
         let bot = turn.botID.flatMap { id in bots.first { $0.id == id } }

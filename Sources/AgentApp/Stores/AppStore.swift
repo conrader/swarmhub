@@ -315,6 +315,8 @@ import UserNotifications
     }
 
     func writeStore() throws {
+        // All conversations contribute their latest partial reply to the same atomic snapshot.
+        for buffer in turns.textBuffers.values { buffer.flush() }
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(storeFile)

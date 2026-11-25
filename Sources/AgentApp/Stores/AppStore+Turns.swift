@@ -2,6 +2,7 @@ import Foundation
 
 /// P16 runtime bookkeeping that lives beside the store (memory only).
 @MainActor final class TurnBook {
+    var textBuffers: [UUID: TurnTextBuffer] = [:]
     /// Retry guard: `conversation|member|user row id` while an attempt runs.
     var retryLedger: Set<String> = []
     /// Throttled token autosave.
@@ -37,8 +38,22 @@ extension AppStore {
         var committedReplacePrefix = ""
         // What the agent's server says the turn is waiting for; it goes with the reply into each new part.
         var agentStatus: String?
+        let conversationID = group?.id ?? bot.id
+        let buffer = TurnTextBuffer { orderChanged in
+            if let group { group.objectWillChange.send() } else { bot.objectWillChange.send() }
+            if orderChanged { self.objectWillChange.send() }
+        }
+        turns.textBuffers[conversationID] = buffer
+        defer { buffer.flush(); turns.textBuffers.removeValue(forKey: conversationID) }
         for try await event in stream {
-            guard !Task.isCancelled else { break }
+            try Task.checkCancellation()
+            if row.turnState == .stopped { continue }
+            // Tool offsets, status, and a steer splitting this reply must see all preceding text.
+            switch event {
+            case .token, .replace:
+                if turns.steers[assistant.id]?.boundary == true { buffer.flush() }
+            default: buffer.flush()
+            }
             let nextRow = steerRow(for: event, origin: assistant, row: row)
             if nextRow !== row { committedReplacePrefix = lastFullReplace; row = nextRow }
             if row.metadata[TurnKey.agent] != agentStatus { row.metadata[TurnKey.agent] = agentStatus }
@@ -46,9 +61,8 @@ extension AppStore {
             if case .status = event {} else if row.metadata[TurnKey.reconnecting] != nil { row.metadata[TurnKey.reconnecting] = nil; objectWillChange.send() }
             switch event {
             case .token(let token):
-                row.content += token
-                if !token.isEmpty { row.lastTextAt = now() }
-                objectWillChange.send(); autosaveIfDue()
+                buffer.receive(token, replacing: false, row: row, at: now())
+                autosaveIfDue()
             case .replace(let text):
                 lastFullReplace = text
                 let remainder: String
@@ -58,9 +72,8 @@ extension AppStore {
                 } else {
                     remainder = text
                 }
-                row.content = remainder
-                row.lastTextAt = remainder.isEmpty ? nil : now()
-                objectWillChange.send(); autosaveIfDue()
+                buffer.receive(remainder, replacing: true, row: row, at: now())
+                autosaveIfDue()
             case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
             case .status(let value) where HerdrTurnStatus(code: value) != nil:
                 agentStatus = value; row.metadata[TurnKey.agent] = value
