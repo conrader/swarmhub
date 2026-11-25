@@ -270,3 +270,22 @@ Chrome and the native MacBook Activity sheet displayed the interrupted job and t
 - From Atlas’s model picker, pressing **Add provider** in the OpenBot preview opened provider settings with a search field and a Gemini entry. SwarmHub now puts **Manage AIs on this Mac…** beside the bot’s own AI choices. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
 - The remote exercises cover connection loss after delivery with SwarmHub open and with an offline relaunch. Changing workspace credentials mid-turn remains untested.
+
+## Signed 0.8.17 candidate on the MacBook
+
+The release archive was built from commit `2ac70b0a6cf011c4f499ed08f431d297215fa338` as build 51. The checks below used private test conversations. The update rehearsal used copies of the two apps and a local feed.
+
+| User action | Observed result |
+| --- | --- |
+| Reopen a long bot chat and press Jump to latest | Message 243 was visible on open. Message 486 was visible 0.16 seconds after the Accessibility button press in one run. Switching away and back restored the draft reply. |
+| Read an older group conversation, quit, and reopen it twice | The saved position survived both relaunches. All 620 message identities were retained. |
+| Edit a third chat while two replies arrive | The editor kept its draft. Both background chats acquired unread badges. Opening a helper kept its parent unread. Reopening the workspace recovered the order of the guidance and replies. |
+| View chat media, disconnect, and relaunch | The image opened and the video played again offline. Each file was downloaded once. |
+| Use the Team panel and share a group | Handoffs and CI watches followed the selected bot. Closing and reopening Details worked. A two-bot Team Pack exported and imported through the native dialogs in both appearances. |
+| Review command approvals from another chat | The workspace received the deny and allow decisions for their respective request IDs. The stale session was excluded. |
+| Find an older message from the keyboard | Return opened message 88. Ten Down Arrow presses followed by Return opened message 138. |
+| Leave a conversation while its reply finishes | In each of five window states, the bot and group kept their replies unread until the user returned. The scenarios included a minimized window, a hidden app, a different foreground app, Settings and Search. |
+
+The built-in exploration completed 29 steps with zero failed checks in the signed app. It captured both appearances at 980 × 620 points. The 0.16-second timing is one observation from a fixture. A matched OpenBot comparison and a 50-agent run remain outstanding.
+
+Gatekeeper accepted the universal build and Apple's stapler validated its ticket. The public key from the shipped 0.8.16 archive verified the new app ZIP and the workspace manifest. All three workspace binary digests matched. During the private Sparkle rehearsal, build 50 rejected a signature made with a different key and installed the trusted fixture on quit. The rehearsal changes bundle IDs, version numbers and keys to isolate it from the installed app.
