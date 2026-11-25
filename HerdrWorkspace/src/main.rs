@@ -686,6 +686,7 @@ struct AgentView<'a> {
     reply_arrives_whole: Option<String>,
     #[serde(flatten)]
     review: codex_agent::stream::ReviewStatus,
+    vault_session_stale: bool,
     /// `ready`, `warm` and `warm_ends_ms`: whether a task sent now is typed at once (`warm`).
     #[serde(flatten)]
     start: warm::Start,
@@ -693,12 +694,15 @@ struct AgentView<'a> {
 
 impl<'a> AgentView<'a> {
     fn new(
-        history: &History,
+        w: &Workspace,
         terminal: &'a core::Terminal,
         parent: Option<helpers::ParentRef>,
     ) -> Self {
+        let history = &w.history;
         Self {
             terminal,
+            vault_session_stale: terminal.state == "live" && terminal.launch_key().is_some()
+                && w.vault.as_ref().is_some_and(|v| v.predates_session_credentials(terminal.created_ms)),
             review: codex_agent::stream::review_status(history, terminal.launch_key()),
             opencode_api: terminal.uses_opencode_api(),
             parent,
@@ -736,7 +740,7 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         })
         // A helper that has ended leaves the roster; its conversation stays in the history.
         .filter(|(terminal, helper)| helper.is_none() || terminal.state == "live")
-        .map(|(terminal, helper)| AgentView::new(&w.history, terminal, helper.cloned().flatten()))
+        .map(|(terminal, helper)| AgentView::new(&w, terminal, helper.cloned().flatten()))
         .collect();
     let timezone = {
         let db = w.history.db()?;

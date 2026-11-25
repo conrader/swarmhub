@@ -93,6 +93,7 @@ type SessionRequests = HashMap<(String, String), Record>;
 /// agent-writable journal holds neither of these authorities.
 #[derive(Clone)]
 pub(super) struct Desk {
+    pub(super) started_ms: i64,
     signing: Arc<hmac::Key>,
     records: Arc<Mutex<SessionRequests>>,
 }
@@ -100,6 +101,7 @@ pub(super) struct Desk {
 impl Desk {
     pub(super) fn new() -> Result<Self, &'static str> {
         Ok(Self {
+            started_ms: now(),
             signing: Arc::new(
                 hmac::Key::generate(hmac::HMAC_SHA256, &SystemRandom::new())
                     .map_err(|_| "Could not initialize Vault session credentials.")?,

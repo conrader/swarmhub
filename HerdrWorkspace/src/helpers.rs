@@ -581,6 +581,12 @@ async fn start(
         .iter()
         .find(|agent| agent.launch_key() == Some(key.as_str()) && agent.require_live().is_ok())
         .ok_or("Only a running SwarmHub agent can start helpers.")?;
+    // Serialize admission with recovery of this exact parent. Recovery may have ended it while we waited.
+    let parent_turn = crate::task_turn(w, &parent.address, parent.created_ms).await;
+    let agents = w.core.agents().await.map_err(explain)?;
+    let parent = agents.iter().find(|candidate| candidate.address == parent.address
+        && candidate.created_ms == parent.created_ms && candidate.launch_key() == Some(key.as_str())
+        && candidate.require_live().is_ok()).ok_or("The parent session ended before the helper could start.")?;
     let live: HashSet<&str> = agents
         .iter()
         .filter(|agent| agent.require_live().is_ok())
@@ -602,6 +608,7 @@ async fn start(
             task: &task,
         },
     ))??;
+    drop(parent_turn);
     let parent_address = parent.address.clone();
     let Admitted {
         record,

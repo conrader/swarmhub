@@ -76,6 +76,23 @@ extension AppStore {
         }
     }
 
+    func recoverVaultSession(for bot: Bot, server: HerdrServer, core: String, target: HerdrClient.AgentRef) async throws {
+        let client = try herdrClient(for: server)
+        let workspace = try await client.workspace()
+        let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+        guard bots.contains(bot), !bot.isDemo, !bot.isReadOnlyArchive, herdrServer(for: bot) == server,
+              workspace.core == core, let agent = client.liveAgent(named: name, in: workspace),
+              agent.ref == target, agent.parent == nil, agent.vaultSessionStale == true, agent.isIdleForRollover,
+              !herdrBotIsBusy(bot), !herdrAgentIsBusy(agent, in: workspace.agents) else { throw HerdrMoveError.undoBusy }
+        let launch = HerdrAgentLaunch(server: server.id, core: core, address: target.address, createdMs: target.createdMs)
+        armHerdrCarryOver(for: [bot], running: [bot.id: launch])
+        try await client.recoverVaultSession(core: core, bot: bot.id, target: target)
+        guard bots.contains(bot), herdrServer(for: bot) == server else { return }
+        herdrReadiness[bot.id] = nil
+        if launchWorkEnabled { await warmHerdrAgent(for: bot)?.value }
+        await refreshHerdrAgentReading(for: bot)
+    }
+
     // MARK: The chat as a conversation to hand over
 
     /// What the person and the bot said in the bot's chat, oldest first, numbered from 1. Left out: the app's own

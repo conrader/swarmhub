@@ -44,6 +44,7 @@ struct HerdrClient: Sendable {
         struct FirstMessage: Decodable, Sendable, Equatable { let sent: Bool? }
         let address: String; let name: String; let state: String; let createdMs: UInt64; let template: String?; let status: Status?
         var firstMessage: FirstMessage? = nil
+        var vaultSessionStale: Bool?
         var autoRestartPending: Bool?
         var codexReviewer: String?
         var codexReviewEvent: String?

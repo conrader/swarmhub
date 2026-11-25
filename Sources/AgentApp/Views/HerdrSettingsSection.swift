@@ -352,6 +352,20 @@ struct HerdrAgentControls: View {
             } else if listed, effective != nil {
                 SettingBlock(title: "Bot model", detail: HerdrAgentReading.programPicks) { EmptyView() }
             }
+            if reading?.vaultSessionStale == true, let core = reading?.core, let target = reading?.session {
+                SettingBlock(title: "Vault session", detail: "The bridge restarted. Recover the idle session to keep this conversation and request fresh Vault access.") {
+                    Button("Recover Vault session") {
+                        restarting = true
+                        Task {
+                            defer { restarting = false }
+                            do {
+                                try await store.recoverVaultSession(for: bot, server: server, core: core, target: target)
+                                note = "Your next message uses a fresh session. Request Vault access there."
+                            } catch { note = error.localizedDescription }
+                        }
+                    }.disabled(restarting || store.herdrBotIsBusy(bot))
+                }
+            }
             if let running = reading?.runningLine {
                 StatusCard(kind: .info, title: running, detail: reading?.pendingLine)
             }

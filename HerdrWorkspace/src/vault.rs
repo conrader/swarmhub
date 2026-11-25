@@ -529,11 +529,68 @@ pub fn routes() -> Router<Workspace> {
             }),
         )
         .route("/api/vault", get(list).post(create))
+        .route("/api/vault/recover-session", post(recover_session))
         .route("/api/vault/{id}/replace", post(replace))
         .route("/api/vault/{id}/rename", post(rename))
         .route("/api/vault/{id}/remove", post(remove))
         .merge(requests::routes())
         .layer(DefaultBodyLimit::max(32 * 1024))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Recovery {
+    core: String,
+    bot: String,
+    target: crate::groups::Target,
+}
+
+impl Vault {
+    pub(crate) fn predates_session_credentials(&self, created_ms: u64) -> bool {
+        created_ms < self.requests.started_ms.max(0) as u64
+    }
+}
+
+fn recovery_owner(db: &Connection, key: &str, body: &Recovery) -> rusqlite::Result<bool> {
+    db.query_row("SELECT EXISTS(SELECT 1 FROM journal j WHERE j.launch_key=?1 AND j.core_id=?2
+        AND j.address=?3 AND j.created_ms=?4 AND j.parent_bot_id=?5
+        AND NOT EXISTS(SELECT 1 FROM helpers WHERE launch=j.id)
+        AND NOT EXISTS(SELECT 1 FROM helpers h JOIN journal child ON child.id=h.launch
+            WHERE h.parent_key=j.launch_key AND child.state='pending')
+        AND NOT EXISTS(SELECT 1 FROM journal task WHERE task.core_id=j.core_id AND task.address=j.address
+            AND task.created_ms=j.created_ms AND task.kind='task' AND task.state='pending'))",
+        params![key,body.core,body.target.address,body.target.created_ms,body.bot], |r|r.get(0))
+}
+
+async fn recover_session(State(w): State<Workspace>, body: Result<Json<Recovery>, JsonRejection>)
+    -> Result<Json<serde_json::Value>,ApiError>
+{
+    let body = secret_body(body)?;
+    let vault = w.vault.as_ref().ok_or(DISABLED)?;
+    let conflict = || ApiError::Conflict("The Vault session changed or is busy. Refresh the bot’s Details and try again when its helpers finish.");
+    if !vault.predates_session_credentials(body.target.created_ms) { return Err(conflict()); }
+    let _turn = crate::task_turn(&w,&body.target.address,body.target.created_ms).await;
+    let core = w.core.identify().await?.core.id;
+    if core != body.core { return Err(conflict()); }
+    let agents = w.core.agents().await?;
+    let parents = crate::helpers::parents(&w.history,&core,&agents)?;
+    if agents.iter().any(|a| a.state=="live" && a.launch_key().and_then(|k| parents.get(k))
+        .and_then(Option::as_ref).is_some_and(|p| p.address==body.target.address && p.created_ms==body.target.created_ms)) {
+        return Err(conflict());
+    }
+    let agent = w.core.agent(&body.target.address,body.target.created_ms).await?;
+    agent.require_live()?;
+    if !agent.status.as_ref().is_some_and(|s| matches!(s.state.as_str(),"idle"|"done"))
+        || agent.first_message.as_ref().is_some_and(|f| !f.sent) { return Err(conflict()); }
+    {
+        let db = w.history.db()?;
+        vault.check(&db)?;
+        if !recovery_owner(&db,agent.launch_key().ok_or_else(conflict)?,&body).map_err(StoreError::from)? {
+            return Err(conflict());
+        }
+    }
+    w.core.end(&agent).await?;
+    Ok(Json(serde_json::json!({"ended":true})))
 }
 
 async fn list(State(w): State<Workspace>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -714,6 +771,24 @@ async fn remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_is_bound_to_an_idle_launch_of_the_same_bot_and_core() {
+        let (_tmp,history) = crate::bots::testing::journal(&[]);
+        let (id,key) = history.start_launch("workspace","fixture","test",None,"{}","").unwrap().unwrap();
+        let db = history.db().unwrap();
+        db.execute("UPDATE journal SET state='sent',address='a',created_ms=2,parent_bot_id='owner' WHERE id=?", [id]).unwrap();
+        let mut body = Recovery { bot:"owner".into(), core:"workspace".into(), target:crate::groups::Target {address:"a".into(),created_ms:2} };
+        assert!(recovery_owner(&db,&key,&body).unwrap());
+        body.core = "different".into();
+        assert!(!recovery_owner(&db,&key,&body).unwrap());
+        body.core = "workspace".into();
+        body.bot = "other".into();
+        assert!(!recovery_owner(&db,&key,&body).unwrap());
+        body.bot = "owner".into();
+        db.execute("UPDATE journal SET state='pending' WHERE id=?",[id]).unwrap();
+        assert!(!recovery_owner(&db,&key,&body).unwrap());
+    }
 
     #[test]
     fn encrypted_entries_survive_reopen_and_rename_binds_ciphertext_to_new_revision() {

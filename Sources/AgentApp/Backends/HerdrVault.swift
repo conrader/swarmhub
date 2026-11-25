@@ -53,6 +53,11 @@ extension HerdrClient {
         try await get("/api/vault", timeout: 8)
     }
 
+    func recoverVaultSession(core: String, bot: UUID, target: AgentRef) async throws {
+        try await vaultWrite("/api/vault/recover-session", ["core": core, "bot": bot.uuidString.lowercased(),
+            "target": ["address": target.address, "created_ms": target.createdMs] as [String: Any]])
+    }
+
     func vaultRequests() async throws -> [HerdrVault.Request] {
         try await get("/api/vault/requests", timeout: 5)
     }

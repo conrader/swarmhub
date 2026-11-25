@@ -26,7 +26,7 @@ use tokio::{
 
 pub(crate) const SESSION_ENV: &str = "SWARMHUB_VAULT_SESSION";
 const DENIED: &str = "An approved Vault request for this agent and name is required.";
-const UNAVAILABLE: &str = "Vault is unavailable in this agent session.";
+const UNAVAILABLE: &str = "Vault is unavailable in this agent session. After a workspace restart, open the bot’s Details and choose Recover Vault session.";
 pub(crate) const USAGE: &str = "Vault: swarmhub-herdr vault request --name NAME --label LABEL --description DESCRIPTION\n       swarmhub-herdr vault status --name NAME\n       swarmhub-herdr vault exec --name NAME [--name NAME ...] -- COMMAND [ARG ...]";
 const IO_TIME: Duration = Duration::from_secs(5);
 const REQUEST_LIMIT: u64 = 8192;

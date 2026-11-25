@@ -31,6 +31,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     var core: String?
     var activeTemplate: String?
     var confirmed = false
+    var vaultSessionStale = false
     var autoRestartPending = false
     var reviewDescription: String?
 
@@ -60,6 +61,7 @@ struct HerdrAgentReading: Equatable, Sendable {
             else { model = HerdrClient.defaultModel(offered: offered).flatMap { id in offered.first { $0.id == id } } }
         }
         guard let agent else { return }
+        vaultSessionStale = agent.vaultSessionStale == true
         autoRestartPending = agent.autoRestartPending == true
         reviewDescription = agent.reviewDescription
         self.session = agent.ref; activeTemplate = agent.template
