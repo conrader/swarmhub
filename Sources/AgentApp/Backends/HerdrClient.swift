@@ -192,6 +192,8 @@ struct HerdrClient: Sendable {
     /// Between two reads of a session while waiting for its reply, and between two looks at the agent's status.
     var pollInterval: Duration = .milliseconds(400)
     var agentCheckInterval: Duration = .seconds(2)
+    /// Retry budget for reading a turn the workspace already accepted. Its command is never submitted again.
+    var reconnectLimit: Duration = .seconds(120)
     var busyWaitLimit: Duration = .seconds(300)
     /// Runs before every request. A server reached over SSH opens its port forward here when it is not up
     /// (`HerdrTunnels.ensure`) and returns its current loopback port.
@@ -694,7 +696,8 @@ struct HerdrClient: Sendable {
     func polledReply(to turn: Turn, follower: inout HerdrTurnFollower, emit: ([HerdrTurnFollower.Step]) -> Void) async throws -> String {
         let clock = ContinuousClock()
         var nextAgentCheck = clock.now
-        var readFailures = 0
+        var retryUntil: ContinuousClock.Instant?
+        var retryDelay = pollInterval
         while true {
             do {
                 try Task.checkCancellation()
@@ -723,13 +726,34 @@ struct HerdrClient: Sendable {
                     emit(follower.drain())
                     if case .failed(let failure) = verdict { throw failure }
                 }
-                readFailures = 0
+                retryUntil = nil
+                retryDelay = pollInterval
                 try await Task.sleep(for: pollInterval)
-            } catch let error as URLError where error.code != .cancelled && readFailures < 4 {
-                readFailures += 1
-                try await Task.sleep(for: pollInterval)
+            } catch where Self.canResumeRead(after: error) {
+                try Task.checkCancellation()
+                let deadline = retryUntil ?? clock.now + reconnectLimit
+                guard clock.now < deadline else { throw error }
+                retryUntil = deadline
+                follower.connectionLost()
+                emit(follower.drain())
+                try await clock.sleep(until: min(clock.now + retryDelay, deadline))
+                retryDelay = min(retryDelay * 2, .seconds(3))
             }
         }
+    }
+
+    private static func canResumeRead(after error: Error) -> Bool {
+        if case Failure.http(let code, _) = error { return TransientNetwork.gatewayStatuses.contains(code) }
+        if let ssh = error as? HerdrTunnel.Failure {
+            switch ssh {
+            case .timedOut: return true
+            case .ended(let reason):
+                return ["Connection refused", "Connection timed out", "Operation timed out", "Connection reset",
+                        "No route to host", "Network is unreachable", "Could not resolve hostname"].contains { reason.localizedCaseInsensitiveContains($0) }
+            case .notSSH: return false
+            }
+        }
+        return TransientNetwork.isTransient(error)
     }
 
     // MARK: Transport

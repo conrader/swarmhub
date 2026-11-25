@@ -44,6 +44,18 @@ struct HerdrTurnFollower: Sendable {
     /// The newest saved row this turn has seen, to resume a stream from.
     var newestRow: Int { max(after, rows.keys.max() ?? 0) }
 
+    /// Time offline gives no evidence that an agent stayed idle or finished answering a steer.
+    mutating func connectionLost() {
+        if lastStatus != .reconnecting {
+            steps.append(.status(.reconnecting))
+            lastStatus = .reconnecting
+        }
+        quietSince = nil
+        agentState = nil
+        settleSince = nil
+        wantsAgentNow = true
+    }
+
     // MARK: What was learned
 
     /// Saved rows, in any order and as often as they come: a row replaces the one with its id.
@@ -110,7 +122,9 @@ struct HerdrTurnFollower: Sendable {
         if !replies.isEmpty {
             if replies.count >= max(tasks, 1) { return .reply(answered) }
             if replies.count != repliesSeen { repliesSeen = replies.count; settleSince = now; steps.append(.partial(answered)); wantsAgentNow = true }
-            if let since = settleSince, now - since >= settle { return .reply(answered) }
+            let since = settleSince ?? now
+            settleSince = since
+            if now - since >= settle { return .reply(answered) }
         }
         if let text = draft?.text, !text.isEmpty, text != lastDraft { steps.append(.partial(answered.isEmpty ? text : answered + "\n\n" + text)); lastDraft = text; began = true }
         return .waiting

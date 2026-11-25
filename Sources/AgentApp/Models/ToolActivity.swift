@@ -126,7 +126,7 @@ enum ActivityCopy {
     /// and tool steps: always while the agent waits for the person, otherwise while no text arrives and no step runs
     /// (where the phase alone would say "Thinking…" for an agent that is still starting).
     static func agentStatus(_ status: HerdrTurnStatus?, phase: ChatActivityPhase) -> HerdrTurnStatus? {
-        guard let status, status.needsPerson || phase == .thinking else { return nil }
+        guard let status, status == .reconnecting || status.needsPerson || phase == .thinking else { return nil }
         return status
     }
 

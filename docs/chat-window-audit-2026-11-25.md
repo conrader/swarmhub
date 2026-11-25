@@ -72,9 +72,19 @@ For the window test, copies of the released and candidate apps used a private id
 
 A private MacBook workspace held two sample bots and a 620-message group. On opening the group, the normal native window showed its saved message 312. Jump to latest showed message 620. After quitting and launching again, the group reopened at 620. The driver paged back and quit. The third launch restored message 593, the position saved by the previous one. Every message ID was present and in order after the second quit. The fixture exercises local group history with a real app restart. [Repeat the window test](agent-qa.md#use-the-real-mac-window)
 
+## Losing the server connection during a command
+
+A native MacBook chat sent a command to an isolated Codex workspace on a second Mac over SSH. The command created a marker, slept for 12 seconds and returned a unique reply. After the marker appeared, the driver closed the data tunnel for 16 seconds. An independent connection could still read the workspace journal.
+
+Before the fix, the chat showed **Incomplete** by the six-second check. Even 75 seconds after the connection returned, the saved reply was missing from the chat. The server had recorded one task and one reply.
+
+With the fix, the chat showed **Reconnecting to the workspace…** while the command ran. Its saved reply appeared 0.8 seconds after the tunnel reopened. A second message in the same chat received its answer in 5.1 seconds. The server recorded exactly two tasks and two matching replies. This exercise used a manually restored SSH forward. The client retries reads of an accepted turn for up to two minutes with increasing delays. A permanent refusal such as an invalid access token ends the wait immediately.
+
+A second exercise used the SSH connection managed by SwarmHub. The driver terminated the app’s own SSH forward after the command started. SwarmHub opened a replacement forward automatically. The reply to the 12-second command was visible 14.9 seconds after the disconnect. A follow-up received its answer in 9.8 seconds. Both tasks appeared exactly once in the remote journal.
+
 ## Product comparison and remaining checks
 
 - Collapsing the chat sidebar in OpenBot’s browser preview left “Expand sidebar” and “Open side panel” accessible. The SwarmHub Mac exercise above found the empty workspace case where the sidebar control disappeared. [OpenBot preview](https://openbot.run/app-preview)
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
-- Remote and disconnected servers still need end-to-end coverage. Read-only visits to Settings do not exercise credential changes or install software.
+- The remote exercise covers a connection loss after delivery. Longer outages, quitting the client while offline and changing credentials in Settings remain separate scenarios.
