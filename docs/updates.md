@@ -138,7 +138,7 @@ For whoever publishes SwarmHub. A release is built on the Mac that holds the key
 
    On a Mac, `package-workspace.sh` builds both macOS programs from the one Mac, signs each with the Developer ID and the hardened runtime, sends them to Apple to be notarized, and only then writes their fragments. A fragment holds the size and SHA-256 of the signed file, so do not sign a program again afterwards; run the script again instead. Without `SWARMHUB_SIGN_IDENTITY` it signs nothing, and without the notarization settings it skips Apple's check; it says so in either case.
 
-   `release.sh` refuses to start if anything is missing, then builds, signs, notarizes and staples the app, writes the appcast with the release notes, writes and signs the workspace manifest, and checks every signature against the key in `Info.plist`. Without new programs in `dist/workspace` it carries the published workspace manifest over unchanged. Apple receives the notarization submission here. GitHub publication happens in step 8.
+   `release.sh` refuses to start if anything is missing, then builds, signs, notarizes and staples the app, writes the appcast with the release notes, writes and signs the workspace manifest, and checks every signature against the key in `Info.plist`. Without new programs in `dist/workspace` it carries the published workspace manifest over unchanged. A missing manifest (HTTP 404) permits a first app-only release. A network error, unreadable signature or failed signature check stops preparation so a temporary outage cannot remove the workspace update. Apple receives the notarization submission here. GitHub publication happens in step 8.
 
    Before it prints the command that publishes, it says which kinds of machine the workspace manifest has a program for, and warns when one of the three is missing: servers of that kind will not be offered the update, and This Mac cannot be set up on a kind of Mac that has no program. It does not publish a macOS program that is signed ad-hoc or not at all, signed by another team than the app, or signed without the hardened runtime.
 8. Push the commit and the tag, then run the `gh release create …` command the script printed. The release must be the **latest** one: the app's feed and the servers' feed are its assets (`appcast.xml`, the app archive, `workspace-manifest.json`, `workspace-manifest.json.sig`, the workspace programs).
@@ -146,10 +146,11 @@ For whoever publishes SwarmHub. A release is built on the Mac that holds the key
 9. From the release checkout, verify the public feed using the previous installation’s feed URL and trusted key.
 
    ```sh
-   python3 scripts/verify-published-update.py /Applications/SwarmHub.app/Contents/Info.plist
+   python3 scripts/verify-published-update.py /Applications/SwarmHub.app/Contents/Info.plist \
+     --workspace-manifest dist/workspace-manifest.json
    ```
 
-   The verifier downloads the offered ZIP, checks its size and Sparkle signature, and compares the app identifier, version and build inside it with the release checkout.
+   The verifier downloads the offered ZIP, checks its size and Sparkle signature, and compares the app identifier, version and build inside it with the release checkout. It checks that the public workspace manifest matches the staged file, verifies its signature and downloads each listed program from its tagged release to check size and SHA-256. For an app-only release that has no workspace manifest, omit the option.
 
 Do not change a file after it is signed.
 
