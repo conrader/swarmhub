@@ -206,7 +206,9 @@ On the first Mac build, closing Details, immediately reopening it and switching 
 
 On iPhone Safari, the original chat header put the back button at 15 pt from the top, under the status bar. The updated workspace keeps that control below the inset and displays **Review** in the chat header whenever there is a pending item. The iPhone run used Safari on iOS 27.2 Simulator. Chrome also opened the review queue inside a mobile-width chat, reviewed two webhook events and checked that the button disappeared after the last decision.
 
-A separate optional OpenCode integration run stopped during model discovery. The Linux fixture received HTTP 409 from its local-model endpoint with OpenCode 1.18.5, before it reached the browser approval flow. The Codex iPhone run and the webhook browser regression completed independently.
+OpenCode 1.18.5 returned HTTP 409 during model discovery because its CLI does not support the V2 adapter. On the Mac, the bot’s Model tab silently displayed an empty catalog. The service also missed systems with only the V2 executable named `opencode2`. The patched native Mac app found and registered that executable without starting it. The driver selected OpenCode, saw the fixture’s model-list error, pressed **Reload models** and saw the search field appear for the recovered 13-model catalog. Selecting Antigravity afterwards affected only that bot.
+
+In a separate Linux run, OpenCode 2.4.1 listed four models from a local OpenAI-compatible provider without requesting inference. In Chrome, the test launched an OpenCode bot, approved its command once, checked that the reply was saved and verified that a second permission request returned to the terminal. Live OpenRouter account access remains unverified.
 
 The same native test pass found a keyboard search issue. In a list of 21 results, scrolling the keyboard highlight under a stationary pointer could change the result selected by Return. A failing run opened message 133 after ten Down Arrow presses from message 148. The fixed run opened message 138, then navigated to imported group and bot messages. [Repeat the Mac checks](agent-qa.md#use-the-real-mac-window)
 

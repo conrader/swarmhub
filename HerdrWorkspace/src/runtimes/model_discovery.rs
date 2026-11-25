@@ -88,7 +88,7 @@ fn failed(agent: ModelAgent) -> ApiError {
             "Codex couldn't list models. Check its configuration on Herdr, or enter a model ID."
         }
         _ => {
-            "OpenCode couldn't list models. Check its configuration on Herdr, or enter a model ID."
+            "OpenCode couldn't list models. SwarmHub requires OpenCode 2.3 or later. Check the CLI version and provider configuration on the workspace machine."
         }
     })
 }

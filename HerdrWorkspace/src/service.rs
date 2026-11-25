@@ -142,7 +142,7 @@ const PROGRAMS: [Program; 5] = [
         template: "swarmhub-opencode",
         wrapper: "run-opencode --workspace-approvals --api-first-task mini",
         description: "OpenCode with your configured API provider",
-        how: "Install OpenCode V2.3 or later, connect your provider in OpenCode, then run opencode models to see its model IDs.",
+        how: "Install OpenCode 2.3 or later (npm install -g @opencode/cli), then connect your provider. SwarmHub looks for opencode2 and opencode.",
         first_time: "Configure and try your provider in OpenCode on this computer first.",
     },
     // In beta, and last: a program earlier in this list is the one chosen by default.
@@ -212,10 +212,14 @@ fn executable(path: &Path) -> bool {
 }
 
 fn find(name: &str, folders: &[PathBuf]) -> Option<PathBuf> {
-    folders
-        .iter()
-        .map(|folder| folder.join(name))
-        .find(|path| executable(path))
+    let search = |bin: &str| {
+        folders.iter().map(|folder| folder.join(bin)).find(|path| executable(path))
+    };
+    // V1 and V2 can coexist. V2 packages also expose the unambiguous opencode2 name.
+    if name == "opencode" && let Some(v2) = search("opencode2") {
+        return Some(v2);
+    }
+    search(name)
 }
 
 /// The template file's text. The command is this program's own path and a wrapper, with nothing a shell would
@@ -469,11 +473,18 @@ fn search_folders(home: &Path) -> Vec<PathBuf> {
 pub(crate) fn agent_command(name: &str, setting_name: &str) -> std::process::Command {
     if let Some(exe) = setting(setting_name) { return std::process::Command::new(exe); }
     let mut command = std::process::Command::new(name);
-    if setting("SWARMHUB_LAUNCH_KEY").is_some() && let Some(path) = env::var_os("PATH")
-        && !env::split_paths(&path).any(|dir| executable(&dir.join(name)))
-        && let Some(home) = setting("HOME") {
-        let folders = search_folders(Path::new(&home));
-        if find(name, &folders).is_some() { command.env("PATH", joined(&folders)); }
+    if let Some(path) = env::var_os("PATH") {
+        let folders: Vec<_> = env::split_paths(&path).collect();
+        if let Some(exe) = find(name, &folders) {
+            return std::process::Command::new(exe.file_name().unwrap_or(name.as_ref()));
+        }
+        if setting("SWARMHUB_LAUNCH_KEY").is_some() && let Some(home) = setting("HOME") {
+            let folders = search_folders(Path::new(&home));
+            if let Some(exe) = find(name, &folders) {
+                command = std::process::Command::new(exe.file_name().unwrap_or(name.as_ref()));
+                command.env("PATH", joined(&folders));
+            }
+        }
     }
     command
 }

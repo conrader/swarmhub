@@ -633,6 +633,8 @@ def ai_inventory(source_app, service_binary):
         registration = config / "herdr-core/templates/swarmhub-antigravity.md"
         launched = installed / "unexpected-launch"
         offline = False
+        listing_ready = False
+        model_error = "OpenCode could not list models from the test provider."
 
         class Catalog(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -643,11 +645,25 @@ def ai_inventory(source_app, service_binary):
                     self.send_error(503)
                     return
                 templates = [{"name": "qa-claude", "runtime": {"harness": "Claude Code", "display_name": "Claude"}}]
+                if (registration.parent / "swarmhub-opencode.md").is_file():
+                    templates.append({"name": "swarmhub-opencode", "model_agent": "OpenCode",
+                                      "discover_models": True, "runtime": {"harness": "OpenCode", "display_name": "OpenCode"}})
                 if registration.is_file():
                     templates.append({"name": "swarmhub-antigravity",
                                       "runtime": {"harness": "Antigravity CLI", "display_name": "Gemini"}})
                 data = json.dumps({"core": "qa", "agents": [], "templates": templates}).encode()
                 self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_POST(self):
+                if self.path != "/api/runtime-models/swarmhub-opencode":
+                    self.send_error(404)
+                    return
+                offered = [{"id": f"qa/recovered-{i}"} for i in range(13)]
+                data = json.dumps({"models": offered} if listing_ready else {"error": model_error}).encode()
+                self.send_response(200 if listing_ready else 409)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -691,11 +707,15 @@ def ai_inventory(source_app, service_binary):
                     wait_for("AI settings window", settings_window)
                     settings = settings_window()
                     wait_for("initial inventory", lambda: has_text(settings, "Antigravity CLI"))
-                    executable = installed / "agy"
-                    executable.write_text('#!/bin/sh\ntouch "$(dirname "$0")/unexpected-launch"\n')
-                    executable.chmod(0o700)
+                    for bin_name in ("agy", "opencode2"):
+                        executable = installed / bin_name
+                        executable.write_text('#!/bin/sh\n: > "${0%/*}/unexpected-launch"\n')
+                        executable.chmod(0o700)
                     press(settings, "Scan again")
-                    wait_for("newly installed Antigravity", lambda: any(label(b) == "Add Antigravity CLI" for b in buttons(settings)))
+                    wait_for("OpenCode V2-only installation", lambda: any(label(b) == "Add OpenCode" for b in buttons(settings)))
+                    press(settings, "Add OpenCode")
+                    wait_for("OpenCode registration", (registration.parent / "swarmhub-opencode.md").is_file)
+                    wait_for("newly installed Antigravity", lambda: any(label(b) == "Add Antigravity CLI" and attribute(b, "AXEnabled") for b in buttons(settings)))
                     offline = True
                     press(settings, "Add Antigravity CLI")
                     wait_for("template written by the service", registration.is_file)
@@ -712,6 +732,16 @@ def ai_inventory(source_app, service_binary):
                         raise RuntimeError("Could not close Settings")
                     wait_for("Antigravity in the open picker",
                              lambda: any(label(b) == "Gemini · Antigravity" for b in buttons(window)))
+                    wait_for("OpenCode in the open picker", lambda: any(label(b) == "OpenCode" for b in buttons(window)))
+                    press(window, "OpenCode")
+                    wait_for("model catalog error", lambda: has_text(window, model_error))
+                    listing_ready = True
+                    press(window, "Reload models")
+                    # The search field appears only when more than twelve models have actually loaded.
+                    wait_for("recovered provider catalog", lambda: any(
+                        attribute(e, "AXPlaceholderValue") == "Find a provider or model" for e in descendants(window)))
+                    if has_text(window, model_error):
+                        raise RuntimeError("The model error remained after the catalog loaded")
                     press(window, "Gemini · Antigravity")
                 prefs = plistlib.loads(subprocess.check_output(["defaults", "export", domain, "-"]))
                 if prefs.get("herdrTemplate." + bot["id"]) != "swarmhub-antigravity":
@@ -723,7 +753,7 @@ def ai_inventory(source_app, service_binary):
             finally:
                 server.shutdown()
                 subprocess.run(["defaults", "delete", domain], check=False)
-            print("Antigravity discovered, registered offline, and available in the original bot picker after one rescan.")
+            print("OpenCode V2 and Antigravity discovered without launching either. Recovered the OpenCode catalog and saved Antigravity for one bot.")
 
 
 def message_search(source_app):
