@@ -54,8 +54,14 @@ On the fixed candidate, the same sequence ended with Sonnet 5.5 in both the head
 
 Launching a separate test from SSH also exercised a sign-in failure. The Claude CLI in that login context explicitly requested `/login` and a resend. Previously the chat still showed an active turn after 95 seconds. On the candidate it ended the turn, displayed the sign-in instruction and exposed **Retry sending this message**. Interactive sign-in screens that can resume keep their terminal action. This exercise did not change the user's credentials.
 
+## Receiving an update with the sidebar hidden
+
+Sparkle read the public appcast from a signed 0.8.15 build 49 and downloaded 0.8.16 build 50. In an SSH-only session on the build Mac, macOS refused to launch the installer. In the MacBook login session, Sparkle's command-line driver installed the public update into a private copy. The copy passed strict recursive code-signature verification and Gatekeeper reported “Notarized Developer ID”. Its bundled notes identified 0.8.16. The installed SwarmHub in Applications kept running.
+
+For the window test, copies of the released and candidate apps used a private identifier, a temporary home, and a loopback mirror of the public appcast. With no chat selected, hiding the sidebar removed both “Review updates” and “Show sidebar” in the released interface. The candidate kept both controls visible. The driver clicked the compact update notice, opened Software Update, pressed **Update Now…** and observed Sparkle offer **Install Update**. After dismissing the offer, it opened **What’s New**, read the 0.8.16 entry about `/goal`, and restored the sidebar using the visible button. The installer test above used the unmodified public archives.
+
 ## Product comparison and remaining checks
 
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
-- Pending end-to-end coverage includes whether the parent independently takes the next step of a multi-stage task when its helper finishes, reopening a saved production-scale group after restart, the update installer, and remote or disconnected servers. Read-only visits to Settings do not exercise credential changes or install software.
+- Pending end-to-end coverage includes whether the parent independently takes the next step of a multi-stage task when its helper finishes, reopening a saved production-scale group after restart, and remote or disconnected servers. Read-only visits to Settings do not exercise credential changes or install software.

@@ -31,7 +31,7 @@ struct SidebarView: View {
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                     .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
-            SidebarUpdateButton()
+            ReviewUpdatesButton()
             let layout = store.sidebarLayout
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {

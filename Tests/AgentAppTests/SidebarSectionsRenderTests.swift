@@ -143,7 +143,7 @@ func pinnedRowsCenterTheirOccupiedTiles(sidebarWidth: Int) throws {
     let folder = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-sidebar", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     for scheme in [ColorScheme.light, .dark] {
-        let view = SidebarUpdateButton(notice: notice)
+        let view = ReviewUpdatesButton(notice: notice)
             .frame(width: SidebarMetrics.width.min).background(AppColor.sidebar)
             .tint(AppTheme.accentColor(for: AppTheme.defaultAccent))
         let host = NSHostingView(rootView: view)
@@ -152,4 +152,15 @@ func pinnedRowsCenterTheirOccupiedTiles(sidebarWidth: Int) throws {
         let data = try #require(await SnapshotRenderer.png(view, size: size, scheme: scheme))
         try data.write(to: folder.appending(path: "update-\(scheme == .dark ? "dark" : "light").png"))
     }
+}
+
+@MainActor @Test func compactUpdateNoticeFitsTheHeaderAndDisappearsWhenCurrent() {
+    let notice = UpdateNotice()
+    let button = ReviewUpdatesButton(compact: true, notice: notice)
+    #expect(NSHostingView(rootView: button).fittingSize == .zero)
+
+    notice.appVersion = "0.8.16"
+    let size = NSHostingView(rootView: button).fittingSize
+    #expect(size.width > 24 && size.width < 110)
+    #expect(size.height == 24)
 }
