@@ -30,10 +30,12 @@ import Testing
         reopened.herdrClientSetup = { $0.session = http.session }
         let saved = try #require(reopened.bots.first { $0.id == bot.id })
         let answer = try #require(saved.messages.last)
+        reopened.selectedBot = nil
         #expect(answer.deliveryReceipt == receipt)
         #expect(await !reopened.checkRecoveredReply(receipt, bot: saved, row: answer))
         #expect(await !reopened.checkRecoveredReply(receipt, bot: saved, row: answer))
         let disk = try #require(StoreFile.decode(Data(contentsOf: url)).bots.first { $0.id == bot.id })
+        #expect(disk.unreadCount == 1)
         #expect(disk.messages.map(\.id) == [question.id, row.id])
         let result = try #require(disk.messages.last)
         #expect(result.content == "finished" && result.turnState == .finished && result.deliveryReceipt == nil)

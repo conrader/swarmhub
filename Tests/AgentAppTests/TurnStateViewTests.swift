@@ -14,6 +14,9 @@ import Testing
     #expect(store.needsAttention(bot))
     bot.messages[1].turnState = .incomplete
     #expect(store.needsAttention(bot))
+    bot.messages[1].checkingSavedReply = true
+    #expect(!store.needsAttention(bot))
+    bot.messages[1].checkingSavedReply = false
     bot.messages[1].isStreaming = true
     #expect(!store.needsAttention(bot), "a reply still streaming is working, not failed")
     bot.messages[1].isStreaming = false; bot.messages[1].turnState = nil

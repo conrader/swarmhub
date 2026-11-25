@@ -120,7 +120,7 @@ To check the order of replies after steering a bot and reopening SwarmHub, use t
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --steer-reopen /Applications/SwarmHub.app
 ```
 
-The driver opens two private chats with a loopback workspace offline. One saved turn has just acknowledged the follow-up. In the other, the bot has already started its next step. It brings the workspace online, checks that each answer appears below its guidance, and reopens the app offline to check the same order again.
+The driver opens two private chats with a loopback workspace offline. One saved turn has just acknowledged the follow-up. In the other, the bot has already started its next step. It types a draft in a third chat and brings the workspace online. Both recovering bots must become unread, including the pinned bot, while the draft retains its text and keyboard focus. The driver opens a coding helper, returns to its parent chat, and checks which badge clears. A second offline launch verifies the remaining unread badge and the order of both answers beneath their guidance.
 
 To check published media in a bot reply, run the driver from a checkout containing the PNG and MP4 fixtures.
 

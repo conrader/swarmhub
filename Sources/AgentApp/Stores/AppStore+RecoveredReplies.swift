@@ -66,7 +66,10 @@ extension AppStore {
                 guard let receipt = row.deliveryReceipt else { continue }
                 row.checkingSavedReply = true
                 Task { [weak self, weak bot, weak row] in
-                    defer { row?.checkingSavedReply = false }
+                    defer {
+                        row?.checkingSavedReply = false
+                        if row?.turnState == .incomplete { bot?.objectWillChange.send() }
+                    }
                     var delay = 2
                     while let self, let bot, let row, !Task.isCancelled {
                         guard await self.checkRecoveredReply(receipt, bot: bot, row: row) else { return }
@@ -155,6 +158,7 @@ extension AppStore {
         let shown = Set(earlier.flatMap { $0.publishedResults?.items.map(\.id) ?? [] })
         let remaining = results.filter { !shown.contains($0.id) }
         if !remaining.isEmpty { answer.publishedResults = HerdrReplyResults(serverID: serverID, items: remaining) }
+        directReplyArrived(answer, from: bot)
     }
 
 }
