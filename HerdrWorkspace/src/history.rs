@@ -844,6 +844,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-checkin-control.sql"),
         include_str!("migrate-helper-followups.sql"),
         include_str!("migrate-command-reviewer.sql"),
+        include_str!("migrate-session-usage.sql"),
     ]
 }
 

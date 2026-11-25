@@ -2307,6 +2307,16 @@ try {
     await evaluate('document.getElementById("library-close").click(); document.getElementById("details-toggle").click()');
     await check('!document.getElementById("results-folder-detail").hidden && document.getElementById("results-folder-path").textContent.includes("/workspace/results/")');
     console.log("Chrome automatic result collection passed.");
+  } else if (focus === "session-usage") {
+    for (const [name, reported] of [["usage-visible", true], ["usage-unreported", false], ["usage-visible", true]]) {
+      const row = `[...document.querySelectorAll("#agents button")].find(b => b.querySelector("strong")?.textContent === "${name}")`;
+      await check(`!!${row}`);
+      await evaluate(`${row}.click()`);
+      await check(`document.getElementById("title").textContent === "${name}"`);
+      await check(reported
+        ? '!document.getElementById("agent-usage").hidden && document.getElementById("agent-usage").textContent.includes("(25%)")'
+        : 'document.getElementById("agent-usage").hidden && !document.getElementById("agent-usage").textContent');
+    }
   } else if (focus === "command-reviewer") {
     await check('!document.getElementById("approval-count").hidden && !document.getElementById("approvals-open").disabled');
     await evaluate('document.getElementById("workspace-tools").open = true; document.getElementById("approvals-open").click()');

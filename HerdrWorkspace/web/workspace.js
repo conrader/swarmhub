@@ -300,6 +300,18 @@ function renderState() {
   $("agent-provider").textContent = config?.runtime?.provider || (hasSelection ? "Not specified" : "—");
   $("agent-model").textContent = config?.runtime?.model || (hasSelection ? "Not specified" : "—");
   $("agent-model").title = config?.runtime?.model_id || "";
+  const usage = agent?.session_usage;
+  $("usage-heading").hidden = $("agent-usage").hidden = !usage;
+  if (usage) {
+    const last = usage.context_tokens.toLocaleString();
+    const windowSize = usage.window_tokens;
+    const current = windowSize > 0
+      ? `${last} of ${windowSize.toLocaleString()} context tokens (${Math.min(100, Math.round(100 * usage.context_tokens / windowSize))}%)`
+      : `${last} tokens in the last model call`;
+    $("agent-usage").textContent = `${current} · ${usage.total_tokens.toLocaleString()} conversation total`;
+  } else {
+    $("agent-usage").textContent = "";
+  }
   window.openCodeModels?.sync(agent, connected ? app.core : null,
     app.templates.find(item => item.name === agent?.template)?.discover_models);
   $("results-folder-detail").hidden = !picked?.results_folder;

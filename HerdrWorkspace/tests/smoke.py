@@ -1645,6 +1645,22 @@ def smoke(hc, bridge, chrome=None):
                 assert not request(url + "/archive", False)["archived"]
 
             try:
+                if selected_focus == "session-usage":
+                    def agent(name):
+                        return request("/api/agents", {"name": name, "template": "fixture", "task": "Start"}, status=201)
+                    first = agent("usage-visible")
+                    agent("usage-unreported")
+                    usage = {"context_tokens": 2500, "window_tokens": 10000, "total_tokens": 12500}
+                    with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
+                        db.execute("UPDATE journal SET session_usage=? WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
+                                   (json.dumps(usage), first["address"], first["created_ms"]))
+                    by_name = {a["name"]: a for a in request("/api/workspace")["agents"]}
+                    assert by_name["usage-visible"]["session_usage"] == usage
+                    assert "session_usage" not in by_name["usage-unreported"]
+                    if chrome:
+                        subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)],
+                                       check=True, timeout=45)
+                    return
                 if selected_focus == "command-reviewer":
                     from command_reviewer import exercise
                     exercise(root, claude, request, until, chrome, base, token)
