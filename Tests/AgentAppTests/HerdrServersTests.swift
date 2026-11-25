@@ -181,6 +181,24 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     }
 }
 
+@Test func sshPortIsPreservedAndAppliedToCommandsAndForwards() throws {
+    var draft = HerdrServerDraft(kind: .ssh)
+    for (input, host) in [("qa@server:2222", "server"), ("qa@[2001:db8::1]:2222", "2001:db8::1")] {
+        draft.sshDestination = input
+        let server = try #require(draft.server(id: "remote"))
+        #expect(HerdrServerDraft(server: server).sshDestination == input)
+        let args = try #require(HerdrTunnel.forwardArguments(for: server))
+        #expect(args.suffix(2) == ["--", host])
+        let index = try #require(args.firstIndex(of: "-p"))
+        #expect(args[index + 1] == "2222" && args.contains("127.0.0.1:8787:127.0.0.1:8787"))
+        #expect(HerdrTunnel.commandArguments(for: server, command: "uname")?.suffix(3) == ["--", host, "uname"])
+    }
+    for input in ["server:", "server:0", "server:65536", "server:any", "[::1]:-1", "[::1", ":2222"] {
+        draft.sshDestination = input
+        #expect(draft.server(id: "remote") == nil)
+    }
+}
+
 @MainActor @Test func herdrStartersAreAddedPerServer() {
     let store = herdrStore()
     store.saveHerdrServer(store.herdrServers[0], token: "t"); store.saveHerdrServer(boxServer, token: "t")

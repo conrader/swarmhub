@@ -112,8 +112,8 @@ enum HerdrPromptAnswer: Equatable, Sendable {
         case .local:
             return isSafe(address: address) ? .terminal(script: localScript(address)) : nil
         case .ssh:
-            guard isSafe(address: address), let sshOptions else { return nil }
-            let call = (["/usr/bin/ssh", "-t"] + sshOptions + ["--", server.sshHost, remoteCommand(address: address)]).map(quoted).joined(separator: " ")
+            guard isSafe(address: address), let endpoint = server.sshEndpoint, let sshOptions else { return nil }
+            let call = (["/usr/bin/ssh", "-t"] + sshOptions + ["--", endpoint.host, remoteCommand(address: address)]).map(quoted).joined(separator: " ")
             return .terminal(script: ["#!/bin/sh", "# Opens \(name)'s own terminal on \(server.name) so you can answer its question. Close the window when you are done.",
                                       "exec \(call)"].joined(separator: "\n") + "\n")
         case .address:
