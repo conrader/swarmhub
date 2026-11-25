@@ -49,6 +49,20 @@ pub(crate) enum Wait {
     Held,
     /// Nobody: the caller was told that the task is queued.
     Queued,
+    Outbox(i64),
+}
+impl Wait {
+    pub(crate) fn check_outbox(self, w: &Workspace) -> Result<(), Failure> {
+        if let Self::Outbox(id) = self {
+            let ready = w.history.db().ok().and_then(|db| db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM bot_outbox o JOIN bots b ON b.id=o.bot
+                 WHERE o.id=? AND o.state='typing' AND o.give_up_ms>? AND b.removed_ms IS NULL AND b.takes_messages
+                 AND NOT EXISTS(SELECT 1 FROM bot_work WHERE id=o.work AND state='stopped'))",
+                rusqlite::params![id,now()], |row| row.get::<_,bool>(0)).ok());
+            if ready != Some(true) { return Err(Failure::Input("The pending delivery is no longer available.")); }
+        }
+        Ok(())
+    }
 }
 /// After how many minutes without any task a warm agent is ended: `SWARMHUB_WARM_IDLE_MINUTES`. `0` keeps it.
 const IDLE: &str = "SWARMHUB_WARM_IDLE_MINUTES";
@@ -81,7 +95,7 @@ fn start_wait(asked: Option<&str>, wait: Wait) -> Duration {
             seconds.clamp(*START_WAIT_BOUNDS.start(), *START_WAIT_BOUNDS.end())
         });
     match wait {
-        Wait::Queued => Duration::from_secs(seconds),
+        Wait::Queued | Wait::Outbox(_) => Duration::from_secs(seconds),
         Wait::Held => HELD_WAIT.min(Duration::from_secs(seconds)),
     }
 }
@@ -333,18 +347,18 @@ pub(crate) async fn send(
     wait: Wait,
 ) -> Result<Delivery, Failure> {
     let Some(key) = agent.launch_key() else {
-        return send_prompt(w, agent, prompt, None).await;
+        return send_prompt(w, agent, prompt, None, wait).await;
     };
     let lookup =
         |_| Failure::Input("The workspace could not read this session. The task was not sent.");
     if waiting(&w.history, key).map_err(lookup)?.is_none() {
-        return send_prompt(w, agent, prompt, None).await;
+        return send_prompt(w, agent, prompt, None, wait).await;
     }
     let gate = gate(key);
     let _one = gate.lock().await;
     // Another task may have been the first while this one waited its turn.
     let Some(waiting) = waiting(&w.history, key).map_err(lookup)? else {
-        return send_prompt(w, agent, prompt, None).await;
+        return send_prompt(w, agent, prompt, None, wait).await;
     };
     core::validate_task(&prompt)?;
     let hints: Vec<&str> = waiting.hints.iter().map(String::as_str).collect();
@@ -352,7 +366,7 @@ pub(crate) async fn send(
     let agent = ready(w, agent, wait).await?;
     // From here on the agent may have been written to, so it is never ended for being idle.
     mark(&w.history, waiting.launch, "tried_ms").map_err(lookup)?;
-    send_prompt(w, &agent, prompt, Some(waiting.launch)).await
+    send_prompt(w, &agent, prompt, Some(waiting.launch), wait).await
 }
 
 async fn send_prompt(
@@ -360,13 +374,17 @@ async fn send_prompt(
     agent: &Terminal,
     prompt: String,
     warm_launch: Option<i64>,
+    wait: Wait,
 ) -> Result<Delivery, Failure> {
     let typed = crate::person_profile::prompt(&w.history, agent.display_name(), prompt.clone())?;
     let settling_until = warm_launch.map(|_| Instant::now() + Duration::from_secs(10));
     loop {
+        wait.check_outbox(w)?;
         match w.core.send(agent, &typed).await {
             Ok(sent) => {
-                let outcome = w.core.recover_send(agent, &typed, &prompt, sent).await;
+                let outcome = if matches!(wait, Wait::Outbox(_)) {
+                    Ok(sent.delivery)
+                } else { w.core.recover_send(agent, &typed, &prompt, sent).await };
                 if let Some(launch) = warm_launch
                     && outcome.as_ref().is_ok_and(|delivery| delivery.started != Some(false))
                 {

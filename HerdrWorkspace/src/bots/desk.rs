@@ -199,12 +199,18 @@ pub(crate) fn start_serving(w: Workspace) {
 }
 
 pub(crate) fn recover_outbox(history: &crate::History) {
-    // An abandoned ordinary message keeps its previous restart behavior.
+    let _ = super::write(history, |ctx| {
+        let ids = ctx.db.prepare("SELECT id FROM bot_outbox WHERE state='typing' AND cause IN ('message','outcome')
+            AND NOT EXISTS(SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id)")?
+            .query_map([], |r| r.get(0))?.collect::<Result<Vec<i64>,_>>()?;
+        for id in ids { rules::reconcile_delivery(ctx,id)?; }
+        Ok(())
+    });
     if let Ok(db) = history.db() {
         let _ = db.execute(
             "UPDATE bot_outbox SET state='typed',typed_ms=coalesce(typed_ms,?1),
                     detail='The workspace restarted while this was being typed.'
-             WHERE state='typing' AND NOT EXISTS (
+             WHERE state='typing' AND cause NOT IN ('message','outcome') AND NOT EXISTS (
                 SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id
              )",
             [now()],
@@ -325,6 +331,7 @@ fn sync_direct_followups(db: &rusqlite::Connection) -> rusqlite::Result<()> {
 
 struct Waiting {
     completion: bool,
+    recoverable: bool,
     id: i64,
     bot: String,
     text: String,
@@ -345,9 +352,9 @@ pub(crate) fn drain(w: &Workspace) -> Vec<tokio::task::JoinHandle<()>> {
     }
     let waiting: Vec<Waiting> = db
         .prepare_cached(
-            "SELECT o.id,o.bot,o.text,d.outbox IS NOT NULL
+            "SELECT o.id,o.bot,o.text,d.outbox IS NOT NULL,o.cause IN ('message','outcome')
              FROM bot_outbox o LEFT JOIN job_deliveries d ON d.outbox=o.id
-             WHERE (d.outbox IS NULL AND o.state='pending')
+             WHERE (d.outbox IS NULL AND o.state='pending' AND o.give_up_ms>?1 AND o.retry_after_ms<=?1)
                 OR (d.state!='acknowledged' AND d.retry_ms<=?1)
              ORDER BY CASE WHEN d.outbox IS NULL THEN o.created_ms ELSE d.retry_ms END, o.id LIMIT 200",
         )
@@ -358,6 +365,7 @@ pub(crate) fn drain(w: &Workspace) -> Vec<tokio::task::JoinHandle<()>> {
                     bot: row.get(1)?,
                     text: row.get(2)?,
                     completion: row.get(3)?,
+                    recoverable: row.get(4)?,
                 })
             })?
             .collect()
@@ -382,6 +390,11 @@ pub(crate) fn drain(w: &Workspace) -> Vec<tokio::task::JoinHandle<()>> {
                     false
                 } else {
                     let outcome = deliver(&w, &item).await;
+                    if item.recoverable && matches!(outcome, Outcome::Later) {
+                        let _ = super::write(&w.history, |ctx| ctx.db.execute(
+                            "UPDATE bot_outbox SET retry_after_ms=? WHERE id=? AND state='pending'",
+                            params![ctx.now+5_000,item.id]).map(|_| ()));
+                    }
                     if let Outcome::Failed(why) = &outcome {
                         let _ = super::write(&w.history, |ctx| rules::untyped(ctx, item.id, why));
                     }
@@ -706,6 +719,7 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
             {
                 return Outcome::Later;
             }
+            Err(_) if item.recoverable => return Outcome::Later,
             Err(why) => return Outcome::Failed(format!("its agent could not be started: {why}")),
         },
     };
@@ -756,8 +770,8 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     };
     let claimed = w.history.db().is_ok_and(|db| {
         db.execute(
-            "UPDATE bot_outbox SET state='typing',task=?2 WHERE id=?1 AND state='pending'",
-            params![item.id, record],
+            "UPDATE bot_outbox SET state='typing',task=?2,delivery_receipt=CASE WHEN ?4 THEN 'uncertain' END WHERE id=?1 AND state='pending' AND give_up_ms>?3",
+            params![item.id, record,now(),item.recoverable],
         ) == Ok(1)
     });
     if !claimed {
@@ -770,7 +784,14 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
         );
         return Outcome::Typed;
     }
-    match crate::deliver_task_waiting(w.clone(), agent, record, text, warm::Wait::Queued).await {
+    let wait = if item.recoverable { warm::Wait::Outbox(item.id) } else { warm::Wait::Queued };
+    let sent = crate::deliver_task_waiting(w.clone(), agent, record, text, wait).await;
+    if item.recoverable {
+        let settled = super::write(&w.history, |ctx| rules::reconcile_delivery(ctx, item.id));
+        if sent.is_ok() && unread { let _ = super::noted(&w.history,&bot.id,&key); }
+        return if matches!(settled,Ok(true)) { Outcome::Later } else { Outcome::Typed };
+    }
+    match sent {
         Ok(_) => {
             let _ = super::write(&w.history, |ctx| rules::typed(ctx, item.id));
             if unread {

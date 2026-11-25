@@ -199,8 +199,8 @@ pub(crate) struct Post<'a> {
 
 pub(crate) fn post(ctx: &Ctx<'_>, post: Post<'_>) -> rusqlite::Result<i64> {
     ctx.db.query_row(
-        "INSERT INTO bot_outbox (bot,text,cause,message,work,checkin,promise,quiet,created_ms,give_up_ms)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) RETURNING id",
+        "INSERT INTO bot_outbox (bot,text,cause,message,work,checkin,promise,quiet,created_ms,give_up_ms,delivery_receipt)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,CASE WHEN ?3 IN ('message','outcome') THEN 'unsent' END) RETURNING id",
         params![
             post.bot,
             post.text,
@@ -508,6 +508,10 @@ pub(crate) fn send(
         };
         entry(ctx, bot, "message", &text, about, false, false)?;
     }
+    if about.state == "open" && about.deadline_ms.is_some_and(|deadline| deadline <= ctx.now) {
+        end_unanswered(ctx,&about,None)?;
+        return Ok(Err("This message expired before the response arrived.".into()));
+    }
     let from_person = work.origin == "person";
     let typed = match kind {
         Kind::Ask => notes::ask(ctx.cmd, &sender.name, id, &text, ctx.set),
@@ -554,6 +558,11 @@ fn back(
     text: &str,
     via: &str,
 ) -> rusqlite::Result<i64> {
+    if let Some(outbox) = ctx.db.query_row(
+        "SELECT id FROM bot_outbox WHERE cause='message' AND message=? AND bot=? AND state IN ('pending','typing')",
+        params![about.id,about.receiver], |r| r.get(0)).optional()? {
+        typed(ctx,outbox)?;
+    }
     let id: i64 = ctx.db.query_row(
         "INSERT INTO bot_messages (work,kind,sender,receiver,text,about,state,via,sent_ms)
          VALUES (?1,?2,?3,?4,?5,?6,'sent',?7,?8) RETURNING id",
@@ -623,6 +632,21 @@ pub(crate) fn close(
                     "accepted"
                 }
             )));
+        }
+    }
+    if about.state == "open" && about.deadline_ms.is_some_and(|deadline| ctx.now >= deadline) {
+        end_unanswered(ctx, &about, None)?;
+        return ended("passed its deadline");
+    }
+    // A delayed acknowledgement can arrive between the delivery deadline and the next clock tick.
+    if about.state == "open" && about.delivered_ms.is_none() {
+        let overdue: bool = ctx.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM bot_outbox WHERE cause='message' AND message=?1
+             AND state IN ('pending','typing') AND give_up_ms<=?2)",
+            params![about.id,ctx.now], |row| row.get(0))?;
+        if overdue {
+            end_unanswered(ctx, &about, None)?;
+            return ended("passed its delivery deadline");
         }
     }
     let from_person = work.origin == "person";
@@ -793,10 +817,37 @@ pub(crate) fn expire(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
     Ok(due.len())
 }
 
+/// Resolve the same durable outbox ID from its exact journal attempt. Only proof of
+/// non-delivery allows a new attempt. A crash with no result is ambiguous.
+pub(crate) fn reconcile_delivery(ctx: &Ctx<'_>, id: i64) -> rusqlite::Result<bool> {
+    let result: Option<(Option<String>,i64)> = ctx.db.query_row(
+        "SELECT j.state,o.give_up_ms FROM bot_outbox o LEFT JOIN journal j ON j.id=o.task
+         WHERE o.id=? AND o.state='typing' AND o.cause IN ('message','outcome')",
+        [id], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
+    let Some((state, deadline)) = result else { return Ok(false); };
+    match state.as_deref() {
+        Some("not_sent") if ctx.now < deadline => {
+            ctx.db.execute("UPDATE bot_outbox SET state='pending',task=NULL,delivery_receipt='unsent',retry_after_ms=? WHERE id=?",
+                params![ctx.now+5_000,id])?;
+            return Ok(true);
+        }
+        Some("not_sent") => {
+            untyped(ctx,id,"its delivery deadline passed.")?;
+        }
+        Some("sent") => typed(ctx,id)?,
+        _ => {
+            ctx.db.execute("UPDATE bot_outbox SET delivery_receipt='uncertain',detail='Delivery unconfirmed; waiting for acknowledgement.' WHERE id=?",[id])?;
+            ctx.db.execute("UPDATE bot_messages SET deadline_ms=coalesce(deadline_ms,?2)
+                WHERE state='open' AND id=(SELECT message FROM bot_outbox WHERE id=?1 AND cause='message')",params![id,deadline])?;
+        }
+    }
+    Ok(false)
+}
+
 /// The text of an outbox row went into the agent: an ask's or a hand-off's time starts now.
 pub(crate) fn typed(ctx: &Ctx<'_>, outbox: i64) -> rusqlite::Result<()> {
     ctx.db.execute(
-        "UPDATE bot_outbox SET state='typed',typed_ms=?2 WHERE id=?1",
+        "UPDATE bot_outbox SET state='typed',typed_ms=coalesce(typed_ms,?2),delivery_receipt=CASE WHEN cause IN ('message','outcome') THEN 'acknowledged' END WHERE id=?1",
         params![outbox, ctx.now],
     )?;
     ctx.db.execute(
@@ -820,10 +871,10 @@ pub(crate) fn untyped(ctx: &Ctx<'_>, outbox: i64, why: &str) -> rusqlite::Result
     let row: Option<(String, String, Option<i64>, String)> = ctx
         .db
         .query_row(
-            "UPDATE bot_outbox SET state='failed',detail=?2 WHERE id=?1 AND state IN ('pending','typing')
+            "UPDATE bot_outbox SET state='failed',detail=?2,delivery_receipt=CASE WHEN cause IN ('message','outcome') THEN CASE WHEN give_up_ms<=?3 THEN 'expired' ELSE 'unsent' END END WHERE id=?1 AND state IN ('pending','typing')
                AND NOT EXISTS (SELECT 1 FROM job_deliveries WHERE outbox=bot_outbox.id)
              RETURNING bot,cause,message,text",
-            params![outbox, why],
+            params![outbox, why, ctx.now],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?;
@@ -1528,6 +1579,52 @@ mod tests {
         testing::at(history, now, set, |ctx| {
             close(ctx, &bot, id, closing, "command")
         })
+    }
+
+    #[test]
+    fn delayed_ack_settles_an_uncertain_attempt_once() {
+        let (_dir, history) = testing::journal(&["Jarvis","Infra"]);
+        let set = Settings::default();
+        let ask = sent(&history,T0,&set,"Jarvis",Kind::Ask,"Infra","fixture").unwrap();
+        let outbox: i64 = history.db().unwrap().query_row("SELECT id FROM bot_outbox WHERE message=?",[ask],|r|r.get(0)).unwrap();
+        history.db().unwrap().execute("UPDATE bot_outbox SET state='typing' WHERE id=?",[outbox]).unwrap();
+        testing::at(&history,T0+1,&set,|ctx| reconcile_delivery(ctx,outbox));
+        assert!(deliver(&history,T0+2,&set).is_empty());
+        closed(&history,T0+3,&set,"Infra",ask,Closing::Reply("fixture ack")).unwrap();
+        assert!(closed(&history,T0+4,&set,"Infra",ask,Closing::Reply("late duplicate")).is_err());
+        assert_eq!(history.db().unwrap().query_row("SELECT delivery_receipt FROM bot_outbox WHERE id=?",[outbox],|r|r.get::<_,String>(0)).unwrap(),"acknowledged");
+    }
+
+    #[test]
+    fn a_proven_unsent_attempt_keeps_its_identity_when_the_recipient_returns() {
+        let (_root, history) = testing::journal(&["Jarvis", "Infra"]);
+        let settings = Settings::default();
+        let ask = sent(&history, T0, &settings, "Jarvis", Kind::Ask, "Infra", "fixture").unwrap();
+        let outbox: i64 = history.db().unwrap().query_row(
+            "SELECT id FROM bot_outbox WHERE message=?", [ask], |row| row.get(0)).unwrap();
+        let task = history.db().unwrap().query_row(
+            "INSERT INTO journal(core_id,agent,kind,state,text,at_ms)
+             VALUES('fixture','fixture','task','not_sent','fixture',?) RETURNING id",
+            [T0], |row| row.get::<_,i64>(0)).unwrap();
+        history.db().unwrap().execute("UPDATE bot_outbox SET state='typing',task=? WHERE id=?",
+            params![task,outbox]).unwrap();
+        assert!(testing::at(&history,T0+1,&settings,|ctx| reconcile_delivery(ctx,outbox)));
+        assert_eq!(deliver(&history,T0+6_000,&settings).len(),1);
+        assert!(deliver(&history,T0+7_000,&settings).is_empty());
+        assert_eq!(history.db().unwrap().query_row(
+            "SELECT id,delivery_receipt FROM bot_outbox WHERE message=?", [ask],
+            |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?))).unwrap(),(outbox,"acknowledged".into()));
+    }
+
+    #[test]
+    fn offline_recipient_expires_without_delivery() {
+        let (_dir, history) = testing::journal(&["Jarvis","Infra"]);
+        let set = Settings::default();
+        let ask = sent(&history,T0,&set,"Jarvis",Kind::Ask,"Infra","fixture").unwrap();
+        let deadline = T0+seconds(set.deliver_seconds);
+        testing::at(&history,deadline,&set,give_up);
+        assert_eq!(state(&history,ask),"expired");
+        assert_eq!(history.db().unwrap().query_row("SELECT delivery_receipt FROM bot_outbox WHERE cause='message' AND message=?",[ask],|r|r.get::<_,String>(0)).unwrap(),"expired");
     }
 
     #[test]

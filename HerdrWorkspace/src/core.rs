@@ -153,7 +153,7 @@ pub struct Delivery {
 #[derive(Deserialize)]
 pub(crate) struct TerminalSend {
     #[serde(flatten)]
-    delivery: Delivery,
+    pub(crate) delivery: Delivery,
     turn: Option<u64>,
 }
 
