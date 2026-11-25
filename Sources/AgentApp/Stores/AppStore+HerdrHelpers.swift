@@ -234,7 +234,8 @@ extension AppStore {
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
             let server = herdrServer(for: bot, in: servers)
             guard watch[server.id] != true else { continue }
-            let busy = isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
+            let awaitsHelper = bot.promotedHelper.map { $0.pendingAfter != nil && $0.serverID == server.id } ?? false
+            let busy = awaitsHelper || isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
                 || herdrAgentPresence[bot.id].map { $0.server == server && $0.isActive } == true || live.contains(bot.id)
                 || codejobs(for: bot, on: server).contains { $0.job.isWorking }
             let isOpen = selectedGroup?.memberIDs.contains(bot.id) ?? (selectedBot?.id == bot.id)
@@ -393,6 +394,7 @@ extension AppStore {
         }
         if found != herdrHelpers { herdrHelpers = found }
         if reads != herdrHelperReads { herdrHelperReads = reads }
+        if let workspace, let client { await collectPromotedReplies(on: server, workspace: workspace, client: client) }
     }
 
     private func streamOwnsHerdrHelpers(_ parent: HerdrHelperParent) -> Bool {

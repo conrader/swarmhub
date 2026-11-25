@@ -106,14 +106,16 @@ extension AppStore {
         var rows = bot.messages.filter { message in
             (message.role == .user || message.role == .assistant) && !message.isStreaming && message.presentation == .text && !AppOnlyLine.isAppOnly(message)
         }
-        while let last = rows.last, last.role == .user { rows.removeLast() }
+        while let last = rows.last, last.role == .user, last.metadata[PromotedHelper.rowKey] == nil { rows.removeLast() }
         var lines: [ArchivedMessage] = []
         for (index, message) in rows.enumerated() {
             let text = message.role == .assistant ? SwarmhubBlock.visibleText(message.content) : message.content
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             // A message the app passed on for another bot is not the person's: it reads as "Infra → Legal".
-            let passedOn = message.role == .user && isAppWritten(message)
-            let sender = passedOn ? (herdrPassedOnRow(message)?.sender?.name ?? AppConstants.name) : nil
+            let helperAssignment = message.role == .user && message.metadata[PromotedHelper.rowKey] != nil
+            let passedOn = helperAssignment || message.role == .user && isAppWritten(message)
+            let parentName = helperAssignment ? bot.promotedHelper.flatMap { source in bots.first { $0.id == source.parentID }?.name } : nil
+            let sender = passedOn ? (parentName ?? herdrPassedOnRow(message)?.sender?.name ?? AppConstants.name) : nil
             lines.append(ArchivedMessage(id: message.id.uuidString.lowercased(), seq: Int64(index + 1), role: message.role == .user ? "user" : "assistant",
                                          author: sender, text: text, timestamp: message.createdAt, hidden: false,
                                          channel: passedOn ? "agent" : "chat", to: passedOn ? bot.name : nil))
@@ -127,13 +129,14 @@ extension AppStore {
     func herdrCarrySource(for bot: Bot) -> HerdrHandoffSource? {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive, !bot.isDemo, let state = herdrCarryOver(for: bot) else { return nil }
         let id = bot.id
-        var source = HerdrHandoffSource(lead: GrokHandoff.lead(for: id, origin: .ownChat), prepare: { [weak self] status in await self?.herdrCarryHandoff(for: id, status: status) })
+        let handoffID = bot.promotedHelper?.handoffID
+        var source = HerdrHandoffSource(lead: GrokHandoff.lead(for: handoffID ?? id, origin: .ownChat), prepare: { [weak self] status in await self?.herdrCarryHandoff(for: id, status: status) })
         // The agent that ran before the change holds the conversation itself.
         source.read = state.old
         source.failedFor = state.failedFor
         source.failures = state.failures
-        source.delivered = { [weak self] receipt in Task { @MainActor in self?.herdrCarriedOver(receipt, botID: id) } }
-        source.failed = { [weak self] failure in Task { @MainActor in self?.herdrCarryFailed(failure, botID: id) } }
+        source.delivered = { [weak self] receipt in Task { @MainActor in self?.herdrCarriedOver(receipt, botID: id, handoffID: handoffID) } }
+        source.failed = { [weak self] failure in Task { @MainActor in self?.herdrCarryFailed(failure, botID: id, handoffID: handoffID) } }
         return source
     }
 
@@ -143,6 +146,7 @@ extension AppStore {
         guard let bot = bots.first(where: { $0.id == botID }), let state = herdrCarryOver(for: bot) else { return nil }
         let lines = herdrCarryLines(of: bot), name = bot.name
         guard !lines.isEmpty else { endHerdrCarryOver(for: bot); return nil }
+        let contextID = bot.promotedHelper?.handoffID ?? botID
         let url = chatSummaryURL(botID)
         return await Task.detached(priority: .userInitiated) {
             let transcript = GrokHandoff.Transcript(lines)
@@ -159,14 +163,14 @@ extension AppStore {
                 plan.recent = spoken.filter { $0.seq > through }
             }
             let rendered = GrokHandoff.render(transcript, plan: plan, summary: summary, botName: name, origin: .ownChat)
-            return GrokHandoff.package(rendered, archiveID: botID, origin: .ownChat)
+            return GrokHandoff.package(rendered, archiveID: contextID, origin: .ownChat)
         }.value
     }
 
     /// A fresh agent has replied to the handoff: it has the chat, so nothing more is handed over until the bot's
     /// program or model changes again. When this turn sent it, the chat says so.
-    func herdrCarriedOver(_ receipt: HerdrHandoffReceipt, botID: UUID) {
-        guard let bot = bots.first(where: { $0.id == botID }), herdrCarryOver(for: bot) != nil else { return }
+    func herdrCarriedOver(_ receipt: HerdrHandoffReceipt, botID: UUID, handoffID: UUID? = nil) {
+        guard let bot = bots.first(where: { $0.id == botID }), bot.promotedHelper?.handoffID == handoffID, herdrCarryOver(for: bot) != nil else { return }
         endHerdrCarryOver(for: bot)
         guard let handoff = receipt.handoff else { return }
         grokChatLine(HerdrCarryCopy.read(bot.name, summarised: handoff.summary != nil, older: handoff.olderMessages, recent: handoff.recentMessages, withFiles: receipt.withFiles), in: bot)
@@ -174,8 +178,8 @@ extension AppStore {
 
     /// The handoff failed and the person's message went without it: counted for that launch of the agent, and said
     /// in the chat. At `HerdrHandoff.attempts` for one launch the backend no longer tries for it.
-    func herdrCarryFailed(_ failure: HerdrHandoffFailure, botID: UUID) {
-        guard let bot = bots.first(where: { $0.id == botID }), var state = herdrCarryOver(for: bot) else { return }
+    func herdrCarryFailed(_ failure: HerdrHandoffFailure, botID: UUID, handoffID: UUID? = nil) {
+        guard let bot = bots.first(where: { $0.id == botID }), bot.promotedHelper?.handoffID == handoffID, var state = herdrCarryOver(for: bot) else { return }
         let earlier = state.failedFor == failure.launch ? state.failures : 0
         state.failedFor = failure.launch; state.failures = earlier + 1
         setHerdrCarryOver(state, for: bot)

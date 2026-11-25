@@ -183,6 +183,7 @@ struct HerdrHelperView: View {
     @StateObject private var reply: ChatMessage
     @State private var guidance = ""
     @State private var controlError = ""
+    @State private var promotion: Task<Void, Never>?
     @State private var stopping = false
     @State private var stopped = false
     @State private var terminal: HerdrTerminalTarget?
@@ -258,6 +259,24 @@ struct HerdrHelperView: View {
                             }.buttonStyle(.link).accessibilityIdentifier("helper.stop")
                         }.disabled(stopping)
                     }
+                    if let shown, let core {
+                        let existing = store.promotedBot(for: shown.ref, core: core, parent: bot)
+                        Button(existing.map { "Open \($0.name) chat" } ?? "Promote to bot", systemImage: "person.crop.circle.badge.plus") {
+                            controlError = ""
+                            promotion = Task {
+                                defer { promotion = nil }
+                                do {
+                                    let promoted = try await store.promoteHelper(shown, core: core, selection: selection, of: bot)
+                                    guard !Task.isCancelled else { return }
+                                    closeOverviewDetails?()
+                                    store.open(promoted)
+                                } catch { controlError = error.localizedDescription }
+                            }
+                        }
+                        .disabled(promotion != nil || (existing == nil && (unavailable || listed == nil)))
+                        .accessibilityIdentifier("helper.promote")
+                        .help("Open a permanent chat with this helper’s model, tasks and replies.")
+                    }
                     if !controlError.isEmpty {
                         Text(controlError).font(.callout).foregroundStyle(AppColor.caution)
                     }
@@ -290,6 +309,7 @@ struct HerdrHelperView: View {
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .task(id: selection) { await follow() }
+            .onDisappear { promotion?.cancel() }
             .onChange(of: listed) { _, now in if let now { helper = now } }
             .onChange(of: store.herdrHelpers[selection.parent]?.core) { _, now in if let now { core = now } }
     }

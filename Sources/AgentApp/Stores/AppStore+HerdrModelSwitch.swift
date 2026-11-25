@@ -59,6 +59,10 @@ extension AppStore {
         let autoPending = autoSwitchPending(bot)
         let pending = modelPending || autoPending
         let client = try herdrClient(for: server)
+        if bot.promotedHelper?.pendingAfter != nil {
+            await collectPromotedReply(for: bot, on: server, workspace: current, client: client, preparingDirectTurn: true)
+            try checkChoice()
+        }
         let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
         do {
             if let agent = client.liveAgent(named: name, in: current) {
