@@ -120,7 +120,11 @@ extension AppStore {
             guard validateGroupDraft(text, attachments: attachments, bot: bot) else { return false }
         }
         let full = turnCapacityProblem(for: recipients.compactMap { id in bots.first { $0.id == id } })
-        if let full, recipientIDs != nil, !queueChoice { errorMessage = full; return false }
+        if let full, let recipientIDs, !queueChoice {
+            let author = recipientIDs.count == 1 ? bots.first { $0.id == recipientIDs[0] } : nil
+            presentError(full, reason: .capacity, bot: author)
+            return false
+        }
         steerHint = nil
         let message = ChatMessage(role: .user, content: text, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
         if let recipientIDs {
@@ -133,14 +137,14 @@ extension AppStore {
     }
 
     private func validateGroupDraft(_ text: String, attachments: [ChatAttachment], bot: Bot) -> Bool {
-        guard validateHerdrDraft(text, attachments: attachments) else { return false }
+        guard validateHerdrDraft(text, attachments: attachments, bot: bot) else { return false }
         do {
             let limit = (try? herdrBackend(for: bot)).map { backend in
                 groupMessageBudget(backend, hasFiles: !attachments.isEmpty)
             } ?? HerdrClient.messageBytes
             try HerdrClient.validateMessage("\(userName): \(text)", limit: limit)
             return true
-        } catch { errorMessage = error.localizedDescription; return false }
+        } catch { presentError(error.localizedDescription, reason: .send, bot: bot); return false }
     }
 
     func groupMessageBudget(_ backend: HerdrBackend, hasFiles: Bool) -> Int {

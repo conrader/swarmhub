@@ -54,7 +54,7 @@ extension AppStore {
         if case .group = target, source.authorID != bot.id { return false }
         let blocks = ChatCardParser.parseVisibleReply(source.content)
         guard blocks.indices.contains(index), blocks[index] == expected else {
-            errorMessage = "This card changed. Review the current version before answering it."; return false
+            presentError("This card changed. Review the current version before answering it.", reason: .card, bot: bot); return false
         }
         let queueChoice: Bool
         let key: String, text: String, value: String

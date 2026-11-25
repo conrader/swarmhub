@@ -116,9 +116,9 @@ extension AppStore {
         assistant.metadata[TurnKey.why] = outcome.state == .finished ? nil : outcome.why
         assistant.metadata[TurnKey.ambiguous] = outcome.ambiguous ? "1" : nil
         switch end {
-        case .failedByAgent(let text) where alert: errorMessage = alertPrefix + text
+        case .failedByAgent(let text) where alert: presentError(alertPrefix + text, reason: .agent, bot: bot)
         // A dropped or timed-out connection is the row's footer and warning line, never the alert.
-        case .error(let error) where alert && !TransientNetwork.isTransient(error): errorMessage = alertPrefix + error.localizedDescription
+        case .error(let error) where alert && !TransientNetwork.isTransient(error): presentError(alertPrefix + error.localizedDescription, reason: .send, bot: bot)
         default: break
         }
         if warn, let reason = outcome.reason {

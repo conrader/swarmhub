@@ -18,6 +18,20 @@ struct SettingsSimplePane: View {
                 SettingsPersonSection()
                 appearanceGroup
                 concurrentReplies
+                DisclosureGroup("Recent errors") {
+                    if store.recentErrors.isEmpty { Text("No dismissed alerts.").foregroundStyle(.secondary) }
+                    ForEach(store.recentErrors) { entry in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text(entry.date.formatted(date: .abbreviated, time: .standard))
+                                if let id = entry.botID {
+                                    Text(store.bots.first { $0.id == id }?.name ?? "Removed bot")
+                                }
+                            }.font(.caption).foregroundStyle(.secondary)
+                            Text(entry.reason.explanation)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
                 SettingSwitch(title: SimpleCopy.notifyMaster, detail: Bundle.main.bundleIdentifier == nil ? SimpleCopy.notifyNeedsApp : SimpleCopy.notifyCaption,
                               symbol: "bell.badge.fill", colour: AppColor.clay, isOn: $notifications)
                     .onChange(of: notifications) { _, enabled in

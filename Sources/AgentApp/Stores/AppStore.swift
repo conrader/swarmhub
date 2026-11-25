@@ -73,7 +73,8 @@ import UserNotifications
     /// The sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
     @Published var infoTab = AgentInfoTab.overview
-    @Published var editingBot: Bot?; @Published var errorMessage: String?
+    @Published var editingBot: Bot?; @Published var errorMessage: String? { didSet { pendingError = nil } }
+    var pendingError: DismissedError?
     /// A message the transcript should scroll to (Media tab).
     @Published var scrollTarget: UUID?
     /// A saved document on its way from the Media tab into a chat's composer.
@@ -361,13 +362,13 @@ import UserNotifications
         guard isIdle(conversation) else { return false }
         if bot.backend == .herdr, !validateHerdrDraft(text, attachments: attachments, bot: bot) { return false }
         let full = turnCapacityProblem(for: [bot])
-        if let full, !waitWhenFull { errorMessage = full; return false }
+        if let full, !waitWhenFull { presentError(full, reason: .capacity, bot: bot); return false }
         let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
         do {
             try validateArtifactAccess(user, botID: bot.id)
             activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))
-        } catch { errorMessage = error.localizedDescription; return false }
+        } catch { presentError(error.localizedDescription, reason: .send, bot: bot); return false }
         steerHint = nil
         captureAttachments(user, readers: [bot.id])
         if conversation === bot { bot.offersReleaseNotesExample = false }
@@ -385,7 +386,7 @@ import UserNotifications
                     instructions: backend.launchInstructions, hasFiles: !attachments.isEmpty))
             }
             return true
-        } catch { errorMessage = error.localizedDescription; return false }
+        } catch { presentError(error.localizedDescription, reason: .send, bot: bot); return false }
     }
 
     /// Starts the turn answering `user`, a row of `conversation`. The reply goes right under it and the turn sends the
@@ -394,7 +395,7 @@ import UserNotifications
         let herdr = activeBackend is HerdrBackend
         let files: [HerdrClient.TaskFile]
         do { files = herdr ? try user.attachments.map(attachmentEncoder.taskFile(for:)) : [] }
-        catch { errorMessage = error.localizedDescription; return }
+        catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return }
         let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
         if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)

@@ -110,7 +110,7 @@ extension AppStore {
         let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
         let effective = template ?? inherited
         if let runtime = request.runtime, template == nil {
-            errorMessage = "Couldn’t find the requested agent \(runtime) on \(server.name). Check its setup or ask for another agent."
+            presentError("Couldn’t find the requested agent \(runtime) on \(server.name). Check its setup or ask for another agent.", reason: .setup, bot: manager)
             return nil
         }
         var model = HerdrModelChoice.recommended
@@ -120,7 +120,7 @@ extension AppStore {
             } else if effective?.modelAgent == "OpenCode", let id = HerdrModelChoice.apiModelID(requested) {
                 model = id
             } else {
-                errorMessage = "Couldn’t confirm model \(requested) on \(server.name). Choose a listed model or ask for Recommended."
+                presentError("Couldn’t confirm model \(requested) on \(server.name). Choose a listed model or ask for Recommended.", reason: .setup, bot: manager)
                 return nil
             }
         }

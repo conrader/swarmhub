@@ -7,7 +7,7 @@ extension AppStore {
     /// Prepares picked, dropped or pasted files; refusals are reported and skipped.
     func prepareAttachments(_ urls: [URL]) -> [ChatAttachment] {
         urls.compactMap { url in
-            do { return try attachmentEncoder.prepare(fileURL: url) } catch { errorMessage = error.localizedDescription; return nil }
+            do { return try attachmentEncoder.prepare(fileURL: url) } catch { presentError(error.localizedDescription, reason: .attachment); return nil }
         }
     }
 
@@ -24,7 +24,7 @@ extension AppStore {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do { result += try await encoder.prepareAll(fileURL: url) }
             catch is CancellationError { break }
-            catch { errorMessage = error.localizedDescription }
+            catch { presentError(error.localizedDescription, reason: .attachment) }
         }
         if Task.isCancelled { encoder.discard(result); return [] }
         return result
@@ -34,7 +34,7 @@ extension AppStore {
     func discardAttachments(_ attachments: [ChatAttachment]) { attachmentEncoder.discard(attachments) }
 
     func prepareAttachment(imageData: Data, name: String) -> ChatAttachment? {
-        do { return try attachmentEncoder.prepare(imageData: imageData, name: name) } catch { errorMessage = error.localizedDescription; return nil }
+        do { return try attachmentEncoder.prepare(imageData: imageData, name: name) } catch { presentError(error.localizedDescription, reason: .attachment); return nil }
     }
 
     func attachmentURL(_ attachment: ChatAttachment) -> URL? { attachmentEncoder.fileURL(for: attachment) }

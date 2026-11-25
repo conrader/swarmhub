@@ -44,7 +44,7 @@ struct ContentView: View {
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Transient network trouble is this line, never the alert below.
-            if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.errorMessage = nil } }
+            if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.dismissError() } }
         }
         .environment(\.timeZone, store.personDisplayZone)
          .task { if store.storeRestoreOffer == nil { continueLaunch() } }
@@ -69,6 +69,6 @@ struct ContentView: View {
             }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
         .modifier(HerdrVaultPrompts(anotherSheet: hasCompetingVaultSheet))
-        .alert("Something went wrong", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.modalErrorMessage ?? "") }
+        .alert("Something went wrong", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.dismissError() } })) { Button("OK") { store.dismissError() } } message: { Text(store.modalErrorMessage ?? "") }
     }
 }

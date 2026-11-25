@@ -71,7 +71,7 @@ extension AppStore {
         do {
             try validateArtifactAccess(user, botID: bot.id)
             _ = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))
-        } catch { errorMessage = error.localizedDescription; return false }
+        } catch { presentError(error.localizedDescription, reason: .attachment, bot: bot); return false }
         steerHint = nil
         captureAttachments(user, readers: [bot.id])
         conversation.messages.append(user)

@@ -126,10 +126,10 @@ extension AppStore {
             let name = sessionID.map(backend.runtimeName(sessionID:)) ?? backend.agentName
             guard let agent = backend.client.liveAgent(named: name, in: try await backend.client.workspace()),
                   openHerdrTerminal(herdrTerminalAnswer(for: bot, agent: agent.ref), name: bot.name) else {
-                errorMessage = "The agent’s terminal is no longer available."
+                presentError("The agent’s terminal is no longer available.", reason: .terminal, bot: bot)
                 return
             }
-        } catch { errorMessage = error.localizedDescription }
+        } catch { presentError(error.localizedDescription, reason: .terminal, bot: bot) }
     }
 
     private func openHerdrTerminal(_ answer: HerdrPromptAnswer?, name: String) -> Bool {

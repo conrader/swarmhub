@@ -177,7 +177,7 @@ extension AppStore {
                 taskToCancel?.cancel()
                 insertStopLine(IntentLine.stopFailed.render(server, error.localizedDescription), in: conversation, after: stoppedAssistantID)
                 if isCurrent(streamToken) {
-                    errorMessage = IntentLine.stopFailed.render(server, error.localizedDescription)
+                    presentError(IntentLine.stopFailed.render(server, error.localizedDescription), reason: .stop, bot: bot)
                 }
             }
             save()

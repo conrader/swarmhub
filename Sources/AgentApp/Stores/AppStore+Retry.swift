@@ -32,7 +32,7 @@ extension AppStore {
         if row.metadata[TurnKey.ambiguous] == "1", now().timeIntervalSince(row.createdAt) < 1_800, row.metadata[TurnKey.retry] != "confirm", !sendAnyway {
             row.metadata[TurnKey.retry] = "confirm"; return
         }
-        if let full = turnCapacityProblem(for: [bot]) { errorMessage = full; return }
+        if let full = turnCapacityProblem(for: [bot]) { presentError(full, reason: .capacity, bot: bot); return }
         let ledger = "\(ObjectIdentifier(conversation).hashValue)|\(bot.id)|\(trigger.id)"
         guard turns.retryLedger.insert(ledger).inserted else { return }
         let run = group.map { GroupRun(groupID: $0.id) }
