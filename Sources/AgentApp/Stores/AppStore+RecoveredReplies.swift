@@ -62,7 +62,7 @@ struct HerdrDeliveryReceipt: Codable, Equatable, Sendable {
 extension AppStore {
     func recoverAcceptedDirectReplies() {
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
-            for row in bot.messages where row.turnState == .incomplete && row.metadata[TurnKey.part] == nil {
+            for row in bot.messages where row.turnState == .incomplete {
                 guard let receipt = row.deliveryReceipt else { continue }
                 row.checkingSavedReply = true
                 Task { [weak self, weak bot, weak row] in
@@ -94,16 +94,7 @@ extension AppStore {
             case .waiting: return true
             case .unresolved: break
             case .answered(let reply, let results):
-                row.content = reply.text
-                row.turnState = .finished
-                row.metadata["herdrJournal"] = "\(server.id):\(reply.id)"
-                for key in [TurnKey.why, TurnKey.agent, TurnKey.ambiguous, TurnKey.reconnecting, "status"] { row.metadata[key] = nil }
-                if var activity = row.activity {
-                    let ended = reply.atMs.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? now()
-                    activity.finish(at: max(activity.steps.last?.startedAt ?? row.createdAt, ended))
-                    row.activity = activity
-                }
-                if !results.isEmpty { row.publishedResults = HerdrReplyResults(serverID: server.id, items: results) }
+                restoreSavedAnswer(reply, results: results, for: row, in: bot, serverID: server.id)
             }
             row.deliveryReceipt = nil
             bot.objectWillChange.send()
@@ -114,4 +105,55 @@ extension AppStore {
             return !Task.isCancelled
         }
     }
+
+    private func restoreSavedAnswer(_ reply: HerdrClient.Item, results: [HerdrPublishedResult], for row: ChatMessage,
+                                    in bot: Bot, serverID: String) {
+        guard let index = bot.messages.firstIndex(where: { $0 === row }) else { return }
+        let origin = row.metadata[TurnReplyText.origin] ?? row.id.uuidString
+        // Older receipts can predate explicit steer ownership. Only cross adjacent guidance
+        // and status rows; an independent question or another reply starts a new turn.
+        let following = bot.messages.suffix(from: index + 1).prefix {
+            $0.role == .system || ($0.role == .user && $0.metadata[SteerKey.steer] != nil
+                && ($0.metadata[TurnReplyText.origin] ?? origin) == origin)
+        }
+        let ended = reply.atMs.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? now()
+        let answer: ChatMessage
+        if let anchor = following.last(where: { $0.metadata[SteerKey.steer] == "delivered" }),
+           let anchorIndex = bot.messages.firstIndex(where: { $0 === anchor }) {
+            answer = replyPartAfterGuidance(row, origin: origin, at: max(ended, anchor.createdAt))
+            if answer === row { bot.messages.remove(at: index) }
+            bot.messages.insert(answer, at: anchorIndex + (answer === row ? 0 : 1))
+        } else { answer = row }
+
+        let earlier = bot.messages.prefix { $0 !== answer }.filter {
+            $0.role == .assistant && $0.metadata[TurnReplyText.origin] == origin
+        }
+        let prefix = TurnReplyText.joined(earlier)
+        // Codex can save just its final answer, omitting earlier tool commentary. Other
+        // providers can save a cumulative snapshot. Keep each earlier part exactly once.
+        var final = reply.text[...]
+        if !prefix.isEmpty, reply.text.hasPrefix(prefix), reply.text.count > prefix.count {
+            final = reply.text.dropFirst(prefix.count)
+            if final.hasPrefix("\n\n") {
+                answer.metadata[TurnReplyText.separator] = "\n\n"
+                final = final.dropFirst(2)
+            } else { answer.metadata[TurnReplyText.separator] = nil }
+        } else if !prefix.isEmpty { answer.metadata[TurnReplyText.separator] = "\n\n" }
+        answer.isStreaming = false
+        answer.content = String(final)
+        answer.turnState = .finished
+        answer.deliveryReceipt = nil
+        (earlier.first ?? answer).metadata["herdrJournal"] = "\(serverID):\(reply.id)"
+        for part in earlier + [answer] {
+            for key in [TurnKey.why, TurnKey.agent, TurnKey.ambiguous, TurnKey.reconnecting, "status"] { part.metadata[key] = nil }
+            if var activity = part.activity, activity.endedAt == nil {
+                activity.finish(at: max(activity.steps.last?.startedAt ?? part.createdAt, ended))
+                part.activity = activity
+            }
+        }
+        let shown = Set(earlier.flatMap { $0.publishedResults?.items.map(\.id) ?? [] })
+        let remaining = results.filter { !shown.contains($0.id) }
+        if !remaining.isEmpty { answer.publishedResults = HerdrReplyResults(serverID: serverID, items: remaining) }
+    }
+
 }

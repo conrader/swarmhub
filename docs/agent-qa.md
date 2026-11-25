@@ -114,6 +114,14 @@ To check saved-message search on the Mac, run the driver against the candidate a
 
 The driver opens a private workspace with 800 live messages and 1,000 imported Grok entries. It checks the visible message after a click, Return and keyboard navigation. It pages through neighboring imported messages, switches conversations, relaunches the app and opens a chat whose archive file has gone away. Set `SWARMHUB_QA_LARGE_HISTORY=1` on the same command to repeat the exercise with 33,000 imported entries (about 32 MB). The driver reports time to a result and time from selection to the visible message.
 
+To check the order of replies after steering a bot and reopening SwarmHub, use the native window driver.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --steer-reopen /Applications/SwarmHub.app
+```
+
+The driver opens two private chats with a loopback workspace offline. One saved turn has just acknowledged the follow-up. In the other, the bot has already started its next step. It brings the workspace online, checks that each answer appears below its guidance, and reopens the app offline to check the same order again.
+
 To check published media in a bot reply, run the driver from a checkout containing the PNG and MP4 fixtures.
 
 ```sh
