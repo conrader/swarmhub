@@ -46,7 +46,7 @@ struct MessageView: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .help(message.metadata[GoalKey.evidence] ?? outcome)
                 }
-                if let results = message.publishedResults { HerdrReplyFiles(results: results) }
+                if let results = message.publishedResults { HerdrReplyFiles(messageID: message.id, results: results) }
                 if message.turnState == .finished, let summary = message.runSummary {
                     Text(summary.line).font(.caption).foregroundStyle(.secondary)
                         .help("Elapsed time and tool calls reported to SwarmHub. The model label comes from this reply’s session.")

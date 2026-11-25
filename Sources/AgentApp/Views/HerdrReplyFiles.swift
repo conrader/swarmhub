@@ -2,11 +2,12 @@ import SwiftUI
 import Quartz
 
 struct HerdrReplyFiles: View {
+    let messageID: UUID
     let results: HerdrReplyResults
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(results.items) { item in
-                PublishedResultRow(serverID: results.serverID, item: item)
+                PublishedResultRow(messageID: messageID, serverID: results.serverID, item: item)
             }
         }.id(results.serverID)
     }
@@ -29,6 +30,7 @@ private final class PublishedLocalFile {
 
 private struct PublishedResultRow: View {
     @EnvironmentObject private var store: AppStore
+    let messageID: UUID
     let serverID: String
     let item: HerdrPublishedResult
     @State private var file: PublishedLocalFile?
@@ -65,19 +67,19 @@ private struct PublishedResultRow: View {
             guard kind != nil, file == nil else { return }
             error = nil
             do {
-                guard let server = store.herdrServer(id: serverID) else { throw BackendError.unavailable("The server that published this result is no longer configured.") }
-                let data = try await store.herdrClient(for: server).publishedFile(id: item.id)
+                let data = try await store.publishedReplyFile(item, messageID: messageID, serverID: serverID)
                 try Task.checkCancellation()
                 file = try PublishedLocalFile(data: data, title: item.title)
             } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
-        .sheet(isPresented: $showing) { HerdrResultSheet(serverID: serverID, item: item, preview: file) }
+        .sheet(isPresented: $showing) { HerdrResultSheet(messageID: messageID, serverID: serverID, item: item, preview: file) }
     }
 }
 
 private struct HerdrResultSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    let messageID: UUID
     let serverID: String
     let item: HerdrPublishedResult
     let preview: PublishedLocalFile?
@@ -108,12 +110,11 @@ private struct HerdrResultSheet: View {
     private func load() async {
         guard file == nil else { return }
         do {
-            guard let server = store.herdrServer(id: serverID) else { throw BackendError.unavailable("The server that published this result is no longer configured.") }
-            let client = try store.herdrClient(for: server)
             if let id = item.pageID, item.kind == .page {
-                page = try await client.publishedPage(id: id, revision: item.revision)
+                guard let server = store.herdrServer(id: serverID) else { throw BackendError.unavailable("The server that published this result is no longer configured.") }
+                page = try await store.herdrClient(for: server).publishedPage(id: id, revision: item.revision)
             } else {
-                let data = try await client.publishedFile(id: item.id)
+                let data = try await store.publishedReplyFile(item, messageID: messageID, serverID: serverID)
                 try Task.checkCancellation()
                 downloaded = try PublishedLocalFile(data: data, title: item.title)
             }

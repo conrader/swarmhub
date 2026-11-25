@@ -2,6 +2,7 @@
 """Drive the native SwarmHub QA window on a logged-in Mac with PyObjC and Accessibility access."""
 
 from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from threading import Thread
 import time
 import uuid
 
@@ -115,22 +117,53 @@ def main(pid):
 
 
 
-def group_restart(source_app):
-    from AppKit import NSRunningApplication
-
-    with tempfile.TemporaryDirectory(prefix="SwarmHub-group-qa-") as scratch:
+@contextmanager
+def private_workspace(source_app):
+    with tempfile.TemporaryDirectory(prefix="SwarmHub-window-qa-") as scratch:
         base = Path(scratch)
-        app = base / "GroupQA.app"
+        app = base / "WindowQA.app"
         subprocess.run(["ditto", source_app, app], check=True)
         info = app / "Contents/Info.plist"
         plist = plistlib.loads(info.read_bytes())
-        plist["CFBundleIdentifier"] = "com.konrad.agentapp.group-qa." + uuid.uuid4().hex
+        plist["CFBundleIdentifier"] = "com.konrad.agentapp.window-qa." + uuid.uuid4().hex
         info.write_bytes(plistlib.dumps(plist))
         subprocess.run(["codesign", "--force", "--sign", "-", app], check=True)
-
         home = base / "home"
         store = home / "Library/Application Support/AgentApp/store.json"
         store.parent.mkdir(parents=True)
+        yield app, home, store
+
+
+@contextmanager
+def open_workspace(app, home, address="http://127.0.0.1:1", token=""):
+    from AppKit import NSRunningApplication
+
+    environment = dict(os.environ, HOME=str(home), CFFIXED_USER_HOME=str(home),
+                       SWARMHUB_DISABLE_UPDATES="1", SWARMHUB_SERVICE_HOME=str(home), SWARMHUB_HERDR_TOKEN=token)
+    process = subprocess.Popen([app / "Contents/MacOS/AgentApp", "-setupState", "skipped",
+                                "-herdrBaseURL", address], env=environment)
+    try:
+        application = ax.AXUIElementCreateApplication(process.pid)
+        windows = lambda: attribute(application, "AXWindows") or []
+        wait_for("private workspace", windows, seconds=15)
+        instance = NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
+        instance.activateWithOptions_(3)
+        yield windows()[0]
+    finally:
+        if process.poll() is None:
+            instance = NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
+            if instance:
+                instance.terminate()
+            try:
+                process.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                raise RuntimeError("Private workspace did not quit normally")
+
+
+def group_restart(source_app):
+    with private_workspace(source_app) as (app, home, store):
         bots = [{"id": str(uuid.uuid4()), "name": name, "backend": "Mock"} for name in ("Mira", "Patch")]
         group_id = str(uuid.uuid4()).upper()
         messages = []
@@ -146,32 +179,13 @@ def group_restart(source_app):
 
         @contextmanager
         def open_group():
-            environment = dict(os.environ, HOME=str(home), CFFIXED_USER_HOME=str(home),
-                               SWARMHUB_DISABLE_UPDATES="1", SWARMHUB_SERVICE_HOME=str(home))
-            process = subprocess.Popen([app / "Contents/MacOS/AgentApp", "-setupState", "skipped",
-                                        "-herdrBaseURL", "http://127.0.0.1:1"], env=environment)
-            try:
-                application = ax.AXUIElementCreateApplication(process.pid)
-                windows = lambda: attribute(application, "AXWindows") or []
-                wait_for("private workspace", windows, seconds=15)
-                window = windows()[0]
+            with open_workspace(app, home) as window:
                 def group_button():
                     return next((b for b in buttons(window) if "Release crew" in label(b)), None)
                 wait_for("group in sidebar", group_button)
                 if ax.AXUIElementPerformAction(group_button(), "AXPress") != 0:
                     raise RuntimeError("Could not open the group")
                 yield window
-            finally:
-                if process.poll() is None:
-                    instance = NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
-                    if instance:
-                        instance.terminate()
-                    try:
-                        process.wait(timeout=8)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
-                        raise RuntimeError("Private workspace did not quit normally")
 
         with open_group() as window:
             wait_for("saved group message 312", lambda: 312 in visible_messages(window))
@@ -193,12 +207,94 @@ def group_restart(source_app):
         print(f"Verified 620 group messages across two restarts, including saved message {anchor_number}.")
 
 
+def verify_media(window):
+    import Quartz
+
+    def video_control():
+        image = next((b for b in buttons(window) if label(b) == "render.png"), None)
+        video = next((b for b in buttons(window) if label(b) == "Open clip.mp4"), None)
+        if image is None or video is None:
+            return None
+        # AVKit reveals its controls when the pointer enters the player above the file button.
+        position = attribute(video, "AXPosition")
+        point = ax.AXValueGetValue(position, ax.kAXValueCGPointType, None)[1]
+        move = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (point.x + 80, point.y - 25), 0)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, move)
+        return next((e for e in descendants(window) if label(e).lower() == "play/pause"), None)
+
+    wait_for("image preview and video controls", video_control)
+    play = video_control()
+    if ax.AXUIElementPerformAction(play, "AXPress") != 0:
+        raise RuntimeError("Could not play the video")
+    wait_for("video playing", lambda: int(attribute(play, "AXValue") or 0) == 1)
+    press(window, "render.png")
+    wait_for("image preview sheet", lambda: any(label(b) == "Done" for b in buttons(window)))
+    press(window, "Done")
+    wait_for("image preview closed", lambda: all(label(b) != "Done" for b in buttons(window)))
+
+
+def media_reopen(source_app):
+    fixture = Path(__file__).resolve().parents[1] / "Fixtures/chat-media"
+    files = {"/api/library/files/51/download": "render.png", "/api/library/files/52/download": "clip.mp4"}
+    results = [{"id": i, "kind": "file", "title": name} for i, name in [(51, "render.png"), (52, "clip.mp4")]]
+    message = {"id": str(uuid.uuid4()), "createdAt": 800000000, "role": "assistant", "content": "Two results for review.",
+               "publishedResults": {"serverID": "default", "items": results}}
+    token = uuid.uuid4().hex
+    requests = []
+    online = True
+
+    class Files(BaseHTTPRequestHandler):
+        def do_GET(self):
+            name = files.get(self.path)
+            if not name:
+                self.send_error(404)
+                return
+            requests.append(name)
+            if self.headers.get("Authorization") != "Bearer " + token or not online:
+                self.send_error(503)
+                return
+            data = (fixture / name).read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Files) as server:
+        bots = [{"id": str(uuid.uuid4()), "name": name, "backend": "Mock", "messages": history}
+                for name, history in [("MediaQA", [message]), ("OtherQA", [])]]
+        store.write_text(json.dumps({"version": 2, "bots": bots}))
+        Thread(target=server.serve_forever, daemon=True).start()
+        address = f"http://127.0.0.1:{server.server_port}"
+        try:
+            for launch in range(2):
+                with open_workspace(app, home, address, token) as window:
+                    wait_for("media chat", lambda: any(label(b).startswith("MediaQA,") for b in buttons(window)))
+                    press(window, "MediaQA", sidebar=True)
+                    verify_media(window)
+                    if launch == 0:
+                        press(window, "OtherQA", sidebar=True)
+                        wait_for("other chat", lambda: all(label(b) != "Open render.png" for b in buttons(window)))
+                        online = False
+                        press(window, "MediaQA", sidebar=True)
+                        verify_media(window)
+        finally:
+            server.shutdown()
+        if sorted(requests) != ["clip.mp4", "render.png"]:
+            raise RuntimeError(f"Unexpected media download requests: {requests}")
+        print("Image opened and video played online, after switching back offline, and after relaunch. Each file downloaded once.")
+
+
 if __name__ == "__main__":
     if not ax.AXIsProcessTrusted():
         raise SystemExit("This test needs macOS Accessibility access.")
     if len(sys.argv) == 3 and sys.argv[1] == "--group-restart":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--media-reopen":
+        media_reopen(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | --group-restart /path/to/SwarmHub.app")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen) /path/to/SwarmHub.app")
