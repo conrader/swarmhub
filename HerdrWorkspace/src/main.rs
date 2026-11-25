@@ -6,6 +6,7 @@ mod approvals;
 mod attention;
 mod bot_agent_settings;
 mod bots;
+mod codejob_activity;
 mod codex_agent;
 mod core;
 mod desktop;
@@ -715,7 +716,13 @@ impl<'a> AgentView<'a> {
     }
 }
 
-async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::Value>, ApiError> {
+#[derive(Default, Deserialize)]
+struct WorkspaceQuery {
+    #[serde(default)]
+    codejobs: bool,
+}
+
+async fn workspace_state(State(w): State<Workspace>, Query(query): Query<WorkspaceQuery>) -> Result<Json<serde_json::Value>, ApiError> {
     let hello = w.core.identify().await?;
     let (agents, templates) = tokio::try_join!(w.core.agents(), w.core.templates())?;
     let catalog = runtimes::Catalog::load(w.history.file());
@@ -746,14 +753,16 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         let db = w.history.db()?;
         person_profile::effective_timezone(&db).map_err(StoreError::from)?
     };
-    Ok(Json(
-        json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
+    let mut roster = json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
                "attachments":hello.supports("terminal.put"),"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,
                "workspace_root":core::bot_workspace_root().ok().flatten(),"terminal_attach":hello.supports("terminal.attach"),
-               "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)}),
-    ))
+               "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)});
+    if query.codejobs {
+        roster["codejob_activity"] = json!(codejob_activity::snapshot(&w.core, hello.supports("machine.exec")).await);
+    }
+    Ok(Json(roster))
 }
 
 #[derive(Deserialize)]

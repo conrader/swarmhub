@@ -25,6 +25,27 @@ extension Dictionary where Key == HerdrHelperParent {
 /// A successful read can contain zero helpers. A missing entry means the first read is pending.
 enum HerdrHelperRead { case polled, streamed, unavailable }
 
+struct HerdrCodejobRead {
+    let server: HerdrServer
+    let hosts: [HerdrClient.CodejobActivity.Host]?
+    let observed: ContinuousClock.Instant
+
+    // Use the beginning of the request. A delayed reply cannot renew an old observation.
+    var isFresh: Bool { ContinuousClock.now - observed < .seconds(25) }
+}
+
+struct HerdrCodejobRow: Identifiable {
+    struct ID: Hashable {
+        let server: String
+        let host: String
+        let owner: UUID
+        let job: String
+    }
+    let id: ID
+    let bot: Bot
+    let job: HerdrClient.CodejobActivity.Job
+}
+
 struct HerdrHelperOverview {
     struct Row: Identifiable {
         let bot: Bot
@@ -33,10 +54,12 @@ struct HerdrHelperOverview {
     }
 
     var rows: [Row] = []
+    var codejobs: [HerdrCodejobRow] = []
+    var unavailableCodejobHosts: [String] = []
     var checking: [HerdrServer] = []
     var unavailable: [HerdrServer] = []
     var hasBots = false
-    var confirmedEmpty: Bool { hasBots && rows.isEmpty && checking.isEmpty && unavailable.isEmpty }
+    var confirmedEmpty: Bool { hasBots && rows.isEmpty && codejobs.isEmpty && checking.isEmpty && unavailable.isEmpty && unavailableCodejobHosts.isEmpty }
 }
 
 /// A workspace read can confirm that a bot has no session, even when a cached model reading still has one.
@@ -74,6 +97,17 @@ extension AppStore {
     func hasActiveCodingAgent(_ bot: Bot) -> Bool {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return false }
         return herdrHasUnansweredHelpers(bot) || herdrPresence(for: bot)?.isActive == true
+            || codejobs(for: bot, on: herdrServer(for: bot)).contains { $0.job.isWorking }
+    }
+
+    private func codejobs(for bot: Bot, on server: HerdrServer) -> [HerdrCodejobRow] {
+        guard let read = herdrCodejobReads[server.id], read.server == server, read.isFresh,
+              let hosts = read.hosts else { return [] }
+        return hosts.flatMap { host in
+            host.jobs.filter { $0.owner == bot.id }.map { job in
+                .init(id: .init(server: server.id, host: host.host, owner: bot.id, job: job.job), bot: bot, job: job)
+            }
+        }
     }
 
     func herdrHasUnansweredHelpers(_ bot: Bot, parent: HerdrClient.AgentRef? = nil) -> Bool {
@@ -91,10 +125,12 @@ extension AppStore {
     var herdrHelperOverview: HerdrHelperOverview {
         var result = HerdrHelperOverview()
         let servers = herdrServers
-        var checking: Set<String> = [], unavailable: Set<String> = []
+        var participating: Set<String> = [], checking: Set<String> = [], unavailable: Set<String> = []
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
             result.hasBots = true
             let server = herdrServer(for: bot, in: servers)
+            participating.insert(server.id)
+            result.codejobs += codejobs(for: bot, on: server)
             for parent in helperParents(of: bot) {
                 switch herdrHelperReads[parent] {
                 case .polled, .streamed:
@@ -106,6 +142,17 @@ extension AppStore {
                 case nil: checking.insert(server.id)
                 }
             }
+        }
+        for server in servers where participating.contains(server.id) {
+            guard let read = herdrCodejobReads[server.id], read.server == server else {
+                checking.insert(server.id)
+                continue
+            }
+            guard read.isFresh, let hosts = read.hosts else {
+                unavailable.insert(server.id)
+                continue
+            }
+            result.unavailableCodejobHosts += hosts.filter { !$0.complete }.map { "\(server.name) · \($0.host)" }
         }
         result.checking = servers.filter { checking.contains($0.id) && !unavailable.contains($0.id) }
         result.unavailable = servers.filter { unavailable.contains($0.id) }
@@ -146,6 +193,7 @@ extension AppStore {
             guard watch[server.id] != true else { continue }
             let busy = isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
                 || herdrAgentPresence[bot.id].map { $0.server == server && $0.isActive } == true || live.contains(bot.id)
+                || codejobs(for: bot, on: server).contains { $0.job.isWorking }
             let isOpen = selectedGroup?.memberIDs.contains(bot.id) ?? (selectedBot?.id == bot.id)
             if server.kind != .ssh || sshIsOpen(server.id) || isOpen || busy || cached.contains(bot.id) {
                 watch[server.id] = busy
@@ -172,6 +220,10 @@ extension AppStore {
                     for parent in store.helperParents(of: bot) { reads[parent] = .unavailable }
                 }
                 if reads != store.herdrHelperReads { store.herdrHelperReads = reads }
+                // Publish expiry even if a network read stalls or the SSH forward closes.
+                for (id, read) in store.herdrCodejobReads where read.hosts != nil && (!read.isFresh || watch[id] == nil) {
+                    store.herdrCodejobReads[id] = HerdrCodejobRead(server: read.server, hosts: nil, observed: clock.now)
+                }
                 last = last.filter { watch[$0.key] != nil }
                 for (server, busy) in watch where reading[server] == nil {
                     guard last[server].map({ clock.now - $0 >= (busy ? often : seldom) }) ?? true else { continue }
@@ -196,8 +248,10 @@ extension AppStore {
         guard let server = herdrServer(id: serverID) else { return }
         let previousPresence = herdrAgentPresence, previousHelpers = herdrHelpers, previousReads = herdrHelperReads
         let client = try? herdrClient(for: server)
-        let workspace = try? await client?.workspace()
+        let observed = ContinuousClock.now
+        let workspace = try? await client?.workspace(includingCodejobs: true)
         guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
+        herdrCodejobReads[server.id] = HerdrCodejobRead(server: server, hosts: workspace?.codejobActivity?.hosts, observed: observed)
         let group = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
         var results: [HerdrHelperParent: HelperPollResult] = [:]
         var targets: [(HerdrHelperParent, HerdrClient.Agent?)] = []

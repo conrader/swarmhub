@@ -459,6 +459,14 @@ impl Core {
         self.rpc("machine.exec", params, seconds + 20, true).await
     }
 
+    /// A fixed read-only reader on Core's own host or one connected machine.
+    pub(crate) async fn codejob_activity(&self, on: Option<&str>, scope: &str) -> Result<Ran, Failure> {
+        let mut params = json!({"argv":["/usr/bin/python3","-I","-B","-c",crate::codejob_activity::PROBE,scope],
+                                "cwd":"/","timeout":4});
+        if let Some(name) = on { params["on"] = name.into(); }
+        self.rpc("machine.exec", params, 6, false).await
+    }
+
     /// The fixture Core accepts encoded stdin as data on its private socket.
     #[cfg(any(test, feature = "fleet-test-fixture"))]
     pub(crate) async fn run_fixture_worker(
