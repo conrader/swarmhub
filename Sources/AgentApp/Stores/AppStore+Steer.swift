@@ -223,6 +223,7 @@ extension AppStore {
             return row
         }
 
+        row.deliveryReceipt = nil
         let number = Int(row.metadata[TurnKey.part] ?? "1") ?? 1
         row.metadata[TurnReplyText.origin] = origin.id.uuidString
         row.metadata[TurnKey.part] = String(number)

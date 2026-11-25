@@ -172,6 +172,11 @@ extension AppStore {
                 activity.apply(tool, at: now(), textOffset: owner.content.utf16.count)
                 if owner !== row, activity.current == nil { activity.finish(at: now()) }
                 if activity.total > 0 { owner.activity = activity; objectWillChange.send() }
+            case .accepted(let receipt):
+                if group == nil, assistant.metadata[GoalKey.attempt] == nil {
+                    assistant.deliveryReceipt = receipt
+                    save()
+                }
             case .journal(let server, let ids): finalJournal = ids.map { "\(server):\($0)" }.joined(separator: " ")
             case .sessionModel(let name, let source): sessionModel = (name, source)
             case .published(let server, let result):
@@ -211,6 +216,7 @@ extension AppStore {
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)
+        if outcome.state != .incomplete { assistant.deliveryReceipt = nil }
         assistant.turnState = outcome.state
         assistant.metadata[TurnKey.why] = outcome.state == .finished ? nil : outcome.why
         assistant.metadata[TurnKey.ambiguous] = outcome.ambiguous ? "1" : nil
