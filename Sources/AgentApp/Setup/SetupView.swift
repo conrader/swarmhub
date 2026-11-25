@@ -15,6 +15,7 @@ struct SetupView: View {
     @AccessibilityFocusState private var progressFocused: Bool
     @State private var loginServer: HerdrServer?
     @State private var testing = false
+    @State private var checkGeneration = UUID()
     @State private var localSetupTask: Task<Void, Never>?
     @State private var failure: String?
     @State private var closed = false
@@ -42,7 +43,7 @@ struct SetupView: View {
                     case .welcome:
                         SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace, saved: store.herdrConfigured ? store.herdrServers : [],
                                               savedHostID: $savedHostID)
-                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, checkAgain: recheckThisMac)
+                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr, answer: { store.answerInTerminal($0) }, scan: { testHerdr(inventoryOnly: true) }, addAI: addLocalAI)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
                     case .projects: if let model = presetProjects ?? projects { SetupProjectsStep(flow: $flow, model: model) }
@@ -114,8 +115,11 @@ struct SetupView: View {
                                 .disabled(setup.isWorking || testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
                         }
                     } else if flow.herdrNoPrograms || !flow.missingStarterPrograms.isEmpty, flow.herdr.kind == .local, flow.localReport != nil, !testing {
-                        // An AI program installed since is found by setting this Mac up again, which changes nothing else.
-                        Button(SetupCopy.testAgain, action: setUpThisMac).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                        if flow.localReport?.canAddAi == true {
+                            Button(WizardCopy.scanAIs) { testHerdr(inventoryOnly: true) }.buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                        } else {
+                            Button(WizardCopy.setUp, action: setUpThisMac).buttonStyle(.appleProminent).keyboardShortcut(.defaultAction)
+                        }
                     } else if flow.herdrReady, !testing {
                         Button("Import from Grok Bot", action: startGrokImport)
                             .keyboardShortcut(store.setupForGrok ? .defaultAction : nil)
@@ -197,21 +201,24 @@ struct SetupView: View {
     }
 
     /// Connect's Test, and the reading of a server that was set up before (the window then waits on the main bot).
-    private func testHerdr() {
+    private func testHerdr() { testHerdr(inventoryOnly: false) }
+
+    private func testHerdr(inventoryOnly: Bool) {
         guard flow.herdr.problem == nil, !testing else { return }
         let typed = flow.herdr, step = flow.step
         testing = true; failure = nil
-        Task { await checkHerdr(typed, step: step) }
+        Task { await checkHerdr(typed, step: step, inventoryOnly: inventoryOnly) }
     }
 
-    private func checkHerdr(_ typed: HerdrServerDraft, step: SetupFlow.Step) async {
+    private func checkHerdr(_ typed: HerdrServerDraft, step: SetupFlow.Step, inventoryOnly: Bool = false, installReceipt: HerdrLocalReport? = nil) async {
+        checkGeneration = UUID()
         var draft = typed
         // This Mac's usual port can lead to another server: its own port is found before anything is asked.
         if let port = await store.thisMacPort(for: typed), !closed, !Task.isCancelled, flow.step == step, flow.herdr == typed {
             flow.localMovedFrom = Int(typed.port.trimmingCharacters(in: .whitespaces)); flow.herdr.port = String(port); draft = flow.herdr
         }
         guard !Task.isCancelled else { testing = false; return }
-        let outcome = await store.testSetupHerdr(draft)
+        let outcome = await store.testSetupHerdr(draft, discoverModels: step != .herdr || draft.kind != .local)
         testing = false
         let current = !closed && !Task.isCancelled && flow.step == step && flow.herdr == draft
         if current, flow.localSetup == .working(.checkingConnection) { flow.apply(.localSetup(nil)) }
@@ -226,7 +233,15 @@ struct SetupView: View {
         let existing = store.setupHerdrBots(on: server)
         flow.apply(.herdrTest(outcome, bots: existing))
         if existing.count == 1, let only = existing.first, only.needsFirstConnection { flow.mainBot.keep = only.id }
-        if server.kind == .local, step == .herdr { await lookAtThisMac(server) }
+        if server.kind == .local, step == .herdr {
+            testing = true
+            let report: HerdrLocalReport?
+            if let installReceipt { report = installReceipt } else { report = await store.localReport(port: server.port) }
+            guard !closed, flow.step == step, flow.herdr == draft, flow.herdrServer == server else { testing = false; return }
+            testing = false
+            flow.apply(.localReport(report))
+            checkAIs(report: report, inventoryOnly: inventoryOnly)
+        }
     }
 
     private func localSetupButton(for setup: HerdrLocalSetup) -> String {
@@ -265,7 +280,7 @@ struct SetupView: View {
                 guard !closed, !Task.isCancelled, flow.step == .herdr, flow.herdr == draft else { return }
                 flow.apply(.localReport(report)); flow.apply(.localSetup(.working(.checkingConnection)))
                 testing = true
-                await checkHerdr(draft, step: .herdr)
+                await checkHerdr(draft, step: .herdr, installReceipt: report)
             } catch {
                 guard !closed, !Task.isCancelled, flow.step == .herdr, flow.herdr == draft else { return }
                 let line = HerdrLocalSetup.line(for: error)
@@ -275,34 +290,40 @@ struct SetupView: View {
         }
     }
 
-    /// This Mac answers: read what its service says is installed, then find out whether each AI can take a message.
-    private func lookAtThisMac(_ server: HerdrServer, refresh: Bool = false) async {
-        let report: HerdrLocalReport?
-        if refresh || flow.localReport == nil {
-            report = await store.localReport(port: server.port)
-        } else {
-            report = flow.localReport
+    private func addLocalAI(_ program: HerdrLocalReport.Program) {
+        guard !testing, let server = flow.herdrServer, server.kind == .local else { return }
+        testing = true; failure = nil
+        let draft = flow.herdr
+        Task {
+            do {
+                let report = try await store.localService.addAI(program.id, port: server.port)
+                guard report.program(template: program.template)?.templateWritten == true else {
+                    throw HerdrLocalFailure(kind: "template", message: "The workspace could not register " + program.name + ".")
+                }
+                store.localAIRevision += 1
+                guard !closed, flow.step == .herdr, flow.herdr == draft else { testing = false; return }
+                await checkHerdr(draft, step: .herdr, inventoryOnly: true)
+                if !closed, flow.step == .herdr, flow.herdr == draft, let offer = flow.herdrOffer, offer.program(program.template) == nil {
+                    failure = "The local server could not load the template for " + program.name + "."
+                }
+            } catch {
+                testing = false
+                if !closed, flow.step == .herdr, flow.herdr == draft { failure = error.localizedDescription }
+            }
         }
-        guard !closed, flow.step == .herdr, flow.herdrServer == server else { return }
-        // Keep the install receipt (including what setup did) when refreshing the executable inventory.
-        if flow.localReport == nil, let report { flow.apply(.localReport(report)) }
-        checkAIs(report: report)
     }
 
-    private func recheckThisMac() {
-        guard let server = flow.herdrServer, !flow.aiChecking else { return }
-        Task { await lookAtThisMac(server, refresh: true) }
-    }
-
-    private func checkAIs(report: HerdrLocalReport?) {
+    private func checkAIs(report: HerdrLocalReport?, inventoryOnly: Bool) {
         guard flow.step == .herdr, let server = flow.herdrServer, server.kind == .local, let offer = flow.herdrOffer, !flow.aiChecking else { return }
+        let generation = UUID()
+        checkGeneration = generation
         let key = flow.herdrKey
         for program in offer.programs where program.template != "swarmhub-opencode" && (flow.starter?.programs.contains(program.starterName) ?? true) {
             let note = report?.program(template: program.template)?.firstTime
             flow.apply(.aiCheck(HerdrAICheck(template: program.template, name: program.name, note: note)))
             Task {
-                let check = await store.checkAI(program, on: server, key: key, report: report)
-                if !closed, flow.herdrServer == server { flow.apply(.aiCheck(check)) }
+                let check = await store.checkAI(program, on: server, key: key, report: report, inventoryOnly: inventoryOnly)
+                if !closed, flow.step == .herdr, checkGeneration == generation, flow.herdrServer == server { flow.apply(.aiCheck(check)) }
             }
         }
     }

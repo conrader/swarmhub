@@ -36,8 +36,18 @@ With the candidate and Auto mode enabled for the test bot, the native chat sent 
 
 The helper’s answer appeared in the parent chat’s Coding agents card without another message. When its terminal closed, the card kept the result. Pressing Details opened the answer. The workspace recorded one helper and zero workspace approval requests during that run. This exercise covered a direct chat and a helper on the same Mac. It did not measure remote worker latency or automatic continuation of a multi-step parent task.
 
+## Detecting an AI added after setup
+
+The installed MacBook service reported Claude, Codex and Antigravity. Its executable scan found Antigravity’s `agy` and did not find the separate `gemini` executable.
+
+In an isolated native wizard, the first candidate showed Codex as installed yet launched `codex app-server` to fetch its models during discovery. The same run found that Settings wrote the new Antigravity template, then reported an access-key error while validating it against the default port. The test service used a different port.
+
+On the fixed candidate, a macOS Accessibility driver opened the wizard against a private workspace. An instrumented Codex executable reported an update notice if launched. The wizard displayed Codex as installed. After the first scan, the driver placed a Gemini executable in the test path, pressed **Scan again**, then **Add Gemini CLI**. The invocation log stayed empty through all three steps. **Create a bot** offered both programs. Only on the model selection screen did the selected Codex provider receive its model-list command, with startup update checks disabled.
+
+A second run began with zero registered templates and reached the bot picker with Gemini alone. In Settings, the driver added an Antigravity executable after opening **AIs**, rescanned and chose **Add Antigravity CLI**. Settings confirmed registration on the workspace’s actual port. The test used the real Mac app, bridge and Core, with disposable provider executables. It covers discovery and registration. Signing in to Gemini or Antigravity and completing a chat require separate tests.
+
 ## Product comparison and remaining checks
 
 - In OpenBot’s interactive preview, switching from Atlas to Forge changed the header’s model control from Claude Opus 5.5 to GPT-6 Luna and exposed its reasoning level. GameDev on SwarmHub 0.8.16 showed a static model name. On the candidate, a native Mac window with a synthetic session displayed its launch model and pending model together. Pressing that control opened the selected bot’s Model tab. A narrow-window rendering test checks that both names stay visible. [OpenBot preview](https://openbot.run/app-preview)
 - OpenBot describes queued messages for a busy agent. Its public preview does not provide a matched live measurement for the Mac helper scenario above. [OpenBot product description](https://openbot.run/)
-- Pending end-to-end coverage includes whether the parent independently takes the next step of a multi-stage task when its helper finishes, switching providers during a live conversation, reopening a saved production-scale group after restart, completing setup with a CLI update prompt, the update installer, and remote or disconnected servers. Read-only visits to Settings do not exercise credential changes or install software.
+- Pending end-to-end coverage includes whether the parent independently takes the next step of a multi-stage task when its helper finishes, switching providers during a live conversation, reopening a saved production-scale group after restart, the update installer, and remote or disconnected servers. Read-only visits to Settings do not exercise credential changes or install software.

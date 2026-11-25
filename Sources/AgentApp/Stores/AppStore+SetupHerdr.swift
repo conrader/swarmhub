@@ -22,7 +22,7 @@ extension AppStore {
     /// Every other failure comes back as its own plain line (`HerdrSetupProblem`): a server that cannot be reached, an
     /// access key it does not accept, Herdr Core not running beside it. A server with no agent program is `connected`
     /// with an empty offer, which the wizard does not let through.
-    func testSetupHerdr(_ draft: HerdrServerDraft, serverID: String? = nil) async -> HerdrSetupOutcome {
+    func testSetupHerdr(_ draft: HerdrServerDraft, serverID: String? = nil, discoverModels: Bool = true) async -> HerdrSetupOutcome {
         guard let server = draft.server(id: serverID ?? setupHerdrID(for: draft)) else { return .failed(draft.problem ?? SetupCopy.failed) }
         if server.kind == .local, await !HerdrTunnels.answers(port: server.port) { return .nothingHere(port: server.port) }
         var found: String?
@@ -32,7 +32,7 @@ extension AppStore {
             catch { return setupConnectionFailure(error, server: server, readingKey: true) }
         }
         let key = draft.typedKey.isEmpty ? found : draft.typedKey
-        do { return .connected(server: server, key: key, offer: try await herdrClient(for: server, token: key).offer()) }
+        do { return .connected(server: server, key: key, offer: try await herdrClient(for: server, token: key).offer(discoverModels: discoverModels)) }
         catch { return setupConnectionFailure(error, server: server) }
     }
 

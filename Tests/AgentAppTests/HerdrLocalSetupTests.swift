@@ -72,6 +72,21 @@ private let statusJSON = #"""
     await #expect(throws: HerdrLocalFailure.self) { _ = try await service.status() }
 }
 
+@Test func aRescanReplacesTheInventoryAndRetainsTheSetupReceipt() throws {
+    var installed: HerdrLocalReport = try HerdrLocalService.answer(Data(statusJSON.utf8))
+    installed.firstTime = [.init(id: "one", done: true)]
+    let updated = statusJSON.replacingOccurrences(of: #""installed":false"#, with: #""installed":true"#)
+    var scan: HerdrLocalReport = try HerdrLocalService.answer(Data(updated.utf8))
+    scan.did = nil
+    var flow = SetupFlow()
+    flow.apply(.localReport(installed))
+    flow.apply(.localReport(scan))
+    #expect(flow.localReport?.missing.isEmpty == true)
+    #expect(flow.localReport?.did == installed.did && flow.localReport?.firstTime == installed.firstTime)
+    flow.apply(.localReport(nil))
+    #expect(flow.localReport == nil)
+}
+
 @Test func aMacWithNothingRunningIsOfferedSetupAndSaysWhyItStopped() {
     var flow = SetupFlow(); flow.apply(.pickHerdr(.local)); flow.apply(.herdrTest(.nothingHere(port: 8787)))
     #expect(flow.localSetup == nil)
@@ -164,6 +179,43 @@ private func checkClient(ready: [Bool], live: Bool = true, screen: String = " Tr
         }
         let unknown = await store.checkAI(program, on: server, key: nil, report: nil)
         #expect(unknown.state == .installation(found: nil))
+    }
+
+    @Test func localDiscoveryDefersTheProviderModelCommandUntilThePicker() async throws {
+        let calls = LockedTrace()
+        let served = MockHTTPProtocol.serve { request in
+            let path = request.url?.path ?? ""
+            calls.add(path)
+            if path == "/api/workspace" {
+                let template: [String: Any] = ["name": "swarmhub-codex", "model_agent": "codex", "discover_models": true,
+                                                "models": [["id": "static"]], "runtime": ["harness": "Codex"]]
+                return (200, ["core": "core-1", "templates": [template], "agents": []])
+            }
+            if path == "/api/runtime-models/swarmhub-codex" { return (200, ["models": [["id": "dynamic"]]]) }
+            return (404, ["error": "not found"])
+        }
+        var client = HerdrClient(baseURL: URL(string: "http://\(served.host)")!, token: "test")
+        client.session = served.session
+        let offer = try await client.offer(discoverModels: false)
+        let program = try #require(offer.programs.first)
+        #expect(program.models.map(\.id) == ["static"])
+        #expect(!calls.read().contains("/api/runtime-models/swarmhub-codex"))
+        let deferred = try #require(program.deferredModelList)
+        let server = HerdrServer(id: "test", name: "This Mac", kind: .local, address: HerdrServer.loopback(port: 8787))
+        var flow = SetupFlow()
+        flow.apply(.herdrTest(.connected(server: server, key: nil, offer: offer)))
+        flow.loadedModels(try await client.models(for: deferred), for: deferred)
+        #expect(flow.herdrOffer?.programs.first?.models.map(\.id) == ["static", "dynamic"])
+        #expect(flow.herdrOffer?.programs.first?.deferredModelList == nil)
+    }
+
+    @MainActor @Test func scanningARecentlyInstalledAIReadsTheInventoryWithoutLaunchingIt() async throws {
+        let store = SetupPreview.makeStore()
+        let report: HerdrLocalReport = try HerdrLocalService.answer(Data(statusJSON.utf8))
+        let server = HerdrServer(id: "test", name: "This Mac", kind: .local, address: HerdrServer.loopback(port: 1))
+        let program = HerdrProgram(template: "starter-one", name: "One", takesModel: false, models: [])
+        let check = await store.checkAI(program, on: server, key: nil, report: report, inventoryOnly: true)
+        #expect(check.state == .installation(found: true))
     }
 
     @Test func anAIThatGetsReadyIsEndedAgainAndOneThatAsksIsLeftRunning() async {

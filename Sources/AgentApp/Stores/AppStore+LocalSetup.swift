@@ -59,10 +59,10 @@ extension AppStore {
     }
 
     /// Codex detection reads the executable inventory. Starting its terminal here can open an updater.
-    func checkAI(_ program: HerdrProgram, on server: HerdrServer, key: String?, report: HerdrLocalReport?) async -> HerdrAICheck {
+    func checkAI(_ program: HerdrProgram, on server: HerdrServer, key: String?, report: HerdrLocalReport?, inventoryOnly: Bool = false) async -> HerdrAICheck {
         let entry = report?.program(template: program.template)
         var check = HerdrAICheck(template: program.template, name: program.name, note: entry?.firstTime)
-        if program.template == "swarmhub-codex" || program.starterName == "codex" {
+        if inventoryOnly || entry?.installed == false || program.template == "swarmhub-codex" || program.starterName == "codex" {
             check.state = .installation(found: entry?.installed)
             return check
         }

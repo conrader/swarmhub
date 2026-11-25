@@ -37,7 +37,7 @@ struct HerdrMainBotDraft: Equatable {
             model = template.isEmpty ? HerdrModelChoice.recommended : ""
             template = offer.programs.first?.template ?? ""
         }
-        if let program = offer.program(template), !model.isEmpty, model != HerdrModelChoice.recommended,
+        if let program = offer.program(template), program.deferredModelList == nil, !model.isEmpty, model != HerdrModelChoice.recommended,
            !program.models.contains(where: { $0.id == model }),
            !(program.starterName == "opencode" && HerdrModelChoice.apiModelID(model) != nil) {
             model = ""
@@ -95,6 +95,14 @@ struct SetupFlow: Equatable {
     var missingStarterPrograms: [String] {
         guard let offer = herdrOffer, let starter else { return [] }
         return starter.programs.filter { name in !offer.programs.contains { $0.starterName == name } }
+    }
+
+    mutating func loadedModels(_ models: [HerdrClient.Template.Model], for template: HerdrClient.Template) {
+        guard case .connected(let server, let key, var offer) = herdrOutcome,
+              let index = offer.programs.firstIndex(where: { $0.deferredModelList == template }) else { return }
+        offer.programs[index].models = models
+        offer.programs[index].deferredModelList = nil
+        herdrOutcome = .connected(server: server, key: key, offer: offer)
     }
 
     mutating func selectMainProgram(_ program: HerdrProgram) {
@@ -237,7 +245,12 @@ struct SetupFlow: Equatable {
             // Back to where bots run undoes Connect's Test.
             if previous == .welcome { herdrOutcome = nil; herdrTested = nil; localSetup = nil; localReport = nil; aiChecks = [] }
         case .localSetup(let phase): localSetup = phase
-        case .localReport(let report): localReport = report
+        case .localReport(var report):
+            if report?.port == localReport?.port {
+                if report?.did == nil { report?.did = localReport?.did }
+                if report?.firstTime == nil { report?.firstTime = localReport?.firstTime }
+            }
+            localReport = report
         case .aiCheck(let check):
             if let index = aiChecks.firstIndex(where: { $0.id == check.id }) { aiChecks[index] = check } else { aiChecks.append(check) }
         }

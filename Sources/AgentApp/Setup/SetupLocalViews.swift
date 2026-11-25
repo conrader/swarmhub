@@ -72,14 +72,21 @@ struct SetupAIChecks: View {
     /// The AI programs the service looked for and did not find, each with what to do.
     var missing: [HerdrLocalReport.Program] = []
     let answer: (HerdrAICheck) -> Void
-    let again: () -> Void
+    var again: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(WizardCopy.aiTitle).font(.headline).accessibilityAddTraits(.isHeader)
                 Spacer()
-                if checks.contains(where: { $0.state != .checking && $0.state != .ready && $0.state != .installation(found: true) }) { Button(WizardCopy.aiAgain, action: again).controlSize(.small) }
+                if let again, checks.contains(where: { check in
+                    switch check.state {
+                    case .asks, .failed, .unready: true
+                    default: false
+                    }
+                }) {
+                    Button(WizardCopy.aiAgain, action: again).controlSize(.small)
+                }
             }
             ForEach(checks) { check in row(check) }
             ForEach(missing) { program in

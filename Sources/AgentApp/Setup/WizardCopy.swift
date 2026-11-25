@@ -82,11 +82,14 @@ enum WizardCopy {
     static let aiAsks = "Has a question for you"
     static func aiAsksDetail(_ name: String) -> String { "\(name) asks this once, in its own window, and only you can answer. Your bots on \(name) wait until you have." }
     static let aiAnswer = "Answer in Terminal"
+    static let scanAIs = "Scan again"
+    static func addAI(_ name: String) -> String { "Add " + name }
+    static let addInstalledAI = "Add an AI to use it with your bots"
     static let aiAgain = "Check Again"
     static let aiFailed = "Could not be started"
     static func aiMissing(_ name: String) -> String { "\(name) is not on this Mac" }
     static let noAIsTitle = "No AI program was found on this Mac"
-    static let noAIsDetail = "Your bots need at least one. Install one, sign in to it, then press Try again."
+    static let noAIsDetail = "Your bots need at least one. Install one, sign in to it, then scan again."
 
     // 3 The main bot
     static let mainTitle = "Your main bot"

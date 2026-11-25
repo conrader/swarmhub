@@ -69,11 +69,12 @@ struct HerdrProgram: Equatable, Identifiable, Sendable {
     let name: String
     /// False: the program picks its own model and the server offers no choice.
     let takesModel: Bool
-    let models: [HerdrClient.Template.Model]
+    var models: [HerdrClient.Template.Model]
     var modelAgent: String? = nil
     /// The server says the program is in beta, and in `note` what it cannot do yet (`HerdrClient.Template`).
     var beta = false
     var note: String? = nil
+    var deferredModelList: HerdrClient.Template?
     var id: String { template }
 
     /// The model a bot on this program starts on unless its person chooses another: the first the server offers.
@@ -247,14 +248,16 @@ extension HerdrClient {
     /// Reads what the server offers the wizard. Throws `HerdrSetupProblem.noCore` when the bridge answers without
     /// Core; a server with no usable template returns an offer with no programs. A program whose models cannot be
     /// listed right now is offered with the ones the template names.
-    func offer() async throws -> HerdrOffer {
+    func offer(discoverModels: Bool = true) async throws -> HerdrOffer {
         let current = try await workspace()
         guard current.core != nil else { throw HerdrSetupProblem.noCore }
         var programs: [HerdrProgram] = []
         for template in current.templates where template.error == nil {
-            let models = template.takesModel ? ((try? await models(for: template)) ?? template.models ?? []) : []
-            programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: models, modelAgent: template.modelAgent,
-                                         beta: template.beta ?? false, note: template.note))
+            var offered = template.takesModel ? template.models ?? [] : []
+            if discoverModels, template.takesModel, let listed = try? await models(for: template) { offered = listed }
+            programs.append(HerdrProgram(template: template.name, name: template.label, takesModel: template.takesModel, models: offered, modelAgent: template.modelAgent,
+                                         beta: template.beta ?? false, note: template.note,
+                                         deferredModelList: !discoverModels && template.discoverModels == true ? template : nil))
         }
         programs = HerdrOffer.betaLast(programs)
         // Asked once here, so the wizard knows whether to offer the step; a workspace without the route answers 404.
