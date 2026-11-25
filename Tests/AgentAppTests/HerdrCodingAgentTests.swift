@@ -42,7 +42,7 @@ import Testing
         store.setHerdrServer(other.id, for: remote)
         store.setHerdrServer(other.id, for: sample)
         let serverID = store.herdrServer(for: open).id
-        #expect(store.herdrHelperWatch() == [serverID: false])
+        #expect(store.herdrHelperWatch() == [serverID: false, other.id: false])
         store.selectedBot = open
 
         let openName = HerdrBackend.agentName(botName: open.name, botID: open.id)
@@ -80,7 +80,7 @@ import Testing
         #expect(own == HerdrClient.AgentRef(address: "own", createdMs: 4))
         #expect(store.hasActiveCodingAgent(ownAgent) && store.isWorking(ownAgent))
         #expect(!store.hasActiveCodingAgent(open) && store.herdrTerminalSession(for: open) != nil)
-        #expect(store.herdrHelperWatch() == [serverID: true])
+        #expect(store.herdrHelperWatch() == [serverID: true, other.id: false])
 
         var cached = HerdrAgentReading(templates: [], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: [])
         cached.session = own
@@ -93,14 +93,14 @@ import Testing
         await store.refreshHerdrHelpers(on: serverID)
         #expect(store.herdrHelpers[background.id] == nil && !store.isWorking(background))
         #expect(store.herdrTerminalSession(for: ownAgent) == nil && !store.isWorking(ownAgent))
-        #expect(store.herdrHelperWatch() == [serverID: false])
+        #expect(store.herdrHelperWatch() == [serverID: false, other.id: false])
         #expect(MockHTTPProtocol.recorded(http.host).compactMap { $0.url?.path } == ["/api/workspace", "/api/agents/parent/1/helpers", "/api/workspace", "/api/workspace"])
 
         store.bots = [sample]
         #expect(store.herdrHelperWatch().isEmpty)
     }
 
-    @Test func sshHelperPollingRequiresAnOpenChatWorkOrCachedHelpers() {
+    @Test func connectedSSHIsWatchedWithItsChatClosedAndDisconnectedSSHUsesChatActivity() {
         let store = makeStore()
         let local = Bot(name: "Local", backend: .herdr), remote = Bot(name: "Remote", backend: .herdr)
         store.bots = [local, remote]
@@ -109,6 +109,7 @@ import Testing
         store.setHerdrServer(ssh.id, for: remote)
         let localID = store.herdrServer(for: local).id
         #expect(store.herdrHelperWatch() == [localID: false])
+        #expect(store.herdrHelperWatch(servers: store.herdrServers, sshIsOpen: { $0 == ssh.id }) == [localID: false, ssh.id: false])
 
         store.selectedBot = remote
         #expect(store.herdrHelperWatch() == [localID: false, ssh.id: false])
@@ -124,6 +125,116 @@ import Testing
         #expect(store.herdrHelperWatch() == [localID: false, ssh.id: true])
         store.herdrLive(.helpers(nil), botID: remote.id)
         #expect(store.herdrHelperWatch() == [localID: false])
+    }
+
+    @Test func overviewAttributesMatchingHelperIDsToTheirParentsAndTracksFollowUps() throws {
+        let store = makeStore()
+        let first = Bot(name: "Build", backend: .herdr), second = Bot(name: "Review", backend: .herdr)
+        let remote = HerdrServer(id: "remote", name: "Review host", kind: .address, address: "http://review.test")
+        store.bots = [first, second]
+        store.saveHerdrServer(remote, token: "fixture")
+        store.setHerdrServer(remote.id, for: second)
+        store.open(first)
+        #expect(!store.herdrHelperOverview.confirmedEmpty)
+        store.herdrLive(.helpers(list([helper])), botID: first.id)
+        store.herdrLive(.helpers(list([helper])), botID: second.id)
+        let rows = store.herdrHelperOverview.rows
+        #expect(rows.map(\.bot.id) == [first.id, second.id])
+        #expect(Set(rows.map(\.id)).count == 2)
+
+        var changed = helper
+        changed.status = .init(state: "blocked")
+        changed.currentTask = "Inspect the second build.\nInclude all warnings."
+        store.herdrLive(.helpers(list([changed])), botID: second.id)
+        let updated = try #require(store.herdrHelperOverview.rows.last)
+        #expect(updated.id == rows[1].id && updated.helper.currentTask == changed.currentTask)
+        #expect(updated.helper.statusLine == "Waiting for an answer in its terminal")
+        #expect(store.selectedBot === first)
+        store.open(updated.helper, of: updated.bot)
+        #expect(store.selectedBot === second && store.openHerdrHelper == updated.id)
+
+        changed.answered = true
+        store.herdrLive(.helpers(list([changed])), botID: second.id)
+        #expect(store.herdrHelperOverview.rows.map(\.id) == [rows[0].id])
+        #expect(store.herdrHelpers[second.id]?.helpers == [changed])
+        let gone = HerdrClient.Helper(address: "ended", createdMs: 3, name: "Old helper", state: "gone")
+        store.herdrLive(.helpers(list([gone])), botID: first.id)
+        #expect(store.herdrHelperOverview.confirmedEmpty)
+    }
+
+    @Test func overviewRequiresSuccessfulReadsBeforeReportingNoActiveHelpers() async throws {
+        let store = makeStore()
+        let open = Bot(name: "Open", backend: .herdr), remote = Bot(name: "Remote", backend: .herdr)
+        store.bots = [open, remote]
+        store.open(open)
+        store.herdrLive(.helpers(list([helper])), botID: open.id)
+        let group = GroupChat(name: "Review team", memberIDs: [remote.id])
+        store.groups = [group]
+        let groupName = try #require(HerdrBackend.groupRuntimeName(sessionID: store.turnSessionID(in: group, bot: remote), botID: remote.id))
+        let remoteName = HerdrBackend.agentName(botName: remote.name, botID: remote.id)
+        let http = MockHTTPProtocol.serve { request in
+            if request.url?.path == "/api/workspace" {
+                let attempts = MockHTTPProtocol.recorded(request.url?.host ?? "").filter { $0.url?.path == "/api/workspace" }.count
+                switch attempts {
+                case 1:
+                    return (200, ["core": "r", "templates": [], "agents": [
+                        ["address": "p", "created_ms": 1, "name": remoteName, "state": "live"],
+                        ["address": "child", "created_ms": 2, "name": "child", "state": "live", "parent": ["address": "p", "created_ms": 1]],
+                        ["address": "g", "created_ms": 3, "name": groupName, "state": "live"],
+                        ["address": "team", "created_ms": 4, "name": "team", "state": "live", "parent": ["address": "g", "created_ms": 3]]
+                    ]])
+                case 2: return (0, URLError(.cannotConnectToHost))
+                case 3: return (401, [:])
+                default: return (200, ["core": "r", "templates": [], "agents": []])
+                }
+            }
+            if request.url?.path == "/api/agents/p/1/helpers" {
+                return (200, ["core": "r", "parent": ["address": "p", "created_ms": 1], "helpers": [
+                    ["address": "child", "created_ms": 2, "name": "Reader", "state": "live",
+                     "status": ["state": "idle"], "task": "Original", "current_task": "Latest\nassignment"]
+                ]])
+            }
+            if request.url?.path == "/api/agents/g/3/helpers" { return (403, [:]) }
+            return (404, [:])
+        }
+        let server = HerdrServer(id: "remote", name: "Remote host", kind: .address, address: "http://\(http.host)")
+        store.saveHerdrServer(server, token: nil)
+        store.setHerdrServer(server.id, for: remote)
+        store.herdrClientSetup = { $0.session = http.session }
+        #expect(store.herdrHelperOverview.checking == [server])
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.unavailable == [server] && MockHTTPProtocol.recorded(http.host).isEmpty)
+
+        store.setHerdrToken("fixture", for: server)
+        await store.refreshHerdrHelpers(on: server.id)
+        let latest = try #require(store.herdrHelperOverview.rows.first { $0.bot === remote })
+        #expect(latest.helper.currentTask == "Latest\nassignment" && latest.helper.statusLine == "Idle")
+        #expect(store.herdrHelperOverview.unavailable == [server], "the direct session succeeded but the group helper list was refused")
+        store.herdrLive(.helpers(list([helper])), botID: remote.id, groupRuntime: groupName)
+        let team = try #require(store.herdrHelperOverview.rows.first { $0.id.groupRuntime == groupName })
+        store.open(team.helper, of: team.bot, groupRuntime: team.id.groupRuntime)
+        #expect(store.openHerdrHelper == team.id && store.herdrHelpers[team.id.parent]?.helpers == [helper])
+        #expect(store.herdrHelpers[remote.id]?.helpers == [latest.helper])
+        #expect(store.herdrHelperOverview.unavailable.isEmpty)
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelpers[remote.id] != nil, "the per-bot cache survives a dropped read")
+        #expect(store.herdrHelperOverview.rows.map(\.bot.id) == [open.id])
+        #expect(store.herdrHelperOverview.unavailable == [server])
+        store.herdrLive(.helpers(list([])), botID: open.id)
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.rows.isEmpty && !store.herdrHelperOverview.confirmedEmpty)
+        #expect(store.herdrHelperOverview.unavailable == [server])
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.confirmedEmpty && store.herdrHelperOverview.unavailable.isEmpty)
+        store.herdrLive(.following(true), botID: remote.id)
+        store.herdrLive(.helpers(nil), botID: remote.id)
+        #expect(!store.herdrHelperOverview.confirmedEmpty && store.herdrHelperOverview.unavailable == [server])
+        await store.refreshHerdrHelpers(on: server.id)
+        #expect(store.herdrHelperOverview.confirmedEmpty, "a stream without a listing falls back to the server watch")
+        let requests = MockHTTPProtocol.recorded(http.host)
+        #expect(requests.allSatisfy { $0.httpMethod == "GET" })
+        #expect(requests.compactMap { $0.url?.path } == ["/api/workspace", "/api/agents/p/1/helpers", "/api/agents/g/3/helpers",
+                                                       "/api/workspace", "/api/workspace", "/api/workspace", "/api/workspace"])
     }
 
     @Test func chatShowsOnlyLiveHelpersAndKeepsTheBotsTerminalSeparate() async throws {

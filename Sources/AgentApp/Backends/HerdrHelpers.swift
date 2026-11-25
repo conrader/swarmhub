@@ -15,6 +15,8 @@ extension HerdrClient {
         let address: String; let createdMs: UInt64; let name: String
         /// `modelLabel`: the model's name as people read it ("Sonnet 5.5"), from a server that sends it (`model_label`).
         var template: String? = nil; var model: String? = nil; var modelLabel: String? = nil; var difficulty: String? = nil; var task: String? = nil
+        /// The latest follow-up when the workspace includes it. Older listings carry only the launch task.
+        var currentTask: String? = nil
         /// `live`, `finished`, or `gone` when Core no longer has the terminal.
         let state: String
         var status: Agent.Status? = nil
@@ -25,6 +27,7 @@ extension HerdrClient {
         var id: String { "\(address)/\(createdMs)" }
         var ref: AgentRef { AgentRef(address: address, createdMs: createdMs) }
         var isLive: Bool { state == "live" }
+        var hasOpenTask: Bool { isLive && answered != true }
         var isWorking: Bool { isLive && status?.state == "working" }
 
         /// A few words on what the helper is doing.
@@ -36,7 +39,7 @@ extension HerdrClient {
                 case "blocked": "Waiting for an answer in its terminal"
                 case "error": "Reported an error"
                 case "done" where answered != true: "Finishing"
-                default: answered == true ? "Answered" : "Starting"
+                default: answered == true ? "Answered" : (status?.state?.capitalized ?? "Starting")
                 }
             case "finished": answered == true ? "Finished" : "Stopped without an answer"
             default: "Gone"

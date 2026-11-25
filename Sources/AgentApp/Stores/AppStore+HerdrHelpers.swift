@@ -1,7 +1,43 @@
 import Foundation
 
 /// A helper open in the detail column, in place of its bot's chat: `helperID` is `HerdrClient.Helper.id`.
-struct HerdrHelperSelection: Hashable, Sendable { let botID: UUID; let helperID: String }
+struct HerdrHelperSelection: Hashable, Sendable {
+    let botID: UUID
+    let helperID: String
+    var groupRuntime: String? = nil
+    var parent: HerdrHelperParent { .init(botID: botID, groupRuntime: groupRuntime) }
+}
+
+/// A bot can delegate from its direct chat and independently from each of its group sessions.
+struct HerdrHelperParent: Hashable, Sendable {
+    let botID: UUID
+    var groupRuntime: String? = nil
+}
+
+extension Dictionary where Key == HerdrHelperParent {
+    /// The direct chat's snapshot, used by the sidebar and per-bot details.
+    subscript(botID: UUID) -> Value? {
+        get { self[HerdrHelperParent(botID: botID)] }
+        set { self[HerdrHelperParent(botID: botID)] = newValue }
+    }
+}
+
+/// A successful read can contain zero helpers. A missing entry means the first read is pending.
+enum HerdrHelperRead { case polled, streamed, unavailable }
+
+struct HerdrHelperOverview {
+    struct Row: Identifiable {
+        let bot: Bot
+        let helper: HerdrClient.Helper
+        let id: HerdrHelperSelection
+    }
+
+    var rows: [Row] = []
+    var checking: [HerdrServer] = []
+    var unavailable: [HerdrServer] = []
+    var hasBots = false
+    var confirmedEmpty: Bool { hasBots && rows.isEmpty && checking.isEmpty && unavailable.isEmpty }
+}
 
 /// A workspace read can confirm that a bot has no session, even when a cached model reading still has one.
 struct HerdrAgentPresence: Equatable {
@@ -41,8 +77,39 @@ extension AppStore {
     }
 
     func herdrHasUnansweredHelpers(_ bot: Bot, parent: HerdrClient.AgentRef? = nil) -> Bool {
-        guard let snapshot = herdrHelpers[bot.id], parent == nil || snapshot.parent == parent else { return false }
-        return snapshot.helpers.contains { $0.isLive && $0.answered != true }
+        herdrHelpers.contains { key, list in
+            key.botID == bot.id && (parent == nil || list.parent == parent) && list.helpers.contains(where: \.hasOpenTask)
+        }
+    }
+
+    private func helperParents(of bot: Bot) -> [HerdrHelperParent] {
+        [HerdrHelperParent(botID: bot.id)] + herdrExistingAgentNames(for: bot).dropFirst().map {
+            HerdrHelperParent(botID: bot.id, groupRuntime: $0)
+        }
+    }
+
+    var herdrHelperOverview: HerdrHelperOverview {
+        var result = HerdrHelperOverview()
+        let servers = herdrServers
+        var checking: Set<String> = [], unavailable: Set<String> = []
+        for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
+            result.hasBots = true
+            let server = herdrServer(for: bot, in: servers)
+            for parent in helperParents(of: bot) {
+                switch herdrHelperReads[parent] {
+                case .polled, .streamed:
+                    for helper in herdrHelpers[parent]?.helpers ?? [] where helper.hasOpenTask {
+                        let id = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: parent.groupRuntime)
+                        result.rows.append(.init(bot: bot, helper: helper, id: id))
+                    }
+                case .unavailable: unavailable.insert(server.id)
+                case nil: checking.insert(server.id)
+                }
+            }
+        }
+        result.checking = servers.filter { checking.contains($0.id) && !unavailable.contains($0.id) }
+        result.unavailable = servers.filter { unavailable.contains($0.id) }
+        return result
     }
 
     func herdrTerminalSession(for bot: Bot) -> HerdrClient.AgentRef? {
@@ -57,25 +124,30 @@ extension AppStore {
     }
 
     func forgetHerdrAgentState(for bot: Bot) {
-        herdrStreaming.remove(bot.id)
-        herdrHelpers[bot.id] = nil
+        herdrStreamingParents = herdrStreamingParents.filter { $0.botID != bot.id }
+        herdrHelpers = herdrHelpers.filter { $0.key.botID != bot.id }
+        herdrHelperReads = herdrHelperReads.filter { $0.key.botID != bot.id }
         herdrAgentPresence[bot.id] = nil
         herdrAgentReadings[bot.id] = nil
         herdrReadiness[bot.id] = nil
     }
 
-    /// Discover helpers on local servers and remote servers with an open chat, work in progress, or cached helpers.
+    /// Discover helpers on local and configured address servers and existing SSH connections. The normal chat
+    /// watch can also reconnect SSH for an open bot, work in progress, or cached helpers.
     /// An answered helper still live is read often so its terminal disappears when it stops.
-    func herdrHelperWatch() -> [String: Bool] {
+    func herdrHelperWatch() -> [String: Bool] { herdrHelperWatch(servers: herdrServers, sshIsOpen: herdrTunnels.isOpen) }
+
+    func herdrHelperWatch(servers: [HerdrServer], sshIsOpen: (String) -> Bool) -> [String: Bool] {
         var watch: [String: Bool] = [:]
+        let live = Set(herdrHelpers.compactMap { $0.value.helpers.contains(where: \.isLive) ? $0.key.botID : nil })
+        let cached = Set(herdrHelpers.keys.map(\.botID))
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
-            let server = herdrServer(for: bot)
+            let server = herdrServer(for: bot, in: servers)
             guard watch[server.id] != true else { continue }
-            let helpers = herdrHelpers[bot.id]?.helpers
             let busy = isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
-                || herdrPresence(for: bot)?.isActive == true || helpers?.contains(where: \.isLive) == true
+                || herdrAgentPresence[bot.id].map { $0.server == server && $0.isActive } == true || live.contains(bot.id)
             let isOpen = selectedGroup?.memberIDs.contains(bot.id) ?? (selectedBot?.id == bot.id)
-            if server.kind == .local || isOpen || busy || helpers?.isEmpty == false {
+            if server.kind != .ssh || sshIsOpen(server.id) || isOpen || busy || cached.contains(bot.id) {
                 watch[server.id] = busy
             }
         }
@@ -89,13 +161,25 @@ extension AppStore {
         herdrHelperPoll = Task { [weak self] in
             let clock = ContinuousClock()
             var last: [String: ContinuousClock.Instant] = [:]
+            var reading: [String: Task<Void, Never>] = [:]
+            defer { for task in reading.values { task.cancel() } }
             while !Task.isCancelled, let store = self {
-                let watch = store.herdrHelperWatch()
+                let servers = store.herdrServers
+                let watch = store.herdrHelperWatch(servers: servers, sshIsOpen: store.herdrTunnels.isOpen)
+                // A closed SSH forward can leave the watch without a failed HTTP read.
+                var reads = store.herdrHelperReads
+                for bot in store.bots where bot.backend == .herdr && !bot.isReadOnlyArchive && watch[store.herdrServer(for: bot, in: servers).id] == nil {
+                    for parent in store.helperParents(of: bot) { reads[parent] = .unavailable }
+                }
+                if reads != store.herdrHelperReads { store.herdrHelperReads = reads }
                 last = last.filter { watch[$0.key] != nil }
-                for (server, busy) in watch where last[server].map({ clock.now - $0 >= (busy ? often : seldom) }) ?? true {
-                    guard !Task.isCancelled else { return }
-                    await store.refreshHerdrHelpers(on: server)
-                    last[server] = clock.now
+                for (server, busy) in watch where reading[server] == nil {
+                    guard last[server].map({ clock.now - $0 >= (busy ? often : seldom) }) ?? true else { continue }
+                    reading[server] = Task {
+                        await store.refreshHerdrHelpers(on: server)
+                        last[server] = clock.now
+                        reading[server] = nil
+                    }
                 }
                 try? await Task.sleep(for: .seconds(1))
             }
@@ -105,76 +189,105 @@ extension AppStore {
     /// How many reads of a server may fail in a row before its bots' helpers are taken off the screen.
     static let herdrHelperFailureLimit = 5
 
-    /// Read every bot on this server from one workspace snapshot. An active turn's stream owns its helper list.
-    /// A failed read keeps what it showed for a few tries, so a dropped request does not blink.
+    private enum HelperPollResult { case success(HerdrClient.Helpers?), unavailable }
+
+    /// One roster finds direct and group sessions. Only parents with children need a helper listing.
     func refreshHerdrHelpers(on serverID: String) async {
         guard let server = herdrServer(id: serverID) else { return }
-        let previousPresence = herdrAgentPresence, previousHelpers = herdrHelpers
+        let previousPresence = herdrAgentPresence, previousHelpers = herdrHelpers, previousReads = herdrHelperReads
         let client = try? herdrClient(for: server)
         let workspace = try? await client?.workspace()
         guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
         let group = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
+        var results: [HerdrHelperParent: HelperPollResult] = [:]
+        var targets: [(HerdrHelperParent, HerdrClient.Agent?)] = []
         let botIDs = Set(bots.map(\.id))
         var presence = herdrAgentPresence.filter { botIDs.contains($0.key) }
         var readiness: [UUID: HerdrAgentReadiness?] = [:]
-        var helpers: [UUID: HerdrClient.Helpers?] = [:]
-        var failed: [UUID] = []
-        if let workspace, let client {
-            let agents = group.map { bot in
-                (bot, client.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: workspace))
+        for bot in group {
+            let direct = workspace.flatMap { client?.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: $0) }
+            if let workspace, previousPresence[bot.id] == herdrAgentPresence[bot.id] {
+                presence[bot.id] = HerdrAgentPresence(server: server, agent: direct)
+                readiness[bot.id] = .some(HerdrAgentReadiness(direct, in: workspace))
             }
-            for (bot, agent) in agents where previousPresence[bot.id] == herdrAgentPresence[bot.id] {
-                presence[bot.id] = HerdrAgentPresence(server: server, agent: agent)
-                readiness[bot.id] = .some(HerdrAgentReadiness(agent, in: workspace))
-            }
-            if presence != herdrAgentPresence { herdrAgentPresence = presence }
-            noteHerdrReadiness(readiness, watched: group, on: server)
-
-            for (bot, agent) in agents where !herdrStreaming.contains(bot.id) {
-                do {
-                    let list: HerdrClient.Helpers?
-                    if let agent { list = try await client.helpers(of: agent, in: workspace) } else { list = nil }
-                    helpers[bot.id] = .some(list?.helpers.isEmpty == false ? list : nil)
-                } catch {
-                    failed.append(bot.id)
+            for parent in helperParents(of: bot) {
+                if let name = parent.groupRuntime {
+                    targets.append((parent, workspace?.agents.first { $0.isLive && $0.parent == nil && $0.name == name }))
+                } else {
+                    targets.append((parent, direct))
                 }
             }
-        } else {
-            failed = group.map(\.id)
+        }
+        if presence != herdrAgentPresence { herdrAgentPresence = presence }
+        if workspace != nil { noteHerdrReadiness(readiness, watched: group, on: server) }
+
+        var failed = false
+        for (parent, agent) in targets {
+            guard let client, let workspace else {
+                results[parent] = .unavailable
+                failed = true
+                continue
+            }
+            guard !streamOwnsHerdrHelpers(parent) else { continue }
+            do {
+                var list: HerdrClient.Helpers?
+                if let agent { list = try await client.helpers(of: agent, in: workspace) }
+                results[parent] = .success(list?.helpers.isEmpty == false ? list : nil)
+            } catch {
+                results[parent] = .unavailable
+                failed = true
+            }
         }
         guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
-        if failed.isEmpty { herdrHelperFailures[serverID] = nil }
-        else { herdrHelperFailures[serverID, default: 0] += 1 }
+        if failed { herdrHelperFailures[serverID, default: 0] += 1 }
+        else { herdrHelperFailures[serverID] = nil }
+        let discard = client == nil || herdrHelperFailures[serverID, default: 0] >= Self.herdrHelperFailureLimit
         let current = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
-        let currentIDs = Set(current.map(\.id))
-        if client == nil || herdrHelperFailures[serverID, default: 0] >= Self.herdrHelperFailureLimit {
-            for id in failed { helpers[id] = .some(nil) }
-            if workspace == nil {
-                for id in failed where previousPresence[id] == herdrAgentPresence[id] {
-                    presence[id] = HerdrAgentPresence(server: server, agent: nil)
-                    readiness[id] = .some(nil)
-                }
-                if presence != herdrAgentPresence { herdrAgentPresence = presence }
-                noteHerdrReadiness(readiness, watched: current, on: server)
+        if discard && workspace == nil {
+            for bot in current where previousPresence[bot.id] == herdrAgentPresence[bot.id] {
+                presence[bot.id] = HerdrAgentPresence(server: server, agent: nil)
+                readiness[bot.id] = .some(nil)
+            }
+            if presence != herdrAgentPresence { herdrAgentPresence = presence }
+            noteHerdrReadiness(readiness, watched: current, on: server)
+        }
+        let remaining = Set(bots.filter { $0.backend == .herdr && !$0.isReadOnlyArchive }.flatMap(helperParents))
+        var found = herdrHelpers.filter { remaining.contains($0.key) }
+        var reads = herdrHelperReads.filter { remaining.contains($0.key) }
+        let bound = Set(current.map(\.id))
+        // Apply reads only to parents still bound here, without overwriting newer stream updates.
+        for (parent, result) in results where bound.contains(parent.botID) && remaining.contains(parent)
+            && found[parent] == previousHelpers[parent] && reads[parent] == previousReads[parent] {
+            switch result {
+            case .success(let list):
+                guard !streamOwnsHerdrHelpers(parent) else { continue }
+                found[parent] = list
+                reads[parent] = .polled
+            case .unavailable:
+                if discard { found[parent] = nil }
+                reads[parent] = .unavailable
             }
         }
-        let remaining = Set(bots.map(\.id))
-        var found = herdrHelpers.filter { remaining.contains($0.key) }
-        // A stream can publish or a bot can move servers while a helper request is in flight.
-        for (id, list) in helpers where currentIDs.contains(id) && !herdrStreaming.contains(id) && found[id] == previousHelpers[id] {
-            found[id] = list
-        }
         if found != herdrHelpers { herdrHelpers = found }
+        if reads != herdrHelperReads { herdrHelperReads = reads }
+    }
+
+    private func streamOwnsHerdrHelpers(_ parent: HerdrHelperParent) -> Bool {
+        herdrStreamingParents.contains(parent) && herdrHelperReads[parent] == .streamed
     }
 
     /// What a running turn on the event stream says beside its reply: whether the stream is delivering, and the
     /// agent's helpers whenever they change. Helpers the stream no longer lists leave the screen like polled ones.
-    func herdrLive(_ note: HerdrClient.LiveNote, botID: UUID) {
+    func herdrLive(_ note: HerdrClient.LiveNote, botID: UUID, groupRuntime: String? = nil) {
+        let parent = HerdrHelperParent(botID: botID, groupRuntime: groupRuntime)
         switch note {
-        case .following(let on): if on { herdrStreaming.insert(botID) } else { herdrStreaming.remove(botID) }
+        case .following(let on): if on { herdrStreamingParents.insert(parent) } else { herdrStreamingParents.remove(parent) }
         case .helpers(let list):
             let shown = list?.helpers.isEmpty == false ? list : nil
-            if herdrHelpers[botID] != shown { herdrHelpers[botID] = shown }
+            if herdrHelpers[parent] != shown { herdrHelpers[parent] = shown }
+            // The bridge can open a stream with a null listing after a failed read. Let the watch retry it.
+            let read: HerdrHelperRead = list == nil ? .unavailable : .streamed
+            if herdrHelperReads[parent] != read { herdrHelperReads[parent] = read }
         }
     }
 
@@ -185,9 +298,9 @@ extension AppStore {
     }
 
     /// Shows the helper's read-only view in place of its bot's chat; opening the bot (or any chat) shows the chat again.
-    func open(_ helper: HerdrClient.Helper, of bot: Bot) {
+    func open(_ helper: HerdrClient.Helper, of bot: Bot, groupRuntime: String? = nil) {
         open(bot)
-        openHerdrHelper = HerdrHelperSelection(botID: bot.id, helperID: helper.id)
+        openHerdrHelper = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: groupRuntime)
     }
 
     /// The helper's own session as events (`HerdrEvents.swift`): its tasks, replies, tool calls and the reply it is writing.

@@ -27,7 +27,10 @@ extension AppStore {
 
     /// The server this bot's agent runs on: its own choice while that server exists, otherwise the first.
     func herdrServer(for bot: Bot) -> HerdrServer {
-        let servers = herdrServers
+        herdrServer(for: bot, in: herdrServers)
+    }
+
+    func herdrServer(for bot: Bot, in servers: [HerdrServer]) -> HerdrServer {
         // `herdrServers` is never empty.
         return HerdrServerList.server(bound: defaults.string(forKey: HerdrServer.botKey(bot.id)), in: servers) ?? servers[0]
     }
@@ -204,10 +207,10 @@ extension AppStore {
         let botID = bot.id
         // A start ahead of time that is on its way: the message waits for it and then finds that agent.
         if let warming = herdrWarming[botID] { backend.starting = .init(program: herdrProgramName(for: bot), settled: { await warming.value }) }
-        backend.onLive = { [weak self] note in
+        backend.onLive = { [weak self] note, groupRuntime in
             Task { @MainActor in
                 guard let self, let current = self.bots.first(where: { $0.id == botID }), self.herdrServer(for: current) == liveServer else { return }
-                self.herdrLive(note, botID: botID)
+                self.herdrLive(note, botID: botID, groupRuntime: groupRuntime)
             }
         }
         // The projects on other servers it may use; a running agent that has an older list gets this one with the next message.

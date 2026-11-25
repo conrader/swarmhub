@@ -32,7 +32,7 @@ enum HerdrEvent: Sendable, Equatable {
     /// A tool call starts, and again with the same `seq` when it ends.
     case tool(HerdrClient.ToolCall)
     case agent(HerdrClient.Agent)
-    /// The session's running helpers; nil until its first task is recorded.
+    /// The session's running helpers. A null listing means the workspace could not supply one.
     case helpers(HerdrClient.Helpers?)
     /// The agent's program ended ("ended") or Core no longer has the terminal ("gone"). The server closes after it.
     case end(reason: String)
