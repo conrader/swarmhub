@@ -59,6 +59,42 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
+    /// Codex includes the command even in its completion event. That lets a follower which joined
+    /// mid-command report the result. Output and working directory are never copied to the frame.
+    pub(crate) fn codex_command(key: &str, item: &Value, finished: bool) -> Option<Self> {
+        if item["type"] != "commandExecution"
+            || matches!(
+                item["source"].as_str(),
+                Some("userShell" | "unifiedExecInteraction")
+            )
+        {
+            return None;
+        }
+        let id = item["id"].as_str().filter(|id| !id.is_empty())?;
+        let command = detail("exec_command", item)?;
+        let phase = if finished {
+            match item["status"].as_str()? {
+                "completed" if item["exitCode"].as_i64().is_none_or(|code| code == 0) => {
+                    Phase::Finished
+                }
+                "completed" | "failed" | "declined" => Phase::Failed,
+                _ => return None,
+            }
+        } else {
+            Phase::Started
+        };
+        let frame = Self {
+            key: key.to_owned(),
+            activity: Event {
+                phase,
+                tool: "exec_command".to_owned(),
+                detail: Some(command),
+                call: Some(id.to_owned()),
+            },
+        };
+        frame.valid().then_some(frame)
+    }
+
     pub(crate) fn valid(&self) -> bool {
         let plain = |text: &str| !text.chars().any(char::is_control);
         self.key.len() == 32
@@ -117,51 +153,58 @@ impl Activity {
             activity: event,
         } = frame;
         let now = Instant::now();
-        if event.phase == Phase::Started {
-            if !self.sessions.contains_key(&key) && self.sessions.len() >= SESSIONS {
-                let stale = self
-                    .sessions
-                    .iter()
-                    .min_by_key(|(_, calls)| calls.last().map(|call| call.at))
-                    .map(|(key, _)| key.clone());
-                if let Some(stale) = stale {
-                    self.sessions.remove(&stale);
-                }
+        let calls = self.sessions.get_mut(&key);
+        let existing = calls.and_then(|calls| {
+            if let Some(id) = &event.call {
+                return calls.iter_mut().find(|call| call.call.as_ref() == Some(id));
             }
-            self.last_seq = now_ms.max(self.last_seq + 1);
-            let calls = self.sessions.entry(key).or_default();
-            calls.push(Call {
-                seq: self.last_seq,
-                tool: event.tool,
-                detail: event.detail,
-                finished: false,
-                failed: false,
-                call: event.call,
-                at: now,
-            });
-            if calls.len() > CALLS {
-                calls.remove(0);
+            // Hooks without identifiers finish the oldest running call of that tool.
+            if event.phase != Phase::Started {
+                return calls
+                    .iter_mut()
+                    .find(|call| !call.finished && call.tool == event.tool);
+            }
+            None
+        });
+        if let Some(call) = existing {
+            if call.detail.is_none() {
+                call.detail = event.detail;
+            }
+            if event.phase != Phase::Started {
+                call.finished = true;
+                call.failed |= event.phase == Phase::Failed;
+                call.at = now;
             }
             return;
         }
-        let Some(calls) = self.sessions.get_mut(&key) else {
+        // A hook completion alone carries no command. A complete, identified stream item
+        // can create a finished row even when the start preceded subscription.
+        if event.phase != Phase::Started && (event.call.is_none() || event.detail.is_none()) {
             return;
-        };
-        // The same call id; without one, the oldest running call of that tool.
-        let by_id = event.call.as_ref().and_then(|id| {
-            calls
+        }
+        if !self.sessions.contains_key(&key) && self.sessions.len() >= SESSIONS {
+            let stale = self
+                .sessions
                 .iter()
-                .position(|call| !call.finished && call.call.as_ref() == Some(id))
+                .min_by_key(|(_, calls)| calls.last().map(|call| call.at))
+                .map(|(key, _)| key.clone());
+            if let Some(stale) = stale {
+                self.sessions.remove(&stale);
+            }
+        }
+        self.last_seq = now_ms.max(self.last_seq + 1);
+        let calls = self.sessions.entry(key).or_default();
+        calls.push(Call {
+            seq: self.last_seq,
+            tool: event.tool,
+            detail: event.detail,
+            finished: event.phase != Phase::Started,
+            failed: event.phase == Phase::Failed,
+            call: event.call,
+            at: now,
         });
-        let index = by_id.or_else(|| {
-            calls
-                .iter()
-                .position(|call| !call.finished && call.tool == event.tool)
-        });
-        if let Some(index) = index {
-            calls[index].finished = true;
-            calls[index].failed = event.phase == Phase::Failed;
-            calls[index].at = now;
+        if calls.len() > CALLS {
+            calls.remove(0);
         }
     }
 
@@ -385,6 +428,42 @@ mod tests {
                 .snapshot("ffffffffffffffffffffffffffffffff")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn stream_and_hook_delivery_for_one_id_share_one_row() {
+        let mut activity = Activity::default();
+        let item = json!({"type":"commandExecution","id":"exec-a","command":"sleep 4",
+                          "status":"completed","exitCode":0,"aggregatedOutput":"unrelated output"});
+        let native = |finished| Frame::codex_command(KEY, &item, finished).unwrap();
+        activity.apply(frame("started", "Bash", Some("exec-a")), 1);
+        activity.apply(native(false), 2);
+        activity.apply(frame("started", "Bash", Some("exec-b")), 3);
+        activity.apply(native(true), 4);
+        activity.apply(frame("finished", "Bash", Some("exec-a")), 5);
+        activity.apply(frame("finished", "Bash", Some("unknown")), 6);
+        let calls = activity.snapshot(KEY);
+        assert_eq!(calls.len(), 2);
+        assert!(calls[0].finished && !calls[0].failed && !calls[1].finished);
+        assert_eq!(calls[0].seq, 1);
+        assert_eq!(calls[0].detail.as_deref(), Some("sleep 4"));
+    }
+
+    #[test]
+    fn a_complete_item_can_arrive_first_and_a_late_start_cannot_reopen_it() {
+        let mut activity = Activity::default();
+        let mut item = json!({"type":"commandExecution","id":"exec-a","command":"false","source":"agent",
+                              "status":"completed","exitCode":1,"aggregatedOutput":"private output"});
+        activity.apply(Frame::codex_command(KEY, &item, true).unwrap(), 5);
+        activity.apply(Frame::codex_command(KEY, &item, false).unwrap(), 6);
+        let calls = activity.snapshot(KEY);
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].finished && calls[0].failed);
+        assert_eq!(calls[0].detail.as_deref(), Some("false"));
+        for source in ["userShell", "unifiedExecInteraction"] {
+            item["source"] = json!(source);
+            assert!(Frame::codex_command(KEY, &item, true).is_none());
+        }
     }
 
     #[test]

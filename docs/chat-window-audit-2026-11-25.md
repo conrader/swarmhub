@@ -24,7 +24,9 @@ The ten-second jump reported by the user did not recur in the recorded installed
 
 A temporary Codex session started one uniquely timed sleep command. While that process was running, the test sent a fresh word through the same authenticated steering endpoint SwarmHub uses. The endpoint acknowledged it in 14 ms. The command ran once and the session produced one final reply containing the new word. The test ended the temporary session. The 14 ms measures receipt at the endpoint. It excludes the time to produce the reply.
 
-The bridge reported zero tool activity throughout the command. The reply footer now omits the count when the app has no observed calls. Reliable command reporting on this provider remains an open issue.
+The bridge reported zero tool activity throughout the command. The reply footer now omits the count when the app has no observed calls. Codex’s saved turn contained a completed command with an exit code, which the bridge’s live listener had ignored.
+
+On a second pass with the patched bridge and a private Core and workspace on the MacBook, a real Codex command appeared in the draft’s activity while it ran. The same activity ID changed to finished, followed by a single final reply. This passed both after skipping untrusted hooks in an unprepared test workspace and with the normal setup preparation in a new workspace. No changes to the installed bridge were needed. These checks exercised command reporting through the workspace API. The release installer and the native chat activity display are separate checks.
 
 ## Product comparison and remaining checks
 
