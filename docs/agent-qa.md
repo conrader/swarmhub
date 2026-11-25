@@ -97,3 +97,11 @@ python3 Tests/Scripts/chat-window-smoke.py "$qa_pid"
 ```
 
 The smoke test requires PyObjC’s ApplicationServices module and macOS Accessibility access. It measures text inside the window as it restores the saved message, jumps to the end and switches between bots. Run it against a freshly opened sample window. Quit that instance to discard the session.
+
+To check whether a long group chat survives a restart, run the same driver with a packaged app.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --group-restart /Applications/SwarmHub.app
+```
+
+The driver copies the app to a temporary directory, gives it a private bundle identifier and seeds a temporary home with a 620-message group. It opens the saved middle message, jumps to the end, quits, reopens, pages back and quits again. The final launch checks that the earlier page is visible. The script also checks every saved message ID.
