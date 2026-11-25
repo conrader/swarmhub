@@ -1,19 +1,20 @@
 import SwiftUI
 
-/// Only the open chat follows the inbox, while a turn is running or its terminal is blocked.
+/// Presents requests from the current workspace session and keeps decisions inside their owning chat.
 struct HerdrChatApprovals: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     let server: HerdrServer
-    @State private var pending: [HerdrClient.Approval] = []
+    var group: GroupChat? = nil
+    @Environment(\.workspaceApprovals) private var inboxes
     @State private var busy: Int?
     @State private var error: String?
     @State private var decided: Set<Int> = []
 
     var body: some View {
-        let watching = store.isAnswering(bot) || store.herdrPrompts[bot.id] != nil || bot.goal?.state == .waiting
+        let pending = store.approvals(for: bot, in: group, inboxes: inboxes)
         VStack(alignment: .leading, spacing: 6) {
-            if let request = pending.first {
+            if let request = pending.first(where: { !decided.contains($0.id) }) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(request.provider) requests \(HerdrClient.Approval.visible(request.tool))").font(.headline)
                     if let address = request.address, let created = request.createdMs {
@@ -29,23 +30,15 @@ struct HerdrChatApprovals: View {
                         Button("Deny") { respond(request, .deny) }
                     }.disabled(busy != nil)
                 }.chatCard(tint: bot.colours)
-            } else { HerdrPromptCard(bot: bot) }
+            } else { HerdrPromptCard(bot: bot, group: group) }
             if let error { Text(error).font(.caption).foregroundStyle(AppColor.caution) }
         }
-        .task(id: watching) {
-            guard watching, store.launchWorkEnabled else { pending = []; decided = []; error = nil; return }
-            let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
-            while !Task.isCancelled {
-                do {
-                    let rows = try await store.herdrClient(for: server).approvals(for: name)
-                    try Task.checkCancellation()
-                    pending = rows.filter { !decided.contains($0.id) }
-                } catch {
-                    if Task.isCancelled { return }
-                    if !pending.isEmpty { self.error = "The approval could not be refreshed. " + error.localizedDescription }
-                    pending = []
-                }
-                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        .onChange(of: inboxes[server.id]) { previous, current in
+            let names = store.approvalAgentNames(for: bot, in: group)
+            if current?.unavailable == true, let previous, names.contains(where: { previous.requests[$0]?.isEmpty == false }) {
+                error = "The approval could not be refreshed."
+            } else if current?.unavailable == false && error == "The approval could not be refreshed." {
+                error = nil
             }
         }
     }
@@ -59,7 +52,7 @@ struct HerdrChatApprovals: View {
             do {
                 try await store.herdrClient(for: server).decide(request, decision)
                 decided.insert(request.id)
-                pending.removeAll { $0.id == request.id }
+                error = nil
             } catch { self.error = error.localizedDescription }
         }
     }

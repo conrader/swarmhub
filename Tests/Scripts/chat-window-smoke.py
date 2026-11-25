@@ -403,6 +403,75 @@ def steer_reopen(source_app):
         print("Verified reply order, unread badges for pinned and unpinned chats, helper navigation and offline relaunch.")
 
 
+def workspace_activity(source_app):
+    import Quartz
+
+    def message(text, state="finished"):
+        return dict(id=str(uuid.uuid4()), role="assistant", content=text, turnState=state, createdAt=800000000)
+
+    reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
+    blocked = dict(id=str(uuid.uuid4()), name="BuildQA", backend="Mock", messages=[message("Build interrupted", "incomplete")])
+    hidden = dict(id=str(uuid.uuid4()), name="HiddenQA", backend="Mock", manualUnread=True, isHidden=True)
+    group = dict(id=str(uuid.uuid4()), name="Release team", memberIDs=[reader["id"]],
+                 unreadCount=1, messages=[message("The release notes are ready")])
+
+    with private_workspace(source_app) as (app, home, store):
+        store.write_text(json.dumps(dict(version=2, bots=[reader, blocked, hidden], groups=[group])))
+        with open_workspace(app, home) as window:
+            def sheet():
+                return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
+
+            def names():
+                return [label(b) for b in buttons(sheet())] if sheet() else []
+
+            def composer():
+                return next((e for e in descendants(window) if label(e) == "Message" and attribute(e, "AXRole") == "AXTextArea"), None)
+
+            def enter(text):
+                field = composer()
+                if ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
+                    raise RuntimeError("Could not focus the composer")
+                pid = ax.AXUIElementGetPid(field, None)[1]
+                for down in (True, False):
+                    event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+                    Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
+                    Quartz.CGEventPostToPid(pid, event)
+
+            press(window, reader["name"], sidebar=True)
+            enter("Keep my draft")
+            press(window, "Activity")
+            target = "Release team, The release notes are ready"
+            wait_for("unread group and interrupted bot", lambda: target in names() and "BuildQA, Reply is incomplete" in names())
+            if any("HiddenQA" in value or "ReaderQA" in value for value in names()):
+                raise RuntimeError("Hidden or idle chat appeared in Activity")
+            press(sheet(), target)
+            wait_for("group reply on screen", lambda: not sheet() and any(attribute(e, "AXValue") == "The release notes are ready" for e in descendants(window)))
+            press(window, reader["name"], sidebar=True)
+            wait_for("draft retained", lambda: composer() and attribute(composer(), "AXValue") == "Keep my draft")
+            press(window, "Send message")
+            press(window, "Activity")
+            wait_for("working bot", lambda: any(s.startswith("ReaderQA,") and "sample bot" not in s for s in names()))
+            wait_for("incoming reply while viewing Activity", lambda: any(s.startswith("ReaderQA,") and "sample bot" in s for s in names()))
+            if target in names():
+                raise RuntimeError("Group remained unread after viewing its reply")
+            press(sheet(), next(s for s in names() if s.startswith("ReaderQA,")))
+            wait_for("return to reader", lambda: not sheet() and composer())
+            press(window, "Activity")
+            wait_for("reader cleared on opening", lambda: sheet() and names() == ["Done", "BuildQA, Reply is incomplete"])
+            press(sheet(), "BuildQA, Reply is incomplete")
+            wait_for("incomplete reply visible", lambda: not sheet() and any(attribute(e, "AXValue") == "Build interrupted" for e in descendants(window)))
+            press(window, "Hide sidebar")
+            wait_for("sidebar hidden", lambda: any(label(b) == "Show sidebar" for b in buttons(window)))
+            pid = ax.AXUIElementGetPid(window, None)[1]
+            for down in (True, False):
+                event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+                Quartz.CGEventSetFlags(event, Quartz.kCGEventFlagMaskCommand | Quartz.kCGEventFlagMaskShift)
+                Quartz.CGEventPostToPid(pid, event)
+            wait_for("Activity shortcut with sidebar hidden", lambda: "BuildQA, Reply is incomplete" in names())
+            press(sheet(), "Done")
+            print("Verified Activity navigation, live completion, draft retention and the hidden-sidebar shortcut.")
+
+
 def window_unread(source_app):
     from AppKit import NSRunningApplication
     import Quartz
@@ -740,6 +809,8 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--steer-reopen":
         steer_reopen(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
+        workspace_activity(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--window-unread":
         window_unread(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--message-search":
@@ -751,4 +822,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --window-unread) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --window-unread | --activity) /path/to/SwarmHub.app | --ai-inventory APP SERVICE")

@@ -2,6 +2,7 @@ import SwiftUI
 
 /// A group's shared thread: the user's messages and each member's replies under its own avatar.
 struct GroupChatView: View {
+    @Environment(\.workspaceApprovals) private var approvalInboxes
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
     @State private var draft = ""; private var intake: AttachmentIntake { store.attachmentIntake(for: group.id) }
     @State private var verifyingAttachmentSupport = false
@@ -54,8 +55,8 @@ struct GroupChatView: View {
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
                     }
                     ForEach(store.members(of: group)) { bot in
-                        if store.herdrPrompt(for: bot, in: group) != nil {
-                            HerdrPromptCard(bot: bot, group: group).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
+                        if store.herdrPrompt(for: bot, in: group) != nil || !store.approvals(for: bot, in: group, inboxes: approvalInboxes).isEmpty {
+                            HerdrChatApprovals(bot: bot, server: store.herdrServer(for: bot), group: group).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
                         } else if let current = store.runningTurns.values.first(where: { $0.conversation === group && $0.botID == bot.id }),
                                   current.assistant?.metadata[TurnKey.agent].flatMap(HerdrTurnStatus.init(code:))?.needsPerson == true {
                             Button("View terminal") {

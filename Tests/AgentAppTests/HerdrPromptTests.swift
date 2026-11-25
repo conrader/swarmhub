@@ -307,3 +307,44 @@ private final class PromptBridge: @unchecked Sendable {
     #expect(store.modelSwitchPending(bot))
     #expect(requests.all.allSatisfy { !$0.hasPrefix("POST /api/agents/") && !$0.hasPrefix("POST /api/approvals") })
 }
+
+@MainActor @Test func activityMatchesApprovalsToTheCurrentServerChatAndSession() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Build", backend: .herdr)
+    let group = GroupChat(name: "Release", memberIDs: [bot.id])
+    store.bots = [bot]; store.groups = [group]
+    let direct = try #require(store.approvalAgentNames(for: bot, in: nil).first)
+    let shared = try #require(store.approvalAgentNames(for: bot, in: group).first)
+    let requests = AwaitableLog<String>()
+    let http = MockHTTPProtocol.serve { request in
+        let path = request.url?.path ?? ""
+        requests.append(path)
+        switch path {
+        case "/api/approvals":
+            let rows: [[String: Any]] = [(direct, 1, 8), (shared, 2, 9), (shared, 3, 7)].map { name, id, created in
+                ["id": id, "agent": name, "provider": "Codex", "tool": "Shell", "arguments": "run",
+                 "cwd": "/fixture", "core": "core", "address": name, "created_ms": created]
+            }
+            return (200, ["pending": rows])
+        case "/api/workspace":
+            let agents: [[String: Any]] = [(direct, 8), (shared, 9)].map { name, created in
+                ["name": name, "address": name, "created_ms": created, "state": "live"]
+            }
+            return (200, ["agents": agents, "core": "core", "templates": []])
+        default: return (404, [:])
+        }
+    }
+    let server = HerdrServer(id: HerdrServer.defaultID, name: "Fixture", kind: .address, address: "http://\(http.host)")
+    store.saveHerdrServer(server, token: "fixture")
+    store.herdrClientSetup = { $0.session = http.session }
+    let pending = try await store.herdrClient(for: server).approvals(for: [direct, shared])
+    let inboxes = [server.id: WorkspaceApprovalInbox(server: server, requests: pending, unavailable: false)]
+    #expect(requests.all == ["/api/approvals", "/api/workspace"])
+    #expect(store.approvals(for: bot, in: nil, inboxes: inboxes).map(\.id) == [1])
+    #expect(store.approvals(for: bot, in: group, inboxes: inboxes).map(\.id) == [2])
+    #expect(store.workspaceActivity(inboxes: inboxes).filter { $0.section == .attention }.map(\.id) == [bot.id, group.id])
+    var moved = server
+    moved.address = "http://127.0.0.1:4567"
+    store.saveHerdrServer(moved, token: "changed")
+    #expect(store.approvals(for: bot, in: group, inboxes: inboxes).isEmpty)
+}

@@ -11,6 +11,7 @@ import UserNotifications
     /// The running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`).
     @Published var runningTurns: [UUID: ConversationTurn] = [:]
     var turnLimits: TurnLimits
+    @Published var showingActivity = false
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false
     @Published var draftReplyIDs: [UUID: UUID] = [:]
