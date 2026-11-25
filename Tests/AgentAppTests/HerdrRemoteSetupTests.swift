@@ -77,6 +77,52 @@ import Testing
 
     private let server = HerdrServer(id: "test", name: "VPS", kind: .ssh, address: HerdrServer.loopback(port: 8787), sshHost: "test")
 
+    @Test func verifiesTheCandidateBeforeInstallingOrRepairingAWorkspace() throws {
+        try withRemote { remote in
+            let fm = FileManager.default
+            let bin = remote.home.appendingPathComponent(".local/bin")
+            let program = bin.appendingPathComponent("swarmhub-herdr")
+            let candidate = remote.home.appendingPathComponent("candidate")
+            let healthy = "#!/bin/sh\n[ \"$1 $2\" = 'version --json' ]\n"
+            let broken = "#!/bin/sh\nexit 127\n"
+
+            func install(_ contents: String, byteCount: Int? = nil) throws -> Int32 {
+                let data = Data(contents.utf8)
+                try data.write(to: candidate)
+                let input = try FileHandle(forReadingFrom: candidate)
+                defer { try? input.close() }
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/sh")
+                process.arguments = ["-c", HerdrRemoteSetup.placeProgram(byteCount: byteCount ?? data.count)]
+                process.environment = ["HOME": remote.home.path, "PATH": "/usr/bin:/bin"]
+                process.standardInput = input
+                process.standardError = FileHandle.nullDevice
+                try process.run()
+                process.waitUntilExit()
+                return process.terminationStatus
+            }
+
+            try fm.removeItem(at: program)
+            #expect(try install(healthy, byteCount: 1) != 0)
+            #expect(!fm.fileExists(atPath: program.path))
+            #expect(try install(healthy) == 0)
+            #expect(try install(healthy + "# second candidate\n") == 0)
+            #expect(try String(contentsOf: program, encoding: .utf8) == healthy)
+            try Data(broken.utf8).write(to: program)
+            #expect(try install(broken) != 0)
+            #expect(try String(contentsOf: program, encoding: .utf8) == broken)
+            #expect(try install(healthy) == 0)
+            #expect(try String(contentsOf: program, encoding: .utf8) == healthy)
+
+            try fm.removeItem(at: program)
+            let missing = remote.home.appendingPathComponent("missing")
+            try fm.createSymbolicLink(at: program, withDestinationURL: missing)
+            #expect(try install(healthy) != 0)
+            #expect(try fm.destinationOfSymbolicLink(atPath: program.path) == missing.path)
+            #expect(try fm.contentsOfDirectory(atPath: bin.path).allSatisfy { !$0.hasPrefix(".swarmhub-herdr.") })
+        }
+    }
+
     @Test func setupEnablesLingerAfterStartingTheServiceAndRechecksIt() throws {
         try withRemote { remote in
             let setup = try remote.setup(canEnable: true)

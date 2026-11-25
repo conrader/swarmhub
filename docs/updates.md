@@ -79,20 +79,7 @@ Herdr Core and its helper are updated by Herdr's own commands (`hc update`, `hc 
 
 ## First install on a server
 
-Do this once per Linux server, and for a server whose workspace is from before versions. Run it on the server. (On a Mac there is nothing to do by hand: the app fetches the workspace, checks it against the release key and installs it when you choose **This Mac** in the setup window. See [This Mac](guide.md#this-mac).)
-
-```sh
-cd ~/.local/bin
-curl -fLO https://github.com/conrader/swarmhub/releases/latest/download/workspace-manifest.json
-grep -A3 '"x86_64-linux"' workspace-manifest.json        # the program's name and sha256
-curl -fLO https://github.com/conrader/swarmhub/releases/latest/download/NAME   # the name from the manifest
-sha256sum NAME                                           # must equal the manifest's sha256
-[ -f swarmhub-herdr ] && cp -p swarmhub-herdr swarmhub-herdr.previous
-chmod 755 NAME && mv NAME swarmhub-herdr
-./swarmhub-herdr version
-```
-
-Then restart the workspace the way you start it (`sh HerdrWorkspace/dev/start-local.sh` in its Herdr terminal). Agents keep running through the restart. To go back, put `swarmhub-herdr.previous` back under the name `swarmhub-herdr` and restart.
+Choose **A server** during setup or open **Settings → Servers → Add a server**. Enter the SSH login, including the port if needed (for example, `deploy@example.org:2222`). Click **Connect**, then **Set up on server** when prompted. SwarmHub checks the release signature, checks the downloaded program against its digest, and runs it on the server before finishing installation. Use the same steps to retry after an incompatible program was installed.
 
 ## Releasing
 
@@ -124,7 +111,7 @@ Build the release on the Mac that holds the keys. A local Terminal or an SSH ses
    | `swarmhub-herdr-<version>-aarch64-macos` | Macs with Apple silicon | The Mac that signs the release |
    | `swarmhub-herdr-<version>-x86_64-macos` | Intel Macs | The Mac that signs the release |
 
-   On the Linux build machine, run the script and copy its `dist/workspace` folder into `dist/workspace` on the Mac. The two macOS programs are built in the next step.
+   On the x86_64 Linux build machine, install the musl C toolchain and GNU binutils (Debian packages `musl-tools` and `binutils`) and run `rustup target add x86_64-unknown-linux-musl`. Run the packaging script. It rejects Linux executables that require a dynamic loader or shared libraries. Copy the new executable and its matching `.asset.json` fragment into the release checkout’s `dist/workspace` on the Mac. The two macOS programs are built in the next step.
 7. On the signing Mac, unlock the signing Keychain with the host’s existing credential procedure. If it uses a dedicated Keychain, export `SWARMHUB_SIGN_KEYCHAIN` with its absolute path. Store the notarization profile in that same Keychain. If Sparkle uses an existing protected key file on this Mac, export `SWARMHUB_UPDATE_KEY_FILE` with its absolute path. The scripts verify its public key against the one trusted by installed apps before building. With both variables unset, the scripts use the login Keychain and the existing Sparkle account.
 
    ```sh
