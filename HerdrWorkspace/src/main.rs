@@ -761,7 +761,7 @@ async fn workspace_state(State(w): State<Workspace>, Query(query): Query<Workspa
     let mut roster = json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
-               "attachments":hello.supports("terminal.put"),"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"codex_turn_steer":true,"end_if_idle":true,
+               "attachments":hello.supports("terminal.put"),"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"codex_turn_steer":true,"helper_results":true,"end_if_idle":true,
                "workspace_root":core::bot_workspace_root().ok().flatten(),"terminal_attach":hello.supports("terminal.attach"),
                "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)});
     if query.codejobs {

@@ -30,6 +30,10 @@ extension HerdrClient {
         var ref: AgentRef { AgentRef(address: address, createdMs: createdMs) }
         var isLive: Bool { state == "live" }
         var hasOpenTask: Bool { isLive && answered != true && (openTask ?? !["blocked", "error", "done"].contains(status?.state ?? "")) }
+        var resultPreview: String? {
+            guard answered == true, let text = reply?.text.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
         var isWorking: Bool { isLive && status?.state == "working" }
 
         /// A few words on what the helper is doing.
@@ -59,6 +63,17 @@ extension HerdrClient {
     /// policy. `stopAfterSeconds`: how long after its answer the server stops an idle helper, which then leaves the list.
     struct Helpers: Decodable, Sendable, Equatable {
         let core: String; let parent: AgentRef; var limit: Int? = nil; var stopAfterSeconds: Int? = nil; let helpers: [Helper]
+
+        var lastResult: Helper? = nil
+
+        /// Keep the latest answer visible across its terminal closing and while other helpers work.
+        var inChat: [Helper] {
+            let candidates = helpers + [lastResult].compactMap { $0 }
+            let latest = candidates.filter { $0.resultPreview != nil }.max { ($0.reply?.id ?? 0) < ($1.reply?.id ?? 0) }
+            let live = helpers.filter(\.isLive)
+            guard let latest, !live.contains(where: { $0.id == latest.id }) else { return live }
+            return live + [latest]
+        }
     }
 
     /// What a helper did, for the read-only view: every task it was given and every reply it saved (oldest first),
@@ -91,8 +106,8 @@ extension HerdrClient {
     }
 
     /// The agent's helpers when the workspace shows it has any; an agent without one costs no second request.
-    func helpers(of agent: Agent, in workspace: Workspace) async throws -> Helpers? {
-        guard workspace.agents.contains(where: { $0.parent == agent.ref }) else { return nil }
+    func helpers(of agent: Agent, in workspace: Workspace, includeLastResult: Bool = false) async throws -> Helpers? {
+        guard (includeLastResult && workspace.helperResults == true) || workspace.agents.contains(where: { $0.parent == agent.ref }) else { return nil }
         return try await helpers(of: agent.ref)
     }
 
@@ -124,15 +139,17 @@ extension HerdrClient {
 /// what each difficulty runs on, so the note names no model and the agent is told that it cannot choose one.
 enum HerdrHelperNote {
     /// Only this note (and a person quoting the command) contains it: `HerdrClient.deliver` tells an agent once.
-    static let marker = "swarmhub-herdr helper start"
+    static let marker = "Background helper results"
     static let difficulties = ["easy", "medium", "hard"]
 
     static let text = """
         You can hand a self-contained subtask to a helper agent that works on its own while you carry on. In your shell run:
 
-        \(marker) --difficulty \(difficulties.joined(separator: "|")) [--name NAME] [--here] "TASK"
+        swarmhub-herdr helper start --difficulty \(difficulties.joined(separator: "|")) [--name NAME] [--here] "TASK"
 
-        then `swarmhub-herdr helper wait NAME` for its answer. `swarmhub-herdr helper list` shows your helpers, \
+        \(marker) appear in the direct chat. For a background request, acknowledge the handoff once the helper starts \
+        and leave the conversation available. Use `swarmhub-herdr helper wait NAME` only when the current answer needs its result. \
+        `swarmhub-herdr helper list` shows your helpers, \
         `helper read NAME` its latest answer, `helper send NAME "TEXT"` gives it a follow-up and `helper stop NAME` ends it. \
         The helper knows nothing of this conversation: put everything it needs into TASK. It starts in the server's \
         agent folder, or with --here in the folder you run the command in. \

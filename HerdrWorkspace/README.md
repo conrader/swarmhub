@@ -154,7 +154,7 @@ The new bot runs on the same server, with the same runtime and model as the main
 
 ### Helpers in the app
 
-A bot is told how to start helpers ([Let an agent start helpers](#let-an-agent-start-helpers)) unless its **Advanced → Helper agents → Can start helper agents** switch is off. Running helpers show under the bot in the sidebar, and each opens as a read-only view of its task, tool calls, replies, and terminal. **Settings → Advanced → Servers and keys** reads and edits the server's helper settings.
+A bot is told how to start helpers ([Let an agent start helpers](#let-an-agent-start-helpers)) unless its **Advanced → Helper agents → Can start helper agents** switch is off. Running helpers appear under the bot in the sidebar. In a direct chat, the Coding agents card shows a preview of the latest helper result for the parent session, including after the helper’s terminal closes. Choose Details to read the full reply. **Settings → Advanced → Servers and keys** reads and edits the server's helper settings.
 
 ## Install the browser workspace
 
@@ -250,7 +250,7 @@ A running agent can hand one task to another agent: a helper. The agent says how
 
 The workspace reads the file again for every request, so an edit applies to the next helper without a restart. A file it cannot read as a policy turns helpers off; the agent is told so.
 
-Tell an agent about the command in its task or standing instructions, for example: “For a self-contained subtask, run `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"`, then `swarmhub-herdr helper wait NAME` for the answer.” The agent runs these in its own terminal:
+Tell an agent about the command in its task or standing instructions, for example: “For a self-contained subtask, run `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"`, acknowledge the handoff and keep the conversation available. Use `swarmhub-herdr helper wait NAME` when your current answer depends on the result.” The agent runs these in its own terminal:
 
 | Command | What it does |
 | --- | --- |
@@ -304,6 +304,7 @@ A helper is an ordinary session: its replies, tool activity, terminal and histor
 
 - `GET /api/agents/{address}/{created_ms}/events` sends the same list whenever it changes ([Follow a session without polling](#follow-a-session-without-polling)).
 - `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s running helpers, newest first, with each one’s name, difficulty, template, model, `model_label` (the catalog’s label for that model, such as “Sonnet 5.5”, when it lists the model), task, status and latest saved reply, plus `limit`, `stop_after_seconds` and `stop_unanswered_after_seconds`.
+- When the newest helper answer belongs to a closed terminal, the listing includes that helper separately as `last_result`. The `helpers` array still counts only live sessions. Clients can discover this support through the workspace’s `helper_results` flag.
 - A helper’s `task` is its launch assignment. The listing and the parent’s event stream include the latest follow-up assignment in `current_task`, skipping attempts recorded as unsent. The `open_task` flag uses the same completion rules as the helper wait command.
 - In `/api/workspace`, a running helper carries `parent` with the address and creation time of the agent that started it.
 - `GET /api/helper-policy` returns `policy` (the file’s four fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the three numbers.

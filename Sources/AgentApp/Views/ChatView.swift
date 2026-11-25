@@ -126,7 +126,7 @@ struct ChatView: View {
             if bot.isReadOnlyArchive {
                 Text(bot.retiredBackend.map { "Read-only chat from \($0)." } ?? "Read-only chat from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
             } else {
-                let helpers = store.herdrHelpers[bot.id]?.helpers.filter(\.isLive) ?? []
+                let helpers = store.herdrHelpers[bot.id]?.inChat ?? []
                 // What needs the person waits here, above the message box: an agent that asks something in its
                 // terminal; and what the main bot asks: new bots (Create or Not now), additions to "About you"
                 // (Remember or Don't save), and, once, the offer to get to know them.

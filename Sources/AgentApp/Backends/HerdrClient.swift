@@ -100,6 +100,7 @@ struct HerdrClient: Sendable {
         var routineTransfers: Bool? = nil
         var workspaceRoot: String? = nil
         var endIfIdle: Bool? = nil
+        var helperResults: Bool? = nil
         var codexTurnSteer: Bool? = nil
         var launchAttachments: Bool? = nil
         func launchTemplate(named name: String?) -> Template? {
