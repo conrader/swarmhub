@@ -383,6 +383,9 @@ pub async fn run() -> Result<(), Failed> {
                 let requests = match message {
                     Some(text) => {
                         let requests = follower.heard(&text);
+                        if follower.reviewer.is_some() || follower.review_event.is_some() {
+                            save_review(&journal, &feed.key, follower.reviewer.take(), follower.review_event.take());
+                        }
                         if let Some((turn, answer)) = follower.completed.take()
                             && let Err(error) = super::save_reply(&journal, &feed.key, Some(&turn), &answer)
                         {
@@ -530,6 +533,8 @@ struct Reply {
 #[derive(Default)]
 struct Follower {
     last_id: u64,
+    reviewer: Option<&'static str>,
+    review_event: Option<&'static str>,
     /// Requests to join a conversation that have no answer yet, by request id, with the tries so far.
     joining: HashMap<u64, (String, u8)>,
     joined: HashSet<String>,
@@ -555,6 +560,39 @@ struct Heard {
     params: Value,
     result: Option<Value>,
     error: Option<Value>,
+}
+
+#[derive(Default, serde::Serialize)]
+pub(crate) struct ReviewStatus {
+    auto_restart_pending: bool,
+    codex_reviewer: Option<String>,
+    codex_review_event: Option<String>,
+}
+
+pub(crate) fn review_status(history: &crate::history::History, key: Option<&str>) -> ReviewStatus {
+    let Some(key) = key else { return ReviewStatus::default(); };
+    let Ok(db) = history.db() else { return ReviewStatus::default(); };
+    let desired = crate::bot_agent_settings::for_launch(&db, key).ok().map(|settings| settings.auto_mode);
+    db.query_row(
+        "SELECT launch_auto,codex_reviewer,codex_review_event FROM journal WHERE launch_key=?",
+        [key], |row| {
+            let launch: Option<bool> = row.get(0)?;
+            Ok(ReviewStatus {
+                auto_restart_pending: desired.is_some_and(|saved| saved != launch.unwrap_or(false)),
+                codex_reviewer: row.get(1)?,
+                codex_review_event: row.get(2)?,
+            })
+        }
+    ).unwrap_or_default()
+}
+
+// Store only classifications derived from Codex's authenticated session, never command arguments or reasons.
+fn save_review(journal: &Path, key: &str, reviewer: Option<&str>, event: Option<&str>) {
+    if let Ok(db) = rusqlite::Connection::open_with_flags(journal,rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE) {
+        let _ = db.execute("UPDATE journal SET codex_reviewer=coalesce(?2,codex_reviewer),
+            codex_review_event=coalesce(?3,codex_review_event) WHERE launch_key=?1",
+            rusqlite::params![key,reviewer,event]);
+    }
 }
 
 fn other_conversation(thread: &Value) -> bool {
@@ -662,12 +700,24 @@ impl Follower {
             return self.answered(message.id, message.result, message.error);
         };
         if message.id.is_some() {
+            if self.joined.contains(message.params["threadId"].as_str().unwrap_or(""))
+                && matches!(method.as_str(), "item/commandExecution/requestApproval" | "item/permissions/requestApproval") {
+                self.review_event = Some("human_requested");
+            }
             // A question for the person (an approval, a form). The terminal UI answers it.
             return Vec::new();
         }
         let params = message.params;
         let thread = params["threadId"].as_str().unwrap_or_default();
         match method.as_str() {
+            "item/autoApprovalReview/completed" if self.joined.contains(thread) && params["decisionSource"] == "agent" => {
+                self.review_event = match params["review"]["status"].as_str() {
+                    Some("approved") => Some("auto_approved"),
+                    Some("denied") => Some("auto_denied"),
+                    Some("timedOut" | "aborted") => Some("auto_incomplete"),
+                    _ => None,
+                };
+            }
             "thread/started" => {
                 if let Some(id) = params["thread"]["id"].as_str()
                     && other_conversation(&params["thread"])
@@ -821,7 +871,12 @@ impl Follower {
                 let (_, leave) = self.request("thread/unsubscribe", json!({"threadId":thread}));
                 vec![leave]
             }
-            Some(_) => {
+            Some(result) => {
+                self.reviewer = match result["approvalsReviewer"].as_str() {
+                    Some("user") => Some("user"),
+                    Some("auto_review" | "guardian_subagent") => Some("auto_review"),
+                    _ => None,
+                };
                 if self.joined.len() >= REMEMBERED {
                     self.joined.clear();
                     self.final_by_thread.clear();
@@ -923,6 +978,44 @@ mod tests {
         let none = follower.heard(&json!({"id":id,"result":{"thread":{"id":THREAD,"ephemeral":false,"parentThreadId":null}}}).to_string());
         assert!(none.is_empty() && follower.joined.contains(THREAD));
         follower
+    }
+
+    #[test]
+    fn saved_auto_is_pending_on_a_legacy_launch_and_respects_the_effective_reviewer_after_restart() {
+        let (_dir, history) = crate::bots::testing::journal(&["Vised"]);
+        let key = crate::bots::testing::session(&history, "Vised", "fixture");
+        let bot = crate::bots::testing::id_of("Vised");
+        history.db().unwrap().execute("INSERT INTO bot_agent_settings(bot,auto_mode) VALUES(?,1)", [&bot]).unwrap();
+        assert!(review_status(&history, Some(&key)).auto_restart_pending);
+        history.db().unwrap().execute("UPDATE journal SET parent_bot_id=?1,launch_auto=1,codex_reviewer='user'
+            WHERE launch_key=?2", rusqlite::params![bot,key]).unwrap();
+        let current = review_status(&history, Some(&key));
+        assert!(!current.auto_restart_pending);
+        assert_eq!(current.codex_reviewer.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn mock_ovh_job_reports_actual_reviewer_and_never_answers_the_request() {
+        for reviewer in ["user", "auto_review"] {
+            let mut follower = Follower::default();
+            let join = follower.join(THREAD, 0);
+            follower.heard(&json!({"id":join[0]["id"],"result":{"thread":{"id":THREAD},"approvalsReviewer":reviewer}}).to_string());
+            assert_eq!(follower.reviewer, Some(reviewer));
+            let command = "fixture: SSH sb-codejob on OVH";
+            let request = json!({"threadId":THREAD,"turnId":"turn","itemId":"item","startedAtMs":1,
+                "command":command,"cwd":"/fixture","reason":"Retry a scoped remote job"});
+            if reviewer == "user" {
+                assert!(follower.heard(&json!({"method":"item/commandExecution/requestApproval","id":9,"params":request}).to_string()).is_empty());
+                assert_eq!(follower.review_event, Some("human_requested"));
+            } else {
+                let event = json!({"threadId":THREAD,"turnId":"turn","reviewId":"review",
+                    "startedAtMs":1,"completedAtMs":2,"decisionSource":"agent","review":{"status":"denied"},
+                    "action":{"type":"command","source":"shell","command":command,"cwd":"/fixture"}});
+
+                assert!(follower.heard(&note("item/autoApprovalReview/completed",event)).is_empty());
+                assert_eq!(follower.review_event, Some("auto_denied"));
+            }
+        }
     }
 
     fn text(follower: &Follower) -> Option<&str> {

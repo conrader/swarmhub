@@ -250,7 +250,7 @@ struct HerdrHelperPolicyDraft: Equatable, Sendable {
 }
 
 extension HerdrClient {
-    struct BotAgentSettings: Decodable { let choice: HerdrHelperPolicy.Tier?; let autoMode: Bool }
+    struct BotAgentSettings: Decodable { let choice: HerdrHelperPolicy.Tier?; let autoMode: Bool; var autoChangedMs: UInt64? = nil }
 
     func botAgentSettings(for bot: UUID) async throws -> BotAgentSettings {
         try await get("/api/bot-agent-settings/\(bot.uuidString.lowercased())")

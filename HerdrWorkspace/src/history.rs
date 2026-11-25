@@ -838,6 +838,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-routine-rezone.sql"),
         include_str!("migrate-bot-agent-settings.sql"),
         include_str!("migrate-routine-transfers.sql"),
+        include_str!("migrate-launch-review.sql"),
     ]
 }
 

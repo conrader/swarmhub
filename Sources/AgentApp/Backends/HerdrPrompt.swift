@@ -4,6 +4,7 @@ import Foundation
 /// does nothing until the person answers there. `question` is what its terminal shows, read from the server; empty
 /// until it was read, or when the server could not show it. Foundation only.
 struct HerdrPrompt: Equatable, Sendable {
+    var reviewDescription: String? = nil
     /// The server's name for the agent program ("Codex"); nil when it gave none.
     var program: String?
     var question = ""
@@ -39,6 +40,19 @@ struct HerdrPrompt: Equatable, Sendable {
         guard let kind else { return false }
         // "auth": a program that asks how to sign in. "question": one that asks the person something itself.
         return ["permission", "permission_request", "trust", "trust_dialog", "input_request", "user_input", "approval", "auth", "question"].contains(kind.lowercased())
+    }
+
+    static func review(for agent: HerdrClient.Agent, program: String?, question: String) -> String? {
+        let kind = agent.status?.kind?.lowercased() ?? ""
+        let commandPrompt = question.localizedCaseInsensitiveContains("would you like to run the following command")
+        guard program == "Codex", commandPrompt || ["permission", "permission_request", "approval"].contains(kind) else {
+            return nil
+        }
+        switch agent.codexReviewer {
+        case "user": return "A human decision is required because this Codex session routes permission requests to you."
+        case "auto_review": return "Codex has automatic review enabled and is asking you to decide this request in its terminal."
+        default: return "A human decision is required because Codex is waiting at a permission prompt. Its reviewer setting has not been reported."
+        }
     }
 
     static func question(from screen: String) -> String { HerdrAICheck.question(from: screen, lines: lines) }

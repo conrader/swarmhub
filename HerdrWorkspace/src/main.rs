@@ -683,6 +683,8 @@ struct AgentView<'a> {
     /// (`codex_agent::stream`). Its replies still arrive, each in one piece.
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_arrives_whole: Option<String>,
+    #[serde(flatten)]
+    review: codex_agent::stream::ReviewStatus,
     /// `ready`, `warm` and `warm_ends_ms`: whether a task sent now is typed at once (`warm`).
     #[serde(flatten)]
     start: warm::Start,
@@ -696,6 +698,7 @@ impl<'a> AgentView<'a> {
     ) -> Self {
         Self {
             terminal,
+            review: codex_agent::stream::review_status(history, terminal.launch_key()),
             opencode_api: terminal.uses_opencode_api(),
             parent,
             reply_arrives_whole: terminal
@@ -1036,7 +1039,7 @@ async fn launch_agent(
     ))?;
     if let Some(id) = owner {
         if let Err(error) = w.history.db().and_then(|db| {
-            db.execute("UPDATE journal SET parent_bot_id=?1 WHERE id=?2", rusqlite::params![id, record])
+            db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=?3 WHERE id=?2", rusqlite::params![id, record, auto_mode])
                 .map(|_| ()).map_err(StoreError::from)
         }) {
             w.history.finish(record, DeliveryState::NotSent, Some("The bot for this launch could not be saved."), None)?;

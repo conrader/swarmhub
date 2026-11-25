@@ -31,6 +31,8 @@ struct HerdrAgentReading: Equatable, Sendable {
     var core: String?
     var activeTemplate: String?
     var confirmed = false
+    var autoRestartPending = false
+    var reviewDescription: String?
 
     /// The template a bot starts from: its own, else the one chosen for new bots, else the server's first usable one.
     /// A name the server does not have resolves to nothing, as `deliver` refuses it.
@@ -58,6 +60,8 @@ struct HerdrAgentReading: Equatable, Sendable {
             else { model = HerdrClient.defaultModel(offered: offered).flatMap { id in offered.first { $0.id == id } } }
         }
         guard let agent else { return }
+        autoRestartPending = agent.autoRestartPending == true
+        reviewDescription = agent.reviewDescription
         self.session = agent.ref; activeTemplate = agent.template
         let session = profiles.lazy.flatMap { $0.sessions ?? [] }.first { $0.address == agent.address && $0.createdMs == agent.createdMs }
         guard let session else { running = .unknown; return }

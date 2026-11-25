@@ -44,6 +44,24 @@ struct HerdrClient: Sendable {
         struct FirstMessage: Decodable, Sendable, Equatable { let sent: Bool? }
         let address: String; let name: String; let state: String; let createdMs: UInt64; let template: String?; let status: Status?
         var firstMessage: FirstMessage? = nil
+        var autoRestartPending: Bool?
+        var codexReviewer: String?
+        var codexReviewEvent: String?
+        var reviewDescription: String? {
+            let reviewer = switch codexReviewer {
+            case "user": "This Codex session routes permission requests to you."
+            case "auto_review": "This Codex session routes eligible permission requests to automatic review."
+            default: ""
+            }
+            let event = switch codexReviewEvent {
+            case "human_requested": "Codex asked for a human decision on its last permission request."
+            case "auto_approved": "Automatic review approved the last request."
+            case "auto_denied": "Automatic review denied the last request."
+            case "auto_incomplete": "Automatic review did not complete."
+            default: ""
+            }
+            return [reviewer, event].filter { !$0.isEmpty }.isEmpty ? nil : [reviewer, event].filter { !$0.isEmpty }.joined(separator: " ")
+        }
         var openCodeFirstTask: String? = nil
         var reason: String? = nil
         /// Set for a helper: the agent that started it (`HerdrHelpers.swift`). A bot's own agent has none.

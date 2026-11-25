@@ -59,13 +59,18 @@ extension AppStore {
         let pending = modelPending || autoPending
         let client = try herdrClient(for: server)
         let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
-        if pending || template != nil || !model.isEmpty {
+        do {
             let current = try await client.workspace()
             if let agent = client.liveAgent(named: name, in: current) {
+                let staleAuto = agent.autoRestartPending == true && current.program(of: agent) == "Codex"
+                if !pending && !staleAuto && template == nil && model.isEmpty {
+                    try checkChoice()
+                    return [grokHandoffSource(for: bot), herdrCarrySource(for: bot)].compactMap { $0 }
+                }
                 guard let target = HerdrAgentReading.template(own: template, shared: nil, in: current.templates.filter { $0.error == nil }).template else {
                     throw HerdrClient.Failure.noTemplate
                 }
-                var replace = autoPending || (target.name != agent.template && (agent.template != nil || modelPending))
+                var replace = autoPending || staleAuto || (target.name != agent.template && (agent.template != nil || modelPending))
                 var liveModel: HerdrClient.Template.Model?
                 if !replace, target.takesModel, modelPending || !model.isEmpty {
                     guard let reading = await refreshHerdrAgentReading(for: bot, requireFresh: true), reading.session == agent.ref, reading.core == current.core else {

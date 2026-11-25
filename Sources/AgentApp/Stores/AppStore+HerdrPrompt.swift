@@ -92,7 +92,8 @@ extension AppStore {
         guard HerdrPrompt.actionable(kind: agent.status?.kind, screen: screen) else { herdrPrompts[id] = nil; return }
         let old = herdrPrompts[id]
         let question = HerdrPrompt.question(from: screen)
-        let prompt = HerdrPrompt(program: workspace.program(of: agent) ?? herdrWaits(bot, in: group).program,
+        let program = workspace.program(of: agent) ?? herdrWaits(bot, in: group).program
+        let prompt = HerdrPrompt(reviewDescription: HerdrPrompt.review(for: agent, program: program, question: question), program: program,
                                  question: question.isEmpty && old?.agent == agent.ref ? old?.question ?? "" : question, agent: agent.ref,
                                  since: old?.agent == agent.ref ? old?.since ?? now() : now())
         if prompt != old { herdrPrompts[id] = prompt }

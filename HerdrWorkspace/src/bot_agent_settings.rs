@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Settings {
     pub choice: Option<Tier>,
     pub auto_mode: bool,
+    pub auto_changed_ms: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -48,7 +49,7 @@ pub(crate) fn routes() -> Router<Workspace> {
 pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
     Ok(db
         .query_row(
-            "SELECT helper_template,helper_model,auto_mode FROM bot_agent_settings WHERE bot=?1",
+            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms FROM bot_agent_settings WHERE bot=?1",
             [id],
             |r| {
                 let template: Option<String> = r.get(0)?;
@@ -58,6 +59,7 @@ pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
                         .zip(model)
                         .map(|(template, model)| Tier { template, model }),
                     auto_mode: r.get(2)?,
+                    auto_changed_ms: r.get(3)?,
                 })
             },
         )
@@ -126,8 +128,10 @@ async fn save(
                  ON CONFLICT(bot) DO UPDATE SET helper_template=excluded.helper_template,helper_model=excluded.helper_model",
                 params![bot, choice.as_ref().map(|c| &c.template), choice.as_ref().map(|c| &c.model)])?,
             Edit::Auto(edit) => tx.execute(
-                "INSERT INTO bot_agent_settings(bot,auto_mode) VALUES(?1,?2)
-                 ON CONFLICT(bot) DO UPDATE SET auto_mode=excluded.auto_mode", params![bot,edit.auto_mode])?,
+                "INSERT INTO bot_agent_settings(bot,auto_mode,auto_changed_ms) VALUES(?1,?2,?3)
+                 ON CONFLICT(bot) DO UPDATE SET auto_mode=excluded.auto_mode,
+                 auto_changed_ms=CASE WHEN auto_mode!=excluded.auto_mode THEN excluded.auto_changed_ms ELSE auto_changed_ms END",
+                 params![bot,edit.auto_mode,crate::history::now()])?,
         };
         for agent in existing {
             tx.execute("UPDATE journal SET parent_bot_id=?1 WHERE parent_bot_id IS NULL

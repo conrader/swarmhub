@@ -42,9 +42,17 @@ struct HerdrHelperModelSection: View {
             }
         }.task(id: "\(bot.id)-\(server.id)") { await load() }
         if let saved {
-            SettingSwitch(title: "Auto mode", detail: "With the standard Claude, Codex and Antigravity setups, agents and helpers can edit, build and test in their workspace. Broader access may still need approval.",
+            let reading = store.herdrAgentReadings[bot.id]
+            SettingSwitch(title: "Auto mode for new sessions", detail: "Applies to standard Claude, Codex and Antigravity launches. Managed permissions still apply.",
                           isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } }))
                 .disabled(saving)
+            if store.autoSwitchPending(bot) || reading?.autoRestartPending == true {
+                Text("Saved change pending. The next direct message can replace the session once it and its helpers are idle.")
+            }
+            if let changed = saved.autoChangedMs, let launch = reading?.session?.createdMs, changed > launch {
+                Text("The saved Auto setting changed after this session started.").font(.caption)
+            }
+            Text(reading?.reviewDescription ?? "The running session’s effective reviewer has not been reported.").font(.caption)
         }
     }
 

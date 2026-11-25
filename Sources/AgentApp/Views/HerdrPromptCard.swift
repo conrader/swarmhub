@@ -47,6 +47,7 @@ struct HerdrPromptCard: View {
                         }
                 }
             }
+            if let review = prompt.reviewDescription { Text(review).font(.caption) }
             if !prompt.question.isEmpty {
                 ScrollView(.vertical) {
                     Text(prompt.question).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(.primary).textSelection(.enabled)
