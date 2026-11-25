@@ -46,6 +46,17 @@ struct HerdrClient: Sendable {
         var pickerLabel: String { programDetail.map { "\(label) · \($0)" } ?? label }
     }
 
+    struct SessionUsage: Decodable, Sendable, Equatable {
+        let contextTokens: Int64
+        let windowTokens: Int64?
+        let totalTokens: Int64
+
+        var contextPercent: Int? {
+            guard contextTokens >= 0, let windowTokens, windowTokens > 0 else { return nil }
+            return Int((100 * min(1, Double(contextTokens) / Double(windowTokens))).rounded())
+        }
+    }
+
     struct Agent: Decodable, Sendable, Equatable {
         struct Status: Decodable, Sendable, Equatable { let state: String?; var kind: String? = nil }
         /// Core types the first task only once the agent reports that it is ready; a start-up prompt leaves it unsent.
@@ -54,6 +65,7 @@ struct HerdrClient: Sendable {
         var firstMessage: FirstMessage? = nil
         var vaultSessionStale: Bool?
         var autoRestartPending: Bool?
+        var sessionUsage: SessionUsage? = nil
         var codexSandbox: String?
         var codexPolicy: String?
         var codexReviewer: String?

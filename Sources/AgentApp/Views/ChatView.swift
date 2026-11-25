@@ -40,7 +40,7 @@ struct ChatView: View {
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer(minLength: 2)
                 if bot.backend == .herdr, !bot.isReadOnlyArchive {
-                    ChatModelButton(reading: store.herdrAgentReadings[bot.id]) { store.openInfoTab(.model) }
+                    ChatModelButton(reading: store.herdrAgentReadings[bot.id], usage: store.herdrPresence(for: bot)?.usage) { store.openInfoTab(.model) }
                 }
                 if let session {
                     Button("Terminal", systemImage: "terminal") { terminal = HerdrTerminalTarget(agent: session) }
@@ -205,6 +205,7 @@ struct ChatView: View {
 
 struct ChatModelButton: View {
     let reading: HerdrAgentReading?
+    var usage: HerdrClient.SessionUsage? = nil
     let openSettings: () -> Void
 
     var body: some View {
@@ -214,6 +215,8 @@ struct ChatModelButton: View {
                     Text(reading?.headerModel ?? "Model settings")
                     if let next = reading?.pendingTarget {
                         Text("Next direct turn · \(next)").foregroundStyle(.primary)
+                    } else if let percent = usage?.contextPercent {
+                        Text("Context \(percent)%").foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
                 Image(systemName: "chevron.right").font(.caption2)

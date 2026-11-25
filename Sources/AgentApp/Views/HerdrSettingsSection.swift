@@ -384,6 +384,16 @@ struct HerdrAgentControls: View {
                 }
             }
             if !note.isEmpty { Text(note).font(.callout).textSelection(.enabled) }
+            if let usage = store.herdrPresence(for: bot)?.usage {
+                SettingBlock(title: "Session usage", detail: "Reported by Codex after each model call.") {
+                    if let percent = usage.contextPercent, let window = usage.windowTokens {
+                        LabeledContent("Context", value: "\(usage.contextTokens.formatted()) of \(window.formatted()) tokens (\(percent)%)")
+                    } else {
+                        LabeledContent("Last model call", value: "\(usage.contextTokens.formatted()) tokens")
+                    }
+                    LabeledContent("Conversation total", value: "\(usage.totalTokens.formatted()) tokens")
+                }
+            }
             Divider()
             HerdrHelperModelSection(bot: bot, server: server, templates: templates, preset: preset?.helper)
                 .id("\(bot.id)-\(server.id)")

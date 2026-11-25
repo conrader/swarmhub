@@ -692,7 +692,7 @@ struct AgentView<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     reply_arrives_whole: Option<String>,
     #[serde(flatten)]
-    review: codex_agent::stream::ReviewStatus,
+    launch_status: codex_agent::stream::LaunchStatus,
     vault_session_stale: bool,
     /// `ready`, `warm` and `warm_ends_ms`: whether a task sent now is typed at once (`warm`).
     #[serde(flatten)]
@@ -710,7 +710,7 @@ impl<'a> AgentView<'a> {
             terminal,
             vault_session_stale: terminal.state == "live" && terminal.launch_key().is_some()
                 && w.vault.as_ref().is_some_and(|v| v.predates_session_credentials(terminal.created_ms)),
-            review: codex_agent::stream::review_status(history, terminal.launch_key()),
+            launch_status: codex_agent::stream::launch_status(history, terminal.launch_key()),
             opencode_api: terminal.uses_opencode_api(),
             parent,
             reply_arrives_whole: terminal

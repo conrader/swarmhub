@@ -13,6 +13,8 @@
 //!
 //! If the app server does not come up, `run-codex` starts Codex the way it did before and the reply appears whole.
 
+mod usage;
+
 use crate::agent::session;
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -88,7 +90,6 @@ const UNUSED: &[&str] = &[
     "turn/moderationMetadata",
     "hook/started",
     "hook/completed",
-    "thread/tokenUsage/updated",
     "account/rateLimits/updated",
 ];
 
@@ -383,6 +384,10 @@ pub async fn run() -> Result<(), Failed> {
                 let requests = match message {
                     Some(text) => {
                         let requests = follower.heard(&text);
+                        if let Some(change) = follower.usage.take()
+                            && let Err(error) = change.save(&journal, &feed.key) {
+                            note(&format!("Could not save Codex session usage: {error}"));
+                        }
                         if let Some(command) = follower.command.take() {
                             feed.show_command(&command).await;
                         }
@@ -582,6 +587,7 @@ struct Reply {
 struct Follower {
     launch_key: String,
     command: Option<crate::tool_activity::Frame>,
+    usage: Option<usage::Change>,
     last_id: u64,
     sandbox: Option<&'static str>,
     policy: Option<&'static str>,
@@ -615,7 +621,9 @@ struct Heard {
 }
 
 #[derive(Default, serde::Serialize)]
-pub(crate) struct ReviewStatus {
+pub(crate) struct LaunchStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_usage: Option<usage::SessionUsage>,
     auto_restart_pending: bool,
     codex_sandbox: Option<String>,
     codex_policy: Option<String>,
@@ -623,16 +631,17 @@ pub(crate) struct ReviewStatus {
     codex_review_event: Option<String>,
 }
 
-pub(crate) fn review_status(history: &crate::history::History, key: Option<&str>) -> ReviewStatus {
-    let Some(key) = key else { return ReviewStatus::default(); };
-    let Ok(db) = history.db() else { return ReviewStatus::default(); };
-    let Ok(settings) = crate::bot_agent_settings::for_launch(&db, key) else { return ReviewStatus::default(); };
+pub(crate) fn launch_status(history: &crate::history::History, key: Option<&str>) -> LaunchStatus {
+    let Some(key) = key else { return LaunchStatus::default(); };
+    let Ok(db) = history.db() else { return LaunchStatus::default(); };
+    let Ok(settings) = crate::bot_agent_settings::for_launch(&db, key) else { return LaunchStatus::default(); };
     db.query_row(
         "SELECT coalesce(launch_auto != ?2,
                     ?2 OR coalesce(at_ms < ?3, 0)),
-                codex_sandbox,codex_policy,codex_reviewer,codex_review_event
+                codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage
          FROM journal WHERE launch_key=?1",
-        rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms], |row| Ok(ReviewStatus {
+        rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms], |row| Ok(LaunchStatus {
+            session_usage: row.get::<_, Option<String>>(5)?.and_then(|value| serde_json::from_str(&value).ok()),
             auto_restart_pending: row.get(0)?,
             codex_sandbox: row.get(1)?,
             codex_policy: row.get(2)?,
@@ -653,7 +662,7 @@ fn save_review(journal: &Path, key: &str, reviewer: Option<&str>, event: Option<
 }
 
 fn other_conversation(thread: &Value) -> bool {
-    thread["ephemeral"] == true || !thread["parentThreadId"].is_null()
+    thread["ephemeral"] == true || !thread["parentThreadId"].is_null() || thread["source"].get("subAgent").is_some()
 }
 
 fn final_text(item: &Value) -> Option<(&str, bool)> {
@@ -776,21 +785,34 @@ impl Follower {
                 };
             }
             "thread/started" => {
-                if let Some(id) = params["thread"]["id"].as_str()
-                    && other_conversation(&params["thread"])
-                {
-                    self.skip(id);
+                if let Some(id) = params["thread"]["id"].as_str() {
+                    if other_conversation(&params["thread"]) {
+                        self.skip(id);
+                    } else {
+                        self.usage = Some(usage::Change::Start(id.to_owned()));
+                    }
                 }
             }
             "thread/status/changed" if params["status"]["type"] == "active" => {
+                if self.joined.contains(thread) {
+                    self.usage = Some(usage::Change::Start(thread.to_owned()));
+                }
                 return self.join(thread, 0);
             }
             "thread/closed" => {
-                self.joined.remove(thread);
+                if self.joined.remove(thread) {
+                    self.usage = Some(usage::Change::Close(thread.to_owned()));
+                }
                 self.final_by_thread.remove(thread);
                 self.clear(thread);
             }
+            "thread/tokenUsage/updated" if self.joined.contains(thread) => {
+                if let Some(report) = usage::SessionUsage::reported(&params["tokenUsage"]) {
+                    self.usage = Some(usage::Change::Report(thread.to_owned(), report));
+                }
+            }
             "turn/started" if self.joined.contains(thread) => {
+                self.usage = Some(usage::Change::Start(thread.to_owned()));
                 self.final_by_thread.remove(thread);
                 self.clear(thread);
             }
@@ -953,6 +975,9 @@ impl Follower {
                     self.joined.clear();
                     self.final_by_thread.clear();
                 }
+                if result["thread"]["status"]["type"] == "active" {
+                    self.usage = Some(usage::Change::Start(thread.clone()));
+                }
                 self.joined.insert(thread);
                 Vec::new()
             }
@@ -1065,6 +1090,34 @@ mod tests {
         follower
     }
 
+    #[test]
+    fn usage_tracks_the_current_root_thread_and_survives_lower_context_after_compaction() {
+        let (_dir, history) = crate::bots::testing::journal(&["Doc"]);
+        let key = crate::bots::testing::session(&history, "Doc", "fixture");
+        let mut follower = joined();
+        let usage = |thread: &str, last: i64, window: Option<i64>, total: i64| note(
+            "thread/tokenUsage/updated", json!({"threadId":thread,"turnId":"t1",
+                "tokenUsage":{"last":{"totalTokens":last},"modelContextWindow":window,"total":{"totalTokens":total}}}));
+        let mut record = |message: String| {
+            follower.heard(&message);
+            if let Some(change) = follower.usage.take() { change.save(history.file(), &key).unwrap() }
+            launch_status(&history, Some(&key)).session_usage
+        };
+        assert!(record(usage("child", 99, Some(100), 100)).is_none());
+        let first = record(usage(THREAD, 80, Some(100), 440)).unwrap();
+        assert_eq!(first.context_tokens, 80);
+        assert_eq!(first.window_tokens, Some(100));
+        assert_eq!(record(usage(THREAD, -1, Some(100), 100)), Some(first));
+        let compacted = record(usage(THREAD, 15, None, 455)).unwrap();
+        assert_eq!(compacted.context_tokens, 15);
+        assert_eq!(compacted.total_tokens, 455);
+        assert!(compacted.window_tokens.is_none());
+        assert_eq!(record(note("thread/started", json!({"thread":{"id":"internal","source":{"subAgent":"review"}}}))), Some(compacted));
+        assert_eq!(record(note("thread/closed", json!({"threadId":"child"}))), Some(compacted));
+        assert!(record(note("thread/started", json!({"thread":{"id":"new"}}))).is_none());
+        assert!(record(usage(THREAD, 77, Some(100), 532)).is_none());
+    }
+
     #[tokio::test]
     async fn archive_listing_prompt_and_followup_use_separate_rpc_messages() {
         let (_dir, history) = crate::bots::testing::journal(&["Doc"]);
@@ -1085,7 +1138,7 @@ mod tests {
                       "command":"fixture SSH listing of one archived project directory","cwd":"/fixture","time":"10:49:13"}});
         assert!(observed.heard(&approval.to_string()).is_empty());
         save_review(history.file(), &key, observed.reviewer, observed.review_event, observed.sandbox, observed.policy);
-        let current = review_status(&history, Some(&key));
+        let current = launch_status(&history, Some(&key));
         assert!(current.auto_restart_pending);
         assert_eq!(current.codex_review_event.as_deref(), Some("human_requested"));
         let (next, _) = crate::codex_agent::auto_configs(true, &[]);
@@ -1125,7 +1178,7 @@ mod tests {
             calls
         });
         steer(history.file(), &key, "fixture", "Include the manifest").await.unwrap();
-        let after = review_status(&history, Some(&key));
+        let after = launch_status(&history, Some(&key));
         assert!(after.auto_restart_pending);
         assert_eq!(after.codex_reviewer.as_deref(), Some("user"));
         assert_eq!(after.codex_review_event.as_deref(), Some("human_requested"));
@@ -1138,21 +1191,21 @@ mod tests {
         let key = crate::bots::testing::session(&history, "Vised", "fixture");
         let bot = crate::bots::testing::id_of("Vised");
         history.db().unwrap().execute("INSERT INTO bot_agent_settings(bot,auto_mode) VALUES(?,1)", [&bot]).unwrap();
-        assert!(review_status(&history, Some(&key)).auto_restart_pending);
+        assert!(launch_status(&history, Some(&key)).auto_restart_pending);
         history.db().unwrap().execute("UPDATE journal SET parent_bot_id=?1,launch_auto=1,codex_reviewer='user',codex_sandbox='read-only',codex_policy='on-request'
             WHERE launch_key=?2", rusqlite::params![bot,key]).unwrap();
-        let current = review_status(&history, Some(&key));
+        let current = launch_status(&history, Some(&key));
         assert!(!current.auto_restart_pending);
         assert_eq!(current.codex_reviewer.as_deref(), Some("user"));
         assert_eq!(current.codex_policy.as_deref(), Some("on-request"));
         assert_eq!(current.codex_sandbox.as_deref(), Some("read-only"));
         history.db().unwrap().execute("UPDATE journal SET codex_reviewer='auto_review',
             codex_sandbox='workspace-write',codex_policy='granular' WHERE launch_key=?", [&key]).unwrap();
-        assert!(!review_status(&history, Some(&key)).auto_restart_pending);
+        assert!(!launch_status(&history, Some(&key)).auto_restart_pending);
         history.db().unwrap().execute("UPDATE bot_agent_settings SET auto_mode=0 WHERE bot=?", [&bot]).unwrap();
-        assert!(review_status(&history, Some(&key)).auto_restart_pending);
+        assert!(launch_status(&history, Some(&key)).auto_restart_pending);
         history.db().unwrap().execute("UPDATE journal SET launch_auto=0 WHERE launch_key=?", [&key]).unwrap();
-        let off = review_status(&history, Some(&key));
+        let off = launch_status(&history, Some(&key));
         assert!(!off.auto_restart_pending);
         assert_eq!(off.codex_reviewer.as_deref(), Some("auto_review"));
     }
