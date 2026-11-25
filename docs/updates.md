@@ -143,16 +143,13 @@ For whoever publishes SwarmHub. A release is built on the Mac that holds the key
    Before it prints the command that publishes, it says which kinds of machine the workspace manifest has a program for, and warns when one of the three is missing: servers of that kind will not be offered the update, and This Mac cannot be set up on a kind of Mac that has no program. It does not publish a macOS program that is signed ad-hoc or not at all, signed by another team than the app, or signed without the hardened runtime.
 8. Push the commit and the tag, then run the `gh release create …` command the script printed. The release must be the **latest** one: the app's feed and the servers' feed are its assets (`appcast.xml`, the app archive, `workspace-manifest.json`, `workspace-manifest.json.sig`, the workspace programs).
 
-9. Check the public feed used by installed Macs. Compare the displayed version and build with the packaged app, then verify the archive against the appcast signature. The release key is the `SUPublicEDKey` from the installed app.
+9. From the release checkout, verify the public feed using the previous installation’s feed URL and trusted key.
 
    ```sh
-   feed='https://github.com/conrader/swarmhub/releases/latest/download/appcast.xml'
-   curl -fsSL "$feed" | python3 -c 'import sys, xml.etree.ElementTree as ET
-   item = ET.parse(sys.stdin).find("./channel/item")
-   ns = {"s": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
-   print(item.findtext("s:shortVersionString", namespaces=ns), item.findtext("s:version", namespaces=ns))
-   print(item.find("enclosure").attrib["url"])'
+   python3 scripts/verify-published-update.py /Applications/SwarmHub.app/Contents/Info.plist
    ```
+
+   The verifier downloads the offered ZIP, checks its size and Sparkle signature, and compares the app identifier, version and build inside it with the release checkout.
 
 Do not change a file after it is signed.
 
