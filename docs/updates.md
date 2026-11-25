@@ -73,7 +73,7 @@ An update is a way to run new code on your Mac and your servers, so it is worth 
 - **The workspace on a Mac.** The two macOS programs are also signed with the publisher's Developer ID, with the hardened runtime, and notarized by Apple when the publisher's Mac has the notarization credentials. They are signed before the release is described, so the size and SHA-256 in the signed description are those of the signed file. The app and the server still check a macOS program the way they check a Linux one: the description's signature against the release key, then the program's size and SHA-256. A program file by itself cannot carry Apple's notarization ticket the way the app does, so macOS asks Apple for it when it wants it.
 - **No way down.** A server installs only a release that is newer than itself, so an old signed release cannot be replayed to bring a fixed bug back.
 - **Where releases come from.** The GitHub releases of `conrader/swarmhub`. A signed description may only point at program files there. Whoever starts a workspace can name a mirror with `SWARMHUB_UPDATE_FEED`; the signature is checked all the same.
-- **What this does not cover.** The very first install on a server is by hand, over HTTPS from GitHub, with a digest you compare yourself. And anyone who has the release key can sign a release. The private key stays in the publisher's login Keychain and is never in the repository, on a server, or in a build script.
+- **What this does not cover.** The very first install on a server is by hand, over HTTPS from GitHub, with a digest you compare yourself. And anyone who has the release key can sign a release. The private key stays on the signing Mac, in its Keychain or a protected local signing file.
 
 Herdr Core and its helper are updated by Herdr's own commands (`hc update`, `hc machine update`), which have their own checks. SwarmHub only starts them and shows what they said.
 
@@ -96,7 +96,7 @@ Then restart the workspace the way you start it (`sh HerdrWorkspace/dev/start-lo
 
 ## Releasing
 
-For whoever publishes SwarmHub. A release is built on the Mac that holds the keys. It needs three things from the login Keychain, which is locked for an SSH session: run the scripts in a Terminal window on the Mac itself (from SSH, `open -a Terminal <script>.command` starts one in the logged-in session). They are:
+Build the release on the Mac that holds the keys. A local Terminal or an SSH session with access to the signing Keychain can run the same scripts. The signer needs three credentials.
 
 - the **Developer ID Application** certificate, for signing;
 - a **notarization profile**, for Apple's check;
@@ -125,7 +125,7 @@ For whoever publishes SwarmHub. A release is built on the Mac that holds the key
    | `swarmhub-herdr-<version>-x86_64-macos` | Intel Macs | The Mac that signs the release |
 
    On the Linux build machine, run the script and copy its `dist/workspace` folder into `dist/workspace` on the Mac. The two macOS programs are built in the next step.
-7. On the Mac, in one Terminal window on the Mac itself:
+7. On the signing Mac, unlock the signing Keychain with the host’s existing credential procedure. If it uses a dedicated Keychain, export `SWARMHUB_SIGN_KEYCHAIN` with its absolute path. Store the notarization profile in that same Keychain. If Sparkle uses an existing protected key file on this Mac, export `SWARMHUB_UPDATE_KEY_FILE` with its absolute path. The scripts verify its public key against the one trusted by installed apps before building. With both variables unset, the scripts use the login Keychain and the existing Sparkle account.
 
    ```sh
    export SWARMHUB_SIGN_IDENTITY='Developer ID Application: Your Name (TEAMID)'
