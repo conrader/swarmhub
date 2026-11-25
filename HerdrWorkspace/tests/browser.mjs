@@ -1087,7 +1087,10 @@ async function verifyDesktopNotices() {
 
 async function verifyWebhookReview() {
   await check('document.getElementById("attention-count").textContent === "2"');
-  await evaluate('document.getElementById("attention-open").click()');
+  assert.equal(await evaluate('document.getElementById("mobile-attention").getClientRects().length'), 0);
+  await cdp("Emulation.setDeviceMetricsOverride", {width:375,height:812,deviceScaleFactor:1,mobile:true});
+  await check('document.getElementById("mobile-attention").getClientRects().length === 1');
+  await evaluate('document.getElementById("mobile-attention").click()');
   const items = '[...document.querySelectorAll("#attention-list button")].filter(button => button.textContent.includes("Review incoming events"))';
   await check(items + '.length === 2 && !document.getElementById("attention-list").textContent.includes("Dismiss fixture")');
   await evaluate(items + '[0].click()');
@@ -1102,6 +1105,7 @@ async function verifyWebhookReview() {
   await check('!' + entries + '.querySelector("button").disabled');
   await evaluate(entries + '.querySelector("button").click()');
   await check(entries + '.textContent.includes("No events awaiting review.") && document.getElementById("routine-runs").textContent.includes("Webhook") && document.getElementById("attention-count").hidden');
+  await check('document.getElementById("mobile-attention").hidden');
   await check('!document.getElementById("routine-edit").disabled');
   await evaluate('document.getElementById("routine-edit").click()');
   await check('document.getElementById("routine-review-enabled").checked && !document.getElementById("routine-filter-editor").hidden');

@@ -200,9 +200,13 @@ The features page also advertises several workflows beyond the four home-page ex
 | Paste screenshots into four providers | Image intake, local previews and media recovery were tested. Recognition of a pasted image by all four signed-in providers remains unverified. |
 | Routines, webhooks and Pages | The Mac has a routines editor and artifact library. Workspace and Swift suites exercise these paths. This pass did not use an external webhook service. |
 | Context and spend limits, interactive helpers | The Mac exposes goals and read-only helper sessions. Live cost accounting, per-goal spend ceilings and promotion of a running helper were not demonstrated. |
-| SSH bootstrap, iPhone approvals and Team Packs | The two-Mac runs used an existing SSH connection. The iOS directory on main contains design and Keychain starting material. A native iPhone approval and a multi-bot pack round trip remain outstanding. |
+| SSH bootstrap, iPhone approvals and Team Packs | The two-Mac runs used an existing SSH connection. In Safari on a simulated iPhone 17e, the driver unlocked the live workspace, opened Review in chat, inspected a real Codex shell request and tapped Allow once. A standalone native iPhone app and a multi-bot Team Pack round trip remain outstanding. |
 
 On the first Mac build, closing Details, immediately reopening it and switching bots could leave the inspector closed. A resizable Mac split view now keeps the panel open through the sequence. The window driver repeated it in both appearances and checked the Media and Close controls at the minimum window size.
+
+On iPhone Safari, the original chat header put the back button at 15 pt from the top, under the status bar. The updated workspace keeps that control below the inset and displays **Review** in the chat header whenever there is a pending item. The iPhone run used Safari on iOS 27.2 Simulator. Chrome also opened the review queue inside a mobile-width chat, reviewed two webhook events and checked that the button disappeared after the last decision.
+
+A separate optional OpenCode integration run stopped during model discovery. The Linux fixture received HTTP 409 from its local-model endpoint with OpenCode 1.18.5, before it reached the browser approval flow. The Codex iPhone run and the webhook browser regression completed independently.
 
 The same native test pass found a keyboard search issue. In a list of 21 results, scrolling the keyboard highlight under a stationary pointer could change the result selected by Return. A failing run opened message 133 after ten Down Arrow presses from message 148. The fixed run opened message 138, then navigated to imported group and bot messages. [Repeat the Mac checks](agent-qa.md#use-the-real-mac-window)
 

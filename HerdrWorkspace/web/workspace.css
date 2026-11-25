@@ -113,7 +113,7 @@ main { display:flex; min-width:0; flex-direction:column; min-height:100dvh; }
 .channel h1 { font-size:1.12rem; }
 .channel p { font-size:.86rem; color:var(--muted); }
 .channel-title { min-width:0; }
-#show-agents { display:none; }
+#show-agents, #mobile-attention { display:none; }
 .body { display:grid; flex:1; justify-items:center; align-items:start; padding:24px; min-width:0; }
 .welcome { align-self:center; text-align:center; max-width:440px; padding:32px 0; }
 .hero-icon { margin:0 auto 18px; width:64px; height:64px; border-radius:18px; }
@@ -389,12 +389,16 @@ dialog input,dialog select,dialog textarea { width:100%; min-height:44px; paddin
   .details { position:fixed; right:0; top:0; bottom:0; z-index:1; overflow:auto; box-shadow:0 0 0 100vmax #09091070; }
 }
 @media (max-width:640px) {
-  .workspace { display:block; }
+  .workspace { display:block; padding-inline:env(safe-area-inset-left) env(safe-area-inset-right); }
   .sidebar { padding:12px; border-right:0; border-bottom:1px solid var(--line); gap:8px; }
   .brand { padding-bottom:3px; }
   .roster { max-height:170px; overflow:auto; }
   main { min-height:65dvh; }
   .channel,.body { padding:14px; }
+  .channel { padding-top:calc(14px + env(safe-area-inset-top)); }
+  .sidebar { padding-top:calc(12px + env(safe-area-inset-top)); }
+  #access input { font-size:16px; }
+  [data-mobile-view="agent"] #mobile-attention:not([hidden]) { display:block; color:var(--accent); }
   .composer { width:calc(100% - 28px); }
   .welcome { padding:16px 0; }
   [data-mobile-view="agent"] .sidebar,[data-mobile-view="roster"] main { display:none; }
@@ -404,7 +408,7 @@ dialog input,dialog select,dialog textarea { width:100%; min-height:44px; paddin
   [data-mobile-view="agent"] .channel-title { margin-right:auto; }
   [data-mobile-view="agent"] .channel .avatar { display:none; }
   [data-mobile-view="agent"] .channel .avatar:has(img) { display:grid; width:30px; height:30px; border-radius:9px; }
-  [data-mobile-view="agent"] main { height:100dvh; }
+  [data-mobile-view="agent"] main { height:100dvh; padding-bottom:env(safe-area-inset-bottom); }
   [data-mobile-view="agent"] .body { min-height:0; overflow-y:auto; }
   [data-mobile-view="agent"] :is(.channel,.composer) { flex:none; }
   .compose-tools small { display:none; }

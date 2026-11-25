@@ -58,6 +58,7 @@
     const count = sections.reduce((total, [, rows]) => total + rows.length, 0);
     const badge = $("attention-count");
     badge.hidden = !count;
+    $("mobile-attention").hidden = !app.authorized || !count;
     const number = String(count) + (queue.more ? "+" : "");
     if (badge.textContent !== number) badge.textContent = number;
     if (!dialog.open) return;
@@ -122,6 +123,7 @@
     render();
     void refresh();
   });
+  $("mobile-attention").addEventListener("click", () => $("attention-open").click());
   $("attention-close").addEventListener("click", () => dialog.close());
   window.workspaceAttention = { refresh };
 })();
