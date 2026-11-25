@@ -49,7 +49,11 @@
       summary: [item.project, item.owner, item.state].join(" · "),
       open: () => window.approvalInbox.openPark(item.id),
     }));
-    return [["Approvals", approvals], ["Terminals", blocked], ["Group questions and forms", requests],
+    const ci = (queue.ci_failures || []).map((item) => ({
+      key: item.id, title: item.pull_request.replace("https://github.com/", ""), summary: item.bot + " · Check failed",
+      checkRun: item.check_run, reviewCI: true,
+    }));
+    return [["Approvals", approvals], ["Failed pull request checks", ci], ["Terminals", blocked], ["Group questions and forms", requests],
       ["Webhook reviews", reviews], ["Job completions", completions], ["Parked actions", parks]];
   }
 
@@ -89,6 +93,30 @@
           });
         }
         row.append(content);
+        if (item.reviewCI) {
+          row.className = "ci-review";
+          if (/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/runs\/[0-9]+$/.test(item.checkRun)) {
+            const link = document.createElement("a");
+            link.href = item.checkRun;
+            link.textContent = "Open failed check";
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            row.append(link);
+          }
+          const review = document.createElement("button");
+          review.type = "button";
+          review.textContent = "Mark reviewed";
+          review.addEventListener("click", async () => {
+            review.disabled = true;
+            try {
+              await api("/api/attention/ci/" + item.key + "/review", {});
+              await polling;
+              await refresh();
+            } catch (error) { show("attention-status", error.message); }
+            finally { review.disabled = false; }
+          });
+          row.append(review);
+        }
         list.append(row);
       }
       section.append(heading, list);

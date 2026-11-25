@@ -64,7 +64,7 @@ These exist in the browser workspace ([HerdrWorkspace/README.md](../HerdrWorkspa
 
 ## Other platforms
 
-- There is no iPhone app. A phone cannot reach the bridge today: it answers only on the machine it runs on. `Apps/iOS-seed` keeps starting material for one ([README](../Apps/iOS-seed/README.md)).
+- On iPhone, open the browser workspace in Safari over a trusted connection or add it to the Home Screen. The bridge listens on loopback. The repository includes starting material for a future standalone native app. [iOS seed](../Apps/iOS-seed/README.md)
 - There is no Windows, Linux or Android app. The bridge's browser workspace runs wherever a browser can reach it.
 
 

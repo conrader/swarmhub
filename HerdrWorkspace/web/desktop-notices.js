@@ -83,6 +83,10 @@
   function attentionItems(inbox) {
     return [
       ...inbox.approvals.map((item) => ({key:"approval:" + item.id, terminal:item.terminal})),
+      ...(inbox.ci_failures || []).filter((item) => item.notifications).map((item) => {
+        const agent = app.agents.find((agent) => agent.name === item.agent_name && live(agent));
+        return {key:"ci:" + item.id, terminal:agent && [app.core, agent.address, agent.created_ms]};
+      }),
       ...inbox.requests.map((item) => ({key:"group:" + item.group + "/" + item.id})),
       ...(inbox.webhook_reviews || []).map((item) => ({key:"webhook:" + item.routine + "/" + item.id, terminal:item.terminal})),
     ];

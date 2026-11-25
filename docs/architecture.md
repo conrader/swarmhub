@@ -216,6 +216,6 @@ If SwarmHub cannot open `store.json`, it moves the complete file aside as `store
 
 - A ready-made server: planned, not built. There is no billing and no provisioning.
 - Most of [How bots communicate](bot-communication.md) and of [Approvals](approvals.md): see the tables above.
-- An iPhone app: none. A phone cannot reach the bridge, which answers only on its own machine.
+- The iPhone companion uses Safari or a Home Screen web app. A phone needs a trusted route to the loopback workspace. A standalone native app remains future work.
 - The Mac app sets up this Mac only. On a server, Herdr Core and the first bridge are installed by hand ([Updates](updates.md#first-install-on-a-server)). It installs no agent program anywhere.
 - This document was checked against the source. It was not checked by running every path on a live system; the measured numbers it repeats (start times, limits in seconds) come from the code and from [the bridge's manual](../HerdrWorkspace/README.md).

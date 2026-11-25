@@ -2528,6 +2528,16 @@ try {
     await check('document.getElementById("core-status").textContent === "Herdr Core disconnected" && !document.getElementById("routines-open").disabled');
     await verifyRoutineOutcomes();
     console.log("Chrome showed routine delivery and outcomes separately and opened the saved result offline.");
+  } else if (focus === "ci-review") {
+    await cdp("Emulation.setDeviceMetricsOverride", {width:375,height:812,deviceScaleFactor:1,mobile:true});
+    await check('document.getElementById("attention-count").textContent === "1"');
+    await evaluate('document.getElementById("attention-open").click()');
+    const row = 'document.querySelector("#attention-list .ci-review")';
+    await check(row + '?.textContent.includes("example/repo/pull/42")');
+    assert.equal(await evaluate(row + '.querySelector("a").href'), "https://github.com/example/repo/runs/987");
+    await evaluate(row + '.querySelector("button").click()');
+    await check('!document.querySelector("#attention-list .ci-review") && document.getElementById("attention-count").hidden');
+    console.log("Chrome reviewed the failed check and confirmed the empty inbox.");
   } else if (focus === "desktop-notices") {
     await verifyDesktopNotices();
     console.log("Chrome verified opt-in, muted and focused agents, cross-tab deduplication, and notification click targets.");
