@@ -46,14 +46,32 @@ extension ChatAttachment {
     }
 }
 
+enum ChoiceReply {
+    static let cardKey = "answeredChoiceKey"
+    static let quoteKey = "answeredChoiceQuote"
+
+    static func isYesNo(_ options: [String]) -> Bool {
+        // “Other” opens the same free-text field as the implicit Other button.
+        let labels = options.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return Set(labels.filter { $0 != "other" }) == ["yes", "no"]
+    }
+}
+
 extension ChatMessage {
+    /// A historical card keeps its quote on the user row so queue recovery and retries
+    /// send the same question even if the agent has since moved on.
+    var modelText: String {
+        guard role == .user, let quote = metadata[ChoiceReply.quoteKey] else { return content }
+        return "In reply to “\(quote)”\n\(content)"
+    }
+
     /// Steer bubbles were sent to a running turn, not as a turn of their own.
     var isSteer: Bool { metadata[SteerKey.steer] != nil }
     /// P28: a correction sent as its own message after the answer was stopped (a turn of its own, unlike a steer).
     var isCorrection: Bool { metadata[SteerKey.correction] != nil }
     /// The text the agent receives for this message: typed text plus inline text files; a correction carries its lead line.
     var outgoingText: String {
-        let text = AttachmentEncoder.compose(text: content, attachments: attachments)
+        let text = AttachmentEncoder.compose(text: modelText, attachments: attachments)
         return isCorrection ? SteerCopy.lead + "\n" + text : text
     }
 }

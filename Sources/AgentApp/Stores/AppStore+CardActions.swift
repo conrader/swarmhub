@@ -29,42 +29,66 @@ extension AppStore {
         }
     }
 
-    /// Choices expire as soon as another visible message arrives or the chat starts another turn.
-    func canAnswerChoice(_ source: ChatMessage, target: ConversationActionTarget) -> Bool {
-        guard let (bot, conversation) = actionConversation(target) else { return false }
-        return canAnswerChoice(source, bot: bot, in: conversation)
+    /// Only ordinary binary questions stay open in history. A reply linked to a message
+    /// with several cards needs a block key to identify which one it answered.
+    func choiceStatus(_ source: ChatMessage, target: ConversationActionTarget, key: String,
+                      binary: Bool) -> (picked: String?, enabled: Bool) {
+        let picked = source.metadata[key]
+        guard picked == nil, let (bot, conversation) = actionConversation(target),
+              storeRestoreOffer == nil, !bot.isReadOnlyArchive, source.role == .assistant,
+              !source.isStreaming, source.turnState == nil || source.turnState == .finished,
+              !(conversation is GroupChat) || source.authorID == bot.id,
+              let index = conversation.messages.lastIndex(where: { $0 === source }) else { return (picked, false) }
+
+        let later = conversation.messages.suffix(from: index + 1)
+        guard binary || !later.contains(where: { !$0.isSilent }) else { return (nil, false) }
+        for reply in later where reply.role == .user && reply.replyToID == source.id {
+            if let answeredKey = reply.metadata[ChoiceReply.cardKey] {
+                if answeredKey == key { return (reply.content, false) }
+            } else if binary, !reply.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Older stores and composer replies link to the row, not a particular block.
+                let cards = ChatCardParser.parseVisibleReply(source.content).filter {
+                    switch $0 {
+                    case .choices, .multiChoices, .draft: true
+                    default: false
+                    }
+                }
+                if cards.count <= 1 { return (reply.content, false) }
+            }
+        }
+        return (nil, isIdle(conversation))
     }
 
-    private func canAnswerChoice(_ source: ChatMessage, bot: Bot, in conversation: any Conversation) -> Bool {
-        guard storeRestoreOffer == nil, !bot.isReadOnlyArchive, isIdle(conversation),
-              source.role == .assistant, !source.isStreaming, source.turnState == nil || source.turnState == .finished,
-              conversation.messages.last(where: { !$0.isSilent }) === source else { return false }
-        return !(conversation is GroupChat) || source.authorID == bot.id
-    }
-
-    /// A pick on a choices card, or Send on a draft card, of message `sourceID` in `target`. Refused when the card is
-    /// not a finished reply, has changed since it was shown (`expected`), was already answered, or (in a group) was
-    /// written by another member. Choices also expire after a newer message. A group answer goes to the card's author
-    /// only, as a reply to the card. Send tells the bot "Send it" or supplies the revised draft for the bot to send.
+    /// A card action uses the target captured by its view, independent of the current chat selection.
     @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock,
-                                              choice: ChatChoiceAnswer? = nil, editedDraft: DraftCard? = nil) -> Bool {
+                                              choice: ChatChoiceAnswer? = nil, editedDraft: DraftCard? = nil, shownContent: String? = nil) -> Bool {
         guard let (bot, conversation) = actionConversation(target),
               let source = conversation.messages.first(where: { $0.id == sourceID }),
               source.role == .assistant, !source.isStreaming else { return false }
         if case .group = target, source.authorID != bot.id { return false }
         let blocks = ChatCardParser.parseVisibleReply(source.content)
-        guard blocks.indices.contains(index), blocks[index] == expected else {
+        guard shownContent == nil || shownContent == source.content, blocks.indices.contains(index), blocks[index] == expected else {
             presentError("This card changed. Review the current version before answering it.", reason: .card, bot: bot); return false
         }
+        var question: String?
         let queueChoice: Bool
         let key: String, text: String, value: String
         switch expected {
-        case .choices(_, let options):
-            guard canAnswerChoice(source, bot: bot, in: conversation), let reply = choice?.text(options: options) else { return false }
+        case .choices(let prompt, let options):
+            let binary = ChoiceReply.isYesNo(options)
+            guard choiceStatus(source, target: target, key: "picked.\(index)", binary: binary).enabled,
+                  let reply = choice?.text(options: options) else { return false }
+            if binary {
+                // A marker-style card puts its question in the prose before the options.
+                if !prompt.isEmpty { question = prompt }
+                else if case .markdown(let prose)? = blocks[..<index].last { question = prose }
+                else { question = "Choice \(index + 1) (\(options.joined(separator: " / ")))" }
+            }
             queueChoice = true
             key = "picked.\(index)"; text = reply; value = reply
         case .multiChoices(_, let options):
-            guard canAnswerChoice(source, bot: bot, in: conversation), let reply = choice?.multipleText(options: options) else { return false }
+            guard choiceStatus(source, target: target, key: "picked.\(index)", binary: false).enabled,
+                  let reply = choice?.multipleText(options: options) else { return false }
             queueChoice = true
             key = "picked.\(index)"; text = reply; value = reply
         case .draft(let original):
@@ -83,22 +107,33 @@ extension AppStore {
             }
         default: return false
         }
-        return sendCardReply(text, bot: bot, in: conversation, source: source, key: key, value: value, queueChoice: queueChoice)
+        return sendCardReply(text, bot: bot, in: conversation, source: source, key: key, value: value, queueChoice: queueChoice, question: question)
     }
 
-    @discardableResult func answerInferredChoice(target: ConversationActionTarget, source: ChatMessage, expected: [ChatChoiceOption], answer: ChatChoiceAnswer) -> Bool {
-        guard let (bot, conversation) = actionConversation(target), canAnswerChoice(source, bot: bot, in: conversation),
-              ChatChoiceInference.options(in: source.content) == expected,
-              let reply = answer.text(options: expected.map(\.reply)) else { return false }
-        return sendCardReply(reply, bot: bot, in: conversation, source: source, key: ChatChoiceInference.answerKey, value: reply, queueChoice: true)
+    @discardableResult func answerInferredChoice(target: ConversationActionTarget, source: ChatMessage, shownContent: String, answer: ChatChoiceAnswer) -> Bool {
+        guard source.content == shownContent, let options = ChatChoiceInference.options(in: shownContent),
+              let (bot, conversation) = actionConversation(target),
+              let reply = answer.text(options: options.map(\.reply)) else { return false }
+        let binary = ChoiceReply.isYesNo(options.map(\.label))
+        let key = ChatChoiceInference.answerKey
+        guard choiceStatus(source, target: target, key: key, binary: binary).enabled else { return false }
+        return sendCardReply(reply, bot: bot, in: conversation, source: source, key: key, value: reply,
+                             queueChoice: true, question: binary ? SwarmhubBlock.visibleText(shownContent) : nil)
     }
 
-    private func sendCardReply(_ text: String, bot: Bot, in conversation: any Conversation, source: ChatMessage, key: String, value: String, queueChoice: Bool) -> Bool {
+    private func sendCardReply(_ text: String, bot: Bot, in conversation: any Conversation, source: ChatMessage,
+                               key: String, value: String, queueChoice: Bool, question: String?) -> Bool {
         guard source.metadata[key] == nil else { return false }
+        var metadata = queueChoice ? [ChoiceReply.cardKey: key] : [:]
+        if let question, conversation.messages.last(where: { !$0.isSilent }) !== source {
+            let excerpt = question.trimmingCharacters(in: .whitespacesAndNewlines)
+            let quote = excerpt.count > 1200 ? "…" + String(excerpt.suffix(1200)) : excerpt
+            metadata[ChoiceReply.quoteKey] = "\(bot.name): \(quote)"
+        }
         let accepted = if let group = conversation as? GroupChat {
-            send(text: text, to: group, recipientIDs: [bot.id], sourceMessageID: source.id, queueChoice: queueChoice)
+            send(text: text, to: group, recipientIDs: [bot.id], sourceMessageID: source.id, queueChoice: queueChoice, metadata: metadata)
         } else {
-            send(text: text, bot: bot, conversation: conversation, replyToID: source.id, waitWhenFull: queueChoice)
+            send(text: text, bot: bot, conversation: conversation, replyToID: source.id, waitWhenFull: queueChoice, metadata: metadata)
         }
         if accepted { source.metadata[key] = value; save() }
         return accepted

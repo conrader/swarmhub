@@ -239,7 +239,7 @@ extension AppStore {
         var rows = (conversation as? Bot).map { readableMessages(conversation.messages, for: $0.id) } ?? conversation.messages
         if let last, let index = rows.firstIndex(where: { $0.id == last.id }) { rows = Array(rows[...index]) }
         return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && !AppOnlyLine.isAppOnly($0, knownBotNames: bots.map(\.name)) && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
-            .map { (role: $0.role.rawValue, content: inlineFiles || $0.id != last?.id ? $0.outgoingText : ($0.isCorrection ? SteerCopy.lead + "\n" + $0.content : $0.content)) }
+            .map { (role: $0.role.rawValue, content: inlineFiles || $0.id != last?.id ? $0.outgoingText : ($0.isCorrection ? SteerCopy.lead + "\n" + $0.modelText : $0.modelText)) }
     }
 
     // MARK: Saves

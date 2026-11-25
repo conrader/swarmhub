@@ -360,10 +360,10 @@ import UserNotifications
                                  metadata: [String: String] = [:]) -> Bool {
         guard storeRestoreOffer == nil, !bot.isReadOnlyArchive, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         guard isIdle(conversation) else { return false }
-        if bot.backend == .herdr, !validateHerdrDraft(text, attachments: attachments, bot: bot) { return false }
+        let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
+        if bot.backend == .herdr, !validateHerdrDraft(user.modelText, attachments: attachments, bot: bot) { return false }
         let full = turnCapacityProblem(for: [bot])
         if let full, !waitWhenFull { presentError(full, reason: .capacity, bot: bot); return false }
-        let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
         do {
             try validateArtifactAccess(user, botID: bot.id)

@@ -108,7 +108,7 @@ A reply can use these Markdown conventions. The app draws them as cards; elsewhe
 | Link pills | A bare `http(s)://` URL in prose. | A pill per link under the paragraph. |
 | Image | `![alt](https://…)` or `![alt](data:image/…)`. | Shown inline. |
 
-Use **Other** to write your own answer. Choices are active only on the latest finished reply in Mac chat.
+Use **Other** to write your own answer. Unanswered Yes/No questions on finished replies stay available when you return to a chat. Answering an older card quotes the question and sends the reply to its author. Other choices are active only on the latest finished reply.
 
 When asking for approval before sending an email or outbound message, Herdr bots use a `draft` fence. The `channel:` line can name a service such as Email, WhatsApp, or Slack. The bot handles delivery after you click **Send**.
 

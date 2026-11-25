@@ -102,8 +102,8 @@ extension AppStore {
     /// While a member answers, the text steers that member's run instead.
     /// `recipientIDs` (a card's author) overrides the mentions and never steers; `sourceMessageID` is the card.
     /// One round at a time per group; direct chats with the same bots stay free. At the turn limit the composer's
-    /// message waits as the group's next message (a card's send is refused).
-    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil, queueChoice: Bool = false) -> Bool {
+    /// message and choice replies wait as the group's next messages. Draft sends are refused.
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil, queueChoice: Bool = false, metadata: [String: String] = [:]) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         guard isIdle(group) else { return recipientIDs == nil && steer(text: text, attachments: attachments, group: group) }
         let members = routingMembers(of: group)
@@ -115,9 +115,10 @@ extension AppStore {
         }
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
+        let message = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
         let recipients = recipientIDs ?? GroupRouting.recipients(of: text, members: members)
         for bot in bots where recipients.contains(bot.id) && bot.backend == .herdr {
-            guard validateGroupDraft(text, attachments: attachments, bot: bot) else { return false }
+            guard validateGroupDraft(message.modelText, attachments: attachments, bot: bot) else { return false }
         }
         let full = turnCapacityProblem(for: recipients.compactMap { id in bots.first { $0.id == id } })
         if let full, let recipientIDs, !queueChoice {
@@ -126,7 +127,6 @@ extension AppStore {
             return false
         }
         steerHint = nil
-        let message = ChatMessage(role: .user, content: text, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
         if let recipientIDs {
             message.metadata[TurnWaitCopy.recipients] = recipientIDs.map(\.uuidString).joined(separator: ",")
         }

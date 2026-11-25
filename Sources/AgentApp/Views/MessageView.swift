@@ -22,7 +22,12 @@ struct MessageView: View {
         HStack(alignment: .top, spacing: 0) {
             if mine { Spacer(minLength: 110) }
             VStack(alignment: mine ? .trailing : .leading, spacing: 7) {
-                if let repliedMessage { HStack(spacing: 5) { Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24); Text(store.displayLine(repliedMessage)).lineLimit(1) }.font(.caption).foregroundStyle(.secondary) }
+                if let quote = message.metadata[ChoiceReply.quoteKey] ?? repliedMessage.map({ store.displayLine($0) }) {
+                    HStack(spacing: 5) {
+                        Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24)
+                        Text(quote).lineLimit(2)
+                    }.font(.caption).foregroundStyle(.secondary).help(quote)
+                }
                 if let caption = SteerCopy.caption(message) {
                     Label(caption, systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
                 }

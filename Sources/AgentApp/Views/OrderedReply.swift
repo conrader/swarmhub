@@ -25,10 +25,15 @@ struct OrderedReply: View {
             // P29: one row while streaming and after, so an open row stays open when the turn ends.
             ActivityRow(message: message, expanded: stepsExpanded)
         }
-        if let actionTarget, message.metadata[ChatChoiceInference.answerKey] == nil,
-           store.canAnswerChoice(message, target: actionTarget), let options = ChatChoiceInference.options(in: message.content) {
-            ChoicesCard(prompt: "", options: options, picked: nil, enabled: true) { answer in
-                store.answerInferredChoice(target: actionTarget, source: message, expected: options, answer: answer)
+        let shownContent = message.content
+        if let actionTarget, !message.isStreaming, message.turnState == nil || message.turnState == .finished,
+           let options = ChatChoiceInference.options(in: shownContent) {
+            let status = store.choiceStatus(message, target: actionTarget, key: ChatChoiceInference.answerKey,
+                                            binary: ChoiceReply.isYesNo(options.map(\.label)))
+            if status.enabled || status.picked != nil {
+                ChoicesCard(prompt: "", options: options, picked: status.picked, enabled: status.enabled) { answer in
+                    store.answerInferredChoice(target: actionTarget, source: message, shownContent: shownContent, answer: answer)
+                }
             }
         }
     }

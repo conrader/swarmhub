@@ -12,7 +12,8 @@ struct MarkdownContent: View {
     /// has in the whole reply (`ReplyLayout.blockIndexes`), which is what a card's answer is stored and checked by.
     var text: String? = nil; var indexes: [Int]? = nil
     var body: some View {
-        let source = text ?? message.content
+        let shownContent = message.content
+        let source = text ?? shownContent
         let blocks = ChatCardParser.parseVisibleReply(source)
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
@@ -21,16 +22,17 @@ struct MarkdownContent: View {
                 case .markdown(let text): ProseBlock(text: text)
                 case .code(_, let body): CodeBlock(code: body)
                 case .choices(let prompt, let options):
-                    let picked = message.metadata["picked.\(index)"]
-                    ChoicesCard(prompt: prompt, options: options.map { ChatChoiceOption(label: $0, reply: $0) }, picked: picked,
-                                enabled: index >= 0 && picked == nil && actionTarget.map { store.canAnswerChoice(message, target: $0) } == true) { answer in
+                    let key = "picked.\(index)"
+                    let status = actionTarget.map { store.choiceStatus(message, target: $0, key: key, binary: ChoiceReply.isYesNo(options)) }
+                    ChoicesCard(prompt: prompt, options: options.map { ChatChoiceOption(label: $0, reply: $0) }, picked: status?.picked ?? message.metadata[key],
+                                enabled: index >= 0 && status?.enabled == true) { answer in
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
-                                                expected: .choices(prompt: prompt, options: options), choice: answer)
+                                                expected: block, choice: answer, shownContent: shownContent)
                     }
                 case .multiChoices(let prompt, let options):
                     MultipleChoiceCard(prompt: prompt, options: options, picked: message.metadata["picked.\(index)"],
-                        enabled: index >= 0 && actionTarget.map { store.canAnswerChoice(message, target: $0) } == true) { answer in
+                        enabled: index >= 0 && actionTarget.map { store.choiceStatus(message, target: $0, key: "picked.\(index)", binary: false).enabled } == true) { answer in
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index, expected: block, choice: answer)
                     }.id(options)
@@ -264,6 +266,9 @@ struct ChoicesCard: View {
                 optionButton(option.label, selected: picked == option.reply) {
                     if isOther(option) { openOther() } else { answer(.option(option.reply)) }
                 }
+            }
+            if let picked, !options.contains(where: { $0.reply == picked }) {
+                Label(picked, systemImage: "checkmark")
             }
             if enabled && !options.contains(where: isOther) { optionButton("Other", action: openOther) }
             if enabled && writingOther {

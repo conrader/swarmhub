@@ -18,7 +18,7 @@ import Testing
         let target = ConversationActionTarget.group(groupID: group.id, botID: author.id)
         func click() throws -> Bool {
             if serverCap {
-                return store.answerInferredChoice(target: target, source: card, expected: try #require(ChatChoiceInference.options(in: card.content)), answer: .option("Yes"))
+                return store.answerInferredChoice(target: target, source: card, shownContent: card.content, answer: .option("Yes"))
             }
             return store.performCardAction(target: target, sourceID: card.id, index: 0,
                 expected: try #require(ChatCardParser.parse(card.content).first), choice: .option("One"))
@@ -65,25 +65,25 @@ import Testing
         let card = ChatMessage(role: .assistant, content: "Which way?\n1. Build\n2. Ask Infra", isStreaming: true, turnState: .incomplete)
         let bot = Bot(name: "Planner", messages: [card]); store.bots = [bot]
         let target = ConversationActionTarget.bot(botID: bot.id)
-        let options = try #require(ChatChoiceInference.options(in: card.content))
+        let shownContent = card.content
 
-        #expect(!store.answerInferredChoice(target: target, source: card, expected: options, answer: .option("2")))
+        #expect(!store.answerInferredChoice(target: target, source: card, shownContent: shownContent, answer: .option("2")))
         card.isStreaming = false
-        #expect(!store.canAnswerChoice(card, target: target), "an interrupted turn is not a final answer")
+        #expect(!store.choiceStatus(card, target: target, key: ChatChoiceInference.answerKey, binary: false).enabled, "an interrupted turn is not a final answer")
         card.turnState = .finished
-        #expect(store.canAnswerChoice(card, target: target))
-        #expect(!store.answerInferredChoice(target: target, source: card, expected: options, answer: .option("Ask Infra")))
-        #expect(!store.answerInferredChoice(target: target, source: card, expected: options, answer: .other(" \n")))
-        #expect(store.answerInferredChoice(target: target, source: card, expected: options, answer: .option("2")))
-        #expect(!store.canAnswerChoice(card, target: target))
-        #expect(!store.answerInferredChoice(target: target, source: card, expected: options, answer: .option("1")))
+        #expect(store.choiceStatus(card, target: target, key: ChatChoiceInference.answerKey, binary: false).enabled)
+        #expect(!store.answerInferredChoice(target: target, source: card, shownContent: shownContent, answer: .option("Ask Infra")))
+        #expect(!store.answerInferredChoice(target: target, source: card, shownContent: shownContent, answer: .other(" \n")))
+        #expect(store.answerInferredChoice(target: target, source: card, shownContent: shownContent, answer: .option("2")))
+        #expect(!store.choiceStatus(card, target: target, key: ChatChoiceInference.answerKey, binary: false).enabled)
+        #expect(!store.answerInferredChoice(target: target, source: card, shownContent: shownContent, answer: .option("1")))
         try await waitUntil { !store.anyTurnRunning }
         #expect(bot.messages.filter { $0.role == .user }.map(\.content) == ["2"])
         #expect(bot.messages.first { $0.role == .user }?.replyToID == card.id)
         #expect(card.metadata[ChatChoiceInference.answerKey] == "2")
     }
 
-    @Test func choiceActionsRejectOlderMessagesAndOtherRepliesToTheAskingGroupMember() async throws {
+    @Test func nonBinaryChoicesExpireAndOtherRepliesToTheAskingGroupMember() async throws {
         let backend = GroupBackend(name: "B")
         let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
         let a = Bot(name: "A"), b = Bot(name: "B"); store.bots = [a, b]
@@ -94,13 +94,11 @@ import Testing
         let aTarget = ConversationActionTarget.group(groupID: group.id, botID: a.id)
         let bTarget = ConversationActionTarget.group(groupID: group.id, botID: b.id)
         let card = try #require(ChatCardParser.parse(explicit.content).first)
-        let earlierOptions = try #require(ChatChoiceInference.options(in: inferred.content))
-        let latestOptions = try #require(ChatChoiceInference.options(in: latest.content))
 
         #expect(!store.performCardAction(target: aTarget, sourceID: explicit.id, index: 0, expected: card, choice: .option("One")))
-        #expect(!store.answerInferredChoice(target: aTarget, source: inferred, expected: earlierOptions, answer: .option("Yes")))
-        #expect(!store.answerInferredChoice(target: aTarget, source: latest, expected: latestOptions, answer: .option("Yes")))
-        #expect(store.answerInferredChoice(target: bTarget, source: latest, expected: latestOptions, answer: .other(" Wait until Monday. ")))
+        #expect(!store.answerInferredChoice(target: bTarget, source: inferred, shownContent: inferred.content, answer: .option("Yes")))
+        #expect(!store.answerInferredChoice(target: aTarget, source: latest, shownContent: latest.content, answer: .option("Yes")))
+        #expect(store.answerInferredChoice(target: bTarget, source: latest, shownContent: latest.content, answer: .other(" Wait until Monday. ")))
         try await waitUntil { !store.anyTurnRunning }
         #expect(backend.sent.all.count == 1 && backend.sent.all.first?.session.contains(b.id.uuidString.lowercased()) == true)
         #expect(group.messages.filter { $0.role == .user }.map(\.content) == ["Wait until Monday."])

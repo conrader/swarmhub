@@ -56,7 +56,7 @@ enum GroupRouting {
 
     static func herdrContext(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage],
                              current: ChatMessage, limit: Int, userName: String) throws -> String {
-        let message = "\(userName): \(current.content)"
+        let message = "\(userName): \(current.modelText)"
         try HerdrClient.validateMessage(message, limit: limit)
         let room = limit - HerdrClient.plain(message, bytes: Int.max).utf8.count - 1
         let previous = messages.prefix { $0.id != current.id }
@@ -78,11 +78,19 @@ enum GroupRouting {
     /// backend splits long text into parts and guards the request size as in 1:1 chats.
     static func context(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage], current: UUID? = nil, limit: Int = contextLimit, userName: String = defaultUserName) -> String {
         let names = Dictionary(members.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        let start = (messages.lastIndex { $0.role == .assistant && $0.authorID == bot.id && !$0.content.isEmpty }).map { $0 + 1 } ?? 0
-        let lines: [(label: Int, line: String, files: String?)] = messages[start...].compactMap { message in
+        // A choice goes to one recipient. A later queued message (or a reply appended
+        // after this bubble) belongs to a different round.
+        let transcript: ArraySlice<ChatMessage>
+        if let current, let index = messages.firstIndex(where: { $0.id == current }), messages[index].metadata[ChoiceReply.cardKey] != nil {
+            transcript = messages[...index]
+        } else {
+            transcript = messages[...]
+        }
+        let start = (transcript.lastIndex { $0.role == .assistant && $0.authorID == bot.id && !$0.content.isEmpty }).map { $0 + 1 } ?? transcript.startIndex
+        let lines: [(label: Int, line: String, files: String?)] = transcript[start...].compactMap { message in
             let isCurrent = current != nil && message.id == current
             let files = isCurrent ? AttachmentEncoder.compose(text: "", attachments: message.attachments) : ""
-            let text = (isCurrent ? message.content : message.outgoingText).trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = (isCurrent ? message.modelText : message.outgoingText).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty || !files.isEmpty, !message.isSteer, message.role != .system else { return nil }
             let author = message.role == .user ? userName : message.authorID.flatMap { names[$0] } ?? "Bot"
             return (author.count + 1, text.isEmpty ? "\(author):" : "\(author): \(text)", files.isEmpty ? nil : files)
