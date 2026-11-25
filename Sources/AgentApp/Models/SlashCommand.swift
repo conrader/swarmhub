@@ -2,7 +2,9 @@ import Foundation
 
 /// Only a single-line draft beginning with a complete command token is executable.
 enum SlashCommand: Equatable {
-    case commands, goalUsage, start(String), status, stop
+    case commands, goalUsage, invalidStepLimit, start(String, stepLimit: Int? = nil), status, stop
+
+    static let stepLimitUsage = "Use /goal --steps N <objective>, with a positive whole number for N."
 
     enum Name: String, CaseIterable {
         case goal = "/goal"
@@ -10,7 +12,7 @@ enum SlashCommand: Equatable {
 
         var usage: String {
             switch self {
-            case .goal: "<objective> · status · stop"
+            case .goal: "[--steps N] <objective> · status · stop"
             case .commands: "List chat commands"
             }
         }
@@ -30,7 +32,15 @@ enum SlashCommand: Equatable {
             case "": return .goalUsage
             case "status": return .status
             case "stop": return .stop
-            default: return .start(argument)
+            default:
+                let fields = argument.split(maxSplits: 2, whereSeparator: \.isWhitespace)
+                // The native text view can replace two typed hyphens with a single dash.
+                let flags = ["--steps", "—steps", "–steps"]
+                let flag = String(fields[0])
+                if flags.contains(where: { flag.hasPrefix($0 + "=") }) { return .invalidStepLimit }
+                guard flags.contains(flag) else { return .start(argument) }
+                guard fields.count == 3, let limit = Int(fields[1]), limit > 0 else { return .invalidStepLimit }
+                return .start(String(fields[2]), stepLimit: limit)
             }
         }
     }
@@ -73,7 +83,8 @@ enum ComposerSubmission: Equatable {
         switch SlashCommand.parse(draft) {
         case nil: self = .message
         case .commands?: self = .edit("/", hint: nil)
-        case .goalUsage?: self = .edit("/goal ", hint: "Enter an objective after /goal.")
+        case .goalUsage?: self = .edit("/goal ", hint: "Enter an objective, or use /goal --steps 3 <objective> to limit goal turns.")
+        case .invalidStepLimit?: self = .notice(SlashCommand.stepLimitUsage)
         case .stop?: self = .goal(.stop)
         case .status?: self = .goal(.status)
         case let command?: self = .goal(command)

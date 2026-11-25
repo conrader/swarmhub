@@ -1,5 +1,6 @@
 # Changes since SwarmHub 0.8.16
 
+- Set a step limit when starting a goal. For example, `/goal --steps 3 review the failing tests` allows up to three goal turns. The goal card shows the count and keeps the last result when it stops.
 - Codex now reports the current session model in the chat header. Each new reply keeps the model setting observed for its turn. A reply marked **Routed to** records an explicit model change for that turn.
 - OpenCode chats show the estimated session cost beside the model. Open **Details → Model → Session usage** to see the estimate and cumulative token count.
 - Codex chats show the percentage of the context window used after a model call. Open **Details → Model → Session usage** for the exact token counts and the conversation total.

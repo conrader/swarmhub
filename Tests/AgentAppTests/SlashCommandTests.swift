@@ -10,6 +10,13 @@ struct SlashCommandTests {
         #expect(SlashCommand.parse("/commands ") == .commands)
         #expect(SlashCommand.parse("/goal") == .goalUsage)
         #expect(SlashCommand.parse("/goal  ship  this 📦 ") == .start("ship  this 📦"))
+        #expect(SlashCommand.parse("/goal --steps 2 check  logs") == .start("check  logs", stepLimit: 2))
+        #expect(SlashCommand.parse("/goal —steps 1 run a check") == .start("run a check", stepLimit: 1))
+        #expect(SlashCommand.parse("/goal –steps 1 run a check") == .start("run a check", stepLimit: 1))
+        #expect(SlashCommand.parse("/goal --steps-extra work") == .start("--steps-extra work"))
+        for draft in ["/goal --steps=2 check", "/goal --steps", "/goal --steps 2", "/goal --steps 0 work", "/goal --steps 999999999999999999999999 work"] {
+            #expect(ComposerSubmission(draft: draft, hasAttachments: false) == .notice(SlashCommand.stepLimitUsage))
+        }
         #expect(SlashCommand.parse("/goal status") == .status)
         #expect(SlashCommand.parse("/goal\tstop") == .stop)
     }
@@ -35,7 +42,7 @@ struct SlashCommandTests {
 
     @Test func composerRoutesNativeControlsBeforeOrdinaryDelivery() {
         #expect(ComposerSubmission(draft: "/commands", hasAttachments: true) == .edit("/", hint: nil))
-        #expect(ComposerSubmission(draft: "/goal ", hasAttachments: false) == .edit("/goal ", hint: "Enter an objective after /goal."))
+        #expect(ComposerSubmission(draft: "/goal ", hasAttachments: false) == .edit("/goal ", hint: "Enter an objective, or use /goal --steps 3 <objective> to limit goal turns."))
         #expect(ComposerSubmission(draft: "/goal write tests", hasAttachments: false) == .goal(.start("write tests")))
         #expect(ComposerSubmission(draft: "/goal stop", hasAttachments: false) == .goal(.stop))
         #expect(ComposerSubmission(draft: "/goal status", hasAttachments: false) == .goal(.status))

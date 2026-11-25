@@ -14,6 +14,7 @@ struct GoalStatusView: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Goal · \(status)").font(.caption.weight(.semibold))
+                if let steps = goal.stepProgress { Text(steps).font(.caption) }
                 Text(goal.objective).lineLimit(2).help(goal.objective)
                 if !goal.detail.isEmpty { Text(goal.detail).font(.caption).lineLimit(2).help(goal.detail) }
             }.accessibilityElement(children: .combine)

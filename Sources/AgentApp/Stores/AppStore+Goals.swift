@@ -9,8 +9,9 @@ extension AppStore {
         else { return "Goals require a writable workspace bot chat." }
 
         switch command {
-        case .start(let objective):
+        case .start(let objective, let stepLimit):
             if bot.goal?.state.active == true {
+                guard stepLimit == nil else { return "Stop the current goal before starting one with a new step limit." }
                 if let turn = turn(in: bot), !turn.steerAvailable || turn.stopping {
                     return "This goal step cannot take live guidance. Wait for it to finish before updating the goal."
                 }
@@ -18,7 +19,7 @@ extension AppStore {
                     ? nil : "The goal update could not be submitted."
             }
             guard attachments.isEmpty else { return "Start the goal, then attach files to a follow-up." }
-            var goal = ChatGoal(objective: objective, destination: goalDestination(for: bot))
+            var goal = ChatGoal(objective: objective, destination: goalDestination(for: bot), stepLimit: stepLimit)
             // Check the full first delivery while the person still has their draft.
             goal.initialAttachments = attachments.isEmpty ? nil : attachments
             let probe = UUID()
@@ -35,13 +36,14 @@ extension AppStore {
             if let attempt = goal.attempt, turns.nextMessages.contains(where: { $0.conversation === bot && $0.bubble.metadata[GoalKey.attempt] == attempt.uuidString }) { state = "Waiting for capacity" }
             else if goal.state == .running && herdrWaits(bot).waits { state = "Waiting for you" }
             else { state = goal.state.rawValue.capitalized }
-            return "\(state) · \(goal.objective)"
+            return [state, goal.stepProgress, goal.objective].compactMap { $0 }.joined(separator: " · ")
         case .stop:
             guard let goal = bot.goal, goal.state.active else { return "This chat has no active goal." }
             stopGoal(in: bot)
             if turns.saveFailing { return "The goal stopped in this window, but the stop could not be saved." }
+        case .invalidStepLimit: return SlashCommand.stepLimitUsage
         case .commands, .goalUsage:
-            return "Use /goal <objective>, /goal status, or /goal stop."
+            return "Use /goal [--steps N] <objective>, /goal status, or /goal stop."
         }
         return nil
     }
@@ -76,6 +78,11 @@ extension AppStore {
             guard var goal = bot.goal, goal.state == .queued, turns.scheduledGoals.contains(goal.id),
                   isIdle(bot), turns.pendingInterrupts[bot.id] == nil, !hasWaitingTurn(in: bot), turnCapacityProblem(for: [bot]) == nil else { continue }
             turns.scheduledGoals.remove(goal.id)
+            if goal.stopAtStepLimit() {
+                bot.goal = goal
+                save()
+                continue
+            }
             guard goalDestinationMatches(bot) else {
                 bot.goal?.wait("The workspace or chat changed. Stop this goal before starting one here.")
                 save()
