@@ -244,7 +244,6 @@ def verify_media(window):
 def steer_reopen(source_app):
     import base64
     import hashlib
-    import Quartz
 
     token = uuid.uuid4().hex
     bots = []
@@ -357,11 +356,8 @@ def steer_reopen(source_app):
                         field = composer()
                         if field is None or ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
                             raise RuntimeError("Could not focus the foreground chat composer")
-                        pid = ax.AXUIElementGetPid(field, None)[1]
-                        for pressed in (True, False):
-                            event = Quartz.CGEventCreateKeyboardEvent(None, 0, pressed)
-                            Quartz.CGEventKeyboardSetUnicodeString(event, len(draft), draft)
-                            Quartz.CGEventPostToPid(pid, event)
+                        if ax.AXUIElementSetAttributeValue(field, "AXSelectedText", draft) != 0:
+                            raise RuntimeError("Could not enter the foreground chat draft")
                         wait_for("foreground draft", lambda: attribute(composer(), "AXValue") == draft)
                         online = True
                         wait_for("both replies saved", lambda: all(
