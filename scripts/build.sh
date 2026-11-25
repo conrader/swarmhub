@@ -2,8 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-XCODE_DIR="/Applications/Xcode-16.2.0.app/Contents/Developer"
-[[ -d "$XCODE_DIR" ]] || XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+XCODE_DIR="${DEVELOPER_DIR:-$(/usr/bin/xcode-select -p 2>/dev/null || true)}"
+if [[ ! -x "$XCODE_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc" ]]; then
+  XCODE_DIR="/Applications/Xcode-16.2.0.app/Contents/Developer"
+  [[ -d "$XCODE_DIR" ]] || XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+fi
 TOOLCHAIN="$XCODE_DIR/Toolchains/XcodeDefault.xctoolchain"
 SDK="$XCODE_DIR/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
 cd "$ROOT_DIR"
@@ -14,37 +17,53 @@ if [[ "$BUILD_CONFIGURATION" != debug && "$BUILD_CONFIGURATION" != release ]]; t
   exit 1
 fi
 
+TARGETS=("$(uname -m)")
+ARCH_FLAGS=()
+if [[ "${SWARMHUB_BUILD_UNIVERSAL:-}" == 1 ]]; then
+  TARGETS=(arm64 x86_64)
+  ARCH_FLAGS=(--arch arm64 --arch x86_64)
+fi
+
 # SWARMHUB_FORCE_SWIFTC=1 (or the older TORVLI_FORCE_SWIFTC=1) takes the swiftc fallback even when xcrun works, so both paths can be checked.
 if [[ "${SWARMHUB_FORCE_SWIFTC:-${TORVLI_FORCE_SWIFTC:-}}" != "1" ]] && /usr/bin/xcrun --sdk macosx --show-sdk-path >/dev/null 2>&1; then
-  swift build --configuration "$BUILD_CONFIGURATION"
-  BUILD_DIR="$(swift build --configuration "$BUILD_CONFIGURATION" --show-bin-path)"
+  swift build "${ARCH_FLAGS[@]}" --configuration "$BUILD_CONFIGURATION"
+  BUILD_DIR="$(swift build "${ARCH_FLAGS[@]}" --configuration "$BUILD_CONFIGURATION" --show-bin-path)"
   ensure_sparkle
 else
   echo "Using the swiftc fallback ($XCODE_DIR)."
   ensure_sparkle
   BUILD_DIR="$ROOT_DIR/.build/$BUILD_CONFIGURATION"
-  KIT_DIR=.build/swiftc-kit
   OPTIMIZATION=()
   APP_DEFINES=()
   [[ "$BUILD_CONFIGURATION" != debug ]] || APP_DEFINES=(-D DEBUG)
   [[ "$BUILD_CONFIGURATION" != release ]] || OPTIMIZATION=(-O)
-  mkdir -p "$BUILD_DIR" "$KIT_DIR" /tmp/agentapp-module-cache
-  # The vendored BotAvatarsKit is its own Swift 5 module; the app stays Swift 6.
-  "$TOOLCHAIN/usr/bin/swiftc" \
-    -swift-version 5 -target arm64-apple-macosx14.0 -sdk "$SDK" -parse-as-library "${OPTIMIZATION[@]}" \
-    -module-cache-path /tmp/agentapp-module-cache -module-name BotAvatarsKit \
-    -emit-module -emit-module-path "$KIT_DIR/BotAvatarsKit.swiftmodule" \
-    -emit-library -static -o "$KIT_DIR/libBotAvatarsKit.a" \
-    $(find Vendor/BotAvatarsKit/Sources/BotAvatarsKit -name '*.swift' -print)
-  "$TOOLCHAIN/usr/bin/swiftc" \
-    -swift-version 6 -target arm64-apple-macosx14.0 -sdk "$SDK" "${OPTIMIZATION[@]}" "${APP_DEFINES[@]}" \
-    -module-cache-path /tmp/agentapp-module-cache -module-name AgentApp \
-    -I "$KIT_DIR" -L "$KIT_DIR" -lBotAvatarsKit \
-    -lsqlite3 \
-    -F "${SPARKLE_FRAMEWORK:h}" -framework Sparkle \
-    -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' \
-    -Xlinker -rpath -Xlinker '@executable_path' \
-    -o "$BUILD_DIR/AgentApp" $(find Sources/AgentApp -name '*.swift' -print)
+  BINARIES=()
+  for TARGET in "${TARGETS[@]}"; do
+    KIT_DIR="$ROOT_DIR/.build/swiftc-kit/$TARGET/$BUILD_CONFIGURATION"
+    mkdir -p "$BUILD_DIR" "$KIT_DIR" /tmp/agentapp-module-cache
+    # The vendored BotAvatarsKit is its own Swift 5 module; the app stays Swift 6.
+    "$TOOLCHAIN/usr/bin/swiftc" \
+      -swift-version 5 -target "$TARGET-apple-macosx14.0" -sdk "$SDK" -parse-as-library "${OPTIMIZATION[@]}" \
+      -module-cache-path /tmp/agentapp-module-cache -module-name BotAvatarsKit \
+      -emit-module -emit-module-path "$KIT_DIR/BotAvatarsKit.swiftmodule" \
+      -emit-library -static -o "$KIT_DIR/libBotAvatarsKit.a" \
+      $(find Vendor/BotAvatarsKit/Sources/BotAvatarsKit -name '*.swift' -print)
+    "$TOOLCHAIN/usr/bin/swiftc" \
+      -swift-version 6 -target "$TARGET-apple-macosx14.0" -sdk "$SDK" "${OPTIMIZATION[@]}" "${APP_DEFINES[@]}" \
+      -module-cache-path /tmp/agentapp-module-cache -module-name AgentApp \
+      -I "$KIT_DIR" -L "$KIT_DIR" -lBotAvatarsKit \
+      -lsqlite3 \
+      -F "${SPARKLE_FRAMEWORK:h}" -framework Sparkle \
+      -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' \
+      -Xlinker -rpath -Xlinker '@executable_path' \
+      -o "$KIT_DIR/AgentApp" $(find Sources/AgentApp -name '*.swift' -print)
+    BINARIES+=("$KIT_DIR/AgentApp")
+  done
+  if (( ${#BINARIES[@]} == 1 )); then
+    cp "${BINARIES[1]}" "$BUILD_DIR/AgentApp"
+  else
+    /usr/bin/lipo -create "${BINARIES[@]}" -output "$BUILD_DIR/AgentApp"
+  fi
   mkdir -p "$BUILD_DIR/AgentApp.resources"
   rm -rf "$BUILD_DIR/AgentApp.resources/Avatars"
   rm -rf "$BUILD_DIR/AgentApp.resources/releases"

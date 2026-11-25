@@ -144,6 +144,8 @@ For whoever publishes SwarmHub. A release is built on the Mac that holds the key
 
 Do not change a file after it is signed.
 
+Release packaging builds one app executable for Apple silicon and Intel, verifies both slices, then signs the bundle. The signed workspace programs remain separate downloads for each server architecture.
+
 ### Rehearsing without credentials
 
 ```sh
@@ -151,6 +153,16 @@ Tests/Scripts/update-rehearsal.sh
 ```
 
 This runs a real update with nothing of yours: two scratch builds with their own bundle identifier and home folder, a throwaway key in a file, and a feed on the Mac's loopback address. The older build must refuse an archive signed with a stranger's key and then install the properly signed one when it quits. The scratch app opens hidden. It takes a few minutes.
+
+To test the upgrade from a specific published version on a logged-in Mac, supply its original app ZIP. The rehearsal keeps the original executable and version in a scratch copy, gives both copies a private app identity and uses a throwaway signing key.
+
+```sh
+SWARMHUB_REHEARSAL_BASELINE_ZIP="/path/to/published-SwarmHub.zip" \
+SWARMHUB_REHEARSAL_CANDIDATE_ZIP="/path/to/candidate-SwarmHub.zip" \
+Tests/Scripts/update-rehearsal.sh
+```
+
+Omit the candidate ZIP to build from the checkout. The test checks that the older app fetches the archive with the incorrect signature, keeps the old build, and installs the same candidate under the trusted signature. It compares the installed executable with the candidate and verifies its code signature and launch. Use the release checks above for the production identity, notarization and public feed.
 
 `HerdrWorkspace/tests/update_smoke.py` does the same for a server: an isolated Herdr Core, a workspace on its own port and data folder, a local releases folder and a throwaway key. It covers an unsigned release, a damaged program, a program that reports the wrong version, an update, a replay, going back, an update handed over by an app, a version that cannot start and a version that hangs.
 

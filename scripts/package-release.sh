@@ -26,7 +26,9 @@ if [[ "$BUILD_CONFIGURATION" != release && "${SWARMHUB_REHEARSAL_PACKAGE:-}" != 
   echo "ERROR: Developer packages need a separate rehearsal identity and scratch directory." >&2
   exit 1
 fi
-SWARMHUB_BUILD_CONFIGURATION="$BUILD_CONFIGURATION" "$ROOT_DIR/scripts/build.sh"
+UNIVERSAL=0
+[[ "$BUILD_CONFIGURATION" != release ]] || UNIVERSAL=1
+SWARMHUB_BUILD_UNIVERSAL="$UNIVERSAL" SWARMHUB_BUILD_CONFIGURATION="$BUILD_CONFIGURATION" "$ROOT_DIR/scripts/build.sh"
 BUILD_DIR="$(cat "$ROOT_DIR/.build/agentapp-bin-path")"
 source "$ROOT_DIR/scripts/sparkle-tools.sh"
 source "$ROOT_DIR/scripts/unregister-app.sh"
@@ -55,7 +57,12 @@ fi
 mkdir -p "$ARCHIVE_DIR"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CONFIGURED_PLIST")"
 BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$CONFIGURED_PLIST")"
-ARCHITECTURES="$(/usr/bin/lipo -archs "$BUILD_DIR/AgentApp" | tr ' ' '-')"
+SLICES=($(/usr/bin/lipo -archs "$BUILD_DIR/AgentApp"))
+if [[ "$UNIVERSAL" == 1 ]] && (( ! ${SLICES[(Ie)arm64]} || ! ${SLICES[(Ie)x86_64]} )); then
+  echo "ERROR: release builds need arm64 and x86_64. Found: ${SLICES[*]}" >&2
+  exit 1
+fi
+ARCHITECTURES="${(j:-:)SLICES}"
 ZIP_PATH="$ARCHIVE_DIR/$APP_NAME-$VERSION-$BUILD_NUMBER-${SOURCE_SHA}${DIRTY_SUFFIX}-$ARCHITECTURES.zip"
 
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Frameworks"
