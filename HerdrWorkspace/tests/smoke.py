@@ -2458,6 +2458,21 @@ def smoke(hc, bridge, chrome=None):
                     browser = ["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, temp] if chrome else None
                     opencode_reply(root, bridge, request, core, browser)
                     return
+                if focus == "job-completion":
+                    owner = "background-qa"
+                    request("/api/bots", {"bots":[{"id":owner,"name":"Background QA","takes_messages":False}]})
+                    with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
+                        db.execute("INSERT INTO jobs(id,owner_bot_id,project,brief,workdir,requested_runtime,submit_key,payload_digest,created_ms) VALUES(?,?,1,'Check fixture','/tmp','{}','demo',?,10)",
+                                   ("fixture-job",owner,"a"*64))
+                        runtime = json.dumps({"provider":"codex","worker_reason":"lease_expired"})
+                        db.execute("INSERT INTO job_attempts(job_id,attempt,status,host_id,lease_id,requested_runtime,verdict,exit_reason) VALUES('fixture-job',1,'interrupted','fixture','lease',?,'interrupted','interrupted')", (runtime,))
+                        db.execute("INSERT INTO job_completions(job_id,attempt,owner_bot_id,expected_next_action,created_ms) VALUES('fixture-job',1,?,'review_interruption',123)",(owner,))
+                    entry, = request("/api/attention")["completions"]
+                    assert entry["owner_name"] == "Background QA" and entry["worker_reason"] == "lease_expired"
+                    if chrome:
+                        subprocess.run(["node",str(Path(__file__).with_name("browser.mjs")),chrome,base,token,temp],check=True,timeout=85)
+                    assert request("/api/attention")["completions"][0]["state"] == "pending"
+                    return
                 if focus == "ci-review":
                     request("/api/bots", {"bots":[{"id":"ci-review","name":"CI Reviewer"}]})
                     schedule = {"kind":"ci","url":"https://github.com/example/repo/pull/42",

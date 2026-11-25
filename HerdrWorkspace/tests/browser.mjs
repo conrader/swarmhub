@@ -2528,6 +2528,13 @@ try {
     await check('document.getElementById("core-status").textContent === "Herdr Core disconnected" && !document.getElementById("routines-open").disabled');
     await verifyRoutineOutcomes();
     console.log("Chrome showed routine delivery and outcomes separately and opened the saved result offline.");
+  } else if (focus === "job-completion") {
+    await check('document.getElementById("attention-count").textContent === "1"');
+    await evaluate('document.getElementById("attention-open").click()');
+    const list = 'document.querySelector("#attention-list").textContent';
+    await check(list + '.includes("Background QA · Job interrupted") && ' + list + '.includes("reservation expired")');
+    await check(list + '.includes("Pending delivery") && ' + list + '.includes("fixture-job:1")');
+    console.log("Chrome displayed the interrupted job and the separate pending delivery.");
   } else if (focus === "ci-review") {
     await cdp("Emulation.setDeviceMetricsOverride", {width:375,height:812,deviceScaleFactor:1,mobile:true});
     await check('document.getElementById("attention-count").textContent === "1"');

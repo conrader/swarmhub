@@ -39,10 +39,10 @@
       open: () => window.workspaceRoutines.openReview(item.routine, item.id),
     }));
     const completions = (queue.completions || []).map((item) => ({
-      key: item.id, title: "Completion " + item.id,
-      summary: [item.owner_bot_id, ({
+      key: item.id, title: (item.owner_name || item.owner_bot_id) + " · Job " + item.verdict,
+      summary: [item.outcome_detail, ({
         pending: "Pending delivery", offered: "Awaiting acknowledgment", uncertain: "Delivery unconfirmed",
-      })[item.state], item.blocker].filter(Boolean).join(" · "),
+      })[item.state], item.blocker, item.id].filter(Boolean).join(" · "),
     }));
     const parks = (queue.parks || []).map((item) => ({
       key: "park-" + item.id, title: item.id,

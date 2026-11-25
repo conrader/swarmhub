@@ -253,13 +253,12 @@ fn event_count(w: &Workspace, id: &str) -> i64 {
 #[tokio::test]
 async fn gapplan_10_int_lost_start_closed_app_and_bridge_restart_recover_both_providers() {
     for provider in [Provider::Claude, Provider::Codex] {
-        let mut f = Fixture::new(provider, "success");
+        let mut f = Fixture::new(provider, "wait_for_release");
         {
             let mut transport = f.remote.state.lock().unwrap();
             transport.lose_start = provider == Provider::Claude;
             transport.timeout_start = provider == Provider::Codex;
         }
-        let pause = f.worker.pause("before-child-registration");
         let id = f.submit("one-start", provider).await;
         assert_eq!(status(&f.bridge, &id).status, "queued");
         assert_eq!(f.remote.calls("start"), 0);
@@ -267,20 +266,20 @@ async fn gapplan_10_int_lost_start_closed_app_and_bridge_restart_recover_both_pr
         assert_eq!(status(&f.bridge, &id).status, "unknown");
         assert_eq!(status(&f.bridge, &id).worker_reason.as_deref(), Some("worker_reply_lost"));
         assert_eq!(event_count(&f.bridge, &id), 0);
-        let child = f.worker.checkpoint("before-child-registration");
-        assert!(live(&child));
+        tokio::time::timeout(WAIT, async {
+            while f.invocations() == 0 { tokio::time::sleep(Duration::from_millis(20)).await; }
+        }).await.expect("the provider must start before disconnecting its owner");
         f.ordinary.agents(vec![]);
         f.listener.abort();
         let _ = (&mut f.listener).await;
         let worker_core = f.bridge.worker_core.take();
         let offline = workspace(f.temp.path(), reopen_journal(&f.temp.path().join("offline-placeholder")));
         drop(std::mem::replace(&mut f.bridge, offline));
+        // The provider and its supervisor keep running while both clients are gone.
+        fs::write(f.worker.root.join("fixture-runtimes/local/home/release"), b"").unwrap();
         let mut restarted = workspace(f.temp.path(), reopen_journal(&f.temp.path().join("journal")));
         restarted.worker_core = worker_core;
         restarted.fleet_policy = Ok(Some(authority(&f.worker.inputs)));
-        // The fake Core lost every start reply and there is no callback path.
-        // Release the detached child with both the requesting session and bridge off.
-        fs::remove_file(pause).unwrap();
         let scheduler = jobs::start_serving(restarted.clone());
         let saved = tokio::time::timeout(WAIT, async {
             loop {
@@ -293,7 +292,7 @@ async fn gapplan_10_int_lost_start_closed_app_and_bridge_restart_recover_both_pr
         }).await.unwrap();
         scheduler.abort();
         f.bridge = restarted;
-        assert_eq!(saved.status, "exited");
+        assert_eq!(saved.status, "exited", "{saved:?}; provider invocations: {}", f.invocations());
         assert_eq!(saved.completion.unwrap().exit.code, Some(0));
         assert_eq!(saved.review_eligible, Some(provider == Provider::Claude));
         let observed = saved.observed_runtime.unwrap();
@@ -449,6 +448,26 @@ async fn gapplan_10_int_scope_conflicting_replay_and_project_worker_account_sepa
     assert_eq!(f.remote.calls("start"), 0);
 }
 
+
+#[tokio::test]
+async fn expired_reservation_reports_why_the_provider_did_not_start() {
+    let f = Fixture::new(Provider::Claude, "success");
+    let hold = f.worker.pause("before-child-registration");
+    let id = f.submit("expired-before-start", Provider::Claude).await;
+    jobs::poll(&f.bridge).await;
+    f.worker.checkpoint("before-child-registration");
+    assert_eq!(f.worker.db().execute("UPDATE leases SET expires_ms=heartbeat_ms", []).unwrap(), 1);
+    fs::remove_file(hold).unwrap();
+    let saved = f.poll_until(&id, "interrupted").await;
+    assert_eq!(saved.worker_reason.as_deref(), Some("lease_expired"));
+    assert_eq!(f.invocations(), 0);
+    let event = bots::completions::status_for(&f.bridge.history.db().unwrap(), &id, 1).unwrap().unwrap();
+    let item = serde_json::to_value(event).unwrap();
+    assert_eq!(item["worker_reason"], "lease_expired");
+    assert_eq!(item["outcome_detail"], "The worker’s reservation expired.");
+    drain(&f.bridge).await;
+    assert!(f.ordinary.writes().iter().any(|w| w["text"].as_str().is_some_and(|s| s.contains("lease_expired"))));
+}
 
 #[tokio::test]
 async fn gapplan_10_int_reconciles_a_lost_supervisor_that_could_never_release_its_child() {
