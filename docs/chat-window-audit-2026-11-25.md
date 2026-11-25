@@ -208,6 +208,8 @@ On iPhone Safari, the original chat header put the back button at 15 pt from the
 
 OpenCode 1.18.5 returned HTTP 409 during model discovery because its CLI does not support the V2 adapter. On the Mac, the bot’s Model tab silently displayed an empty catalog. The service also missed systems with only the V2 executable named `opencode2`. The patched native Mac app found and registered that executable without starting it. The driver selected OpenCode, saw the fixture’s model-list error, pressed **Reload models** and saw the search field appear for the recovered 13-model catalog. Selecting Antigravity afterwards affected only that bot.
 
+With the CLI paused during model enumeration, a second request for the same catalog returned HTTP 409 on the original workspace. After the fix, both requests received the four expected models from one CLI invocation.
+
 In a separate Linux run, OpenCode 2.4.1 listed four models from a local OpenAI-compatible provider without requesting inference. In Chrome, the test launched an OpenCode bot, approved its command once, checked that the reply was saved and verified that a second permission request returned to the terminal. Live OpenRouter account access remains unverified.
 
 The same native test pass found a keyboard search issue. In a list of 21 results, scrolling the keyboard highlight under a stationary pointer could change the result selected by Return. A failing run opened message 133 after ten Down Arrow presses from message 148. The fixed run opened message 138, then navigated to imported group and bot messages. [Repeat the Mac checks](agent-qa.md#use-the-real-mac-window)

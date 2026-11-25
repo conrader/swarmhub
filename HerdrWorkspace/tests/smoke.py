@@ -496,6 +496,15 @@ if sys.argv[1] == "report-ready":
     sys.exit()
 
 args = sys.argv[1:]
+if args == ["--standalone", "models"]:
+    scratch = os.path.dirname(__file__)
+    with open(os.path.join(scratch, "model-list-invocations"), "a") as counter:
+        counter.write("models\n")
+    deadline = time.monotonic() + 12
+    while not os.path.exists(os.path.join(scratch, "release-model-list")):
+        if time.monotonic() >= deadline:
+            sys.exit("Model-list fixture timed out")
+        time.sleep(0.02)
 if args and args[0] == "serve":
     with open(os.path.join(os.path.dirname(__file__), "opencode-fixture-server-pids"), "a") as pids:
         pids.write(str(os.getpid()) + "\n")
@@ -668,8 +677,20 @@ def opencode_reply(root, bridge, request, core, browser):
             {"id": f"fixture/{name}", "provider": "fixture"}
             for name in ("default", "detailed", "discovered", "fast")
         ], "truncated": False}
-        models = request(model_probe, {}, timeout=45)
-        assert models == expected_models, models
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(request, model_probe, {}, timeout=45)
+            count = root / "model-list-invocations"
+            try:
+                until(count.is_file, seconds=10)
+                second = pool.submit(request, model_probe, {}, timeout=45)
+                # Keep discovery active while another inspector asks for the same catalog.
+                time.sleep(0.5)
+            finally:
+                (root / "release-model-list").touch()
+            for inspector in (first, second):
+                assert inspector.result() == expected_models
+        assert count.read_text().splitlines() == ["models"], "Concurrent inspectors started duplicate list commands"
         assert not calls, "Model discovery must not send an inference request"
         if api_first_task:
             (root / "config/herdr-core/templates/malformed-opencode.md").write_text(

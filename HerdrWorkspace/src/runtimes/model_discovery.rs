@@ -16,13 +16,25 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
+use tokio::sync::broadcast;
 
 const MAX_OUTPUT: usize = 256 * 1024;
 const MAX_MODELS: usize = 512;
 const CACHE_TTL: Duration = Duration::from_secs(30);
-static PROBES: Semaphore = Semaphore::const_new(1);
-static CACHE: Mutex<Option<Cached>> = Mutex::new(None);
+static DISCOVERY: Mutex<Discovery> = Mutex::new(Discovery { cached: None, active: None });
+
+struct Discovery {
+    cached: Option<Cached>,
+    active: Option<(ProbeKey, broadcast::WeakSender<ProbeResult>)>,
+}
+
+type ProbeResult = Result<Models, &'static str>;
+
+#[derive(Clone, PartialEq, Eq)]
+struct ProbeKey {
+    core: String,
+    command: [u8; 32],
+}
 
 pub(super) struct Probe<'a> {
     agent: ModelAgent,
@@ -75,14 +87,13 @@ struct Model {
 }
 
 struct Cached {
-    core: String,
-    command: [u8; 32],
+    key: ProbeKey,
     expires: Instant,
     models: Models,
 }
 
-fn failed(agent: ModelAgent) -> ApiError {
-    ApiError::Conflict(match agent {
+fn failed(agent: ModelAgent) -> &'static str {
+    match agent {
         ModelAgent::Antigravity => "Antigravity could not list models. Open agy on this Mac and check that you are signed in.",
         ModelAgent::Codex => {
             "Codex couldn't list models. Check its configuration on Herdr, or enter a model ID."
@@ -90,7 +101,7 @@ fn failed(agent: ModelAgent) -> ApiError {
         _ => {
             "OpenCode couldn't list models. SwarmHub requires OpenCode 2.3 or later. Check the CLI version and provider configuration on the workspace machine."
         }
-    })
+    }
 }
 
 pub fn routes() -> Router<Workspace> {
@@ -130,58 +141,51 @@ async fn discover(
             "This version of Herdr cannot run model discovery.",
         ));
     }
-    let command = Sha256::digest(&template.command).into();
-    if let Some(models) = cached(&core.core.id, &command) {
-        return Ok(Json(models));
-    }
-    let permit = PROBES.try_acquire().map_err(|_| {
-        ApiError::Conflict("A model list is loading already. Try again in a moment.")
-    })?;
-    if let Some(models) = cached(&core.core.id, &command) {
-        return Ok(Json(models));
-    }
-    // Keep the permit until Core finishes even if the browser disconnects.
-    let models = tokio::spawn(async move {
-        let _permit = permit;
-        let probe = Probe::for_template(&catalog, &template).ok_or(DISABLED)?;
-        let output = w
-            .core
-            .runtime_models(probe.agent, probe.helper, &probe.env)
-            .await
-            .map_err(|_| failed(agent))?;
-        if output.timed_out {
-            return Err(ApiError::Conflict(
-                "The agent took too long to list models. Try again or enter a model ID.",
-            ));
+    let key = ProbeKey { core: core.core.id, command: Sha256::digest(&template.command).into() };
+    let mut receiver = {
+        let mut state = DISCOVERY.lock().map_err(|_| ApiError::Conflict(failed(agent)))?;
+        if let Some(cached) = &state.cached
+            && cached.key == key && cached.expires > Instant::now() {
+            return Ok(Json(cached.models.clone()));
         }
-        if output.code != Some(0) {
-            return Err(failed(agent));
-        }
-        let models = parse(agent, &output.stdout, output.truncated).ok_or_else(|| failed(agent))?;
-        if let Ok(mut cache) = CACHE.lock() {
-            *cache = Some(Cached {
-                core: core.core.id,
-                command,
-                expires: Instant::now() + CACHE_TTL,
-                models: models.clone(),
+        if let Some((active_key, sender)) = &state.active
+            && let Some(sender) = sender.upgrade() {
+            if active_key != &key {
+                return Err(ApiError::Conflict("A model list is loading already. Try again in a moment."));
+            }
+            sender.subscribe()
+        } else {
+            let (sender, receiver) = broadcast::channel(1);
+            state.active = Some((key.clone(), sender.downgrade()));
+            // A disconnected inspector must not cancel the CLI or release its slot early.
+            tokio::spawn(async move {
+                let result = run_probe(&w, &catalog, &template, agent).await;
+                let mut state = DISCOVERY.lock().unwrap_or_else(|error| error.into_inner());
+                if let Ok(models) = &result {
+                    state.cached = Some(Cached { key, expires: Instant::now() + CACHE_TTL, models: models.clone() });
+                }
+                let _ = sender.send(result);
+                state.active = None;
             });
+            receiver
         }
-        Ok(models)
-    })
-    .await
-    .map_err(|_| failed(agent))??;
-    Ok(Json(models))
+    };
+    receiver.recv().await
+        .map_err(|_| ApiError::Conflict(failed(agent)))?
+        .map(Json)
+        .map_err(ApiError::Conflict)
 }
 
-fn cached(core: &str, command: &[u8; 32]) -> Option<Models> {
-    CACHE
-        .lock()
-        .ok()?
-        .as_ref()
-        .filter(|entry| {
-            entry.core == core && &entry.command == command && entry.expires > Instant::now()
-        })
-        .map(|entry| entry.models.clone())
+async fn run_probe(w: &Workspace, catalog: &Catalog, template: &Template, agent: ModelAgent) -> ProbeResult {
+    let probe = Probe::for_template(catalog, template).ok_or("Model discovery isn't enabled for this runtime.")?;
+    let output = w.core.runtime_models(probe.agent, probe.helper, &probe.env).await.map_err(|_| failed(agent))?;
+    if output.timed_out {
+        return Err("The agent took too long to list models. Try again or enter a model ID.");
+    }
+    if output.code != Some(0) {
+        return Err(failed(agent));
+    }
+    parse(agent, &output.stdout, output.truncated).ok_or_else(|| failed(agent))
 }
 
 pub(crate) fn launchable_model(agent: ModelAgent, id: &str) -> bool {
