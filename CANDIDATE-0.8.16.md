@@ -1,0 +1,51 @@
+# SwarmHub 0.8.16 isolated candidate
+
+The candidate ref is `refs/heads/candidate/verify-final`. The incremental bundle starts at `816b9f3578b54e41d7fbfb7651170fb7854a944a`. The companion `final.sha` identifies the bundled commit. Native verification remains open.
+
+## Inputs
+
+| Input | Commit | Integration |
+|---|---|---|
+| Early RC | `816b9f35` | Includes the existing Overview/helper work at `50112cb4` and follow-up work at `fbf58027` |
+| Pinned Main ownership | `c0f3f2fa` | First-stage merge `d8200950` |
+| Transcript selection | `8fe3b7d6` | First-stage merge `5376e859`, including the original selection ancestry |
+| Detached activity | `c6b98dff` | First-stage merge `a8619dab` and private fixture directory correction `6163326b` |
+| Large roster | `b29c9b66` | First-stage merge `c7476cf5` and B1/B2 correction `e6619067` |
+| Corrected transcript order | `df172621` | Includes `3ff51c46`. Merge `6e79117b` joins it to the first-stage tip `e6619067` |
+| Combined review fixes | `92e6ae9f` | Participant limit, fixtures, integration and compatibility changes |
+
+## Findings addressed in source
+
+- **Participant refusal.** The bridge send rule and the Mac message relay admit a new recipient regardless of the number already recorded. Both still append new participants to chain history. The settings loader and PATCH-style settings merge discard the old `chain_bots` key, preserve other settings and reject unrelated unknown keys on edits. Serialized settings and bounds omit the retired field. The communication guide and both SVG and PNG diagrams show the remaining limits. Existing journal entries retain their original contents. The Rust regression loads a persisted value of 4, sends Boppy’s ask to Jarvis as participant five and sends the owner’s handoff to participant six. It checks work identity, history, ownership, acceptance and independent pair and sender limits. The Swift relay test follows six bots and checks the return answers.
+- **Fixture deadlocks.** In `inter_bot_delivery_uses_boppys_current_launch_and_keeps_its_review`, both update statements finish and their mutex guard leaves scope before `testing::bot`. In `archive_listing_prompt_and_followup_use_separate_rpc_messages`, the setup guard leaves scope before the stream records its review or calls `review_status`. Both fixtures retain their assertions. The second fixture starts with a launch choice different from the saved choice so its pending assertions still test a genuine restart while a review is open.
+- **Copy and order.** Streaming retains buffered text, cancellation, tool offsets and the order branch’s receipt-aware splits and cumulative reconciliation. Parallel group replies have individual buffers. The repeated local declarations in the copy store were removed. Copy and sidebar recency use transcript time, including a moved placeholder’s continuation time and an imported row’s local placement. The copy regression checks all four rows under both directions of server clock skew. A second test exercises a production-mode cumulative correction and a stale waiting marker. A late direct follow-up with a lower journal ID can now precede the next reply’s identified question.
+- **Roster B1/B2.** The 12 KiB decoded per-member wire limit, full saved persona, 128 KiB encoded batch limit, and additive registration survive integration. Retry bookkeeping distinguishes acknowledged batches from an ambiguous first POST. The first-stage router and Swift regression files are unchanged from `e6619067`.
+- **Detached worker liveness.** A changed valid Linux boot identity, a vanished primary process, a zombie primary or a reused primary PID retires the job. Unreadable, missing or inconsistent identity evidence can still return unknown. Ended records are filtered before host/log validation. Status filenames accept the runner’s hashed and suffixed slugs. The Linux fixture asserts queued on a real flock, working after gate release, unknown for a missing start token, and complete empty after exit, reuse, boot change and 257 orphan records.
+- **Detached integration fixture.** The installed runner creates the actual process group, supervisor, start tokens and status file. The fixture suppresses its external completion wake and group cleanup after the fixture child has exited. The default Swift ingestion test requires bridge-captured workspace GETs, either supplied as a capture or freshly generated using `--integration`. That mode requires the candidate bridge, installed runner and private local Core. It exercises local Core’s full probe argument without an `on` target and uses a separate remote RPC fixture for target replacement and disconnection. Execution evidence for this combined mode is still missing.
+- **Codex restart loop.** The bridge compares the saved Auto choice with the launch choice. Legacy launches also use the setting change time. Effective reviewer, policy, sandbox and review events still describe the running session. Tests cover Auto on with locally overridden settings and Auto off with an effective automatic reviewer.
+- **Bridge compatibility.** Current rosters advertise `end_if_idle`. A capable bridge handles the guarded operation and its refusal is final. For an older bridge the client checks pending reviews by agent name and rereads the core, exact session, idle state, warm requirement and helpers before invoking the old exact-session end route. An older bridge cannot make these client-side checks atomic with its end operation. Route-selection tests cover both bridge generations and a pending review.
+- **Forwarded terminal.** The terminal sheet’s static GET resources accept a loopback listener on a different port. Terminal attachment still requires the listener’s matching Origin and a valid token in the first WebSocket frame. The API keeps its existing authentication and forwarding checks.
+- **Outbox recovery.** An unobserved start can recover with Enter when the composer contains input. Immediately before the write the bridge rechecks the outbox task, opt-out, deadline, stop and pending review. Outbox recovery never pastes the task again. An uncertain outcome with no acknowledgement path leaves typing at its cutoff with an unconfirmed receipt. Direct-send recovery and late acknowledgement coverage remain in place.
+- **Unsupported steering.** The explicit “Send as next message” decision is retained. The composer offers “Add to this answer…” only when steering is available. The unreleased changelog explains failed, unconfirmed and pre-upgrade waiting messages. The duplicate desk review check was removed.
+
+## Execution evidence
+
+These checks used temporary databases, jobs and processes. No old message was replayed, no live setting was edited and no release approval was exercised.
+
+| Check | Observed result |
+|---|---|
+| Linux installed runner with the shipped direct probe | `PASS installed runner + direct probe: queued, live descendant, unknown identity, ambiguous scope, completion and 257 orphan records` |
+| Handwritten fixture record with the direct probe | `PASS fixture record + direct probe: queued, live descendant, unknown identity, ambiguous scope, completion and 257 orphan records` |
+| Focused Rust/SQLite harness using candidate settings, send, close, stop, notes and bot schema against an in-memory database | `PASS Boppy to Jarvis (5), owner handoff (6), legacy 4, chain history, nonowner refusal, acceptance, pair and sender ceilings, opt-out, explicit stop` |
+| Actual restart-status SQL in SQLite | Seven launch/desired/time combinations passed with reviewer and policy fields retained |
+| Static checks | Changed Rust sources parsed with rustfmt, locked Linux dependency metadata loaded offline, Python sources parsed, and the integration diff passed whitespace checks |
+
+The installed Linux runner’s SHA-256 was `3ebb239b7406b2ad48f77230633fd0b1019521a2d1dfb12682f757dd836d497d`. The focused Rust harness compiled the rule path separately with system SQLite. It did not build the workspace binary or run its native test executable.
+
+## Outstanding verification and review
+
+- **Native Mac diagnostics and suites.** SSH to the paired Mac was denied by the sandbox. The paired-Mac connector required approval, unavailable in this job. Neither native Rust fixture has a post-change Mac result. Swift compilation, XCTest/Swift Testing, native terminal UI, Darwin process identity and the combined suite also remain unverified. Earlier results for individual inputs do not cover this merge.
+- **Detached integration evidence.** There is no built candidate bridge here. Local TCP sockets and Unix listening sockets are denied. The integration entry point reports that it requires an executable bridge. Real bridge/runner GET captures, the local Core machine.exec check, remote-target GET assertions and Swift consumption of those captures still need a socket-enabled host. The direct runner output above covers the writer and probe only. See `docs/detached-activity.md` for the capture command.
+- **Order.** The one-time placement of legacy imports without a local placement timestamp still compares original clocks. Reliable repair of skew in those older stores remains open.
+- **Detached activity follow-ups.** An older bridge can still leave an unavailable feed in Overview. Polling scans historical status files, counts unrelated directory entries toward its cap and runs inline in the roster request. Per-app polling, unconditional read publication, unhandled symlinked owner scopes, Darwin executable pins across symlink changes, and directories created group-writable remain open. The queued fixture proves a visible Linux flock wait. Provider-specific production queues and kernels without that evidence remain unverified. The job hash is unsalted and the scope argument is process-visible on the worker.
+- **Early RC follow-ups.** Digest-named socket cleanup after abnormal exits and production socket path lengths on long Mac home paths remain open. Stored task text can expose the turn marker. Legacy already-uncertain asks keep their original delivery cutoff and can expire on startup. The candidate preserves that tested deadline policy. The independent review did not cover all view files, group work, model code, routine transfers, setup or the full test suite.
