@@ -5,7 +5,7 @@ enum UpdateConfiguration {
     /// A test run, a capture or a benchmark: nothing may look for updates by itself, neither for the app nor on a server.
     static func isAutomated(environment: [String: String], arguments: [String] = []) -> Bool {
         environment["SWARMHUB_DISABLE_UPDATES"] == "1" || environment["XCTestConfigurationFilePath"] != nil ||
-            arguments.contains(SingleInstallation.launchCheckFlag) || arguments.contains("--ui-smoke") || arguments.contains("--setup-preview") || environment.keys.contains(where: { $0.hasPrefix("AGENTAPP_") &&
+            arguments.contains(SingleInstallation.launchCheckFlag) || arguments.contains("--agent-qa-window") || arguments.contains("--ui-smoke") || arguments.contains("--setup-preview") || environment.keys.contains(where: { $0.hasPrefix("AGENTAPP_") &&
                 ($0.contains("SNAPSHOT") || $0.contains("SMOKE") || $0.contains("BENCHMARK")) })
     }
 

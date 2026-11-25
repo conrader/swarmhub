@@ -4,7 +4,7 @@ struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
     private var intake: AttachmentIntake { store.attachmentIntake(for: bot.id) }
     @State private var verifyingAttachmentSupport = false
-    @State private var viewport = ChatViewport()
+    @StateObject private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     @State private var terminal: HerdrTerminalTarget?
     /// The messages between bots that are unfolded, while this chat is on screen.
@@ -14,7 +14,7 @@ struct ChatView: View {
     init(bot: Bot, unfolded: Set<UUID> = []) { self.bot = bot; _folds = StateObject(wrappedValue: ChatFolds(open: unfolded)) }
     var body: some View {
         let shown = bot.messages.filter { !$0.isSilent }
-        let _ = viewport.show(bot.id, order: shown.map(\.id))
+        let _ = viewport.show(bot.id, order: shown.map(\.id), model: store.chatScroll)
         let appStore = store, botName = bot.name
         let _ = selection.show(rows: shown, conversation: bot.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: botName) }
         let coding = store.hasActiveCodingAgent(bot)
@@ -54,9 +54,9 @@ struct ChatView: View {
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        Color.clear.frame(height: 20)
-                        if bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
+                    VStack(spacing: 0) {
+                        ChatTopMarker()
+                        if !viewport.hasEarlier, bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                         if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
                         if bot.showsReleaseNotesExample, draft.isEmpty {
                             Button("Draft release notes") {
@@ -65,25 +65,28 @@ struct ChatView: View {
                             }.buttonStyle(.bordered).help("Edit the example changes or send them as written.")
                         }
                         let openers = Self.openers(shown)
-                        ForEach(shown) { message in
+                        if viewport.hasEarlier { HistoryPageButton(earlier: true, action: viewport.earlier) }
+                        ForEach(shown[viewport.range]) { message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
-                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: openers.contains(message.id) ? bot : nil).id(message.id).chatRow(message.id, in: viewport)
+                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: openers.contains(message.id) ? bot : nil).id(message.id).chatRow(message.id)
                                 .selectableMessage(message.id, in: selection)
                         }
-                        ChatBottomMarker(viewport: viewport, conversationID: bot.id)
+                        if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
+                        ChatBottomMarker()
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection).environment(\.chatFolds, folds)
-                }.id(bot.id).background(AppColor.chat)
+                }.trackChatViewport(viewport).id(bot.id).background(AppColor.chat)
                 // ⌘/⇧-click picks rows, ⌘C copies them; another conversation starts with none picked.
-                .messageSelection(selection).onChange(of: bot.id) { _, _ in selection.clear(); folds.state.foldAll() }
+                .messageSelection(selection, viewport: viewport).onChange(of: bot.id) { _, _ in selection.clear(); folds.state.foldAll() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
                 // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
-                .floatingBar(edge: .bottom, backing: AppColor.chat) { bottomBar(proxy) }
-                .task(id: bot.id) { await viewport.open(bot.id, model: store.chatScroll, proxy: proxy) }
+                .floatingBar(edge: .bottom, backing: AppColor.chat) { bottomBar }
+                .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
-                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy, follow: !selection.characters.holdsScroll) }
+                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
                 .onChange(of: store.scrollTarget) { _, target in
                     guard let target else { return }
-                    DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center); store.scrollTarget = nil }
+                    viewport.jump(to: target)
+                    store.scrollTarget = nil
                 }
             }
         }.background(AppColor.chat)
@@ -116,7 +119,7 @@ struct ChatView: View {
 
     /// Under the transcript: whom a reply answers, what waits for the person, and the message box. One group, so
     /// that glass surfaces standing close together are drawn together. "Jump to latest" hangs above it.
-    private func bottomBar(_ proxy: ScrollViewProxy) -> some View {
+    private var bottomBar: some View {
         VStack(spacing: 0) {
             if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
@@ -154,7 +157,7 @@ struct ChatView: View {
             }
         }
         .frame(maxWidth: .infinity).glassGroup(spacing: 4)
-        .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, proxy: proxy).alignmentGuide(.top) { $0[.bottom] } }
+        .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, action: viewport.latest).alignmentGuide(.top) { $0[.bottom] } }
     }
 
     private var composer: some View {

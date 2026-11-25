@@ -80,7 +80,7 @@ import Testing
     reply.publishedResults = HerdrReplyResults(serverID: "local", items: rows.compactMap(HerdrPublishedResult.init))
     let media = MediaExtractor.items(in: [reply])
     #expect(media.map(\.title) == ["render.png", "clip.mp4", "Design Spec"])
-    #expect(media.map(\.kind) == [.image, .file, .file])
+    #expect(media.map(\.kind) == [.image, .video, .file])
     #expect(media.allSatisfy { $0.messageID == reply.id && $0.attachment == nil })
 }
 

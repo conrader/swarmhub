@@ -85,3 +85,15 @@ Each run shows the real sidebar and chat with four animated bot marks, a chat-he
 Read each run's JSON separately. `click_to_visible_chat` measures from the off-main submission of an in-process mouse click to the WindowServer display timestamp of the first captured frame containing the destination chat title. The probe calibrates against both rendered titles and waits for each visible switch. This includes main-thread queueing and excludes physical mouse and panel scanout delays. `main_queue_wait_proxy` ends when the main actor starts dispatching the click. `window_frame_gaps` measures the intervals between complete ScreenCaptureKit frames of the animated window during the clicks, sampled at up to 60 Hz. Capture can miss intermediate frames. Each distribution includes raw milliseconds, nearest-rank p95, maximum, and counts above 33.4, 50 and 100 ms. A missing title, an inactive window or a switch timeout fails the run.
 
 The baseline stream consumer publishes the entire store once per text event, in addition to publishing the reply and typing timestamp. At the fixture's four-stream input rate that path alone issues 400 store broadcasts per second. The selected chat rebuilds its message order and the sidebar walks and sorts conversation histories on store invalidation. Only the selected transcript is mounted. The kit already uses one display clock for all live avatar canvases. Compare `store_broadcasts`, avatar frames and draw costs alongside latency. Periodic snapshots still encode and write the full store on the main actor, with the same two-second autosave interval in both builds.
+
+## Use the real Mac window
+
+Launch a second instance with a disposable sample workspace, five local mock bots and a 486-message conversation saved halfway through. Mouse, keyboard and accessibility tools interact with the regular SwarmHub window. Sample conversations and draft replies last for the life of the process. Use a test macOS account when exercising system dialogs, global preferences, clipboard actions or integrations.
+
+```sh
+/Applications/SwarmHub.app/Contents/MacOS/AgentApp --agent-qa-window &
+qa_pid=$!
+python3 Tests/Scripts/chat-window-smoke.py "$qa_pid"
+```
+
+The smoke test requires PyObjC’s ApplicationServices module and macOS Accessibility access. It measures text inside the window as it restores the saved message, jumps to the end and switches between bots. Run it against a freshly opened sample window. Quit that instance to discard the session.

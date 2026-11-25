@@ -17,6 +17,7 @@ import SwiftUI
     private var describe: (ChatMessage) -> CopiedMessage = { CopiedMessage(author: "", date: $0.transcriptDate, text: MessageCopy.body($0.content)) }
     private var frames: [UUID: CGRect] = [:], inTranscript = false
     private var monitor: Any?, holders = 0
+    weak var viewport: ChatViewport?
     private let copyText: (String) -> Void
 
     init(copyText: @escaping (String) -> Void = copyToPasteboard) { self.copyText = copyText }
@@ -76,7 +77,7 @@ import SwiftUI
     func install() {
         holders += 1
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .keyDown]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .keyDown, .scrollWheel]) { [weak self] event in
             guard let self else { return event }
             return self.handle(event, in: event.window)
         }
@@ -101,6 +102,13 @@ import SwiftUI
         guard let window = reader?.window, eventWindow === window else { return event }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         switch event.type {
+        case .scrollWheel:
+            guard let reader, let clip = reader.enclosingScrollView,
+                  let content = window.contentView,
+                  let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)),
+                  (hit === clip || hit.enclosingScrollView === clip),
+                  viewport?.scrollPastEdge(delta: event.scrollingDeltaY) == true else { return event }
+            return nil
         case .leftMouseDragged where characters.tracking:
             characters.drag(to: event.locationInWindow)
             return nil
@@ -229,8 +237,8 @@ extension View {
         environment(\.transcriptSelection, selection.characters).coordinateSpace(.named(MessageSelection.space)).background(SelectionReader(selection: selection))
     }
     /// The scroll view: whether the pointer is over it, and the event monitor while it is shown.
-    func messageSelection(_ selection: MessageSelection) -> some View {
+    func messageSelection(_ selection: MessageSelection, viewport: ChatViewport? = nil) -> some View {
         onHover { selection.hoverTranscript($0) }
-            .onAppear { selection.install() }.onDisappear { selection.remove() }
+            .onAppear { selection.viewport = viewport; selection.install() }.onDisappear { selection.remove() }
     }
 }

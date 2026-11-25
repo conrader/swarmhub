@@ -1,95 +1,205 @@
 import SwiftUI
 
-/// P50: what one chat transcript shows, told to `ChatScrollModel`. Rows report appearing and disappearing (a lazy stack
-/// lays out a little beyond the visible area, so "at the bottom" means within a few rows of it); the topmost shown row is
-/// the saved position. Not observed: it never redraws the transcript.
-@MainActor final class ChatViewport {
-    private(set) var conversationID: UUID?
-    private var order: [UUID] = [], showing: UUID?
-    private var visible: Set<UUID> = [], bottomVisible = false
+/// Size the rows around the destination before scrolling. A lazy stack estimates the height
+/// of unmeasured rich-text rows, which can leave a restored offset outside the actual rows.
+@MainActor final class ChatViewport: ObservableObject {
+    static let pageSize = 24
+    enum Destination: Equatable { case latest, row(UUID, UnitPoint) }
+    private(set) var revision = 0
+    private(set) var destination: Destination = .latest
+    private(set) var range = 0..<0
+    private var conversation: UUID?
+    private var order: [UUID] = []
+    private var settled = false
+    private var visible = ChatVisibleRows()
     private weak var model: ChatScrollModel?
 
-    private var top: UUID? { order.first { visible.contains($0) } }
-
-    /// Every body pass: the conversation shown and its message ids, top to bottom. Another conversation starts clean and
-    /// reports nothing until `open` (the transcript carries `.id(conversation)`, so its rows and marker appear anew).
-    func show(_ id: UUID, order: [UUID]) {
-        self.order = order
-        guard showing != id else { return }
-        showing = id; conversationID = nil; visible = []; bottomVisible = false
+    func show(_ id: UUID, order: [UUID], model: ChatScrollModel) {
+        if conversation != id {
+            self.order = order
+            self.model = model
+            conversation = id
+            let saved = model.positions[id].flatMap { order.firstIndex(of: $0) }
+            destination = saved.map { .row(order[$0], .top) } ?? .latest
+            range = page(around: saved ?? order.count)
+        } else if self.order != order {
+            let oldCount = range.count
+            let first = range.first.map { self.order[$0] }
+            self.order = order
+            let start = first.flatMap { order.firstIndex(of: $0) } ?? min(range.lowerBound, order.count)
+            // Preserve the reading page through a batch append or removal; following the tail is handled by arrived().
+            range = start..<min(start + max(oldCount, Self.pageSize), order.count)
+        }
     }
 
-    func row(_ id: UUID, visible shown: Bool) {
-        if shown { visible.insert(id) } else { visible.remove(id) }
+    private func page(around index: Int) -> Range<Int> {
+        let start = max(0, min(index - Self.pageSize / 2, order.count - Self.pageSize))
+        return start..<min(order.count, start + Self.pageSize)
+    }
+
+    var hasEarlier: Bool { range.lowerBound > 0 }
+    var hasLater: Bool { range.upperBound < order.count }
+
+    func earlier() {
+        guard hasEarlier else { return }
+        let edge = range.lowerBound
+        let start = max(0, edge - Self.pageSize + 1)
+        move(to: .row(order[edge], .bottom), range: start..<(edge + 1))
+    }
+
+    func later() {
+        guard hasLater else { return }
+        let start = range.upperBound - 1
+        move(to: .row(order[start], .top), range: start..<min(order.count, start + Self.pageSize))
+    }
+
+    /// Keep the same boundary row under the pointer when wheel/trackpad scrolling crosses a page.
+    func scrollPastEdge(delta: CGFloat) -> Bool {
+        guard settled, visible.height > 0 else { return false }
+        if delta > 0, hasEarlier, let top = visible.start, top >= -2 {
+            let edge = range.lowerBound
+            let start = max(0, edge - Self.pageSize / 2)
+            move(to: .row(order[edge], .top), range: start..<min(order.count, start + Self.pageSize))
+            return true
+        }
+        if delta < 0, hasLater, let bottom = visible.bottom, bottom <= visible.height + 2 {
+            let edge = range.upperBound - 1
+            let next = page(around: edge + 1)
+            move(to: .row(order[edge], .bottom), range: next)
+            return true
+        }
+        return false
+    }
+
+    func jump(to message: UUID) {
+        guard let i = order.firstIndex(of: message) else { return }
+        move(to: .row(message, .center), range: page(around: i))
+    }
+
+    func latest() {
+        guard let conversation else { return }
+        model?.toBottom(conversation)
+        move(to: .latest, range: page(around: order.count))
+    }
+
+    private func move(to target: Destination, range: Range<Int>) {
+        objectWillChange.send()
+        settled = false
+        visible = ChatVisibleRows()
+        destination = target
+        self.range = range
+        revision += 1
+    }
+
+    func position(proxy: ScrollViewProxy) async {
+        let request = revision
+        await Task.yield()
+        guard !Task.isCancelled, request == revision else { return }
+        if request == 0, let conversation { _ = model?.open(conversation, shown: order) }
+        switch destination {
+        case .latest: proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom)
+        case let .row(message, anchor): proxy.scrollTo(message, anchor: anchor)
+        }
+        await Task.yield()
+        guard !Task.isCancelled, request == revision else { return }
+        settled = true
+        if let conversation { model?.opened(conversation, top: nil, atBottom: false) }
         report()
     }
-    /// The marker of `conversation` (an old transcript's marker may leave after the new one arrived).
-    func bottom(_ conversation: UUID, visible shown: Bool) {
-        guard conversation == showing else { return }
-        bottomVisible = shown; report()
-    }
 
-    /// Opens `id` where it was left (or at the newest), scrolling again while the lazy rows lay out.
-    func open(_ id: UUID, model: ChatScrollModel, proxy: ScrollViewProxy) async {
-        guard showing == id else { return }
-        conversationID = id; self.model = model
-        let target = model.open(id, shown: order)
-        for _ in 0..<3 {
-            await Task.yield()
-            switch target {
-            case .newest: proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom)
-            case .message(let message): proxy.scrollTo(message, anchor: .top)
-            }
-            try? await Task.sleep(for: .milliseconds(60))
-        }
-        guard showing == id else { model.opened(id, top: nil, atBottom: false); return }
-        model.opened(id, top: top, atBottom: bottomVisible)
-    }
-
-    /// New rows: follow them only at the bottom, else count them for the button.
-    func arrived(_ count: Int, proxy: ScrollViewProxy, follow: Bool = true) {
-        guard let id = conversationID, let model, count > 0 else { return }
-        if model.arrived(id, count: count), follow { proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom) }
-    }
-    /// Streaming text in the newest row.
-    func grew(proxy: ScrollViewProxy) {
-        guard let id = conversationID, let model, model.follows(id) else { return }
-        proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom)
+    func measured(_ frames: ChatVisibleRows) {
+        visible = frames
+        if settled { report() }
     }
 
     private func report() {
-        guard let id = conversationID else { return }
-        model?.saw(id, top: top, atBottom: bottomVisible)
+        guard let conversation, visible.height > 0 else { return }
+        let top = range.lazy.map { self.order[$0] }.first { id in
+            guard let frame = visible.rows[id] else { return false }
+            return frame.maxY > 0 && frame.minY < visible.height
+        }
+        let bottom = !hasLater && visible.bottom.map { $0 <= visible.height + 2 && $0 >= 0 } == true
+        model?.saw(conversation, top: top, atBottom: bottom)
+    }
+
+    func arrived(_ count: Int, follow: Bool = true) {
+        guard let conversation, count > 0 else { return }
+        if model?.arrived(conversation, count: count) == true, follow { latest() }
+    }
+
+    func grew(proxy: ScrollViewProxy) {
+        guard settled, let conversation, model?.follows(conversation) == true else { return }
+        proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom)
     }
 }
 
-enum ChatScrollAnchor { static let bottom = "bottom" }
+enum ChatScrollAnchor { static let bottom = "bottom"; static let space = "chatScrollViewport" }
+
+struct ChatVisibleRows: Equatable {
+    var rows: [UUID: CGRect] = [:]
+    var start: CGFloat?
+    var bottom: CGFloat?
+    var height: CGFloat = 0
+}
+private struct ChatFrames: PreferenceKey {
+    static let defaultValue = ChatVisibleRows()
+    static func reduce(value: inout ChatVisibleRows, nextValue: () -> ChatVisibleRows) {
+        let next = nextValue()
+        value.rows.merge(next.rows) { _, new in new }
+        if let start = next.start { value.start = start }
+        if let bottom = next.bottom { value.bottom = bottom }
+        value.height = max(value.height, next.height)
+    }
+}
 
 extension View {
-    /// P50: a transcript row reports whether it is laid out.
-    func chatRow(_ id: UUID, in viewport: ChatViewport) -> some View {
-        onAppear { viewport.row(id, visible: true) }.onDisappear { viewport.row(id, visible: false) }
+    func chatRow(_ id: UUID) -> some View {
+        background { GeometryReader { geo in
+            Color.clear.preference(key: ChatFrames.self, value: ChatVisibleRows(rows: [id: geo.frame(in: .named(ChatScrollAnchor.space))]))
+        } }
+    }
+
+    func trackChatViewport(_ viewport: ChatViewport) -> some View {
+        coordinateSpace(name: ChatScrollAnchor.space)
+            .background { GeometryReader { geo in
+                Color.clear.preference(key: ChatFrames.self, value: ChatVisibleRows(height: geo.size.height))
+            } }
+            .onPreferenceChange(ChatFrames.self) { viewport.measured($0) }
     }
 }
 
-/// The transcript's end: scroll anchor and bottom detector.
-struct ChatBottomMarker: View {
-    let viewport: ChatViewport; let conversationID: UUID
+struct ChatTopMarker: View {
     var body: some View {
-        Color.clear.frame(height: 1).id(ChatScrollAnchor.bottom)
-            .onAppear { viewport.bottom(conversationID, visible: true) }.onDisappear { viewport.bottom(conversationID, visible: false) }
+        GeometryReader { geo in
+            Color.clear.preference(key: ChatFrames.self, value: ChatVisibleRows(start: geo.frame(in: .named(ChatScrollAnchor.space)).minY))
+        }.frame(height: 20)
     }
 }
 
-/// "Jump to latest" (· N new), bottom centre above the composer, while the transcript is away from the newest.
+struct ChatBottomMarker: View {
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear.preference(key: ChatFrames.self, value: ChatVisibleRows(bottom: geo.frame(in: .named(ChatScrollAnchor.space)).maxY))
+        }.frame(height: 1).id(ChatScrollAnchor.bottom)
+    }
+}
+
+struct HistoryPageButton: View {
+    let earlier: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(earlier ? "Earlier messages" : "Later messages", systemImage: earlier ? "chevron.up" : "chevron.down", action: action)
+            .controlSize(.small).padding(.vertical, 8)
+    }
+}
+
 struct JumpToLatestButton: View {
-    @ObservedObject var scroll: ChatScrollModel; let conversationID: UUID; let proxy: ScrollViewProxy
+    @ObservedObject var scroll: ChatScrollModel
+    let conversationID: UUID
+    let action: () -> Void
     var body: some View {
         if let label = scroll.jumpLabel(conversationID) {
-            Button {
-                scroll.toBottom(conversationID)
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom) }
-            } label: {
+            Button(action: action) {
                 Label(label, systemImage: "arrow.down").font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .glassSurface(in: Capsule(), interactive: true, fallback: .regularMaterial).plainSurfaceShadow()

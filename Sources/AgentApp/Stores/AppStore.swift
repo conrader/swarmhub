@@ -10,7 +10,17 @@ import UserNotifications
     @Published var runningTurns: [UUID: ConversationTurn] = [:]
     var turnLimits: TurnLimits
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
-    @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
+    @Published var showingHiddenBots = false
+    @Published var draftReplyIDs: [UUID: UUID] = [:]
+    var replyTo: ChatMessage? {
+        get {
+            guard let conversation = openConversation, let id = draftReplyIDs[conversation.id] else { return nil }
+            return conversation.messages.first { $0.id == id }
+        }
+        set {
+            if let conversation = openConversation { draftReplyIDs[conversation.id] = newValue?.id }
+        }
+    }
     /// The pane the Settings window shows when it next opens or is already open; it clears it.
     @Published var settingsPane: SettingsLayout.Pane?
     /// The Grok Bot import sheet, and whether Grok Bot is on this Mac at all (existence checks only, run once, on first

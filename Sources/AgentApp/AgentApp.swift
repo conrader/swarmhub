@@ -29,8 +29,17 @@ import SwiftUI
         AppIconAppearance.applyAtLaunch()
         SidebarWidth.dropStaleSavedWidths()
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
-        let appStore = SetupPreview.isRequested() ? SetupPreview.makeStore()
-            : AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil)
+        let appStore: AppStore
+        if CommandLine.arguments.contains("--agent-qa-window") {
+            do { appStore = try AgentQA.windowStore() }
+            catch {
+                FileHandle.standardError.write(Data("Could not open sample workspace: \(error.localizedDescription)\n".utf8))
+                exit(EXIT_FAILURE)
+            }
+        } else {
+            appStore = SetupPreview.isRequested() ? SetupPreview.makeStore()
+                : AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil)
+        }
         _store = StateObject(wrappedValue: appStore)
         if let path = UISmoke.reportPath() { UISmoke.start(store: appStore, path: path) }
         PerformanceMetrics.reportReady()
@@ -69,6 +78,7 @@ import SwiftUI
             SettingsView()
                 .environmentObject(store)
                 .environmentObject(updater)
+                .defaultAppStorage(store.defaults)
                 .preferredColorScheme(AppTheme.colorScheme(for: appearance))
         }
     }

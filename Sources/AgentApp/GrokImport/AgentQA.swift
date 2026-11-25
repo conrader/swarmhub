@@ -27,6 +27,23 @@ import SwiftUI
         if let first = store.bots.first { store.open(first) }
     }
 
+    /// Visible fixture for Accessibility, mouse and keyboard tests in the regular app window.
+    static func windowStore() throws -> AppStore {
+        let session = try AgentQA(output: FileManager.default.temporaryDirectory)
+        let store = session.store
+        if let bot = store.bots.first {
+            bot.messages = (0..<486).map { index in
+                let prefix = "QA message \(index + 1)"
+                let body = index.isMultiple(of: 5)
+                    ? prefix + "\n\n" + String(repeating: "Sample text wraps across the chat window. ", count: 25)
+                    : prefix
+                return ChatMessage(role: index.isMultiple(of: 2) ? .user : .assistant, content: body)
+            }
+            store.chatScroll.saw(bot.id, top: bot.messages[242].id, atBottom: false)
+        }
+        return store
+    }
+
     static func run(arguments: [String]) -> Int32 {
         if arguments.contains("--help") {
             print("""

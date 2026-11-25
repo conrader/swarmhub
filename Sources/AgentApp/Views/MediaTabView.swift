@@ -33,6 +33,8 @@ struct MediaTabView: View {
             Image(nsImage: image).resizable().scaledToFill()
         } else if item.kind == .image, let url = item.url {
             RemoteOrDataImage(url: url, maxWidth: 40, maxHeight: 40)
+        } else if item.kind == .video {
+            Image(systemName: "film").foregroundStyle(.secondary)
         } else {
             Image(systemName: item.kind == .link ? "link" : item.kind == .image ? "photo" : item.attachment.map { DocumentKind(mimeType: $0.mimeType) != nil } == true ? "doc.richtext" : "doc").foregroundStyle(.secondary)
         }

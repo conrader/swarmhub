@@ -144,7 +144,7 @@ extension AppStore {
             recordNextMessage(next, .removed)
             return false
         }
-        replyTo = nil
+        draftReplyIDs[conversation.id] = nil
         return true
     }
 

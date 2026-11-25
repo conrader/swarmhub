@@ -183,3 +183,27 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     let again = AppStore(storeURL: oldURL, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     #expect(again.groups.count == 1 && again.migratedGroupNames.isEmpty && again.bots.count == 2)
 }
+
+@MainActor @Test func sampleWorkspaceOffersGroupMembersBeforeARealBotIsAdded() {
+    let (store, bots, _, _) = groupStore(["One", "Two"])
+    for bot in bots { bot.isDemo = true }
+    #expect(store.groupCandidates().map(\.id) == bots.map(\.id))
+    let real = Bot(name: "Real", backend: .herdr)
+    store.bots.append(real)
+    #expect(store.groupCandidates().map(\.id) == [real.id])
+    #expect(store.groupCandidates(including: [bots[0].id]).map(\.id) == [bots[0].id, real.id])
+}
+
+@MainActor @Test func replyDraftFollowsItsBotOrGroupWhenSwitchingChats() {
+    let (store, bots, _, group) = groupStore(["One", "Two"])
+    let source = ChatMessage(role: .assistant, content: "Bot one only")
+    bots[0].messages.append(source)
+    store.open(bots[0])
+    store.replyTo = source
+    store.open(bots[1])
+    #expect(store.replyTo == nil)
+    store.open(group)
+    #expect(store.replyTo == nil)
+    store.open(bots[0])
+    #expect(store.replyTo?.id == source.id)
+}
