@@ -1313,6 +1313,8 @@ Codex has no hook for unfinished text. Its app server does send the text a messa
 - Codex's own terminal UI, connected to that server. Tasks, steering, the stop key, approvals and **Take over** go through it as before.
 - `swarmhub-herdr codex-stream`, which joins the UI's conversation as a second client and passes the text of the message being written to the workspace. It only listens: it never answers a question the server asks, so the UI stays the one that decides.
 
+The listener also reports shell commands from the bot’s conversation. A command appears while running and keeps its activity ID when Codex reports success or failure. The bridge retains a short command description. Terminal output stays out of this activity record.
+
 The reply so far shows in the same place as Claude Code's and OpenCode's: `…/draft` and the event stream below, up to 32 KiB. It is the message Codex is writing now, so a short note before a tool call is replaced by the answer that follows, and it goes away when the turn ends or is stopped. The Stop hook still saves the final reply.
 
 - The app server and the follower end with the terminal UI. Each session has its own; Codex's shared background server is not used or changed.

@@ -33,7 +33,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
     sync::oneshot,
     time::{Instant, interval, sleep_until, timeout},
@@ -361,7 +361,7 @@ pub async fn run() -> Result<(), Failed> {
         let _ = exited.send(());
     });
 
-    let mut follower = Follower::default();
+    let mut follower = Follower { launch_key: key.clone(), ..Default::default() };
     let mut feed = Feed {
         path: journal.with_file_name("replies.sock"),
         key,
@@ -383,6 +383,9 @@ pub async fn run() -> Result<(), Failed> {
                 let requests = match message {
                     Some(text) => {
                         let requests = follower.heard(&text);
+                        if let Some(command) = follower.command.take() {
+                            feed.show_command(&command).await;
+                        }
                         if follower.reviewer.is_some() || follower.review_event.is_some() || follower.sandbox.is_some() || follower.policy.is_some() {
                             save_review(&journal, &feed.key, follower.reviewer.take(), follower.review_event.take(), follower.sandbox.take(), follower.policy.take());
                         }
@@ -398,7 +401,7 @@ pub async fn run() -> Result<(), Failed> {
                         connection = None;
                         reconnect_at = Instant::now() + RECONNECT;
                         flush_at = None;
-                        follower = Follower::default();
+                        follower = Follower { launch_key: feed.key.clone(), ..Default::default() };
                         feed.show(None).await;
                         Vec::new()
                     }
@@ -577,6 +580,8 @@ struct Reply {
 
 #[derive(Default)]
 struct Follower {
+    launch_key: String,
+    command: Option<crate::tool_activity::Frame>,
     last_id: u64,
     sandbox: Option<&'static str>,
     policy: Option<&'static str>,
@@ -809,6 +814,7 @@ impl Follower {
             }
             "item/started" if self.joined.contains(thread) => {
                 let item = &params["item"];
+                self.command = crate::tool_activity::Frame::codex_command(&self.launch_key, item, false);
                 if !matches!(
                     item["type"].as_str(),
                     Some("agentMessage" | "reasoning" | "plan")
@@ -857,6 +863,7 @@ impl Follower {
             }
             "item/completed" if self.joined.contains(thread) => {
                 let item = &params["item"];
+                self.command = crate::tool_activity::Frame::codex_command(&self.launch_key, item, true);
                 if let Some((text, explicit)) = final_text(item)
                     && let Some(id) = params["turnId"].as_str().filter(|id| super::valid_turn(id))
                 {
@@ -985,6 +992,19 @@ fn reply_id(item: &str) -> String {
 }
 
 impl Feed {
+    // The live socket accepts each activity frame on a separate connection.
+    async fn show_command(&self, frame: &crate::tool_activity::Frame) {
+        let Ok(mut line) = serde_json::to_vec(frame) else { return };
+        line.push(b'\n');
+        let _ = timeout(FEED_WAIT, async {
+            let mut socket = UnixStream::connect(&self.path).await?;
+            socket.write_all(&line).await?;
+            // The workspace closes this socket after applying the frame. Keep a following
+            // final reply from overtaking the last activity event.
+            socket.read(&mut [0]).await
+        }).await;
+    }
+
     async fn show(&mut self, reply: Option<&Reply>) {
         let Some(reply) = reply.filter(|reply| reply.whole && !reply.text.trim().is_empty()) else {
             // Nothing to show: an empty message keeps what was there until text arrives or the turn ends.
@@ -1273,6 +1293,23 @@ mod tests {
             legacy.completed.take(),
             Some(("t4".into(), "Answer".into()))
         );
+    }
+
+    #[test]
+    fn only_reports_command_activity_from_the_joined_conversation() {
+        let mut follower = joined();
+        follower.launch_key = "00112233445566778899aabbccddeeff".into();
+        for (thread, method, phase) in [
+            ("child", "item/started", None),
+            (THREAD, "item/started", Some("started")),
+            (THREAD, "item/completed", Some("finished")),
+        ] {
+            follower.heard(&note(method, json!({"threadId":thread,"turnId":"t1",
+                "item":{"type":"commandExecution","id":"exec-a","command":"sleep 4",
+                        "status":"completed","exitCode":0,"source":"unifiedExecStartup"}})));
+            let frame = follower.command.take().map(|f| serde_json::to_value(f).unwrap());
+            assert_eq!(frame.as_ref().and_then(|f| f["activity"]["phase"].as_str()), phase);
+        }
     }
 
     #[test]
