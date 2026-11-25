@@ -81,6 +81,29 @@ struct WorkspaceActivityView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var items: [WorkspaceActivityItem] = []
 
+    private struct Review: Equatable, Identifiable {
+        let bot: Bot
+        let server: HerdrServer
+        let request: HerdrClient.Approval
+        var id: String { "\(bot.id)-\(server.id)-\(request.id)" }
+    }
+
+    @State private var selectedReview: Review?
+    @State private var completed: [Review] = []
+
+    private func reviews(in chat: SidebarChat) -> [Review] {
+        func requests(_ bot: Bot, _ group: GroupChat?) -> [Review] {
+            let server = store.herdrServer(for: bot)
+            return store.approvals(for: bot, in: group, inboxes: inboxes).map {
+                Review(bot: bot, server: server, request: $0)
+            }
+        }
+        switch chat {
+        case .bot(let bot): return requests(bot, nil)
+        case .group(let group): return store.members(of: group).flatMap { requests($0, group) }
+        }
+    }
+
     private struct ActivitySection: Identifiable {
         let id: WorkspaceActivityItem.Section
         let rows: [WorkspaceActivityItem]
@@ -136,6 +159,20 @@ struct WorkspaceActivityView: View {
                                         }.padding(6).contentShape(Rectangle())
                                     }.buttonStyle(.plain).accessibilityLabel("\(row.chat.displayName), \(row.detail)")
                                         .accessibilityValue(row.chat.isUnread ? "Unread" : "")
+                                    if row.section == .attention {
+                                        ForEach(reviews(in: row.chat).filter { !completed.contains($0) }) { review in
+                                            if selectedReview == review {
+                                                HerdrApprovalReview(request: review.request, server: review.server, keyboardDecisions: true) {
+                                                    completed.append(review)
+                                                    selectedReview = nil
+                                                }.id(review.id).chatCard(tint: review.bot.colours)
+                                            } else {
+                                                Button("Inspect \(HerdrClient.Approval.visible(review.request.tool)) request") {
+                                                    selectedReview = review
+                                                }.controlSize(.small)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }.padding(.horizontal).padding(.bottom)
