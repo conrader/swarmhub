@@ -32,7 +32,8 @@ struct HerdrBackend: AgentBackend {
     let client: HerdrClient
     let agentName: String
     let botID: UUID
-    private let accepted = LockedValue<HerdrClient.Turn?>(nil)
+    private let accepted = LockedValue<(sessionID: String, target: StopTarget)?>(nil)
+    private let groupSends = GroupSendTasks()
     /// True from the start of a turn that may hand the bot's earlier conversation over until that step has ended:
     /// meanwhile the turn takes no steer (`features`), so a message the person sends then waits its turn instead of
     /// being typed into the handoff.
@@ -191,7 +192,8 @@ struct HerdrBackend: AgentBackend {
         let blank = input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard !blank || !files.isEmpty else { throw BackendError.unavailable("There is no message to send.") }
         let text = blank ? "Read the attached files." : input
-        let name = runtimeName(sessionID: request.sessionID)
+        let sessionID = request.sessionID
+        let name = runtimeName(sessionID: sessionID)
         try HerdrClient.validateMessage(text)
         try HerdrClient.TaskFile.validate(files)
         var configured = self
@@ -203,7 +205,7 @@ struct HerdrBackend: AgentBackend {
         _ = accepted.swap(nil)
         _ = handingOver.swap(name == agentName && (handoff != nil || prepareDirect != nil))
         return AsyncThrowingStream { continuation in
-            let task = Task {
+            let produce: @Sendable () async -> Void = {
                 let started = ContinuousClock.now
                 var delivered = false
                 do {
@@ -234,7 +236,8 @@ struct HerdrBackend: AgentBackend {
                                                                 projects: backend.projects, files: files, workspaceID: backend.botID, resync: backend.projectsChanged, synced: { backend.onProjectsSynced?() },
                                                                 status: { continuation.yield(.status($0.code)) })
                     delivered = true
-                    _ = backend.accepted.swap(turn)
+                    let target = StopTarget.serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)")
+                    _ = backend.accepted.swap((sessionID, target))
                     for (source, why) in missed { source.failed?(HerdrHandoffFailure(launch: backend.launch(of: turn), why: why)) }
                     continuation.yield(.status(HerdrTurnStatus.of(agentState: "", program: turn.program, began: false, starting: turn.starting).code))
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
@@ -271,14 +274,29 @@ struct HerdrBackend: AgentBackend {
                     continuation.yield(.runActivity(seconds: Int(started.duration(to: .now).components.seconds), tools: reply.tools))
                     continuation.yield(.completed)
                     continuation.finish()
-                } catch is CancellationError { continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch let error as URLError where name != backend.agentName && error.code == .cancelled && Task.isCancelled {
+                    continuation.finish()
                 } catch HerdrClient.Failure.notDelivered(let reason) {
                     continuation.finish(throwing: HerdrClient.Failure.notDelivered(reason))
                 } catch {
                     continuation.finish(throwing: delivered ? StreamBreak(delivered: true, underlying: error) : error)
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            if name == agentName {
+                let task = Task(operation: produce)
+                continuation.onTermination = { _ in task.cancel() }
+            } else {
+                guard let task = groupSends.start(sessionID: sessionID, produce: produce) else {
+                    continuation.finish(throwing: CancellationError())
+                    return
+                }
+                continuation.onTermination = { [groupSends] _ in
+                    task.cancel()
+                    groupSends.remove(task, sessionID: sessionID)
+                }
+            }
         }
     }
 
@@ -317,14 +335,19 @@ struct HerdrBackend: AgentBackend {
         try await client.message(HerdrClient.plain(text, bytes: Int.max), to: agent)
     }
 
-    func cancel(sessionID: String) async throws -> StopOutcome { try await requestStop(try await stopTarget(sessionID: sessionID)) }
+    func cancelGroupSend(sessionID: String) { groupSends.cancel(sessionID: sessionID) }
+
+    func cancel(sessionID: String) async throws -> StopOutcome {
+        cancelGroupSend(sessionID: sessionID)
+        return try await requestStop(try await stopTarget(sessionID: sessionID))
+    }
 
     /// The bot's running agent, as `address/created`; an agent that is not running has nothing to stop.
     func stopTarget(sessionID: String) async throws -> StopTarget {
-        if let turn = accepted.current { return .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)") }
+        if let accepted = accepted.current, accepted.sessionID == sessionID { return accepted.target }
         // The bridge may have accepted the message before its HTTP response reached this stream.
         let workspace = try await client.workspace()
-        if let turn = accepted.current { return .serverRun("\(turn.core)/\(turn.address)/\(turn.createdMs)") }
+        if let accepted = accepted.current, accepted.sessionID == sessionID { return accepted.target }
         guard let core = workspace.core,
               let agent = client.liveAgent(named: runtimeName(sessionID: sessionID), in: workspace) else { return .noActiveRun }
         return .serverRun("\(core)/\(agent.address)/\(agent.createdMs)")
@@ -348,5 +371,32 @@ struct HerdrBackend: AgentBackend {
         let names = HerdrProgramName.labels(for: workspace.templates.filter { $0.error == nil })
         if usable.isEmpty { return "Connected, but no AI is set up on this server yet. Add one there, then check again." }
         return "Connected. Bots can run on \(usable.compactMap { names[$0] }.joined(separator: ", "))."
+    }
+}
+
+/// The group consumer and the stream producer are separate tasks. Stop must cancel a producer
+/// even while it is still preparing the first POST and the consumer has yet to read the stream.
+private final class GroupSendTasks: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tasks: [String: Task<Void, Never>] = [:]
+
+    func start(sessionID: String, produce: @escaping @Sendable () async -> Void) -> Task<Void, Never>? {
+        lock.withLock {
+            guard !Task.isCancelled else { return nil }
+            let task = Task(operation: produce)
+            tasks[sessionID] = task
+            return task
+        }
+    }
+
+    func cancel(sessionID: String) {
+        let task = lock.withLock { tasks[sessionID] }
+        task?.cancel()
+    }
+
+    func remove(_ task: Task<Void, Never>, sessionID: String) {
+        lock.withLock {
+            if tasks[sessionID] == task { tasks[sessionID] = nil }
+        }
     }
 }

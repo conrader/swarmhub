@@ -682,7 +682,9 @@ struct HerdrClient: Sendable {
 
     /// A request's body and status as they came, for routes whose refusals carry more than a sentence (`HerdrProjects.swift`).
     func raw(_ request: URLRequest) async throws -> (data: Data, status: Int) {
-        let (data, response) = try await session.data(for: prepared(request))
+        let preparedRequest = try await prepared(request)
+        try Task.checkCancellation()
+        let (data, response) = try await session.data(for: preparedRequest)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
