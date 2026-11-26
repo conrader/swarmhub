@@ -13,9 +13,12 @@ from urllib.parse import quote
 
 from claude_preview import smoke, until
 
-TASK = "Delegate the sidebar audit to Explore."
+TASK = "Delegate the sidebar audit to a helper."
 CHILD = "CLAUDE-CHILD-RESULT"
 PARENT = "CLAUDE-PARENT-RESULT"
+RESUME = "Resume the same sidebar helper."
+NEXT_TASK = "Check the nested session too."
+NEXT_REPLY = "CLAUDE-RESUMED-RESULT"
 
 
 class ChildScenario:
@@ -23,6 +26,8 @@ class ChildScenario:
         self.require_visible = require_visible
         self.started = threading.Event()
         self.finish = threading.Event()
+        self.resumed = threading.Event()
+        self.finish_resume = threading.Event()
 
     def prepare(self, profile):
         # Observe Claude's own lifecycle independently of the workspace's reporting.
@@ -38,7 +43,7 @@ class ChildScenario:
         command = shlex.join([sys.executable, str(hook), str(self.receipts)])
         hooks = {event: [{"hooks": [{"type": "command", "command": command}]}]
                  for event in ("SubagentStart", "SubagentStop", "PostToolUse")}
-        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(Explore)", "Read", "Bash(cat:*)"]}}))
+        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(general-purpose)", "SendMessage", "Read", "Bash(cat:*)"]}}))
 
     @property
     def handler(self):
@@ -74,11 +79,23 @@ class ChildScenario:
                 last = next(row for row in reversed(request["messages"]) if row["role"] == "user")
                 text = json.dumps(last["content"])
                 spawn = TASK in text and any(t.get("name") == "Agent" for t in request.get("tools", []))
-                if spawn:
+                if RESUME in text and "tool_result" not in text:
+                    send("content_block_start", index=0, content_block={
+                        "type": "tool_use", "id": "toolu_resume_sidebar", "name": "SendMessage", "input": {},
+                    })
+                    send("content_block_delta", index=0, delta={"type": "input_json_delta",
+                         "partial_json": json.dumps({"to": scenario.child, "message": NEXT_TASK})})
+                    spawn = True
+                elif NEXT_TASK in text and "tool_result" not in text:
+                    scenario.resumed.set()
+                    assert scenario.finish_resume.wait(30), "Timed out observing the resumed helper"
+                    send("content_block_start", index=0, content_block={"type": "text", "text": ""})
+                    send("content_block_delta", index=0, delta={"type": "text_delta", "text": NEXT_REPLY})
+                elif spawn:
                     send("content_block_start", index=0, content_block={
                         "type": "tool_use", "id": "toolu_sidebar", "name": "Agent", "input": {},
                     })
-                    payload = {"description": "Read sidebar state", "prompt": f"Reply with {CHILD}.", "subagent_type": "Explore"}
+                    payload = {"description": "Read sidebar state", "prompt": f"Reply with {CHILD}.", "subagent_type": "general-purpose"}
                     send("content_block_delta", index=0, delta={"type": "input_json_delta", "partial_json": json.dumps(payload)})
                 else:
                     child_messages = [message for message in request["messages"] if message.get("role") == "user"]
@@ -191,15 +208,28 @@ class ChildScenario:
             final = until(lambda: next((row for row in request(route).get("claude_threads", [])
                                         if row["id"] == child and row["state"] == "answered"), None))
             assert final["reply"] == CHILD and final["completed_ms"] >= final["created_ms"]
+            self.child = child
+            request(base + "/messages", {"text": RESUME})
+            try:
+                assert self.resumed.wait(20), "The parent did not resume its child"
+                def working_again():
+                    rows = [row for row in request(route)["claude_threads"] if row["id"] == child]
+                    return len(rows) == 1 and rows[0]["state"] == "working" and rows[0]["task"] == NEXT_TASK
+                until(working_again, seconds=5)
+                resumed = request(activity + query)
+                assert resumed["details"]["reply"] == "" and resumed["details"]["terminal"] is None
+                assert CHILD in resumed["transcript"] and "Child workspace fixture" in resumed["transcript"]
+            finally:
+                self.finish_resume.set()
+            until(lambda: request(activity + query)["details"]["reply"] == NEXT_REPLY)
             request(base + "/end", {})
             archived = request(activity + query)
-            assert archived["details"]["terminal"] == running["details"]["terminal"]
-            assert "details" not in final and archived["details"]["reply"] == CHILD
-            assert any("Read" in step["text"] for step in archived["details"]["steps"])
-            assert CHILD in archived["transcript"] and PARENT not in archived["transcript"] and archived["state"] == "answered"
+            assert archived["state"] == "answered" and archived["details"]["task"] == NEXT_TASK
+            assert archived["details"]["reply"] == NEXT_REPLY and PARENT not in archived["transcript"]
+            assert all(text in archived["transcript"] for text in (CHILD, NEXT_REPLY, "Read", "Child workspace fixture"))
             until(lambda: any(p["session"] == {"address": bot["address"], "created_ms": bot["created_ms"]}
                               for p in request("/api/workspace?codejobs=true").get("archived_helper_parents", [])))
-            print("Read the assignment, child tool activity and final reply after closing the owning Core terminal.")
+            print("Resumed the same Claude helper, observed its new assignment while working and read both runs after closing the parent.")
 
 
 if __name__ == "__main__":

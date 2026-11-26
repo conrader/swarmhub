@@ -362,7 +362,7 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     for event in ["SubagentStart", "SubagentStop"] {
         settings["hooks"][event] = json!([{"hooks":[child_hook]}]);
     }
-    settings["hooks"]["PostToolUse"].as_array_mut().unwrap().push(json!({"matcher":"^(Agent|Task)$","hooks":[child_hook]}));
+    settings["hooks"]["PostToolUse"].as_array_mut().unwrap().push(json!({"matcher":"^(Agent|Task|SendMessage)$","hooks":[child_hook]}));
     let shell_hook = json!({"type":"command","command":format!("{} capture-claude-shell", shell_quote(executable)),"timeout":TOOL_HOOK_SECONDS});
     for event in ["PostToolUse", "PostToolUseFailure"] {
         settings["hooks"][event].as_array_mut().unwrap().push(json!({"matcher":"^Bash$","hooks":[shell_hook]}));
