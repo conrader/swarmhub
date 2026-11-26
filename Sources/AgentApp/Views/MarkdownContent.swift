@@ -42,7 +42,7 @@ struct MarkdownContent: View {
                 case .pageDraft(let draft):
                     let key = "pageReview.\(index)"
                     let status = actionTarget.map { store.choiceStatus(message, target: $0, key: key, binary: false) }
-                    PageDraftCard(draft: draft, prose: rendered.prose, picked: status?.picked ?? message.metadata[key],
+                    PageDraftCard(draft: draft, title: rendered.run, prose: rendered.prose, picked: status?.picked ?? message.metadata[key],
                                   enabled: index >= 0 && !message.isStreaming && status?.enabled == true) { decision in
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
@@ -340,6 +340,7 @@ struct ChoicesCard: View {
 /// Inline review and editing for a draft sent back to its author.
 private struct PageDraftCard: View {
     let draft: PageDraft
+    let title: TranscriptText.Run?
     let prose: [TranscriptText.Prose]
     let picked: String?
     let enabled: Bool
@@ -348,7 +349,9 @@ private struct PageDraftCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Draft · Page", systemImage: "doc.text").font(.caption).foregroundStyle(.secondary)
-            Text(verbatim: draft.title).font(.headline).accessibilityAddTraits(.isHeader)
+            if let title {
+                TranscriptRunView(run: title, style: .heading(3)).font(.headline).accessibilityAddTraits(.isHeader)
+            }
             ProseBlock(text: draft.markdown, rendered: prose)
             Divider()
             if let picked {

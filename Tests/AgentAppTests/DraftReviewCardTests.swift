@@ -3,6 +3,52 @@ import Testing
 @testable import AgentApp
 
 @MainActor struct DraftReviewCardTests {
+    @Test func pageDraftRequiresACompleteNamedDocument() {
+        let body = #"{"title":"Release notes","markdown":"- One\n- Two"}"#
+        let source = "```page-draft\n" + body + "\n```"
+        #expect(ChatCardParser.parse(source) == [.pageDraft(.init(title: "Release notes", markdown: "- One\n- Two"))])
+        #expect(ChatCardParser.parse(source, interpretCards: false) == [.code(language: "page-draft", body: body)])
+        #expect(ChatCardParser.parse("```page-draft\n" + body) == [.code(language: "page-draft", body: body)])
+        for invalid in ["{}", #"{"title":" ","markdown":"A"}"#, #"{"title":"Title","markdown":" "}"#] {
+            #expect(ChatCardParser.parse("```page-draft\n" + invalid + "\n```") == [.code(language: "page-draft", body: invalid)])
+        }
+        let projected = TranscriptText(reply: source, segments: nil).string
+        #expect(projected.contains("Release notes") && projected.contains("One") && projected.contains("Two"))
+    }
+
+    @Test(arguments: [PageDraft.Decision.approve, .shorten])
+    func pageReviewDeliversTheSelectedWholeRevisionOnlyOnce(decision: PageDraft.Decision) async throws {
+        let writer = Bot(name: "Patch"), peer = Bot(name: "Scout")
+        let backend = GroupBackend(name: writer.name), otherBackend = GroupBackend(name: peer.name)
+        let id = writer.id
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { $0.id == id ? backend : otherBackend },
+                             keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let draft = PageDraft(title: "v3", markdown: String(repeating: "Review this wording. ", count: 100) + "β")
+        let json = try JSONEncoder().encode(draft)
+        let card = ChatMessage(role: .assistant, content: "```page-draft\n" + String(decoding: json, as: UTF8.self) + "\n```", authorID: writer.id)
+        let group = GroupChat(name: "Release", memberIDs: [writer.id, peer.id], messages: [card])
+        store.bots = [writer, peer]; store.groups = [group]
+        let target = ConversationActionTarget.group(groupID: group.id, botID: writer.id)
+        func review(_ draft: PageDraft, in target: ConversationActionTarget) -> Bool {
+            store.performCardAction(target: target, sourceID: card.id, index: 0, expected: .pageDraft(draft), pageDecision: decision)
+        }
+        #expect(!review(draft, in: .group(groupID: group.id, botID: peer.id)))
+        #expect(!review(.init(title: draft.title, markdown: "Different version"), in: target))
+        card.isStreaming = true
+        #expect(!review(draft, in: target))
+        card.isStreaming = false
+        #expect(review(draft, in: target))
+        try await waitUntil(timeout: .seconds(5)) { !store.anyTurnRunning }
+        #expect(!review(draft, in: target))
+        let reply = try #require(group.messages.first { $0.role == .user })
+        #expect(reply.replyToID == card.id && reply.content == decision.reply)
+        let quote = try #require(reply.metadata[ChoiceReply.quoteKey])
+        #expect(try JSONDecoder().decode(PageDraft.self, from: Data(quote.utf8)) == draft)
+        #expect(backend.sent.all.count == 1 && otherBackend.sent.all.isEmpty)
+        #expect(backend.sent.all.first?.text.hasSuffix(reply.modelText) == true)
+        #expect(card.metadata["pageReview.0"] == decision.rawValue)
+    }
+
     @Test func recognizesDraftEmailAndMessageFences() {
         #expect(ChatCardParser.parse("```draft\nChannel: Slack\nto: #launch\n\nFirst line\n\nSubject: Part of the body\n\n```") == [
             .draft(.init(to: "#launch", body: "First line\n\nSubject: Part of the body\n", channel: "Slack")),
