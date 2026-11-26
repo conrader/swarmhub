@@ -40,7 +40,7 @@ mod settings;
 mod spool;
 
 use record::{Admitted, RECENT_LAUNCHES, View, Wanted, admit, list_text, one_line, read_text, views};
-pub(crate) use record::{ParentRef, parents};
+pub(crate) use record::{ParentRef, parents, session_parents};
 pub(crate) use spool::{ENV as SPOOL_ENV, directory as spool_directory};
 
 #[cfg(test)]
@@ -144,6 +144,9 @@ pub(crate) struct Listing {
     /// Most recent answered assignment when its terminal has closed.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_result: Option<View>,
+    /// Other recent closed sessions with a saved terminal identity, newest launch first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    recent_sessions: Vec<View>,
     /// Running helpers only, newest first.
     helpers: Vec<View>,
 }
@@ -790,14 +793,19 @@ pub(crate) async fn listing(
     } else {
         Vec::new()
     };
-    let mut last_result = helpers.iter().position(|helper| !helper.live()).map(|i| helpers.remove(i));
-    if !helpers.is_empty() || last_result.is_some() {
+    if !helpers.is_empty() {
         let catalog = crate::runtimes::Catalog::load(w.history.file());
-        for helper in helpers.iter_mut().chain(last_result.iter_mut()) {
+        for helper in &mut helpers {
             helper.open_task = Some(helper.working());
             helper.model_label = catalog.model_label(&helper.template, &helper.model);
         }
     }
+    // Older clients read one result; its reply can be newer than a later-launched helper's.
+    let latest = helpers.iter().enumerate()
+        .filter_map(|(index, helper)| helper.answer_id().map(|id| (id, index)))
+        .max().map(|(_, index)| index);
+    let last_result = latest.filter(|&i| !helpers[i].live()).map(|i| helpers.remove(i));
+    let (helpers, recent_sessions) = helpers.into_iter().partition(View::live);
     let (stop_after_seconds, stop_unanswered_after_seconds) = Policy::delays(w.history.file());
     Ok(Listing {
         core: core_id,
@@ -808,6 +816,7 @@ pub(crate) async fn listing(
         stop_after_seconds,
         stop_unanswered_after_seconds,
         last_result,
+        recent_sessions,
         helpers,
     })
 }

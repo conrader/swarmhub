@@ -231,6 +231,9 @@ private let listingJSON = """
     #expect(list.sidebarSessions.map(\.name) == ["worker", "other", "compiler"])
     let overlap = HerdrClient.Helpers(core: list.core, parent: list.parent, helpers: [newest], lastResult: newest)
     #expect(overlap.sidebarSessions.count == 1)
+    let archived = HerdrClient.Helpers(core: list.core, parent: list.parent, helpers: [working], lastResult: newest, recentSessions: [older, newest])
+    #expect(archived.sidebarSessions.map(\.id) == [working.id, newest.id, older.id])
+    #expect(archived.inChat.map(\.id) == [working.id, newest.id])
     #expect(working.resultPreview == nil)
     #expect(newest.resultPreview == "build succeeded")
 }

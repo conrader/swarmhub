@@ -1753,6 +1753,7 @@ def smoke(hc, bridge, chrome=None):
                         output = f"/api/agents/{helper['address']}/{helper['created_ms']}/output"
                         stamp = "Launch model=" + expected["model"] + " auto=" + ("1" if auto else "")
                         assert until(lambda: stamp in request(output)["text"])
+                        return helper
                     # Run the production wrappers against an argument recorder, without contacting a provider.
                     probe = root / "probe-agent"
                     server_log = root / "codex-server-args.json"
@@ -1804,14 +1805,27 @@ def smoke(hc, bridge, chrome=None):
                         assert (agy_settings.get("allowNonWorkspaceAccess") is True) == bool(auto)
                         assert (agy_settings.get("artifactReviewPolicy") == "always-proceed") == bool(auto)
                         assert (agy_args[4:] == ["--mode", "auto", "--dangerously-skip-permissions"]) == bool(auto)
-                    spawn(direct, "custom", chosen)
+                    first_helper = spawn(direct, "custom", chosen)
                     spawn(group, "legacy", chosen)
                     spawn(second, "other", default, auto=False)
                     spawn(direct, "blocked", None, difficulty="hard")
                     assert request(url, {"choice": None})["choice"] is None
                     updated = request(url, {"auto_mode": False})
                     assert updated["choice"] is None and not updated["auto_mode"] and updated["auto_changed_ms"] > 0
-                    spawn(direct, "reset", default, auto=False)
+                    second_helper = spawn(direct, "reset", default, auto=False)
+                    for helper in [first_helper, second_helper]:
+                        request(f"/api/agents/{helper['address']}/{helper['created_ms']}/end", {})
+                    route = f"/api/agents/{direct['address']}/{direct['created_ms']}/helpers"
+                    def saved_sessions():
+                        listing = request(route)
+                        if listing["helpers"]:
+                            return None
+                        return listing.get("recent_sessions", []) + ([listing["last_result"]] if listing.get("last_result") else [])
+                    archived = until(saved_sessions)
+                    identity = lambda h: (h["name"], h["address"], h["created_ms"])
+                    assert {identity(h) for h in archived} == {identity(first_helper), identity(second_helper)}
+                    roster = request("/api/workspace?codejobs=true")
+                    assert {"address": direct["address"], "created_ms": direct["created_ms"]} in roster["helper_session_parents"]
                     assert "Launch model=chat-model" in request(f"/api/agents/{direct['address']}/{direct['created_ms']}/output")["text"]
                     return
                 assert b"SwarmHub" in request("/", authorized=False)

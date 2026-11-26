@@ -987,7 +987,7 @@ def live_terminals(source_app):
                 self.send_error(403)
                 return
             if route == "/api/workspace":
-                reply = dict(core="qa", agents=agents, templates=[], helper_results=True, codejob_activity=workers)
+                reply = dict(core="qa", agents=agents, templates=[], helper_results=True, helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
             elif route == "/api/approvals":
                 reply = dict(pending=[])
             elif route == "/api/attention":
@@ -1001,6 +1001,8 @@ def live_terminals(source_app):
                 if address == "terminal0":
                     reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
                                                 answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
+                    reply["recent_sessions"] = [dict(address="finished", created_ms=65, name="EarlierQA", state="gone",
+                                                     answered=True, task="Check the export", reply=dict(id=17, text="The export passed."))]
             else:
                 self.send_error(404)
                 return
@@ -1096,10 +1098,24 @@ def live_terminals(source_app):
                 press(window, label(answered_button()))
                 wait_for("saved helper reply", lambda: any(attribute(n, "AXValue") == "The import passed." for n in descendants(window)))
                 press(window, "Steer via Patch")
-                agents.clear()
+                press(window, "ReaderQA", sidebar=True)
+                press(window, label(owner_row()))
+                def earlier():
+                    return next((b for b in buttons(window) if label(b).startswith("Helper EarlierQA,")), None)
+                wait_for("earlier helper after returning to Patch", earlier)
+                press(window, label(earlier()))
+                wait_for("distinct earlier reply", lambda: any(attribute(n, "AXValue") == "The export passed." for n in descendants(window)))
+                press(window, "Steer via Patch")
+                del agents[1:]
                 workers.clear()
                 press(window, "ReaderQA", sidebar=True)
-                print("Verified live output for bot, helper, nested helper, group session and detached worker; replaced session never attached.")
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                press(window, "ReaderQA", sidebar=True)
+                def restored():
+                    return {name for button in buttons(window) for name in ["AnsweredQA", "EarlierQA"]
+                            if label(button).startswith("Helper " + name + ",")}
+                wait_for("both closed sessions after relaunch", lambda: restored() == {"AnsweredQA", "EarlierQA"})
+                print("Verified live terminal identities and two closed helpers after switching chats and relaunching the app.")
         finally:
             server.shutdown()
 

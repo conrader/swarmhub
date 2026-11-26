@@ -64,10 +64,11 @@ extension HerdrClient {
         let core: String; let parent: AgentRef; var limit: Int? = nil; var stopAfterSeconds: Int? = nil; let helpers: [Helper]
 
         var lastResult: Helper? = nil
+        var recentSessions: [Helper]? = nil
 
         var sidebarSessions: [Helper] {
-            guard let lastResult, !helpers.contains(where: { $0.id == lastResult.id }) else { return helpers }
-            return helpers + [lastResult]
+            var seen = Set<String>()
+            return (helpers + [lastResult].compactMap { $0 } + (recentSessions ?? [])).filter { seen.insert($0.id).inserted }
         }
 
         /// Keep the latest answer visible across its terminal closing and while other helpers work.
@@ -111,7 +112,9 @@ extension HerdrClient {
 
     /// The agent's helpers when the workspace shows it has any; an agent without one costs no second request.
     func helpers(of agent: Agent, in workspace: Workspace, includeLastResult: Bool = false) async throws -> Helpers? {
-        guard (includeLastResult && workspace.helperResults == true) || workspace.agents.contains(where: { $0.parent == agent.ref }) else { return nil }
+        let hasSavedSessions = workspace.helperSessionParents.map { $0.contains(agent.ref) }
+            ?? (includeLastResult && workspace.helperResults == true)
+        guard hasSavedSessions || workspace.agents.contains(where: { $0.parent == agent.ref }) else { return nil }
         return try await helpers(of: agent.ref)
     }
 
