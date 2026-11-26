@@ -1075,9 +1075,9 @@ def activity_decisions(source_app):
 
                 wait_for("goal stopped before issuing a paid step", stopped_at_budget)
                 press(window, "+ Screenshot")
-                application = attribute(window, "AXParent")
+                application = ax.AXUIElementCreateApplication(pid)
                 def cancel_button():
-                    return next((b for w in attribute(application, "AXWindows") for b in buttons(w) if label(b) == "Cancel"), None)
+                    return next((b for w in attribute(application, "AXWindows") or [] for b in buttons(w) if label(b) == "Cancel"), None)
                 wait_for("screenshot picker", cancel_button)
                 assert ax.AXUIElementPerformAction(cancel_button(), "AXPress") == 0
                 print("Verified the screenshot picker, per-bot approvals and a zero-dispatch USD limit.")

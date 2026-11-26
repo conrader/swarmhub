@@ -421,9 +421,9 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
 
         // The light text of the card and both actions stands out against the dark chat in each region.
         // The transcript and composer sit outside these crops.
-        let card = CGRect(x: 30, y: 329, width: 240, height: 108)
-        let helperTerminal = CGRect(x: 555, y: 329, width: 107, height: 108)
-        let details = CGRect(x: 664, y: 329, width: 66, height: 108)
+        let card = CGRect(x: 30, y: 303, width: 240, height: 108)
+        let helperTerminal = CGRect(x: 555, y: 303, width: 107, height: 108)
+        let details = CGRect(x: 664, y: 303, width: 66, height: 108)
         func headerHasTerminal(_ image: CGImage) async throws -> Bool {
             let header = try #require(image.cropping(to: CGRect(x: 0, y: 0, width: size.width, height: 54)))
             return try await recognizedLines(in: header).contains { $0.contains("Terminal") }
