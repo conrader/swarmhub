@@ -74,10 +74,10 @@ extension AppStore {
                 if let program = presence.program, presence.nextTemplate == herdrTemplate(for: bot) { return program }
                 return reading?.runtime?.programName
             }
-            if let program = presence.program { return program }
-            return reading?.session == session ? reading?.activeProgram : nil
+            if reading?.session == session, let launched = reading?.launchedProgramName { return launched }
+            return presence.program
         }
-        return reading?.activeProgram ?? reading?.runtime?.programName
+        return reading?.launchedProgramName ?? reading?.runtime?.programName
     }
 
     /// What the switch means, in the words of the state it is in.
