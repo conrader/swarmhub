@@ -8,6 +8,7 @@ class ChildSession:
     parent_task = "Launch the sidebar reader"
     child_task = "Read sidebar.txt and report its state."
     child_reply = "The sidebar is expanded."
+    progress = "I found the sidebar flag and am checking its source."
     parent_reply = "The reader has reported."
 
     def __init__(self, root):
@@ -16,6 +17,7 @@ class ChildSession:
         self.started = threading.Event()
         self.release = threading.Event()
         self.returned = threading.Event()
+        self.finish_answer = threading.Event()
         self.session_id = None
 
     @staticmethod
@@ -46,8 +48,9 @@ class ChildSession:
             self.started.set()
             assert self.release.wait(45)
             if not receipts:
-                return self.call("read", {"path": str(self.file)})
+                return (({"role": "assistant", "content": self.progress}, None), *self.call("read", {"path": str(self.file)}))
             assert "expanded" in receipts[-1]
+            assert self.finish_answer.wait(30)
             text = self.child_reply
         return (({"role": "assistant", "content": text}, None), ({}, "stop"))
 
@@ -72,6 +75,13 @@ class ChildSession:
             request(activity.replace("opencode-threads", "claude-threads") + f"?core={core}", status=404)
             assert request(activity + f"?core={core}")["state"] == "working"
             self.release.set()
+            def progress_with_step():
+                snapshot = request(activity + f"?core={core}")
+                return snapshot if snapshot["details"]["steps"] and self.progress in snapshot["transcript"] else None
+            progress = until(progress_with_step)
+            assert progress["state"] == "working" and progress["details"]["reply"] == self.progress
+            assert not child("working")["reply"]
+            self.finish_answer.set()
             assert self.returned.wait(20)
             answered = until(lambda: child("answered"))
             assert answered["reply"] == self.child_reply and answered["model"] == "fixture/default"
@@ -79,6 +89,7 @@ class ChildSession:
             replies = [i["text"] for i in request(history)["items"] if i["kind"] == "reply"]
             assert self.parent_reply in replies and self.child_reply not in replies
         finally:
+            self.finish_answer.set()
             self.release.set()
             request(path + "/end", {})
         assert child("answered") == answered
