@@ -42,7 +42,7 @@ struct SidebarView: View {
             }.padding(.horizontal, SidebarMetrics.listInset).padding(.vertical, 4)
             ReviewUpdatesButton()
             let layout = store.sidebarLayout
-            let sessions = Dictionary(grouping: store.herdrHelpers.keys.filter { store.herdrHelpers[$0]?.inChat.isEmpty == false }, by: \.botID)
+            let sessions = Dictionary(grouping: store.herdrHelpers.keys.filter { store.herdrHelpers[$0]?.sidebarSessions.isEmpty == false }, by: \.botID)
             let workers = store.sidebarCodejobs
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {

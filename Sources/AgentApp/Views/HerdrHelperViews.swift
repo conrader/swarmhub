@@ -41,7 +41,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
-                        ForEach(store.herdrHelpers[parent]?.inChat ?? []) { helper in
+                        ForEach(store.herdrHelpers[parent]?.sidebarSessions ?? []) { helper in
                             let selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: parent.groupRuntime)
                             HStack(spacing: 0) {
                                 HerdrHelperRow(helper: helper, selected: !store.showOnlyAttention && store.openHerdrHelper == selection) {
@@ -137,6 +137,10 @@ struct HerdrHelperRow: View {
 
     /// "Working · Fix the failing test": the status, then the task on the same line.
     nonisolated static func fragment(_ helper: HerdrClient.Helper) -> String {
+        if let answer = helper.resultPreview {
+            let line = answer.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            return "Answered · " + line
+        }
         let task = helper.taskLine
         return task.isEmpty ? helper.statusLine : "\(helper.statusLine) · \(task)"
     }
@@ -290,7 +294,7 @@ struct HerdrHelperView: View {
         _reply = StateObject(wrappedValue: ChatMessage(role: .assistant, content: log?.latestReply(answered: helper?.answered == true) ?? ""))
     }
 
-    private var listed: HerdrClient.Helper? { store.herdrHelpers[selection.parent]?.inChat.first { $0.id == selection.helperID } }
+    private var listed: HerdrClient.Helper? { store.herdrHelpers[selection.parent]?.sidebarSessions.first { $0.id == selection.helperID } }
 
     var body: some View {
         let shown = listed ?? helper

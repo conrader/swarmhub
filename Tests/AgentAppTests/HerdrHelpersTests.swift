@@ -31,7 +31,7 @@ private let listingJSON = """
     #expect(list.helpers[0].runLine == "some-model" && list.helpers[0].difficultyLine == "Easy task" && list.helpers[0].reply?.text == "follow-up ok" && list.helpers[1].runLine.isEmpty)
     #expect(list.helpers.map(\.statusLine) == ["Answered", "Working", "Finished", "Gone"])
     #expect(list.helpers.map(\.isLive) == [true, true, false, false] && list.helpers.map(\.isWorking) == [false, true, false, false])
-    #expect(HerdrHelperRow.fragment(list.helpers[0]) == "Answered · Reply with exactly: two ok" && HerdrHelperRow.fragment(list.helpers[1]) == "Working")
+    #expect(HerdrHelperRow.fragment(list.helpers[0]) == "Answered · follow-up ok" && HerdrHelperRow.fragment(list.helpers[1]) == "Working")
     #expect(HerdrHelpersSection.count(list) == "2 of 3 running")
     #expect(HerdrHelpersSection.count(HerdrClient.Helpers(core: "c", parent: list.parent, helpers: [list.helpers[1]])) == "1 running")
     let waiting = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live", status: .init(state: "blocked"))
@@ -228,6 +228,9 @@ private let listingJSON = """
     let older = HerdrClient.Helper(address: "t3", createdMs: 3, name: "other", state: "finished", answered: true, reply: previous)
     let list = HerdrClient.Helpers(core: "test", parent: .init(address: "p", createdMs: 1), helpers: [working, older], lastResult: newest)
     #expect(list.inChat.map(\.name) == ["worker", "compiler"])
+    #expect(list.sidebarSessions.map(\.name) == ["worker", "other", "compiler"])
+    let overlap = HerdrClient.Helpers(core: list.core, parent: list.parent, helpers: [newest], lastResult: newest)
+    #expect(overlap.sidebarSessions.count == 1)
     #expect(working.resultPreview == nil)
     #expect(newest.resultPreview == "build succeeded")
 }

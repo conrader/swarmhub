@@ -65,6 +65,11 @@ extension HerdrClient {
 
         var lastResult: Helper? = nil
 
+        var sidebarSessions: [Helper] {
+            guard let lastResult, !helpers.contains(where: { $0.id == lastResult.id }) else { return helpers }
+            return helpers + [lastResult]
+        }
+
         /// Keep the latest answer visible across its terminal closing and while other helpers work.
         var inChat: [Helper] {
             let candidates = helpers + [lastResult].compactMap { $0 }
