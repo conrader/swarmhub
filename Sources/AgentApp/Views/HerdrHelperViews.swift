@@ -149,15 +149,15 @@ struct HerdrHelperRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 HerdrHelperGlyph(helper: helper).font(.system(size: 11, weight: .semibold)).frame(width: 14)
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(helper.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
-                        Spacer(minLength: 4)
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(helper.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).lineLimit(2)
+                        Spacer(minLength: 0)
                         sessionTime.font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
                     }
                     Text(Self.fragment(helper)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                 }
             }
-            .padding(.horizontal, 10).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+            .padding(.leading, 7).padding(.trailing, 3).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
             .background(selected ? AppColor.selection : hovering ? AppColor.selection.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
             .overlay {
                 if selected, contrast == .increased {
@@ -295,14 +295,14 @@ private struct SidebarNativeThreads: View {
                     .foregroundStyle(color)
                     .font(.system(size: 11)).frame(width: 14)
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(verbatim: thread.name).font(.system(size: 12, weight: .semibold))
-                        Spacer(minLength: 4)
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(verbatim: thread.name).font(.system(size: 12, weight: .semibold)).lineLimit(2)
+                        Spacer(minLength: 0)
                         NativeThreadDuration(thread: thread).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                     Text(verbatim: subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
                 }.lineLimit(1)
-            }.padding(.horizontal, 10).frame(height: HerdrHelperRow.height)
+            }.padding(.leading, 7).padding(.trailing, 3).frame(height: HerdrHelperRow.height)
                 .background(selected ? AppColor.selection : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain)

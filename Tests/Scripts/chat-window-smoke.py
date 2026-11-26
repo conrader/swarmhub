@@ -1943,7 +1943,11 @@ def team_inspector(source_app, appearance):
 
                 shop = frame(element("web-1 · /srv/shop"))
                 docs = frame(element("local · /code/docs"))
-                assert abs(shop[1] - docs[1]) <= 1 and shop[0] != docs[0], (shop, docs)
+                right = frame(w)[0] + frame(w)[2] - 14
+                if shop[0] + shop[2] + 5 + docs[2] <= right:
+                    assert abs(shop[1] - docs[1]) <= 1 and shop[0] != docs[0], (shop, docs)
+                else:
+                    assert docs[1] > shop[1] and abs(shop[0] - docs[0]) <= 1, (shop, docs)
                 open_detail_section(w, "Routines")
                 wait_for("failed skill read offers retry", lambda: element("Reload shared skills"))
                 skills_online = True

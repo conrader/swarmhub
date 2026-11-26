@@ -13,7 +13,7 @@ struct InfoPanel: View {
                 Text("Details").font(.headline).accessibilityAddTraits(.isHeader)
                 Spacer()
                 if bot.backend == .herdr {
-                    Button("Terminal", systemImage: "terminal") {
+                    Button {
                         let target: LiveTerminal?
                         if let native = store.openHerdrHelper?.native {
                             store.previewInInspector(.init(server: native.server, target: LiveTerminal(thread: native.thread, owner: native.owner, core: native.core)))
@@ -27,7 +27,12 @@ struct InfoPanel: View {
                             target = LiveTerminal(agent: ref, title: bot.name)
                         } else { target = nil }
                         store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target))
-                    }.controlSize(.small).accessibilityLabel("Show terminal in Details")
+                    } label: {
+                        ViewThatFits(in: .horizontal) {
+                            Label("Terminal", systemImage: "terminal").fixedSize()
+                            Image(systemName: "terminal")
+                        }
+                    }.controlSize(.small).help("Show terminal in Details").accessibilityLabel("Show terminal in Details")
                 }
                 MoreInfoSections(tabs: Array(store.infoTabs(for: bot).dropFirst(3)), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
                 Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
