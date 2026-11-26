@@ -48,6 +48,8 @@ private final class AttributesOnlyKeyStore: KeyStore, @unchecked Sendable {
     let notes = ReleaseNote.bundled
     #expect(notes.contains { $0.id == "0.8.6" && $0.body.contains("Updates") })
     #expect(notes.contains { $0.id == "0.4.1" })
+    #expect(notes.contains { $0.id == "0.8.18" })
+    #expect(!notes.contains { $0.id == "0.8.17" }) // Superseded before publication.
     #expect(notes.map(\.version) == notes.map(\.version).sorted(by: >))
     #expect(notes.allSatisfy { !$0.body.isEmpty })
 }
