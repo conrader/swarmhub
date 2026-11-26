@@ -50,8 +50,8 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         } else if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
-                        if let list = store.herdrHelpers[parent], let threads = list.codexThreads, !threads.isEmpty {
-                            SidebarCodexThreads(bot: bot, threads: threads, owner: list.parent, core: list.core)
+                        if let list = store.herdrHelpers[parent], !list.nativeThreads.isEmpty {
+                            SidebarNativeThreads(bot: bot, threads: list.nativeThreads, owner: list.parent, core: list.core)
                         }
                         ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
                             HStack(spacing: 0) {
@@ -74,8 +74,8 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
                             if !collapsed.contains(row.id),
                                let list = store.herdrHelpers[row.id.parent.children(of: row.helper.ref, core: row.core)],
-                               let threads = list.codexThreads, !threads.isEmpty {
-                                SidebarCodexThreads(bot: bot, threads: threads, owner: list.parent, core: list.core)
+                               !list.nativeThreads.isEmpty {
+                                SidebarNativeThreads(bot: bot, threads: list.nativeThreads, owner: list.parent, core: list.core)
                                     .padding(.leading, CGFloat(min(row.depth + 1, 5)) * 10)
                             }
                         }
@@ -196,16 +196,16 @@ struct HerdrHelperRow: View {
     }
 }
 
-/// Codex threads have a transcript on their owning launch, even when Core has no child PTY.
-private struct SidebarCodexThreads: View {
+/// Provider-native threads have a transcript on their owning launch, even when Core has no child PTY.
+private struct SidebarNativeThreads: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot
-    let threads: [HerdrClient.CodexThread]
+    let threads: [HerdrClient.NativeThread]
     let owner: HerdrClient.AgentRef
     let core: String
 
     private struct Row: Identifiable {
-        let thread: HerdrClient.CodexThread
+        let thread: HerdrClient.NativeThread
         let depth: Int
         var id: String { thread.id }
     }
@@ -229,7 +229,7 @@ private struct SidebarCodexThreads: View {
         }
     }
 
-    private func button(_ thread: HerdrClient.CodexThread) -> some View {
+    private func button(_ thread: HerdrClient.NativeThread) -> some View {
         let target = LiveTerminal(thread: thread, owner: owner, core: core)
         let server = store.herdrServer(for: bot)
         let selected = store.inspectorTerminal?.target?.id == target.id && store.inspectorTerminal?.server == server
@@ -269,9 +269,9 @@ private struct SidebarCodexThreads: View {
                 .background(selected ? AppColor.selection : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain)
-            .accessibilityLabel("Codex agent " + thread.name + ", " + thread.statusLine)
+            .accessibilityLabel(thread.provider.label + " agent " + thread.name + ", " + thread.statusLine)
             .accessibilityValue(detail).accessibilityAddTraits(selected ? .isSelected : [])
-            .help("Open " + thread.name + "’s Codex session in Details")
+            .help("Open " + thread.name + "’s " + thread.provider.label + " session in Details")
 
     }
 }

@@ -305,7 +305,10 @@ extension AppStore {
 
     func herdrHelperWatch(servers: [HerdrServer], sshIsOpen: (String) -> Bool) -> [String: Bool] {
         var watch: [String: Bool] = [:]
-        let live = Set(herdrHelpers.compactMap { $0.value.helpers.contains(where: \.isLive) ? $0.key.botID : nil })
+        let live = Set(herdrHelpers.compactMap { key, list in
+            let working = list.helpers.contains(where: \.isLive) || list.nativeThreads.contains { $0.state == "working" }
+            return working ? key.botID : nil
+        })
         let cached = Set(herdrHelpers.keys.filter { $0.archive == nil }.map(\.botID))
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
             let server = herdrServer(for: bot, in: servers)

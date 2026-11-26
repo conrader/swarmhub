@@ -6,7 +6,16 @@ struct LiveTerminal: Identifiable, Hashable, Codable {
     enum Source: Hashable, Codable {
         case agent(HerdrClient.AgentRef)
         case codexThread(core: String, owner: HerdrClient.AgentRef, thread: String)
+        case claudeThread(core: String, owner: HerdrClient.AgentRef, thread: String)
         case job(host: String, owner: UUID, key: String)
+
+        var child: (runtime: HerdrClient.ChildRuntime, core: String, owner: HerdrClient.AgentRef, thread: String)? {
+            switch self {
+            case let .codexThread(core, owner, thread): (.codex, core, owner, thread)
+            case let .claudeThread(core, owner, thread): (.claude, core, owner, thread)
+            default: nil
+            }
+        }
     }
     let id: Source
     let title: String
@@ -20,10 +29,13 @@ struct LiveTerminal: Identifiable, Hashable, Codable {
         self.core = core
     }
 
-    init(thread: HerdrClient.CodexThread, owner: HerdrClient.AgentRef, core: String) {
-        id = .codexThread(core: core, owner: owner, thread: thread.id)
+    init(thread: HerdrClient.NativeThread, owner: HerdrClient.AgentRef, core: String) {
+        id = switch thread.provider {
+        case .codex: .codexThread(core: core, owner: owner, thread: thread.id)
+        case .claude: .claudeThread(core: core, owner: owner, thread: thread.id)
+        }
         title = thread.name
-        detail = ["Codex session", thread.model].compactMap { $0 }.joined(separator: " · ")
+        detail = [thread.provider.label + " session", thread.model].compactMap { $0 }.joined(separator: " · ")
         self.core = core
     }
 
@@ -109,8 +121,8 @@ struct WorkspaceTerminals: View {
                 } else { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             }
             if let selected {
-                if case .codexThread(let core, let owner, let thread) = selected.id {
-                    CodexThreadOutput(server: server, core: core, owner: owner, thread: thread, detail: selected.detail) {
+                if let child = selected.id.child {
+                    NativeThreadOutput(server: server, runtime: child.runtime, core: child.core, owner: child.owner, thread: child.thread, detail: selected.detail) {
                         if docked { store.inspectorTerminal = nil } else { dismiss() }
                     }.id(selected.id)
                 } else {
@@ -200,7 +212,7 @@ struct WorkspaceTerminals: View {
         for (parent, list) in store.herdrHelpers where list.core == roster.core && visibleOwners.contains(list.parent) {
             guard let bot = store.bots.first(where: { $0.id == parent.botID }),
                   store.herdrServer(for: bot) == server else { continue }
-            for thread in list.codexThreads ?? [] where thread.state == "working" {
+            for thread in list.nativeThreads where thread.state == "working" {
                 let entry = LiveTerminal(thread: thread, owner: list.parent, core: list.core)
                 if seenThreads.insert(entry.id).inserted { results.append(entry) }
             }
@@ -256,7 +268,7 @@ private struct TerminalOutput: View {
                             return
                         }
                         text = try await client.screen(of: ref)
-                    case .codexThread: return
+                    case .codexThread, .claudeThread: return
                     case .job(let host, let owner, let key):
                         struct Tail: Decodable { let text: String? }
                         let tail: Tail = try await client.get("/api/codejobs/\(host)/\(owner.uuidString.lowercased())/\(key)/output")

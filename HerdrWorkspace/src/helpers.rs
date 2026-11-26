@@ -36,7 +36,7 @@ use tokio::{
 pub(crate) mod cli;
 pub(crate) mod policy;
 mod record;
-mod codex_threads;
+mod native_threads;
 mod settings;
 mod spool;
 
@@ -150,6 +150,8 @@ pub(crate) struct Listing {
     recent_sessions: Vec<View>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     codex_threads: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    claude_threads: Vec<serde_json::Value>,
     /// Running helpers only, newest first.
     helpers: Vec<View>,
 }
@@ -764,7 +766,8 @@ async fn start(
 pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/api/agents/{id}/{created}/helpers", get(list))
-        .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(codex_threads::read).post(codex_threads::interrupt))
+        .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(native_threads::read_codex).post(native_threads::interrupt))
+        .route("/api/agents/{id}/{created}/claude-threads/{thread}", get(native_threads::read_claude))
         .merge(settings::routes())
         .merge(crate::bot_agent_settings::routes())
 }
@@ -808,18 +811,18 @@ pub(crate) async fn listing(
             |row| row.get(0),
         )
         .map_err(StoreError::from)?;
-    let mut codex_threads: Vec<serde_json::Value> = {
+    let mut threads: Vec<serde_json::Value> = {
         let db = w.history.db()?;
-        let mut stmt = db.prepare_cached("SELECT c.summary FROM codex_children c JOIN journal p ON p.id=c.launch
+        let mut stmt = db.prepare_cached("SELECT c.summary FROM native_children c JOIN journal p ON p.id=c.launch
             WHERE p.launch_key=?1 ORDER BY c.thread DESC").map_err(StoreError::from)?;
         let rows = stmt.query_map([key], |r| r.get::<_,String>(0)).map_err(StoreError::from)?;
         rows.map(|s| serde_json::from_str(&s.map_err(StoreError::from)?).map_err(|_| StoreError))
             .collect::<Result<Vec<_>,_>>()?
     };
-    let native_work = codex_threads.iter().any(|c| c["state"] == "working");
+    let native_work = threads.iter().any(|c| c["state"] == "working");
     let agents = if (any || native_work) && current_core { w.core.agents().await? } else { Vec::new() };
     if native_work && !agents.iter().any(|agent| agent.state == "live" && agent.launch_key() == Some(key)) {
-        for thread in &mut codex_threads {
+        for thread in &mut threads {
             if thread["state"] == "working" { thread["state"] = "stopped".into(); }
         }
     }
@@ -842,6 +845,7 @@ pub(crate) async fn listing(
     let last_result = latest.filter(|&i| !helpers[i].live()).map(|i| helpers.remove(i));
     let (helpers, recent_sessions) = helpers.into_iter().partition(View::live);
     let (stop_after_seconds, stop_unanswered_after_seconds) = Policy::delays(w.history.file());
+    let (claude_threads, codex_threads) = threads.into_iter().partition(|row| row["runtime"] == "claude");
     Ok(Listing {
         core: core_id,
         parent,
@@ -853,6 +857,7 @@ pub(crate) async fn listing(
         last_result,
         recent_sessions,
         codex_threads,
+        claude_threads,
         helpers,
     })
 }

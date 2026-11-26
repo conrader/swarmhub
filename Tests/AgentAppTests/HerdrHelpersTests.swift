@@ -58,11 +58,23 @@ private let listingJSON = """
     #expect(!legacy.hasSidebarSessions && legacy.codexThreads == nil)
 }
 
+@Test func claudeChildOpensItsOwnActivityWithoutAChildTerminal() throws {
+    let list = try decoded(HerdrClient.Helpers.self, """
+        {"core":"c","parent":{"address":"t1","created_ms":4},"helpers":[],"claude_threads":[
+        {"id":"a123","runtime":"claude","parent":"p","name":"Check parser","created_ms":6,"state":"answered","task":"Read errors","reply":"OK"}]}
+        """)
+    let child = try #require(list.nativeThreads.first)
+    #expect(list.hasSidebarSessions && list.codexThreads == nil && child.provider == .claude)
+    let target = LiveTerminal(thread: child, owner: list.parent, core: list.core)
+    #expect(target.id == .claudeThread(core: "c", owner: list.parent, thread: "a123"))
+    #expect(target.detail == "Claude session" && target.id.child?.runtime == .claude)
+}
+
 @Test func archivedCodexActivityFromAnOlderWorkspaceHasNoInterruptTarget() throws {
-    let archived = try decoded(HerdrClient.CodexThreadActivity.self, """
+    let archived = try decoded(HerdrClient.ThreadActivity.self, """
         {"transcript":"Task Read logs","state":"answered"}
         """)
-    let live = try decoded(HerdrClient.CodexThreadActivity.self, """
+    let live = try decoded(HerdrClient.ThreadActivity.self, """
         {"transcript":"Task Read logs","state":"working","active_turn":"second-turn"}
         """)
     #expect(archived.activeTurn == nil && archived.state == "answered")

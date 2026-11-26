@@ -22,13 +22,14 @@ impl Child {
         address: &str,
         created: u64,
         thread: &str,
+        runtime: &str,
     ) -> Result<Self, ApiError> {
         w.history.db()?.query_row(
             "SELECT p.launch_key, json_extract(c.summary,'$.parent'), json_extract(c.summary,'$.state'),
                     json_extract(c.summary,'$.active_turn'), c.transcript
-             FROM codex_children c JOIN journal p ON p.id=c.launch
-             WHERE p.core_id=?1 AND p.address=?2 AND p.created_ms=?3 AND c.thread=?4",
-            params![core, address, created, thread],
+             FROM native_children c JOIN journal p ON p.id=c.launch
+             WHERE p.core_id=?1 AND p.address=?2 AND p.created_ms=?3 AND c.thread=?4 AND c.runtime=?5",
+            params![core, address, created, thread, runtime],
             |r| Ok(Self { launch_key: r.get(0)?, parent: r.get(1)?, state: r.get(2)?,
                           active_turn: r.get(3)?, transcript: r.get(4)? }),
         ).optional().map_err(StoreError::from)?.ok_or_else(|| Failure::Missing.into())
@@ -52,13 +53,32 @@ impl Child {
     }
 }
 
-pub(super) async fn read(
+pub(super) async fn read_codex(
     State(w): State<Workspace>,
     Path((address, created, thread)): Path<(String, u64, String)>,
     Query(query): Query<ListingQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    activity(w, address, created, thread, query, "codex").await
+}
+
+pub(super) async fn read_claude(
+    State(w): State<Workspace>,
+    Path((address, created, thread)): Path<(String, u64, String)>,
+    Query(query): Query<ListingQuery>,
+) -> Result<Json<Value>, ApiError> {
+    activity(w, address, created, thread, query, "claude").await
+}
+
+async fn activity(
+    w: Workspace,
+    address: String,
+    created: u64,
+    thread: String,
+    query: ListingQuery,
+    runtime: &str,
+) -> Result<Json<Value>, ApiError> {
     let core = query.core.ok_or(Failure::Missing)?;
-    let mut child = Child::load(&w, &core, &address, created, &thread)?;
+    let mut child = Child::load(&w, &core, &address, created, &thread, runtime)?;
     if child.state == "working" {
         match child.owner_is_live(&w, &core, &address, created).await {
             Ok(true) => {}
@@ -90,7 +110,7 @@ pub(super) async fn interrupt(
     Json(request): Json<Interrupt>,
 ) -> Result<Json<Value>, ApiError> {
     let core = query.core.ok_or(Failure::Missing)?;
-    let child = Child::load(&w, &core, &address, created, &thread)?;
+    let child = Child::load(&w, &core, &address, created, &thread, "codex")?;
     if child.state != "working"
         || child.active_turn.as_deref() != Some(request.turn.as_str())
         || !child.owner_is_live(&w, &core, &address, created).await?

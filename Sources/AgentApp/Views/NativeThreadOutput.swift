@@ -1,22 +1,23 @@
 import SwiftUI
 
-/// Codex child threads report structured activity and can interrupt a specific turn.
-struct CodexThreadOutput: View {
+/// Activity reported by the CLI for a child without a separate terminal.
+struct NativeThreadOutput: View {
     @EnvironmentObject private var store: AppStore
     let server: HerdrServer
+    let runtime: HerdrClient.ChildRuntime
     let core: String
     let owner: HerdrClient.AgentRef
     let thread: String
     let detail: String
     let openedParent: () -> Void
-    @State private var activity: HerdrClient.CodexThreadActivity?
+    @State private var activity: HerdrClient.ThreadActivity?
     @State private var requestedTurn: String?
     @State private var readError: String?
     @State private var actionError: String?
 
     private var parent: (selection: HerdrHelperSelection, bot: Bot)? {
         for (key, list) in store.herdrHelpers where list.core == core && list.parent == owner {
-            if list.codexThreads?.contains(where: { $0.id == thread }) == true,
+            if list.nativeThreads.contains(where: { $0.provider == runtime && $0.id == thread }),
                let bot = store.bots.first(where: { $0.id == key.botID }), store.herdrServer(for: bot) == server {
                 let selection = HerdrHelperSelection(botID: key.botID, helperID: thread, groupRuntime: key.groupRuntime,
                                                      source: key.source, archive: key.archive)
@@ -42,7 +43,7 @@ struct CodexThreadOutput: View {
             while !Task.isCancelled {
                 do {
                     let client = try connectedClient()
-                    let snapshot = try await client.codexActivity(owner: owner, core: core, thread: thread)
+                    let snapshot = try await client.threadActivity(runtime, owner: owner, core: core, thread: thread)
                     try Task.checkCancellation()
                     activity = snapshot
                     readError = nil
@@ -58,15 +59,15 @@ struct CodexThreadOutput: View {
 
     @ViewBuilder private var controls: some View {
         if let state = activity?.state {
-            Text(HerdrClient.CodexThread.statusLabel(state)).font(.caption).foregroundStyle(.secondary)
+            Text(HerdrClient.NativeThread.statusLabel(state)).font(.caption).foregroundStyle(.secondary)
         }
         if let parent {
             let title = parent.selection.archive == nil ? "Steer via " + parent.bot.name : "Open chat with " + parent.bot.name
             Button(title) {
                 if store.openHelperParent(parent.selection, of: parent.bot) { openedParent() }
-            }.controlSize(.small).accessibilityIdentifier("codexChild.openParent")
+            }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openParent")
         }
-        if activity?.state == "working", let turn = activity?.activeTurn {
+        if runtime == .codex, activity?.state == "working", let turn = activity?.activeTurn {
             Button(requestedTurn == turn ? "Stopping…" : "Stop helper") {
                 requestedTurn = turn
                 actionError = nil
