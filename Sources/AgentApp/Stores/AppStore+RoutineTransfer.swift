@@ -105,11 +105,17 @@ extension AppStore {
             }) else {
                 throw BackendError.unavailable("A destination bot has a matching session identifier. Its routines could not be safely bound.")
             }
-            let warmed = try await recipient.warm(name: name, template: change.after.template,
+            var sessionClient = recipient
+            sessionClient.expectedSessionCapCents = bots.first { $0.id == change.botID }?.sessionCapCents
+            let warmed = try await sessionClient.warm(name: name, template: change.after.template,
                                                   model: change.after.model, workspaceID: change.botID)
             let target: HerdrClient.AgentRef
             switch warmed {
-            case .running(let a, _), .started(let a, _): target = a.ref
+            case .running(let a, _), .started(let a, _):
+                guard a.openCodeFirstTask != "uncertain", a.openCodeFirstTask != "not_sent", a.isLive else {
+                    throw BackendError.unavailable("The destination workspace could not prepare the session for this bot’s routines.")
+                }
+                target = a.ref
             case .unavailable: throw BackendError.unavailable("Start the destination bot’s session before moving its routines.")
             }
             for routine in owned {

@@ -1436,7 +1436,7 @@ A message sent to a warm agent before it is ready is not lost and is not typed i
 - A group task or a routine for a warm agent that is not ready holds its caller instead, for at most 75 seconds after the agent's start. It is then refused with status 409 and `{"error": "…", "kind": "not_ready"}`.
 - Warm starts suit programs that report their status when they start, such as Claude Code and Codex. A program that reports only once it works stays not ready, and its first message is given up after the limit; start it with a task.
 - Codex reports a little before its conversation is open. A message typed in between waits in Codex's own composer and is submitted when the conversation opens, so nothing is lost, but the answer starts that much later.
-- A template whose command gives OpenCode its first task (`--api-first-task`) can't be started warm. The request is refused with status 422.
+- A standard OpenCode API template can start warm. Its private API session is ready for chat and routine transfers without submitting a model request. The first real task carries its saved instructions and launch notes.
 - A template with a Markdown body still gets that body typed as its opening message once the program is ready, as Core does for every start from that template. That is a model turn, and the launch answers only after it was typed.
 
 ### An agent nobody writes to

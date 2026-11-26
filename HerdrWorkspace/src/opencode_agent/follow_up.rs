@@ -29,6 +29,7 @@ const CONNECT: Duration = Duration::from_secs(2);
 const DELIVERY: Duration = Duration::from_secs(20);
 const MODEL_TIMEOUT: Duration = Duration::from_secs(30);
 const MODEL_CAPABILITY: &str = "models-v1";
+const STOP_CAPABILITY: &str = "interrupt-v1";
 const GROUP_CAPABILITY: &str = "group-preview-v1";
 const UNAVAILABLE: &str =
     "OpenCode's follow-up channel is unavailable. Open the terminal or start a new session.";
@@ -70,11 +71,27 @@ struct GroupRequest<'a> {
     auth: [u8; 32],
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct InterruptRequest<'a> {
+    launch: std::borrow::Cow<'a, str>,
+    terminal: std::borrow::Cow<'a, str>,
+    interrupt: bool,
+    auth: [u8; 32],
+}
+
+fn interrupt_binding(launch: &str, terminal: &str) -> Vec<u8> {
+    let mut bytes = b"swarmhub-opencode-interrupt-v1".to_vec();
+    bytes.extend(binding(launch, terminal, ""));
+    bytes
+}
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Incoming<'a> {
     Send(Request<'a>),
     Model(ModelRequest<'a>),
+    Interrupt(InterruptRequest<'a>),
     Group(GroupRequest<'a>),
 }
 
@@ -142,6 +159,10 @@ fn capability(journal: &Path, launch: &str) -> io::Result<Capability> {
         return Err(io::Error::other(UNAVAILABLE));
     }
     serde_json::from_slice(&bytes).map_err(io::Error::other)
+}
+
+pub(crate) fn ready(journal: &Path, agent: &Terminal) -> bool {
+    agent.launch_key().and_then(|key| capability(journal, key).ok()).is_some_and(|cap| cap.terminal == agent.address)
 }
 
 pub async fn send(journal: &Path, agent: &Terminal, task: &str) -> Result<Delivery, Failure> {
@@ -237,6 +258,38 @@ async fn send_task(
         )),
         Response::Unavailable => Err(Failure::Input(UNAVAILABLE)),
         Response::Uncertain => Err(Failure::Uncertain),
+    }
+}
+
+/// Older private brokers only support the terminal interrupt. Never fall back
+/// after sending an API interrupt, even if its acknowledgement is lost.
+pub(crate) async fn interrupt(journal: &Path, agent: &Terminal) -> Result<Option<bool>, Failure> {
+    agent.require_live()?;
+    let launch = agent.launch_key().ok_or(Failure::Missing)?;
+    let cap = capability(journal, launch).map_err(|_| Failure::Input(UNAVAILABLE))?;
+    if cap.terminal != agent.address || !cap.socket.is_absolute() { return Err(Failure::Missing); }
+    match fs::symlink_metadata(cap.socket.with_file_name(STOP_CAPABILITY)) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Ok(m) if m.file_type().is_file() => {}
+        _ => return Err(Failure::Input(UNAVAILABLE)),
+    }
+    let material = interrupt_binding(launch, &agent.address);
+    let tag = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &cap.key), &material);
+    let mut request = InterruptRequest { launch:launch.into(), terminal:agent.address.as_str().into(), interrupt:true, auth:[0;32] };
+    request.auth.copy_from_slice(tag.as_ref());
+    let mut body = serde_json::to_vec(&request).map_err(|_| Failure::Protocol)?;
+    body.push(b'\n');
+    let mut stream = timeout(CONNECT, UnixStream::connect(cap.socket)).await
+        .map_err(|_| Failure::Input(UNAVAILABLE))?.map_err(|_| Failure::Input(UNAVAILABLE))?;
+    let result = timeout(DELIVERY, async {
+        stream.write_all(&body).await?;
+        frame::<Response>(&mut stream, 1024).await
+    }).await.map_err(|_| Failure::Uncertain)?.map_err(|_| Failure::Uncertain)?;
+    match result {
+        Response::Accepted => Ok(Some(true)),
+        Response::Busy => Ok(Some(false)),
+        Response::Unavailable => Err(Failure::Input(UNAVAILABLE)),
+        _ => Err(Failure::Uncertain),
     }
 }
 
@@ -360,7 +413,7 @@ impl Endpoint {
         let socket = directory.path().join("send.sock");
         let listener = UnixListener::bind(&socket)?;
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
-        for feature in [MODEL_CAPABILITY, GROUP_CAPABILITY] {
+        for feature in [MODEL_CAPABILITY, GROUP_CAPABILITY, STOP_CAPABILITY] {
             fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -446,6 +499,21 @@ async fn handle(
         return;
     };
     let (launch, terminal, text, group, authenticated) = match request {
+        Incoming::Interrupt(request) => {
+            let material = interrupt_binding(&request.launch, &request.terminal);
+            let result = if !request.interrupt || request.launch != identity.launch || request.terminal != identity.terminal ||
+                hmac::verify(&hmac::Key::new(hmac::HMAC_SHA256, &identity.key), &material, &request.auth).is_err() {
+                Response::Unavailable
+            } else if let Ok(_permit) = admission.try_acquire() {
+                match session.interrupt(password).await {
+                    Ok(true) => Response::Accepted,
+                    Ok(false) => Response::Busy,
+                    Err(_) => Response::Uncertain,
+                }
+            } else { Response::Busy };
+            write_response(&mut stream, &result).await;
+            return;
+        }
         Incoming::Model(request) => {
             let result = if request.launch != identity.launch
                 || request.terminal != identity.terminal
@@ -518,7 +586,7 @@ async fn handle(
                 session.send(password, &text).await
             } {
                 Outcome::Submitted => Response::Accepted,
-                Outcome::NotSent => Response::Unavailable,
+                Outcome::Ready | Outcome::NotSent => Response::Unavailable,
                 Outcome::Uncertain => Response::Uncertain,
             },
         }

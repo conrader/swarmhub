@@ -103,12 +103,13 @@ pub(super) fn take_flag(args: &mut Vec<std::ffi::OsString>) -> bool {
 #[derive(Deserialize, Serialize)]
 struct Task {
     launch: String,
-    text: String,
+    text: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
+    Ready,
     Submitted,
     NotSent,
     Uncertain,
@@ -120,15 +121,15 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    pub fn new(journal: &Path, launch: &str, task: &str) -> io::Result<Self> {
-        validate_prompt(task).map_err(|_| io::Error::other("invalid OpenCode first task"))?;
+    pub fn new(journal: &Path, launch: &str, task: Option<&str>) -> io::Result<Self> {
+        if let Some(task) = task { validate_prompt(task).map_err(|_| io::Error::other("invalid OpenCode first task"))?; }
         let parent = journal
             .parent()
             .ok_or_else(|| io::Error::other("no workspace directory"))?;
         let directory = tempfile::Builder::new().prefix(PREFIX).tempdir_in(parent)?;
         let input = Task {
             launch: launch.to_owned(),
-            text: task.to_owned(),
+            text: task.map(str::to_owned),
         };
         let path = directory.path().join(TASK);
         let mut file = fs::OpenOptions::new()
@@ -173,7 +174,7 @@ pub(super) struct Handoff {
     directory: PathBuf,
     journal: PathBuf,
     launch: String,
-    text: String,
+    text: Option<String>,
     outcome: Cell<Outcome>,
 }
 
@@ -216,7 +217,7 @@ impl Handoff {
             return Err(io::Error::other("Invalid OpenCode first task."));
         }
         let task: Task = serde_json::from_slice(&bytes)?;
-        if task.launch != launch || validate_prompt(&task.text).is_err() {
+        if task.launch != launch || task.text.as_deref().is_some_and(|text| validate_prompt(text).is_err()) {
             return Err(io::Error::other("Invalid OpenCode first task."));
         }
         Ok(Self {
@@ -404,10 +405,14 @@ impl ApiSession {
     async fn submit(&self, password: &str, handoff: &Handoff) {
         // This is the only submission. A failed exchange cannot tell us whether
         // the server durably accepted the message, so never send again.
+        let Some(text) = handoff.text.as_deref() else {
+            handoff.outcome.set(Outcome::Ready);
+            return;
+        };
         handoff.outcome.set(Outcome::Uncertain);
         handoff
             .outcome
-            .set(self.send(password, &handoff.text).await);
+            .set(self.send(password, text).await);
     }
 
     pub(super) async fn send(&self, password: &str, text: &str) -> Outcome {
@@ -445,6 +450,33 @@ impl ApiSession {
         } else {
             Outcome::Uncertain
         }
+    }
+
+    pub(super) async fn interrupt(&self, password: &str) -> io::Result<bool> {
+        #[derive(Deserialize)]
+        struct Status {
+            interrupted: bool,
+        }
+        let error = || io::Error::other("OpenCode did not confirm the interrupt.");
+        let url = self.base
+            .join(&format!("api/session/{}/interrupt?resume=false", self.id))
+            .map_err(|_| error())?;
+        let mut response = self.client.post(url)
+            .basic_auth("opencode", Some(password))
+            .send().await.map_err(|_| error())?;
+        if response.status() != reqwest::StatusCode::OK {
+            return Err(error());
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| error())? {
+            if body.len() + chunk.len() > 4096 {
+                return Err(error());
+            }
+            body.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice::<Status>(&body)
+            .map(|status| status.interrupted)
+            .map_err(|_| error())
     }
 
     pub(super) async fn attention(&self, password: &str) -> io::Result<bool> {
@@ -581,9 +613,9 @@ mod tests {
     async fn an_ambiguous_submission_is_only_attempted_once() {
         let workspace = tempfile::tempdir().unwrap();
         let journal = workspace.path().join("workspace.sqlite3");
-        let prepared = Prepared::new(&journal, "fixture-launch", "Only one submission").unwrap();
+        let prepared = Prepared::new(&journal, "fixture-launch", Some("Only one submission")).unwrap();
         let handoff = Handoff::claim_path(&journal, "fixture-launch", prepared.path()).unwrap();
-        assert_eq!(handoff.text, "Only one submission");
+        assert_eq!(handoff.text.as_deref(), Some("Only one submission"));
         assert!(!prepared.path().exists());
         assert!(Handoff::claim_path(&journal, "fixture-launch", prepared.path()).is_err());
         let received = Arc::new(AtomicUsize::new(0));
@@ -609,6 +641,12 @@ mod tests {
         session.submit("fake-password", &handoff).await;
         drop(handoff);
         assert_eq!(prepared.outcome().await, Outcome::Uncertain);
+        assert_eq!(received.load(Ordering::Relaxed), 1);
+        let warm = Prepared::new(&journal, "warm-fixture", None).unwrap();
+        let handoff = Handoff::claim_path(&journal, "warm-fixture", warm.path()).unwrap();
+        session.submit("fake-password", &handoff).await;
+        drop(handoff);
+        assert_eq!(warm.outcome().await, Outcome::Ready);
         assert_eq!(received.load(Ordering::Relaxed), 1);
         server.abort();
     }

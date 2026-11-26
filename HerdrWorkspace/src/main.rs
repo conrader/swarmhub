@@ -135,9 +135,11 @@ impl Workspace {
         group: Option<group_preview::Binding>,
         wait: warm::Wait,
     ) -> Result<core::Delivery, Failure> {
-        if !agent.uses_opencode_api() {
-            return warm::send(self, agent, prompt, wait).await;
-        }
+        warm::send(self, agent, prompt, group, wait).await
+    }
+
+    async fn send_opencode(&self, agent: &core::Terminal, prompt: String, group: Option<group_preview::Binding>,
+                           wait: warm::Wait) -> Result<core::Delivery, Failure> {
         core::validate_task(&prompt)?;
         let current = self
             .core
@@ -923,12 +925,6 @@ async fn launch_agent(
     if !api_first_task && opencode_agent::first_task::OptIn::requested(&template) {
         return Err(Failure::Input(runtimes::INVALID_API_TEMPLATE).into());
     }
-    if body.warm && api_first_task {
-        return Err(Failure::Input(
-            "This template gives OpenCode its first task as it starts, so it cannot be started ahead of one.",
-        )
-        .into());
-    }
     let catalog = runtimes::Catalog::load(w.history.file());
     let runtime = catalog.runtime(&template);
     if body
@@ -1142,7 +1138,7 @@ async fn launch_agent(
         ))?;
         let approval_socket = approvals::socket_path(&w.history);
         let prepared = if api_first_task {
-            match Prepared::new(w.history.file(), &key, &message) {
+            match Prepared::new(w.history.file(), &key, (!body.warm).then_some(message.as_str())) {
                 Ok(task) if task.path().to_str().is_some() => Some(task),
                 _ => {
                     let description = "Could not prepare the first task for OpenCode.";
@@ -1196,7 +1192,7 @@ async fn launch_agent(
                     None
                 };
                 let (state, detail) = match (open_code_first_task, &terminal.first_message) {
-                    (Some(Outcome::Submitted), _)
+                    (Some(Outcome::Ready | Outcome::Submitted), _)
                     | (None, Some(core::FirstMessage { sent: true, .. })) => {
                         (DeliveryState::Sent, None)
                     }
@@ -1225,7 +1221,7 @@ async fn launch_agent(
                     .history
                     .session_profile(&hello.core.id, &terminal)
                     .map_err(|_| Failure::Uncertain)?;
-                if let Some(outcome) = open_code_first_task {
+                if let Some(outcome) = open_code_first_task.filter(|outcome| *outcome != Outcome::Ready) {
                     terminal.first_message = Some(core::FirstMessage {
                         sent: outcome == Outcome::Submitted,
                         reason: detail.map(str::to_owned),
@@ -1922,7 +1918,14 @@ async fn interrupt(
 ) -> Result<impl IntoResponse, Failure> {
     let agent = w.core.agent(&id, created).await?;
     let gemini = gemini_stop(&w, &agent);
-    let outcome = w.core.interrupt(&agent).await?;
+    let api_stop = if agent.uses_opencode_api() {
+        opencode_agent::follow_up::interrupt(w.history.file(), &agent).await?
+    } else { None };
+    let outcome = match api_stop {
+        Some(true) => "stopped".to_owned(),
+        Some(false) => "still_working".to_owned(),
+        None => w.core.interrupt(&agent).await?,
+    };
     if let Some(told) = gemini {
         let _ = told.await;
         if outcome == "still_working" {
