@@ -22,6 +22,12 @@ struct ContentView: View {
         if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) }
     }
 
+    @ViewBuilder private func inspector<Panel: View>(@ViewBuilder details: () -> Panel) -> some View {
+        if let request = store.inspectorTerminal {
+            WorkspaceTerminals(request: request, docked: true).id(request.id)
+        } else { details() }
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
@@ -33,13 +39,13 @@ struct ContentView: View {
                 if store.showOnlyAttention {
                     WorkspaceActivityView(attentionOnly: true)
                 } else if let group = store.selectedGroup {
-                    GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
+                    GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { GroupInfoPanel(group: group) } }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
                     HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: ChromeMetrics.chatWidthWithInspector)
-                        .rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
+                        .rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
                 } else if let bot = store.selectedBot {
-                    ChatView(bot: bot).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
+                    ChatView(bot: bot).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
                 } else {
                     SetupEmptyState()
                         .overlay(alignment: .topLeading) {

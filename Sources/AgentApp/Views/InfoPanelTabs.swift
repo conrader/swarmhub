@@ -26,7 +26,7 @@ extension AppStore {
     func visibleInfoTab(for bot: Bot) -> AgentInfoTab { infoTabs(for: bot).contains(infoTab) ? infoTab : .overview }
 
     /// Opens the panel on `tab`.
-    func openInfoTab(_ tab: AgentInfoTab) { infoTab = tab; showInfo = true }
+    func openInfoTab(_ tab: AgentInfoTab) { inspectorTerminal = nil; infoTab = tab; showInfo = true }
 }
 
 struct InfoTabBar: View {

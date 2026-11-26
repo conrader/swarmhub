@@ -15,6 +15,7 @@ struct HerdrMoveBotsSheet: View {
     @State private var draft = HerdrServerDraft(kind: .ssh)
     @State private var draftID = HerdrServerList.newID()
     @State private var loginServer: HerdrServer?
+    @State private var offerSourceRepair = false
     @State private var offerInstall = false
     @State private var selected: Set<UUID> = []
     @State private var useOneAI = false
@@ -58,6 +59,10 @@ struct HerdrMoveBotsSheet: View {
                     }
                     if let working { StatusCard(kind: .working, title: working) }
                     if let problem { StatusCard(kind: .warning, title: problem) }
+                    if offerSourceRepair, step == .bots {
+                        Button("Start SwarmHub on " + source.name) { repairSource() }
+                            .disabled(working != nil)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(24)
@@ -76,8 +81,10 @@ struct HerdrMoveBotsSheet: View {
             if let unsaved = draft.server(id: draftID) { store.abandonSetupHerdr(unsaved) }
         }
         .sheet(item: $loginServer) { server in
-            SSHLoginSheet(server: server) { signedIn in
-                if addServer || destinations.isEmpty {
+            SSHLoginSheet(server: server, keepSavedLogin: server.id == source.id) { signedIn in
+                if server.id == source.id {
+                    if offerSourceRepair { repairSource() } else { move() }
+                } else if addServer || destinations.isEmpty {
                     draft.sshDestination = "\(signedIn.sshUser)@\(signedIn.sshHost)"
                     connect()
                 } else {
@@ -359,6 +366,23 @@ struct HerdrMoveBotsSheet: View {
         models = offered
     }
 
+    private func repairSource() {
+        guard working == nil, source.kind == .ssh, store.herdrServer(id: source.id) == source else { return }
+        working = "Starting SwarmHub on " + source.name + "…"
+        Task {
+            defer { working = nil }
+            do {
+                let warning = try await store.installHerdrWorkspace(source)
+                _ = try await store.herdrMoveWorkspace(on: source)
+                offerSourceRepair = false
+                problem = warning
+            } catch {
+                if HerdrTunnel.offersPassword(error) { loginServer = source }
+                else { problem = error.localizedDescription }
+            }
+        }
+    }
+
     private func move() {
         guard let destination, working == nil else { return }
         let mapping: HerdrMoveMapping
@@ -368,6 +392,7 @@ struct HerdrMoveBotsSheet: View {
         } else { mapping = .matching }
         let selection = currentSelection
         problem = nil
+        offerSourceRepair = false
         working = "Moving bots to \(destination.name)…"
         Task {
             defer { working = nil }
@@ -375,6 +400,12 @@ struct HerdrMoveBotsSheet: View {
                 record = try await store.moveHerdrBots(selection, from: source, to: destination, mapping: mapping,
                                                        carryHistory: carryHistory, stopIdleAgents: stopIdleAgents, resumeActiveWork: resumeActiveWork)
                 step = .summary
+            } catch let error as HerdrMoveSourceUnavailable {
+                problem = error.localizedDescription
+                if source.kind == .ssh {
+                    if HerdrTunnel.offersPassword(error.underlying) { loginServer = source }
+                    else { offerSourceRepair = [.sshNoAnswer, .sshNoService, .unreachable].contains(error.problem) }
+                }
             } catch { problem = error.localizedDescription }
         }
     }

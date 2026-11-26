@@ -12,6 +12,19 @@ struct InfoPanel: View {
             HStack {
                 Text("Details").font(.headline).accessibilityAddTraits(.isHeader)
                 Spacer()
+                if bot.backend == .herdr {
+                    Button("Terminal", systemImage: "terminal") {
+                        let target: LiveTerminal?
+                        if let helper = store.openHerdrHelper, helper.botID == bot.id,
+                           let list = store.herdrHelpers[helper.parent],
+                           let child = list.helpers.first(where: { $0.id == helper.helperID }) {
+                            target = LiveTerminal(agent: child.ref, title: child.name, core: list.core)
+                        } else if store.openHerdrHelper == nil, let ref = store.herdrTerminalSession(for: bot) {
+                            target = LiveTerminal(agent: ref, title: bot.name)
+                        } else { target = nil }
+                        store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target))
+                    }.controlSize(.small).accessibilityLabel("Show terminal in Details")
+                }
                 Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }
                     .buttonStyle(.plain).help("Close").accessibilityLabel("Close")

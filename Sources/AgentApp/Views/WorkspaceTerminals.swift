@@ -38,13 +38,16 @@ struct WorkspaceTerminals: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     let request: TerminalBrowserRequest
+    let docked: Bool
+    @Environment(\.openWindow) private var openWindow
     @State private var server: HerdrServer
     @State private var selected: LiveTerminal?
     @State private var terminals: [LiveTerminal] = []
     @State private var problem: String?
     @State private var loaded = false
 
-    init(request: TerminalBrowserRequest) {
+    init(request: TerminalBrowserRequest, docked: Bool = false) {
+        self.docked = docked
         self.request = request
         _server = State(initialValue: request.server)
         _selected = State(initialValue: request.target)
@@ -67,8 +70,15 @@ struct WorkspaceTerminals: View {
                     })) {
                         ForEach(store.herdrServers) { Text($0.name).tag($0.id) }
                     }.labelsHidden().fixedSize()
-                } else { Text(server.name).foregroundStyle(.secondary) }
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                } else if !docked { Text(server.name).foregroundStyle(.secondary) }
+                if docked {
+                    Button {
+                        openWindow(value: TerminalBrowserRequest(server: server, target: selected, groupID: request.groupID))
+                    } label: { Image(systemName: "macwindow.on.rectangle") }
+                        .help("Open terminal preview in a window").accessibilityLabel("Open terminal preview in a window")
+                    Button { store.inspectorTerminal = nil } label: { Image(systemName: "xmark") }
+                        .help("Back to Details").accessibilityLabel("Back to Details")
+                } else { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             }
             if let selected {
                 TerminalOutput(server: server, target: selected).id(selected.id)
@@ -99,8 +109,11 @@ struct WorkspaceTerminals: View {
                     }
                 }
             }
-            Spacer(minLength: 0)
-        }.padding().frame(minWidth: 540, idealWidth: 740, minHeight: 320, idealHeight: 480)
+            if selected == nil { Spacer(minLength: 0) }
+        }.padding(docked ? 10 : 16)
+        .frame(minWidth: docked ? 240 : 540, idealWidth: docked ? 330 : 740, minHeight: docked ? 180 : 320)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(docked ? "inspector.terminal" : "workspace.terminals")
         .task(id: server.id + (selected == nil ? "-list" : "-preview")) {
             guard selected == nil else { return }
             while !Task.isCancelled {
@@ -159,18 +172,18 @@ private struct TerminalOutput: View {
     @EnvironmentObject private var store: AppStore
     let server: HerdrServer
     let target: LiveTerminal
+    private struct Mirror { let url: URL; let token: String; let ref: HerdrClient.AgentRef; let core: String? }
+    @State private var mirror: Mirror?
     @State private var output: String?
     @State private var problem: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let problem { Text(problem).font(.callout).foregroundStyle(.secondary) }
-            if let output {
-                ScrollView([.horizontal, .vertical]) {
-                    Text(verbatim: output.isEmpty ? "Waiting for output…" : output)
-                        .font(.system(.callout, design: .monospaced)).textSelection(.enabled).padding(12)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(AppColor.chat, in: RoundedRectangle(cornerRadius: 6))
+            if let mirror {
+                TerminalMirror(url: mirror.url, token: mirror.token, agent: mirror.ref, core: mirror.core) { problem = $0 }
+            } else if let output {
+                TerminalTextGrid(output: output)
             } else if problem == nil { ProgressView("Connecting…") }
         }.task {
             while !Task.isCancelled {
@@ -187,6 +200,12 @@ private struct TerminalOutput: View {
                         try Task.checkCancellation()
                         guard (target.core == nil || roster.core == target.core), roster.agents.contains(where: { $0.ref == ref && $0.isLive }) else {
                             problem = "This terminal session has ended."
+                            return
+                        }
+                        if roster.terminalPreview == true {
+                            let url = try await client.connectedBaseURL().appendingPathComponent("terminal-preview")
+                            try Task.checkCancellation()
+                            mirror = Mirror(url: url, token: client.token, ref: ref, core: roster.core)
                             return
                         }
                         text = try await client.screen(of: ref)
