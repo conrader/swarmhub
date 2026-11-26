@@ -10,6 +10,7 @@ struct Child {
     model: Option<String>,
     created_ms: i64,
     completed_ms: Option<i64>,
+    active_turn: Option<String>,
     state: String,
     task: String,
     reply: String,
@@ -29,6 +30,10 @@ pub(crate) fn capture() -> Result<(), Box<dyn std::error::Error>> {
     if !valid_session(&child.id)
         || !valid_session(&child.parent)
         || child.id == child.parent
+        || child
+            .active_turn
+            .as_deref()
+            .is_some_and(|t| child.state != "working" || !valid_turn(t))
         || !matches!(
             child.state.as_str(),
             "working" | "answered" | "finished" | "stopped" | "error"
@@ -48,4 +53,62 @@ pub(crate) fn capture() -> Result<(), Box<dyn std::error::Error>> {
         params![key, child.id, summary.to_string(), activity.transcript],
     )?;
     Ok(())
+}
+
+fn valid_turn(turn: &str) -> bool {
+    turn.len() == 32 && turn.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+pub(crate) async fn interrupt(
+    key: &str,
+    child: &str,
+    parent: &str,
+    turn: &str,
+) -> Result<(), crate::ApiError> {
+    use crate::{ApiError, core::Failure};
+    use ring::digest::{SHA256, digest};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::UnixStream,
+        time::{Duration, timeout},
+    };
+
+    let stale = || ApiError::Conflict("This helper turn is no longer running.");
+    if !valid_turn(turn) || !valid_session(child) || !valid_session(parent) || child == parent {
+        return Err(stale());
+    }
+    let binding = [key, parent, child, turn].join("\n");
+    let hash = digest(&SHA256, binding.as_bytes());
+    let name: String = hash.as_ref()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let directory = std::path::PathBuf::from(format!("/tmp/swarmhub-oc-stop-{name}"));
+    let meta = std::fs::symlink_metadata(&directory)
+        .map_err(|_| stale())?;
+    // SAFETY: geteuid has no memory preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if !meta.is_dir() || meta.uid() != uid || meta.permissions().mode() & 0o077 != 0 {
+        return Err(stale());
+    }
+    timeout(Duration::from_secs(8), async {
+        let mut stream = UnixStream::connect(directory.join("stop"))
+            .await
+            .map_err(|_| stale())?;
+        if stream.peer_cred().map_err(|_| stale())?.uid() != uid {
+            return Err(stale());
+        }
+        stream
+            .write_all(b"S")
+            .await
+            .map_err(|_| Failure::Uncertain)?;
+        match stream.read_u8().await.map_err(|_| Failure::Uncertain)? {
+            b'Y' => Ok(()),
+            b'N' => Err(stale()),
+            _ => Err(Failure::Uncertain.into()),
+        }
+    })
+    .await
+    .map_err(|_| Failure::Uncertain)?
 }

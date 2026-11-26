@@ -111,27 +111,53 @@ pub(super) struct Interrupt {
     turn: String,
 }
 
-pub(super) async fn interrupt(
+pub(super) async fn interrupt_codex(
     State(w): State<Workspace>,
     Path((address, created, thread)): Path<(String, u64, String)>,
     Query(query): Query<ListingQuery>,
     Json(request): Json<Interrupt>,
 ) -> Result<Json<Value>, ApiError> {
+    interrupt(w, address, created, thread, query, request, "codex").await
+}
+
+pub(super) async fn interrupt_opencode(
+    State(w): State<Workspace>,
+    Path((address, created, thread)): Path<(String, u64, String)>,
+    Query(query): Query<ListingQuery>,
+    Json(request): Json<Interrupt>,
+) -> Result<Json<Value>, ApiError> {
+    interrupt(w, address, created, thread, query, request, "opencode").await
+}
+
+async fn interrupt(
+    w: Workspace,
+    address: String,
+    created: u64,
+    thread: String,
+    query: ListingQuery,
+    request: Interrupt,
+    runtime: &str,
+) -> Result<Json<Value>, ApiError> {
     let core = query.core.ok_or(Failure::Missing)?;
-    let child = Child::load(&w, &core, &address, created, &thread, "codex")?;
+    let child = Child::load(&w, &core, &address, created, &thread, runtime)?;
     if child.state != "working"
         || child.active_turn.as_deref() != Some(request.turn.as_str())
         || !child.owner_is_live(&w, &core, &address, created).await?
     {
         return Err(ApiError::Conflict("This helper turn is no longer running."));
     }
-    crate::codex_agent::stream::interrupt_child(
-        w.history.file(),
-        &child.launch_key,
-        &thread,
-        &child.parent,
-        &request.turn,
-    )
-    .await?;
+    if runtime == "opencode" {
+        crate::opencode_agent::interrupt(&child.launch_key, &thread, &child.parent, &request.turn)
+            .await?;
+    } else {
+        crate::codex_agent::stream::interrupt_child(
+            w.history.file(),
+            &child.launch_key,
+            &thread,
+            &child.parent,
+            &request.turn,
+        )
+        .await?;
+    }
     Ok(Json(json!({"interrupted_turn": request.turn})))
 }

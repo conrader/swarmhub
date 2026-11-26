@@ -167,10 +167,10 @@ extension HerdrClient {
         try await get(threadRoute(runtime, owner: owner, core: core, thread: thread))
     }
 
-    func interruptCodexTurn(_ turn: String, owner: AgentRef, core: String, thread: String) async throws {
+    func interruptChildTurn(_ turn: String, runtime: ChildRuntime, owner: AgentRef, core: String, thread: String) async throws {
         struct Receipt: Decodable { let interruptedTurn: String }
-        let result: Receipt = try await post(threadRoute(.codex, owner: owner, core: core, thread: thread), ["turn": turn])
-        guard result.interruptedTurn == turn else { throw BackendError.unavailable("Codex did not confirm this turn.") }
+        let result: Receipt = try await post(threadRoute(runtime, owner: owner, core: core, thread: thread), ["turn": turn])
+        guard result.interruptedTurn == turn else { throw BackendError.unavailable("\(runtime.label) did not confirm this turn.") }
     }
 
     func helpers(of agent: AgentRef, core: String? = nil) async throws -> Helpers {

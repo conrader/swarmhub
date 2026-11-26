@@ -592,9 +592,9 @@ def opencode_reply(root, bridge, request, core, browser):
     guarded.write_text("A test file that requires permission.\n")
 
     child = None
-    if focus == "opencode-children":
-        from opencode_child_sessions import ChildSession
-        child = ChildSession(root)
+    if focus in ("opencode-children", "opencode-child-stop"):
+        from opencode_child_sessions import ChildSession, InterruptChild
+        child = InterruptChild(root) if focus == "opencode-child-stop" else ChildSession(root)
     image_mode = focus == "opencode-image"
     if image_mode:
         png = (Path(__file__).resolve().parents[2] / "Tests/Fixtures/chat-media/render.png").read_bytes()
@@ -660,6 +660,8 @@ def opencode_reply(root, bridge, request, core, browser):
             self.end_headers()
             if child:
                 chunks = child.model(request)
+                if chunks is None:
+                    return
             elif image_mode:
                 chunks = screenshot_chunks(request)
             elif permission and any(tool["function"]["name"] == "read" for tool in request.get("tools", [])):
@@ -2523,7 +2525,7 @@ def smoke(hc, bridge, chrome=None):
                     assert request("/api/drive-files/disconnect",{}) == {"configured":False}
                     assert request("/api/vault")["entries"] == []
                     return
-                if focus in ("opencode", "opencode-status", "opencode-approvals", "opencode-image", "opencode-usage", "opencode-children"):
+                if focus in ("opencode", "opencode-status", "opencode-approvals", "opencode-image", "opencode-usage", "opencode-children", "opencode-child-stop"):
                     browser = ["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, temp] if chrome else None
                     opencode_reply(root, bridge, request, core, browser)
                     return

@@ -87,3 +87,76 @@ class ChildSession:
         assert "read" in transcript and str(self.file) in transcript
         assert self.parent_reply not in transcript
         print("Opened a live OpenCode child and its archived task, file read and independent reply.")
+
+
+class InterruptChild(ChildSession):
+    follow_up = "Can the parent still answer?"
+    follow_up_reply = "The parent is available."
+
+    resume_parent = "Send the reader a second assignment"
+    resume_task = "Report the saved sidebar state."
+
+    def __init__(self, root):
+        super().__init__(root)
+        self.finish_resumed = threading.Event()
+
+    def model(self, request):
+        messages = request["messages"]
+        users = [m["content"] for m in messages if m["role"] == "user"]
+        if self.resume_parent in users and request.get("tools"):
+            latest = next(i for i, m in enumerate(messages) if m["content"] == self.resume_parent)
+            if not any(m["role"] == "tool" for m in messages[latest + 1:]):
+                return self.call("subagent", {"agent": "explore", "description": "Read sidebar again",
+                                               "prompt": self.resume_task, "sessionID": self.session_id})
+            return (({"role": "assistant", "content": "Sent the second assignment."}, None), ({}, "stop"))
+        if any(self.resume_task in str(u) for u in users) and request.get("tools"):
+            assert self.finish_resumed.wait(30)
+            return (({"role": "assistant", "content": self.child_reply}, None), ({}, "stop"))
+        if self.follow_up in users:
+            return (({"role": "assistant", "content": self.follow_up_reply}, None), ({}, "stop"))
+        if self.parent_task not in users and request.get("tools") and any(self.child_task in str(u) for u in users):
+            self.started.set()
+            assert self.release.wait(45)
+            return None  # The provider cancelled this streaming request when its child was interrupted.
+        return super().model(request)
+
+    def stop(self, request, route, turn):
+        assert request(route, {"turn": turn}) == {"interrupted_turn": turn}
+
+    def exercise(self, request, core, until):
+        agent = request("/api/agents", {"name": "patch-qa", "template": "local-model", "task": self.parent_task},
+                        status=201, timeout=45)
+        session = f"{agent['address']}/{agent['created_ms']}"
+        path = "/api/agents/" + session
+        try:
+            assert self.started.wait(20)
+            until(lambda: self.session_id)
+            listing = path + "/helpers?core=" + core
+            child = until(lambda: next((c for c in request(listing).get("opencode_threads", [])
+                                        if c["id"] == self.session_id and c.get("active_turn")), None))
+            route = f"{path}/opencode-threads/{self.session_id}?core={core}"
+            turn = request(route)["active_turn"]
+            assert turn == child["active_turn"]
+            request(route, {"turn": "stale"}, status=409)
+            request(route.replace(self.session_id, child["parent"]), {"turn": turn}, status=404)
+            request(route.replace("?core=" + core, "?core=another"), {"turn": turn}, status=404)
+            self.stop(request, route, turn)
+            until(lambda: request(route)["state"] == "stopped")
+            request(route, {"turn": turn}, status=409)
+            self.release.set()
+            request(path + "/messages", {"text": self.follow_up})
+            until(lambda: any(m["kind"] == "reply" and m["text"] == self.follow_up_reply
+                              for m in request("/api/history/" + core + "/" + session)["items"]), seconds=20)
+            request(path + "/messages", {"text": self.resume_parent})
+            newer = until(lambda: request(route).get("active_turn"), seconds=20)
+            assert newer != turn
+            request(route, {"turn": turn}, status=409)
+            assert request(route)["active_turn"] == newer
+            self.finish_resumed.set()
+            until(lambda: request(route)["state"] == "answered")
+        finally:
+            self.release.set()
+            self.finish_resumed.set()
+            request(path + "/end", {})
+        assert self.child_reply in request(route)["transcript"] and request(route)["active_turn"] is None
+        print("Stopped the selected OpenCode child, read the parent's next answer and refused the old stop on the resumed child.")
