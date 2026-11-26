@@ -58,6 +58,17 @@ private let listingJSON = """
     #expect(!legacy.hasSidebarSessions && legacy.codexThreads == nil)
 }
 
+@Test func archivedCodexActivityFromAnOlderWorkspaceHasNoInterruptTarget() throws {
+    let archived = try decoded(HerdrClient.CodexThreadActivity.self, """
+        {"transcript":"Task Read logs","state":"answered"}
+        """)
+    let live = try decoded(HerdrClient.CodexThreadActivity.self, """
+        {"transcript":"Task Read logs","state":"working","active_turn":"second-turn"}
+        """)
+    #expect(archived.activeTurn == nil && archived.state == "answered")
+    #expect(live.activeTurn == "second-turn" && live.state == "working")
+}
+
 @Test func sidebarDistinguishesCurrentWorkFromAnEarlierReply() {
     let reply = HerdrClient.Helper.Reply(id: 1, text: "14 call sites updated.")
     var helper = HerdrClient.Helper(address: "r", createdMs: 4, name: "tests", task: "Run CI", state: "live",
