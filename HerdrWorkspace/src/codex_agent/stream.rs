@@ -581,6 +581,28 @@ pub(crate) async fn steer(journal: &Path, key: &str, reference: &str, text: &str
     }).await.map_err(|_| Failure::Uncertain)?
 }
 
+/// Interrupt only the observed turn of a child in this launch's private Codex process.
+pub(crate) async fn interrupt_child(
+    journal: &Path, key: &str, child: &str, parent: &str, turn: &str,
+) -> Result<(), crate::ApiError> {
+    use crate::{ApiError, core::Failure};
+    timeout(Duration::from_secs(15), async {
+        let socket = note_path(journal, key).with_extension("sock");
+        let mut connection = connect(&socket).await.ok_or(ApiError::Conflict("The Codex session has ended."))?;
+        let result = rpc(&mut connection, 1, "thread/read", json!({"threadId":child,"includeTurns":true})).await?;
+        let thread = &result["thread"];
+        let current = thread["turns"].as_array().and_then(|turns| turns.last());
+        if thread["id"] != child
+            || thread["source"]["subAgent"]["thread_spawn"]["parent_thread_id"] != parent
+            || !current.is_some_and(|t| t["id"] == turn && t["status"] == "inProgress")
+        {
+            return Err(ApiError::Conflict("This helper turn is no longer running."));
+        }
+        rpc(&mut connection, 2, "turn/interrupt", json!({"threadId":child,"turnId":turn})).await?;
+        Ok(())
+    }).await.map_err(|_| Failure::Uncertain)?
+}
+
 /// A line for whoever set `SWARMHUB_CODEX_STREAM_LOG`; otherwise standard error goes nowhere.
 fn note(text: &str) {
     eprintln!("codex-stream {}: {text}", std::process::id());

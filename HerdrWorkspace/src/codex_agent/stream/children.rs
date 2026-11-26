@@ -311,7 +311,8 @@ impl Snapshot {
             Some("completed") => "finished",
             _ => "working",
         };
-        let summary = json!({"id":id,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
+        let active_turn = last.filter(|turn| turn["status"] == "inProgress").and_then(|turn| turn["id"].as_str());
+        let summary = json!({"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
             "model":thread["model"],"created_ms":thread["createdAt"].as_i64().unwrap_or_default().saturating_mul(1000),
             "completed_ms":last.and_then(|t| t["completedAt"].as_i64()).map(|s| s.saturating_mul(1000)),
             "state":state,"task":clipped(task,300),"reply":clipped(answer,300)});
@@ -354,6 +355,18 @@ mod tests {
         assert!(f.read_children().is_empty());
         assert!(f.children.answer(id,Some(&json!({"thread":{"id":CHILD,"source":{"subAgent":{"thread_spawn":{"parent_thread_id":"other"}}}}}))));
         assert!(f.children.snapshot.is_none());
+    }
+
+    #[test]
+    fn only_the_current_child_turn_can_be_interrupted() {
+        let mut thread = json!({"turns":[{"id":ROOT,"status":"inProgress"}]});
+        assert!(Snapshot::read(CHILD, ROOT, "", &thread).summary["active_turn"].is_null());
+        thread["turns"].as_array_mut().unwrap().push(json!({"id":TURN,"status":"inProgress"}));
+        assert_eq!(Snapshot::read(CHILD, ROOT, "", &thread).summary["active_turn"], TURN);
+        thread["turns"][1]["status"] = "interrupted".into();
+        let saved = Snapshot::read(CHILD, ROOT, "", &thread);
+        assert!(saved.summary["active_turn"].is_null());
+        assert_eq!(saved.summary["state"], "stopped");
     }
 
     #[test]

@@ -1,0 +1,109 @@
+use super::{ApiError, Failure, ListingQuery, StoreError, Workspace};
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+};
+use rusqlite::{OptionalExtension, params};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+struct Child {
+    launch_key: String,
+    parent: String,
+    state: String,
+    active_turn: Option<String>,
+    transcript: String,
+}
+
+impl Child {
+    fn load(
+        w: &Workspace,
+        core: &str,
+        address: &str,
+        created: u64,
+        thread: &str,
+    ) -> Result<Self, ApiError> {
+        w.history.db()?.query_row(
+            "SELECT p.launch_key, json_extract(c.summary,'$.parent'), json_extract(c.summary,'$.state'),
+                    json_extract(c.summary,'$.active_turn'), c.transcript
+             FROM codex_children c JOIN journal p ON p.id=c.launch
+             WHERE p.core_id=?1 AND p.address=?2 AND p.created_ms=?3 AND c.thread=?4",
+            params![core, address, created, thread],
+            |r| Ok(Self { launch_key: r.get(0)?, parent: r.get(1)?, state: r.get(2)?,
+                          active_turn: r.get(3)?, transcript: r.get(4)? }),
+        ).optional().map_err(StoreError::from)?.ok_or_else(|| Failure::Missing.into())
+    }
+
+    async fn owner_is_live(
+        &self,
+        w: &Workspace,
+        core: &str,
+        address: &str,
+        created: u64,
+    ) -> Result<bool, ApiError> {
+        if w.core.identify().await?.core.id != core {
+            return Ok(false);
+        }
+        match w.core.agent(address, created).await {
+            Ok(agent) => Ok(agent.state == "live" && agent.launch_key() == Some(&self.launch_key)),
+            Err(Failure::Missing) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
+pub(super) async fn read(
+    State(w): State<Workspace>,
+    Path((address, created, thread)): Path<(String, u64, String)>,
+    Query(query): Query<ListingQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let core = query.core.ok_or(Failure::Missing)?;
+    let mut child = Child::load(&w, &core, &address, created, &thread)?;
+    if child.state == "working" {
+        match child.owner_is_live(&w, &core, &address, created).await {
+            Ok(true) => {}
+            Ok(false) => {
+                child.active_turn = None;
+                child.state = "stopped".into();
+            }
+            Err(_) => {
+                child.active_turn = None;
+                child.state = "unavailable".into();
+            }
+        }
+    }
+    Ok(Json(
+        json!({"transcript":child.transcript, "state":child.state, "active_turn":child.active_turn}),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Interrupt {
+    turn: String,
+}
+
+pub(super) async fn interrupt(
+    State(w): State<Workspace>,
+    Path((address, created, thread)): Path<(String, u64, String)>,
+    Query(query): Query<ListingQuery>,
+    Json(request): Json<Interrupt>,
+) -> Result<Json<Value>, ApiError> {
+    let core = query.core.ok_or(Failure::Missing)?;
+    let child = Child::load(&w, &core, &address, created, &thread)?;
+    if child.state != "working"
+        || child.active_turn.as_deref() != Some(request.turn.as_str())
+        || !child.owner_is_live(&w, &core, &address, created).await?
+    {
+        return Err(ApiError::Conflict("This helper turn is no longer running."));
+    }
+    crate::codex_agent::stream::interrupt_child(
+        w.history.file(),
+        &child.launch_key,
+        &thread,
+        &child.parent,
+        &request.turn,
+    )
+    .await?;
+    Ok(Json(json!({"interrupted_turn": request.turn})))
+}
