@@ -6,17 +6,19 @@ struct SidebarBotSessions<ParentRow: View>: View {
     @AppStorage private var expanded: Bool
     let bot: Bot
     let parents: [HerdrHelperParent]
+    let workers: [HerdrCodejobRow]
     let parentRow: ParentRow
 
-    init(bot: Bot, parents: [HerdrHelperParent], @ViewBuilder row: () -> ParentRow) {
+    init(bot: Bot, parents: [HerdrHelperParent], workers: [HerdrCodejobRow], @ViewBuilder row: () -> ParentRow) {
         self.bot = bot
         self.parents = parents.sorted { ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
+        self.workers = workers
         parentRow = row()
         _expanded = AppStorage(wrappedValue: true, "sidebar.sessionsExpanded.\(bot.id)")
     }
 
     var body: some View {
-        if parents.isEmpty {
+        if parents.isEmpty && workers.isEmpty {
             botControls
         } else {
             HStack(spacing: 0) {
@@ -39,7 +41,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
-                        ForEach(store.herdrHelpers[parent]?.helpers ?? []) { helper in
+                        ForEach(store.herdrHelpers[parent]?.inChat ?? []) { helper in
                             let selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: parent.groupRuntime)
                             HStack(spacing: 0) {
                                 HerdrHelperRow(helper: helper, selected: !store.showOnlyAttention && store.openHerdrHelper == selection) {
@@ -50,6 +52,23 @@ struct SidebarBotSessions<ParentRow: View>: View {
                                 }
                             }
                         }
+                    }
+                    ForEach(workers) { row in
+                        let target = LiveTerminal(host: row.id.host, job: row.job, botName: bot.name)
+                        Button {
+                            store.open(bot)
+                            store.previewInInspector(TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target))
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: row.job.isWorking ? "terminal" : "clock").foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(row.job.description).font(.system(size: 13, weight: .medium))
+                                    Text(target.detail).font(.caption).foregroundStyle(.secondary)
+                                }.lineLimit(1)
+                                Spacer(minLength: 0)
+                            }.padding(.leading, 10).frame(height: HerdrHelperRow.height).contentShape(Rectangle())
+                        }.buttonStyle(.plain).disabled(!row.job.isWorking)
+                            .accessibilityLabel(row.job.description + " for " + bot.name + " · " + target.detail)
                     }
                 }
                 .overlay(alignment: .leading) { Rectangle().fill(AppColor.separator).frame(width: 1).accessibilityHidden(true) }
@@ -128,7 +147,7 @@ struct HerdrHelperGlyph: View {
     let helper: HerdrClient.Helper
     var body: some View {
         let look: (symbol: String, colour: Color) = {
-            guard helper.isLive else { return ("stop.circle", .secondary) }
+            guard helper.isLive else { return helper.answered == true ? ("checkmark.circle.fill", .green) : ("stop.circle", .secondary) }
             switch helper.status?.state {
             case "working": return ("circle.dotted", .accentColor)
             case "blocked": return ("exclamationmark.circle.fill", .orange)

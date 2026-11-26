@@ -42,22 +42,23 @@ struct SidebarView: View {
             }.padding(.horizontal, SidebarMetrics.listInset).padding(.vertical, 4)
             ReviewUpdatesButton()
             let layout = store.sidebarLayout
-            let sessions = Dictionary(grouping: store.herdrHelpers.keys.filter { store.herdrHelpers[$0]?.helpers.isEmpty == false }, by: \.botID)
+            let sessions = Dictionary(grouping: store.herdrHelpers.keys.filter { store.herdrHelpers[$0]?.inChat.isEmpty == false }, by: \.botID)
+            let workers = store.sidebarCodejobs
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if !layout.pinned.isEmpty {
                         let pinnedParents = layout.pinned.compactMap { chat -> Bot? in
-                            if case .bot(let bot) = chat, sessions[bot.id] != nil { return bot }
+                            if case .bot(let bot) = chat, sessions[bot.id] != nil || workers[bot.id] != nil { return bot }
                             return nil
                         }
                         let tiles = layout.pinned.filter { chat in
-                            if case .bot(let bot) = chat { return sessions[bot.id] == nil }
+                            if case .bot(let bot) = chat { return sessions[bot.id] == nil && workers[bot.id] == nil }
                             return true
                         }
                         if !tiles.isEmpty {
                             SidebarPinnedStrip(chats: tiles, askNewSection: { sectionPrompt = .new($0) }, requestDelete: requestDelete)
                         }
-                        ForEach(pinnedParents) { bot in row(bot, parents: sessions[bot.id] ?? []) }
+                        ForEach(pinnedParents) { bot in row(bot, parents: sessions[bot.id] ?? [], workers: workers[bot.id] ?? []) }
                     }
                     ForEach(layout.sections) { bucket in
                         if bucket.showsHeader {
@@ -67,7 +68,7 @@ struct SidebarView: View {
                             if bucket.showsHeader && bucket.chats.isEmpty { SidebarEmptySectionLine() }
                             ForEach(bucket.chats) { chat in
                                 switch chat {
-                                case .bot(let bot): row(bot, parents: sessions[bot.id] ?? [])
+                                case .bot(let bot): row(bot, parents: sessions[bot.id] ?? [], workers: workers[bot.id] ?? [])
                                 case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete, askNewSection: { sectionPrompt = .new($0) })
                                 }
                             }
@@ -83,7 +84,7 @@ struct SidebarView: View {
                         }.buttonStyle(.plain).padding(.top, 6)
                     }
                     if store.showingHiddenBots {
-                        ForEach(store.hiddenChatBots) { bot in row(bot, parents: sessions[bot.id] ?? []) }
+                        ForEach(store.hiddenChatBots) { bot in row(bot, parents: sessions[bot.id] ?? [], workers: workers[bot.id] ?? []) }
                         ForEach(store.groups.filter(\.isHidden)) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete, askNewSection: { sectionPrompt = .new($0) }) }
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
@@ -155,8 +156,8 @@ struct SidebarView: View {
 
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
     /// helper's row is the selected one.
-    @ViewBuilder private func row(_ bot: Bot, parents: [HerdrHelperParent]) -> some View {
-        SidebarBotSessions(bot: bot, parents: parents) {
+    @ViewBuilder private func row(_ bot: Bot, parents: [HerdrHelperParent], workers: [HerdrCodejobRow]) -> some View {
+        SidebarBotSessions(bot: bot, parents: parents, workers: workers) {
             BotRow(bot: bot, drafts: store.drafts, selected: !store.showOnlyAttention && selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
         }
     }
