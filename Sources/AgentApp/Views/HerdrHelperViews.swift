@@ -1,5 +1,9 @@
 import SwiftUI
 
+extension Bot {
+    var sessionsExpandedKey: String { "sidebar.sessionsExpanded.\(id)" }
+}
+
 /// The disclosure belongs to the bot. Direct and group sessions keep their own identities.
 struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
@@ -19,7 +23,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
         }
         self.workers = workers
         parentRow = row()
-        _expanded = AppStorage(wrappedValue: true, "sidebar.sessionsExpanded.\(bot.id)")
+        _expanded = AppStorage(wrappedValue: true, bot.sessionsExpandedKey)
     }
 
     var body: some View {

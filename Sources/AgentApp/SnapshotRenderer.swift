@@ -18,6 +18,9 @@ import SwiftUI
     static func contentPNG(store: AppStore, size: NSSize, scale: CGFloat = 2, scheme: ColorScheme = .dark, historyExpanded: Bool = false) async -> Data? {
         await png(ContentView().environmentObject(store).defaultAppStorage(store.defaults).environment(\.grokHistoryExpanded, historyExpanded), size: size, scale: scale, scheme: scheme) { region in
             if region.midX > size.width / 2 {
+                if let request = store.inspectorTerminal {
+                    return AnyView(WorkspaceTerminals(request: request, docked: true).environmentObject(store).defaultAppStorage(store.defaults))
+                }
                 if let group = store.selectedGroup {
                     return AnyView(GroupInfoPanel(group: group).environmentObject(store).defaultAppStorage(store.defaults))
                 }
