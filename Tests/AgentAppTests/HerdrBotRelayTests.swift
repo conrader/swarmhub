@@ -343,3 +343,22 @@ func vacatingASavedMainRoleLeavesItsServerWithoutAMain(deleteOwner: Bool) throws
     #expect(reopened.herdrRequests(in: original, of: main).isEmpty)
     #expect(reopened.createHerdrBot(pending, manager: main) == nil)
 }
+
+@MainActor @Test func cappedRoleRequiresAConfirmedWorkspaceLimit() throws {
+    let (store, manager, _) = relayStore()
+    let row = ChatMessage(role: .assistant, content: block(#"[{"op":"create_bot","decision":"decided","name":"Legal","runtime":"local"},{"op":"create_bot","name":"Legal","spend_cap_usd":2}]"#))
+    manager.messages.append(row)
+    let proposal = try #require(store.herdrRequests(in: row, of: manager).first)
+    #expect(proposal.request.sessionCapCents == 200)
+    let template = HerdrClient.Template(name: "local", description: nil, error: nil, runtime: nil, supportsSessionCap: true)
+    #expect(store.createHerdrBot(proposal, manager: manager, templates: [template]) == nil)
+    let id = UUID()
+    let bot = try #require(store.createHerdrBot(proposal, manager: manager, templates: [template], confirmedCapID: id))
+    #expect(bot.id == id && bot.sessionCapCents == 200 && bot.requiresToolReview == nil)
+    let restored = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(bot))
+    #expect(restored.sessionCapCents == 200)
+    for raw in ["true", "null", "-2", "0", "2.005"] {
+        let invalid = HerdrBotRequest.requests(in: block("{\"op\":\"create_bot\",\"name\":\"Legal\",\"spend_cap_usd\":" + raw + "}"))
+        #expect(invalid.first?.sessionCapCents == 0)
+    }
+}

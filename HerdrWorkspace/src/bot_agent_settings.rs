@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Settings {
     pub choice: Option<Tier>,
     pub auto_mode: bool,
+    pub session_cap_cents: Option<i64>,
     pub review_every_tool: bool,
     pub command_reviewer: crate::command_reviewer::Model,
     pub reviewer_bot_id: Option<String>,
@@ -32,6 +33,7 @@ pub(crate) struct Settings {
 enum Edit {
     Model(ModelEdit),
     Auto(AutoEdit),
+    SessionCap(SessionCapEdit),
     ToolReview(ToolReviewEdit),
     Reviewer(ReviewerEdit),
     BotReviewer(BotReviewerEdit),
@@ -59,6 +61,10 @@ struct ReviewerEdit {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SessionCapEdit { session_cap_cents: i64 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AutoEdit {
     auto_mode: bool,
     #[serde(default)]
@@ -80,13 +86,14 @@ pub(crate) fn routes() -> Router<Workspace> {
 pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
     Ok(db
         .query_row(
-            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id,review_every_tool FROM bot_agent_settings WHERE bot=?1",
+            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id,review_every_tool,session_cap_cents FROM bot_agent_settings WHERE bot=?1",
             [id],
             |r| {
                 let template: Option<String> = r.get(0)?;
                 let model: Option<String> = r.get(1)?;
                 Ok(Settings {
                     review_every_tool: r.get(6)?,
+                    session_cap_cents: r.get(7)?,
                     reviewer_bot_id: r.get(5)?,
                     reviewer_bots: None,
                     choice: template
@@ -156,7 +163,8 @@ async fn save(
     Path(bot): Path<String>,
     Json(body): Json<Edit>,
 ) -> Result<Json<Settings>, ApiError> {
-    let existing = match &body {
+    let existing: &[String] = match &body {
+        Edit::SessionCap(_) => &[],
         Edit::Model(e) => &e.existing_agents,
         Edit::Auto(e) => &e.existing_agents,
         Edit::ToolReview(e) => &e.existing_agents,
@@ -195,6 +203,16 @@ async fn save(
             return Err(ApiError::Conflict("Turn off review for every tool before enabling Auto mode."));
         }
         match &body {
+            Edit::SessionCap(edit) => {
+                // The app sets this before exposing a newly created bot. Existing sessions
+                // have an immutable ceiling recorded when they launch.
+                if !(1..=900_719_925).contains(&edit.session_cap_cents) {
+                    return Err(Failure::Input("Enter a positive session limit in US cents.").into());
+                }
+                tx.execute("INSERT INTO bot_agent_settings(bot,session_cap_cents) VALUES(?1,?2)
+                    ON CONFLICT(bot) DO UPDATE SET session_cap_cents=excluded.session_cap_cents",
+                    params![bot,edit.session_cap_cents])
+            }
             Edit::ToolReview(edit) => tx.execute(
                 "INSERT INTO bot_agent_settings(bot,review_every_tool,auto_changed_ms) VALUES(?1,?2,?3)
                  ON CONFLICT(bot) DO UPDATE SET review_every_tool=excluded.review_every_tool,

@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// A server's main bot (the one Herdr bot there that creates bots) asks the app for one in its reply: a ```swarmhub
 /// fence holding `{"op":"create_bot","decision":…,"name":…,"instructions":…,"avatar":{"shape":…,"colour":…},
@@ -17,13 +18,14 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
     var runtime: String?
     var model: String?
     var reviewReason: String?
+    var sessionCapCents: Int?
     /// The main bot wrote `"decision":"decided"`: it created the bot on its own decision. False asks the person.
     var decided = false
 
     static let op = "create_bot", nameLimit = 40, instructionsLimit = 6_000, perReply = 8
     static let decidedWord = "decided", askWord = "ask"
     /// Active sessions that only received the older creation instructions need the updated note.
-    static let marker = "\"review_reason\""
+    static let marker = "\"spend_cap_usd\""
 
     /// Every creation request in a reply, in order; one per name. A fence that is not valid JSON, or still being
     /// written, yields nothing.
@@ -32,7 +34,9 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
         for object in objects(in: reply) {
             guard let request = HerdrBotRequest(object) else { continue }
             if let existing = found.firstIndex(where: { $0.name.caseInsensitiveCompare(request.name) == .orderedSame }) {
+                let caps = [found[existing].sessionCapCents, request.sessionCapCents].compactMap { $0 }
                 if found[existing].reviewReason == nil, request.reviewReason != nil { found[existing] = request }
+                found[existing].sessionCapCents = caps.min()
             } else if found.count < perReply { found.append(request) }
         }
         return found
@@ -66,6 +70,10 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
         }
         self.name = name
         instructions = String(((object["instructions"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.instructionsLimit))
+        if let value = object["spend_cap_usd"] {
+            // Zero keeps a malformed limit visible for correction and prevents uncapped creation.
+            sessionCapCents = Self.parseCap(value) ?? 0
+        }
         let avatar = object["avatar"] as? [String: Any]
         shape = word(avatar?["shape"])?.lowercased(); colour = word(avatar?["colour"] ?? avatar?["color"])?.lowercased()
         runtime = word(object["runtime"]); model = word(object["model"], limit: 160)
@@ -74,6 +82,21 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
             reviewReason = reason.isEmpty ? "The main bot flagged this role for your review." : String(reason.prefix(500))
         }
         decided = reviewReason == nil && word(object["decision"])?.lowercased() == Self.decidedWord
+    }
+
+    private static func parseCap(_ value: Any) -> Int? {
+        let text: String
+        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() { text = number.stringValue }
+        else if let literal = value as? String { text = literal }
+        else { return nil }
+        guard text.utf8.count < 20, text.wholeMatch(of: #/[0-9]+(?:\.[0-9]{1,2})?/#) != nil,
+              let dollars = Decimal(string: text), dollars > 0, dollars <= Decimal(900_719_925) / 100 else { return nil }
+        return NSDecimalNumber(decimal: dollars * 100).intValue
+    }
+
+    static func capLabel(_ cents: Int) -> String {
+        guard cents > 0 else { return "Invalid session limit. Ask for a positive USD amount with up to two decimal places." }
+        return "Session cap: " + (Decimal(cents) / 100).formatted(.currency(code: "USD"))
     }
 
     /// The template a request's `runtime` means: a template by name, else the first one whose agent program has that
@@ -104,7 +127,7 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
 
         \(decision) For payments, credentials, access grants or production changes, always add "review_reason" explaining the sensitive responsibility, even when the person requested the role. A flagged bot is only proposed until the person chooses Create. Omit this field for routine roles. \
         Limit the name to \(nameLimit) characters. Address the standing instructions to the new bot. Optional avatar shapes: \(shapes.joined(separator: ", ")). Colours: \(colours.joined(separator: ", ")). \
-        Optional "runtime" names an agent program such as Claude, Codex or OpenCode; default is yours. Set "model" only for an explicitly requested model ID; otherwise use Recommended. Put multiple proposals in one JSON array. The app hides the block. \
+        Optional "runtime" names an agent program such as Claude, Codex or OpenCode; default is yours. Set "model" only for an explicitly requested model ID; otherwise use Recommended. For a capped OpenCode role include "spend_cap_usd" in USD. Put multiple proposals in one JSON array. The app hides the block. \
         Other bots cannot create bots and ask you instead. Such a request reaches you as a message that starts with \
         "\(HerdrBotRelay.requestLead)". Answer it with a create_bot block, or refuse with \
         {"op":"\(HerdrBotDecline.op)","name":"…","reason":"…"} in the same kind of block; SwarmHub tells the asking bot the outcome. \

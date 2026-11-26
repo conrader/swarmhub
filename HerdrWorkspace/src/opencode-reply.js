@@ -3,6 +3,7 @@ import { closeSync, constants, openSync, readFileSync, writeSync } from "node:fs
 import { createConnection } from "node:net";
 import { observeChildren } from "./children.js";
 import { approvalDesk } from "./approvals.js";
+import { installSpendLimit } from "./spend.js";
 
 const types = ["session.execution.started", "session.execution.succeeded", "session.execution.failed",
   "session.usage.updated", "session.execution.interrupted", "session.step.started", "session.step.ended", "session.text.delta", "session.text.ended",
@@ -140,11 +141,13 @@ function startPreview(path, key, id, group) {
 
 export default {
   id: "swarmhub.replies",
-  setup(ctx) {
+  async setup(ctx) {
     const executable = process.env.SWARMHUB_OPENCODE_CAPTURE_BIN;
     const key = process.env.SWARMHUB_LAUNCH_KEY;
     const path = process.env.SWARMHUB_REPLY_SOCKET;
     if (!executable || !key || !process.env.SWARMHUB_JOURNAL) return;
+    const capped = !!process.env.SWARMHUB_OPENCODE_CAP_CENTS;
+    if (capped) await installSpendLimit(ctx, executable, key);
     const controller = new AbortController();
     const running = new Map();
     const inbox = new Map();
@@ -303,6 +306,12 @@ export default {
     }
     void observeChildren(ctx, executable, controller.signal).catch(() => {});
     void listen().catch(() => {}).finally(close);
-    return () => { controller.abort(); close(); };
+    return () => {
+      // A capped, privately spawned inference server may never continue after
+      // the workspace plugin is disabled or unloaded during a config reload.
+      if (capped && process.env.SWARMHUB_OPENCODE_CAP_READY) process.kill(process.pid, "SIGTERM");
+      controller.abort();
+      close();
+    };
   },
 };

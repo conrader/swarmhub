@@ -197,7 +197,9 @@ extension AppStore {
     /// The bot's instructions go out as `outboundPersona` (a bot imported from Grok has its secrets blanked).
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
         let liveServer = herdrServer(for: bot)
-        var backend = HerdrBackend(client: try herdrClient(for: liveServer), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
+        var client = try herdrClient(for: liveServer)
+        client.expectedSessionCapCents = bot.sessionCapCents
+        var backend = HerdrBackend(client: client, botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
         if launchWorkEnabled {
             let server = herdrServer(for: bot), id = bot.id
             backend.coordinate = { [weak self] in

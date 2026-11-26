@@ -41,6 +41,7 @@ struct BotUsageOverview: View {
                     VStack(alignment: .leading, spacing: 3) { cost(usage); total(usage) }
                 }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
+            if let cap = bot.sessionCapCents { Text(HerdrBotRequest.capLabel(cap)).font(.caption.monospacedDigit()) }
             if let budget = bot.goal?.spendProgress {
                 Text(verbatim: budget).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }

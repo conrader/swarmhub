@@ -15,6 +15,7 @@ use std::{
 };
 
 mod children;
+pub(crate) mod spend;
 pub(crate) use children::{capture as capture_child, interrupt};
 pub mod first_task;
 pub mod follow_up;
@@ -43,6 +44,8 @@ pub fn models() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     let (journal, key) = session()?;
+    let cap: Option<i64> = rusqlite::Connection::open_with_flags(&journal, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?
+        .query_row("SELECT session_cap_cents FROM journal WHERE launch_key=?1", [&key], |row| row.get(0))?;
     let mut args = env::args_os().skip(2).collect::<Vec<_>>();
     let approvals = args
         .first()
@@ -51,6 +54,9 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         args.remove(0);
     }
     let api_first_task = first_task::take_flag(&mut args);
+    if cap.is_some() && !api_first_task {
+        return Err("A capped OpenCode session requires the private API launcher.".into());
+    }
     let handoff = if api_first_task {
         if args.len() != 1 || args[0] != "mini" {
             return Err("--api-first-task requires a plain Mini template.".into());
@@ -81,6 +87,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         .recursive(true)
         .create(&plugin)?;
     write_plugin(&plugin, "reply.js", REPLY)?;
+    write_plugin(&plugin, "spend.js", include_str!("opencode-spend.js"))?;
     write_plugin(&plugin, "child-control.js", include_str!("opencode-child-control.js"))?;
     write_plugin(&plugin, "children.js", include_str!("opencode-children.js"))?;
     write_plugin(&plugin, "approvals.js", APPROVALS)?;
@@ -114,7 +121,8 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     let tty = terminal_path().unwrap_or_default();
     let command = || {
         let mut cmd = opencode();
-        cmd.env_remove(crate::runtimes::MODEL_ENV)
+        cmd.env("SWARMHUB_OPENCODE_CAP_CENTS", cap.map(|c| c.to_string()).unwrap_or_default())
+            .env_remove(crate::runtimes::MODEL_ENV)
             .env_remove(first_task::ENV)
             .env_remove(USAGE_ROOT)
             .env("OPENCODE_CONFIG_CONTENT", &config)
@@ -137,7 +145,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     };
     if let Some(handoff) = handoff {
         let model = args.get(2).map(|id| id.to_string_lossy().into_owned());
-        first_task::run(command(), command(), handoff, model)?;
+        first_task::run(command(), command(), handoff, model, cap.is_some())?;
         return Ok(());
     }
     Err(command().arg("--standalone").args(args).exec().into())
