@@ -86,6 +86,16 @@ extension AppStore {
         return client
     }
 
+    /// An idle bot on another server must never interrupt the current conversation to request a password.
+    var chatSSHLoginRequests: [HerdrServer] {
+        guard !sshLoginRequests.isEmpty else { return [] }
+        let participants = selectedGroup.map { members(of: $0) } ?? [selectedBot].compactMap { $0 }
+        let servers = herdrServers
+        let visible = Set(participants.filter { $0.backend == .herdr && !$0.isReadOnlyArchive && !$0.isDemo }
+            .map { herdrServer(for: $0, in: servers).id })
+        return servers.filter { visible.contains($0.id) && sshLoginRequests[$0.id] == $0 }
+    }
+
     /// The first server's client, for callers that have no bot at hand.
     func herdrClient() throws -> HerdrClient { try herdrClient(for: herdrServers[0]) }
 
@@ -102,7 +112,10 @@ extension AppStore {
                     forgetHerdrAgentState(for: bot)
                 }
             }
-            if old != server { herdrTunnels.close(server.id) }
+            if old != server {
+                sshLoginRequests[server.id] = nil
+                herdrTunnels.close(server.id)
+            }
             if old.sshHost != server.sshHost || old.sshUser != server.sshUser { herdrTunnels.forgetPassword(for: old) }
             servers[index] = server
         } else { servers.append(server) }
@@ -135,6 +148,7 @@ extension AppStore {
             forgetHerdrAgentState(for: bot)
         }
         herdrTunnels.forgetPassword(for: server)
+        sshLoginRequests[server.id] = nil
         herdrTunnels.release(server.id)
         keyStore.setKey("", for: server.keyAccount)
         // Its bots move to another server, which has its own projects: the ones chosen on this server do not go with them.

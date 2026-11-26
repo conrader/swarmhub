@@ -290,8 +290,16 @@ extension AppStore {
         let previousPresence = herdrAgentPresence, previousHelpers = herdrHelpers, previousReads = herdrHelperReads
         let client = try? herdrClient(for: server)
         let observed = ContinuousClock.now
-        let workspace = try? await client?.workspace(includingCodejobs: true)
+        let workspace: HerdrClient.Workspace?
+        var needsLogin = false
+        do { workspace = try await client?.workspace(includingCodejobs: true) }
+        catch {
+            workspace = nil
+            needsLogin = server.kind == .ssh && HerdrTunnel.offersPassword(error)
+        }
         guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
+        let request = needsLogin && !herdrTunnels.isOpen(serverID) ? server : nil
+        if sshLoginRequests[serverID] != request { sshLoginRequests[serverID] = request }
         // A successful older roster predates detached activity. Malformed data, a failed GET,
         // or an omitted feed from a level-3 bridge still counts as an incomplete observation.
         let unsupported = workspace.map { ($0.bridge?.api ?? 0) < 3 && $0.codejobActivity == nil } ?? false

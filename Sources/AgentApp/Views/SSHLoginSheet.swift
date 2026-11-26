@@ -4,6 +4,7 @@ struct SSHLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: AppStore
     let server: HerdrServer
+    let fixedUser: Bool
     let connected: (HerdrServer) -> Void
     @State private var user: String
     @State private var password = ""
@@ -12,7 +13,8 @@ struct SSHLoginSheet: View {
     @FocusState private var focus: Field?
     private enum Field { case user, password }
 
-    init(server: HerdrServer, connected: @escaping (HerdrServer) -> Void) {
+    init(server: HerdrServer, keepSavedLogin: Bool = false, connected: @escaping (HerdrServer) -> Void) {
+        fixedUser = keepSavedLogin && !server.sshUser.isEmpty
         self.server = server
         self.connected = connected
         _user = State(initialValue: server.sshUser)
@@ -21,7 +23,8 @@ struct SSHLoginSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Sign in to \(server.sshHost)").font(.title2.bold())
-            TextField("Username", text: $user).focused($focus, equals: .user)
+            if fixedUser { LabeledContent("Username", value: user) }
+            else { TextField("Username", text: $user).focused($focus, equals: .user) }
             SecureField("Password", text: $password).focused($focus, equals: .password)
             Text("SwarmHub remembers this password until you quit the app.").font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).font(.callout).foregroundStyle(.secondary) }
