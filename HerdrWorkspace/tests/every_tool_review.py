@@ -6,7 +6,6 @@ import subprocess
 
 
 def exercise(root, bridge, request, until):
-    agent = request("/api/agents", {"name": "payments", "template": "fixture", "task": "Start"}, status=201)
     owner = "10000000-0000-4000-8000-000000000001"
     policy_url = "/api/bot-agent-settings/" + owner
     assert request(policy_url)["review_every_tool"] is False
@@ -17,11 +16,19 @@ def exercise(root, bridge, request, until):
     request("/api/agents", {"name":"blocked", "template":"fixture", "task":"Start",
                             "workspace_id":owner}, status=422)
     assert request("/api/bot-agent-settings/20000000-0000-4000-8000-000000000002")["review_every_tool"] is False
+    templates = request("/api/workspace")["templates"]
+    assert next(t for t in templates if t["name"] == "standard-claude")["supports_tool_review"]
+    assert not next(t for t in templates if t["name"] == "fixture")["supports_tool_review"]
+    protected = request("/api/agents", {"name":"reviewed", "template":"standard-claude", "task":"Start",
+                                       "workspace_id":owner}, status=201)
     journal = root / "workspace/workspace.sqlite3"
     with sqlite3.connect(journal) as db:
-        key, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=?",
-                          (agent["address"], agent["created_ms"])).fetchone()
-    env = dict(os.environ, SWARMHUB_LAUNCH_KEY=key, SWARMHUB_JOURNAL=str(journal),
+        protected_key, active = db.execute("SELECT launch_key,launch_tool_review FROM journal WHERE address=? AND created_ms=?",
+                                           (protected["address"], protected["created_ms"])).fetchone()
+        assert active
+    observed = root / "review-launches"
+    until(lambda: observed.exists() and protected_key in observed.read_text().splitlines())
+    env = dict(os.environ, SWARMHUB_LAUNCH_KEY=protected_key, SWARMHUB_JOURNAL=str(journal),
                SWARMHUB_APPROVAL_SOCKET=str(journal.with_name("approval.sock")))
 
     def check(tool, args, choice, expected):
@@ -44,6 +51,16 @@ def exercise(root, bridge, request, until):
                     hook.kill()
         until(lambda: not request("/api/approvals?pending_only=true")["pending"])
 
+    def spawn_helper(tier, success):
+        request("/api/helper-policy", {"max_running": 2, "stop_after_seconds": 60, "difficulties": {"easy": tier}})
+        result = subprocess.run([bridge, "helper", "start", "--name", "invoice-reader", "--difficulty", "easy", "Check invoice"],
+                                env=env, capture_output=True, text=True, timeout=18)
+        assert (result.returncode == 0) == success, (result.stdout, result.stderr)
+        if success:
+            until(lambda: len(set(observed.read_text().splitlines())) == 2)
+        else:
+            assert "requires each helper tool call" in result.stderr, result.stderr
+
     for choice, expected in [("approve", "allow"), ("deny", "deny")]:
         check("Read", {"file_path": "invoice.txt"}, choice, expected)
     check("mcp__invoices__prepare", {"invoice": "sample"}, "deny", "deny")
@@ -54,3 +71,6 @@ def exercise(root, bridge, request, until):
                                 input=json.dumps(dict(hook_event_name=event, cwd="/tmp", tool_name="Read", tool_input={})),
                                 capture_output=True)
         assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    spawn_helper({"template":"standard-codex","model":"gpt-fixture"}, False)
+    spawn_helper({"template":"standard-claude","model":"sonnet"}, True)

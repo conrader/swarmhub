@@ -87,6 +87,14 @@ import Testing
     @Test func protectedBotCannotMoveToAnUnreviewedTemplate() async throws {
         let f = Fixture(remoteWorking: true)
         f.analyst.requiresToolReview = true
+        let request = ChatMessage(role: .user, content: "Check the invoice")
+        let reply = ChatMessage(role: .assistant, content: "Reading it.", isStreaming: true)
+        f.analyst.messages = [request, reply]
+        _ = f.store.beginTurn(in: f.analyst, bot: f.analyst, assistant: reply)
+        let workspace = try await f.store.herdrMoveWorkspace(on: f.source)
+        let live = try #require(workspace.agents.first { $0.address == "analyst-agent" })
+        reply.deliveryReceipt = .init(server: f.source.id, turn: .init(core: "this-mac", address: live.address,
+            createdMs: live.createdMs, after: 0, launched: false), text: request.content)
         await #expect(throws: HerdrMoveError.toolReviewUnavailable) {
             try await f.store.moveHerdrBots([f.analyst.id], from: f.source, to: f.destination, mapping: .matching,
                                             carryHistory: true, stopIdleAgents: true, resumeActiveWork: true)

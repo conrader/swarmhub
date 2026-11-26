@@ -395,6 +395,7 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
         None
     };
     let launch = request.key.clone();
+    if every_tool && !launch_live(&w, &launch).await { return }
     let command = if request.tool == "Bash" && matches!(request.provider, Provider::Claude | Provider::Codex) {
         crate::project_command_rules::Command::identify(&w.history, &launch, request.provider.name(), &request.cwd, request.input.get()).await
     } else { None };
@@ -459,6 +460,9 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     } else {
         Decision::Approve
     };
+    if every_tool && matches!(decision, Decision::Approve | Decision::Terminal) && !launch_live(&w, &launch).await {
+        decision = Decision::Deny;
+    }
     let command_expires = matches!(decision, Decision::RememberCommandHour).then(|| now() + 3_600_000);
     if let Some(command) = &command && (automatic.is_some() || decision.remembers_command()) {
         let valid = command.unchanged().await && launch_live(&w, &launch).await;
