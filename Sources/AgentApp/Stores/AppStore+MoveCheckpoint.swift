@@ -49,10 +49,10 @@ extension AppStore {
         else { throw BackendError.unavailable("Could not confirm that the source task stopped. The bot is still on " + source.name + ".") }
 
         switch try await checkpoint.receipt.read(from: client) {
-        case .answered(let item, _):
+        case .answered(let item, let results):
             // The source finished between the last check and the interrupt.
-            checkpoint.row.content = item.text
-            checkpoint.row.turnState = .finished
+            restoreSavedAnswer(item, results: results, for: checkpoint.row, in: bot, group: nil, serverID: source.id)
+            await refreshHerdrHelpers(on: source.id)
             save()
             return false
         case .unresolved: throw HerdrMoveError.selectionChanged

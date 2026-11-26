@@ -331,3 +331,9 @@ These consecutive runs measure time to observe the message through Accessibility
 ## SSH password sign-in in 0.8.18
 
 On a MacBook, a private copy of the release app connected to an isolated OpenSSH server configured for password login. The native wizard displayed a secure password field, rejected an incorrect password in the same sheet, accepted the test account’s password and offered workspace setup. After quitting and reopening the app with the same private profile, connecting to the same server displayed the password field again. The test account had no authorized keys after these attempts.
+
+## Moving an existing bot with scheduled work
+
+A private Mac app profile used a real Mac workspace and a separate Linux workspace over password-authenticated OpenSSH. Each workspace ran a deterministic test CLI that acknowledged tasks through the Claude Stop hook. The bot already had a message, a running session and a daily interval routine. The test opened Model → Move to another server, selected the destination and pressed Move. It returned through a second move from Linux to This Mac.
+
+The idle round trip preserved the original message and schedule. In the active run the test submitted a long task before **each** move and required the source Core to report working. After each move, the public workspace API listed zero active copies of the routine on the source and one on the destination. The Mac app saved the resumed reply from Linux on the outbound leg and from the Mac on the return leg. The test covered chat work with a matching template. It did not copy project folders, external processes or webhook sender credentials.
