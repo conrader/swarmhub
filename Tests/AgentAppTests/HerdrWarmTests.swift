@@ -356,7 +356,7 @@ private final class WarmBridge: @unchecked Sendable {
 }
 
 @MainActor @Test func sidebarUsesTheRecordedLaunchIfItsTemplateHasSinceChangedAI() {
-    let store = makeStore()
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Patch", backend: .herdr)
     store.bots = [bot]
     let agent = HerdrClient.Agent(address: "t1", name: "patch", state: "live", createdMs: 44, template: "shared", status: nil)
