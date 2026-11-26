@@ -21,11 +21,13 @@ async function belongsToRoot(ctx, parent, rootFile) {
 
 function snapshot(session, messages) {
   const lines = [];
+  const steps = [];
   let task = "", reply = "", model;
   for (const message of messages) {
     if (message.type === "user") {
       task = shorten(message.text, 8000).replace(/^You are a subagent spawned by another session\.\n/, "");
       reply = "";
+      steps.length = 0;
       if (task) lines.push("Task " + task);
     } else if (message.type === "assistant") {
       if (message.model?.id) model = [message.model.providerID, message.model.id].filter(Boolean).join("/");
@@ -33,6 +35,8 @@ function snapshot(session, messages) {
       for (const part of parts) {
         if (part.type === "tool") {
           const state = part.state ?? {};
+          steps.push({ text: [part.name, shorten(state.input?.path, 256)].filter(Boolean).join(" · "), state: state.status });
+          if (steps.length > 64) steps.shift();
           lines.push([state.status, part.name, shorten(state.input?.path, 512)].filter(Boolean).join(" · "));
         }
       }
@@ -47,6 +51,7 @@ function snapshot(session, messages) {
     : session.outcome === "interrupted" ? "stopped" : reply ? "answered" : "finished";
   return { id: session.id, parent: session.parentID, name: shorten(session.title || session.agent, 120) || "OpenCode agent",
     model: shorten(model, 240) || null, created_ms: time.created, completed_ms: ended,
+    details: { task, reply: shorten(reply, 24000), steps },
     state, task: shorten(task, 300), reply: shorten(reply, 300), transcript: lines.join("\n\n").slice(-30000) };
 }
 
