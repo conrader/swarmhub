@@ -63,6 +63,7 @@ extension AppStore {
         }
         objectWillChange.send(); save()
         let sessionID = turnSessionID(in: group, bot: bot)
+        let configuredHandoffs = group.workflows[bot.id]?.handoffs ?? []
         var end: TurnEnd
         do {
             try Task.checkCancellation()
@@ -99,6 +100,9 @@ extension AppStore {
         if runningTurns[group.id]?.token == token { group.activeMemberID = nil }
         if let turn = turn(token: token) { turn.botID = nil; turn.backend = nil }
         setSteerAvailable(false, token: token)
+        if outcome.state == .finished && !run.stopped && !Task.isCancelled {
+            deliverGroupHandoff(in: group, from: bot, trigger: trigger, reply: reply, configured: configuredHandoffs)
+        }
         groupReplyArrived(reply, state: outcome.state, from: bot, in: group)
         objectWillChange.send(); save()
         return outcome

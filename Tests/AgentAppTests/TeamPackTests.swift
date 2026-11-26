@@ -42,6 +42,39 @@ import Testing
         #expect(imported.workflows[members[0].id]?.skills == [skill])
     }
 
+    @Test func configuredHandoffDeliversOnceToTheImportedPeerAndReturnsItsAnswer() async throws {
+        let source = store(), author = Bot(name: "Patch", backend: .herdr), peer = Bot(name: "Scout", backend: .herdr)
+        source.bots = [author, peer]
+        let group = try #require(source.createGroup(name: "Source", memberIDs: [author.id, peer.id]))
+        group.workflows[author.id] = .init(handoffs: [.init(recipient: peer.id, condition: "The draft is ready.")])
+        group.workflows[peer.id] = .init(skills: [.init(name: "Review", instructions: "Check all release numbers.")])
+        let engine = GroupBackend(name: "Fixture")
+        let dest = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in engine },
+                            keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let bystander = Bot(name: "Scout", backend: .herdr)
+        dest.bots = [bystander]
+        try dest.importTeamPack(TeamPack.decode(TeamPack(group: group, store: source).encoded()), on: dest.herdrServers[0])
+        let imported = try #require(dest.selectedGroup), members = dest.members(of: imported)
+        let sender = members[0], receiver = members[1]
+        let fence = "```swarmhub\n{\"op\":\"group_handoff\",\"recipient\":\"" + receiver.id.uuidString + "\",\"task\":\"Review release 15.\"}\n```"
+        await engine.setGroupReply("Ready for review.\n" + fence)
+        #expect(dest.send(text: "@Patch prepare the draft", to: imported))
+        try await waitUntil { !dest.anyTurnRunning }
+        let task = try #require(receiver.messages.first { $0.metadata[AppStore.groupHandoffSourceKey] != nil })
+        #expect(task.content.contains("Check all release numbers.") && task.content.contains("Review release 15."))
+        #expect(imported.messages.contains { $0.role == .system && $0.content.contains("handed a task to Scout") })
+        #expect(sender.messages.contains { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.answer })
+        #expect(bystander.messages.isEmpty)
+        let trigger = try #require(imported.messages.first { $0.role == .user })
+        let reply = try #require(imported.messages.first { $0.role == .assistant })
+        dest.deliverGroupHandoff(in: imported, from: sender, trigger: trigger, reply: reply, configured: imported.workflows[sender.id]!.handoffs)
+        dest.setHerdrTakesMessages(false, for: receiver)
+        #expect(dest.send(text: "@Patch prepare another draft", to: imported))
+        try await waitUntil { !dest.anyTurnRunning }
+        #expect(receiver.messages.filter { $0.metadata[AppStore.groupHandoffSourceKey] != nil }.count == 1)
+        #expect(imported.messages.last?.content.contains("could not be sent") == true)
+    }
+
     @Test func packRejectsCredentialsAndUnknownHandoffRecipientsBeforeImport() throws {
         let source = store(), one = Bot(name: "Patch"), two = Bot(name: "Scout")
         source.bots = [one, two]

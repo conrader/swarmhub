@@ -45,10 +45,12 @@ extension GroupChat {
     func workflowPrefix(for bot: Bot, members: [Bot]) -> String {
         guard let workflow = workflows[bot.id] else { return "" }
         var entries = workflow.skills.map { "Skill · " + $0.name + "\n" + $0.instructions }
-        for rule in workflow.handoffs {
+        for rule in workflow.handoffs where !bot.documentReadOnly {
             guard let peer = members.first(where: { $0.id == rule.recipient }) else { continue }
             entries.append("Handoff to " + peer.name + " when: " + rule.condition +
-                           "\nUse the workspace bot handoff command with recipient " + peer.id.uuidString.lowercased() + ".")
+                           "\nWhen the condition is met, end your reply with one fenced block. Replace TASK with the work to send.\n" +
+                           "```swarmhub\n{\"op\":\"group_handoff\",\"recipient\":\"" + peer.id.uuidString.lowercased() +
+                           "\",\"task\":\"TASK\"}\n```")
         }
         guard !entries.isEmpty else { return "" }
         return "[Group workflow for " + bot.name + "]\n" + entries.joined(separator: "\n\n") + "\n[/Group workflow]\n\n"

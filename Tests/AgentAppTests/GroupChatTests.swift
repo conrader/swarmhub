@@ -7,14 +7,17 @@ import Testing
 actor GroupBackend: AgentBackend {
     nonisolated let kind = BackendKind.herdr
     let name: String; let hang: Bool
+    private var groupReply: String?
+    func setGroupReply(_ text: String) { groupReply = text }
     private(set) var created: [String] = []; nonisolated let sent = AwaitableLog<(session: String, text: String)>(); private(set) var stops = 0
     init(name: String, hang: Bool = false) { self.name = name; self.hang = hang }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         sent.append((request.sessionID, request.messages.last?.content ?? ""))
-        let (name, hang) = (name, hang)
+        let response = request.sessionID.contains("group-") ? groupReply ?? "\(name) says hi" : "\(name) says hi"
+        let hang = hang
         return AsyncThrowingStream { continuation in
             let task = Task {
-                continuation.yield(.token(hang ? "thinking" : "\(name) says hi"))
+                continuation.yield(.token(hang ? "thinking" : response))
                 if hang { await hangUntilCancelled() } else { continuation.yield(.completed) }
                 continuation.finish()
             }

@@ -320,7 +320,9 @@ extension AppStore {
         // What it wrote to other bots is delivered, and its answer to another bot's message goes back (`AppStore+HerdrMessages.swift`).
         let text = TurnReplyText.complete(reply, in: bot)
         let managed = bridgeCoordinates(bot)
-        if !managed { herdrMessagesEnded(text, from: bot, triggers: triggers, finished: finished) }
+        if !managed || triggers.contains(where: { $0.metadata[Self.groupHandoffSourceKey] != nil }) {
+            herdrMessagesEnded(text, from: bot, triggers: triggers, finished: finished, passOutgoing: !managed)
+        }
         guard !bot.documentReadOnly else { return }
         if createsHerdrBots(bot) {
             let request = triggers.first { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.request }

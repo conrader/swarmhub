@@ -14,10 +14,10 @@ enum TurnReplyText {
         return row.metadata[origin] ?? row.metadata[TurnKey.forUser]
     }
 
-    static func complete(_ reply: ChatMessage, in bot: Bot) -> String {
+    static func complete(_ reply: ChatMessage, in conversation: any Conversation) -> String {
         guard let id = turnID(of: reply), reply.metadata[TurnKey.part] != "1",
-              let index = bot.messages.firstIndex(where: { $0 === reply }) else { return reply.content }
-        return joined(bot.messages[...index].filter { $0.role == .assistant && turnID(of: $0) == id })
+              let index = conversation.messages.firstIndex(where: { $0 === reply }) else { return reply.content }
+        return joined(conversation.messages[...index].filter { $0.role == .assistant && $0.authorID == reply.authorID && turnID(of: $0) == id })
     }
 
     static func joined(_ parts: [ChatMessage]) -> String {
