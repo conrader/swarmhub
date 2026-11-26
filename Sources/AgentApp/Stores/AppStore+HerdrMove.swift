@@ -35,6 +35,7 @@ struct HerdrServerMoveRecord {
     var receipts: [RoutineMoveReceipt] = []
     var webhookOwners: Set<UUID> { Set(receipts.filter(\.webhook).map(\.owner)) }
     var activationPending = false
+    var resumed: [String] = []
 
     struct Cleanup {
         var stopped = 0
@@ -85,7 +86,7 @@ extension AppStore {
 
     /// Read both servers first. Apply all eligible bots' settings in one main-actor transaction, then clean up.
     func moveHerdrBots(_ selected: Set<UUID>, from source: HerdrServer, to destination: HerdrServer,
-                       mapping: HerdrMoveMapping, carryHistory: Bool, stopIdleAgents: Bool) async throws -> HerdrServerMoveRecord {
+                       mapping: HerdrMoveMapping, carryHistory: Bool, stopIdleAgents: Bool, resumeActiveWork: Bool = false) async throws -> HerdrServerMoveRecord {
         try checkHerdrMoveServers(source: source, destination: destination)
         guard !herdrMoveInProgress else { throw HerdrMoveError.selectionChanged }
         herdrMoveInProgress = true
@@ -120,29 +121,45 @@ extension AppStore {
         }
 
         let sourceClient = try herdrClient(for: source)
-        let workspace = try await herdrMoveWorkspace(on: source)
-        let sourceWorkspace: HerdrClient.Workspace? = workspace
-        if let core = sourceWorkspace?.core, core == destinationWorkspace.core { throw HerdrMoveError.sameWorkspace }
+        let workspace = try await sourceClient.workspace(includingCodejobs: true)
+        guard let sourceCore = workspace.core else { throw HerdrMoveError.serversChanged }
+        if sourceCore == destinationWorkspace.core { throw HerdrMoveError.sameWorkspace }
         try Task.checkCancellation()
         try checkHerdrMoveServers(source: source, destination: destination)
         let targets = movableHerdrBots(on: source).filter { selected.contains($0.id) }
         guard !selected.isEmpty, targets.count == selected.count,
               targets.allSatisfy({ !herdrMovesCleaning.contains($0.id) }) else { throw HerdrMoveError.selectionChanged }
 
+        var interrupted: [UUID: MoveCheckpoint] = [:]
+        if resumeActiveWork {
+            herdrMovingWork.formUnion(selected)
+        }
+        defer {
+            herdrMovingWork.subtract(selected)
+            sendQueuedNextMessage()
+        }
         var skipped: [String] = []
         let mainAvailable = herdrMainBot(on: destination) == nil
         var names: [UUID: [String]] = [:]
         var warmStarts: [Task<Void, Never>] = []
         let changes = targets.compactMap { bot -> HerdrServerMoveRecord.Change? in
             let agentNames = herdrExistingAgentNames(for: bot)
-            let agents = sourceWorkspace.map { moveAgents(named: agentNames, in: $0) } ?? []
-            guard !herdrBotIsBusy(bot), !agents.contains(where: { herdrAgentIsBusy($0, in: sourceWorkspace?.agents ?? []) }) else {
+            let agents = moveAgents(named: agentNames, in: workspace)
+            if bot.goal?.state.active == true || workspace.codejobActivity?.hosts?.contains(where: { $0.jobs.contains { $0.owner == bot.id } }) == true {
                 skipped.append(bot.name)
                 return nil
             }
+            if herdrBotIsBusy(bot) || agents.contains(where: { herdrAgentIsBusy($0, in: workspace.agents) }) {
+                if resumeActiveWork, let checkpoint = moveCheckpoint(for: bot, agents: agents, workspace: workspace) {
+                    interrupted[bot.id] = checkpoint
+                } else {
+                    skipped.append(bot.name)
+                    return nil
+                }
+            }
 
             let before = herdrMoveChoice(for: bot)
-            let match = matchingMoveTemplate(for: bot, source: sourceWorkspace?.templates ?? [], destination: templates)
+            let match = matchingMoveTemplate(for: bot, source: workspace.templates, destination: templates)
             let template = explicit ?? match ?? fallback
             let model: String
             if !template.takesModel { model = "" }
@@ -153,10 +170,8 @@ extension AppStore {
             let isMain = wasMain && mainAvailable
             names[bot.id] = agentNames
             if let warming = herdrWarming[bot.id] { warmStarts.append(warming) }
-            let launch = sourceWorkspace?.core.flatMap { core in
-                agents.first { $0.name == agentNames[0] || HerdrClient.suffix(of: $0.name) == HerdrClient.suffix(of: agentNames[0]) }
-                    .map { HerdrAgentLaunch(server: source.id, core: core, address: $0.address, createdMs: $0.createdMs) }
-            }
+            let launch = agents.first { $0.name == agentNames[0] || HerdrClient.suffix(of: $0.name) == HerdrClient.suffix(of: agentNames[0]) }
+                .map { HerdrAgentLaunch(server: source.id, core: sourceCore, address: $0.address, createdMs: $0.createdMs) }
             return .init(botID: bot.id, name: bot.name, before: before, after: .init(template: template.name, model: model),
                          projects: herdrProjects(for: bot), wasMain: wasMain, isMain: isMain,
                          carryOver: herdrCarryOver(for: bot), sourceLaunch: launch, messageCount: bot.messages.count,
@@ -167,6 +182,12 @@ extension AppStore {
         let byID = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, $0) })
         do {
             record.receipts = try await stageRoutines(record, workspace: workspace, destination: destinationWorkspace)
+            for change in changes {
+                guard let checkpoint = interrupted[change.botID], let bot = byID[change.botID] else { continue }
+                if try await interruptForMove(bot, checkpoint: checkpoint, source: source, core: sourceCore, client: sourceClient) {
+                    record.resumed.append(bot.name)
+                }
+            }
             try Task.checkCancellation()
             try checkHerdrMoveServers(source: source, destination: destination)
             guard !changes.contains(where: \.isMain) || herdrMainBot(on: destination) == nil,
@@ -184,9 +205,9 @@ extension AppStore {
         for change in changes {
             guard let bot = byID[change.botID] else { continue }
             applyHerdrMoveChoice(change.after, server: destination, to: bot)
-            if carryHistory { armHerdrCarryOver(for: [bot], running: [:]) }
+            if carryHistory || interrupted[bot.id] != nil { armHerdrCarryOver(for: [bot], running: [:]) }
             else { setHerdrCarryOver(nil, for: bot) }
-            setHerdrMoveSkipsCarry(!carryHistory, for: bot)
+            setHerdrMoveSkipsCarry(!carryHistory && interrupted[bot.id] == nil, for: bot)
             latestHerdrMoves[bot.id] = record.id
         }
         do {

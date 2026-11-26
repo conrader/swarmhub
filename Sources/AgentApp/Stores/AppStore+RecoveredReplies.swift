@@ -122,7 +122,7 @@ extension AppStore {
         }
     }
 
-    private func restoreSavedAnswer(_ reply: HerdrClient.Item, results: [HerdrPublishedResult], for row: ChatMessage,
+    func restoreSavedAnswer(_ reply: HerdrClient.Item, results: [HerdrPublishedResult], for row: ChatMessage,
                                     in bot: Bot, group: GroupChat?, serverID: String) {
         let conversation: any Conversation = group as (any Conversation)? ?? bot
         guard let index = conversation.messages.firstIndex(where: { $0 === row }) else { return }

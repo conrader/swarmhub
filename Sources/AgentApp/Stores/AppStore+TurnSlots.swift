@@ -139,6 +139,7 @@ extension AppStore {
 
     /// Why a new turn for `bots` must wait (nil when it may start): the app-wide limit, then each bot's connection.
     func turnCapacityProblem(for bots: [Bot]) -> String? {
+        if bots.contains(where: { herdrMovingWork.contains($0.id) }) { return "Waiting for the server move to finish." }
         if runningTurns.count >= turnLimits.total { return turnWaitMessage(limit: turnLimits.total) }
         let running = runningTurns.values.compactMap { turn in turn.botID.flatMap { id in self.bots.first { $0.id == id } }.map(connection(of:)) }
         for target in Set(bots.map(connection(of:))) where running.filter({ $0 == target }).count >= turnLimits.perConnection {
