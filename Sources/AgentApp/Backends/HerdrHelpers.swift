@@ -73,9 +73,16 @@ extension HerdrClient {
         var difficultyLine: String? { difficulty.flatMap { $0.isEmpty ? nil : "\($0.prefix(1).uppercased())\($0.dropFirst()) task" } }
     }
 
-    struct CodexThread: Decodable, Sendable, Equatable, Identifiable {
+    enum ChildRuntime: String, Codable, Sendable {
+        case claude, codex
+        var label: String { self == .claude ? "Claude" : "Codex" }
+    }
+
+    struct NativeThread: Decodable, Sendable, Equatable, Identifiable {
         let id: String
         let parent: String
+        var runtime: ChildRuntime? = nil
+        var provider: ChildRuntime { runtime ?? .codex }
         let name: String
         let model: String?
         let createdMs: Int64
@@ -103,8 +110,10 @@ extension HerdrClient {
     struct Helpers: Decodable, Sendable, Equatable {
         let core: String; let parent: AgentRef; var limit: Int? = nil; var stopAfterSeconds: Int? = nil; let helpers: [Helper]
 
-        var codexThreads: [CodexThread]? = nil
-        var hasSidebarSessions: Bool { !(codexThreads ?? []).isEmpty || !sidebarSessions.isEmpty }
+        var codexThreads: [NativeThread]? = nil
+        var claudeThreads: [NativeThread]? = nil
+        var nativeThreads: [NativeThread] { (codexThreads ?? []) + (claudeThreads ?? []) }
+        var hasSidebarSessions: Bool { !nativeThreads.isEmpty || !sidebarSessions.isEmpty }
 
         var lastResult: Helper? = nil
         var recentSessions: [Helper]? = nil
@@ -135,24 +144,24 @@ extension HerdrClient {
         }
     }
 
-    struct CodexThreadActivity: Decodable {
+    struct ThreadActivity: Decodable {
         let transcript: String
         let state: String
         let activeTurn: String?
     }
 
-    private func codexThreadRoute(owner: AgentRef, core: String, thread: String) -> String {
+    private func threadRoute(_ runtime: ChildRuntime, owner: AgentRef, core: String, thread: String) -> String {
         let encodedCore = core.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-        return "/api/agents/\(owner.address)/\(owner.createdMs)/codex-threads/\(thread)?core=\(encodedCore)"
+        return "/api/agents/\(owner.address)/\(owner.createdMs)/\(runtime.rawValue)-threads/\(thread)?core=\(encodedCore)"
     }
 
-    func codexActivity(owner: AgentRef, core: String, thread: String) async throws -> CodexThreadActivity {
-        try await get(codexThreadRoute(owner: owner, core: core, thread: thread))
+    func threadActivity(_ runtime: ChildRuntime, owner: AgentRef, core: String, thread: String) async throws -> ThreadActivity {
+        try await get(threadRoute(runtime, owner: owner, core: core, thread: thread))
     }
 
     func interruptCodexTurn(_ turn: String, owner: AgentRef, core: String, thread: String) async throws {
         struct Receipt: Decodable { let interruptedTurn: String }
-        let result: Receipt = try await post(codexThreadRoute(owner: owner, core: core, thread: thread), ["turn": turn])
+        let result: Receipt = try await post(threadRoute(.codex, owner: owner, core: core, thread: thread), ["turn": turn])
         guard result.interruptedTurn == turn else { throw BackendError.unavailable("Codex did not confirm this turn.") }
     }
 
