@@ -52,9 +52,6 @@ struct BotUsageOverview: View {
                     presence?.session == nil ? "No active session" : "Usage has not been reported for this session")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if let goal = bot.goal, goal.state.active, let spend = goal.spendProgress {
-                Text(spend).font(.caption.monospacedDigit())
-            }
             SummarizeBotButton(bot: bot) { note = $0 }
             if !note.isEmpty { Text(note).font(.caption).textSelection(.enabled) }
         }
