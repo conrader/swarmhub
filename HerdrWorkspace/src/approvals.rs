@@ -116,6 +116,7 @@ struct Review {
     expires_ms: i64,
     can_remember_read: bool,
     can_remember_command: bool,
+    can_remember_command_hour: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewer: Option<crate::command_reviewer::Advice>,
 }
@@ -176,21 +177,26 @@ enum Decision {
     Approve,
     RememberRead,
     RememberCommand,
+    RememberCommandHour,
     Deny,
     Terminal,
 }
 
 impl Decision {
+    fn remembers_command(self) -> bool {
+        matches!(self, Self::RememberCommand | Self::RememberCommandHour)
+    }
+
     fn reply(self) -> u8 {
         match self {
-            Self::Approve | Self::RememberRead | Self::RememberCommand => b'A',
+            Self::Approve | Self::RememberRead | Self::RememberCommand | Self::RememberCommandHour => b'A',
             Self::Deny => b'D',
             Self::Terminal => b'T',
         }
     }
     fn audit(self) -> &'static str {
         match self {
-            Self::Approve | Self::RememberRead | Self::RememberCommand => "approved",
+            Self::Approve | Self::RememberRead | Self::RememberCommand | Self::RememberCommandHour => "approved",
             Self::Deny => "denied",
             Self::Terminal => "terminal",
         }
@@ -343,7 +349,7 @@ async fn decide(
             return None;
         }
         if (matches!(decision, Decision::RememberRead) && !pending.info.can_remember_read)
-            || (matches!(decision, Decision::RememberCommand) && !pending.info.can_remember_command) {
+            || (decision.remembers_command() && !pending.info.can_remember_command) {
             return None;
         }
         pending.answer.take()
@@ -439,7 +445,8 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     } else {
         Decision::Approve
     };
-    if let Some(command) = &command && (automatic.is_some() || matches!(decision, Decision::RememberCommand)) {
+    let command_expires = matches!(decision, Decision::RememberCommandHour).then(|| now() + 3_600_000);
+    if let Some(command) = &command && (automatic.is_some() || decision.remembers_command()) {
         let valid = command.unchanged().await && launch_live(&w, &launch).await;
         if !valid || (automatic.is_some() && command_match() != automatic) { decision = Decision::Terminal; }
     } else if let Some(rule) = automatic {
@@ -500,8 +507,8 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
                     params![id, kind],
                 )?;
             }
-            if applied && matches!(decision, Decision::RememberCommand) && let Some(command) = &command {
-                command.save(&tx)?;
+            if applied && decision.remembers_command() && let Some(command) = &command {
+                command.save(&tx, command_expires)?;
             }
             tx.commit().map_err(StoreError::from)
         })
@@ -608,6 +615,7 @@ fn register(
                 expires_ms: requested + 45_000,
                 can_remember_read,
                 can_remember_command,
+                can_remember_command_hour: can_remember_command,
                 reviewer: reviewer.map(|model| crate::command_reviewer::Advice { model, assessment: None }),
             },
             until: Instant::now() + WAIT,
@@ -754,7 +762,7 @@ mod switch_tests {
         desk.pending.lock().unwrap().insert(7, Pending {
             info: Review { id:7, agent:bot.agent_name, tool:"SSH directory listing (fixture)".into(),
                 provider:"Gemini", cwd:"/fixture".into(), arguments:"archived-project".into(),
-                expires_ms:30_000, can_remember_read:false, can_remember_command:false, reviewer:None },
+                expires_ms:30_000, can_remember_read:false, can_remember_command:false, can_remember_command_hour:false, reviewer:None },
             launch:key.clone(), until:Instant::now() + WAIT, answer:Some(tx),
         });
         let summary = desk.summary(&history).unwrap().pop().unwrap();

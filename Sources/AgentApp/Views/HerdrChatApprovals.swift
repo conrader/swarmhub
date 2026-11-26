@@ -58,9 +58,13 @@ struct HerdrApprovalReview: View {
                         .font(.callout).textSelection(.enabled)
                 }.accessibilityIdentifier("approval.commandReview")
             }
-            HStack {
+            LibraryFlow {
                 Button("Allow once") { respond(.approve) }
                     .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                if request.canRememberCommandHour == true {
+                    Button("Allow here for 1 hour") { respond(.rememberCommandHour) }
+                        .help("Allow this exact command for this bot and folder for one hour.")
+                }
                 if request.canRememberCommand == true {
                     Button("Always allow here") { respond(.rememberCommand) }
                         .help("Save this exact command for this bot and folder. Revoke it in Details → Approvals.")
@@ -104,6 +108,10 @@ struct HerdrCommandRules: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(HerdrClient.Approval.visible(rule.command)).font(.body.monospaced()).textSelection(.enabled)
                     Text(rule.provider + " · " + HerdrClient.Approval.visible(rule.cwd)).font(.caption)
+                    if let expires = rule.expiresMs {
+                        let end = Date(timeIntervalSince1970: Double(expires) / 1000)
+                        Text("Until \(end.formatted(date: .abbreviated, time: .shortened))").font(.caption)
+                    }
                     Button("Revoke") {
                         Task {
                             do {
@@ -116,6 +124,16 @@ struct HerdrCommandRules: View {
                 }
             }
             if let error { Text(error).font(.caption).foregroundStyle(AppColor.caution) }
+        }
+        .task(id: rules?.compactMap(\.expiresMs).min()) {
+            while let next = rules?.compactMap(\.expiresMs).min() {
+                let milliseconds = next - Int64(Date.now.timeIntervalSince1970 * 1000)
+                if milliseconds > 0 {
+                    do { try await Task.sleep(for: .milliseconds(milliseconds)) } catch { return }
+                }
+                guard !Task.isCancelled else { return }
+                rules?.removeAll { ($0.expiresMs ?? Int64.max) <= next }
+            }
         }
         .task(id: inboxes[server.id]?.requests) {
             do {
