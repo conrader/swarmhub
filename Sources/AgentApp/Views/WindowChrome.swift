@@ -12,7 +12,7 @@ enum ChromeMetrics {
     /// The chat can share the 980 pt window with both side columns.
     static let chatWidthWithInspector: CGFloat = 350
     /// The resizable Details or Members column.
-    static let infoWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (300, 330, 380)
+    static let infoWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (256, 256, 380)
 }
 
 /// What a mouse-down on a drag strip does. Pure, so the tests can walk every branch.
@@ -129,7 +129,7 @@ extension View {
     /// Keep the conversation mounted while the inspector opens, closes or changes bots.
     func rightColumn<Panel: View>(isPresented: Binding<Bool>, expandable: Bool = false, @ViewBuilder panel: () -> Panel) -> some View {
         HSplitView {
-            self
+            self.layoutPriority(1)
             if isPresented.wrappedValue {
                 panel().frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal,
                               maxWidth: expandable ? .infinity : ChromeMetrics.infoWidth.max)

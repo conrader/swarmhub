@@ -75,7 +75,7 @@ private func archived(_ text: String, role: String = "assistant", author: String
     #expect(SidebarMetrics.rowHeight == 54 && SidebarMetrics.mark == 28 && SidebarMetrics.markGap == 9 && SidebarMetrics.rowPadding == 9)
     #expect(SidebarMetrics.nameSize == 13 && SidebarMetrics.fragmentSize == 12 && SidebarMetrics.selectionRadius == 7)
     #expect(SidebarMetrics.roundButton == 32 && SidebarMetrics.badge == 12)
-    #expect(SidebarMetrics.width.min == 240 && SidebarMetrics.width.ideal == 280 && SidebarMetrics.width.max == 320)
+    #expect(SidebarMetrics.width.min == 224 && SidebarMetrics.width.ideal == 236 && SidebarMetrics.width.max == 320)
     #expect(SidebarMetrics.initial(of: "") == "K" && SidebarMetrics.initial(of: "  ola ") == "O")
 }
 

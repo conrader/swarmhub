@@ -14,7 +14,7 @@ enum SidebarMetrics {
     /// canvas, which is drawn larger than the mark and raised.
     static let pinnedMark: CGFloat = 56, pinnedColumns = 3, pinnedNameSize: CGFloat = 12, maxPinned = 9, pinnedTopInset: CGFloat = 20
     static let sectionHeader: CGFloat = 32
-    static let width: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 280, 320)
+    static let width: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (224, 236, 320)
     /// Settings → Your name (simple page); its first letter is the bottom round button.
     static let accountNameKey = "accountName"
     static func initial(of name: String) -> String {

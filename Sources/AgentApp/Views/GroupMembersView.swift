@@ -22,7 +22,7 @@ struct GroupInfoPanel: View {
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView { content.padding(14).frame(maxWidth: .infinity, alignment: .leading) }
-        }.frame(minWidth: 300, idealWidth: 330, maxWidth: 380).background(AppColor.panel)
+        }.frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal, maxWidth: ChromeMetrics.infoWidth.max).background(AppColor.panel)
             .onAppear { name = group.name }.onChange(of: group.id) { _, _ in name = group.name }
     }
 

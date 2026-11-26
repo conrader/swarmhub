@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum SidebarWidth {
     static let range = SidebarMetrics.width.min...SidebarMetrics.width.max
     static let autosavePrefix = "NSSplitView Subview Frames ", autosaveSuffix = ", SidebarNavigationSplitView"
-    /// Set at launch when no in-range width is saved: SwiftUI then opens the column below its ideal, so the first enforce opens it at 280.
+    /// Set at launch when no in-range width is saved: SwiftUI then opens the column below its ideal, so the first enforce opens it at the preview width.
     static var openAtIdeal = false
     /// What launch and the first enforce did, for `--ui-smoke`.
     static var launchFacts: [String: Any] = [:]
@@ -20,7 +20,7 @@ import SwiftUI
         return fields.count > 2 ? Double(fields[2]).map { CGFloat($0) } : nil
     }
 
-    /// Removes workspace sidebar widths outside 240–320, so the column opens at its 280 pt ideal. Settings keeps its own.
+    /// Removes workspace sidebar widths outside the supported range, so the column opens at its ideal width. Settings keeps its own.
     @discardableResult static func dropStaleSavedWidths(in defaults: UserDefaults = .standard) -> [String] {
         let saved = defaults.dictionaryRepresentation().filter { key, _ in key.hasPrefix(autosavePrefix) && key.hasSuffix(autosaveSuffix) && !key.contains("Settings") }
         let stale = saved.filter { savedWidth($0.value).map { !range.contains($0) } ?? true }.keys.sorted()
