@@ -181,6 +181,15 @@ extension AppStore {
         return rows
     }
 
+    func delegatingHelper(for selection: HerdrHelperSelection) -> HerdrClient.Helper? {
+        guard let source = selection.source else { return nil }
+        for (key, snapshot) in herdrHelpers where key.botID == selection.botID &&
+            key.groupRuntime == selection.groupRuntime && snapshot.core == source.core {
+            if let helper = snapshot.sidebarSessions.first(where: { $0.ref == source.session }) { return helper }
+        }
+        return nil
+    }
+
     func herdrHasUnansweredHelpers(_ bot: Bot, parent: HerdrClient.AgentRef? = nil) -> Bool {
         herdrHelpers.contains { key, list in
             key.botID == bot.id && (parent == nil || list.parent == parent) && list.helpers.contains { $0.isLive && $0.answered != true }
@@ -546,7 +555,8 @@ extension AppStore {
               herdrHelperReads[selection.parent] != .unavailable,
               herdrHelpers[selection.parent]?.helpers.contains(where: { $0.id == helper.id && $0.isLive }) == true
         else { return false }
-        let text = "Please steer your helper “\(helper.name)” with this instruction:\n\(words)"
+        let owner = delegatingHelper(for: selection).map { "the helper delegated by “\($0.name)” named" } ?? "your helper"
+        let text = "Please steer \(owner) “\(helper.name)” with this instruction:\n\(words)"
         if let runtime = selection.groupRuntime {
             guard let group = groups.first(where: { group in
                 group.memberIDs.contains(bot.id) && HerdrBackend.groupRuntimeName(sessionID: turnSessionID(in: group, bot: bot), botID: bot.id) == runtime
