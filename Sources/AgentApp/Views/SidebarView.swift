@@ -147,10 +147,12 @@ struct SidebarView: View {
             } label: { Image(systemName: "terminal").frame(width: 24, height: SidebarMetrics.roundButton) }
                 .buttonStyle(.plain).accessibilityLabel("Live terminals").help("Preview agent and helper terminals")
             Button { store.showOnlyAttention = false; store.showingActivity = true } label: {
-                Label("Activity", systemImage: AppCommand.activity.icon)
-                    .font(.system(size: 13, weight: .medium))
+                ViewThatFits(in: .horizontal) {
+                    Label("Activity", systemImage: AppCommand.activity.icon).fixedSize()
+                    Image(systemName: AppCommand.activity.icon).frame(width: 24)
+                }.font(.system(size: 13, weight: .medium))
                     .frame(height: SidebarMetrics.roundButton)
-            }.buttonStyle(.plain).help("Workspace activity (\(AppCommand.activity.shortcutText))")
+            }.buttonStyle(.plain).accessibilityLabel("Workspace activity").help("Workspace activity (\(AppCommand.activity.shortcutText))")
         }.padding(.horizontal, SidebarMetrics.listInset).frame(height: SidebarMetrics.bottomBar)
     }
 
