@@ -26,7 +26,7 @@ extension AgentQA {
     }
 
     func visibleChildren(_ bot: Bot) -> [SidebarSessionItem] {
-        guard store.defaults.object(forKey: bot.sessionsExpandedKey) as? Bool != false else { return [] }
+        guard store.sessionsExpanded(for: bot) else { return [] }
         return store.sidebarRoots(for: bot).flatMap { store.sessionRows(under: $0, for: bot) }
     }
 
@@ -82,7 +82,7 @@ extension AgentQA {
         case "child": throw QAError("Choose a visible session id under " + bot.name + ".")
         case "unfold", "fold":
             guard !store.sidebarRoots(for: bot).isEmpty else { throw QAError("This bot has no sessions.") }
-            store.defaults.set(action == "unfold", forKey: bot.sessionsExpandedKey)
+            store.setSessionsExpanded(action == "unfold", for: bot)
         case "terminal", "parent", "steer":
             guard let selection = store.openHerdrHelper, selection.botID == bot.id else { throw QAError("Open a child first.") }
             if action == "terminal" {

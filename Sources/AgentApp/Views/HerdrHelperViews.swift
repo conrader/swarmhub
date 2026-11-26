@@ -7,7 +7,6 @@ extension Bot {
 /// The disclosure belongs to the bot. Direct and group sessions keep their own identities.
 struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
-    @AppStorage private var expanded: Bool
     let bot: Bot
     let parents: [HerdrHelperParent]
     let workers: [HerdrCodejobRow]
@@ -18,17 +17,17 @@ struct SidebarBotSessions<ParentRow: View>: View {
         self.parents = AppStore.sortedSidebarRoots(parents)
         self.workers = workers
         parentRow = row()
-        _expanded = AppStorage(wrappedValue: true, bot.sessionsExpandedKey)
     }
 
     var body: some View {
+        let expanded = store.sessionsExpanded(for: bot)
         if parents.isEmpty && workers.isEmpty {
             botControls
         } else {
             HStack(spacing: 0) {
                 botControls
                 Button {
-                    expanded.toggle()
+                    store.setSessionsExpanded(!expanded, for: bot)
                 } label: {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)

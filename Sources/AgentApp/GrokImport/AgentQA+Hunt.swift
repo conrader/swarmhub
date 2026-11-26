@@ -63,7 +63,19 @@ extension AgentQA {
             ["action": "capture"],
             ["action": "screen", "value": "workspace"],
             ["action": "unpin"],
-            ["action": "expect", "field": "pinned", "value": "false"]
+            ["action": "expect", "field": "pinned", "value": "false"],
+            ["action": "open", "bot": "Atlas"],
+            ["action": "expect", "field": "visibleChildren", "value": "3"],
+            ["action": "fold", "id": "helper/4", "provider": "workspace"],
+            ["action": "expect", "field": "visibleChildren", "value": "1"],
+            ["action": "unfold", "id": "helper/4"],
+            ["action": "child", "id": "review", "provider": "codex"],
+            ["action": "parent"],
+            ["action": "expect", "field": "child", "value": "helper/4"],
+            ["action": "terminal"],
+            ["action": "expect", "field": "terminalContains", "text": "Checking the release notes", "value": "true"],
+            ["action": "parent"],
+            ["action": "expect", "field": "child", "value": ""]
         ]
     }
 }

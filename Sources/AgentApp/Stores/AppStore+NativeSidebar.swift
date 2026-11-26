@@ -94,6 +94,13 @@ enum SidebarSessionItem: Identifiable {
 }
 
 extension AppStore {
+    func sessionsExpanded(for bot: Bot) -> Bool { defaults.object(forKey: bot.sessionsExpandedKey) as? Bool ?? true }
+
+    func setSessionsExpanded(_ expanded: Bool, for bot: Bot) {
+        defaults.set(expanded, forKey: bot.sessionsExpandedKey)
+        objectWillChange.send()
+    }
+
     func sidebarRoots(for bot: Bot) -> [HerdrHelperParent] {
         Self.sortedSidebarRoots(herdrHelpers.keys.filter { $0.botID == bot.id && $0.source == nil && herdrHelpers[$0]?.hasSidebarSessions == true })
     }
