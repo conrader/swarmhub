@@ -157,9 +157,11 @@ mod tests {
             assert!(child >= 0);
             if child == 0 {
                 libc::close(pipe[0]);
-                let own = detach().is_ok() && libc::getsid(0) == libc::getpid();
-                let moved = libc::getsid(0) != session;
-                let byte = [u8::from(own && moved)];
+                let detached = detach().is_ok();
+                // musl forks once more after setsid. Its daemon shares the new
+                // session with its parent without being that session's leader.
+                let current = libc::getsid(0);
+                let byte = [u8::from(detached && current > 0 && current != session)];
                 libc::write(pipe[1], byte.as_ptr().cast(), 1);
                 libc::_exit(0);
             }

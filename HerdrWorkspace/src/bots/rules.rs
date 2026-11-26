@@ -3016,6 +3016,18 @@ mod tests {
     }
 
     #[test]
+    fn a_document_review_reply_cannot_delegate_a_file_change() {
+        let (_scratch, history) = testing::journal(&["Jarvis", "Legal", "Infra"]);
+        let key = testing::session(&history, "Legal", "t7");
+        history.db().unwrap().execute("UPDATE journal SET document_read_only=1 WHERE launch_key=?1", [&key]).unwrap();
+        let text = "Reviewed.\n```swarmhub\n{\"op\":\"message_bot\",\"kind\":\"handoff\",\"to\":\"Infra\",\"message\":\"Update the contract file.\"}\n```";
+        assert_eq!(blocks::blocks(text).len(), 1);
+        replied(&history, "Legal", &key, text, T0, &Settings::default());
+        let count: i64 = history.db().unwrap().query_row("SELECT COUNT(*) FROM bot_messages", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
     fn a_turn_the_workspace_started_ends_in_the_bots_history_and_a_turn_of_the_person_does_not() {
         let (_scratch, history) = testing::journal(&["Jarvis", "Infra"]);
         let set = Settings::default();
