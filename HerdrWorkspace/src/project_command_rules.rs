@@ -83,23 +83,13 @@ impl Command {
         {
             return None;
         }
-        let (core, bot, agent) = {
-            let db = history.db().ok()?;
-            let (core, owner, agent): (String, Option<String>, String) = db
-                .query_row(
-                    "SELECT core_id,parent_bot_id,agent FROM journal WHERE launch_key=?1
-                 AND NOT EXISTS (SELECT 1 FROM helpers WHERE launch=journal.id)",
-                    [launch],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                )
-                .optional()
-                .ok()??;
-            let bot = match owner {
-                Some(id) => id,
-                None => bots::of_agent(&db, &agent).ok()??.id,
-            };
-            (core, bot, agent)
-        };
+        // Older sessions can have a registered bot's exact launch receipt without a parent_bot_id.
+        let (core, bot, agent): (String, String, String) = history.db().ok()?.query_row(
+            "SELECT core_id,coalesce(parent_bot_id,
+                (SELECT min(id) FROM bots WHERE noted_launch=j.launch_key AND agent_name=j.agent HAVING count(*)=1)),agent
+             FROM journal j WHERE launch_key=?1 AND NOT EXISTS (SELECT 1 FROM helpers WHERE launch=j.id)",
+            [launch], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        ).optional().ok()??;
         if !bots::valid_id(&bot) {
             return None;
         }
