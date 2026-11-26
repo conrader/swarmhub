@@ -3,8 +3,8 @@
 import json
 import plistlib
 import runpy
+import subprocess
 import sys
-import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -80,6 +80,8 @@ def exercise(app):
         settings = home / "Library/Preferences" / (domain+".plist")
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_bytes(plistlib.dumps(prefs))
+        # Foundation can use the logged-in user's preferences daemon even with a private HOME.
+        subprocess.run(["defaults", "import", domain, str(settings)], check=True)
         store.write_text(json.dumps(dict(version=2, bots=bots, groups=[])))
         try:
             with qa["open_workspace"](app, home, servers[0]["address"], token) as window:
@@ -102,11 +104,12 @@ def exercise(app):
                 assert not any(str(v).startswith("CLI ") for v in values())
                 select("Patch")
                 qa["wait_for"]("back on the local account", lambda: "Subscription · Plus" in values())
-                assert "codex" in mac.probes and "codex" in remote.probes
+                assert "codex" in mac.probes and "codex" in remote.probes and "next" not in mac.probes
                 print("Verified live AI, two workspaces using the same CLI, signed-out, unreported, older workspace and switching back.")
         finally:
             mac.shutdown()
             remote.shutdown()
+            subprocess.run(["defaults", "delete", domain], check=False, stderr=subprocess.DEVNULL)
 
 
 if __name__ == "__main__":

@@ -28,9 +28,9 @@ struct BotUsageOverview: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Context used").accessibilityValue("\(percent)%")
             }
-            if !bot.isReadOnlyArchive, store.helperRosters[server.id] != .unavailable {
-                let template = presence?.session == nil ? store.herdrTemplate(for: bot) : presence?.template
-                if presence?.session == nil || template != nil {
+            if let presence, !bot.isReadOnlyArchive, store.helperRosters[server.id] != .unavailable {
+                let template = presence.session == nil ? store.herdrTemplate(for: bot) : presence.template
+                if presence.session == nil || template != nil {
                     RuntimeAccountRow(server: server, template: template)
                         .id([bot.id.uuidString, server.id, server.address, server.sshHost, server.sshUser, template ?? ""])
                 }
