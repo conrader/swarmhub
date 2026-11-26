@@ -147,6 +147,8 @@ pub(crate) struct Listing {
     /// Other recent closed sessions with a saved terminal identity, newest launch first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     recent_sessions: Vec<View>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    codex_threads: Vec<serde_json::Value>,
     /// Running helpers only, newest first.
     helpers: Vec<View>,
 }
@@ -761,12 +763,25 @@ async fn start(
 pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/api/agents/{id}/{created}/helpers", get(list))
+        .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(codex_thread))
         .merge(settings::routes())
         .merge(crate::bot_agent_settings::routes())
 }
 
 #[derive(Deserialize)]
 struct ListingQuery { core: Option<String> }
+
+async fn codex_thread(
+    State(w): State<Workspace>, Path((address, created, thread)): Path<(String, u64, String)>,
+    Query(query): Query<ListingQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let core = query.core.ok_or(Failure::Missing)?;
+    let db = w.history.db()?;
+    let (transcript, state): (String,String) = db.query_row("SELECT c.transcript,json_extract(c.summary,'$.state') FROM codex_children c JOIN journal p ON p.id=c.launch
+        WHERE p.core_id=?1 AND p.address=?2 AND p.created_ms=?3 AND c.thread=?4", params![core,address,created,thread], |r| Ok((r.get(0)?,r.get(1)?)))
+        .optional().map_err(StoreError::from)?.ok_or(Failure::Missing)?;
+    Ok(Json(serde_json::json!({ "transcript":transcript, "state":state })))
+}
 
 async fn list(
     State(w): State<Workspace>,
@@ -804,8 +819,22 @@ pub(crate) async fn listing(
             |row| row.get(0),
         )
         .map_err(StoreError::from)?;
+    let mut codex_threads: Vec<serde_json::Value> = {
+        let db = w.history.db()?;
+        let mut stmt = db.prepare_cached("SELECT c.summary FROM codex_children c JOIN journal p ON p.id=c.launch
+            WHERE p.launch_key=?1 ORDER BY c.thread DESC").map_err(StoreError::from)?;
+        let rows = stmt.query_map([key], |r| r.get::<_,String>(0)).map_err(StoreError::from)?;
+        rows.map(|s| serde_json::from_str(&s.map_err(StoreError::from)?).map_err(|_| StoreError))
+            .collect::<Result<Vec<_>,_>>()?
+    };
+    let native_work = codex_threads.iter().any(|c| c["state"] == "working");
+    let agents = if (any || native_work) && current_core { w.core.agents().await? } else { Vec::new() };
+    if native_work && !agents.iter().any(|agent| agent.state == "live" && agent.launch_key() == Some(key)) {
+        for thread in &mut codex_threads {
+            if thread["state"] == "working" { thread["state"] = "stopped".into(); }
+        }
+    }
     let mut helpers = if any {
-        let agents = if current_core { w.core.agents().await? } else { Vec::new() };
         views(&w.history, &core_id, key, &agents, LIST_REPLY_CHARS, 0)?
     } else {
         Vec::new()
@@ -834,6 +863,7 @@ pub(crate) async fn listing(
         stop_unanswered_after_seconds,
         last_result,
         recent_sessions,
+        codex_threads,
         helpers,
     })
 }
