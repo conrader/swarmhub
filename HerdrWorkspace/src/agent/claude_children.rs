@@ -26,6 +26,7 @@ struct Record {
     #[serde(default)]
     run_generation: u64,
     requested_at: Option<i64>,
+    requested_prompt: Option<String>,
     steps: Vec<Step>,
     terminal: Option<ChildCommandOutput>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -91,6 +92,7 @@ impl Record {
             self.run_generation += 1;
             self.stopped = false;
             self.requested_at = None;
+            self.requested_prompt = None;
             self.task.clear();
             self.awaiting_assignment = true;
             self.created = history::now();
