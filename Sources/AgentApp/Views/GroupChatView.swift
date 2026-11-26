@@ -55,7 +55,7 @@ struct GroupChatView: View {
                 // The message box floats at the bottom: the transcript passes beneath it.
                 .floatingBar(edge: .bottom, backing: AppColor.chat) {
                     VStack(spacing: 0) {
-                    if let reply = store.replyTo {
+                    if store.helperSteeringDrafts[group.id] == nil, let reply = store.replyTo {
                         HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
                     }
@@ -69,14 +69,18 @@ struct GroupChatView: View {
                             }.buttonStyle(.link).font(.caption)
                         }
                     }
-                    AttachmentComposer(intake: intake) { attachments in
-                     ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
-                                 send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
-                                 pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
-                                 reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                                 mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), wantsFocus: store.composerFocus == group.id, tookFocus: { store.composerFocus = nil }, recipient: group.name,
-                                 goalCommand: { store.handleGoalCommand($0, in: group) })
-        }
+                    if let guidance = store.helperSteeringDrafts[group.id] {
+                        HelperSteeringComposer(draft: guidance, chatID: group.id).id(ObjectIdentifier(guidance))
+                    } else {
+                        AttachmentComposer(intake: intake) { attachments in
+                         ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
+                                     send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
+                                     pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
+                                     reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
+                                     mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), wantsFocus: store.composerFocus == group.id, tookFocus: { store.composerFocus = nil }, recipient: group.name,
+                                     goalCommand: { store.handleGoalCommand($0, in: group) })
+                        }
+                    }
                     }
                     .frame(maxWidth: .infinity).glassGroup(spacing: 4)
                     .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, action: viewport.latest).alignmentGuide(.top) { $0[.bottom] } }

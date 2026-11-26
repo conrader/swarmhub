@@ -123,7 +123,7 @@ struct ChatView: View {
     /// that glass surfaces standing close together are drawn together. "Jump to latest" hangs above it.
     private var bottomBar: some View {
         VStack(spacing: 0) {
-            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
+            if store.helperSteeringDrafts[bot.id] == nil, let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
                 Text(bot.retiredBackend.map { "Read-only chat from \($0)." } ?? "Read-only chat from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
             } else {
@@ -155,7 +155,9 @@ struct ChatView: View {
                 if let goal = bot.goal {
                     GoalStatusView(bot: bot, goal: goal)
                 }
-                composer
+                if let guidance = store.helperSteeringDrafts[bot.id] {
+                    HelperSteeringComposer(draft: guidance, chatID: bot.id).id(ObjectIdentifier(guidance))
+                } else { composer }
             }
         }
         .frame(maxWidth: .infinity).glassGroup(spacing: 4)
