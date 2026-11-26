@@ -1035,7 +1035,8 @@ def live_terminals(source_app):
             elif route == "/api/agents/terminal0/100/opencode-threads/ses_layout":
                 reply = dict(state="answered" if child_finished.is_set() else "working",
                              details=dict(task="Check the full header assignment.",
-                                          reply="Complete sidebar result." if child_finished.is_set() else "",
+                                          reply="Complete sidebar result." if child_finished.is_set() else "I am checking the header.",
+                                          terminal=dict(command="cat sidebar.txt", output="The sidebar is expanded."),
                                           steps=[dict(text="Read sidebar.txt", state="completed")]),
                              transcript="Task Check header.\n\ncompleted · read · sidebar.txt")
             elif route.endswith("/helpers"):
@@ -1098,15 +1099,15 @@ def live_terminals(source_app):
                 patch = next(b for b in buttons(window) if "Patch" in label(b).split(", "))
                 press(window, label(patch))
                 press(window, child_label)
-                expected = {"Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
-                            "Read sidebar.txt", "No reply yet."}
+                expected = {"Layout reader · Helper of Patch", "OpenCode · fixture/default", "Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
+                            "Read sidebar.txt", "I am checking the header.", "$ cat sidebar.txt", "The sidebar is expanded."}
                 def shows_details():
                     center = panel("nativeSession.details")
                     return center and expected <= {str(attribute(n, "AXValue") or label(n)) for n in descendants(center)}
                 wait_for("child task, step and reply in the center", shows_details)
-                assert not panel("inspector.terminal")
+                assert not panel("inspector.terminal") and panel("nativeSession.commandOutput")
                 child_finished.set()
-                expected.remove("No reply yet.")
+                expected.remove("I am checking the header.")
                 expected.add("Complete sidebar result.")
                 wait_for("completed reply without reopening the session", shows_details)
                 press(window, "Preview Layout reader in Details")

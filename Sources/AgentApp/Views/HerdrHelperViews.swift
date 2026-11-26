@@ -272,14 +272,7 @@ private struct SidebarNativeThreads: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(verbatim: thread.name).font(.system(size: 12, weight: .semibold))
                         Spacer(minLength: 4)
-                        if thread.state == "working" && thread.createdMs > 0 {
-                            TimelineView(.periodic(from: .now, by: 1)) { tick in
-                                Text(ActivityCopy.duration(tick.date.timeIntervalSince1970 - Double(thread.createdMs) / 1000, compact: true))
-                            }.font(.caption2.monospaced()).foregroundStyle(.secondary)
-                        } else if let end = thread.completedMs, end >= thread.createdMs {
-                            Text(ActivityCopy.duration((Double(end) - Double(thread.createdMs)) / 1000, compact: true))
-                                .font(.caption2.monospaced()).foregroundStyle(.secondary)
-                        }
+                        NativeThreadDuration(thread: thread).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                     Text(verbatim: subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
                 }.lineLimit(1)
@@ -291,6 +284,22 @@ private struct SidebarNativeThreads: View {
             .accessibilityValue(detail).accessibilityAddTraits(selected ? .isSelected : [])
             .help((openInCenter ? "Open session for " : "Preview session for ") + thread.name)
 
+    }
+}
+
+struct NativeThreadDuration: View {
+    let thread: HerdrClient.NativeThread
+
+    var body: some View {
+        if thread.createdMs > 0 {
+            if thread.state == "working" {
+                TimelineView(.periodic(from: .now, by: 1)) { tick in
+                    Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince1970 - Double(thread.createdMs) / 1000), compact: true))
+                }
+            } else if let end = thread.completedMs, end >= thread.createdMs {
+                Text(ActivityCopy.duration((Double(end) - Double(thread.createdMs)) / 1000, compact: true))
+            }
+        }
     }
 }
 
