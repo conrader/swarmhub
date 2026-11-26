@@ -174,14 +174,16 @@ def private_workspace(source_app):
 
 
 @contextmanager
-def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_environment=None):
+def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_environment=None, appearance=None):
     from AppKit import NSRunningApplication
 
     environment = dict(os.environ, HOME=str(home), CFFIXED_USER_HOME=str(home),
                        SWARMHUB_DISABLE_UPDATES="1", SWARMHUB_SERVICE_HOME=str(home), SWARMHUB_HERDR_TOKEN=token)
     environment.update(extra_environment or {})
-    process = subprocess.Popen([app / "Contents/MacOS/AgentApp", "-setupState", "skipped",
-                                "-herdrBaseURL", address], env=environment)
+    arguments = [app / "Contents/MacOS/AgentApp", "-setupState", "skipped", "-herdrBaseURL", address]
+    if appearance is not None:
+        arguments.extend(["-appearance", appearance])
+    process = subprocess.Popen(arguments, env=environment)
     try:
         application = ax.AXUIElementCreateApplication(process.pid)
         windows = lambda: attribute(application, "AXWindows") or []
@@ -1084,10 +1086,6 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
                                          scrollPositions={group["id"].upper(): group["messages"][77]["id"]})))
         environment = {}
         if screenshots is not None:
-            preferences = home / "Library/Preferences"
-            preferences.mkdir(exist_ok=True)
-            domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
-            (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({"appearance": appearance}))
             snapshot = home / "helper-window.png"
             trigger = home / "helper-window.png.request"
             environment = {"DYLD_INSERT_LIBRARIES": str(library), "SWARMHUB_QA_SNAPSHOT_PATH": str(snapshot)}
@@ -1100,7 +1098,7 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
 
         Thread(target=server.serve_forever, daemon=True).start()
         try:
-            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token, environment) as window:
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token, environment, appearance) as window:
                 press(window, "ReaderQA", sidebar=True)
                 field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
                 enter_draft(field, "Draft stays in ReaderQA")
