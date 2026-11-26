@@ -327,3 +327,7 @@ The MacBook repeated the 50-chat exercise with the two signed release binaries. 
 | 0.8.18 public, 52 | 100 | 341.4 ms | 563.0 ms | 714.6 ms |
 
 These consecutive runs measure time to observe the message through Accessibility. An earlier 200-switch build 52 run had a 623.2 ms 95th percentile and an 821.1 ms maximum. The same MacBook produced faster absolute times in the previous test session. System load was uncontrolled. The results cover idle conversations and do not measure an authenticated OpenBot workspace.
+
+## SSH password sign-in in 0.8.18
+
+On a MacBook, a private copy of the release app connected to an isolated OpenSSH server configured for password login. The native wizard displayed a secure password field, rejected an incorrect password in the same sheet, accepted the test account’s password and offered workspace setup. After quitting and reopening the app with the same private profile, connecting to the same server displayed the password field again. The test account had no authorized keys after these attempts.
