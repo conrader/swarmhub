@@ -36,6 +36,7 @@ use tokio::{
 pub(crate) mod cli;
 pub(crate) mod policy;
 mod record;
+mod codex_threads;
 mod settings;
 mod spool;
 
@@ -763,25 +764,13 @@ async fn start(
 pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/api/agents/{id}/{created}/helpers", get(list))
-        .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(codex_thread))
+        .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(codex_threads::read).post(codex_threads::interrupt))
         .merge(settings::routes())
         .merge(crate::bot_agent_settings::routes())
 }
 
 #[derive(Deserialize)]
 struct ListingQuery { core: Option<String> }
-
-async fn codex_thread(
-    State(w): State<Workspace>, Path((address, created, thread)): Path<(String, u64, String)>,
-    Query(query): Query<ListingQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let core = query.core.ok_or(Failure::Missing)?;
-    let db = w.history.db()?;
-    let (transcript, state): (String,String) = db.query_row("SELECT c.transcript,json_extract(c.summary,'$.state') FROM codex_children c JOIN journal p ON p.id=c.launch
-        WHERE p.core_id=?1 AND p.address=?2 AND p.created_ms=?3 AND c.thread=?4", params![core,address,created,thread], |r| Ok((r.get(0)?,r.get(1)?)))
-        .optional().map_err(StoreError::from)?.ok_or(Failure::Missing)?;
-    Ok(Json(serde_json::json!({ "transcript":transcript, "state":state })))
-}
 
 async fn list(
     State(w): State<Workspace>,

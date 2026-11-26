@@ -84,7 +84,9 @@ extension HerdrClient {
         let task: String
         let reply: String
 
-        var statusLine: String {
+        var statusLine: String { Self.statusLabel(state) }
+
+        static func statusLabel(_ state: String) -> String {
             switch state {
             case "working": "Working"
             case "answered": "Answered"
@@ -131,6 +133,27 @@ extension HerdrClient {
             let writing = draft.flatMap { $0.isEmpty ? nil : $0 }
             return answered ? replies.last?.text ?? writing : writing ?? replies.last?.text
         }
+    }
+
+    struct CodexThreadActivity: Decodable {
+        let transcript: String
+        let state: String
+        let activeTurn: String?
+    }
+
+    private func codexThreadRoute(owner: AgentRef, core: String, thread: String) -> String {
+        let encodedCore = core.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        return "/api/agents/\(owner.address)/\(owner.createdMs)/codex-threads/\(thread)?core=\(encodedCore)"
+    }
+
+    func codexActivity(owner: AgentRef, core: String, thread: String) async throws -> CodexThreadActivity {
+        try await get(codexThreadRoute(owner: owner, core: core, thread: thread))
+    }
+
+    func interruptCodexTurn(_ turn: String, owner: AgentRef, core: String, thread: String) async throws {
+        struct Receipt: Decodable { let interruptedTurn: String }
+        let result: Receipt = try await post(codexThreadRoute(owner: owner, core: core, thread: thread), ["turn": turn])
+        guard result.interruptedTurn == turn else { throw BackendError.unavailable("Codex did not confirm this turn.") }
     }
 
     func helpers(of agent: AgentRef, core: String? = nil) async throws -> Helpers {

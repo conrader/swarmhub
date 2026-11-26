@@ -109,7 +109,13 @@ struct WorkspaceTerminals: View {
                 } else { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             }
             if let selected {
-                TerminalOutput(server: server, target: selected).id(selected.id)
+                if case .codexThread(let core, let owner, let thread) = selected.id {
+                    CodexThreadOutput(server: server, core: core, owner: owner, thread: thread, detail: selected.detail) {
+                        if docked { store.inspectorTerminal = nil } else { dismiss() }
+                    }.id(selected.id)
+                } else {
+                    TerminalOutput(server: server, target: selected).id(selected.id)
+                }
             } else {
                 if let problem { Text(problem).foregroundStyle(.secondary) }
                 if terminals.isEmpty {
@@ -220,18 +226,11 @@ private struct TerminalOutput: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if case .codexThread = target.id {
-                Text(target.detail).font(.caption).foregroundStyle(.secondary)
-            }
             if let problem { Text(problem).font(.callout).foregroundStyle(.secondary) }
             if let mirror {
                 TerminalMirror(url: mirror.url, token: mirror.token, agent: mirror.ref, core: mirror.core) { problem = $0 }
             } else if let output {
-                if case .codexThread = target.id {
-                    TerminalTextGrid(output: output, scrollback: true)
-                } else {
-                    TerminalTextGrid(output: output)
-                }
+                TerminalTextGrid(output: output)
             } else if problem == nil { ProgressView("Connecting…") }
         }.task {
             while !Task.isCancelled {
@@ -257,12 +256,7 @@ private struct TerminalOutput: View {
                             return
                         }
                         text = try await client.screen(of: ref)
-                    case .codexThread(let core, let owner, let thread):
-                        struct Transcript: Decodable { let transcript: String }
-                        let route = "/api/agents/\(owner.address)/\(owner.createdMs)/codex-threads/\(thread)"
-                        let query = core.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
-                        let result: Transcript = try await client.get(route + "?core=" + query)
-                        text = result.transcript
+                    case .codexThread: return
                     case .job(let host, let owner, let key):
                         struct Tail: Decodable { let text: String? }
                         let tail: Tail = try await client.get("/api/codejobs/\(host)/\(owner.uuidString.lowercased())/\(key)/output")
