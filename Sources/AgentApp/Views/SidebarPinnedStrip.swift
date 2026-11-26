@@ -48,12 +48,13 @@ private struct PinnedBotTile: View {
 
     var body: some View {
         let selected = !store.showOnlyAttention && store.selectedBot?.id == bot.id && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id
+        let terminal = store.herdrTerminalSession(for: bot)
         let coding = store.hasActiveCodingAgent(bot), attention = store.needsAttention(bot)
         let main = store.herdrMainBotLabel(bot)
         Button { store.open(bot) } label: {
             PinnedTileFrame(name: bot.name, unread: bot.isUnread, selected: selected, hovering: hovering) {
                 BotAvatar(bot: bot, size: SidebarMetrics.pinnedMark, motion: .list, isWorking: store.isAnswering(bot), isHovered: hovering,
-                          probe: "sidebar", hasActiveCodingAgent: coding, mainBotLabel: main)
+                          probe: "sidebar", hasActiveCodingAgent: coding, showsCodingBadge: terminal == nil, mainBotLabel: main)
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
                             Circle().fill(AppColor.clay).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
@@ -67,9 +68,11 @@ private struct PinnedBotTile: View {
             .accessibilityValue(bot.isUnread ? "Unread" : "")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .contextMenu { SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection, requestDelete: requestDelete) }
-            .overlay(alignment: .topLeading) {
-                if let ref = store.herdrTerminalSession(for: bot) {
-                    SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: ref, title: bot.name))
+            .overlay(alignment: .top) {
+                if let terminal {
+                    SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: terminal, title: bot.name), avatarSize: SidebarMetrics.pinnedMark)
+                        .frame(width: SidebarMetrics.pinnedMark, height: SidebarMetrics.pinnedMark, alignment: .bottomLeading)
+                        .padding(.top, SidebarMetrics.pinnedTopInset)
                 }
             }
     }

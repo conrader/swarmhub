@@ -10,6 +10,7 @@ struct BotAvatar: View {
     var facing: AvatarFacing = .right; var isWaiting = false
     var isSelected = false
     var hasActiveCodingAgent = false
+    var showsCodingBadge = true
     var mainBotLabel: String? = nil
     @ObservedObject private var settings = AvatarMotionSettings.shared
     @ObservedObject private var activity = AvatarActivity.shared
@@ -40,13 +41,8 @@ struct BotAvatar: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if hasActiveCodingAgent {
-                let badge = max(12, round(size * 0.35))
-                Image(systemName: "terminal")
-                    .font(.system(size: badge * 0.68, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: badge, height: badge)
-                    .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: badge * 0.27))
-                    .overlay(RoundedRectangle(cornerRadius: badge * 0.27).strokeBorder(.white.opacity(0.65), lineWidth: 1))
+            if hasActiveCodingAgent && showsCodingBadge {
+                AvatarTerminalBadge(avatarSize: size)
                     .offset(x: -1, y: 1).allowsHitTesting(false)
                     .accessibilityLabel("Coding agent active")
             }
@@ -159,5 +155,19 @@ struct ChatWelcome: View {
             Text("Say hello to \(bot.name)").font(.system(size: 17, weight: .semibold))
             Text(store.createsHerdrBots(bot) ? "Ask for anything, or for a new bot to help." : "Ask for anything.").font(.callout).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).padding(.vertical, 36)
+    }
+}
+
+/// The same terminal mark appears as a status badge and as a pinned tile's preview button.
+struct AvatarTerminalBadge: View {
+    let avatarSize: CGFloat
+
+    var body: some View {
+        let badge = max(12, round(avatarSize * 0.35))
+        Image(systemName: "terminal")
+            .font(.system(size: badge * 0.68, weight: .semibold)).foregroundStyle(.white)
+            .frame(width: badge, height: badge)
+            .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: badge * 0.27))
+            .overlay(RoundedRectangle(cornerRadius: badge * 0.27).strokeBorder(.white.opacity(0.65), lineWidth: 1))
     }
 }
