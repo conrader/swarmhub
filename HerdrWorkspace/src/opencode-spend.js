@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 const chatPackages = new Set([
   "@opencode/ai/providers/openai-compatible", "@opencode/ai/providers/deepseek",
@@ -79,7 +79,7 @@ function meteredBody(response, settle) {
   return new Response(stream, {status:response.status, statusText:response.statusText, headers:response.headers});
 }
 
-export async function installSpendLimit(ctx, executable, launch) {
+export async function installSpendLimit(ctx, executable) {
   const pending = new WeakMap();
   function record(entry) {
     execFileSync(executable, ["opencode-spend"], { input: JSON.stringify(entry), timeout: 3000,
@@ -126,5 +126,4 @@ export async function installSpendLimit(ctx, executable, launch) {
     input.response = meteredBody(r, ({input, output}) =>
       record({action:"settle", request:entry.request, nanos:entry.price.nanos(input, output)}));
   });
-  writeFileSync(process.env.SWARMHUB_OPENCODE_CAP_READY, launch, {mode:0o600});
 }

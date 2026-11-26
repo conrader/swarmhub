@@ -202,6 +202,7 @@ pub struct Catalog {
 pub struct Choice {
     supports_tool_review: bool,
     supports_session_cap: bool,
+    supports_document_review: bool,
     name: String,
     description: String,
     error: Option<&'static str>,
@@ -309,9 +310,11 @@ impl Catalog {
             None
         };
         let beta = matches!(runtime.harness.as_str(), GEMINI | "Antigravity CLI");
+        let api_launch = crate::opencode_agent::first_task::OptIn::new(&template).is_some();
         Choice {
             supports_tool_review: supports_tool_review(&template.command),
-            supports_session_cap: crate::opencode_agent::first_task::OptIn::new(&template).is_some(),
+            supports_session_cap: api_launch,
+            supports_document_review: api_launch,
             name: template.name,
             description: template.description,
             error,

@@ -198,6 +198,7 @@ extension AppStore {
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
         let liveServer = herdrServer(for: bot)
         var client = try herdrClient(for: liveServer)
+        client.expectsDocumentReview = bot.documentReadOnly
         client.expectedSessionCapCents = bot.sessionCapCents
         var backend = HerdrBackend(client: client, botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
         if launchWorkEnabled {
@@ -238,12 +239,14 @@ extension AppStore {
             }
         }
         backend.steers = herdrSteers(bot)
-        // The main bot is told how to create bots; every other bot how to ask it for one.
-        if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }
-        else if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.askNote = HerdrBotAsk.note(main: herdrMainBot(on: herdrServer(for: bot))?.name) }
-        if startsHerdrHelpers(bot) { backend.helperNote = HerdrHelperNote.text }
-        // Every bot is told how to write to the other bots of its server, and who they are right now.
-        if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.messageNote = HerdrBotMessage.note; backend.roster = herdrRoster(for: bot) }
+        if bot.documentReadOnly {
+            backend.messageNote = HerdrBackend.documentReviewNote
+        } else {
+            if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }
+            else if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.askNote = HerdrBotAsk.note(main: herdrMainBot(on: herdrServer(for: bot))?.name) }
+            if startsHerdrHelpers(bot) { backend.helperNote = HerdrHelperNote.text }
+            if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.messageNote = HerdrBotMessage.note; backend.roster = herdrRoster(for: bot) }
+        }
         // Every bot reads "About you"; the main bot is also told how to propose an addition to it.
         if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.aboutYou = HerdrAboutYou.note(aboutYou) }
         if createsHerdrBots(bot) { backend.aboutHow = HerdrAboutYou.how }

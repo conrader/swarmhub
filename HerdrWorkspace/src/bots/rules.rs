@@ -1117,7 +1117,11 @@ pub(crate) fn on_reply(
     let newest = typed.last();
     let visible = blocks::visible(text);
 
-    for block in blocks::blocks(text) {
+    let read_only: bool = db.query_row(
+        "SELECT document_read_only FROM journal WHERE launch_key=?1", [key], |r| r.get(0),
+    )?;
+    let commands = if read_only { Vec::new() } else { blocks::blocks(text) };
+    for block in commands {
         let (to, sent) = match block {
             blocks::Block::Message { to, kind, text } => {
                 let kind = Kind::parse(&kind).unwrap_or(Kind::Ask);
@@ -1180,6 +1184,21 @@ pub(crate) fn on_reply(
         }) else {
             continue;
         };
+        if read_only {
+            // Only an explicit answer to this single incoming request can leave the
+            // chat. Never forward prose from an unrelated or mixed turn.
+            if typed.len() == 1 && about.kind == "ask" {
+                let requester = super::name_of(db, &about.sender);
+                for block in blocks::blocks(text) {
+                    if let blocks::Block::Message { to, kind, text } = block
+                        && kind == "tell" && to.eq_ignore_ascii_case(&requester) {
+                        let _ = close(ctx, bot, id, Closing::Reply(&text), "block")?;
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
         let wrote: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM bot_messages WHERE sender=?1 AND id>?2)",
             params![bot.id, id],
@@ -2994,6 +3013,18 @@ mod tests {
             on_reply(ctx, &bot, key, reply, text)
         });
         reply
+    }
+
+    #[test]
+    fn a_document_review_reply_cannot_delegate_a_file_change() {
+        let (_scratch, history) = testing::journal(&["Jarvis", "Legal", "Infra"]);
+        let key = testing::session(&history, "Legal", "t7");
+        history.db().unwrap().execute("UPDATE journal SET document_read_only=1 WHERE launch_key=?1", [&key]).unwrap();
+        let text = "Reviewed.\n```swarmhub\n{\"op\":\"message_bot\",\"kind\":\"handoff\",\"to\":\"Infra\",\"message\":\"Update the contract file.\"}\n```";
+        assert_eq!(blocks::blocks(text).len(), 1);
+        replied(&history, "Legal", &key, text, T0, &Settings::default());
+        let count: i64 = history.db().unwrap().query_row("SELECT COUNT(*) FROM bot_messages", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

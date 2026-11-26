@@ -18,6 +18,7 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
     var runtime: String?
     var model: String?
     var reviewReason: String?
+    var documentReadOnly: Bool?
     var sessionCapCents: Int?
     /// The main bot wrote `"decision":"decided"`: it created the bot on its own decision. False asks the person.
     var decided = false
@@ -25,7 +26,7 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
     static let op = "create_bot", nameLimit = 40, instructionsLimit = 6_000, perReply = 8
     static let decidedWord = "decided", askWord = "ask"
     /// Active sessions that only received the older creation instructions need the updated note.
-    static let marker = "\"spend_cap_usd\""
+    static let marker = "\"document_read_only\""
 
     /// Every creation request in a reply, in order; one per name. A fence that is not valid JSON, or still being
     /// written, yields nothing.
@@ -34,9 +35,11 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
         for object in objects(in: reply) {
             guard let request = HerdrBotRequest(object) else { continue }
             if let existing = found.firstIndex(where: { $0.name.caseInsensitiveCompare(request.name) == .orderedSame }) {
+                let readOnly = found[existing].documentReadOnly == true || request.documentReadOnly == true
                 let caps = [found[existing].sessionCapCents, request.sessionCapCents].compactMap { $0 }
                 if found[existing].reviewReason == nil, request.reviewReason != nil { found[existing] = request }
                 found[existing].sessionCapCents = caps.min()
+                found[existing].documentReadOnly = readOnly ? true : nil
             } else if found.count < perReply { found.append(request) }
         }
         return found
@@ -70,6 +73,10 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
         }
         self.name = name
         instructions = String(((object["instructions"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.instructionsLimit))
+        if let value = object["document_read_only"] {
+            guard let flag = value as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else { return nil }
+            documentReadOnly = flag.boolValue ? true : nil
+        }
         if let value = object["spend_cap_usd"] {
             // Zero keeps a malformed limit visible for correction and prevents uncapped creation.
             sessionCapCents = Self.parseCap(value) ?? 0
@@ -127,6 +134,7 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
 
         \(decision) For payments, credentials, access grants or production changes, always add "review_reason" explaining the sensitive responsibility, even when the person requested the role. A flagged bot is only proposed until the person chooses Create. Omit this field for routine roles. \
         Limit the name to \(nameLimit) characters. Address the standing instructions to the new bot. Optional avatar shapes: \(shapes.joined(separator: ", ")). Colours: \(colours.joined(separator: ", ")). \
+        For read-only document review, set "document_read_only":true and "runtime":"OpenCode". The workspace limits model tools to reading files. This can be combined with spend_cap_usd.
         Optional "runtime" names an agent program such as Claude, Codex or OpenCode; default is yours. Set "model" only for an explicitly requested model ID; otherwise use Recommended. For a capped OpenCode role include "spend_cap_usd" in USD. Put multiple proposals in one JSON array. The app hides the block. \
         Other bots cannot create bots and ask you instead. Such a request reaches you as a message that starts with \
         "\(HerdrBotRelay.requestLead)". Answer it with a create_bot block, or refuse with \

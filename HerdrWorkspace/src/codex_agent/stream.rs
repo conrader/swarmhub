@@ -664,6 +664,7 @@ pub(crate) struct LaunchStatus {
     session_usage: Option<usage::SessionUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     session_cap_cents: Option<i64>,
+    document_read_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     spend_refusals: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -684,13 +685,14 @@ pub(crate) fn launch_status(history: &crate::history::History, key: Option<&str>
     db.query_row(
         "SELECT coalesce(launch_auto != ?2,
                     ?2 OR coalesce(at_ms < ?3, 0)) OR launch_tool_review != ?4,
-                codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage,codex_session_model,session_cap_cents,spend_refusals,spend_refusal_reason
+                codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage,codex_session_model,session_cap_cents,spend_refusals,spend_refusal_reason,document_read_only
          FROM journal WHERE launch_key=?1",
         rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms, settings.review_every_tool], |row| Ok(LaunchStatus {
             session_usage: row.get::<_, Option<String>>(5)?.and_then(|value| serde_json::from_str(&value).ok()),
             auto_restart_pending: row.get(0)?,
             codex_session_model: row.get(6)?,
             session_cap_cents: row.get(7)?,
+            document_read_only: row.get(10)?,
             spend_refusals: row.get(8)?,
             spend_refusal_reason: row.get(9)?,
             codex_sandbox: row.get(1)?,

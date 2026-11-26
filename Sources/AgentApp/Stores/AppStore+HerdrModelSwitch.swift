@@ -58,6 +58,9 @@ extension AppStore {
             }
         }
         try checkChoice()
+        if bot.documentReadOnly && HerdrAgentReading.template(own: template, shared: nil, in: current.templates).template?.supportsDocumentReview != true {
+            throw HerdrMoveError.documentReviewUnavailable
+        }
         let skipsCarry = herdrMoveSkipsCarry(bot)
         let modelPending = modelSwitchPending(bot)
         let autoPending = autoSwitchPending(bot)

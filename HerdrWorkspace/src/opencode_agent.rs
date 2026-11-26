@@ -27,6 +27,14 @@ const USAGE_ROOT: &str = "SWARMHUB_OPENCODE_USAGE_ROOT";
 const REPLY: &str = include_str!("opencode-reply.js");
 const APPROVALS: &str = include_str!("opencode-approvals.js");
 
+/// Add only denials to the session. The user's existing rules still govern file reads.
+/// The private plugin supplies the allowlist for built-in, third-party and future tools.
+fn document_permissions() -> Value {
+    Value::Array(["bash", "execute", "edit", "write", "apply_patch", "task", "skill"].map(|action|
+        json!({"action": action, "resource": "*", "effect": "deny"})
+    ).into())
+}
+
 fn opencode() -> Command {
     crate::service::agent_command("opencode", "SWARMHUB_OPENCODE_BIN")
 }
@@ -44,8 +52,8 @@ pub fn models() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     let (journal, key) = session()?;
-    let cap: Option<i64> = rusqlite::Connection::open_with_flags(&journal, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?
-        .query_row("SELECT session_cap_cents FROM journal WHERE launch_key=?1", [&key], |row| row.get(0))?;
+    let (cap, read_only): (Option<i64>, bool) = rusqlite::Connection::open_with_flags(&journal, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?
+        .query_row("SELECT session_cap_cents,document_read_only FROM journal WHERE launch_key=?1", [&key], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let mut args = env::args_os().skip(2).collect::<Vec<_>>();
     let approvals = args
         .first()
@@ -54,6 +62,9 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         args.remove(0);
     }
     let api_first_task = first_task::take_flag(&mut args);
+    if read_only && !api_first_task {
+        return Err("Document review requires a private OpenCode API session.".into());
+    }
     if cap.is_some() && !api_first_task {
         return Err("A capped OpenCode session requires the private API launcher.".into());
     }
@@ -122,6 +133,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     let command = || {
         let mut cmd = opencode();
         cmd.env("SWARMHUB_OPENCODE_CAP_CENTS", cap.map(|c| c.to_string()).unwrap_or_default())
+            .env("SWARMHUB_OPENCODE_DOCUMENT_REVIEW", if read_only { "1" } else { "" })
             .env_remove(crate::runtimes::MODEL_ENV)
             .env_remove(first_task::ENV)
             .env_remove(USAGE_ROOT)
@@ -145,7 +157,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     };
     if let Some(handoff) = handoff {
         let model = args.get(2).map(|id| id.to_string_lossy().into_owned());
-        first_task::run(command(), command(), handoff, model, cap.is_some())?;
+        first_task::run(command(), command(), handoff, model, cap.is_some(), read_only)?;
         return Ok(());
     }
     Err(command().arg("--standalone").args(args).exec().into())

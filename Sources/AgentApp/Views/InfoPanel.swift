@@ -54,7 +54,15 @@ struct InfoPanel: View {
         case .approvals:
             let server = store.herdrServer(for: bot)
             VStack(alignment: .leading, spacing: 12) {
-                HerdrHelperModelSection(bot: bot, server: server, templates: [], approvalsOnly: true)
+                if bot.documentReadOnly {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Scoped rules").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Label("Read-only documents", systemImage: "doc.text.magnifyingglass").font(.headline)
+                        Text("OpenCode can read files your workspace allows and reply with its findings.").font(.callout)
+                    }.inspectorCard()
+                } else {
+                    HerdrHelperModelSection(bot: bot, server: server, templates: [], approvalsOnly: true)
+                }
                 Divider()
                 Text("Pending approvals").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 if inboxes[server.id]?.unavailable == true {

@@ -135,11 +135,13 @@ struct HerdrBackend: AgentBackend {
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
         [(HerdrModelRequest.marker, modelBrief), (Self.choiceMarker, Self.choiceNote), (Self.draftMarker, Self.draftNote),
-         (HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : HerdrBotMessage.marker, messageNote),
-         (HerdrAboutYou.marker, aboutHow), (Self.publishMarker, serverID == nil ? nil : Self.publishNote)].compactMap { marker, note in
+         (HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : (client.expectsDocumentReview ? Self.documentReviewNote : HerdrBotMessage.marker), messageNote),
+         (HerdrAboutYou.marker, aboutHow), (Self.publishMarker, serverID == nil || client.expectsDocumentReview ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }
         }
     }
+
+    static let documentReviewNote = "Your workspace role is read-only document review. Use the read tool to inspect documents and reply with your findings. When answering a request from another bot, send its named requester a tell block with the answer."
 
     func managementReminder(for text: String) -> String? {
         let notes = [ManagementIntent.changesModel(text) ? modelHow : nil,
@@ -220,7 +222,7 @@ struct HerdrBackend: AgentBackend {
         var configured = self
         if name == agentName, try await coordinate?() == true {
             configured.roster = nil
-            configured.messageNote = Self.teamNote
+            configured.messageNote = client.expectsDocumentReview ? Self.documentReviewNote : Self.teamNote
         }
         try Task.checkCancellation()
         let backend = configured

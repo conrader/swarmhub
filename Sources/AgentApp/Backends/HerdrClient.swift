@@ -24,6 +24,7 @@ struct HerdrClient: Sendable {
         let name: String; let description: String?; let error: String?; let runtime: Runtime?
         /// Set when the template can start its agent on a chosen model; `discoverModels` when the agent program can list them.
         var supportsToolReview: Bool? = nil
+        var supportsDocumentReview: Bool? = nil
         var supportsSessionCap: Bool? = nil
         var modelAgent: String? = nil; var models: [Model]? = nil; var discoverModels: Bool? = nil
         /// The program is in beta on this server, which then lists it after the others, so it is "the server's
@@ -74,6 +75,7 @@ struct HerdrClient: Sendable {
         var firstMessage: FirstMessage? = nil
         var vaultSessionStale: Bool?
         var autoRestartPending: Bool?
+        var documentReadOnly: Bool? = nil
         var sessionCapCents: Int? = nil, spendRefusals: Int? = nil, spendRefusalReason: String? = nil
         var sessionUsage: SessionUsage? = nil
         var codexSessionModel: String? = nil
@@ -239,6 +241,7 @@ struct HerdrClient: Sendable {
 
     let baseURL: URL
     let token: String
+    var expectsDocumentReview = false
     var expectedSessionCapCents: Int? = nil
     var forwardedHost: String? = nil
     var session: URLSession = .shared
@@ -316,6 +319,7 @@ struct HerdrClient: Sendable {
     func launch(name: String, template: String, task: String?, profileID: Int?, modelID: String? = nil, projects: [Int] = [], workspaceID: UUID? = nil, files: [TaskFile] = [], expectedCore: String? = nil, turnReference: String? = nil) async throws -> Agent {
         var body: [String: Any] = ["name": name, "template": template]
         if let turnReference { body["turn_reference"] = turnReference }
+        if expectsDocumentReview { body["expected_document_read_only"] = true }
         if let expectedSessionCapCents { body["expected_session_cap_cents"] = expectedSessionCapCents }
         if let task { body["task"] = task } else { body["warm"] = true }
         if let profileID { body["profile_id"] = profileID }
@@ -463,7 +467,10 @@ struct HerdrClient: Sendable {
     /// Starts this bot's agent ahead of time when none is running, exactly as its first message would (the same name,
     /// template, model and projects), but with no task: the first message then finds it running (`deliver`).
     /// Never a second agent: a running one is returned as it is.
-    private func checkSpendingLimit(of agent: Agent) throws {
+    private func checkLaunchRestrictions(of agent: Agent) throws {
+        if expectsDocumentReview && agent.documentReadOnly != true {
+            throw Failure.http(409, "This session does not have read-only document access.")
+        }
         if let expectedSessionCapCents, agent.sessionCapCents != expectedSessionCapCents {
             throw Failure.http(409, "This session has a different spending limit. Check the bot’s workspace before sending.")
         }
@@ -473,7 +480,7 @@ struct HerdrClient: Sendable {
         let current = try await workspace()
         guard current.core != nil else { throw Failure.http(503, "Herdr Core is not running on the server. Start it there, then try again.") }
         if let agent = liveAgent(named: name, in: current) {
-            try checkSpendingLimit(of: agent)
+            try checkLaunchRestrictions(of: agent)
             return .running(agent, program: current.program(of: agent))
         }
         do {
@@ -652,7 +659,7 @@ struct HerdrClient: Sendable {
             }
         }
         if let agent = active {
-            try checkSpendingLimit(of: agent)
+            try checkLaunchRestrictions(of: agent)
             if agent.status?.state == "blocked" { throw agent.promptFailure(program: current.program(of: agent)) }
             // Started ahead of time and not ready yet: the bridge keeps the message and types it when the agent is.
             if agent.isStarting { status(.starting(program: current.program(of: agent))) }
@@ -705,6 +712,9 @@ struct HerdrClient: Sendable {
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
     func start(name: String, template: String?, model: String?, task: String?, projects: [Int], workspaceID: UUID? = nil, files: [TaskFile] = [], turnReference: String? = nil, in current: Workspace) async throws -> Agent {
         guard let chosen = current.launchTemplate(named: template) else { throw Failure.noTemplate }
+        if expectsDocumentReview && (chosen.supportsDocumentReview != true || current.botWorkspaces != true || workspaceID == nil) {
+            throw Failure.http(409, "Choose an OpenCode workspace that supports read-only document review.")
+        }
         if expectedSessionCapCents != nil && (chosen.supportsSessionCap != true || current.botWorkspaces != true || workspaceID == nil) {
             throw Failure.http(409, "Choose an OpenCode workspace that supports this bot’s spending limit.")
         }

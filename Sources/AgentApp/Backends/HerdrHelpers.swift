@@ -394,6 +394,7 @@ extension HerdrClient {
         let choice: HerdrHelperPolicy.Tier?
         let autoMode: Bool
         var reviewEveryTool: Bool? = nil
+        var documentReadOnly: Bool? = nil
         var sessionCapCents: Int? = nil
         var autoChangedMs: UInt64? = nil
         var commandReviewer: String? = nil
@@ -420,6 +421,10 @@ extension HerdrClient {
     func setCommandReviewer(_ model: String, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
         try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", model.hasPrefix("bot:") ? ["reviewer_bot_id": String(model.dropFirst(4)), "existing_agents": existingAgents] : ["command_reviewer": model, "existing_agents": existingAgents])
     }
+    func enableDocumentReview(for bot: UUID) async throws -> BotAgentSettings {
+        try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["document_read_only": true])
+    }
+
     func setSessionCap(_ cents: Int, for bot: UUID) async throws -> BotAgentSettings {
         try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["session_cap_cents": cents])
     }

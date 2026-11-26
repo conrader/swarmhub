@@ -371,7 +371,8 @@ struct HerdrAgentControls: View {
             VStack(alignment: .leading, spacing: 8) {
                 GroupHeading(title: "Bot model", detail: templateError ?? (listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…"))
                 HerdrTemplatePicker(selection: Binding(get: { template }, set: chooseTemplate),
-                                    templates: templates, defaultName: defaultTemplate?.name, defaultNote: "Default", inInspector: true)
+                                    templates: bot.documentReadOnly ? templates.filter { $0.supportsDocumentReview == true } : templates,
+                                    defaultName: bot.documentReadOnly ? nil : defaultTemplate?.name, defaultNote: "Default", inInspector: true)
                     .disabled(!loaded)
                     .accessibilityElement(children: .contain).accessibilityLabel("AI program")
                 if server.kind == .local {
@@ -430,9 +431,11 @@ struct HerdrAgentControls: View {
                 }
             }
             SummarizeBotButton(bot: bot, disabled: restarting || switching) { note = $0 }
-            Divider()
-            HerdrHelperModelSection(bot: bot, server: server, templates: templates, preset: preset?.helper)
-                .id("\(bot.id)-\(server.id)")
+            if !bot.documentReadOnly {
+                Divider()
+                HerdrHelperModelSection(bot: bot, server: server, templates: templates, preset: preset?.helper)
+                    .id("\(bot.id)-\(server.id)")
+            }
             Divider()
             if store.movableHerdrBots(on: server).contains(bot) {
                 SettingBlock(title: "Server", detail: server.name) {
