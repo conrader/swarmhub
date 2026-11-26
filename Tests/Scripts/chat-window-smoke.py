@@ -992,6 +992,8 @@ def live_terminals(source_app):
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
     reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
     group = dict(id=str(uuid.uuid4()), name="ReleaseQA", memberIDs=[owner["id"]], messages=[])
+    group["messages"] = [dict(id=str(uuid.uuid4()), role="user", createdAt=800000000 + i,
+                              content=f"QA message {i} in the group") for i in range(160)]
     session = "group-" + group["id"] + "-" + owner["id"]
     group["sessions"] = {owner["id"]: session}
     agent_names = ["patch-" + owner["id"][:6], "HelperQA",
@@ -1046,7 +1048,8 @@ def live_terminals(source_app):
             pass
 
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
-        store.write_text(json.dumps(dict(version=2, bots=[reader, owner], groups=[group])))
+        store.write_text(json.dumps(dict(version=2, bots=[reader, owner], groups=[group],
+                                         scrollPositions={group["id"].upper(): group["messages"][77]["id"]})))
         Thread(target=server.serve_forever, daemon=True).start()
         try:
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
@@ -1085,6 +1088,13 @@ def live_terminals(source_app):
                 choose("Done")
                 wait_for("terminal window closed", lambda: not sheet())
                 wait_for("return to existing draft", lambda: attribute(field, "AXValue") == "Draft stays in ReaderQA")
+                press(window, "ReleaseQA", sidebar=True)
+                wait_for("original group reading position", lambda: 77 in visible_messages(window))
+                def group_composer():
+                    return next((n for n in descendants(window) if attribute(n, "AXRole") == "AXTextArea"
+                                 and label(n) == "Message"), None)
+                enter_draft(group_composer(), "Group draft before opening a helper")
+
                 def nested_button():
                     return next((b for b in buttons(window) if label(b).startswith("Helper NestedQA,")), None)
                 wait_for("nested helper beneath its group parent", nested_button)
@@ -1107,6 +1117,9 @@ def live_terminals(source_app):
                 wait_for("delegating helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to GroupHelperQA"
                                                                      for n in descendants(window)))
                 press(window, "Back to ReleaseQA")
+                wait_for("restored group reading position", lambda: 77 in visible_messages(window))
+                wait_for("restored group draft", lambda: group_composer() and
+                         attribute(group_composer(), "AXValue") == "Group draft before opening a helper")
                 press(window, "Group terminals")
                 choose("Preview Patch")
                 output("/api/agents/terminal2/102/output")
