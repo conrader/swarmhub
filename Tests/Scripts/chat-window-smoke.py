@@ -1836,13 +1836,14 @@ def team_inspector(source_app, appearance):
                     return option and ax.AXUIElementPerformAction(option, "AXPress") == 0
                 wait_for("choose Scout as command reviewer", choose_scout)
                 wait_for("Patch’s selected reviewer", lambda: element("Command reviewer: Scout · opus"))
-                wait_for("review every tool toggle", lambda: element("Ask before every tool call"))
-                toggle = element("Ask before every tool call")
-                assert ax.AXUIElementPerformAction(toggle, "AXPress") == 0
+                def switch(identifier):
+                    return next((e for e in descendants(w) if attribute(e, "AXIdentifier") == identifier
+                                 and attribute(e, "AXRole") in ("AXCheckBox", "AXSwitch")), None)
+                wait_for("review every tool switch", lambda: switch("bot.reviewEveryTool"))
+                assert ax.AXUIElementPerformAction(switch("bot.reviewEveryTool"), "AXPress") == 0
                 wait_for("per-call policy enabled", lambda: element("New sessions: Ask every tool"))
                 assert tool_review == {bots[0]["id"].lower(): True}
-                assert str(attribute(element("Auto mode for new sessions"), "AXEnabled")) in ("0", "False")
-
+                assert not attribute(switch("bot.autoMode"), "AXEnabled")
                 press_link(w, "Finish editing approval controls")
                 press(w, "Scout", sidebar=True)
                 wait_for("Scout approval controls", lambda: element("New sessions: Standard") and element("Command reviewer: Off"))

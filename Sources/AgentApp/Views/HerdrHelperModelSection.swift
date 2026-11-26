@@ -110,14 +110,15 @@ struct HerdrHelperModelSection: View {
                 Toggle(isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } })) {
                     Text("Auto mode for new sessions").font(.headline).foregroundStyle(.primary)
                 }
-                .toggleStyle(.switch).disabled(saving || saved.reviewEveryTool == true)
+                .toggleStyle(.switch).accessibilityLabel("Auto mode for new sessions").accessibilityIdentifier("bot.autoMode")
+                .disabled(saving || saved.reviewEveryTool == true)
                 Text("Applies to standard Claude, Codex and Antigravity launches. Managed permissions still apply.")
                     .foregroundStyle(.secondary)
                 if let reviewing = saved.reviewEveryTool {
                     let selected = HerdrAgentReading.template(own: store.herdrTemplate(for: bot), shared: nil, in: approvalsOnly ? approvalTemplates : templates).template
                     if reviewing || selected?.supportsToolReview == true {
                         Toggle("Ask before every tool call", isOn: Binding(get: { reviewing }, set: { value in Task { await setReview(value) } }))
-                            .toggleStyle(.switch).disabled(saving)
+                            .toggleStyle(.switch).accessibilityLabel("Ask before every tool call").accessibilityIdentifier("bot.reviewEveryTool").disabled(saving)
                         Text("New Claude sessions and their Claude helpers ask for one decision per tool call in Needs Attention. Other agent programs cannot start while this is on.")
                             .foregroundStyle(.secondary)
                     }
