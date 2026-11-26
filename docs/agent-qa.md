@@ -9,7 +9,7 @@ app=/Applications/SwarmHub.app/Contents/MacOS/AgentApp
 
 For command help from the installed binary, run `"$app" --agent-qa --help`.
 
-The built-in exploration checks per-chat drafts, delivery, unread counts and pins, then captures the workspace and release notes in a set of window states. Read the final JSON event for the report path. A failed expectation produces an observed value, a screenshot and a nonzero process exit. The report distinguishes failed checks from observations recorded by the agent.
+The built-in exploration checks per-chat drafts, delivery, unread counts, pins, and switching between the terminals of two helpers under Mira, then captures the workspace and release notes in a set of window states. Read the final JSON event for the report path. A failed expectation produces an observed value, a screenshot and a nonzero process exit. The report distinguishes failed checks from observations recorded by the agent.
 
 ## Drive a session
 
@@ -19,6 +19,10 @@ Omit `--hunt` to send one JSON object per line on standard input. Wait for the `
 | --- | --- | --- |
 | `inspect` | | Names, unread counts and pins, selected chat, draft and messages, current screen and viewport |
 | `open` | `bot` | Open a sample chat by the name in state |
+| `unfold`, `fold` | | Expand or collapse the selected bot’s sessions. Inspect `state.children` for visible ids. |
+| `child` | `id` | Open a visible sample session |
+| `terminal`, `readTerminal` | | Show the selected child’s terminal in Details or read its transcript |
+| `parent` | | Return to the parent chat and its draft |
 | `draft` | `text` | Type or clear the selected chat’s draft |
 | `send` | Optional `text` | Submit the text or current draft and wait for the local reply |
 | `pin`, `unpin` | | Pin or unpin the selected chat |
@@ -27,7 +31,7 @@ Omit `--hunt` to send one JSON object per line on standard input. Wait for the `
 | `details` | `value` = `show` or `hide` | Show or hide chat details |
 | `screen` | `value` = `workspace` or `whatsNew` | Choose the native workspace or release notes pane for capture |
 | `capture` | | Save a PNG of the current screen and return its filename |
-| `expect` | `field`, `value` | Compare selected chat (`selected`), `draft`, `pinned`, `unread` or `lastRole`. For `contains`, also pass `text` and expect `true` or `false` |
+| `expect` | `field`, `value` | Compare selected chat (`selected`), `draft`, `pinned`, `unread` or `lastRole`. Helper checks include `child`, `terminal`, and `visibleChildren`. For `contains` or `terminalContains`, also pass `text` and expect `true` or `false` |
 | `finding` | `kind` = `bug` or `improvement`, plus `text` | Save an observation with its step number and screenshot |
 
 For an exploratory review, inspect a compact window in both appearances, compare it with a larger window, and open the PNGs. Look for clipped controls, unreadable text, ambiguous actions and state that leaks between bots. Record what you saw and the expected behavior. Keep a visual observation labelled as such when you have only reproduced it in the offscreen renderer. Provider behavior, macOS dialogs and physical mouse or keyboard events require a separate live test.

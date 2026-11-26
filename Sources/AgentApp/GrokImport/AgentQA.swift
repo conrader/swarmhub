@@ -4,7 +4,7 @@ import SwiftUI
 /// A private sample workspace driven over standard input. Each request finishes before the next is read.
 @MainActor final class AgentQA {
     typealias Command = [String: String]
-    static let commands = ["inspect", "unfold", "fold", "child", "terminal", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
+    static let commands = ["inspect", "unfold", "fold", "child", "terminal", "readTerminal", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
     let store: AppStore
     let directory: URL
     var screen = "workspace"
@@ -51,10 +51,10 @@ import SwiftUI
             Usage: \(CommandLine.arguments.first ?? AppConstants.name) --agent-qa OUTPUT_DIRECTORY [--hunt]
             Run --hunt for built-in checks, or send JSON objects on stdin. Each result is one JSON line.
             Example: {"action":"open","bot":"Mira"}
-            Actions: inspect, open(bot), unfold, fold, child(id), terminal, parent, draft(text), send(optional text), pin, unpin,
+            Actions: inspect, open(bot), unfold, fold, child(id), terminal, readTerminal, parent, draft(text), send(optional text), pin, unpin,
               appearance(value: dark/light), viewport(width,height), details(value: show/hide),
               screen(value: workspace/whatsNew), capture, expect(field,value), finding(kind,text).
-            Fields are strings. Expect supports selected, draft, pinned, unread, child, terminal, visibleChildren, lastRole, and contains (with text).
+            Fields are strings. Expect supports selected, draft, pinned, unread, child, terminal, terminalContains, visibleChildren, lastRole, and contains (with text).
             Findings take the kind bug or improvement. Close stdin to save report.json beside replay.jsonl.
             """)
             return 0
@@ -148,6 +148,7 @@ import SwiftUI
         }
         switch try field("action") {
         case "inspect": break
+        case "readTerminal": return ["transcript": try await terminalActivity().transcript]
         case let action where ["fold", "unfold", "child", "parent", "terminal"].contains(action):
             try sessionAction(action, bot: requireBot(), target: command["id"])
         case "open":
@@ -200,6 +201,7 @@ import SwiftUI
             switch try field("field") {
             case "child": actual = store.openHerdrHelper?.helperID ?? ""
             case "terminal": actual = store.inspectorTerminal?.target?.id.child?.thread ?? ""
+            case "terminalContains": actual = String(try await terminalActivity().transcript.contains(field("text")))
             case "visibleChildren": actual = String(visibleChildren(bot).count)
             case "selected": actual = bot.name
             case "pinned": actual = String(store.isPinned(bot.id))

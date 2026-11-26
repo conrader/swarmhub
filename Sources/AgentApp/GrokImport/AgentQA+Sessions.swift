@@ -20,6 +20,13 @@ extension AgentQA {
         return store.herdrHelpers[bot.id]?.nativeThreads ?? []
     }
 
+    func terminalActivity() async throws -> HerdrClient.ThreadActivity {
+        guard store.showInfo, let request = store.inspectorTerminal, let child = request.target?.id.child else {
+            throw QAError("Open a child terminal first.")
+        }
+        return try await store.herdrClient(for: request.server).threadActivity(child.runtime, owner: child.owner, core: child.core, thread: child.thread)
+    }
+
     func sessionAction(_ action: String, bot: Bot, target: String?) throws {
         switch action {
         case "unfold", "fold":
@@ -44,10 +51,11 @@ extension AgentQA {
 
 /// Intercept every request on this private URLSession, including unknown paths.
 private final class SessionSampleProtocol: URLProtocol, @unchecked Sendable {
+    static let started = Int64(Date.now.timeIntervalSince1970 * 1000) - 72000
     static let children: [HerdrClient.NativeThread] = [
-        .init(id: "tests", parent: "main", name: "tests", model: "Sol", createdMs: 1, state: "working",
+        .init(id: "tests", parent: "main", name: "tests", model: "Sol", createdMs: started, state: "working",
               task: "Check the CSV reader.", reply: ""),
-        .init(id: "rename", parent: "main", name: "rename", model: "Sol", createdMs: 2, completedMs: 41002,
+        .init(id: "rename", parent: "main", name: "rename", model: "Sol", createdMs: started, completedMs: started + 41000,
               state: "answered", task: "Review renamed call sites.", reply: "Updated 14 call sites.")
     ]
     override class func canInit(with request: URLRequest) -> Bool { true }
