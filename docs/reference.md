@@ -105,6 +105,17 @@ Findings from reading Grok Bot's protocol are in [P8a-findings.md](P8a-findings.
 
 ## Card syntax
 
+For a Page or release note draft, the bot can return a closed `page-draft` fence. Use a JSON object with a nonempty title and Markdown body.
+
+````markdown
+```page-draft
+{"title":"Release notes","markdown":"- Paste a screenshot into chat.\n- Review commands in the Inbox."}
+```
+````
+
+**Make shorter** requests a new draft from the author. **Approve** accepts the displayed wording. Both actions identify the full revision, including in a group. Ask the bot to publish when you want the Page in the workspace Library.
+
+
 A reply can use these Markdown conventions. The app draws them as cards; elsewhere they read as ordinary Markdown.
 
 | Card | Syntax | Behaviour |

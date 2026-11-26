@@ -44,6 +44,9 @@ struct TranscriptText {
             case .code(_, let code): block.run = append(AttributedString(code.trimmingCharacters(in: .newlines)))
             case .choices(let prompt, _), .multiChoices(let prompt, _):
                 if !prompt.isEmpty { block.run = append(AttributedString(prompt)) }
+            case .pageDraft(let draft):
+                block.run = append(AttributedString(draft.title))
+                block.prose = prose(draft.markdown)
             case .image, .draft: break // Media and draft editors manage their own focus and copy actions.
             }
             blocks.append(block)

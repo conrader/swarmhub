@@ -186,3 +186,9 @@ To verify native Page search, pass a packaged app and the workspace executable f
 ```
 
 The driver starts a private loopback workspace, edits a published Page and opens its original revision from chat search. It checks the latest revision, a second Page found by its body, punctuation in a query and local navigation after disconnecting the workspace.
+
+The Page draft check runs a private workspace and Herdr Core with a scripted CLI. It sends a request through the Mac chat window, asks for a shorter draft, approves the returned revision, and reopens the app to verify both decisions.
+
+```sh
+/usr/bin/python3 Tests/Scripts/page-draft-window.py /Applications/SwarmHub.app /path/to/swarmhub-herdr /path/to/herdr-core
+```

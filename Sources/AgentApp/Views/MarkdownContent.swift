@@ -39,6 +39,15 @@ struct MarkdownContent: View {
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index, expected: block, choice: answer, shownContent: shownContent)
                     }.id(options)
+                case .pageDraft(let draft):
+                    let key = "pageReview.\(index)"
+                    let status = actionTarget.map { store.choiceStatus(message, target: $0, key: key, binary: false) }
+                    PageDraftCard(draft: draft, title: rendered.run, prose: rendered.prose, picked: status?.picked ?? message.metadata[key],
+                                  enabled: index >= 0 && !message.isStreaming && status?.enabled == true) { decision in
+                        guard let actionTarget else { return }
+                        store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
+                                                expected: block, pageDecision: decision, shownContent: shownContent)
+                    }
                 case .draft(let draft):
                     DraftCardView(message: message, target: actionTarget, index: index, draft: draft).id(draft)
                 case .image(let alt, let url):
@@ -329,6 +338,67 @@ struct ChoicesCard: View {
 }
 
 /// Inline review and editing for a draft sent back to its author.
+private struct PageDraftCard: View {
+    let draft: PageDraft
+    let title: TranscriptText.Run?
+    let prose: [TranscriptText.Prose]
+    let picked: String?
+    let enabled: Bool
+    let decide: (PageDraft.Decision) -> Void
+
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if let title {
+                        TranscriptRunView(run: title, style: .heading(3)).font(.headline).accessibilityAddTraits(.isHeader)
+                    }
+                    Spacer(minLength: 4)
+                    Text("Draft · Page").font(.caption.monospaced()).foregroundStyle(.secondary).fixedSize()
+                }
+                ProseBlock(text: draft.markdown, rendered: prose)
+            }
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColor.card, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(AppColor.separator) }
+
+            Group {
+                if let picked {
+                    let approved = picked == PageDraft.Decision.approve.rawValue || picked == PageDraft.Decision.approve.reply
+                    Label(approved ? "Draft approved" : "Shorter draft requested", systemImage: approved ? "checkmark.circle" : "arrow.uturn.backward")
+                        .font(.callout)
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack { prompt; Spacer(minLength: 8); actions }
+                        VStack(alignment: .leading, spacing: 8) { prompt; actions }
+                    }
+                }
+            }
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColor.raised)
+            .overlay(alignment: .leading) { Rectangle().fill(AppTheme.accentColor(for: accent)).frame(width: 3) }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(AppColor.separator) }
+        }.frame(maxWidth: 500, alignment: .leading)
+    }
+
+    private var prompt: some View {
+        Text("Approve this draft?").font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var actions: some View {
+        HStack {
+            Button("Make shorter") { decide(.shorten) }.help("Ask the author to shorten “\(draft.title)”.")
+            Button("Approve") { decide(.approve) }
+                .buttonStyle(.borderedProminent).tint(AppTheme.accentColor(for: accent))
+                .help("Approve the wording of “\(draft.title)”.")
+        }
+        .fixedSize().disabled(!enabled)
+    }
+}
+
 private struct DraftCardView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage

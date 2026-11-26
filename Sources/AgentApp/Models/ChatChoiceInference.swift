@@ -60,7 +60,7 @@ enum ChatChoiceInference {
         let blocks = ChatCardParser.parse(visible, includingTildeFences: true)
         guard !blocks.contains(where: { block in
                   switch block {
-                  case .choices, .multiChoices, .draft: true
+                  case .choices, .multiChoices, .draft, .pageDraft: true
                   default: false
                   }
               }),

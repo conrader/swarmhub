@@ -58,7 +58,10 @@ enum ChoiceReply {
 }
 
 extension ChatMessage {
-    var isDraftApproval: Bool { metadata[ChoiceReply.cardKey]?.hasPrefix("draftSent.") == true }
+    var isDraftApproval: Bool {
+        guard let key = metadata[ChoiceReply.cardKey] else { return false }
+        return key.hasPrefix("draftSent.") || key.hasPrefix("pageReview.")
+    }
 
     /// A historical card keeps its quote on the user row so queue recovery and retries
     /// send the same question even if the agent has since moved on.

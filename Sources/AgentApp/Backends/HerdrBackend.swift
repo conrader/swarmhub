@@ -104,9 +104,10 @@ struct HerdrBackend: AgentBackend {
     static let teamNote = """
     SwarmHub team commands: use swarmhub-herdr bot list to find peers, bot ask NAME "QUESTION" for a reply, or bot handoff NAME "TASK" to delegate. Use checkin ci PUBLIC_PR_URL "WHAT" for a GitHub CI failure watch, checkin list for plans and promise list for commitments. Use the command path in your SwarmHub instructions when provided. After fixing a blocker, resume the authorized task and verify the requested outcome. For a previously declined handoff, check whether the sender reassigned or canceled it before retrying, then report the result to the sender and the person.
     """
-    static let publishMarker = "Publishing a requested deliverable"
+    static let publishMarker = "Page drafts for review"
     static let publishNote = """
-    Publishing a requested deliverable: when the user asks for a file or a Page, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. Publish images and videos with their file extensions so the person can view them in chat.
+    \(publishMarker): For release notes or Pages awaiting review, use a closed page-draft fence with {"title":"…","markdown":"…"}. Make shorter returns a revised card. Approve accepts wording only.
+    For requested deliverables, publish before replying. With "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" run publish-file PATH (keep media extensions) or publish-page "Title" < report.md.
     """
     static let choiceMarker = "Choice cards for the person"
     static let choiceNote = """
