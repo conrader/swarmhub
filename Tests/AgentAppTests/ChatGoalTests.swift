@@ -377,3 +377,61 @@ struct ChatGoalTests {
     try await waitUntil { store.isIdle(bot) }
     #expect(bot.goal?.state == .stopped && store.turns.nextMessages.isEmpty)
 }
+
+extension ChatGoalTests {
+    @MainActor @Test func perGoalCeilingStartsAbovePriorSpendAndStopsBeforeAnotherPaidStep() async throws {
+        let backend = GoalBackend(), store = goalStore(backend)
+        let bot = addGoalBot(store, "Budget")
+        let agent = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+        let meter = AwaitableLog<Double>()
+        meter.append(2.50)
+        let http = MockHTTPProtocol.serve { req in
+            guard req.url?.path == "/api/workspace" else { return (404, [:]) }
+            let readings = meter.all
+            return (200, ["core": "budget-qa", "templates": [], "agents": [
+                ["name": agent, "address": "t1", "created_ms": 10, "state": "live",
+                 "session_usage": ["total_tokens": readings.count * 200, "opencode_cost_usd": readings.last ?? 0]]]])
+        }
+        store.saveHerdrServer(.init(id: HerdrServer.defaultID, name: "Budget QA", kind: .address, address: "http://" + http.host), token: "sample")
+        store.herdrClientSetup = { $0.session = http.session }
+        let command = try #require(SlashCommand.parse("/goal --goal-budget 0.20 inspect"))
+        #expect(store.handleGoalCommand(command, in: bot) == nil)
+        try await waitUntil { await backend.requests.count == 1 }
+        let first = try #require(bot.goal?.attempt)
+        #expect(bot.goal?.stepSpending?.chargedUSD == 0)
+        meter.append(2.60)
+        try await backend.report(.progress, "First fixture checked", for: first, step: 0)
+        try await waitUntil { await backend.requests.count == 2 }
+        let second = try #require(bot.goal?.attempt)
+        #expect(bot.goal?.stepSpending?.chargedUSD == Decimal(string: "0.10"))
+        meter.append(2.70)
+        try await backend.report(.progress, "Second fixture checked", for: second, step: 1)
+        try await waitUntil { bot.goal?.state == .stopped }
+        #expect(await backend.requests.count == 2)
+        #expect(bot.goal?.stepSpending?.chargedUSD == Decimal(string: "0.20"))
+        #expect(bot.goal?.stepSpending?.pending == nil)
+    }
+
+    @MainActor @Test func perGoalMeterRestoresAnUnpricedStepOnceAndSkipsSpendBetweenSteps() throws {
+        let store = goalStore(GoalBackend()), bot = addGoalBot(store, "Owner")
+        var goal = ChatGoal(objective: "Check two steps", destination: store.goalDestination(for: bot))
+        goal.budgetUSD = 1
+        goal.stepSpending = .init()
+        func reading(_ tokens: Int64, _ usd: Double, created: UInt64 = 11) -> ChatGoal.SpendReading {
+            .init(core: "qa", agent: .init(address: "t2", createdMs: created), tokens: tokens, usd: usd)
+        }
+        #expect(goal.permitsNextStep(spend: reading(100, 3)))
+        let attempt = goal.begin()
+        var restored = try JSONDecoder().decode(ChatGoal.self, from: JSONEncoder().encode(goal))
+        #expect(restored.stepSpending?.attempt == attempt)
+        #expect(!restored.permitsNextStep(spend: reading(100, 3)))
+        #expect(!restored.recordStepCost(reading(200, 3.5, created: 12)))
+        #expect(restored.recordStepCost(reading(200, 3.5)))
+        #expect(!restored.recordStepCost(reading(200, 3.5)))
+        restored.resume()
+        #expect(restored.permitsNextStep(spend: reading(300, 6)))
+        #expect(restored.recordStepCost(reading(350, 6.5)))
+        #expect(!restored.permitsNextStep(spend: reading(350, 6.5)))
+        #expect(restored.stepSpending?.chargedUSD == 1 && restored.state == .stopped)
+    }
+}

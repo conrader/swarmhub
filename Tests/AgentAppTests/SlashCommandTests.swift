@@ -7,6 +7,10 @@ struct SlashCommandTests {
                       "@Ada /goal work", "/commands later", "/goal one\ntwo", "/goal status\r\n", "make this a goal"] {
             #expect(SlashCommand.parse(draft) == nil)
         }
+        #expect(SlashCommand.parse("/goal --steps 4 --goal-budget 2.00 inspect") == .start("inspect", stepLimit: 4, budgetUSD: 2, perGoal: true))
+        for invalid in ["/goal --goal-budget=2 inspect", "/goal --goal-budget 0 inspect", "/goal --budget 1 --goal-budget 2 inspect"] {
+            #expect(SlashCommand.parse(invalid) == .invalidBudget)
+        }
         #expect(SlashCommand.parse("/commands ") == .commands)
         #expect(SlashCommand.parse("/goal") == .goalUsage)
         #expect(SlashCommand.parse("/goal  ship  this 📦 ") == .start("ship  this 📦"))

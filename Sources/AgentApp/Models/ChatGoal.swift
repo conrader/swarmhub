@@ -47,10 +47,21 @@ struct ChatGoal: Codable, Equatable {
     }
 
     var budgetUSD: Double?
+    /// Absent on legacy session ceilings, including goals restored from earlier versions.
+    struct StepSpending: Codable, Equatable {
+        var chargedUSD: Decimal = 0
+        var pending: SpendReading?
+        var attempt: UUID?
+    }
+    var stepSpending: StepSpending?
     var lastSpend: SpendReading?
     var spendProgress: String? {
         guard let budgetUSD else { return nil }
         let ceiling = budgetUSD.formatted(.currency(code: "USD"))
+        if let stepSpending {
+            let charged = stepSpending.chargedUSD.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))
+            return "Goal spend: \(charged) / \(ceiling)" + (stepSpending.pending == nil ? "" : " · step cost pending")
+        }
         if let lastSpend { return "Session spend: \(lastSpend.usd.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))) / \(ceiling)" }
         return "Session budget: \(ceiling) · checked before each step"
     }
@@ -62,10 +73,24 @@ struct ChatGoal: Codable, Equatable {
             return false
         }
         if let previous = lastSpend {
-            guard previous.core == spend.core, previous.agent == spend.agent, spend.usd >= previous.usd else {
+            guard previous.core == spend.core, previous.agent == spend.agent, spend.tokens >= previous.tokens, spend.usd >= previous.usd else {
                 wait("The priced session changed. Start a new goal to use its budget.")
                 return false
             }
+        }
+        if stepSpending != nil {
+            if stepSpending?.pending != nil, !recordStepCost(spend) {
+                wait("Waiting for the cost of the preceding goal step. Resume when updated usage is available.")
+                return false
+            }
+            guard let limit = Decimal(string: String(budgetUSD)), let charged = stepSpending?.chargedUSD, charged < limit else {
+                stop()
+                detail = "This goal reached its spending limit."
+                return false
+            }
+            stepSpending?.pending = spend
+            lastSpend = spend
+            return true
         }
         if spend.usd >= budgetUSD {
             lastSpend = spend
@@ -78,6 +103,22 @@ struct ChatGoal: Codable, Equatable {
             return false
         }
         lastSpend = spend
+        return true
+    }
+
+    /// A provider reports a cumulative meter. Charge the increase across this step once.
+    /// A pending reading survives a crash and prevents a further step until it is accounted for.
+    @discardableResult mutating func recordStepCost(_ end: SpendReading?) -> Bool {
+        guard var spending = stepSpending, let start = spending.pending, let end,
+              start.core == end.core, start.agent == end.agent, end.tokens > start.tokens,
+              end.usd.isFinite, end.usd >= start.usd,
+              let endUSD = Decimal(string: String(end.usd)), let startUSD = Decimal(string: String(start.usd))
+        else { return false }
+        spending.chargedUSD += endUSD - startUSD
+        spending.pending = nil
+        spending.attempt = nil
+        stepSpending = spending
+        lastSpend = end
         return true
     }
 
@@ -108,6 +149,7 @@ struct ChatGoal: Codable, Equatable {
     mutating func begin() -> UUID {
         let token = UUID()
         attempt = token
+        if stepSpending?.pending != nil { stepSpending?.attempt = token }
         iteration += 1
         state = .running
         return token

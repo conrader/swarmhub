@@ -9,7 +9,7 @@ extension AppStore {
         else { return "Goals require a writable workspace bot chat." }
 
         switch command {
-        case .start(let objective, let stepLimit, let budget):
+        case .start(let objective, let stepLimit, let budget, let perGoal):
             if bot.goal?.state.active == true {
                 guard budget == nil else { return "Stop the current goal before changing the spending limit." }
                 guard stepLimit == nil else { return "Stop the current goal before starting one with a new step limit." }
@@ -22,6 +22,7 @@ extension AppStore {
             guard attachments.isEmpty else { return "Start the goal, then attach files to a follow-up." }
             var goal = ChatGoal(objective: objective, destination: goalDestination(for: bot), stepLimit: stepLimit)
             goal.budgetUSD = budget
+            if perGoal, budget != nil { goal.stepSpending = .init() }
             // Check the full first delivery while the person still has their draft.
             goal.initialAttachments = attachments.isEmpty ? nil : attachments
             let probe = UUID()
@@ -46,7 +47,7 @@ extension AppStore {
         case .invalidBudget: return SlashCommand.budgetUsage
         case .invalidStepLimit: return SlashCommand.stepLimitUsage
         case .commands, .goalUsage:
-            return "Use /goal [--steps N] [--budget USD] <objective>, /goal status, or /goal stop."
+            return "Use /goal [--steps N] [--goal-budget USD | --budget USD] <objective>, /goal status, or /goal stop."
         }
         return nil
     }
@@ -126,6 +127,8 @@ extension AppStore {
             let sent = send(text: "Goal step \(goal.iteration) · \(goal.objective)", attachments: files, bot: bot, conversation: bot, replyToID: nil,
                             metadata: [GoalKey.request: goal.request(for: token), GoalKey.attempt: token.uuidString])
             if sent { bot.goal?.initialAttachments = nil; save() } else {
+                bot.goal?.stepSpending?.pending = nil
+                bot.goal?.stepSpending?.attempt = nil
                 bot.goal?.wait("The iteration could not start. Check this chat before resuming.")
                 save()
             }
@@ -133,21 +136,36 @@ extension AppStore {
     }
 
     private func checkGoalSpend(_ goal: ChatGoal, bot: Bot) async {
-        let reading: ChatGoal.SpendReading?
-        do {
-            let client = try herdrClient(for: herdrServer(for: bot))
-            let workspace = try await client.workspace()
-            let live = workspace.agents.filter { $0.isLive && $0.name == goal.destination.agent }
-            if let core = workspace.core, live.count == 1, let agent = live.first,
-               let usage = agent.sessionUsage, let usd = usage.opencodeCostUsd {
-                reading = .init(core: core, agent: agent.ref, tokens: usage.totalTokens, usd: usd)
-            } else { reading = nil }
-        } catch { reading = nil }
+        let reading = await readGoalSpend(goal, bot: bot)
         turns.checkingGoalSpend.remove(goal.id)
         guard bot.goal?.id == goal.id, bot.goal?.iteration == goal.iteration, bot.goal?.state == .queued,
               bots.contains(where: { $0 === bot }) else { return }
         turns.scheduledGoals.insert(goal.id)
         dispatchQueuedGoals(checkedGoal: goal.id, spend: reading)
+    }
+
+    private func readGoalSpend(_ goal: ChatGoal, bot: Bot) async -> ChatGoal.SpendReading? {
+        do {
+            let client = try herdrClient(for: herdrServer(for: bot))
+            let workspace: HerdrClient.Workspace = try await client.get("/api/workspace", timeout: 3)
+            let live = workspace.agents.filter { $0.isLive && $0.name == goal.destination.agent }
+            guard let core = workspace.core, live.count == 1, let agent = live.first,
+                  let usage = agent.sessionUsage, let usd = usage.opencodeCostUsd else { return nil }
+            return .init(core: core, agent: agent.ref, tokens: usage.totalTokens, usd: usd)
+        } catch { return nil }
+    }
+
+    /// Sample before releasing the turn slot so another chat message cannot enter the interval.
+    func recordGoalStepCost(in bot: Bot, goalID: UUID, iteration: Int) async {
+        guard let goal = bot.goal, goal.id == goalID, goal.iteration == iteration,
+              goal.stepSpending?.pending != nil, goalDestinationMatches(bot) else { return }
+        for attempt in 0..<3 {
+            let reading = await readGoalSpend(goal, bot: bot)
+            guard bot.goal?.id == goalID, bot.goal?.iteration == iteration, goalDestinationMatches(bot) else { return }
+            if bot.goal?.recordStepCost(reading) == true || reading == nil || attempt == 2 { return }
+            // The workspace can publish its usage event just after the reply.
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+        }
     }
 
     func goalDestination(for bot: Bot) -> ChatGoal.Destination {
