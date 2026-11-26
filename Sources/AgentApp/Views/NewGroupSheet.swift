@@ -80,6 +80,17 @@ struct NewGroupSheet: View {
                                     Text(model == HerdrModelChoice.recommended ? "Recommended model" : model).font(.caption)
                                 }
                                 Text(member.instructions).textSelection(.enabled)
+                                if let workflow = member.workflow {
+                                    ForEach(workflow.skills.indices, id: \.self) { index in
+                                        Text(workflow.skills[index].name).font(.headline)
+                                        Text(workflow.skills[index].instructions).textSelection(.enabled)
+                                    }
+                                    ForEach(workflow.handoffs.indices, id: \.self) { index in
+                                        let rule = workflow.handoffs[index]
+                                        Text("Hand off to " + pack.members[rule.recipient].name).font(.headline)
+                                        Text(rule.condition).textSelection(.enabled)
+                                    }
+                                }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }

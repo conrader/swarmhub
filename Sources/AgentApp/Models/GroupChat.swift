@@ -13,7 +13,8 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
     @Published var grokSourceID: String?; @Published var grokHistoryCount: Int
     /// The member answering right now (not saved); `sessionID` follows it so Stop and steer reach its run.
     var activeMemberID: UUID?
-    /// P16: the round in progress (saved; encoded only when set).
+    @Published var workflows: [UUID: TeamWorkflow<UUID>] = [:]
+    /// The round in progress, saved only while active.
     var round: GroupRound?
 
     init(id: UUID = UUID(), name: String, memberIDs: [UUID], messages: [ChatMessage] = [], createdAt: Date = .now) {
@@ -31,7 +32,7 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
         set { if let id = activeMemberID { sessions[id.uuidString.lowercased()] = newValue } }
     }
 
-    enum CodingKeys: CodingKey { case id, name, memberIDs, messages, unreadCount, manualUnread, isHidden, isMuted, sessions, grokSourceID, grokHistoryCount, createdAt, round }
+    enum CodingKeys: CodingKey { case id, name, memberIDs, messages, unreadCount, manualUnread, isHidden, isMuted, sessions, grokSourceID, grokHistoryCount, createdAt, round, workflows }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Group"
@@ -41,6 +42,7 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
         sessions = try c.decodeIfPresent([String: String].self, forKey: .sessions) ?? [:]
         grokSourceID = try c.decodeIfPresent(String.self, forKey: .grokSourceID); grokHistoryCount = try c.decodeIfPresent(Int.self, forKey: .grokHistoryCount) ?? 0
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
+        workflows = try c.decodeIfPresent([UUID: TeamWorkflow<UUID>].self, forKey: .workflows) ?? [:]
         // A malformed round must not cost the store.
         round = (try? c.decodeIfPresent(GroupRound.self, forKey: .round)) ?? nil
     }
@@ -49,6 +51,7 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
         try c.encode(id, forKey: .id); try c.encode(name, forKey: .name); try c.encode(memberIDs, forKey: .memberIDs); try c.encode(messages, forKey: .messages)
         try c.encode(unreadCount, forKey: .unreadCount); try c.encode(manualUnread, forKey: .manualUnread); try c.encode(isHidden, forKey: .isHidden); try c.encode(isMuted, forKey: .isMuted)
         try c.encode(sessions, forKey: .sessions); try c.encodeIfPresent(grokSourceID, forKey: .grokSourceID); try c.encode(grokHistoryCount, forKey: .grokHistoryCount)
+        if !workflows.isEmpty { try c.encode(workflows, forKey: .workflows) }
         try c.encode(createdAt, forKey: .createdAt); try c.encodeIfPresent(round, forKey: .round)
     }
 }

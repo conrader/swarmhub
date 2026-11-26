@@ -67,7 +67,7 @@ extension AppStore {
         let samples = Set(bots.filter(\.isDemo).map(\.id))
         guard !samples.isEmpty else { return }
         bots.removeAll { samples.contains($0.id) }
-        for group in groups { group.memberIDs.removeAll { samples.contains($0) } }
+        for group in groups { for id in group.memberIDs where samples.contains(id) { group.removeWorkflowMember(id) } }
         for id in samples { drafts.set("", for: id) }
         if let selected = selectedBot, samples.contains(selected.id) { selectedBot = nil; if selectedGroup == nil { selectVisibleChat() } }
         objectWillChange.send()

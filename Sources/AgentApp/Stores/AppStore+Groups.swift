@@ -48,7 +48,7 @@ extension AppStore {
     }
 
     func removeMember(_ botID: UUID, from group: GroupChat) {
-        group.memberIDs.removeAll { $0 == botID }; objectWillChange.send(); save()
+        group.removeWorkflowMember(botID); objectWillChange.send(); save()
     }
 
     func deleteGroup(_ group: GroupChat) {
@@ -138,7 +138,7 @@ extension AppStore {
             do {
                 for bot in recipients {
                     try validateArtifactAccess(message, botID: bot.id)
-                    if bot.backend == .herdr, !validateGroupDraft(message.modelText, attachments: attachments, bot: bot) { return false }
+                    if bot.backend == .herdr, !validateGroupDraft(message.modelText, attachments: attachments, bot: bot, group: group) { return false }
                 }
             } catch { presentError(error.localizedDescription, reason: .attachment); return false }
             // Per-recipient receipts distinguish a live steer from a new turn or capacity wait.
@@ -170,7 +170,7 @@ extension AppStore {
         do { for id in recipients { try validateArtifactAccess(message, botID: id) } }
         catch { presentError(error.localizedDescription, reason: .attachment); return false }
         for bot in bots where recipients.contains(bot.id) && bot.backend == .herdr {
-            guard validateGroupDraft(message.modelText, attachments: attachments, bot: bot) else { return false }
+            guard validateGroupDraft(message.modelText, attachments: attachments, bot: bot, group: group) else { return false }
         }
         let full = turnCapacityProblem(for: recipients.compactMap { id in bots.first { $0.id == id } })
         if let full, let recipientIDs, !queueChoice {
@@ -201,13 +201,13 @@ extension AppStore {
         }
     }
 
-    private func validateGroupDraft(_ text: String, attachments: [ChatAttachment], bot: Bot) -> Bool {
+    private func validateGroupDraft(_ text: String, attachments: [ChatAttachment], bot: Bot, group: GroupChat) -> Bool {
         guard validateHerdrDraft(text, attachments: attachments, bot: bot) else { return false }
         do {
             let limit = (try? herdrBackend(for: bot)).map { backend in
                 groupMessageBudget(backend, hasFiles: !attachments.isEmpty)
             } ?? HerdrClient.messageBytes
-            try HerdrClient.validateMessage("\(userName): \(text)", limit: limit)
+            try HerdrClient.validateMessage(group.workflowPrefix(for: bot, members: members(of: group)) + "\(userName): \(text)", limit: limit)
             return true
         } catch { presentError(error.localizedDescription, reason: .send, bot: bot); return false }
     }
