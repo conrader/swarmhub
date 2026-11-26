@@ -24,6 +24,7 @@ import Foundation
     @Published private(set) var phase: Phase
     @Published private(set) var listing: HerdrMachines
     @Published private(set) var keys: HerdrSSHKeys?
+    @Published private(set) var projectsUnavailable = false
     @Published private(set) var projects: [HerdrProject]
     @Published var adding: Adding
     /// The fields of adding a server.
@@ -70,11 +71,15 @@ import Foundation
             guard revision == catalogRevision, !Task.isCancelled else { return nil }
             listing = machines
             keys = publicKeys
+            projectsUnavailable = catalog == nil
             if let catalog { projects = catalog }
             phase = .ready
             return catalog
         } catch {
-            if revision == catalogRevision && phase != .ready { phase = .unavailable(HerdrProjectsCopy.reason(error)) }
+            if revision == catalogRevision && !Task.isCancelled {
+                projectsUnavailable = true
+                if phase != .ready { phase = .unavailable(HerdrProjectsCopy.reason(error)) }
+            }
             return nil
         }
     }
@@ -159,6 +164,7 @@ import Foundation
             let revision = UUID()
             catalogRevision = revision
             projects = catalog
+            projectsUnavailable = false
             if draft?.id == project.id { draft = nil }
             if let fresh = try? await client.machines() { listing = fresh }
             return revision == catalogRevision ? catalog : nil
@@ -177,6 +183,12 @@ extension AppStore {
         }
         herdrProjectModels[id] = model
         return model
+    }
+
+    func refreshProjectAssignments(on server: HerdrServer, using model: HerdrProjectsModel) async {
+        guard let catalog = await model.load(), !Task.isCancelled,
+              herdrServer(id: server.id) == server, model.projects == catalog else { return }
+        reconcileHerdrProjects(on: server, with: catalog)
     }
 
     // MARK: A bot's projects

@@ -306,7 +306,13 @@ private struct HerdrProjectsBody: View {
             }
         }
         .confirmationDialog("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-            Button("Remove", role: .destructive) { if let project = removing { Task { if let catalog = await model.removeProject(project) { store.reconcileHerdrProjects(on: server, with: catalog) } } } }
+            Button("Remove", role: .destructive) {
+                guard let project = removing else { return }
+                Task {
+                    if let catalog = await model.removeProject(project), store.herdrServer(id: server.id) == server,
+                       model.projects == catalog { store.reconcileHerdrProjects(on: server, with: catalog) }
+                }
+            }
         } message: { Text("No bot can use it any more. The folder itself is not touched.") }
         if !model.machines.isEmpty {
             Text("\(HerdrProjectsCopy.consequence) \(HerdrProjectsCopy.notIsolation)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -314,7 +320,7 @@ private struct HerdrProjectsBody: View {
     }
 
     private func load() async {
-        if let catalog = await model.load() { store.reconcileHerdrProjects(on: server, with: catalog) }
+        await store.refreshProjectAssignments(on: server, using: model)
     }
 }
 
@@ -358,6 +364,13 @@ private struct HerdrBotProjectsBody: View {
                                 .buttonStyle(.link).accessibilityLabel(editing ? "Finish editing projects" : "Edit bot projects")
                         }
                     }
+                    if model.projectsUnavailable {
+                        HStack {
+                            Text("Showing saved projects").font(.caption).foregroundStyle(.secondary)
+                            Button("Retry") { Task { await store.refreshProjectAssignments(on: server, using: model) } }
+                                .buttonStyle(.link).accessibilityLabel("Reload bot projects")
+                        }
+                    }
                     if editing {
                         choices(chosen)
                     } else if chosen.isEmpty {
@@ -382,7 +395,7 @@ private struct HerdrBotProjectsBody: View {
         // Only the real app reads on its own; a preview or test store shows what it was given.
         .task(id: server) {
             guard store.launchWorkEnabled else { return }
-            if let catalog = await model.load() { store.reconcileHerdrProjects(on: server, with: catalog) }
+            await store.refreshProjectAssignments(on: server, using: model)
         }
     }
 

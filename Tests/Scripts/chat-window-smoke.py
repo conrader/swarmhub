@@ -1603,8 +1603,7 @@ def team_inspector(source_app, appearance):
                 open_detail_section(w, "Overview")
                 wait_for("saved project after a failed catalog read", lambda: False in catalog_reads and element("web-1 · Shop"))
                 catalog_online = True
-                open_detail_section(w, "Approvals")
-                open_detail_section(w, "Overview")
+                press(w, "Reload bot projects")
                 wait_for("selected folder after catalog recovery", lambda: element("web-1 · /srv/shop"))
                 assert not element("local · /code/docs")
                 press(w, "Edit bot projects")
