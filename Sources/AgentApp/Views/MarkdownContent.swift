@@ -346,28 +346,54 @@ private struct PageDraftCard: View {
     let enabled: Bool
     let decide: (PageDraft.Decision) -> Void
 
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Draft · Page", systemImage: "doc.text").font(.caption).foregroundStyle(.secondary)
-            if let title {
-                TranscriptRunView(run: title, style: .heading(3)).font(.headline).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if let title {
+                        TranscriptRunView(run: title, style: .heading(3)).font(.headline).accessibilityAddTraits(.isHeader)
+                    }
+                    Spacer(minLength: 4)
+                    Text("Draft · Page").font(.caption.monospaced()).foregroundStyle(.secondary).fixedSize()
+                }
+                ProseBlock(text: draft.markdown, rendered: prose)
             }
-            ProseBlock(text: draft.markdown, rendered: prose)
-            Divider()
-            if let picked {
-                let approved = picked == PageDraft.Decision.approve.rawValue || picked == PageDraft.Decision.approve.reply
-                Label(approved ? "Draft approved" : "Shorter draft requested", systemImage: approved ? "checkmark.circle" : "arrow.uturn.backward")
-                    .font(.callout).foregroundStyle(.secondary)
-            } else {
-                HStack {
-                    Button("Make shorter") { decide(.shorten) }
-                    Button("Approve") { decide(.approve) }.buttonStyle(NeutralPrimaryButtonStyle())
-                }.disabled(!enabled)
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColor.card, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(AppColor.separator) }
+
+            Group {
+                if let picked {
+                    let approved = picked == PageDraft.Decision.approve.rawValue || picked == PageDraft.Decision.approve.reply
+                    Label(approved ? "Draft approved" : "Shorter draft requested", systemImage: approved ? "checkmark.circle" : "arrow.uturn.backward")
+                        .font(.callout)
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack { prompt; Spacer(minLength: 8); actions }
+                        VStack(alignment: .leading, spacing: 8) { prompt; actions }
+                    }
+                }
             }
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColor.raised)
+            .overlay(alignment: .leading) { Rectangle().fill(AppTheme.accentColor(for: accent)).frame(width: 3) }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(AppColor.separator) }
+        }.frame(maxWidth: 500, alignment: .leading)
+    }
+
+    private var prompt: some View {
+        Text("Approve this draft?").font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var actions: some View {
+        HStack {
+            Button("Make shorter") { decide(.shorten) }
+            Button("Approve") { decide(.approve) }.buttonStyle(NeutralPrimaryButtonStyle())
         }
-        .padding(12).frame(maxWidth: 500, alignment: .leading)
-        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 11))
-        .overlay { RoundedRectangle(cornerRadius: 11).strokeBorder(AppColor.separator, lineWidth: 1) }
+        .fixedSize().disabled(!enabled)
     }
 }
 
