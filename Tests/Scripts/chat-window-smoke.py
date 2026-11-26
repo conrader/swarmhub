@@ -1256,7 +1256,7 @@ def activity_decisions(source_app):
                     return next((b for w in attribute(application, "AXWindows") or [] for b in buttons(w) if label(b) == "Cancel"), None)
                 wait_for("screenshot picker", cancel_button)
                 assert ax.AXUIElementPerformAction(cancel_button(), "AXPress") == 0
-                print("Verified the screenshot picker, per-bot approvals and a zero-dispatch USD limit.")
+                print("Verified saving and revoking a scoped command in the bot inspector, the screenshot picker and a zero-dispatch USD limit.")
                 print("Verified sidebar counts and CI review. Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
         finally:
             server.shutdown()

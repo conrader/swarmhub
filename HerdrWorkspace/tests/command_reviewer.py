@@ -86,7 +86,7 @@ print('Would print audit.')
         subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)],
                        env={**os.environ, "SWARMHUB_TEST_FOCUS": focus}, check=True, timeout=35)
 
-    def command_reply(cwd, input, choice=None, provider="codex", launch=key):
+    def command_reply(cwd, input, choice=None, provider="codex", launch=key, eligible=None):
         frame = json.dumps(dict(key=launch, provider=provider, tool="Bash", cwd=str(cwd), input=input)).encode()
         with socket.socket(socket.AF_UNIX) as peer:
             peer.settimeout(8)
@@ -94,6 +94,8 @@ print('Would print audit.')
             peer.sendall(len(frame).to_bytes(4, "little") + frame)
             if choice is not None:
                 row = until(pending)
+                if eligible is not None:
+                    assert row["can_remember_command"] == eligible
                 if choice == "remember_command":
                     assert row["can_remember_command"]
                 if chrome and choice == "remember_command":
@@ -116,7 +118,8 @@ print('Would print audit.')
     command_reply(project, args)
     command_reply(neighbor, args, "deny")
     command_reply(project, {"command": args["command"] + "Extra"}, "deny")
-    command_reply(project, {**args, "workdir": str(neighbor)}, "deny")
+    command_reply(project, {**args, "workdir": str(neighbor)}, "deny", eligible=False)
+    command_reply(project, {**args, "run_in_background": True}, "deny", eligible=False)
     command_reply(project, args, "deny", provider="claude")
     another = request("/api/agents", {"name": "second", "template": "fixture", "task": "Start",
                                       "workspace_id": "20000000-0000-4000-8000-000000000002"}, status=201)
@@ -130,6 +133,15 @@ print('Would print audit.')
     with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
         reopened_key, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
                                    (reopened["address"], reopened["created_ms"])).fetchone()
+    command_reply(project, args, launch=reopened_key)
+    journal = root / "workspace/workspace.sqlite3"
+    with sqlite3.connect(journal) as db:
+        db.execute("UPDATE journal SET parent_bot_id=NULL WHERE launch_key=?", (reopened_key,))
+        db.execute("INSERT INTO bots(id,name,agent_name,created_ms,updated_ms) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET agent_name=excluded.agent_name,noted_launch=NULL",
+                   (owner,"Saved project bot","reopened",1,1))
+    command_reply(project, args, "deny", launch=reopened_key, eligible=False)
+    with sqlite3.connect(journal) as db:
+        db.execute("UPDATE bots SET noted_launch=? WHERE id=?", (reopened_key, owner))
     command_reply(project, args, launch=reopened_key)
     if chrome:
         browser("revoke-project-command")
