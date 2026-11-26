@@ -20,6 +20,19 @@ struct Record {
     ended: Option<i64>,
     steps: Vec<Step>,
     terminal: Option<ChildCommandOutput>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    previous_runs: String,
+    prompt_id: Option<String>,
+    pending_assignment: Option<Assignment>,
+    #[serde(default)]
+    awaiting_assignment: bool,
+    last_resume_call: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Assignment {
+    prompt_id: Option<String>,
+    task: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -61,13 +74,57 @@ impl Record {
         })
     }
 
+    fn start(&mut self, prompt: Option<String>) {
+        if self.ended.take().is_some() {
+            let transcript = self.transcript();
+            let start = transcript.ceil_char_boundary(transcript.len().saturating_sub(64 * 1024));
+            self.previous_runs = transcript[start..].to_owned();
+            self.task.clear();
+            self.awaiting_assignment = true;
+            self.created = history::now();
+            self.reply.clear();
+            self.steps.clear();
+            self.terminal = None;
+        }
+        self.prompt_id = prompt;
+        if let Some(assignment) = self.pending_assignment.take()
+            && (self.prompt_id.is_none() || assignment.prompt_id.is_none() || assignment.prompt_id == self.prompt_id)
+        {
+            self.task = assignment.task;
+            self.awaiting_assignment = false;
+        }
+    }
+
+    fn resume_assignment(&mut self, assignment: Assignment, call: Option<String>) {
+        if call.is_some() && self.last_resume_call == call {
+            return;
+        }
+        self.last_resume_call = call;
+        // The tool receipt may arrive just before Start, during work, or just after
+        // Stop. A fast resumed run can still be waiting for its first assignment.
+        if self.ended.is_some()
+            && (!self.awaiting_assignment || self.prompt_id != assignment.prompt_id)
+        {
+            self.pending_assignment = Some(assignment);
+        } else {
+            self.task = assignment.task;
+            self.awaiting_assignment = false;
+        }
+    }
+
     fn transcript(&self) -> String {
         let mut parts = Vec::new();
+        if !self.previous_runs.is_empty() {
+            parts.push(self.previous_runs.clone());
+        }
         if !self.task.is_empty() {
             parts.push(format!("Task {}", self.task));
         }
         for step in &self.steps {
             parts.push(format!("{} · {}", step.state, step.text));
+        }
+        if let Some(terminal) = &self.terminal {
+            parts.push(format!("$ {}\n{}", terminal.command, terminal.output));
         }
         if !self.reply.is_empty() {
             parts.push(format!("Claude {}", self.reply));
@@ -140,12 +197,26 @@ pub(super) fn hook() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(role) = text(&e["agent_type"], 120) {
                         row.role = role;
                     }
-                    if e["hook_event_name"] == "SubagentStop" {
+                    if e["hook_event_name"] == "SubagentStart" {
+                        row.start(text(&e["prompt_id"], 128));
+                    } else {
                         row.ended.get_or_insert_with(history::now);
                         if let Some(reply) = text(&e["last_assistant_message"], 24_000) {
                             row.reply = reply;
                         }
                     }
+                })?;
+            }
+        }
+        Some("PostToolUse") if e["tool_name"] == "SendMessage" => {
+            let result = &e["tool_response"];
+            if result["success"] == true
+                && let Some(child) = result["resumedAgentId"].as_str()
+                && let Some(task) = text(&e["tool_input"]["message"], 8_000)
+            {
+                update(&journal, &key, session, child, |row| {
+                    row.resume_assignment(Assignment { prompt_id: text(&e["prompt_id"], 128), task },
+                                          text(&e["tool_use_id"], 128));
                 })?;
             }
         }
@@ -160,8 +231,8 @@ pub(super) fn hook() -> Result<(), Box<dyn std::error::Error>> {
                     {
                         row.parent_agent = Some(parent.into());
                     }
-                    if let Some(task) =
-                        text(&input["prompt"], 8_000).or_else(|| text(&result["prompt"], 8_000))
+                    if row.previous_runs.is_empty()
+                        && let Some(task) = text(&input["prompt"], 8_000).or_else(|| text(&result["prompt"], 8_000))
                     {
                         row.task = task;
                     }
@@ -245,6 +316,27 @@ pub(crate) fn step(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_receipt_can_precede_start_or_follow_a_fast_stop() {
+        for early in [true, false] {
+            let assignment = || Assignment { prompt_id: Some("resume".into()), task: "Next task".into() };
+            let mut row = Record { task: "First task".into(), reply: "First answer".into(), ended: Some(10),
+                                   ..Record::default() };
+            if early {
+                row.resume_assignment(assignment(), Some("call".into()));
+                assert_eq!(row.task, "First task");
+            }
+            row.start(Some("resume".into()));
+            assert!(row.ended.is_none() && row.reply.is_empty());
+            row.ended = Some(20);
+            row.reply = "Next answer".into();
+            row.resume_assignment(assignment(), Some("call".into()));
+            assert_eq!(row.task, "Next task");
+            assert!(row.pending_assignment.is_none());
+            assert_eq!(row.transcript(), "Task First task\n\nClaude First answer\n\nTask Next task\n\nClaude Next answer");
+        }
+    }
 
     #[test]
     fn each_launch_keeps_its_own_child_and_late_receipts_preserve_the_answer() {
