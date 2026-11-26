@@ -37,8 +37,8 @@ import Testing
         #expect(image.width == 900)
         let bitmap = NSBitmapImageRep(cgImage: image)
         let middle = bitmap.pixelsHigh / 2
-        // AppKit's bitmap origin is at the bottom. The second row contains the four secondary tabs.
-        for (band, count) in [(0..<middle, 4), (middle..<bitmap.pixelsHigh, 3)] {
+        // The top row contains three primary tabs. The bottom row contains the four secondary tabs.
+        for (band, count) in [(0..<middle, 3), (middle..<bitmap.pixelsHigh, 4)] {
             let inkedColumns = (0..<bitmap.pixelsWide).filter { x in
                 band.contains { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 }
             }
