@@ -1152,11 +1152,11 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
                 assert not panel("inspector.terminal") and panel("nativeSession.commandOutput")
                 native_preview = "Preview output for Layout reader, helper of Patch"
                 def overview_preview():
-                    overview = panel("overview.activeHelpers")
-                    return overview and any(label(b) == native_preview for b in buttons(overview))
+                    return any(label(b) == native_preview and attribute(b, "AXIdentifier") == "overview.activeHelpers"
+                               for b in buttons(window))
                 wait_for("working OpenCode session in Overview", overview_preview)
                 capture("working")
-                press(panel("overview.activeHelpers"), native_preview)
+                press(window, native_preview)
                 wait_for("terminal from the active helper card", lambda: panel("inspector.terminal") and shows_details())
                 press(window, "Back to Details")
                 child_finished.set()
