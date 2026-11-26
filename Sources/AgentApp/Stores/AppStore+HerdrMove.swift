@@ -1,5 +1,13 @@
 import Foundation
 
+/// The source must answer before staging routines or interrupting any work.
+struct HerdrMoveSourceUnavailable: LocalizedError {
+    let server: HerdrServer
+    let underlying: Error
+    var problem: HerdrSetupProblem { HerdrSetupProblem.of(underlying) }
+    var errorDescription: String? { "Source workspace " + server.name + ". " + problem.line(for: server) }
+}
+
 enum HerdrMoveMapping {
     case matching
     case one(template: String, model: String)
@@ -120,8 +128,15 @@ extension AppStore {
             throw HerdrMoveError.aiUnavailable
         }
 
-        let sourceClient = try herdrClient(for: source)
-        let workspace = try await sourceClient.workspace(includingCodejobs: true)
+        let sourceClient: HerdrClient
+        let workspace: HerdrClient.Workspace
+        do {
+            sourceClient = try herdrClient(for: source)
+            workspace = try await sourceClient.workspace(includingCodejobs: true)
+        } catch {
+            try Task.checkCancellation()
+            throw HerdrMoveSourceUnavailable(server: source, underlying: error)
+        }
         guard let sourceCore = workspace.core else { throw HerdrMoveError.serversChanged }
         if sourceCore == destinationWorkspace.core { throw HerdrMoveError.sameWorkspace }
         try Task.checkCancellation()

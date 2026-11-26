@@ -124,6 +124,7 @@ struct HerdrClient: Sendable {
 
     struct Workspace: Decodable, Sendable {
         let core: String?; let version: String?; let agents: [Agent]; let templates: [Template]
+        var terminalPreview: Bool? = nil
         var codejobActivity: CodejobActivity? = nil
         /// What the workspace server says it is (`HerdrUpdates.swift`); `version` above is Herdr Core's. A server
         /// from before it said so sends none.

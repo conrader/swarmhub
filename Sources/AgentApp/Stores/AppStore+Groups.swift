@@ -59,6 +59,7 @@ extension AppStore {
     }
 
     func open(_ group: GroupChat, remember: Bool = true) {
+        if inspectorTerminal != nil { inspectorTerminal = nil }
         if showOnlyAttention { showOnlyAttention = false }
         selectedGroup = group
         if remember { rememberSelection(group: group) }

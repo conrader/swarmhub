@@ -394,6 +394,8 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(github_project::routes())
         .merge(vault::routes())
         .route("/api/workspace", get(workspace_state))
+        .route("/api/codejobs/{host}/{owner}/{job}/output", get(codejob_activity::log_tail))
+        .route("/api/agents/{id}/{created}/geometry", get(terminal_geometry))
         .route("/api/agents", post(launch))
         .route(
             "/api/agents/with-files",
@@ -763,7 +765,7 @@ async fn workspace_state(State(w): State<Workspace>, Query(query): Query<Workspa
     let mut roster = json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
-               "attachments":hello.supports("terminal.put"),"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"codex_turn_steer":true,"helper_results":true,"end_if_idle":true,
+               "attachments":hello.supports("terminal.put"),"terminal_preview":true,"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"codex_turn_steer":true,"helper_results":true,"end_if_idle":true,
                "workspace_root":core::bot_workspace_root().ok().flatten(),"terminal_attach":hello.supports("terminal.attach"),
                "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)});
     if query.codejobs {
@@ -1231,6 +1233,15 @@ async fn launch_agent(
         let _ = bots::noted(&history, &bot, &key);
     }
     Ok(result)
+}
+
+async fn terminal_geometry(
+    State(w): State<Workspace>,
+    Path((id, created)): Path<(String, u64)>,
+) -> Result<impl IntoResponse, Failure> {
+    let agent = w.core.agent(&id, created).await?;
+    agent.require_live()?;
+    Ok(Json(json!({"cols":agent.cols,"rows":agent.rows})))
 }
 
 async fn output(

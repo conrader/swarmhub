@@ -439,6 +439,20 @@ extension AppStore {
         open(bot, helper: HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: groupRuntime))
     }
 
+    func openHelperParent(_ selection: HerdrHelperSelection, of bot: Bot) -> Bool {
+        guard selection.botID == bot.id else { return false }
+        if let runtime = selection.groupRuntime {
+            guard let group = groups.first(where: { approvalAgentNames(for: bot, in: $0).contains(runtime) && $0.memberIDs.contains(bot.id) })
+            else { return false }
+            open(group)
+            composerFocus = group.id
+        } else {
+            open(bot)
+            composerFocus = bot.id
+        }
+        return true
+    }
+
     /// Only send through the session that owns this helper. An obsolete group runtime cannot receive a steer.
     func guideHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot, instruction: String) -> Bool {
         let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)

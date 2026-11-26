@@ -193,6 +193,17 @@ def activity(rec, processes, executables):
     return ("queued" if waiting else "wrapper"), None
 
 
+def log_tail(directory, name):
+    fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or
+                info.st_nlink != 1 or info.st_mode & 0o022):
+            raise ValueError()
+        source.seek(max(0, info.st_size - 8192))
+        return source.read(8192).decode("utf-8", errors="replace")
+
+
 def snapshot(scope):
     if socket.gethostname() != scope["hostname"]:
         raise ValueError()
@@ -251,6 +262,13 @@ def snapshot(scope):
                             # The log basename is unique across same-second launches.
                             # Hash it so even a sensitive slug stays on its host.
                             job = hashlib.sha256(os.fsencode(folder / entry.name)).hexdigest()
+                            if "preview" in scope:
+                                if (job == scope["preview"]["job"] and
+                                        owners_here[0]["bot_id"].lower() == scope["preview"]["owner"] and state == "working"):
+                                    text = log_tail(directory, entry.name[:-5] + ".log")
+                                    if activity(rec, processes, executables) == (state, provider):
+                                        return {"text": text}
+                                continue
                             rows.append(dict(job=job, owner=owners_here[0]["bot_id"], state=state, provider=provider))
                         except (OSError, KeyError, ValueError, TypeError, RecursionError):
                             complete = False
@@ -258,6 +276,8 @@ def snapshot(scope):
                 os.close(directory)
         except (OSError, ValueError):
             complete = False
+    if "preview" in scope:
+        return {"text": None}
     if len(rows) > 256:
         raise ValueError()
     return dict(complete=complete, jobs=sorted(rows, key=lambda row: row["job"]))

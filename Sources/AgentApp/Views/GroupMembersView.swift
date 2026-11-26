@@ -13,6 +13,11 @@ struct GroupInfoPanel: View {
         VStack(spacing: 0) {
             HStack {
                 Text(InspectorCopy.members).font(.system(size: 14, weight: .semibold)); Spacer()
+                if let bot = store.members(of: group).first(where: { $0.backend == .herdr }) {
+                    Button("Terminal", systemImage: "terminal") {
+                        store.previewInInspector(.init(server: store.herdrServer(for: bot), groupID: group.id))
+                    }.controlSize(.small).accessibilityLabel("Show group terminals in Details")
+                }
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(InspectorCopy.close).accessibilityLabel(InspectorCopy.close)
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
             Rectangle().fill(AppColor.separator).frame(height: 0.5)

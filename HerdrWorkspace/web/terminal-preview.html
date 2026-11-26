@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Terminal preview</title>
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <style>
+    :root { color-scheme: dark; background: #111318; color: #e2e4ef; font: 12px system-ui; }
+    body { margin: 0; }
+    #viewport { position: absolute; inset: 0; overflow: hidden; }
+    #grid { position: absolute; left: 0; top: 0; transform-origin: top left; }
+    #status { position: absolute; bottom: 0; background: #111318; margin: 0; }
+    #grid .xterm-viewport { overflow: hidden !important; }
+  </style>
+  <script src="/vendor/xterm.js" defer></script>
+  <script src="/terminal-preview.js" defer></script>
+</head>
+<body>
+  <div id="viewport"><div id="grid" aria-label="Read-only terminal"></div></div>
+  <p id="status" role="status">Connecting…</p>
+</body>
+</html>

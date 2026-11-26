@@ -62,6 +62,13 @@ import SwiftUI
             .defaultSize(width: 1120, height: 760)
             .windowStyle(.hiddenTitleBar)
             .commands { AppCommands(store: store, updater: updater) }
+        WindowGroup("Live terminals", for: TerminalBrowserRequest.self) { $request in
+            if let request {
+                WorkspaceTerminals(request: request).environmentObject(store)
+                    .defaultAppStorage(store.defaults)
+                    .preferredColorScheme(AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
+            }
+        }.defaultSize(width: 740, height: 480)
         Window("Keyboard Shortcuts", id: KeyboardShortcutsView.windowID) {
             KeyboardShortcutsView()
                 .preferredColorScheme(AppTheme.colorScheme(for: appearance))

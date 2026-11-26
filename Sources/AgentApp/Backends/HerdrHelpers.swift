@@ -91,7 +91,7 @@ extension HerdrClient {
     /// The agent's terminal as text: what its screen shows now.
     func screen(of agent: AgentRef) async throws -> String {
         struct Output: Decodable { let text: String }
-        let output: Output = try await get("/api/agents/\(agent.address)/\(agent.createdMs)/output")
+        let output: Output = try await get("/api/agents/\(agent.address.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? agent.address)/\(agent.createdMs)/output")
         return Self.screenText(output.text)
     }
 

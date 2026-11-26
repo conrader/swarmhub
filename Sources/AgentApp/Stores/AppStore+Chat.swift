@@ -81,6 +81,7 @@ extension AppStore {
     /// Selecting a chat clears both the automatic unread count and the manual flag.
     /// `remember: false` (ui-smoke) leaves the chat restored at the next launch unchanged.
     func open(_ bot: Bot, remember: Bool = true, helper: HerdrHelperSelection? = nil) {
+        if inspectorTerminal != nil { inspectorTerminal = nil }
         if showOnlyAttention { showOnlyAttention = false }
         selectedBot = bot; selectedGroup = nil; openHerdrHelper = helper
         if remember { rememberSelection(bot: bot) }

@@ -127,12 +127,12 @@ struct ShowDetailsItem: View {
 
 extension View {
     /// Keep the conversation mounted while the inspector opens, closes or changes bots.
-    func rightColumn<Panel: View>(isPresented: Binding<Bool>, @ViewBuilder panel: () -> Panel) -> some View {
+    func rightColumn<Panel: View>(isPresented: Binding<Bool>, expandable: Bool = false, @ViewBuilder panel: () -> Panel) -> some View {
         HSplitView {
             self
             if isPresented.wrappedValue {
                 panel().frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal,
-                              maxWidth: ChromeMetrics.infoWidth.max)
+                              maxWidth: expandable ? .infinity : ChromeMetrics.infoWidth.max)
             }
         }.ignoresSafeArea(.container, edges: .top)
     }

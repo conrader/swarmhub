@@ -80,6 +80,8 @@ pub struct FirstMessage {
 
 #[derive(Deserialize, Serialize)]
 pub struct Terminal {
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
     pub address: String,
     pub name: Option<String>,
     pub state: String,

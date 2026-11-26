@@ -174,8 +174,7 @@ impl Host {
     }
 }
 
-/// None is a failed configuration read. An empty array is an explicitly unconfigured bridge.
-pub(crate) async fn snapshot(core: &Core, supports_exec: bool) -> Option<Vec<HostReading>> {
+fn configured_hosts() -> Option<Vec<Host>> {
     let raw = match std::env::var("SWARMHUB_CODEJOB_HOSTS") {
         Ok(raw) => raw,
         Err(std::env::VarError::NotPresent) => return Some(vec![]),
@@ -194,6 +193,54 @@ pub(crate) async fn snapshot(core: &Core, supports_exec: bool) -> Option<Vec<Hos
     {
         return None;
     }
+    Some(hosts)
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct LogTail {
+    text: Option<String>,
+}
+
+pub(crate) async fn log_tail(
+    axum::extract::State(workspace): axum::extract::State<crate::Workspace>,
+    axum::extract::Path((host_id, owner, job)): axum::extract::Path<(String, String, String)>,
+) -> Result<axum::Json<LogTail>, axum::http::StatusCode> {
+    use axum::http::StatusCode;
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    if !label(&host_id) || !uuid(&owner) || !crate::fleet_policy::principals::hex(&job, 64) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let _slot = SLOTS.try_acquire().map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
+    let host = configured_hosts().ok_or(StatusCode::SERVICE_UNAVAILABLE)?.into_iter()
+        .find(|h| h.id == host_id && h.scope.owners.iter().any(|o| o.bot_id.eq_ignore_ascii_case(&owner)))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let core = &workspace.core;
+    let before = if host.machine.is_some() {
+        let machines = core.machines().await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let m = host.connection(&machines).ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        Some((m.session.clone(), m.host.clone(), m.since_ms))
+    } else { None };
+    let mut scope = serde_json::to_value(&host.scope).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    scope["preview"] = serde_json::json!({"job": job, "owner": owner.to_lowercase()});
+    let ran = core.codejob_activity(host.machine.as_deref(), &scope.to_string()).await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if let Some(before) = before {
+        let machines = core.machines().await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        if !host.connection(&machines).is_some_and(|m| (&m.session, &m.host, m.since_ms) == (&before.0, &before.1, before.2)) {
+            return Err(StatusCode::CONFLICT);
+        }
+    }
+    if ran.code != Some(0) || ran.signal.is_some() || ran.timed_out || ran.truncated || ran.stdout.len() > 100 * 1024 {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let bytes = STANDARD.decode(ran.stdout).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let tail: LogTail = serde_json::from_slice(&bytes).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    Ok(axum::Json(tail))
+}
+
+/// None is a failed configuration read. An empty array is an explicitly unconfigured bridge.
+pub(crate) async fn snapshot(core: &Core, supports_exec: bool) -> Option<Vec<HostReading>> {
+    let hosts = configured_hosts()?;
     let machines = if supports_exec && hosts.iter().any(|h| h.machine.is_some()) {
         core.machines().await.unwrap_or_default()
     } else {

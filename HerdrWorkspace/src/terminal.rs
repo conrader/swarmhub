@@ -35,6 +35,8 @@ const WS_INPUT_LIMIT: usize = 64 * 1024;
 pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/attach/{id}/{created}", get(upgrade))
+        .route("/terminal-preview", get(|| async { axum::response::Html(include_str!("../web/terminal-preview.html")) }))
+        .route("/terminal-preview.js", get(|| async { js(include_str!("../web/terminal-preview.js")) }))
         .route(
             "/chat-model.js",
             get(|| async { js(include_str!("../web/chat-model.js")) }),
@@ -81,10 +83,19 @@ pub(super) fn forwarded_resource(path: &str, headers: &HeaderMap) -> bool {
     if !matches!(name, "127.0.0.1" | "localhost") || !port.parse::<u16>().is_ok_and(|p| p > 0 && p.to_string() == port) {
         return false;
     }
+    // WebKit GETs through a forwarded port carry that port as Host. Only the
+    // observer's geometry read is eligible. The API still requires its bearer token.
+    if let Some(agent) = path.strip_prefix("/api/agents/").and_then(|s| s.strip_suffix("/geometry"))
+        && let Some((address, created)) = agent.rsplit_once('/')
+        && !address.is_empty() && !address.contains('/') && created.parse::<u64>().is_ok()
+    {
+        return headers.get("x-swarmhub-terminal-preview").is_some_and(|v| v == "1")
+            && headers.get(header::ORIGIN).is_none_or(|v| v == format!("http://{host}").as_str());
+    }
     if path.starts_with("/attach/") {
         return headers.get(header::ORIGIN).is_some_and(|v| v == format!("http://{host}").as_str());
     }
-    matches!(path, "/chat-terminal" | "/terminal.js" | "/chat-model.js"
+    matches!(path, "/terminal-preview" | "/terminal-preview.js" | "/chat-terminal" | "/terminal.js" | "/chat-model.js"
         | "/vendor/xterm.js" | "/vendor/xterm.css" | "/vendor/addon-fit.js")
 }
 
@@ -95,6 +106,9 @@ fn forwarded_terminal_accepts_its_assets_and_same_origin_attach() {
     headers.insert(header::HOST, "127.0.0.1:49152".parse().unwrap());
     assert!(forwarded_resource("/chat-terminal", &headers));
     assert!(forwarded_resource("/vendor/xterm.js", &headers));
+    assert!(!forwarded_resource("/api/agents/t1/5/geometry", &headers));
+    headers.insert("x-swarmhub-terminal-preview", "1".parse().unwrap());
+    assert!(forwarded_resource("/api/agents/t1/5/geometry", &headers));
     assert!(!forwarded_resource("/api/approvals", &headers));
     assert!(!forwarded_resource("/attach/t1/5", &headers));
     headers.insert(header::ORIGIN, "http://127.0.0.1:8787".parse().unwrap());
@@ -123,6 +137,9 @@ async fn upgrade(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Connect {
+    #[serde(default)]
+    observe: bool,
+    expected_core: Option<String>,
     token: String,
     cols: u16,
     rows: u16,
@@ -152,6 +169,9 @@ async fn session(w: Workspace, id: String, created: u64, mut ws: WebSocket) {
         return;
     }
     let result = timeout(Duration::from_secs(8), async {
+        if let Some(expected) = &connect.expected_core {
+            if w.core.identify().await.ok()?.core.id != *expected { return None; }
+        }
         let agent = w.core.agent(&id, created).await.ok()?;
         agent.require_live().ok()?;
         attach(
@@ -160,12 +180,13 @@ async fn session(w: Workspace, id: String, created: u64, mut ws: WebSocket) {
             created,
             connect.cols,
             connect.rows,
+            connect.observe,
         )
         .await
-        .ok()
+        .ok().map(|pair| (pair, agent.cols, agent.rows))
     })
     .await;
-    let Ok(Some((core, channel))) = result else {
+    let Ok(Some(((core, channel), cols, rows))) = result else {
         let _ = ws
             .send(notice(
                 "error",
@@ -174,7 +195,7 @@ async fn session(w: Workspace, id: String, created: u64, mut ws: WebSocket) {
             .await;
         return;
     };
-    if ws.send(notice("ready", "Attached")).await.is_err() {
+    if ws.send(Message::Text(json!({"type":"ready","message":"Attached","cols":cols,"rows":rows,"observe":connect.observe}).to_string().into())).await.is_err() {
         return;
     }
 
@@ -185,6 +206,7 @@ async fn session(w: Workspace, id: String, created: u64, mut ws: WebSocket) {
         while let Some(Ok(message)) = input.next().await {
             match message {
                 Message::Binary(bytes) if !bytes.is_empty() => {
+                    if connect.observe { break; }
                     if write_frame(&mut writer, channel, DATA, &bytes)
                         .await
                         .is_err()
@@ -196,6 +218,7 @@ async fn session(w: Workspace, id: String, created: u64, mut ws: WebSocket) {
                     let Ok(control) = serde_json::from_str(&text) else {
                         break;
                     };
+                    if connect.observe && !matches!(control, Control::Credit { .. }) { break; }
                     if send_control(&mut writer, channel, &uncredited, control)
                         .await
                         .is_err()
@@ -322,6 +345,7 @@ async fn attach(
     created: u64,
     cols: u16,
     rows: u16,
+    observe: bool,
 ) -> io::Result<(BufReader<UnixStream>, u32)> {
     let mut socket = BufReader::new(UnixStream::connect(path).await?);
     let hello = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hello\",\"params\":{\"generation\":1,\"framed\":true}}\n";
@@ -336,7 +360,7 @@ async fn attach(
         return Err(io::Error::other("framed attach unsupported"));
     }
     let request = json!({"jsonrpc":"2.0","id":2,"method":"terminal.attach","params":{
-        "terminal":id,"cols":cols,"rows":rows,"history":250,"observe":false
+        "terminal":id,"cols":cols,"rows":rows,"history":if observe { 0 } else { 250 },"observe":observe
     }});
     write_frame(&mut socket, 0, DATA, request.to_string().as_bytes()).await?;
     let (stream, kind, reply) = read_frame(&mut socket).await?;

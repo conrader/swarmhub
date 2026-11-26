@@ -13,10 +13,11 @@ import Testing
         let sourceHost: String
         let project = HerdrBotProject(id: 7, name: "Source repo", machine: "This Mac")
 
-        init(remoteWorking: Bool = false) {
+        init(remoteWorking: Bool = false, sourceOffline: Bool = false) {
             let mainAgent = HerdrBackend.agentName(botName: main.name, botID: main.id)
             let analystAgent = HerdrBackend.agentName(botName: analyst.name, botID: analyst.id)
             let sourceBridge = MockHTTPProtocol.serve { request in
+                if sourceOffline { return (503, ["error": "Workspace offline"]) }
                 if request.url?.path == "/api/routines" { return (200, []) }
                 if request.url?.path.hasSuffix("/end") == true { return (200, [:]) }
                 let ended = MockHTTPProtocol.recorded(request.url?.host ?? "").compactMap(\.url?.path)
@@ -81,6 +82,20 @@ import Testing
         nonisolated private static func agent(_ address: String, name: String, status: String) -> [String: Any] {
             ["name": name, "address": address, "created_ms": 42, "state": "live", "status": ["state": status]]
         }
+    }
+
+    @Test func unavailableSourceIsIdentifiedBeforeInterruptingOrMoving() async throws {
+        let f = Fixture(sourceOffline: true)
+        do {
+            _ = try await f.move([f.main])
+            Issue.record("Move succeeded while its source was unavailable")
+        } catch let error as HerdrMoveSourceUnavailable {
+            #expect(error.server == f.source)
+            #expect(error.localizedDescription.contains(f.source.name))
+        }
+        #expect(f.store.herdrServer(for: f.main) == f.source)
+        #expect(f.main.messages.count == 2)
+        #expect(f.ended.isEmpty)
     }
 
     @Test func sshDestinationCanShareTheSourceServersPort() throws {
