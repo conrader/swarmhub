@@ -1161,15 +1161,14 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
                 assert not has_nested()
                 press(window, "Sessions for Layout reader")
                 wait_for("nested session reopened", has_nested)
-                press(window, child_label)
+                press(window, "Preview terminal for Layout reader")
                 def panel(identifier):
                     return next((n for n in descendants(window) if attribute(n, "AXIdentifier") == identifier), None)
                 wait_for("cross-chat child preview", lambda: panel("inspector.terminal"))
                 assert attribute(field, "AXValue") == "Draft stays in ReaderQA"
                 assert any(label(b) == "Open session" for b in buttons(panel("inspector.terminal")))
                 press(window, "Back to Details")
-                patch = next(b for b in buttons(window) if "Patch" in label(b).split(", "))
-                press(window, label(patch))
+                # Select the name directly from ReaderQA. The separate terminal icon previews in place.
                 press(window, child_label)
                 expected = {"Layout reader · Helper of Patch", "OpenCode · fixture/default", "Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
                             "Read sidebar.txt", "I am checking the header.", "$ cat sidebar.txt", "The sidebar is expanded."}
