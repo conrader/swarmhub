@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const chatPackages = new Set([
   "@opencode/ai/providers/openai-compatible", "@opencode/ai/providers/deepseek",
@@ -29,7 +29,7 @@ export function quote(model) {
     if (!count(value)) throw new Error(unsupported);
     return value;
   }
-  return { maximum: nanos(context, answer), nanos };
+  return { maximum: nanos(context, answer), answer, nanos };
 }
 
 // Forward exactly the original bytes. Only a complete OpenAI-compatible SSE
@@ -41,7 +41,13 @@ function meteredBody(response, settle) {
     if (!text.startsWith("data:")) return;
     const data = text.slice(5).trim();
     if (done) { invalid = true; return; }
-    if (data === "[DONE]") { done = true; return; }
+    if (data === "[DONE]") {
+      done = true;
+      // A chat driver may stop reading immediately after the terminal event and
+      // cancel the stream. Its positive usage receipt is already complete here.
+      if (!invalid && receipt) settle(receipt);
+      return;
+    }
     const usage = JSON.parse(data).usage;
     if (usage == null) return;
     const {prompt_tokens: input, completion_tokens: output, total_tokens: total} = usage;
@@ -67,7 +73,6 @@ function meteredBody(response, settle) {
       if (invalid) return;
       try {
         line(buffer + decoder.decode());
-        if (!invalid && done && receipt) settle(receipt);
       } catch { /* Keep the full reservation when the receipt cannot be saved. */ }
     },
   }));
@@ -80,23 +85,36 @@ export async function installSpendLimit(ctx, executable, launch) {
     execFileSync(executable, ["opencode-spend"], { input: JSON.stringify(entry), timeout: 3000,
       stdio: ["pipe", "ignore", "pipe"] });
   }
-  async function pricing(ref) {
-    const {data} = await ctx.model.list();
-    return quote(data.find(m => m.providerID === ref.providerID && m.id === ref.id));
+  function refuse(input, reason) {
+    // Only the selected root can end its foreground turn. An auxiliary call or
+    // a child with a smaller allowance must not end the parent's conversation.
+    if (input.kind === "primary" && input.sessionID === readFileSync(process.env.SWARMHUB_OPENCODE_USAGE_ROOT, "utf8")) {
+      record({action:"refused", reason});
+    }
+    throw new Error(reason === "pricing" ? unsupported : "OpenCode could not reserve the maximum cost within this session’s spending limit.");
+  }
+  async function pricing(input) {
+    try {
+      const {data} = await ctx.model.list();
+      return quote(data.find(m => m.providerID === input.model.providerID && m.id === input.model.id));
+    } catch { refuse(input, "pricing"); }
   }
   // Keep the first paid request available for the user's work. OpenCode would
   // otherwise race a second paid request to name this private chat.
   await ctx.session.hook("title", input => { input.result = "SwarmHub"; });
-  await ctx.session.hook("model.request", input => pricing(input.model).then(() => {}));
-  await ctx.session.hook("experimental.ws.handshake", () => { throw new Error(unsupported); });
+  await ctx.session.hook("model.request", async input => { await pricing(input); });
+  await ctx.session.hook("experimental.ws.handshake", input => refuse(input, "pricing"));
   await ctx.session.hook("http.request", async input => {
-    const price = await pricing(input.model);
-    if (input.request.method !== "POST" || !new URL(input.request.url).pathname.endsWith("/chat/completions")) throw new Error(unsupported);
+    const price = await pricing(input);
+    if (input.request.method !== "POST" || !new URL(input.request.url).pathname.endsWith("/chat/completions")) refuse(input, "pricing");
     const body = await input.request.clone().json();
-    if (body.n !== undefined && body.n !== 1) throw new Error(unsupported);
+    if ((body.n !== undefined && body.n !== 1) || body.web_search_options || body.plugins?.length ||
+        [body.max_tokens, body.max_completion_tokens].some(v => v !== undefined && (!count(v) || v > price.answer))) {
+      refuse(input, "pricing");
+    }
     const request = randomUUID();
     try { record({action:"reserve", request, nanos:price.maximum}); }
-    catch { throw new Error("OpenCode could not reserve this request within the session spending limit."); }
+    catch { refuse(input, "reservation"); }
     pending.set(input.request, {request, price});
   });
   await ctx.session.hook("http.response", input => {

@@ -501,7 +501,7 @@ pub(super) fn run(
         .collect::<String>();
     // The server starts before the API chooses the chat's root. Give its plugin a private,
     // launch-scoped binding that stays alive as long as Mini, including across model changes.
-    let usage_root = tempfile::NamedTempFile::new().ok();
+    let usage_root = if capped { Some(tempfile::NamedTempFile::new()?) } else { tempfile::NamedTempFile::new().ok() };
     server.env(super::USAGE_ROOT, usage_root.as_ref().map_or(Path::new("/dev/null"), |file| file.path()));
     // Do not attach Mini or send the first prompt until the server has installed
     // the spending hooks. An ignored or incompatible plugin cannot run a paid turn.
@@ -515,13 +515,15 @@ pub(super) fn run(
             .build()?;
         let session = runtime.block_on(create_session(&url, &password, model.as_deref()))?;
         if let Some(file) = &usage_root {
-            let _ = fs::write(file.path(), &session.id);
+            let result = fs::write(file.path(), &session.id);
+            if capped { result?; }
         }
         if let Some(file) = &ready {
-            let _ = runtime.block_on(session.model_state(&password));
             runtime.block_on(session.attention(&password))?;
-            if fs::read_to_string(file.path()).ok().as_deref() != Some(handoff.launch.as_str()) {
-                return Err(io::Error::other("OpenCode did not activate the session spending limit."));
+            let deadline = std::time::Instant::now() + REQUEST;
+            while fs::read_to_string(file.path()).ok().as_deref() != Some(handoff.launch.as_str()) {
+                if std::time::Instant::now() >= deadline { return Err(io::Error::other("OpenCode did not activate the session spending limit.")); }
+                std::thread::sleep(Duration::from_millis(50));
             }
         }
         let mut attached = Process(

@@ -33,6 +33,8 @@ struct HerdrTurnFollower: Sendable {
     private var began = false
     private var repliesSeen = 0, settleSince: ContinuousClock.Instant?, quietSince: ContinuousClock.Instant?
     /// The agent's status as last heard; nil until it was.
+    var priorSpendRefusals = 0
+    private var spendFailure: HerdrClient.Failure?
     private var agentState: String?
     private var loginPrompt: HerdrClient.AgentRef?
     private var nextLoginCheck: ContinuousClock.Instant?
@@ -89,6 +91,12 @@ struct HerdrTurnFollower: Sendable {
     }
 
     mutating func take(agent: HerdrClient.Agent) {
+        if let count = agent.spendRefusals, count > priorSpendRefusals {
+            let message = agent.spendRefusalReason == "pricing"
+                ? "OpenCode stopped before calling the model because it could not verify its token prices and limits."
+                : "OpenCode stopped before calling the model because it could not reserve the maximum cost within this session’s spending limit."
+            spendFailure = .http(409, message)
+        }
         agentState = agent.status?.state ?? ""
         let current = agentState == "blocked" && agent.status?.kind?.lowercased() == "auth" ? agent.ref : nil
         if current != loginPrompt { nextLoginCheck = nil }
@@ -144,6 +152,7 @@ struct HerdrTurnFollower: Sendable {
     /// The agent's status as last heard: what to say the turn is waiting for (`HerdrTurnStatus`), and whether an
     /// agent that saved nothing has been quiet for too long.
     mutating func judgeAgent(now: ContinuousClock.Instant) -> Verdict {
+        if let spendFailure { return .failed(spendFailure) }
         guard let state = agentState else { return .waiting }
         // The bridge still keeps the turn's message for an agent that is starting: whatever the program reports
         // meanwhile is its own start-up (Codex's counts as a turn), not work on the message.
@@ -173,6 +182,7 @@ struct HerdrTurnFollower: Sendable {
 
     /// The session is over: the turn's replies if its hook saved any as it closed, else the turn ended unanswered.
     func ended() throws -> String {
+        if let spendFailure { throw spendFailure }
         guard !replies.isEmpty else { throw HerdrClient.Failure.ended }
         return answered
     }

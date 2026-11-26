@@ -141,7 +141,7 @@ extension AppStore {
                                            offered: [HerdrClient.Template.Model] = [], byPerson: Bool = true, reviewedLaunch: (id: UUID, template: HerdrClient.Template)? = nil, confirmedCapID: UUID? = nil) -> Bot? {
         let handled = defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? []
         guard createsHerdrBots(manager), !handled.contains(pending.id) else { return nil }
-        if pending.request.reviewReason == nil, hasRoleReview(for: pending, manager: manager) { return nil }
+        if hasRoleReview(for: pending, manager: manager) { return nil }
         if !byPerson, !mayCreateWithoutReview(pending, manager: manager) { return nil }
         if pending.request.reviewReason != nil {
             guard reviewedLaunch?.template.supportsToolReview == true, pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id && $0.request == pending.request }) else { return nil }
@@ -339,14 +339,14 @@ extension AppStore {
     private func hasRoleReview(for pending: PendingHerdrBot, manager: Bot) -> Bool {
         manager.pendingRoleReviews.contains { saved in
             guard saved.request.name.caseInsensitiveCompare(pending.request.name) == .orderedSame else { return false }
-            if saved.request.reviewReason != nil { return true }
+            if saved.request.reviewReason != nil && pending.request.reviewReason == nil { return true }
             guard let cap = saved.request.sessionCapCents else { return false }
             return pending.request.sessionCapCents.map { $0 > cap } ?? true
         }
     }
 
     private func mayCreateWithoutReview(_ pending: PendingHerdrBot, manager: Bot) -> Bool {
-        pending.request.decided && pending.request.reviewReason == nil && !herdrAsksFirst(manager) &&
+        pending.request.decided && pending.request.reviewReason == nil && pending.request.sessionCapCents != 0 && !herdrAsksFirst(manager) &&
             !hasRoleReview(for: pending, manager: manager) &&
             herdrAllowed(Self.herdrCreateTimesKey(manager.id), limit: HerdrBotRelay.createLimit)
     }

@@ -803,6 +803,7 @@ struct Launch {
     model_choice: Option<runtimes::ModelChoice>,
     model_id: Option<String>,
     workspace_id: Option<String>,
+    expected_session_cap_cents: Option<i64>,
     expected_core: Option<String>,
     standing_instructions: Option<String>,
     instructions_revision: Option<i64>,
@@ -1051,6 +1052,9 @@ async fn launch_agent(
     };
     let auto_mode = settings.auto_mode;
     let review_every_tool = settings.review_every_tool;
+    if body.expected_session_cap_cents.is_some() && body.expected_session_cap_cents != settings.session_cap_cents {
+        return Err(ApiError::Conflict("The workspace has a different session spending limit for this bot. Check its settings before sending."));
+    }
     if settings.session_cap_cents.is_some() && !api_first_task {
         return Err(Failure::Input("This bot has a session spending limit. Choose the standard OpenCode API template.").into());
     }

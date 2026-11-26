@@ -65,7 +65,7 @@ struct HerdrBotRequestCard: View {
                                 if let reason = item.request.reviewReason {
                                     Label("Sensitive role", systemImage: "hand.raised").font(.caption.weight(.semibold)).foregroundStyle(AppColor.caution)
                                     Text(verbatim: reason).font(.callout).fixedSize(horizontal: false, vertical: true)
-                                    Text("Each tool call requires approval. Switching to Claude uses its recommended model.").font(.caption).foregroundStyle(.secondary)
+                                    Text(item.request.sessionCapCents == nil ? "Each tool call requires approval. Switching to Claude uses its recommended model." : "This workspace cannot combine per-tool approval with an OpenCode spending limit. Ask for a revised proposal.").font(.caption).foregroundStyle(.secondary)
                                 }
                                 if item.taken { Text("You already have a bot with this name. Ask \(manager.name) for another name.").font(.caption).foregroundStyle(AppColor.caution).fixedSize(horizontal: false, vertical: true) }
                                 else { FoldedWords(text: item.request.instructions.isEmpty ? "No special instructions." : item.request.instructions, name: "instructions") }
@@ -77,6 +77,7 @@ struct HerdrBotRequestCard: View {
                                     .accessibilityLabel(showsCreatedBots ? "Not now" : "Dismiss proposal for " + item.request.name)
                                 if !item.taken {
                                     Button(item.request.reviewReason == nil ? "Create" : "Create with Claude") { create(item) }.buttonStyle(.appleProminent)
+                                        .disabled(item.request.sessionCapCents == 0 || (item.request.sessionCapCents != nil && item.request.reviewReason != nil))
                                         .accessibilityLabel("Create " + item.request.name + (item.request.reviewReason == nil ? "" : " with Claude"))
                                 }
                             }

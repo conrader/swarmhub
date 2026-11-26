@@ -74,6 +74,7 @@ struct HerdrClient: Sendable {
         var firstMessage: FirstMessage? = nil
         var vaultSessionStale: Bool?
         var autoRestartPending: Bool?
+        var sessionCapCents: Int? = nil, spendRefusals: Int? = nil, spendRefusalReason: String? = nil
         var sessionUsage: SessionUsage? = nil
         var codexSessionModel: String? = nil
         var codexSandbox: String?
@@ -204,6 +205,7 @@ struct HerdrClient: Sendable {
         let core: String; let address: String; let createdMs: UInt64; let after: Int; let launched: Bool
         var steerReference: String? = nil
         var submittedText: String? = nil
+        var priorSpendRefusals: Int = 0
         var afterTool: UInt64 = 0
         /// The server's name for the agent program that answers, for the status lines; nil when it gives none.
         var program: String? = nil
@@ -237,6 +239,7 @@ struct HerdrClient: Sendable {
 
     let baseURL: URL
     let token: String
+    var expectedSessionCapCents: Int? = nil
     var forwardedHost: String? = nil
     var session: URLSession = .shared
     /// Between two reads of a session while waiting for its reply, and between two looks at the agent's status.
@@ -313,6 +316,7 @@ struct HerdrClient: Sendable {
     func launch(name: String, template: String, task: String?, profileID: Int?, modelID: String? = nil, projects: [Int] = [], workspaceID: UUID? = nil, files: [TaskFile] = [], expectedCore: String? = nil, turnReference: String? = nil) async throws -> Agent {
         var body: [String: Any] = ["name": name, "template": template]
         if let turnReference { body["turn_reference"] = turnReference }
+        if let expectedSessionCapCents { body["expected_session_cap_cents"] = expectedSessionCapCents }
         if let task { body["task"] = task } else { body["warm"] = true }
         if let profileID { body["profile_id"] = profileID }
         if let modelID { body["model_id"] = modelID }
@@ -459,10 +463,19 @@ struct HerdrClient: Sendable {
     /// Starts this bot's agent ahead of time when none is running, exactly as its first message would (the same name,
     /// template, model and projects), but with no task: the first message then finds it running (`deliver`).
     /// Never a second agent: a running one is returned as it is.
+    private func checkSpendingLimit(of agent: Agent) throws {
+        if let expectedSessionCapCents, agent.sessionCapCents != expectedSessionCapCents {
+            throw Failure.http(409, "This session has a different spending limit. Check the bot’s workspace before sending.")
+        }
+    }
+
     func warm(name: String, template: String?, model: String? = nil, projects: [HerdrBotProject] = [], workspaceID: UUID? = nil) async throws -> Warmed {
         let current = try await workspace()
         guard current.core != nil else { throw Failure.http(503, "Herdr Core is not running on the server. Start it there, then try again.") }
-        if let agent = liveAgent(named: name, in: current) { return .running(agent, program: current.program(of: agent)) }
+        if let agent = liveAgent(named: name, in: current) {
+            try checkSpendingLimit(of: agent)
+            return .running(agent, program: current.program(of: agent))
+        }
         do {
             let agent = try await start(name: name, template: template, model: model, task: nil, projects: projects.map(\.id), workspaceID: workspaceID, in: current)
             return .started(agent, program: current.program(of: agent))
@@ -639,6 +652,7 @@ struct HerdrClient: Sendable {
             }
         }
         if let agent = active {
+            try checkSpendingLimit(of: agent)
             if agent.status?.state == "blocked" { throw agent.promptFailure(program: current.program(of: agent)) }
             // Started ahead of time and not ready yet: the bridge keeps the message and types it when the agent is.
             if agent.isStarting { status(.starting(program: current.program(of: agent))) }
@@ -672,7 +686,7 @@ struct HerdrClient: Sendable {
             try Task.checkCancellation()
             willSubmit()
             let queued = try await message(body, files: files, to: agent, core: core, turnReference: wireReference)
-            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, steerReference: steerReference, submittedText: body, afterTool: afterTool, program: current.program(of: agent), queued: queued)
+            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, steerReference: steerReference, submittedText: body, priorSpendRefusals: agent.spendRefusals ?? 0, afterTool: afterTool, program: current.program(of: agent), queued: queued)
         }
         status(.starting(program: Self.program(template: template, in: current)))
         try Self.validateMessage(text, limit: Self.firstMessageBudget(instructions: instructions, hasFiles: !files.isEmpty))
@@ -691,6 +705,9 @@ struct HerdrClient: Sendable {
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
     func start(name: String, template: String?, model: String?, task: String?, projects: [Int], workspaceID: UUID? = nil, files: [TaskFile] = [], turnReference: String? = nil, in current: Workspace) async throws -> Agent {
         guard let chosen = current.launchTemplate(named: template) else { throw Failure.noTemplate }
+        if expectedSessionCapCents != nil && (chosen.supportsSessionCap != true || current.botWorkspaces != true || workspaceID == nil) {
+            throw Failure.http(409, "Choose an OpenCode workspace that supports this bot’s spending limit.")
+        }
         let known = try await profiles().first { $0.runtimeName == name || Self.suffix(of: $0.runtimeName) == Self.suffix(of: name) }
         // A bot with no model of its own starts on the first one the server offers for the template (`defaultModel`):
         // the model the app shows for it. Only a template with no list leaves the choice to the agent program.
@@ -747,6 +764,7 @@ struct HerdrClient: Sendable {
                            tool: @Sendable (ToolCall, Bool) -> Void, partial: @Sendable (String) -> Void,
                            live: @Sendable (LiveNote) -> Void, published: @Sendable (HerdrPublishedResult) -> Void = { _ in }) async throws -> (text: String, tools: Int, ids: [Int], model: (String, RunSummary.ModelSource)?) {
         var follower = HerdrTurnFollower(after: turn.after, afterTool: turn.afterTool, quietLimit: quietLimit, program: turn.program, starting: turn.starting)
+        follower.priorSpendRefusals = turn.priorSpendRefusals
         func emit(_ steps: [HerdrTurnFollower.Step]) {
             for step in steps {
                 switch step {

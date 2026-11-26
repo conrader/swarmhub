@@ -103,6 +103,22 @@ import Testing
         #expect(f.ended.isEmpty)
     }
 
+    @Test func movingCappedBotChecksDestinationBeforeInterruptingItsTurn() async throws {
+        let f = Fixture(remoteWorking: true)
+        f.analyst.sessionCapCents = 200
+        let request = ChatMessage(role: .user, content: "Check the contract")
+        let reply = ChatMessage(role: .assistant, content: "Reading it.", isStreaming: true)
+        f.analyst.messages = [request, reply]
+        _ = f.store.beginTurn(in: f.analyst, bot: f.analyst, assistant: reply)
+        reply.deliveryReceipt = .init(server: f.source.id, turn: .init(core: "this-mac", address: "analyst-agent", createdMs: 42, after: 0, launched: false), text: request.content)
+        await #expect(throws: HerdrMoveError.sessionCapUnavailable) {
+            try await f.store.moveHerdrBots([f.analyst.id], from: f.source, to: f.destination, mapping: .matching,
+                                            carryHistory: true, stopIdleAgents: true, resumeActiveWork: true)
+        }
+        #expect(f.store.herdrServer(for: f.analyst) == f.source)
+        #expect(f.ended.isEmpty)
+    }
+
     @Test func unavailableSourceIsIdentifiedBeforeInterruptingOrMoving() async throws {
         let f = Fixture(sourceOffline: true)
         do {

@@ -663,6 +663,12 @@ pub(crate) struct LaunchStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     session_usage: Option<usage::SessionUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    session_cap_cents: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    spend_refusals: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    spend_refusal_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     codex_session_model: Option<String>,
     auto_restart_pending: bool,
     codex_sandbox: Option<String>,
@@ -678,12 +684,15 @@ pub(crate) fn launch_status(history: &crate::history::History, key: Option<&str>
     db.query_row(
         "SELECT coalesce(launch_auto != ?2,
                     ?2 OR coalesce(at_ms < ?3, 0)) OR launch_tool_review != ?4,
-                codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage,codex_session_model
+                codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage,codex_session_model,session_cap_cents,spend_refusals,spend_refusal_reason
          FROM journal WHERE launch_key=?1",
         rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms, settings.review_every_tool], |row| Ok(LaunchStatus {
             session_usage: row.get::<_, Option<String>>(5)?.and_then(|value| serde_json::from_str(&value).ok()),
             auto_restart_pending: row.get(0)?,
             codex_session_model: row.get(6)?,
+            session_cap_cents: row.get(7)?,
+            spend_refusals: row.get(8)?,
+            spend_refusal_reason: row.get(9)?,
             codex_sandbox: row.get(1)?,
             codex_policy: row.get(2)?,
             codex_reviewer: row.get(3)?,

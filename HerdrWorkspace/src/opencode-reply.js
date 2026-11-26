@@ -146,7 +146,8 @@ export default {
     const key = process.env.SWARMHUB_LAUNCH_KEY;
     const path = process.env.SWARMHUB_REPLY_SOCKET;
     if (!executable || !key || !process.env.SWARMHUB_JOURNAL) return;
-    if (process.env.SWARMHUB_OPENCODE_CAP_CENTS) await installSpendLimit(ctx, executable, key);
+    const capped = !!process.env.SWARMHUB_OPENCODE_CAP_CENTS;
+    if (capped) await installSpendLimit(ctx, executable, key);
     const controller = new AbortController();
     const running = new Map();
     const inbox = new Map();
@@ -305,6 +306,12 @@ export default {
     }
     void observeChildren(ctx, executable, controller.signal).catch(() => {});
     void listen().catch(() => {}).finally(close);
-    return () => { controller.abort(); close(); };
+    return () => {
+      // A capped, privately spawned inference server may never continue after
+      // the workspace plugin is disabled or unloaded during a config reload.
+      if (capped && process.env.SWARMHUB_OPENCODE_CAP_READY) process.kill(process.pid, "SIGTERM");
+      controller.abort();
+      close();
+    };
   },
 };
