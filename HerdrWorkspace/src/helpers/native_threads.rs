@@ -124,7 +124,7 @@ pub(super) struct Interrupt {
 }
 
 // A second window or a retry after a lost response must not enqueue another copy immediately.
-const STOP_RETRY_MS: i64 = 60_000;
+use crate::agent::claude_control::RETRY_MS as STOP_RETRY_MS;
 
 pub(super) async fn request_claude_stop(
     State(w): State<Workspace>,
@@ -141,7 +141,7 @@ pub(super) async fn request_claude_stop(
     }
     let now = crate::history::now();
     let claimed = w.history.db()?.execute(
-        "UPDATE claude_children SET record=json_set(record,'$.requested_at',?1)
+        "UPDATE claude_children SET record=json_set(record,'$.requested_at',?1,'$.requested_prompt',NULL)
          WHERE launch=(SELECT id FROM journal WHERE launch_key=?2) AND thread=?3
          AND json_extract(summary,'$.active_turn')=?4 AND json_extract(summary,'$.state')='working'
          AND coalesce(json_extract(record,'$.requested_at'),0)<=?5",

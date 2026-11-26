@@ -13,10 +13,34 @@ use std::{
 pub(crate) const ENABLED: &str = "SWARMHUB_CLAUDE_STOP_REQUESTS";
 const PREFIX: &str = "[SwarmHub stop request] ";
 
+pub(crate) const RETRY_MS: i64 = 60_000;
+const INSTRUCTION: &str = " Use TaskStop only for this task_id.";
+
 pub(crate) fn message(thread: &str, run: &str) -> String {
-    format!(
-        "{PREFIX}{thread} {run}\nStop only Claude subagent {thread} now using TaskStop with task_id {thread}. If the tool is deferred, use ToolSearch to select TaskStop. Report its result."
-    )
+    format!("{PREFIX}{thread} {run}.{INSTRUCTION}")
+}
+
+// Claude Code can wrap multiline terminal input in a pasted_content element.
+fn content(text: &str) -> &str {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("<pasted_content id=\"")
+        && let Some((_, body)) = trimmed.split_once('\n')
+    {
+        return body.trim_start();
+    }
+    trimmed
+}
+
+fn target_line(text: &str) -> Option<(&str, &str)> {
+    let line = content(text).lines().next()?.strip_prefix(PREFIX)?;
+    let (thread, run) = line
+        .strip_suffix(&format!(".{INSTRUCTION}"))?
+        .split_once(' ')?;
+    (identifier(thread) && identifier(run)).then_some((thread, run))
+}
+
+pub(crate) fn is_control_message(text: &str) -> bool {
+    target_line(text).is_some_and(|(thread, run)| message(thread, run) == text)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,15 +70,14 @@ fn guard_path(journal: &Path, key: &str, prompt: &str) -> Option<PathBuf> {
 
 pub(super) fn prompt() -> Result<(), Box<dyn std::error::Error>> {
     let e: Value = serde_json::from_str(&super::read_input(super::MAX_HOOK)?)?;
-    let Some(text) = e["prompt"].as_str().and_then(|s| s.strip_prefix(PREFIX)) else {
+    let Some(text) = e["prompt"]
+        .as_str()
+        .filter(|s| content(s).starts_with(PREFIX))
+    else {
         return Ok(());
     };
     let register = || -> Result<(), Box<dyn std::error::Error>> {
-        let (thread, run) = text
-            .lines()
-            .next()
-            .and_then(|line| line.split_once(' '))
-            .ok_or("Invalid stop request.")?;
+        let (thread, run) = target_line(text).ok_or("Invalid stop request.")?;
         let session = e["session_id"].as_str().ok_or("Missing Claude session.")?;
         let prompt = e["prompt_id"]
             .as_str()
@@ -74,6 +97,12 @@ pub(super) fn prompt() -> Result<(), Box<dyn std::error::Error>> {
         let path = guard_path(&journal, &key, prompt).ok_or("Invalid prompt identity.")?;
         fs::create_dir_all(path.parent().unwrap())?;
         fs::write(path, serde_json::to_vec(&target)?)?;
+        history::connection(&journal)?.execute(
+            "UPDATE claude_children SET record=json_set(record,'$.requested_prompt',?)
+             WHERE launch=(SELECT id FROM journal WHERE launch_key=?) AND thread=?
+             AND json_extract(summary,'$.active_turn')=?",
+            params![prompt, key, thread, run],
+        )?;
         Ok(())
     };
     if let Err(error) = register() {
@@ -85,6 +114,26 @@ pub(super) fn prompt() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// An unrecognized paste or a missing prompt ID must not turn a pending stop into
+// an unrestricted TaskStop. Ordinary, unrelated prompts can act once the request is bound.
+fn unbound_stop(journal: &Path, key: &str, session: &str, prompt: &str, tool: &str) -> bool {
+    if tool != "TaskStop" {
+        return false;
+    }
+    let pending = || -> rusqlite::Result<bool> {
+        history::connection(journal)?.query_row(
+            "SELECT EXISTS(SELECT 1 FROM claude_children c JOIN journal j ON j.id=c.launch
+             WHERE j.launch_key=? AND json_extract(c.record,'$.session')=?
+             AND json_extract(c.record,'$.requested_at')>?
+             AND (?4='' OR json_extract(c.record,'$.requested_prompt') IS NULL
+                  OR json_extract(c.record,'$.requested_prompt')=?4))",
+            params![key, session, history::now() - RETRY_MS, prompt],
+            |r| r.get(0),
+        )
+    };
+    pending().unwrap_or(true)
+}
+
 pub(crate) fn deny_tool(
     journal: &Path,
     key: &str,
@@ -94,11 +143,14 @@ pub(crate) fn deny_tool(
     input: Option<&Value>,
 ) -> bool {
     let Some(path) = guard_path(journal, key, prompt) else {
-        return false;
+        return unbound_stop(journal, key, session, prompt, tool);
     };
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
-        Err(error) => return error.kind() != io::ErrorKind::NotFound,
+        Err(error) => {
+            return error.kind() != io::ErrorKind::NotFound
+                || unbound_stop(journal, key, session, prompt, tool);
+        }
     };
     let Ok(target) = serde_json::from_slice::<Target>(&bytes) else {
         return true;
@@ -117,5 +169,56 @@ pub(crate) fn deny_tool(
 pub(super) fn finished(journal: &Path, key: &str, prompt: &str) {
     if let Some(path) = guard_path(journal, key, prompt) {
         let _ = fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_guard_cannot_stop_a_sibling_while_a_request_is_pending() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("journal");
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute_batch(
+            "CREATE TABLE journal(id INTEGER, launch_key TEXT);
+            INSERT INTO journal VALUES(1, 'owner');
+            CREATE TABLE claude_children(launch INTEGER, record TEXT);",
+        )
+        .unwrap();
+        let record = json!({"session":"session","requested_at":history::now()});
+        db.execute(
+            "INSERT INTO claude_children VALUES(1, ?)",
+            [record.to_string()],
+        )
+        .unwrap();
+        let denied = |session, prompt, tool| deny_tool(&path, "owner", session, prompt, tool, None);
+        assert!(denied("session", "unbound", "TaskStop"));
+        assert!(!denied("session", "unbound", "Read"));
+        assert!(!denied("another-session", "unbound", "TaskStop"));
+        db.execute(
+            "UPDATE claude_children SET record=json_set(record,'$.requested_prompt','bound')",
+            [],
+        )
+        .unwrap();
+        assert!(denied("session", "", "TaskStop"));
+        assert!(denied("session", "bound", "TaskStop"));
+        assert!(!denied("session", "unrelated", "TaskStop"));
+    }
+
+    #[test]
+    fn recognizes_the_typed_command_and_claude_paste_wrapper() {
+        let command = message("child", "2");
+        assert!(is_control_message(&command));
+        let pasted = format!(
+            "\n\n<pasted_content id=\"512\">\n{command}\n\n[SwarmHub person profile] Example\n</pasted_content>"
+        );
+        assert_eq!(target_line(&pasted), Some(("child", "2")));
+        assert!(!is_control_message(&pasted));
+        assert_eq!(
+            target_line(&format!("Please explain this:\n{command}")),
+            None
+        );
     }
 }

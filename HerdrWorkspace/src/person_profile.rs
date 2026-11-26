@@ -336,6 +336,10 @@ fn context_line(profile: &Profile, zone: Tz, at: DateTime<Utc>) -> String {
 /// errors independent of the person's location.
 pub(crate) fn prompt(history: &History, agent: &str, text: String) -> Result<String, Failure> {
     validate_task(&text)?;
+    // A targeted runtime control is one line of machine input. Personal context belongs to conversation turns.
+    if crate::agent::claude_control::is_control_message(&text) {
+        return Ok(text);
+    }
     let context = (|| -> Result<_, StoreError> {
         let db = history.db()?;
         if bots::of_agent(&db, agent)?.is_none() {

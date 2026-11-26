@@ -255,8 +255,8 @@ fn report(decision: &mut Option<&'static str>) {
         return;
     };
     if phase == Phase::Started && std::env::var_os(crate::agent::claude_control::ENABLED).is_some()
-        && let (Some(session), Some(prompt)) = (&hook.session_id, &hook.prompt_id)
-        && crate::agent::claude_control::deny_tool(&journal, &key, session, prompt, &tool, hook.tool_input.as_ref())
+        && let Some(session) = &hook.session_id
+        && crate::agent::claude_control::deny_tool(&journal, &key, session, hook.prompt_id.as_deref().unwrap_or(""), &tool, hook.tool_input.as_ref())
     {
         *decision = Some("This SwarmHub stop request applies only to the selected helper run.");
         return;

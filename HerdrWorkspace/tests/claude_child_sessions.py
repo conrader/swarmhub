@@ -161,11 +161,16 @@ class ChildScenario:
             assert target["name"] == "Inspect the header" and sibling["name"] == "Read sidebar state"
             self.child, self.sibling = target["id"], sibling["id"]
             route = base + "/claude-threads/" + self.child + "?core=" + quote(bot["core"], safe="")
+            # The Mac registers the owning bot. A registered bot receives personal
+            # context on conversation turns, which can trigger Claude's paste wrapper.
+            request("/api/bots", {"bots": [{"id": "aabbcc-qa", "name": "Patch", "template": "claude-preview",
+                                             "instructions": "", "model": "", "main": False}]})
             turn = request(route)["active_turn"]
             assert turn and request(route, {"turn": turn})["requested_turn"] == turn
             until(lambda: request(route)["state"] == "stopped")
-            receipt = next(e["tool_response"] for e in self.events()
-                           if e.get("tool_name") == "TaskStop" and e["hook_event_name"] == "PostToolUse")
+            # The independent observer and the workspace receipt hook run concurrently.
+            receipt = until(lambda: next((e["tool_response"] for e in self.events()
+                                if e.get("tool_name") == "TaskStop" and e["hook_event_name"] == "PostToolUse"), None))
             assert receipt["task_type"] == "local_agent" and receipt["task_id"] == self.child
             assert next(c for c in children() if c["id"] == self.sibling)["state"] == "working"
             try:
@@ -180,7 +185,8 @@ class ChildScenario:
         print("Claude stopped the selected helper and its sibling answered.")
 
     def exercise(self, request, profile, data):
-        bot = request("/api/agents", {"name": "audit-claude", "template": "claude-preview", "task": TASK})
+        name = "patch-aabbcc" if self.stop else "audit-claude"
+        bot = request("/api/agents", {"name": name, "template": "claude-preview", "task": TASK})
         if self.stop:
             return self.exercise_stop(request, bot)
         route = f"/api/agents/{bot['address']}/{bot['created_ms']}/helpers"
