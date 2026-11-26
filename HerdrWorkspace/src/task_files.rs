@@ -13,7 +13,9 @@ use axum::{
 };
 use serde::{Deserialize, de::DeserializeOwned};
 
-pub const UPLOAD_LIMIT: usize = MAX_FILE + 128 * 1024;
+// Team Pack instructions travel with the turn without consuming the user's four uploads.
+const WORKFLOW_LIMIT: usize = 2 * 1024 * 1024;
+pub const UPLOAD_LIMIT: usize = MAX_FILE + WORKFLOW_LIMIT + 128 * 1024;
 const TOO_LARGE: ApiError = ApiError::PayloadTooLarge("Task attachments must total 8 MiB or less.");
 
 #[derive(Deserialize)]
@@ -134,6 +136,7 @@ pub async fn read<T: DeserializeOwned>(
 ) -> Result<(T, Vec<Upload>), ApiError> {
     let mut message = None;
     let mut files = vec![];
+    let mut workflow = None;
     let mut total = 0;
     while let Some(field) = multipart.next_field().await.map_err(upload_error)? {
         match field.name() {
@@ -146,6 +149,15 @@ pub async fn read<T: DeserializeOwned>(
                     serde_json::from_slice(&raw)
                         .map_err(|_| Failure::Input("Enter a valid message."))?,
                 );
+            }
+            Some("workflow") if workflow.is_none() => {
+                let name = field.file_name().filter(|name| valid_filename(name))
+                    .ok_or(Failure::Input("Choose a valid workflow filename."))?.to_owned();
+                let data = field.bytes().await.map_err(upload_error)?;
+                if data.len() > WORKFLOW_LIMIT || std::str::from_utf8(&data).is_err() {
+                    return Err(Failure::Input("Group workflow instructions must be UTF-8 text up to 2 MiB.").into());
+                }
+                workflow = Some(Upload { name, data });
             }
             Some("file") if files.len() < MAX_FILES => {
                 let name = field
@@ -169,6 +181,7 @@ pub async fn read<T: DeserializeOwned>(
         }
     }
     let message = message.ok_or(Failure::Input("Write a task before sending attachments."))?;
+    files.extend(workflow);
     if files.is_empty() {
         return Err(Failure::Input("Choose at least one file to attach.").into());
     }
