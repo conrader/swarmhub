@@ -11,7 +11,6 @@ import shlex
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.request
 import uuid
 
@@ -57,7 +56,7 @@ def provider():
 
 def run(app, bridge, core):
     driver = runpy.run_path(str(Path(__file__).with_name("chat-window-smoke.py")))
-    ax, attr = driver["ax"], driver["attribute"]
+    attr = driver["attribute"]
     wait, press = driver["wait_for"], driver["press"]
     with tempfile.TemporaryDirectory(prefix="sw-page-", dir="/tmp") as temporary, driver["private_workspace"](app) as (bundle, home, store):
         root = Path(temporary)

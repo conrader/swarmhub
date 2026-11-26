@@ -390,8 +390,10 @@ private struct PageDraftCard: View {
 
     private var actions: some View {
         HStack {
-            Button("Make shorter") { decide(.shorten) }
-            Button("Approve") { decide(.approve) }.buttonStyle(NeutralPrimaryButtonStyle())
+            Button("Make shorter") { decide(.shorten) }.help("Ask the author to shorten “\(draft.title)”.")
+            Button("Approve") { decide(.approve) }
+                .buttonStyle(.borderedProminent).tint(AppTheme.accentColor(for: accent))
+                .help("Approve the wording of “\(draft.title)”.")
         }
         .fixedSize().disabled(!enabled)
     }
