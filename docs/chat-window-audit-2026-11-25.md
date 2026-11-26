@@ -376,3 +376,11 @@ The browser walkthrough for Team shows Jarvis creating Legal and proposing Payme
 A store regression used a flagged proposal marked `decided`, followed by an unflagged proposal with the same name in different case. Neither could create the bot. After 70 unrelated messages and a restart, the original proposal could still be accepted. A second decision on the same card had no effect. The manager supplies the flag. Approval of creation and permission to run future tools remain separate decisions. The preview's per-action promise still requires runtime enforcement.
 
 On the same MacBook a private copy of its installed 0.8.20 app updated to 0.8.38 build 72 through Sparkle. On a separate Mac the update also installed from 0.8.37, and a rehearsal rejected an archive signed with a different key. The public feed and all three signed workspace targets were verified after publication.
+
+### Claude tool approvals on the Mac and workspace
+
+For 0.8.39 and workspace 0.2.22 the MacBook driver accepted a flagged Payments proposal in Needs Attention. The workspace fixture received the protected bot's ID and review preference before the new bot appeared in the saved roster. In the right-hand Approvals tab the driver enabled the switch on Patch, observed Auto turn off, opened Scout with its original approval settings, and returned to Patch with per-tool review still selected.
+
+A separate run used the installed Claude Code binary, a local model endpoint issuing two Read calls for the same test invoice, a real SwarmHub workspace and its approval inbox. The first approved call returned the unique file contents. Denying the second produced a tool error and no file contents. A workspace integration launched the normal Claude template by bot ID and checked that its helper received the same blocking hook. A Codex helper was refused for this bot. An unavailable approval socket denied the tool call.
+
+These checks cover Claude tool calls. A change of settings takes effect in new sessions. Other providers and messages or operations processed directly by SwarmHub have their own approval paths.
