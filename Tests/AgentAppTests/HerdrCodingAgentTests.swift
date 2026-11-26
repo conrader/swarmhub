@@ -60,7 +60,7 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         store.setHerdrServer(other.id, for: remote)
         store.setHerdrServer(other.id, for: sample)
         let serverID = store.herdrServer(for: open).id
-        #expect(store.herdrHelperWatch() == [serverID: false])
+        #expect(store.herdrHelperWatch() == [serverID: false, other.id: false])
         store.selectedBot = open
 
         let openName = HerdrBackend.agentName(botName: open.name, botID: open.id)
@@ -121,7 +121,7 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         #expect(store.herdrHelperWatch().isEmpty)
     }
 
-    @Test func overviewWatchesConnectedSSHAndDisconnectedSSHUsesChatActivity() {
+    @Test func sidebarWatchesConnectedSSHAndDisconnectedSSHUsesChatActivity() {
         let store = makeStore()
         let local = Bot(name: "Local", backend: .herdr), remote = Bot(name: "Remote", backend: .herdr)
         store.bots = [local, remote]
@@ -130,11 +130,11 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         store.setHerdrServer(ssh.id, for: remote)
         let localID = store.herdrServer(for: local).id
         #expect(store.herdrHelperWatch() == [localID: false])
-        #expect(store.herdrHelperWatch(servers: store.herdrServers, sshIsOpen: { _ in true }) == [localID: false])
+        #expect(store.herdrHelperWatch(servers: store.herdrServers, sshIsOpen: { _ in true }) == [localID: false, ssh.id: false])
         store.selectedBot = local
         #expect(store.herdrHelperWatch(servers: store.herdrServers, sshIsOpen: { $0 == ssh.id }) == [localID: false, ssh.id: false])
         store.showInfo = false
-        #expect(store.herdrHelperWatch(servers: store.herdrServers, sshIsOpen: { _ in true }) == [localID: false])
+        #expect(store.herdrHelperWatch(servers: store.herdrServers, sshIsOpen: { _ in true }) == [localID: false, ssh.id: false])
         store.showInfo = true
 
         store.selectedBot = remote

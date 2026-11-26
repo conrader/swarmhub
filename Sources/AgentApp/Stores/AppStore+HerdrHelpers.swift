@@ -236,14 +236,13 @@ extension AppStore {
         herdrReadiness[bot.id] = nil
     }
 
-    /// While Overview is open, discover helpers on address servers and existing SSH connections. The normal chat
-    /// watch can also reconnect SSH for an open bot, work in progress, or cached helpers.
+    /// Discover sidebar sessions on local, address and already-connected SSH servers. An open chat,
+    /// work in progress or previously observed helpers can also reconnect an SSH workspace.
     /// An answered helper still live is read often so its terminal disappears when it stops.
     func herdrHelperWatch() -> [String: Bool] { herdrHelperWatch(servers: herdrServers, sshIsOpen: herdrTunnels.isOpen) }
 
     func herdrHelperWatch(servers: [HerdrServer], sshIsOpen: (String) -> Bool) -> [String: Bool] {
         var watch: [String: Bool] = [:]
-        let overviewOpen = showInfo && infoTab == .overview && selectedBot?.backend == .herdr && selectedGroup == nil && openHerdrHelper == nil
         let live = Set(herdrHelpers.compactMap { $0.value.helpers.contains(where: \.isLive) ? $0.key.botID : nil })
         let cached = Set(herdrHelpers.keys.map(\.botID))
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
@@ -254,7 +253,7 @@ extension AppStore {
                 || herdrAgentPresence[bot.id].map { $0.server == server && $0.isActive } == true || live.contains(bot.id)
                 || codejobs(for: bot, on: server).contains { $0.job.isWorking }
             let isOpen = selectedGroup?.memberIDs.contains(bot.id) ?? (selectedBot?.id == bot.id)
-            if server.kind == .local || (overviewOpen && (server.kind == .address || sshIsOpen(server.id))) || isOpen || busy || cached.contains(bot.id) {
+            if server.kind != .ssh || sshIsOpen(server.id) || isOpen || busy || cached.contains(bot.id) {
                 watch[server.id] = busy
             }
         }
