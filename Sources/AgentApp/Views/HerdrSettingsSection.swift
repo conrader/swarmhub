@@ -146,7 +146,12 @@ struct HerdrSettingsSection: View {
             defer { adding = false }
             var warning: String?
             if let server {
-                do { warning = try await store.installHerdrWorkspace(server) }
+                do {
+                    warning = try await store.installHerdrWorkspace(server) { status in
+                        if self.draft == draft { addResult = status }
+                    }
+                    if self.draft == draft { addResult = WizardCopy.checkingRemoteAIs }
+                }
                 catch {
                     if self.draft == draft { setupOffer = (draft, server); addFailed = true; addResult = error.localizedDescription }
                     return

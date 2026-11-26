@@ -16,7 +16,8 @@ struct SetupView: View {
     @State private var loginServer: HerdrServer?
     @State private var signInCheck: HerdrAICheck?
     @State private var testing = false
-    @State private var installingRemote = false
+    @State private var remoteProgress: String?
+    private var installingRemote: Bool { remoteProgress != nil }
     @State private var checkGeneration = UUID()
     @State private var localSetupTask: Task<Void, Never>?
     @State private var failure: String?
@@ -45,7 +46,7 @@ struct SetupView: View {
                     case .welcome:
                         SetupHerdrWelcomeStep(flow: $flow, advance: pickPlace, saved: store.herdrConfigured ? store.herdrServers : [],
                                               savedHostID: $savedHostID)
-                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, installingRemote: installingRemote, test: testHerdr, answer: answerSetupPrompt, scan: { testHerdr(inventoryOnly: true) }, addAI: addLocalAI)
+                    case .herdr: SetupHerdrStep(flow: $flow, testing: testing, remoteProgress: remoteProgress, test: testHerdr, answer: answerSetupPrompt, scan: { testHerdr(inventoryOnly: true) }, addAI: addLocalAI)
                     case .mainBot: SetupMainBotStep(flow: $flow, submit: leaveMainBot)
                     case .moreBots: SetupMoreBotsStep(flow: $flow)
                     case .projects: if let model = presetProjects ?? projects { SetupProjectsStep(flow: $flow, model: model) }
@@ -222,13 +223,14 @@ struct SetupView: View {
     private func installRemote(_ server: HerdrServer) {
         guard !testing, !installingRemote, flow.sshSetupTarget == server else { return }
         let draft = flow.herdr
-        installingRemote = true
+        remoteProgress = WizardCopy.checkingRemote
         failure = nil
         Task {
-            defer { installingRemote = false }
+            defer { remoteProgress = nil }
             do {
-                let warning = try await store.installHerdrWorkspace(server)
+                let warning = try await store.installHerdrWorkspace(server) { remoteProgress = $0 }
                 guard !closed, flow.sshSetupTarget == server else { return }
+                remoteProgress = WizardCopy.checkingRemoteAIs
                 failure = warning
                 testing = true
                 await checkHerdr(draft, step: .herdr, serverID: server.id)

@@ -92,7 +92,7 @@ struct ReadyMadeServerNote: View {
 struct SetupHerdrStep: View {
     @Binding var flow: SetupFlow
     let testing: Bool
-    var installingRemote = false
+    var remoteProgress: String?
     let test: () -> Void
     /// This Mac only: opens the window of an AI that waits for an answer, and looks at the AIs again.
     var answer: (HerdrAICheck) -> Void = { _ in }
@@ -165,8 +165,8 @@ struct SetupHerdrStep: View {
         if let setup = flow.localSetup, !testing || setup == .working(.checkingConnection) {
             // This Mac is being set up, or setting it up is offered or has stopped.
             SetupLocalOffer(setup: setup, answers: $flow.localAnswers, portNote: portNote).transition(.opacity)
-        } else if installingRemote {
-            StatusCard(kind: .working, title: WizardCopy.settingUpServer(flow.herdr.sshDestination))
+        } else if let remoteProgress {
+            StatusCard(kind: .working, title: WizardCopy.settingUpServer(flow.herdr.sshDestination), detail: remoteProgress)
         } else if testing {
             StatusCard(kind: .working, title: SetupCopy.testing).transition(.opacity)
         } else if let port = flow.herdrNothingHere {
