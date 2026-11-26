@@ -7,6 +7,60 @@ import Testing
         AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     }
 
+    @Test func workflowRoundTripUsesImportedPeersAndReachesEachGroupMember() async throws {
+        let source = store()
+        let author = Bot(name: "Patch", backend: .herdr), reviewer = Bot(name: "Scout", backend: .herdr)
+        source.bots = [author, reviewer]
+        let group = try #require(source.createGroup(name: "Release team", memberIDs: [author.id, reviewer.id]))
+        let skill = TeamSkill(name: "Release notes", instructions: "Describe user-visible changes first.")
+        group.workflows[author.id] = .init(skills: [skill], handoffs: [.init(recipient: reviewer.id, condition: "The draft is ready for review.")])
+        let encoded = try TeamPack(group: group, store: source).encoded()
+        let bytes = String(decoding: encoded, as: UTF8.self).lowercased()
+        #expect(!bytes.contains(author.id.uuidString.lowercased()) && !bytes.contains(reviewer.id.uuidString.lowercased()))
+        let url = temporaryStore()
+        let destination = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        destination.bots = [Bot(name: reviewer.name, backend: .herdr)]
+        try destination.importTeamPack(TeamPack.decode(encoded), on: destination.herdrServers[0])
+        let backend = GroupBackend(name: "fixture")
+        let reopened = AppStore(storeURL: url, autoStart: false, backendFactory: { _ in backend },
+                                keyStore: InMemoryKeyStore(), defaults: destination.defaults)
+        let imported = try #require(reopened.groups.first)
+        let members = reopened.members(of: imported)
+        let peer = members[1].id
+        #expect(imported.workflows[members[0].id]?.handoffs.first?.recipient == peer)
+        #expect(try TeamPack(group: imported, store: reopened).encoded() == encoded)
+        #expect(reopened.send(text: "Make the release notes", to: imported))
+        try await waitUntil { !reopened.anyTurnRunning }
+        let turns = await backend.turns()
+        #expect(turns.count == 2)
+        let first = try #require(turns.first?.text)
+        #expect(first.contains(skill.instructions) && first.contains(peer.uuidString.lowercased()))
+        #expect(first.contains("The draft is ready for review.") && first.contains("Make the release notes"))
+        #expect(turns.last?.text.contains(skill.instructions) == false)
+        reopened.removeMember(peer, from: imported)
+        #expect(imported.workflows[members[0].id]?.handoffs.isEmpty == true)
+        #expect(imported.workflows[members[0].id]?.skills == [skill])
+    }
+
+    @Test func packRejectsCredentialsAndUnknownHandoffRecipientsBeforeImport() throws {
+        let source = store(), one = Bot(name: "Patch"), two = Bot(name: "Scout")
+        source.bots = [one, two]
+        let group = try #require(source.createGroup(name: "Crew", memberIDs: [one.id, two.id]))
+        group.workflows[one.id] = .init(skills: [.init(name: "Check", instructions: "api_key=example-test-value")])
+        #expect(throws: (any Error).self) { try TeamPack(group: group, store: source).encoded() }
+        group.workflows[one.id] = .init(handoffs: [.init(recipient: two.id, condition: "api_key=example-test-value")])
+        #expect(throws: (any Error).self) { try TeamPack(group: group, store: source).encoded() }
+        group.workflows[one.id] = .init(handoffs: [.init(recipient: two.id, condition: "Ready")])
+        let data = try TeamPack(group: group, store: source).encoded()
+        var pack = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var members = try #require(pack["members"] as? [[String: Any]])
+        for recipient in [-1, 0, 2] {
+            members[0]["workflow"] = ["skills": [], "handoffs": [["recipient": recipient, "condition": "Ready"]]]
+            pack["members"] = members
+            #expect(throws: (any Error).self) { try TeamPack.decode(JSONSerialization.data(withJSONObject: pack)) }
+        }
+    }
+
     @Test func shareGroupDefinitionsAndRecoverWriteFailure() throws {
         let source = store(), destination = store()
         let scout = Bot(name: "Scout", title: "Release QA", persona: "Check each build.", backend: .herdr)

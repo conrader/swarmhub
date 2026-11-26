@@ -67,12 +67,16 @@ struct TeamPack: Codable {
             try member.workflow?.validate(owner: index, members: Array(pack.members.indices))
         }
         // Inspect decoded strings, so JSON escapes cannot hide a credential inside an instruction.
-        for text in [pack.name] + pack.members.flatMap({ member in
-            [member.name, member.title, member.description, member.instructions, member.template, member.model,
-             member.mark?.shape, member.mark?.colour].compactMap { $0 }
-            + (member.workflow?.skills.flatMap { [$0.name, $0.instructions] } ?? [])
-            + (member.workflow?.handoffs.map(\.condition) ?? [])
-        }) where SecretFilter.redact(text).count > 0 {
+        var fields = [pack.name]
+        for member in pack.members {
+            fields += [member.name, member.title, member.description, member.instructions]
+            fields += [member.template, member.model, member.mark?.shape, member.mark?.colour].compactMap { $0 }
+            if let workflow = member.workflow {
+                fields += workflow.skills.flatMap { [$0.name, $0.instructions] }
+                fields += workflow.handoffs.map(\.condition)
+            }
+        }
+        guard !fields.contains(where: { !SecretFilter.redact($0).isEmpty }) else {
             throw BackendError.unavailable("A Team Pack field contains a possible credential. Remove it before sharing.")
         }
         return pack
