@@ -431,11 +431,11 @@ struct HerdrAgentControls: View {
                 }
             }
             SummarizeBotButton(bot: bot, disabled: restarting || switching) { note = $0 }
-            Divider()
             if !bot.documentReadOnly {
+                Divider()
                 HerdrHelperModelSection(bot: bot, server: server, templates: templates, preset: preset?.helper)
+                    .id("\(bot.id)-\(server.id)")
             }
-                .id("\(bot.id)-\(server.id)")
             Divider()
             if store.movableHerdrBots(on: server).contains(bot) {
                 SettingBlock(title: "Server", detail: server.name) {
