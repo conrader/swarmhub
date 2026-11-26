@@ -42,7 +42,12 @@ struct SidebarBotSessions<ParentRow: View>: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(parents, id: \.self) { parent in
-                        if let group = store.helperGroupNames[parent] {
+                        if let archive = parent.archive, parents.count > 1 {
+                            let started = Date(timeIntervalSince1970: Double(archive.session.createdMs) / 1000)
+                            let when = started.formatted(date: .abbreviated, time: .shortened)
+                            Text([store.helperGroupNames[parent], when].compactMap { $0 }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
+                        } else if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
                         ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
@@ -413,18 +418,20 @@ struct HerdrHelperView: View {
                                 .accessibilityLabel("Terminal output")
                         }
                     }
-                    Button("Steer via " + bot.name, systemImage: "arrow.right") {
+                    Button(selection.archive == nil ? "Steer via " + bot.name : "Open " + (group?.name ?? bot.name), systemImage: "arrow.right") {
                         if store.openHelperParent(selection, of: bot) { closeOverviewDetails?() }
                         else { controlError = "The group session that started this helper is no longer available." }
                     }.buttonStyle(.borderedProminent).accessibilityIdentifier("helper.steerViaParent")
                     if let shown, listed?.isLive == true && !unavailable && !stopped {
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                TextField("Guide this helper through \(bot.name)…", text: $guidance)
-                                    .onSubmit { guide(shown) }
-                                    .accessibilityIdentifier("helper.guidance")
-                                Button("Send to \(bot.name)") { guide(shown) }
-                                    .disabled(guidance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            if selection.archive == nil {
+                                HStack {
+                                    TextField("Guide this helper through \(bot.name)…", text: $guidance)
+                                        .onSubmit { guide(shown) }
+                                        .accessibilityIdentifier("helper.guidance")
+                                    Button("Send to \(bot.name)") { guide(shown) }
+                                        .disabled(guidance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                }
                             }
                             Button("Stop helper", systemImage: "stop.circle") {
                                 stopping = true
