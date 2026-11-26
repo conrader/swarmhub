@@ -5,18 +5,17 @@ struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage private var expanded: Bool
     let bot: Bot
+    let parents: [HerdrHelperParent]
     let parentRow: ParentRow
 
-    init(bot: Bot, @ViewBuilder row: () -> ParentRow) {
+    init(bot: Bot, parents: [HerdrHelperParent], @ViewBuilder row: () -> ParentRow) {
         self.bot = bot
+        self.parents = parents.sorted { ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
         parentRow = row()
         _expanded = AppStorage(wrappedValue: true, "sidebar.sessionsExpanded.\(bot.id)")
     }
 
     var body: some View {
-        let parents = store.herdrHelpers.keys.filter {
-            $0.botID == bot.id && store.herdrHelpers[$0]?.helpers.isEmpty == false
-        }.sorted { ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
         if parents.isEmpty {
             parentRow
         } else {
@@ -70,7 +69,7 @@ struct HerdrHelperRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(helper.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
-                        Text(helper.runLine).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
+                        sessionTime.font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
                     }
                     Text(Self.fragment(helper)).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                 }
@@ -81,6 +80,19 @@ struct HerdrHelperRow: View {
             .onHover { hovering = $0 }
         }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.assignment ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
+    }
+
+    @ViewBuilder private var sessionTime: some View {
+        let start = Date(timeIntervalSince1970: Double(helper.createdMs) / 1000)
+        if helper.isWorking {
+            TimelineView(.periodic(from: .now, by: 1)) { tick in
+                Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince(start)))).monospacedDigit()
+            }
+        } else if helper.answered == true, let end = helper.reply?.atMs, Double(end) >= Double(helper.createdMs) {
+            Text(ActivityCopy.duration((Double(end) - Double(helper.createdMs)) / 1000)).monospacedDigit()
+        } else {
+            Text(helper.runLine)
+        }
     }
 
     /// "Working · Fix the failing test": the status, then the task on the same line.
@@ -134,7 +146,7 @@ struct HerdrCodingAgentCard: View {
                         HStack(spacing: 6) {
                             Text(helper.name).font(.callout.weight(.semibold)).lineLimit(1)
                             if !helper.runLine.isEmpty {
-                                Text(helper.runLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                sessionTime.font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                         if let result = helper.resultPreview {

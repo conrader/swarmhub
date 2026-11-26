@@ -45,22 +45,22 @@ struct SidebarView: View {
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
             ReviewUpdatesButton()
             let layout = store.sidebarLayout
+            let sessions = Dictionary(grouping: store.herdrHelpers.keys.filter { store.herdrHelpers[$0]?.helpers.isEmpty == false }, by: \.botID)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if !layout.pinned.isEmpty {
-                        let sessionOwners = Set(store.herdrHelpers.compactMap { $0.value.helpers.isEmpty ? nil : $0.key.botID })
                         let pinnedParents = layout.pinned.compactMap { chat -> Bot? in
-                            if case .bot(let bot) = chat, sessionOwners.contains(bot.id) { return bot }
+                            if case .bot(let bot) = chat, sessions[bot.id] != nil { return bot }
                             return nil
                         }
                         let tiles = layout.pinned.filter { chat in
-                            if case .bot(let bot) = chat { return !sessionOwners.contains(bot.id) }
+                            if case .bot(let bot) = chat { return sessions[bot.id] == nil }
                             return true
                         }
                         if !tiles.isEmpty {
                             SidebarPinnedStrip(chats: tiles, askNewSection: { sectionPrompt = .new($0) }, requestDelete: requestDelete)
                         }
-                        ForEach(pinnedParents) { bot in row(bot) }
+                        ForEach(pinnedParents) { bot in row(bot, parents: sessions[bot.id] ?? []) }
                     }
                     ForEach(layout.sections) { bucket in
                         if bucket.showsHeader {
@@ -70,7 +70,7 @@ struct SidebarView: View {
                             if bucket.showsHeader && bucket.chats.isEmpty { SidebarEmptySectionLine() }
                             ForEach(bucket.chats) { chat in
                                 switch chat {
-                                case .bot(let bot): row(bot)
+                                case .bot(let bot): row(bot, parents: sessions[bot.id] ?? [])
                                 case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete, askNewSection: { sectionPrompt = .new($0) })
                                 }
                             }
@@ -86,7 +86,7 @@ struct SidebarView: View {
                         }.buttonStyle(.plain).padding(.top, 6)
                     }
                     if store.showingHiddenBots {
-                        ForEach(store.hiddenChatBots) { bot in row(bot) }
+                        ForEach(store.hiddenChatBots) { bot in row(bot, parents: sessions[bot.id] ?? []) }
                         ForEach(store.groups.filter(\.isHidden)) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete, askNewSection: { sectionPrompt = .new($0) }) }
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
@@ -138,8 +138,8 @@ struct SidebarView: View {
 
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
     /// helper's row is the selected one.
-    @ViewBuilder private func row(_ bot: Bot) -> some View {
-        SidebarBotSessions(bot: bot) {
+    @ViewBuilder private func row(_ bot: Bot, parents: [HerdrHelperParent]) -> some View {
+        SidebarBotSessions(bot: bot, parents: parents) {
             BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
         }
     }

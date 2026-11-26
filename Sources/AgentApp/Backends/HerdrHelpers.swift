@@ -10,7 +10,7 @@ extension HerdrClient {
     /// One helper in `GET /api/agents/{address}/{created_ms}/helpers`.
     struct Helper: Decodable, Sendable, Equatable, Identifiable {
         /// The latest saved reply, cut by the bridge when long (`truncated`); the history has it in full.
-        struct Reply: Decodable, Sendable, Equatable { let id: Int; let text: String; var truncated: Bool? = nil }
+        struct Reply: Decodable, Sendable, Equatable { let id: Int; let text: String; var truncated: Bool? = nil; var atMs: Int64? = nil }
         let address: String; let createdMs: UInt64; let name: String
         /// `modelLabel`: the model's name as people read it ("Sonnet 5.5"), from a server that sends it (`model_label`).
         var template: String? = nil; var model: String? = nil; var modelLabel: String? = nil; var difficulty: String? = nil; var task: String? = nil
