@@ -1148,6 +1148,7 @@ def session_usage_overview(source_app):
     agents[0]["session_usage"] = dict(context_tokens=3400, window_tokens=10000, total_tokens=14000)
     agents[1]["session_usage"] = dict(total_tokens=1200, opencode_cost_usd=0.06)
     offline = False
+    summary_session = []
 
     class Workspace(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -1159,9 +1160,44 @@ def session_usage_overview(source_app):
                 if offline:
                     self.send_error(503)
                     return
-                body = dict(core="qa", agents=agents, templates=[], codejob_activity=[])
+                body = dict(core="qa", agents=agents + summary_session, templates=[dict(name="qa-template")],
+                            attachments=True, launch_attachments=True, codejob_activity=[])
+            elif route == "/api/profiles":
+                body = []
+            elif route == "/api/history/qa/summary/300":
+                body = dict(items=[dict(id=1, kind="reply", state="received", text="Keep the original chat.")])
+            elif route == "/api/history/qa/summary/300/preview":
+                body = dict(tools=[])
             elif route in ["/api/attention", "/api/approvals"]:
                 body = dict(pending=[], ci_failures=[])
+            else:
+                self.send_error(404)
+                return
+            data = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            if self.headers.get("Authorization") != "Bearer " + token:
+                self.send_error(403)
+                return
+            if self.path == "/api/agents/with-files":
+                from email.parser import BytesParser
+                from email.policy import default
+                raw = self.rfile.read(int(self.headers["Content-Length"]))
+                payload = BytesParser(policy=default).parsebytes(
+                    ("Content-Type: " + self.headers["Content-Type"] + "\r\n\r\n").encode() + raw)
+                parts = list(payload.iter_parts())
+                message = json.loads(parts[0].get_payload(decode=True))
+                assert message["name"].startswith("handoff-") and b"Keep the original chat." in raw
+                body = dict(name=message["name"], address="summary", created_ms=300, state="live",
+                            template="qa-template", status=dict(state="done"))
+                summary_session.append(body)
+            elif self.path == "/api/agents/summary/300/end":
+                summary_session.clear()
+                body = dict(ended=True)
             else:
                 self.send_error(404)
                 return
@@ -1178,10 +1214,22 @@ def session_usage_overview(source_app):
         store.write_text(json.dumps(dict(version=2, bots=bots, groups=[])))
         Thread(target=server.serve_forever, daemon=True).start()
         try:
+            preferences = home / "Library/Preferences"
+            preferences.mkdir(exist_ok=True, parents=True)
+            domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
             for appearance in ["Dark", "Light"]:
-                with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token,
-                                    {"AppleInterfaceStyle": appearance}) as window:
-                    press(window, "Patch", sidebar=True)
+                (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({"appearance": appearance}))
+                with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                    def select_bot(name):
+                        def match():
+                            return next((label(b) for b in buttons(window) if name in label(b).split(", ")), None)
+                        try:
+                            wait_for("sidebar bot " + name, match)
+                            press(window, match())
+                        except RuntimeError:
+                            print("Sidebar buttons", [label(b) for b in buttons(window)], flush=True)
+                            raise
+                    select_bot("Patch")
                     if not any(label(b) == "Overview" for b in buttons(window)):
                         press(window, "Details")
                     press(window, "Overview")
@@ -1189,18 +1237,22 @@ def session_usage_overview(source_app):
                         panel = next((e for e in descendants(window) if attribute(e, "AXIdentifier") == "overview.sessionUsage"), None)
                         return [str(attribute(e, "AXValue") or label(e)) for e in descendants(panel)] if panel else []
                     def shows(test):
-                        wait_for("session usage", lambda: test(values()), seconds=18)
+                        try:
+                            wait_for("session usage", lambda: test(values()), seconds=18)
+                        except RuntimeError:
+                            print("Session usage", values(), "window buttons", [label(b) for b in buttons(window)], flush=True)
+                            raise
                     shows(lambda v: "34% ctx" in v and "No priced usage reported" in v)
-                    press(window, "Legal", sidebar=True)
-                    shows(lambda v: any("0.06" in t for t in v) and "34% ctx" not in v)
+                    select_bot("Legal")
+                    shows(lambda v: any("0.06" in t.replace(",", ".") for t in v) and "34% ctx" not in v)
                     agents[1]["session_usage"]["opencode_cost_usd"] = 0.09
-                    shows(lambda v: any("0.09" in t for t in v))
+                    shows(lambda v: any("0.09" in t.replace(",", ".") for t in v))
                     offline = True
                     shows(lambda v: "Last reported before the workspace disconnected" in v)
                     offline = False
                     del agents[1]["session_usage"]
-                    shows(lambda v: "Usage has not been reported for this session" in v and not any("0.09" in t for t in v))
-                    press(window, "ArchiveQA", sidebar=True)
+                    shows(lambda v: "Usage has not been reported for this session" in v and not any("0.09" in t.replace(",", ".") for t in v))
+                    select_bot("ArchiveQA")
                     shows(lambda v: "No active session" in v)
                     press(window, "Summarize & start fresh")
                     shows(lambda v: any("Summary ready" in t for t in v))
