@@ -15,6 +15,10 @@ struct InfoPanel: View {
                 if bot.backend == .herdr {
                     Button("Terminal", systemImage: "terminal") {
                         let target: LiveTerminal?
+                        if let native = store.openHerdrHelper?.native {
+                            store.previewInInspector(.init(server: native.server, target: LiveTerminal(thread: native.thread, owner: native.owner, core: native.core)))
+                            return
+                        }
                         if let helper = store.openHerdrHelper, helper.botID == bot.id,
                            let list = store.herdrHelpers[helper.parent],
                            let child = list.helpers.first(where: { $0.id == helper.helperID }) {

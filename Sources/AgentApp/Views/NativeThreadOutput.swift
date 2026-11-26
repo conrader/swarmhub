@@ -9,6 +9,7 @@ struct NativeThreadOutput: View {
     let owner: HerdrClient.AgentRef
     let thread: String
     let detail: String
+    var session: HerdrClient.NativeThread? = nil
     let openedParent: () -> Void
     @State private var activity: HerdrClient.ThreadActivity?
     @State private var requestedTurn: String?
@@ -28,16 +29,28 @@ struct NativeThreadOutput: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(parent?.child.sessionDetail ?? detail).font(.caption).foregroundStyle(.secondary)
-            ViewThatFits(in: .horizontal) {
-                HStack { controls }
-                VStack(alignment: .leading) { controls }
+        Group {
+            if let session {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        cards(for: parent?.child ?? session)
+                        controls
+                        errors
+                    }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(parent?.child.sessionDetail ?? detail).font(.caption).foregroundStyle(.secondary)
+                    ViewThatFits(in: .horizontal) {
+                        HStack { controls }
+                        VStack(alignment: .leading) { controls }
+                    }
+                    errors
+                    if let activity {
+                        TerminalTextGrid(output: activity.transcript, scrollback: true)
+                    } else if readError == nil { ProgressView("Connecting…") }
+                }
             }
-            if let error = actionError ?? readError { Text(error).font(.callout).foregroundStyle(.secondary) }
-            if let activity {
-                TerminalTextGrid(output: activity.transcript, scrollback: true)
-            } else if readError == nil { ProgressView("Connecting…") }
         }
         .task {
             while !Task.isCancelled {
@@ -57,11 +70,55 @@ struct NativeThreadOutput: View {
         }
     }
 
+    @ViewBuilder private var errors: some View {
+        if let error = actionError ?? readError { Text(error).font(.callout).foregroundStyle(.secondary) }
+    }
+
+    @ViewBuilder private func cards(for child: HerdrClient.NativeThread) -> some View {
+        let details = activity?.details
+        let task = details?.task ?? child.task
+        let reply = details?.reply ?? child.reply
+        helperPart("Task", detail: HerdrClient.NativeThread.statusLabel(activity?.state ?? child.state)) {
+            Text(verbatim: task.isEmpty ? "No task recorded." : task).textSelection(.enabled)
+        }
+        helperPart(details.map { $0.steps.count == 64 ? "Steps (latest 64)" : "Steps (\($0.steps.count))" } ?? "Steps", detail: child.model) {
+            if let steps = details?.steps {
+                if steps.isEmpty { Text("No steps recorded.").foregroundStyle(.secondary) }
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(verbatim: step.text).textSelection(.enabled)
+                        Spacer()
+                        if let state = step.state { Text(verbatim: state).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+            } else if activity == nil && readError == nil {
+                ProgressView("Loading steps…").controlSize(.small)
+            } else {
+                Button("View recorded activity in Details") {
+                    store.previewInInspector(.init(server: server, target: LiveTerminal(thread: child, owner: owner, core: core)))
+                }.buttonStyle(.link)
+            }
+        }
+        helperPart("Latest reply", detail: nil) {
+            Text(verbatim: reply.isEmpty ? "No reply yet." : reply).textSelection(.enabled)
+        }
+    }
+
     @ViewBuilder private var controls: some View {
-        if let state = activity?.state {
+        if session == nil, let state = activity?.state {
             Text(HerdrClient.NativeThread.statusLabel(state)).font(.caption).foregroundStyle(.secondary)
         }
         if let parent {
+            if session == nil, store.openHerdrHelper?.native.map({
+                $0.server == server && $0.core == core && $0.owner == owner && $0.thread.provider == runtime && $0.thread.id == thread
+            }) != true {
+                Button("Open session") {
+                    var selection = parent.selection
+                    selection.native = .init(thread: parent.child, core: core, owner: owner, server: server)
+                    store.open(parent.bot, helper: selection)
+                    openedParent()
+                }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openSession")
+            }
             let title = parent.selection.archive == nil ? "Steer via " + parent.bot.name : "Open chat with " + parent.bot.name
             Button(title) {
                 if store.openHelperParent(parent.selection, of: parent.bot) { openedParent() }
@@ -89,5 +146,38 @@ struct NativeThreadOutput: View {
             throw BackendError.unavailable("The workspace connection changed.")
         }
         return try store.herdrClient(for: server)
+    }
+}
+
+/// The center pane shows the selected child's work. The same session can independently
+/// open in the terminal inspector, including after its parent process has ended.
+struct NativeSessionView: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject var bot: Bot
+    let selection: HerdrHelperSelection
+    let native: HerdrHelperSelection.Native
+
+    var body: some View {
+        let target = LiveTerminal(thread: native.thread, owner: native.owner, core: native.core)
+        VStack(spacing: 0) {
+            HStack(spacing: 11) {
+                ShowSidebarItem()
+                Button {
+                    if !store.openHelperParent(selection, of: bot) { store.open(bot) }
+                } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22) }
+                    .buttonStyle(.plain).accessibilityLabel("Back to " + (store.groupOwningHelper(selection, of: bot)?.name ?? bot.name))
+                BotAvatar(bot: bot, size: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: native.thread.name).font(.system(size: 14, weight: .semibold))
+                    Text("Helper of " + bot.name).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                ChatTerminalPreviewButton(server: native.server, target: target)
+                ShowDetailsItem()
+            }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header")
+            Divider()
+            NativeThreadOutput(server: native.server, runtime: native.thread.provider, core: native.core, owner: native.owner,
+                               thread: native.thread.id, detail: target.detail, session: native.thread, openedParent: {})
+        }.background(AppColor.chat).accessibilityElement(children: .contain).accessibilityIdentifier("nativeSession.details")
     }
 }

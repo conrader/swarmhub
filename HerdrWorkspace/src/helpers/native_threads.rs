@@ -13,6 +13,7 @@ struct Child {
     state: String,
     active_turn: Option<String>,
     transcript: String,
+    details: Option<String>,
 }
 
 impl Child {
@@ -26,12 +27,17 @@ impl Child {
     ) -> Result<Self, ApiError> {
         w.history.db()?.query_row(
             "SELECT p.launch_key, json_extract(c.summary,'$.parent'), json_extract(c.summary,'$.state'),
-                    json_extract(c.summary,'$.active_turn'), c.transcript
+                    json_extract(c.summary,'$.active_turn'), c.transcript,
+                    coalesce(json_extract(c.summary,'$.details'),
+                        (SELECT json_object('task',json_extract(record,'$.task'),'reply',json_extract(record,'$.reply'),
+                                            'steps',json_extract(record,'$.steps'))
+                         FROM claude_children WHERE c.runtime='claude' AND launch=c.launch AND thread=c.thread
+                         AND json_type(record,'$.steps')='array'))
              FROM native_children c JOIN journal p ON p.id=c.launch
              WHERE p.core_id=?1 AND p.address=?2 AND p.created_ms=?3 AND c.thread=?4 AND c.runtime=?5",
             params![core, address, created, thread, runtime],
             |r| Ok(Self { launch_key: r.get(0)?, parent: r.get(1)?, state: r.get(2)?,
-                          active_turn: r.get(3)?, transcript: r.get(4)? }),
+                          active_turn: r.get(3)?, transcript: r.get(4)?, details: r.get(5)? }),
         ).optional().map_err(StoreError::from)?.ok_or_else(|| Failure::Missing.into())
     }
 
@@ -100,8 +106,10 @@ async fn activity(
             }
         }
     }
+    let details = child.details.as_deref().map(serde_json::from_str::<Value>)
+        .transpose().map_err(|_| StoreError)?;
     Ok(Json(
-        json!({"transcript":child.transcript, "state":child.state, "active_turn":child.active_turn}),
+        json!({"details":details,"transcript":child.transcript, "state":child.state, "active_turn":child.active_turn}),
     ))
 }
 

@@ -225,6 +225,23 @@ fn clipped(text: &str, limit: usize) -> &str {
     &text[..end]
 }
 
+/// Tool activity comes from typed items in the child's latest turn. Assistant text and
+/// command output can look like a transcript header and must never create extra steps.
+fn step(item: &Value) -> Option<Value> {
+    let kind = item["type"].as_str()?;
+    let label = match kind {
+        "commandExecution" => item["command"].as_str().unwrap_or("Run command"),
+        "fileChange" => "Edit files",
+        "mcpToolCall" | "dynamicToolCall" => item["tool"].as_str().unwrap_or("Tool call"),
+        "collabAgentToolCall" => item["tool"].as_str().unwrap_or("Agent task"),
+        "webSearch" => item["query"].as_str().unwrap_or("Web search"),
+        "imageView" => item["path"].as_str().unwrap_or("View image"),
+        "imageGeneration" => "Generate image",
+        _ => return None,
+    };
+    Some(json!({"text":clipped(label,512),"state":item["status"].as_str()}))
+}
+
 impl Snapshot {
     fn read(id: &str, parent: &str, assignment: &str, thread: &Value) -> Self {
         let turns = thread["turns"]
@@ -312,9 +329,13 @@ impl Snapshot {
             _ => "working",
         };
         let active_turn = last.filter(|turn| turn["status"] == "inProgress").and_then(|turn| turn["id"].as_str());
+        let mut steps: Vec<_> = last.and_then(|turn| turn["items"].as_array()).into_iter().flatten()
+            .rev().filter_map(step).take(64).collect();
+        steps.reverse();
         let summary = json!({"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
             "model":thread["model"],"created_ms":thread["createdAt"].as_i64().unwrap_or_default().saturating_mul(1000),
             "completed_ms":last.and_then(|t| t["completedAt"].as_i64()).map(|s| s.saturating_mul(1000)),
+            "details":{"task":clipped(task,8000),"reply":clipped(answer,24000),"steps":steps},
             "state":state,"task":clipped(task,300),"reply":clipped(answer,300)});
         Snapshot {
             id: id.into(),
@@ -381,6 +402,8 @@ mod tests {
         assert_eq!(snapshot.summary["state"], "answered");
         assert_eq!(snapshot.summary["task"], "Check tests");
         assert_eq!(snapshot.summary["reply"], "All green");
+        assert_eq!(snapshot.summary["details"], json!({"task":"Check tests","reply":"All green",
+            "steps":[{"text":"cargo test","state":null}]}));
         assert_eq!(
             snapshot.transcript,
             "Task Check tests\n\n$ cargo test\n1 passed\n\nCodex All green"

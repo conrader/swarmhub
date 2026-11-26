@@ -6,7 +6,7 @@ import FoundationNetworking
 /// One machine that runs Herdr Core and the SwarmHub bridge. The app keeps a list of them (`UserDefaults`, as JSON)
 /// and each Herdr bot is bound to one. The access token is never part of this record: it lives in the Keychain.
 /// Foundation only, like `HerdrClient`, so the list, its migration and the tunnel also build on Linux.
-struct HerdrServer: Codable, Equatable, Identifiable, Sendable {
+struct HerdrServer: Codable, Hashable, Identifiable, Sendable {
     /// How the app reaches the bridge. The bridge answers on its own machine's loopback only, so `ssh` is that same
     /// loopback port carried here by a forward the app opens itself, and `address` is a forward someone else opened.
     enum Kind: String, Codable, CaseIterable, Sendable { case local, ssh, address }

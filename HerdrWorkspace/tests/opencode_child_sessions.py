@@ -82,7 +82,11 @@ class ChildSession:
             self.release.set()
             request(path + "/end", {})
         assert child("answered") == answered
-        transcript = request(activity + f"?core={core}")["transcript"]
+        saved = request(activity + f"?core={core}")
+        assert "details" not in answered
+        assert saved["details"]["reply"] == self.child_reply and saved["details"]["task"] == self.child_task
+        assert any(str(self.file) in step["text"] for step in saved["details"]["steps"])
+        transcript = saved["transcript"]
         assert self.child_task in transcript and self.child_reply in transcript
         assert "read" in transcript and str(self.file) in transcript
         assert self.parent_reply not in transcript

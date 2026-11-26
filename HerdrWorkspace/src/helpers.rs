@@ -816,7 +816,7 @@ pub(crate) async fn listing(
         .map_err(StoreError::from)?;
     let mut threads: Vec<serde_json::Value> = {
         let db = w.history.db()?;
-        let mut stmt = db.prepare_cached("SELECT c.summary FROM native_children c JOIN journal p ON p.id=c.launch
+        let mut stmt = db.prepare_cached("SELECT json_remove(c.summary,'$.details') FROM native_children c JOIN journal p ON p.id=c.launch
             WHERE p.launch_key=?1 ORDER BY c.thread DESC").map_err(StoreError::from)?;
         let rows = stmt.query_map([key], |r| r.get::<_,String>(0)).map_err(StoreError::from)?;
         rows.map(|s| serde_json::from_str(&s.map_err(StoreError::from)?).map_err(|_| StoreError))

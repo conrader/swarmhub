@@ -20,12 +20,26 @@ struct Child {
 struct Activity {
     #[serde(flatten)]
     child: Child,
+    details: Option<Details>,
     transcript: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Details {
+    task: String,
+    reply: String,
+    steps: Vec<Step>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Step {
+    text: String,
+    state: Option<String>,
 }
 
 pub(crate) fn capture() -> Result<(), Box<dyn std::error::Error>> {
     let (journal, key) = session()?;
-    let activity: Activity = serde_json::from_str(&read_input(256 * 1024)?)?;
+    let activity: Activity = serde_json::from_str(&read_input(768 * 1024)?)?;
     let child = activity.child;
     if !valid_session(&child.id)
         || !valid_session(&child.parent)
@@ -42,6 +56,9 @@ pub(crate) fn capture() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Invalid OpenCode child session.".into());
     }
     let mut summary = serde_json::to_value(&child)?;
+    if let Some(details) = activity.details {
+        summary["details"] = serde_json::to_value(details)?;
+    }
     summary["runtime"] = "opencode".into();
     let db = Connection::open_with_flags(journal, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     db.busy_timeout(std::time::Duration::from_secs(2))?;

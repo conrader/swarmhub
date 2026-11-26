@@ -184,6 +184,8 @@ class ChildScenario:
             assert final["reply"] == CHILD and final["completed_ms"] >= final["created_ms"]
             request(base + "/end", {})
             archived = request(activity + query)
+            assert "details" not in final and archived["details"]["reply"] == CHILD
+            assert any("Read" in step["text"] for step in archived["details"]["steps"])
             assert CHILD in archived["transcript"] and PARENT not in archived["transcript"] and archived["state"] == "answered"
             until(lambda: any(p["session"] == {"address": bot["address"], "created_ms": bot["created_ms"]}
                               for p in request("/api/workspace?codejobs=true").get("archived_helper_parents", [])))

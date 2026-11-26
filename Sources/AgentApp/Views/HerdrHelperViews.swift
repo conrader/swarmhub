@@ -51,7 +51,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
                         if let list = store.herdrHelpers[parent], !list.nativeThreads.isEmpty {
-                            SidebarNativeThreads(bot: bot, threads: list.nativeThreads, owner: list.parent, core: list.core)
+                            SidebarNativeThreads(bot: bot, parent: parent, threads: list.nativeThreads, owner: list.parent, core: list.core)
                         }
                         ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
                             HStack(spacing: 0) {
@@ -75,7 +75,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             if !collapsed.contains(row.id),
                                let list = store.herdrHelpers[row.id.parent.children(of: row.helper.ref, core: row.core)],
                                !list.nativeThreads.isEmpty {
-                                SidebarNativeThreads(bot: bot, threads: list.nativeThreads, owner: list.parent, core: list.core)
+                                SidebarNativeThreads(bot: bot, parent: row.id.parent.children(of: row.helper.ref, core: row.core), threads: list.nativeThreads, owner: list.parent, core: list.core)
                                     .padding(.leading, CGFloat(min(row.depth + 1, 5)) * 10)
                             }
                         }
@@ -200,6 +200,7 @@ struct HerdrHelperRow: View {
 private struct SidebarNativeThreads: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot
+    let parent: HerdrHelperParent
     let threads: [HerdrClient.NativeThread]
     let owner: HerdrClient.AgentRef
     let core: String
@@ -225,14 +226,30 @@ private struct SidebarNativeThreads: View {
 
     var body: some View {
         ForEach(rows) { row in
-            button(row.thread).padding(.leading, CGFloat(min(row.depth, 5)) * 10)
+            HStack(spacing: 0) {
+                button(row.thread)
+                SidebarTerminalButton(bot: bot, target: LiveTerminal(thread: row.thread, owner: owner, core: core))
+            }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
         }
     }
 
     private func button(_ thread: HerdrClient.NativeThread) -> some View {
         let target = LiveTerminal(thread: thread, owner: owner, core: core)
         let server = store.herdrServer(for: bot)
-        let selected = store.inspectorTerminal?.target?.id == target.id && store.inspectorTerminal?.server == server
+        let selection = HerdrHelperSelection(botID: bot.id, helperID: thread.id, groupRuntime: parent.groupRuntime,
+                                             source: parent.source, archive: parent.archive,
+                                             native: .init(thread: thread, core: core, owner: owner, server: server))
+        let current = store.openHerdrHelper?.native
+        let selected = (current?.owner == owner && current?.core == core && current?.server == server
+                        && current?.thread.id == thread.id && current?.thread.provider == thread.provider)
+            || (store.inspectorTerminal?.target?.id == target.id && store.inspectorTerminal?.server == server)
+        let ownsChat: Bool
+        if let group = store.selectedGroup {
+            ownsChat = store.groupOwningHelper(selection, of: bot)?.id == group.id
+        } else {
+            ownsChat = store.selectedBot?.id == bot.id
+        }
+        let openInCenter = !store.showOnlyAttention && ownsChat
         let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : thread.task
         let icon: String
         let color: Color
@@ -244,7 +261,8 @@ private struct SidebarNativeThreads: View {
         }
         let subtitle = [thread.statusLine, detail].filter { !$0.isEmpty }.joined(separator: " · ")
         return Button {
-            store.previewInInspector(.init(server: server, target: target), fallbackBot: bot)
+            if openInCenter { store.open(bot, helper: selection) }
+            else { store.previewInInspector(.init(server: server, target: target), fallbackBot: bot) }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon)
@@ -271,7 +289,7 @@ private struct SidebarNativeThreads: View {
         }.buttonStyle(.plain)
             .accessibilityLabel(thread.provider.label + " agent " + thread.name + ", " + thread.statusLine)
             .accessibilityValue(detail).accessibilityAddTraits(selected ? .isSelected : [])
-            .help("Open " + thread.name + "’s " + thread.provider.label + " session in Details")
+            .help((openInCenter ? "Open session for " : "Preview session for ") + thread.name)
 
     }
 }
@@ -481,7 +499,7 @@ struct HerdrHelperView: View {
                     } else if listed == nil, shown != nil {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
-                    part("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
+                    helperPart("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
                         Text(Self.assignment(shown?.task ?? log?.tasks.first?.text ?? "")).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         ForEach(Array(followUps(after: shown?.task).enumerated()), id: \.offset) { _, text in
                             VStack(alignment: .leading, spacing: 2) {
@@ -490,11 +508,11 @@ struct HerdrHelperView: View {
                             }
                         }
                     }
-                    part(log.map { "Steps (\($0.tools.count))" } ?? "Steps", detail: shown?.runLine) {
+                    helperPart(log.map { "Steps (\($0.tools.count))" } ?? "Steps", detail: shown?.runLine) {
                         if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
                         else { quiet(log == nil ? "Loading…" : "No steps yet.") }
                     }
-                    part(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", detail: nil) {
+                    helperPart(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", detail: nil) {
                         if !reply.content.isEmpty {
                             MarkdownContent(message: reply).textSelection(.enabled)
                         } else if let latest = shown?.resultPreview {
@@ -583,22 +601,6 @@ struct HerdrHelperView: View {
         } else {
             controlError = store.errorMessage ?? "The parent session could not accept this instruction."
         }
-    }
-
-    private func part<Content: View>(_ title: String, detail: String?, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Text(title).font(.callout.weight(.semibold)).accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 4)
-                if let detail, !detail.isEmpty {
-                    Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }.padding(.horizontal, 12).padding(.vertical, 8)
-            Divider()
-            VStack(alignment: .leading, spacing: 6) { content() }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
-        }.background(AppColor.card, in: RoundedRectangle(cornerRadius: 7))
-            .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(AppColor.separator) }
     }
 
     private func quiet(_ text: String) -> some View { Text(text).foregroundStyle(.secondary) }
@@ -690,4 +692,21 @@ struct HerdrHelperView: View {
             show(fresh)
         } catch { if log == nil, !Task.isCancelled { problem = error.localizedDescription } }
     }
+}
+
+@MainActor
+func helperPart<Content: View>(_ title: String, detail: String?, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 8) {
+            Text(title).font(.callout.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 4)
+            if let detail, !detail.isEmpty {
+                Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }.padding(.horizontal, 12).padding(.vertical, 8)
+        Divider()
+        VStack(alignment: .leading, spacing: 6) { content() }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
+    }.background(AppColor.card, in: RoundedRectangle(cornerRadius: 7))
+        .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(AppColor.separator) }
 }
