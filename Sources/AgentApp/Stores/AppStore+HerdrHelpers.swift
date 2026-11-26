@@ -105,12 +105,14 @@ struct HerdrAgentPresence: Equatable {
     let isActive: Bool
     let usage: HerdrClient.SessionUsage?
     let template: String?
+    let program: String?
 
-    init(server: HerdrServer, agent: HerdrClient.Agent?) {
+    init(server: HerdrServer, agent: HerdrClient.Agent?, program: String? = nil) {
         self.server = server
         session = agent?.ref
         usage = agent?.sessionUsage
         template = agent?.template
+        self.program = program
         isActive = agent?.isStarting == true || agent?.status?.state == "working" || agent?.status?.state == "blocked"
     }
 }
@@ -384,7 +386,8 @@ extension AppStore {
         for bot in group {
             let direct = workspace.flatMap { client?.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: $0) }
             if let workspace, previousPresence[bot.id] == herdrAgentPresence[bot.id] {
-                presence[bot.id] = HerdrAgentPresence(server: server, agent: direct)
+                let program = direct?.template.flatMap { name in workspace.templates.first { $0.name == name }?.programName }
+                presence[bot.id] = HerdrAgentPresence(server: server, agent: direct, program: program)
                 if let direct, var reading = herdrAgentReadings[bot.id], reading.session == direct.ref,
                    reading.core == workspace.core, reading.codexSessionModel != direct.codexSessionModel {
                     reading.codexSessionModel = direct.codexSessionModel

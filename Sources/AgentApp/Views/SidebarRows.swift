@@ -92,9 +92,9 @@ struct BotRow: View {
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
                 if answering {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, program: store.herdrProgramName(for: bot), mainBotLabel: main) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main) }
                 } else {
-                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.herdrProgramName(for: bot), mainBotLabel: main)
+                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main)
                 }
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }

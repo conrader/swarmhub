@@ -66,6 +66,17 @@ extension AppStore {
     /// The server's name for the agent program this bot starts, once its server was read (`refreshHerdrAgentReading`).
     func herdrProgramName(for bot: Bot) -> String? { herdrAgentReadings[bot.id]?.runtime?.programName }
 
+    /// A bot with an open session may already have a different AI configured for its next launch.
+    func sidebarProgram(for bot: Bot) -> String? {
+        let reading = herdrAgentReadings[bot.id]
+        if let presence = herdrPresence(for: bot) {
+            guard let session = presence.session else { return reading?.runtime?.programName }
+            if let program = presence.program { return program }
+            return reading?.session == session ? reading?.activeProgram : nil
+        }
+        return reading?.activeProgram ?? reading?.runtime?.programName
+    }
+
     /// What the switch means, in the words of the state it is in.
     nonisolated static func keepsReadyCaption(bot: String, program: String?, available: Bool) -> String {
         guard available else { return "This server cannot start \(bot) ahead of time, so it starts with your first message." }
@@ -120,12 +131,12 @@ extension AppStore {
                 self.clearAutoSwitch(id)
                 if backend.projectsChanged { backend.onProjectsSynced?() }
                 self.herdrReadiness[id] = HerdrAgentReadiness(agent, program: program)
-                self.herdrAgentPresence[id] = HerdrAgentPresence(server: server, agent: agent)
+                self.herdrAgentPresence[id] = HerdrAgentPresence(server: server, agent: agent, program: program)
                 // What the running agent was started on, for Details; a message that waits for this start does not wait for that.
                 if let bot = self.bots.first(where: { $0.id == id }) { Task { await self.refreshHerdrAgentReading(for: bot) } }
             case .running(let agent, let program)?:
                 self.herdrReadiness[id] = HerdrAgentReadiness(agent, program: program)
-                self.herdrAgentPresence[id] = HerdrAgentPresence(server: server, agent: agent)
+                self.herdrAgentPresence[id] = HerdrAgentPresence(server: server, agent: agent, program: program)
             case .unavailable?: self.herdrNoWarmStarts.insert(refused)
             // The server could not be read, or refused this start: the first message starts the agent as before.
             case nil: break

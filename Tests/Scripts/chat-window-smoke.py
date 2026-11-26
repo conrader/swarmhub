@@ -1000,6 +1000,8 @@ def live_terminals(source_app):
                    "group-" + hashlib.sha256(session.encode()).hexdigest()[:24], "GroupHelperQA", "NestedQA"]
     agents = [dict(name=name, address="terminal" + str(i), created_ms=100 + i,
                    state="live", status=dict(state="working")) for i, name in enumerate(agent_names)]
+    agents[0]["template"] = "active-cli"
+    templates = [dict(name="active-cli", runtime=dict(harness="Codex"))]
     for child, parent in [(1, 0), (3, 2), (4, 3)]:
         agents[child]["parent"] = {k: agents[parent][k] for k in ("address", "created_ms")}
     job = "b" * 64
@@ -1015,7 +1017,7 @@ def live_terminals(source_app):
                 self.send_error(403)
                 return
             if route == "/api/workspace":
-                reply = dict(core="qa", agents=agents, templates=[], helper_results=True, helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
+                reply = dict(core="qa", agents=agents, templates=templates, helper_results=True, helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
             elif route == "/api/approvals":
                 reply = dict(pending=[])
             elif route == "/api/attention":
@@ -1056,6 +1058,8 @@ def live_terminals(source_app):
                 press(window, "ReaderQA", sidebar=True)
                 field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
                 enter_draft(field, "Draft stays in ReaderQA")
+                wait_for("Patch’s live Codex label before opening its chat", lambda: any(
+                    "Patch" in label(b).split(", ") and "Codex" in label(b).split(", ") for b in buttons(window)))
                 press(window, "Live terminals")
 
                 application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
