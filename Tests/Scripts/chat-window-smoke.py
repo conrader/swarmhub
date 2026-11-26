@@ -1298,7 +1298,34 @@ def session_usage_overview(source_app):
             server.shutdown()
 
 
-def activity_decisions(source_app, named_review_only=False):
+def qa_inbox_proposals(window, store, command, decisions):
+    press(window, "ReaderQA", sidebar=True)
+    def count(n):
+        return any(label(b) == "Needs Attention" and str(attribute(b, "AXValue")) == str(n) for b in buttons(window))
+    wait_for("command and both bot proposals in the badge", lambda: count(3), seconds=15)
+    press(window, "Needs Attention")
+    def shown(text):
+        return any(label(e) == text or attribute(e, "AXValue") == text for e in descendants(window))
+    wait_for("command and proposal cards together", lambda: shown("swift test --filter ImporterTests") and shown("Create Payments"))
+    press(window, "Inspect Bash request")
+    wait_for("pending command review", lambda: shown("Reviewing command…"))
+    command["reviewer"].update(bot_name="Scout", model="opus", assessment="Runs only the named tests.")
+    wait_for("open request stays open when Scout answers", lambda: shown("Runs only the named tests.") and shown("Deny"), seconds=12)
+    assert not decisions
+    press(window, "Deny")
+    wait_for("exact command denied", lambda: decisions == [(2, "deny")])
+    press(window, "Dismiss proposal for Legal")
+    wait_for("dismissed proposal", lambda: not shown("Create Legal") and count(1))
+    press(window, "Create Payments")
+    def saved():
+        return [b for b in json.loads(store.read_text())["bots"] if b["name"] in ("Payments", "Legal")]
+    wait_for("approved bot persisted", lambda: len(saved()) == 1 and saved()[0]["name"] == "Payments" and count(0), seconds=12)
+    assert saved()[0]["persona"] == "Prepare supplier invoices." and shown("No pending items")
+    press(window, "Done")
+    print("Handled both bot proposals and the live named command review in Needs Attention while ReaderQA stayed open.")
+
+
+def activity_decisions(source_app, named_review_only=False, proposals_only=False):
     import Quartz
     from threading import Thread
 
@@ -1313,6 +1340,16 @@ def activity_decisions(source_app, named_review_only=False):
     decisions = []
     rules = []
     reviewed = []
+
+    if proposals_only:
+        owner["canManageBots"] = True
+        requests = [dict(op="create_bot", name=name, decision="ask", instructions=work)
+                    for name, work in [("Payments", "Prepare supplier invoices."), ("Legal", "Review contracts.")]]
+        owner["messages"] = [dict(id=str(uuid.uuid4()), role="assistant", createdAt=800000010,
+            content="".join("\n```swarmhub\n" + json.dumps(r) + "\n```\n" for r in requests))]
+        pending[:] = [dict(pending[1], arguments=json.dumps({"command":"swift test --filter ImporterTests"}),
+                           reviewer=dict(bot_id=str(uuid.uuid4()), model="", assessment=None))]
+        reviewed.append(7)
 
     class Inbox(BaseHTTPRequestHandler):
         def reply(self, body):
@@ -1370,6 +1407,9 @@ def activity_decisions(source_app, named_review_only=False):
         Thread(target=server.serve_forever, daemon=True).start()
         try:
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                if proposals_only:
+                    qa_inbox_proposals(window, store, pending[0], decisions)
+                    return
                 if named_review_only:
                     # Watch a named review arrive while the chat remains open on the same request.
                     reviewer = dict(bot_id=str(uuid.uuid4()), bot_name=None, model="", assessment=None)
@@ -1792,6 +1832,8 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity-decisions":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--inbox-proposals":
+        activity_decisions(Path(sys.argv[2]).resolve(strict=True), proposals_only=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--named-review":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True), named_review_only=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--team-pack":

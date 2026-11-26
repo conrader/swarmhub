@@ -16,6 +16,14 @@ struct WorkspaceReview: Equatable, Identifiable {
     let server: HerdrServer
     let request: HerdrClient.Approval
     var id: String { "\(bot.id)-\(server.id)-\(request.id)" }
+
+    /// Advice and the displayed model can arrive after the person opens the request.
+    func refers(to other: Self) -> Bool {
+        bot.id == other.bot.id && server == other.server && request.id == other.request.id
+            && request.core == other.request.core && request.address == other.request.address
+            && request.createdMs == other.request.createdMs && request.tool == other.request.tool
+            && request.cwd == other.request.cwd && request.arguments == other.request.arguments
+    }
 }
 
 extension AppStore {
@@ -224,16 +232,29 @@ struct WorkspaceActivityView: View {
                                     }.buttonStyle(.plain).accessibilityLabel("\(row.chat.displayName), \(row.detail)")
                                         .accessibilityValue(row.chat.isUnread ? "Unread" : "")
                                     if row.section == .attention {
-                                        ForEach(store.workspaceReviews(in: row.chat, inboxes: inboxes).filter { !completed.contains($0) }) { review in
-                                            if selectedReview == review {
+                                        if attentionOnly, case .bot(let manager) = row.chat, store.createsHerdrBots(manager) {
+                                            HerdrBotRequestCard(manager: manager, showsCreatedBots: false)
+                                        }
+                                        ForEach(store.workspaceReviews(in: row.chat, inboxes: inboxes).filter { current in !completed.contains(where: { $0.refers(to: current) }) }) { review in
+                                            if selectedReview?.refers(to: review) == true {
                                                 HerdrApprovalReview(request: review.request, server: review.server, keyboardDecisions: true) {
                                                     completed.append(review)
                                                     selectedReview = nil
                                                 }.id(review.id).chatCard(tint: review.bot.colours)
                                             } else {
-                                                Button("Inspect \(HerdrClient.Approval.visible(review.request.tool)) request") {
-                                                    selectedReview = review
-                                                }.controlSize(.small)
+                                                VStack(alignment: .leading, spacing: 3) {
+                                                    if let command = review.request.commandPreview {
+                                                        Text(command).font(.callout.monospaced()).lineLimit(2)
+                                                    }
+                                                    if let reviewer = review.request.reviewer, let name = reviewer.botName,
+                                                       reviewer.assessment != nil, reviewer.problem == nil {
+                                                        Text("Reviewed by " + HerdrClient.Approval.visible(name))
+                                                            .font(.caption).foregroundStyle(.secondary)
+                                                    }
+                                                    Button("Inspect \(HerdrClient.Approval.visible(review.request.tool)) request") {
+                                                        selectedReview = review
+                                                    }.controlSize(.small)
+                                                }
                                             }
                                         }
                                     }

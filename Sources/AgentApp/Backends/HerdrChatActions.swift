@@ -61,6 +61,12 @@ extension HerdrClient {
         var canRememberCommand: Bool? = nil
         var canRememberCommandHour: Bool? = nil
 
+        var commandPreview: String? {
+            guard tool == "Bash", let object = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+                  let command = object["command"] as? String, !command.isEmpty else { return nil }
+            return Self.visible(command)
+        }
+
         static func visible(_ value: String) -> String {
             value.unicodeScalars.map { scalar in
                 switch scalar.properties.generalCategory {
