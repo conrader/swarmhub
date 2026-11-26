@@ -244,9 +244,9 @@ import SwiftUI
         let sheet = NSSize(width: 560, height: 720)
         write(other[16], await png(AnyView(BotEditorView(bot: jarvis)), store, sheet))
         write(other[17], await png(AnyView(BotEditorView(bot: nil)), store, sheet))
-        let block = "```swarmhub\n[{\"op\":\"create_bot\",\"name\":\"Research\",\"instructions\":\"You find and check sources, and answer with links.\",\"avatar\":{\"shape\":\"star\",\"colour\":\"blue\"}},{\"op\":\"create_bot\",\"name\":\"Writer\",\"instructions\":\"You turn notes into clear drafts.\",\"runtime\":\"Codex\"}]\n```"
-        jarvis.messages = [ChatMessage(role: .user, content: "Create two bots: one for research and one for writing."), ChatMessage(role: .assistant, content: "I proposed Research and Writer.\n\n" + block)]
-        let card = NSSize(width: 760, height: 220)
+        let block = "```swarmhub\n[{\"op\":\"create_bot\",\"name\":\"Research\",\"instructions\":\"You find and check sources, and answer with links.\",\"avatar\":{\"shape\":\"star\",\"colour\":\"blue\"}},{\"op\":\"create_bot\",\"name\":\"Payments\",\"decision\":\"decided\",\"review_reason\":\"This bot prepares supplier payments.\",\"instructions\":\"Prepare supplier invoices for review.\",\"runtime\":\"Codex\"}]\n```"
+        jarvis.messages = [ChatMessage(role: .user, content: "Propose bots for research and supplier payments."), ChatMessage(role: .assistant, content: "I proposed Research and Payments.\n\n" + block)]
+        let card = NSSize(width: 760, height: 300)
         write(other[4], await png(AnyView(HerdrBotRequestCard(manager: jarvis).frame(width: card.width, height: card.height).background(AppColor.chat)), store, card))
 
         // Helpers as the server would list them: one working, one answered, one stopped at a prompt. The model is whatever the server said.
