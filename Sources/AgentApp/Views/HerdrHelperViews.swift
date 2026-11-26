@@ -12,7 +12,10 @@ struct SidebarBotSessions<ParentRow: View>: View {
 
     init(bot: Bot, parents: [HerdrHelperParent], workers: [HerdrCodejobRow], @ViewBuilder row: () -> ParentRow) {
         self.bot = bot
-        self.parents = parents.sorted { ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
+        self.parents = parents.sorted {
+            if $0.groupRuntime != $1.groupRuntime { return ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
+            return ($0.archive?.session.createdMs ?? .max) > ($1.archive?.session.createdMs ?? .max)
+        }
         self.workers = workers
         parentRow = row()
         _expanded = AppStorage(wrappedValue: true, "sidebar.sessionsExpanded.\(bot.id)")
@@ -579,7 +582,7 @@ struct HerdrHelperView: View {
     private func read() async {
         guard let helper = listed ?? helper, let core else { return }
         do {
-            let fresh = try await store.herdrHelperLog(helper.ref, core: core, of: bot)
+            let fresh = try await store.herdrHelperLog(helper.ref, core: core, of: bot, includeScreen: helper.isLive)
             guard !Task.isCancelled else { return }
             show(fresh)
         } catch { if log == nil, !Task.isCancelled { problem = error.localizedDescription } }

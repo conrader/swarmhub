@@ -431,6 +431,45 @@ pub(crate) fn session_parents(history: &History, core_id: &str, agents: &[Termin
         .collect::<Result<Vec<_>, _>>()?)
 }
 
+/// An ended delegating session can outlive both its terminal and the Core that ran it.
+#[derive(Serialize)]
+pub(crate) struct ArchivedParent {
+    core: String,
+    agent: String,
+    session: ParentRef,
+    delegated_by: Option<ParentRef>,
+    revision: i64,
+}
+
+pub(crate) fn archived_parents(history: &History, core_id: &str, agents: &[Terminal]) -> Result<Vec<ArchivedParent>, StoreError> {
+    let live: Vec<_> = agents.iter().filter(|agent| agent.state == "live").filter_map(Terminal::launch_key).collect();
+    let live = serde_json::to_string(&live).map_err(|_| StoreError)?;
+    let db = history.db()?;
+    // The last journal row for each child invalidates the Mac's cached listing on a late reply.
+    let mut query = db.prepare_cached(
+        "SELECT p.core_id,p.agent,p.address,p.created_ms,up.address,up.created_ms,
+                max((SELECT max(entry.id) FROM journal entry WHERE entry.core_id=j.core_id
+                     AND entry.address=j.address AND entry.created_ms=j.created_ms))
+         FROM helpers h JOIN journal j ON j.id=h.launch JOIN journal p ON p.launch_key=h.parent_key
+         LEFT JOIN helpers parent_link ON parent_link.launch=p.id
+         LEFT JOIN journal up ON up.launch_key=parent_link.parent_key AND up.core_id=p.core_id
+         WHERE p.core_id=j.core_id AND p.address IS NOT NULL AND p.created_ms IS NOT NULL
+           AND j.address IS NOT NULL AND j.created_ms IS NOT NULL
+           AND (p.core_id!=?1 OR p.launch_key NOT IN (SELECT value FROM json_each(?2)))
+           AND (parent_link.launch IS NULL OR (up.address IS NOT NULL AND up.created_ms IS NOT NULL))
+         GROUP BY p.id ORDER BY p.id DESC"
+    )?;
+    Ok(query.query_map(params![core_id, live], |row| {
+        let ancestor = row.get::<_,Option<String>>(4)?.zip(row.get::<_,Option<u64>>(5)?);
+        Ok(ArchivedParent {
+            core: row.get(0)?, agent: row.get(1)?,
+            session: ParentRef { address: row.get(2)?, created_ms: row.get(3)? },
+            delegated_by: ancestor.map(|(address,created_ms)| ParentRef { address, created_ms }),
+            revision: row.get(6)?,
+        })
+    })?.collect::<Result<Vec<_>,_>>()?)
+}
+
 /// Whether any helper was ever started, so a workspace without helpers asks Core nothing for them.
 pub(super) fn any(history: &History) -> Result<bool, StoreError> {
     Ok(history

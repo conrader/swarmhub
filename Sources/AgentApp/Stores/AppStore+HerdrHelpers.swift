@@ -6,7 +6,8 @@ struct HerdrHelperSelection: Hashable, Sendable {
     let helperID: String
     var groupRuntime: String? = nil
     var source: HerdrHelperSource? = nil
-    var parent: HerdrHelperParent { .init(botID: botID, groupRuntime: groupRuntime, source: source) }
+    var archive: HerdrHelperSource? = nil
+    var parent: HerdrHelperParent { .init(botID: botID, groupRuntime: groupRuntime, source: source, archive: archive) }
 }
 
 /// A bot can delegate from its direct chat and independently from each of its group sessions.
@@ -14,13 +15,14 @@ struct HerdrHelperParent: Hashable, Sendable {
     let botID: UUID
     var groupRuntime: String? = nil
     var source: HerdrHelperSource? = nil
+    var archive: HerdrHelperSource? = nil
 
     func selection(for helper: HerdrClient.Helper) -> HerdrHelperSelection {
-        .init(botID: botID, helperID: helper.id, groupRuntime: groupRuntime, source: source)
+        .init(botID: botID, helperID: helper.id, groupRuntime: groupRuntime, source: source, archive: archive)
     }
 
     func children(of session: HerdrClient.AgentRef, core: String) -> Self {
-        .init(botID: botID, groupRuntime: groupRuntime, source: .init(core: core, session: session))
+        .init(botID: botID, groupRuntime: groupRuntime, source: .init(core: core, session: session), archive: archive)
     }
 }
 
@@ -189,7 +191,7 @@ extension AppStore {
 
     func delegatingSession(for selection: HerdrHelperSelection) -> SidebarHelperSession? {
         guard let source = selection.source else { return nil }
-        let root = HerdrHelperParent(botID: selection.botID, groupRuntime: selection.groupRuntime)
+        let root = HerdrHelperParent(botID: selection.botID, groupRuntime: selection.groupRuntime, archive: selection.archive)
         guard herdrHelpers[root]?.core == source.core else { return nil }
         return sidebarSessions(under: root, collapsed: []).first { $0.helper.ref == source.session }
     }
@@ -381,6 +383,21 @@ extension AppStore {
         let group = herdrBots(on: server).filter { !$0.isReadOnlyArchive }
         var results: [HerdrHelperParent: HelperPollResult] = [:]
         var targets: [(HerdrHelperParent, HerdrClient.Agent?)] = []
+        var archiveTargets: [HerdrHelperParent: HerdrClient.ArchivedHelperParent] = [:]
+        let archives = workspace?.archivedHelperParents ?? []
+        let rootArchives = Dictionary(grouping: archives.filter { $0.delegatedBy == nil }, by: \.agent)
+        let directNames = Dictionary(grouping: group.map { HerdrBackend.agentName(botName: $0.name, botID: $0.id) },
+                                     by: HerdrClient.suffix(of:))
+        let renamedArchives = Dictionary(grouping: rootArchives.keys.filter { name in
+            let registered = directNames[HerdrClient.suffix(of: name)]
+            return registered?.count == 1 && registered?.first != name
+        }, by: HerdrClient.suffix(of:))
+        var nestedArchives: [HerdrHelperSource: [HerdrClient.ArchivedHelperParent]] = [:]
+        for archive in archives {
+            if let owner = archive.delegatedBy {
+                nestedArchives[.init(core: archive.core, session: owner), default: []].append(archive)
+            }
+        }
         let botIDs = Set(bots.map(\.id))
         var presence = herdrAgentPresence.filter { botIDs.contains($0.key) }
         var readiness: [UUID: HerdrAgentReadiness?] = [:]
@@ -413,6 +430,15 @@ extension AppStore {
                 } else {
                     targets.append((parent, direct))
                 }
+                let name = parent.groupRuntime ?? HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+                let priorNames = parent.groupRuntime == nil ? renamedArchives[HerdrClient.suffix(of: name)] ?? [] : []
+                for archive in ([name] + priorNames).flatMap({ rootArchives[$0] ?? [] }) {
+                    let source = HerdrHelperSource(core: archive.core, session: archive.session)
+                    let key = HerdrHelperParent(botID: bot.id, groupRuntime: parent.groupRuntime, archive: source)
+                    archiveTargets[key] = archive
+                    groupNames[key] = names[parent]
+                    targets.append((key, nil))
+                }
             }
         }
         if presence != herdrAgentPresence { herdrAgentPresence = presence }
@@ -422,14 +448,25 @@ extension AppStore {
             let live = workspace.agents.filter { $0.isLive && $0.parent != nil }
             let children = Dictionary(grouping: live) { $0.parent }
             let saved = Set(workspace.helperSessionParents ?? [])
-            var visited = Set(targets.compactMap { $0.1?.ref })
+            var visited = Set(targets.compactMap { $0.1.map { HerdrHelperSource(core: core, session: $0.ref) } })
             var cursor = 0
             while cursor < targets.count {
                 let (root, owner) = targets[cursor]
                 cursor += 1
-                guard let owner else { continue }
-                for child in children[owner.ref] ?? [] where visited.insert(child.ref).inserted {
-                    guard children[child.ref] != nil || saved.contains(child.ref) else { continue }
+                guard let ref = owner?.ref ?? archiveTargets[root]?.session else { continue }
+                let ownerCore = archiveTargets[root]?.core ?? core
+                let source = HerdrHelperSource(core: ownerCore, session: ref)
+                for archive in nestedArchives[source] ?? [] {
+                    let child = HerdrHelperSource(core: ownerCore, session: archive.session)
+                    guard visited.insert(child).inserted else { continue }
+                    let key = root.children(of: archive.session, core: ownerCore)
+                    archiveTargets[key] = archive
+                    groupNames[key] = groupNames[root]
+                    targets.append((key, nil))
+                }
+                guard ownerCore == core else { continue }
+                for child in children[ref] ?? [] where visited.insert(.init(core: core, session: child.ref)).inserted {
+                    guard children[child.ref] != nil || saved.contains(child.ref) || nestedArchives[.init(core: core, session: child.ref)] != nil else { continue }
                     let key = root.children(of: child.ref, core: core)
                     groupNames[key] = groupNames[root]
                     targets.append((key, child))
@@ -438,7 +475,7 @@ extension AppStore {
         } else if workspace == nil {
             // Keep the same grace period for nested sessions during a temporary disconnect.
             let watched = Set(group.map(\.id))
-            for key in previousHelpers.keys where key.source != nil && watched.contains(key.botID) {
+            for key in previousHelpers.keys where (key.source != nil || key.archive != nil) && watched.contains(key.botID) {
                 targets.append((key, nil))
             }
         }
@@ -451,7 +488,19 @@ extension AppStore {
             }
             do {
                 var list: HerdrClient.Helpers?
-                if let agent {
+                if let archive = archiveTargets[parent] {
+                    let liveChildren = archive.core == workspace.core && workspace.agents.contains { $0.isLive && $0.parent == archive.session }
+                    if !liveChildren, archivedHelperRevisions[parent] == archive.revision,
+                       let cached = previousHelpers[parent], cached.helpers.isEmpty {
+                        list = cached
+                    } else {
+                        list = try await client.helpers(of: archive.session, core: archive.core)
+                    }
+                    guard list?.parent == archive.session, list?.core == archive.core else {
+                        results[parent] = .unavailable
+                        continue
+                    }
+                } else if let agent {
                     let readingChat = parent.groupRuntime == nil && selectedGroup == nil && selectedBot?.id == parent.botID
                     let previous = herdrHelpers[parent]
                     let sameLaunch = previous?.parent == agent.ref && previous?.core == workspace.core
@@ -485,6 +534,7 @@ extension AppStore {
         func keep(_ parent: HerdrHelperParent) -> Bool {
             remainingBots.contains(parent.botID) && (!bound.contains(parent.botID) || expected.contains(parent) || herdrStreamingParents.contains(parent))
         }
+        archivedHelperRevisions = archivedHelperRevisions.filter { keep($0.key) }
         var found = herdrHelpers.filter { keep($0.key) }
         var reads = herdrHelperReads.filter { keep($0.key) }
         helperListingFailures = helperListingFailures.filter { keep($0.key) }
@@ -505,12 +555,25 @@ extension AppStore {
             case .success(let list):
                 helperListingFailures[parent] = nil
                 found[parent] = list
+                archivedHelperRevisions[parent] = archiveTargets[parent]?.revision
                 reads[parent] = .polled
             case .unavailable:
                 helperListingFailures[parent, default: 0] += 1
                 if helperListingFailures[parent, default: 0] >= Self.herdrHelperFailureLimit { found[parent] = nil }
                 reads[parent] = .unavailable
             }
+        }
+        if let selected = openHerdrHelper, selected.archive == nil,
+           let old = previousHelpers[selected.parent],
+           (found[selected.parent]?.core != old.core || found[selected.parent]?.parent != old.parent
+            || found[selected.parent]?.sidebarSessions.contains(where: { $0.id == selected.helperID }) != true),
+           let replacement = found.first(where: { key, list in
+               key.botID == selected.botID && key.groupRuntime == selected.groupRuntime && key.archive != nil
+                   && list.core == old.core && list.parent == old.parent && list.sidebarSessions.contains { $0.id == selected.helperID }
+           }) {
+            var moved = selected
+            moved.archive = replacement.key.archive
+            openHerdrHelper = moved
         }
         if found != herdrHelpers { herdrHelpers = found }
         if reads != herdrHelperReads { herdrHelperReads = reads }
@@ -568,7 +631,7 @@ extension AppStore {
     /// Only send through the session that owns this helper. An obsolete group runtime cannot receive a steer.
     func guideHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot, instruction: String) -> Bool {
         let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, selection.botID == bot.id, selection.helperID == helper.id,
+        guard !words.isEmpty, selection.archive == nil, selection.botID == bot.id, selection.helperID == helper.id,
               herdrHelperReads[selection.parent] != .unavailable,
               herdrHelpers[selection.parent]?.helpers.contains(where: { $0.id == helper.id && $0.isLive }) == true
         else { return false }
@@ -614,7 +677,7 @@ extension AppStore {
     }
 
     /// The helper's saved task and replies, its tool calls and its terminal, read from its bot's server.
-    func herdrHelperLog(_ helper: HerdrClient.AgentRef, core: String, of bot: Bot) async throws -> HerdrClient.HelperLog {
-        try await herdrClient(for: herdrServer(for: bot)).helperLog(core: core, helper: helper)
+    func herdrHelperLog(_ helper: HerdrClient.AgentRef, core: String, of bot: Bot, includeScreen: Bool = true) async throws -> HerdrClient.HelperLog {
+        try await herdrClient(for: herdrServer(for: bot)).helperLog(core: core, helper: helper, includeScreen: includeScreen)
     }
 }

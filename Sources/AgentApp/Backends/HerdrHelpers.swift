@@ -7,6 +7,14 @@ extension HerdrClient {
     /// An agent as the bridge names one in a path: its terminal's address and creation time.
     struct AgentRef: Codable, Sendable, Hashable { let address: String; let createdMs: UInt64 }
 
+    struct ArchivedHelperParent: Decodable, Equatable, Sendable {
+        let core: String
+        let agent: String
+        let session: AgentRef
+        let delegatedBy: AgentRef?
+        let revision: Int64
+    }
+
     /// One helper in `GET /api/agents/{address}/{created_ms}/helpers`.
     struct Helper: Decodable, Sendable, Equatable, Identifiable {
         /// The latest saved reply, cut by the bridge when long (`truncated`); the history has it in full.
@@ -92,7 +100,10 @@ extension HerdrClient {
         }
     }
 
-    func helpers(of agent: AgentRef) async throws -> Helpers { try await get("/api/agents/\(agent.address)/\(agent.createdMs)/helpers") }
+    func helpers(of agent: AgentRef, core: String? = nil) async throws -> Helpers {
+        let query = core.map { "?core=" + ($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "") } ?? ""
+        return try await get("/api/agents/\(agent.address)/\(agent.createdMs)/helpers" + query)
+    }
 
     /// The agent's terminal as text: what its screen shows now.
     func screen(of agent: AgentRef) async throws -> String {
@@ -103,11 +114,11 @@ extension HerdrClient {
 
     /// The saved rows are the log; the tool calls and the screen are extras that a helper which has ended may no
     /// longer have, so a failed read of either leaves that part out.
-    func helperLog(core: String, helper: AgentRef) async throws -> HelperLog {
+    func helperLog(core: String, helper: AgentRef, includeScreen: Bool = true) async throws -> HelperLog {
         let items = try await history(core: core, address: helper.address, createdMs: helper.createdMs)
         let seen = try? await preview(core: core, address: helper.address, createdMs: helper.createdMs)
         return HelperLog(tasks: items.filter { $0.kind == "task" }, replies: items.filter { $0.kind == "reply" }, tools: seen?.tools ?? [], draft: seen?.draft,
-                         screen: try? await screen(of: helper))
+                         screen: includeScreen ? try? await screen(of: helper) : nil)
     }
 
     /// The agent's helpers when the workspace shows it has any; an agent without one costs no second request.

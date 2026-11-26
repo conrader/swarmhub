@@ -1011,6 +1011,8 @@ def live_terminals(source_app):
     job = "b" * 64
     token = str(uuid.uuid4())
     screens = []
+    archives = []
+    history_reads = []
     workers = [dict(host="test-host", complete=True, jobs=[
         dict(job=job, owner=owner["id"], state="working", provider="codex")])]
 
@@ -1021,7 +1023,7 @@ def live_terminals(source_app):
                 self.send_error(403)
                 return
             if route == "/api/workspace":
-                reply = dict(core="qa", agents=agents, templates=templates, helper_results=True, helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
+                reply = dict(core="qa", agents=agents, templates=templates, helper_results=True, archived_helper_parents=list(archives), helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
             elif route == "/api/approvals":
                 reply = dict(pending=[])
             elif route == "/api/attention":
@@ -1031,11 +1033,18 @@ def live_terminals(source_app):
                 reply = dict(text=route + " line " + str(screens.count(route)))
             elif route.endswith("/helpers"):
                 _, _, _, address, created, _ = route.split("/")
-                reply = dict(core="qa", helpers=[], parent=dict(address=address, created_ms=int(created)))
+                core = "prior" if "core=prior" in self.path else "qa"
+                if "core=" in self.path:
+                    history_reads.append((core, address, int(created)))
+                reply = dict(core=core, helpers=[], parent=dict(address=address, created_ms=int(created)))
                 for child in agents:
                     if child.get("parent") == reply["parent"]:
                         reply["helpers"].append(dict(child, task="Assigned to " + child["name"]))
-                if address == "terminal0":
+                if core == "prior" or (address == "terminal2" and archives):
+                    name = "PriorCoreQA" if core == "prior" else "GroupArchiveQA"
+                    reply["recent_sessions"] = [dict(address="finished", created_ms=65, name=name, state="gone",
+                                                       answered=True, reply=dict(id=1, text="Result from " + name))]
+                elif address == "terminal0" and created == "100":
                     reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
                                                 answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
                     reply["recent_sessions"] = [dict(address="finished", created_ms=65, name="EarlierQA", state="gone",
@@ -1191,9 +1200,18 @@ def live_terminals(source_app):
                 wait_for("earlier helper after returning to Patch", earlier)
                 press(window, label(earlier()))
                 wait_for("distinct earlier reply", lambda: any(attribute(n, "AXValue") == "The export passed." for n in descendants(window)))
-                press(window, "Steer via Patch")
+                # The old parent's terminal is reaped. A replacement at its address has no helpers.
+                old_ref = dict(address="terminal0", created_ms=100)
+                archives.extend([
+                    dict(core="qa", agent=agent_names[0], session=old_ref, revision=21),
+                    dict(core="prior", agent=agent_names[0], session=old_ref, revision=12),
+                    dict(core="qa", agent=agent_names[2], session=dict(address="terminal2", created_ms=102), revision=25),
+                ])
+                agents[0]["created_ms"] = 200
                 del agents[1:]
                 workers.clear()
+                wait_for("old parent fetched by core and launch", lambda: ("qa","terminal0",100) in history_reads, 20)
+                wait_for("selected result after parent replacement", lambda: any(attribute(n, "AXValue") == "The export passed." for n in descendants(window)))
                 press(window, "ReaderQA", sidebar=True)
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
                 press(window, "ReaderQA", sidebar=True)
@@ -1201,6 +1219,14 @@ def live_terminals(source_app):
                     return {name for button in buttons(window) for name in ["AnsweredQA", "EarlierQA"]
                             if label(button).startswith("Helper " + name + ",")}
                 wait_for("both closed sessions after relaunch", lambda: restored() == {"AnsweredQA", "EarlierQA"})
+                def archived_button(name):
+                    return next((b for b in buttons(window) if label(b).startswith("Helper " + name + ",")), None)
+                for name, back in [("PriorCoreQA", "Back to Patch"), ("GroupArchiveQA", "Back to ReleaseQA")]:
+                    wait_for(name, lambda: archived_button(name))
+                    press(window, label(archived_button(name)))
+                    wait_for("result from " + name, lambda: any(attribute(n, "AXValue") == "Result from " + name for n in descendants(window)))
+                    press(window, back)
+                print("Verified saved direct and group helper results after parent replacement, Core replacement, and app relaunch.")
                 print("Verified pinned bot and detached worker previews preserve the current draft, live terminal identities, and two closed helpers after relaunch.")
         finally:
             server.shutdown()

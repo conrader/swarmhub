@@ -323,7 +323,7 @@ impl Stream {
             address: self.address.clone(),
             created_ms: self.created,
         };
-        let listing = helpers::listing(&self.w, self.core_id.clone(), self.key.as_deref()?, parent)
+        let listing = helpers::listing(&self.w, self.core_id.clone(), self.key.as_deref()?, parent, true)
             .await
             .ok()?;
         serde_json::to_value(listing).ok()
