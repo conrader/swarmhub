@@ -412,3 +412,9 @@ This result concerns Codex-native child threads. The workspace’s own helper co
 ### Controlling a Codex child in 0.8.44
 
 The Interactive preview offers **Stop helper** and a route back to the delegating bot. SwarmHub 0.8.43 exposed a read-only transcript for Codex-native child threads. On a logged-in MacBook, a private native window opened a working child from the sidebar and pressed **Stop helper**. The Linux workspace and real Codex CLI confirmed that exact child turn was interrupted. The other selected chat remained open. **Steer via Patch** then opened the parent chat. The parent completed with its own reply. The model replies were deterministic fixtures. Additional API checks rejected a parent thread, another Core, an older turn ID and a repeated stop after completion.
+
+### Claude-native child missing in 0.8.44
+
+In an isolated Linux workspace, real Claude Code 2.1.332 invoked its built-in Agent tool with the Explore agent. A local model fixture held the child’s response open. The parent’s tool receipt contained the child ID, description, assignment and resolved model. Claude also reported start and stop hooks with the same agent and session IDs. Its child transcript contained the expected final text, and SwarmHub saved the separate parent reply. The owning bot’s helpers endpoint omitted the child both while it worked and after completion. This also happened with the public workspace 0.2.25 binary.
+
+Run `HerdrWorkspace/tests/claude_child_sessions.py CORE WORKSPACE CLAUDE` in a loopback-only network namespace to reproduce. The probe prints the two visibility observations. Add `--require-visible` to assert both. It uses a temporary Claude profile, local model responses and a disposable Core.

@@ -33,7 +33,7 @@ def until(check, seconds=20):
     raise AssertionError("Timed out waiting for the Claude preview fixture.")
 
 
-def smoke(hc, workspace, claude):
+def smoke(hc, workspace, claude, scenario=None):
     assert set(name for _, name in socket.if_nameindex()) <= {"lo"}, "Run in a loopback-only network namespace."
     held = {FIRST_TASK: threading.Event(), FINAL_TASK: threading.Event()}
     started = {task: threading.Event() for task in held}
@@ -99,6 +99,8 @@ def smoke(hc, workspace, claude):
         }
         for path in (root / ".claude.json", profile / ".claude.json"):
             path.write_text(json.dumps(preferences))
+        if scenario is not None:
+            scenario.prepare(profile)
         (templates / "claude-preview.md").write_text(
             "---\ndescription: Interactive Claude preview fixture\n"
             f"command: SWARMHUB_CLAUDE_BIN={shlex.quote(claude)} "
@@ -106,7 +108,7 @@ def smoke(hc, workspace, claude):
         )
         token = secrets.token_hex(32)
         endpoint = str(root / "core.sock")
-        with ThreadingHTTPServer(("127.0.0.1", 0), Mock) as model:
+        with ThreadingHTTPServer(("127.0.0.1", 0), scenario.handler if scenario is not None else Mock) as model:
             threading.Thread(target=model.serve_forever, daemon=True).start()
             env = {
                 "PATH": "/usr/bin:/bin", "HOME": directory, "LANG": "C.UTF-8", "HC_SOCKET": endpoint,
@@ -137,6 +139,9 @@ def smoke(hc, workspace, claude):
                                                         timeout=60) as response:
                                 return json.load(response)
 
+                        if scenario is not None:
+                            scenario.exercise(request, profile, data)
+                            return
                         launched = request("/api/agents", {"name": "native-claude", "template": "claude-preview", "task": FIRST_TASK})
                         address = f"{launched['address']}/{launched['created_ms']}"
                         agent = f"/api/agents/{address}"
