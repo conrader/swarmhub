@@ -28,6 +28,13 @@ struct BotUsageOverview: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Context used").accessibilityValue("\(percent)%")
             }
+            if let presence, !bot.isReadOnlyArchive, store.helperRosters[server.id] != .unavailable {
+                let template = presence.session == nil ? store.herdrTemplate(for: bot) : presence.template
+                if presence.session == nil || template != nil {
+                    RuntimeAccountRow(server: server, template: template)
+                        .id([bot.id.uuidString, server.id, server.address, server.sshHost, server.sshUser, template ?? ""])
+                }
+            }
             if let usage {
                 ViewThatFits(in: .horizontal) {
                     HStack { cost(usage); Spacer(minLength: 6); total(usage) }
@@ -60,6 +67,46 @@ struct BotUsageOverview: View {
 
     private func total(_ usage: HerdrClient.SessionUsage) -> Text {
         Text("\(usage.totalTokens.formatted()) tokens total")
+    }
+}
+
+private struct RuntimeAccountRow: View {
+    @EnvironmentObject private var store: AppStore
+    let server: HerdrServer
+    let template: String?
+    @State private var account: HerdrClient.RuntimeAccount?
+    @State private var unavailable = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let account {
+                if let billing = account.billing { Text(billing); Spacer(minLength: 2) }
+                switch account.state {
+                case .signedIn: Text("CLI signed in")
+                case .signedOut: Text("CLI signed out").foregroundStyle(AppColor.caution)
+                case .unreported: Text("CLI account unreported")
+                }
+            } else if unavailable { Text("CLI status unavailable") }
+        }
+        .font(.caption).foregroundStyle(.secondary)
+        .task {
+            while !Task.isCancelled {
+                do {
+                    let next = try await store.herdrClient(for: server).runtimeAccount(template: template)
+                    try Task.checkCancellation()
+                    account = next
+                    unavailable = false
+                } catch HerdrClient.Failure.http(404, _) {
+                    // Workspaces predating account status still supply session usage.
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    account = nil
+                    unavailable = true
+                }
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
     }
 }
 

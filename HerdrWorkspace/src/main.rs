@@ -64,6 +64,7 @@ mod runtimes;
 mod search;
 mod service;
 mod session_usage;
+mod runtime_account;
 mod skill_proposals;
 mod skills;
 mod skillshare;
@@ -179,6 +180,9 @@ impl Workspace {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(command) = std::env::args_os().nth(1) {
+        if command == "codex-account" || command == "claude-account" {
+            return runtime_account::cli(command == "codex-account").await;
+        }
         if command == codex_agent::stream::COMMAND {
             return codex_agent::stream::run().await;
         }
@@ -362,6 +366,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(memory_proposals::routes())
         .merge(email_drafts::routes())
         .merge(runtimes::model_discovery::routes())
+        .merge(runtime_account::routes())
         .merge(opencode_agent::models::routes())
         .merge(slack_events::routes())
         .merge(terminal::routes())

@@ -350,6 +350,15 @@ impl Core {
                 ));
             }
         };
+        self.runtime_probe(helper, command, env).await
+    }
+
+    pub(crate) async fn runtime_probe(
+        &self,
+        helper: &str,
+        command: &str,
+        env: &BTreeMap<&str, &str>,
+    ) -> Result<ModelProbeOutput, Failure> {
         let mut env: BTreeMap<&str, String> = env
             .iter()
             .map(|(name, value)| (*name, (*value).to_owned()))

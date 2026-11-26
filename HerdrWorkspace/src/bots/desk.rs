@@ -593,10 +593,16 @@ async fn deliver_completion(w: &Workspace, item: &Waiting) {
 }
 
 pub(crate) fn bot_template<'a>(bot: &Bot, templates: &'a [crate::core::Template], catalog: &crate::runtimes::Catalog) -> Option<&'a crate::core::Template> {
+    configured_template(&bot.template, templates, catalog)
+}
+
+pub(crate) fn configured_template<'a>(
+    name: &str, templates: &'a [crate::core::Template], catalog: &crate::runtimes::Catalog,
+) -> Option<&'a crate::core::Template> {
     let usable = |template: &&crate::core::Template| {
         template.error.is_none() && crate::core::valid_name(&template.name)
     };
-    if bot.template.is_empty() {
+    if name.is_empty() {
         // The first program Core lists, and a beta one only when there is no other.
         templates
             .iter()
@@ -606,7 +612,7 @@ pub(crate) fn bot_template<'a>(bot: &Bot, templates: &'a [crate::core::Template]
         templates
             .iter()
             .filter(usable)
-            .find(|template| template.name == bot.template)
+            .find(|template| template.name == name)
     }
 }
 

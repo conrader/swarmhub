@@ -104,11 +104,13 @@ struct HerdrAgentPresence: Equatable {
     let session: HerdrClient.AgentRef?
     let isActive: Bool
     let usage: HerdrClient.SessionUsage?
+    let template: String?
 
     init(server: HerdrServer, agent: HerdrClient.Agent?) {
         self.server = server
         session = agent?.ref
         usage = agent?.sessionUsage
+        template = agent?.template
         isActive = agent?.isStarting == true || agent?.status?.state == "working" || agent?.status?.state == "blocked"
     }
 }

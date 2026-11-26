@@ -16,6 +16,10 @@ fn executable() -> Command {
     crate::service::agent_command("codex", "SWARMHUB_CODEX_BIN")
 }
 
+pub(crate) fn account() -> std::io::Result<crate::runtime_account::Account> {
+    models::account(executable())
+}
+
 pub fn models() -> Result<(), Box<dyn std::error::Error>> {
     if env::args_os().nth(2).is_some() {
         return Err("Model discovery does not take arguments.".into());

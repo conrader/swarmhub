@@ -203,13 +203,25 @@ fn nonblocking(fd: libc::c_int) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) fn discover(command: Command) -> io::Result<Catalog> {
+fn initialized(command: Command) -> io::Result<AppServer> {
     let mut server = AppServer::start(command)?;
     server.send(json!({"id":1,"method":"initialize","params":{"clientInfo":{
         "name":"swarmhub-herdr","version":env!("CARGO_PKG_VERSION")
     }}}))?;
     let _: serde::de::IgnoredAny = server.result(1)?;
     server.send(json!({"method":"initialized"}))?;
+    Ok(server)
+}
+
+pub(super) fn account(command: Command) -> io::Result<crate::runtime_account::Account> {
+    let mut server = initialized(command)?;
+    server.send(json!({"id":2,"method":"account/read","params":{"refreshToken":false}}))?;
+    let result: Value = server.result(2)?;
+    Ok(crate::runtime_account::Account::codex(&result))
+}
+
+pub(super) fn discover(command: Command) -> io::Result<Catalog> {
+    let mut server = initialized(command)?;
     let mut ids = Vec::new();
     let mut seen = BTreeSet::new();
     let mut cursors = BTreeSet::new();
