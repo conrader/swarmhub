@@ -384,3 +384,7 @@ For 0.8.39 and workspace 0.2.22 the MacBook driver accepted a flagged Payments p
 A separate run used the installed Claude Code binary, a local model endpoint issuing two Read calls for the same test invoice, a real SwarmHub workspace and its approval inbox. The first approved call returned the unique file contents. Denying the second produced a tool error and no file contents. A workspace integration launched the normal Claude template by bot ID and checked that its helper received the same blocking hook. A Codex helper was refused for this bot. An unavailable approval socket denied the tool call.
 
 These checks cover Claude tool calls. A change of settings takes effect in new sessions. Other providers and messages or operations processed directly by SwarmHub have their own approval paths.
+
+### Sidebar terminal previews while writing in another chat
+
+On the MacBook, a private window held an unsent draft in ReaderQA. The 0.8.39 window exposed no terminal button on a pinned bot tile with a live session. In the 0.8.40 candidate, the driver opened PinnedQA’s terminal from its tile, returned to Details, and opened a detached Codex worker listed under Patch. Both showed output from the selected process. After closing the second preview, the original ReaderQA draft was still in the composer. The same run inspected a nested group helper, stopped displaying output when its terminal identity changed, and reopened two closed helpers after relaunching.

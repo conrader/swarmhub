@@ -58,7 +58,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                                         .accessibilityValue(folded ? "Collapsed" : "Expanded")
                                 }
                                 if row.helper.isLive {
-                                    previewButton(row.helper.ref, name: row.helper.name, core: row.core)
+                                    SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: row.helper.ref, title: row.helper.name, core: row.core))
                                 }
                             }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
                         }
@@ -66,8 +66,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                     ForEach(workers) { row in
                         let target = LiveTerminal(host: row.id.host, job: row.job, botName: bot.name)
                         Button {
-                            store.open(bot)
-                            store.previewInInspector(TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target))
+                            store.previewInInspector(TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target), fallbackBot: bot)
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: row.job.isWorking ? "terminal" : "clock").foregroundStyle(.secondary)
@@ -88,20 +87,30 @@ struct SidebarBotSessions<ParentRow: View>: View {
     }
     @ViewBuilder private var botControls: some View {
         if let ref = store.herdrTerminalSession(for: bot) {
-            HStack(spacing: 0) { parentRow; previewButton(ref, name: bot.name, core: nil) }
+            HStack(spacing: 0) {
+                parentRow
+                SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: ref, title: bot.name))
+            }
         } else { parentRow }
     }
+}
 
-    private func previewButton(_ ref: HerdrClient.AgentRef, name: String, core: String?) -> some View {
+struct SidebarTerminalButton: View {
+    @EnvironmentObject private var store: AppStore
+    let bot: Bot
+    let target: LiveTerminal
+
+    var body: some View {
         Button {
-            let target = LiveTerminal(agent: ref, title: name, core: core)
-            store.previewInInspector(TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target))
+            store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target), fallbackBot: bot)
         } label: {
             Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
-                .frame(width: 24, height: 30).contentShape(Rectangle())
-        }.buttonStyle(.plain).help("Preview terminal for " + name).accessibilityLabel("Preview terminal for " + name)
+                .frame(width: 24, height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Preview terminal for " + target.title)
+        .accessibilityLabel("Preview terminal for " + target.title)
     }
-
 }
 
 /// One helper: its name, the model it runs on by its label, then what it is doing and
@@ -130,6 +139,7 @@ struct HerdrHelperRow: View {
             .onHover { hovering = $0 }
         }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.assignment ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     @ViewBuilder private var sessionTime: some View {
@@ -273,6 +283,7 @@ struct HerdrHelperCard: View {
             .inspectorCard(padding: 10, selected: selected).contentShape(RoundedRectangle(cornerRadius: AppleMetrics.corner, style: .continuous))
         }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.assignment ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
