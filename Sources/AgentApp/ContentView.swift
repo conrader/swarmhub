@@ -53,7 +53,9 @@ struct ContentView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                ForEach(store.chatSSHLoginRequests) { server in ChatSSHLoginBar(server: server) }
+                VStack(spacing: 0) {
+                    ForEach(store.chatSSHLoginRequests) { server in ChatSSHLoginBar(server: server) }
+                }
             }
             .disabled(store.storeRestoreOffer != nil).ignoresSafeArea(.container, edges: .top)
             .overlay(alignment: .top) { StoreRestorePrompt() }

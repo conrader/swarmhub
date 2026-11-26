@@ -280,3 +280,29 @@ private let listingJSON = """
     #expect(store.herdrCarrySource(for: bot)?.lead == handoff.lead)
     #expect(handoff.lead != GrokHandoff.lead(for: bot.id, origin: .ownChat))
 }
+
+@Test @MainActor func chatOffersSSHLoginOnlyForItsOwnPasswordChallenge() async throws {
+    let store = helperStore()
+    let server = HerdrServer(id: "remote", name: "Studio", kind: .ssh, address: HerdrServer.loopback(port: 8787),
+                             sshHost: "studio.test", sshUser: "deployed")
+    store.saveHerdrServer(server, token: "workspace-token")
+    let remote = Bot(name: "Remote", backend: .herdr), peer = Bot(name: "Peer", backend: .herdr)
+    let local = Bot(name: "Local", backend: .herdr)
+    store.bots = [remote, peer, local]
+    for bot in [remote, peer] { store.setHerdrServer(server.id, for: bot) }
+    store.herdrClientSetup = { client in
+        client.prepare = { throw HerdrTunnel.Failure.ended("Permission denied (publickey,password).") }
+    }
+    await store.refreshHerdrHelpers(on: server.id)
+    store.selectedBot = local
+    #expect(store.chatSSHLoginRequests.isEmpty)
+    store.selectedBot = remote
+    #expect(store.chatSSHLoginRequests == [server])
+    store.selectedGroup = GroupChat(name: "Shared", memberIDs: [local.id, remote.id, peer.id])
+    #expect(store.chatSSHLoginRequests == [server])
+    store.herdrClientSetup = { client in
+        client.prepare = { throw HerdrTunnel.Failure.ended("Permission denied (publickey).") }
+    }
+    await store.refreshHerdrHelpers(on: server.id)
+    #expect(store.chatSSHLoginRequests.isEmpty)
+}
