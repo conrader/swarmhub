@@ -112,11 +112,13 @@ enum Palette {
     /// What is written or drawn on a fill of the accent: white on a light window, charcoal on a dark one, where the
     /// accents are brighter. Either reads at 4.5:1 on Clay, Sage and Graphite.
     static let onAccent: Pair = (0xFFFFFF, 0x111114)
+    static let blue: Pair = (0x2563EB, 0x5B93FF)
+    static let userBubble: Pair = (0xEAF1FF, 0x1D283D)
     static let clay: Pair = (0xB84A1E, 0xD97A3E), sage: Pair = (0x55784F, 0x7FA079)
     /// Graphite follows the text colour.
     static let graphite: Pair = (0x111318, 0xF4F4F6)
     /// The system's own accents, near enough to derive a tint from; the app draws the system's colour itself.
-    static let system: [String: Pair] = ["Blue": (0x2563EB, 0x5B93FF), "Purple": (0xAF52DE, 0xBF5AF2), "Pink": (0xFF2D55, 0xFF375F), "Orange": (0xFF9500, 0xFF9F0A),
+    static let system: [String: Pair] = ["Blue": blue, "Purple": (0xAF52DE, 0xBF5AF2), "Pink": (0xFF2D55, 0xFF375F), "Orange": (0xFF9500, 0xFF9F0A),
                                          "Green": (0x34C759, 0x30D158), "Teal": (0x30B0C7, 0x40C8E0)]
 
     static func rgb(_ pair: Pair, dark: Bool) -> RGB { RGB(dark ? pair.dark : pair.light) }

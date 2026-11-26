@@ -12,7 +12,7 @@ enum AppTheme {
     static func accentColor(for name: String) -> Color {
         switch name {
         case "Sage": AppColor.adaptive(Palette.sage)
-        case "Blue": AppColor.adaptive(light: 0x2563EB, dark: 0x5B93FF)
+        case "Blue": AppColor.adaptive(Palette.blue)
         case "Purple": .purple
         case "Pink": .pink
         case "Orange": .orange
