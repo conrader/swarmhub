@@ -3,9 +3,7 @@ import SwiftUI
 
 enum AppTheme {
     static let defaultPreference = "Dark"
-    /// Clay, from the app icon: warm, and the colour of every default button, switch and selection until the person
-    /// picks another. Graphite (the earlier default) is still offered.
-    static let defaultAccent = "Clay"
+    static let defaultAccent = "Blue"
     static let accentNames = ["Clay", "Sage", "Blue", "Purple", "Pink", "Orange", "Teal", "Graphite"]
 
     /// The app-wide tint. Clay and Sage are the icon's own colours, deepened until white text on a button reads
@@ -14,7 +12,7 @@ enum AppTheme {
     static func accentColor(for name: String) -> Color {
         switch name {
         case "Sage": AppColor.adaptive(Palette.sage)
-        case "Blue": .blue
+        case "Blue": AppColor.adaptive(Palette.blue)
         case "Purple": .purple
         case "Pink": .pink
         case "Orange": .orange
@@ -34,9 +32,7 @@ enum AppTheme {
     }
 }
 
-/// The app's colours, drawn from its icon ("Crew": cream, olive, sage and clay). Surfaces are warm neutrals, cream in
-/// light and olive charcoal in dark, never a blue-grey or a pure black; the few named colours mark states and tiles.
-/// Text on every surface is the system's primary and secondary, which read at 12:1 and more on all of them.
+/// The native workspace uses the light and dark surfaces from the interactive preview.
 enum AppColor {
     static let sidebar = adaptive(Palette.sidebar)
     static let chat = adaptive(Palette.chat)

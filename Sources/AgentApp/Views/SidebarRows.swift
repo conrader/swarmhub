@@ -25,10 +25,16 @@ enum SidebarMetrics {
 /// Name over a one-line grey fragment, both truncated with "…"; unread makes the name semibold.
 private struct RowText: View {
     let name: String; let fragment: String; let unread: Bool
+    var program: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
-                .lineLimit(1).truncationMode(.tail)
+            HStack(spacing: 5) {
+                Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
+                    .lineLimit(1).layoutPriority(1)
+                if let program {
+                    Text(program).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
             // A blank fragment still takes its line, so every row is the same height.
             Text(fragment.isEmpty ? " " : fragment).font(.system(size: SidebarMetrics.fragmentSize)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.tail)
@@ -82,9 +88,9 @@ struct BotRow: View {
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
                 if answering {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, program: store.herdrProgramName(for: bot)) }
                 } else {
-                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread)
+                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.herdrProgramName(for: bot))
                 }
                 Spacer(minLength: 4)
                 if bot.isUnread { UnreadDot() }

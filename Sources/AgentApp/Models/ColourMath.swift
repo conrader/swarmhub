@@ -102,21 +102,23 @@ struct BotTintPair: Equatable, Sendable {
 /// what a control or a card looks like on each of them.
 enum Palette {
     typealias Pair = (light: UInt32, dark: UInt32)
-    static let sidebar: Pair = (0xF1EFE8, 0x131411), chat: Pair = (0xFAF9F5, 0x181915), panel: Pair = (0xF5F3EC, 0x151612)
-    static let card: Pair = (0xFFFFFF, 0x20221C), raised: Pair = (0xFFFFFF, 0x21231D)
-    static let separator: Pair = (0xDDDACD, 0x3B3D34), selection: Pair = (0xE5E3D6, 0x35372F)
+    static let sidebar: Pair = (0xF5F5F7, 0x0C0C0F), chat: Pair = (0xFFFFFF, 0x111114), panel: Pair = (0xF8F9FB, 0x0E0E11)
+    static let card: Pair = (0xF8F9FB, 0x17171D), raised: Pair = (0xFFFFFF, 0x19191F)
+    static let separator: Pair = (0xDCDDE0, 0x303037), selection: Pair = (0xE2E4EB, 0x25252B)
     /// The line around a control that is not chosen (a tile, a switch that is off), and the mark inside one that is.
-    static let outline: Pair = (0x858272, 0x7E8172)
+    static let outline: Pair = (0x7A7D89, 0x7C7F8C)
     /// Small marks drawn straight on a surface (the actions under a message): 4.5:1 on every surface.
-    static let mark: Pair = (0x6B6959, 0xA6A897)
+    static let mark: Pair = (0x5B6070, 0xA3A5B0)
     /// What is written or drawn on a fill of the accent: white on a light window, charcoal on a dark one, where the
     /// accents are brighter. Either reads at 4.5:1 on Clay, Sage and Graphite.
-    static let onAccent: Pair = (0xFFFFFF, 0x181915)
+    static let onAccent: Pair = (0xFFFFFF, 0x111114)
+    static let blue: Pair = (0x2563EB, 0x5B93FF)
+    static let userBubble: Pair = (0xEAF1FF, 0x1D283D)
     static let clay: Pair = (0xB84A1E, 0xD97A3E), sage: Pair = (0x55784F, 0x7FA079)
     /// Graphite follows the text colour.
-    static let graphite: Pair = (0x262821, 0xF7F7F2)
+    static let graphite: Pair = (0x111318, 0xF4F4F6)
     /// The system's own accents, near enough to derive a tint from; the app draws the system's colour itself.
-    static let system: [String: Pair] = ["Blue": (0x007AFF, 0x0A84FF), "Purple": (0xAF52DE, 0xBF5AF2), "Pink": (0xFF2D55, 0xFF375F), "Orange": (0xFF9500, 0xFF9F0A),
+    static let system: [String: Pair] = ["Blue": blue, "Purple": (0xAF52DE, 0xBF5AF2), "Pink": (0xFF2D55, 0xFF375F), "Orange": (0xFF9500, 0xFF9F0A),
                                          "Green": (0x34C759, 0x30D158), "Teal": (0x30B0C7, 0x40C8E0)]
 
     static func rgb(_ pair: Pair, dark: Bool) -> RGB { RGB(dark ? pair.dark : pair.light) }

@@ -1,13 +1,55 @@
 import SwiftUI
 
-/// A Herdr bot's helper agents in the sidebar, nested under the bot's row while the server lists any, newest first.
-struct HerdrHelperRows: View {
+/// The disclosure belongs to the bot. Direct and group sessions keep their own identities.
+struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var bot: Bot
+    @AppStorage private var expanded: Bool
+    let bot: Bot
+    let parents: [HerdrHelperParent]
+    let parentRow: ParentRow
+
+    init(bot: Bot, parents: [HerdrHelperParent], @ViewBuilder row: () -> ParentRow) {
+        self.bot = bot
+        self.parents = parents.sorted { ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
+        parentRow = row()
+        _expanded = AppStorage(wrappedValue: true, "sidebar.sessionsExpanded.\(bot.id)")
+    }
+
     var body: some View {
-        ForEach(store.herdrHelpers[bot.id]?.helpers ?? []) { helper in
-            HerdrHelperRow(helper: helper, selected: store.isOpen(helper, of: bot)) { store.open(helper, of: bot) }
+        if parents.isEmpty {
+            parentRow
+        } else {
+            HStack(spacing: 0) {
+                parentRow
+                Button {
+                    expanded.toggle()
+                } label: {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .frame(width: 28, height: 32).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Sessions for " + bot.name)
+                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                .help(expanded ? "Hide sessions" : "Show sessions")
+            }
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(parents, id: \.self) { parent in
+                        if let group = store.helperGroupNames[parent] {
+                            Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
+                        }
+                        ForEach(store.herdrHelpers[parent]?.helpers ?? []) { helper in
+                            let selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: parent.groupRuntime)
+                            HerdrHelperRow(helper: helper, selected: store.openHerdrHelper == selection) {
+                                store.open(helper, of: bot, groupRuntime: parent.groupRuntime)
+                            }
+                        }
+                    }
+                }
+                .overlay(alignment: .leading) { Rectangle().fill(AppColor.separator).frame(width: 1).accessibilityHidden(true) }
                 .padding(.leading, SidebarMetrics.rowPadding + SidebarMetrics.mark / 2)
+            }
         }
     }
 }
@@ -27,7 +69,7 @@ struct HerdrHelperRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(helper.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
-                        Text(helper.runLine).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
+                        sessionTime.font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
                     }
                     Text(Self.fragment(helper)).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                 }
@@ -38,6 +80,19 @@ struct HerdrHelperRow: View {
             .onHover { hovering = $0 }
         }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.assignment ?? "")")
             .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
+    }
+
+    @ViewBuilder private var sessionTime: some View {
+        let start = Date(timeIntervalSince1970: Double(helper.createdMs) / 1000)
+        if helper.isWorking && helper.createdMs > 1_000_000_000_000 {
+            TimelineView(.periodic(from: .now, by: 1)) { tick in
+                Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince(start)))).monospacedDigit()
+            }
+        } else if helper.answered == true, let end = helper.reply?.atMs, Double(end) >= Double(helper.createdMs) {
+            Text(ActivityCopy.duration((Double(end) - Double(helper.createdMs)) / 1000)).monospacedDigit()
+        } else {
+            Text(helper.runLine)
+        }
     }
 
     /// "Working · Fix the failing test": the status, then the task on the same line.

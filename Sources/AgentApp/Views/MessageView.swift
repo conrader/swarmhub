@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MessageView: View {
     @EnvironmentObject private var store: AppStore
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
     @ObservedObject var message: ChatMessage
     let repliedMessage: ChatMessage?
     let reply: () -> Void
@@ -16,6 +17,10 @@ struct MessageView: View {
     init(message: ChatMessage, repliedMessage: ChatMessage? = nil, actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, author: Bot? = nil) {
         self.actionTarget = actionTarget; self.message = message; self.repliedMessage = repliedMessage; self.reply = reply; self.author = author
     }
+    private var userBubbleFill: AnyShapeStyle {
+        accent == "Blue" ? AnyShapeStyle(AppColor.adaptive(Palette.userBubble)) : AnyShapeStyle(TintShapeStyle().opacity(0.16))
+    }
+
     var body: some View { row }
 
     private var row: some View {
@@ -100,8 +105,8 @@ struct MessageView: View {
         } else if message.role == .user {
             if !message.content.isEmpty {
                 UserMessageText(source: message.content).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
-                    // The person's own words sit on a wash of the accent, so the two sides of a chat differ by colour, not only by side.
-                    .background(message.isSteer || message.isCorrection ? AnyShapeStyle(AppColor.card) : AnyShapeStyle(TintShapeStyle().opacity(0.16)), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    .background(message.isSteer || message.isCorrection ? AnyShapeStyle(AppColor.card) : userBubbleFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .background(AppColor.chat, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay { if message.isSteer || message.isCorrection { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
             }
