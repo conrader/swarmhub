@@ -84,7 +84,7 @@ struct HerdrHelperRow: View {
 
     @ViewBuilder private var sessionTime: some View {
         let start = Date(timeIntervalSince1970: Double(helper.createdMs) / 1000)
-        if helper.isWorking {
+        if helper.isWorking && helper.createdMs > 1_000_000_000_000 {
             TimelineView(.periodic(from: .now, by: 1)) { tick in
                 Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince(start)))).monospacedDigit()
             }
@@ -146,7 +146,7 @@ struct HerdrCodingAgentCard: View {
                         HStack(spacing: 6) {
                             Text(helper.name).font(.callout.weight(.semibold)).lineLimit(1)
                             if !helper.runLine.isEmpty {
-                                sessionTime.font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Text(helper.runLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                         }
                         if let result = helper.resultPreview {
