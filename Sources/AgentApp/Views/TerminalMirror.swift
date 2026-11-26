@@ -31,8 +31,7 @@ struct TerminalTextGrid: View {
             }.frame(width: size.width, height: size.height, alignment: .topLeading)
                 .scaleEffect(scale, anchor: .topLeading)
         }.clipped().background(AppColor.chat)
-            .accessibilityElement(children: .ignore).accessibilityLabel("Terminal output")
-            .accessibilityValue(rows.joined(separator: "\n"))
+            .accessibilityRepresentation { Text(verbatim: rows.joined(separator: "\n")) }
     }
 }
 
