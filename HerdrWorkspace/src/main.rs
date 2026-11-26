@@ -1918,7 +1918,14 @@ async fn interrupt(
 ) -> Result<impl IntoResponse, Failure> {
     let agent = w.core.agent(&id, created).await?;
     let gemini = gemini_stop(&w, &agent);
-    let outcome = w.core.interrupt(&agent).await?;
+    let api_stop = if agent.uses_opencode_api() {
+        opencode_agent::follow_up::interrupt(w.history.file(), &agent).await?
+    } else { None };
+    let outcome = match api_stop {
+        Some(true) => "stopped".to_owned(),
+        Some(false) => "still_working".to_owned(),
+        None => w.core.interrupt(&agent).await?,
+    };
     if let Some(told) = gemini {
         let _ = told.await;
         if outcome == "still_working" {

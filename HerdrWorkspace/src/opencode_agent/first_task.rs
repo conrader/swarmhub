@@ -452,6 +452,16 @@ impl ApiSession {
         }
     }
 
+    pub(super) async fn interrupt(&self, password: &str) -> io::Result<bool> {
+        #[derive(Deserialize)]
+        struct Status { interrupted: bool }
+        let error = || io::Error::other("OpenCode did not confirm the interrupt.");
+        let url = self.base.join(&format!("api/session/{}/interrupt?resume=false", self.id)).map_err(|_| error())?;
+        let response = self.client.post(url).basic_auth("opencode", Some(password)).send().await.map_err(|_| error())?;
+        if response.status() != reqwest::StatusCode::OK { return Err(error()); }
+        response.json::<Status>().await.map(|status| status.interrupted).map_err(|_| error())
+    }
+
     pub(super) async fn attention(&self, password: &str) -> io::Result<bool> {
         #[derive(Deserialize)]
         struct Pending {
