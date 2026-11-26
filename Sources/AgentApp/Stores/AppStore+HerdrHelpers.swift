@@ -91,7 +91,21 @@ struct HerdrHelperOverview {
         let id: HerdrHelperSelection
     }
 
+    struct NativeRow: Identifiable {
+        struct ID: Hashable {
+            let server: String
+            let session: LiveTerminal.Source
+        }
+
+        let bot: Bot
+        let groupName: String?
+        let server: HerdrServer
+        let target: LiveTerminal
+        var id: ID { .init(server: server.id, session: target.id) }
+    }
+
     var rows: [Row] = []
+    var nativeRows: [NativeRow] = []
     var codejobs: [HerdrCodejobRow] = []
     var withoutDetachedActivity: [HerdrServer] = []
     var unavailableCodejobHosts: [String] = []
@@ -102,7 +116,7 @@ struct HerdrHelperOverview {
     var hasConnectedServer = false
     var hasBots = false
     var confirmedEmpty: Bool {
-        hasConnectedServer && rows.isEmpty && codejobs.isEmpty && checking.isEmpty
+        hasConnectedServer && rows.isEmpty && nativeRows.isEmpty && codejobs.isEmpty && checking.isEmpty
             && unavailable.isEmpty && unattributed.isEmpty && unavailableCodejobHosts.isEmpty
     }
 }
@@ -149,7 +163,11 @@ extension AppStore {
 
     func hasActiveCodingAgent(_ bot: Bot) -> Bool {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return false }
-        return herdrHasUnansweredHelpers(bot) || herdrPresence(for: bot)?.isActive == true
+        let nativeWorking = herdrHelpers.contains { parent, listing in
+            parent.botID == bot.id && parent.archive == nil && herdrHelperReads[parent] != .unavailable
+                && listing.nativeThreads.contains(where: \.isWorking)
+        }
+        return nativeWorking || herdrHasUnansweredHelpers(bot) || herdrPresence(for: bot)?.isActive == true
             || codejobs(for: bot, on: herdrServer(for: bot)).contains { $0.job.isWorking }
     }
 
@@ -233,6 +251,7 @@ extension AppStore {
         let servers = herdrServers
         let watch = herdrHelperWatch(servers: servers, sshIsOpen: herdrTunnels.isOpen)
         var included: Set<String> = [], checking: Set<String> = [], unavailable: Set<String> = []
+        var seenNative: Set<HerdrHelperOverview.NativeRow.ID> = []
         let parents = Dictionary(grouping: herdrHelperReads.keys, by: \.botID)
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
             result.hasBots = true
@@ -247,9 +266,17 @@ extension AppStore {
             if herdrHelperReads[direct] == nil { checking.insert(server.id) }
             for parent in (parents[bot.id] ?? []).sorted(by: { ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }) {
                 if herdrHelperReads[parent] == .unavailable { unavailable.insert(server.id) }
-                for helper in herdrHelpers[parent]?.helpers ?? [] where helper.hasOpenTask {
+                guard let listing = herdrHelpers[parent] else { continue }
+                let groupName = helperGroupNames[parent] ?? parent.groupRuntime
+                for helper in listing.helpers where helper.hasOpenTask {
                     let id = parent.selection(for: helper)
-                    result.rows.append(.init(bot: bot, helper: helper, groupName: helperGroupNames[parent] ?? parent.groupRuntime, id: id))
+                    result.rows.append(.init(bot: bot, helper: helper, groupName: groupName, id: id))
+                }
+                guard parent.archive == nil, herdrHelperReads[parent] != .unavailable else { continue }
+                for thread in listing.nativeThreads where thread.isWorking {
+                    let row = HerdrHelperOverview.NativeRow(bot: bot, groupName: groupName, server: server,
+                                                            target: LiveTerminal(thread: thread, owner: listing.parent, core: listing.core))
+                    if seenNative.insert(row.id).inserted { result.nativeRows.append(row) }
                 }
             }
         }
@@ -313,7 +340,7 @@ extension AppStore {
     func herdrHelperWatch(servers: [HerdrServer], sshIsOpen: (String) -> Bool) -> [String: Bool] {
         var watch: [String: Bool] = [:]
         let live = Set(herdrHelpers.compactMap { key, list in
-            let working = list.helpers.contains(where: \.isLive) || list.nativeThreads.contains { $0.state == "working" }
+            let working = list.helpers.contains(where: \.isLive) || list.nativeThreads.contains(where: \.isWorking)
             return working ? key.botID : nil
         })
         let cached = Set(herdrHelpers.keys.filter { $0.archive == nil }.map(\.botID))

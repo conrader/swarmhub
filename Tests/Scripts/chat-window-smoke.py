@@ -1150,11 +1150,20 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
                     assert title_size.width >= width - 2, f"Truncated helper owner at {title_size.width} pt, needs {width} pt"
 
                 assert not panel("inspector.terminal") and panel("nativeSession.commandOutput")
+                native_preview = "Preview output for Layout reader, helper of Patch"
+                def overview_preview():
+                    overview = panel("overview.activeHelpers")
+                    return overview and any(label(b) == native_preview for b in buttons(overview))
+                wait_for("working OpenCode session in Overview", overview_preview)
                 capture("working")
+                press(panel("overview.activeHelpers"), native_preview)
+                wait_for("terminal from the active helper card", lambda: panel("inspector.terminal") and shows_details())
+                press(window, "Back to Details")
                 child_finished.set()
                 expected.remove("I am checking the header.")
                 expected.add("Complete sidebar result.")
                 wait_for("completed reply without reopening the session", shows_details)
+                wait_for("answered helper leaves Overview", lambda: panel("overview.activeHelpers") and not overview_preview())
                 capture("answered")
                 press(window, "Preview Layout reader in Details")
                 wait_for("docked transcript beside child details", lambda: panel("inspector.terminal") and shows_details())
