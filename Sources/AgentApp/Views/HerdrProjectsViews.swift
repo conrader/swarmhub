@@ -394,7 +394,7 @@ private struct HerdrBotProjectsBody: View {
         }
         // Only the real app reads on its own; a preview or test store shows what it was given.
         .task(id: server) {
-            guard store.launchWorkEnabled else { return }
+            guard !quietWhenEmpty, store.launchWorkEnabled else { return }
             await store.refreshProjectAssignments(on: server, using: model)
         }
     }
