@@ -67,20 +67,20 @@ struct NativeThreadOutput: View {
                 if store.openHelperParent(parent.selection, of: parent.bot) { openedParent() }
             }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openParent")
         }
-        if runtime == .codex, activity?.state == "working", let turn = activity?.activeTurn {
+        if runtime != .claude, activity?.state == "working", let turn = activity?.activeTurn {
             Button(requestedTurn == turn ? "Stopping…" : "Stop helper") {
                 requestedTurn = turn
                 actionError = nil
                 Task {
                     do {
-                        try await connectedClient().interruptCodexTurn(turn, owner: owner, core: core, thread: thread)
+                        try await connectedClient().interruptChildTurn(turn, runtime: runtime, owner: owner, core: core, thread: thread)
                     } catch {
                         requestedTurn = nil
                         actionError = error.localizedDescription
                     }
                 }
             }.controlSize(.small).disabled(requestedTurn == turn || readError != nil)
-                .accessibilityIdentifier("codexChild.stop")
+                .accessibilityIdentifier(runtime.rawValue + "Child.stop")
         }
     }
 
