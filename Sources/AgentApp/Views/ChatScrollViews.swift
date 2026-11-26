@@ -260,12 +260,14 @@ struct JumpToLatestButton: View {
     var body: some View {
         if let label = scroll.jumpLabel(conversationID) {
             Button(action: action) {
-                Label(label, systemImage: "arrow.down").font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .glassSurface(in: Capsule(), interactive: true, fallback: .regularMaterial).plainSurfaceShadow()
+                ViewThatFits(in: .horizontal) {
+                    Label(label, systemImage: "arrow.down").fixedSize()
+                    Image(systemName: "arrow.down")
+                }
             }
-            .buttonStyle(.plain).padding(.bottom, 12)
+            .buttonStyle(.bordered).controlSize(.small)
             .accessibilityLabel("Jump to latest message")
+            .accessibilityValue(Text(verbatim: label))
             .help("Jump to latest message")
         }
     }

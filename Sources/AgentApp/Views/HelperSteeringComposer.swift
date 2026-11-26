@@ -4,6 +4,7 @@ struct HelperSteeringComposer: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var draft: HelperSteeringDraft
     let chatID: UUID
+    let jump: JumpToLatestButton
     @FocusState private var focused: Bool
     @State private var rejected = false
 
@@ -14,6 +15,7 @@ struct HelperSteeringComposer: View {
                 Text("Steering " + draft.target.name).fontWeight(.semibold)
                 Text(verbatim: draft.target.task).lineLimit(1).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                jump
                 Button {
                     store.helperSteeringDrafts.removeValue(forKey: chatID)
                     store.composerFocus = chatID

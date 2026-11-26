@@ -12,6 +12,10 @@ struct ChatView: View {
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     /// `unfolded`: cards that start unfolded (renders); the app starts every card folded.
     init(bot: Bot, unfolded: Set<UUID> = []) { self.bot = bot; _folds = StateObject(wrappedValue: ChatFolds(open: unfolded)) }
+    private var jumpToLatest: JumpToLatestButton {
+        JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, action: viewport.latest)
+    }
+
     var body: some View {
         let shown = bot.messages.filter { !$0.isSilent }
         let _ = viewport.show(bot.id, order: shown.map(\.id), model: store.chatScroll)
@@ -120,11 +124,12 @@ struct ChatView: View {
     }
 
     /// Under the transcript: whom a reply answers, what waits for the person, and the message box. One group, so
-    /// that glass surfaces standing close together are drawn together. "Jump to latest" hangs above it.
+    /// that glass surfaces standing close together are drawn together.
     private var bottomBar: some View {
         VStack(spacing: 0) {
             if store.helperSteeringDrafts[bot.id] == nil, let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
+                jumpToLatest
                 Text(bot.retiredBackend.map { "Read-only chat from \($0)." } ?? "Read-only chat from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity)
             } else {
                 let helpers = store.herdrHelpers[bot.id]?.inChat ?? []
@@ -156,18 +161,17 @@ struct ChatView: View {
                     GoalStatusView(bot: bot, goal: goal)
                 }
                 if let guidance = store.helperSteeringDrafts[bot.id] {
-                    HelperSteeringComposer(draft: guidance, chatID: bot.id).id(ObjectIdentifier(guidance))
+                    HelperSteeringComposer(draft: guidance, chatID: bot.id, jump: jumpToLatest).id(ObjectIdentifier(guidance))
                 } else { composer }
             }
         }
         .frame(maxWidth: .infinity).glassGroup(spacing: 4)
-        .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, action: viewport.latest).alignmentGuide(.top) { $0[.bottom] } }
     }
 
     private var composer: some View {
         // The main bot's "+" menu: its one action writes a request for a new bot into the composer.
         AttachmentComposer(intake: intake) { attachments in
-                     ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), awaitingSteer: store.turn(in: bot)?.awaitingSteerCapability == true, hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
+                     ComposerView(text: $draft, attachments: attachments, jump: jumpToLatest, isStreaming: store.isStreaming(in: bot), canSteer: store.canSteer(in: bot), awaitingSteer: store.turn(in: bot)?.awaitingSteerCapability == true, hint: store.steerHint ?? store.herdrFirstReplyHint(for: bot),
                      send: send, stop: { store.stop(bot) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
