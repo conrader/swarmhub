@@ -1013,6 +1013,7 @@ def live_terminals(source_app):
     screens = []
     archives = []
     child_finished = Event()
+    child_started_ms = int(time.time() * 1000) - 72000
     history_reads = []
     workers = [dict(host="test-host", complete=True, jobs=[
         dict(job=job, owner=owner["id"], state="working", provider="codex")])]
@@ -1054,7 +1055,8 @@ def live_terminals(source_app):
                                                        answered=True, reply=dict(id=1, text="Result from " + name))]
                 elif address == "terminal0" and created == "100":
                     reply["opencode_threads"] = [dict(id="ses_layout",parent="ses_owner",runtime="opencode",
-                        name="Layout reader",model="fixture/default",created_ms=100,completed_ms=110,
+                        name="Layout reader", model="fixture/default", created_ms=child_started_ms,
+                        completed_ms=child_started_ms + 74000 if child_finished.is_set() else None,
                         state="answered" if child_finished.is_set() else "working", task="Check header.",
                         reply="Sidebar result." if child_finished.is_set() else "")]
                     reply["opencode_threads"].append(dict(id="ses_nested", parent="ses_layout", runtime="opencode",

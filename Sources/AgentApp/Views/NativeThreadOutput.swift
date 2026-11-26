@@ -208,10 +208,11 @@ struct NativeSessionView: View {
                 }
                 Spacer()
                 if let model = thread.model, !model.isEmpty {
-                    ViewThatFits(in: .horizontal) {
-                        FactChip(text: thread.provider.label + " · " + model)
-                        Image(systemName: "cpu").help(model)
-                    }
+                    Text(verbatim: thread.provider.label + " · " + model)
+                        .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                        .padding(.horizontal, 7).padding(.vertical, 4)
+                        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 5))
+                        .layoutPriority(1).help(model)
                 }
                 ChatTerminalPreviewButton(server: native.server, target: target)
                 ShowDetailsItem()
