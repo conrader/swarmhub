@@ -299,7 +299,8 @@ private struct SidebarNativeThreads: View {
                                              source: parent.source, archive: parent.archive,
                                              native: .init(thread: thread, core: core, owner: owner, server: server))
         let current = store.openHerdrHelper?.native
-        let selected = !store.showOnlyAttention && current?.owner == owner && current?.core == core && current?.server == server
+        let selected = !store.showOnlyAttention && store.openHerdrHelper?.parent == parent
+            && current?.owner == owner && current?.core == core && current?.server == server
             && current?.thread.id == thread.id && current?.thread.provider == thread.provider
         let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : thread.task
         let icon: String
