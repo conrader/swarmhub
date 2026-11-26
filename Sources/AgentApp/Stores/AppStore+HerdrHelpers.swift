@@ -115,6 +115,21 @@ extension AppStore {
             || codejobs(for: bot, on: herdrServer(for: bot)).contains { $0.job.isWorking }
     }
 
+    /// Keep workers on the bot and workspace that own their registration.
+    var sidebarCodejobs: [UUID: [HerdrCodejobRow]] {
+        let owners = Set(herdrCodejobReads.values.filter(\.isFresh).flatMap { read in
+            (read.hosts ?? []).flatMap { $0.jobs.map(\.owner) }
+        })
+        guard !owners.isEmpty else { return [:] }
+        let servers = herdrServers
+        var rows: [UUID: [HerdrCodejobRow]] = [:]
+        for bot in bots where owners.contains(bot.id) && bot.backend == .herdr && !bot.isReadOnlyArchive {
+            let jobs = codejobs(for: bot, on: herdrServer(for: bot, in: servers))
+            if !jobs.isEmpty { rows[bot.id] = jobs }
+        }
+        return rows
+    }
+
     private func codejobs(for bot: Bot, on server: HerdrServer) -> [HerdrCodejobRow] {
         guard let read = herdrCodejobReads[server.id], read.server == server, read.isFresh,
               let hosts = read.hosts else { return [] }
@@ -347,7 +362,9 @@ extension AppStore {
                 var list: HerdrClient.Helpers?
                 if let agent {
                     let readingChat = parent.groupRuntime == nil && selectedGroup == nil && selectedBot?.id == parent.botID
-                    list = try await client.helpers(of: agent, in: workspace, includeLastResult: readingChat)
+                    let previous = herdrHelpers[parent]
+                    let sameLaunch = previous?.parent == agent.ref && previous?.core == workspace.core
+                    list = try await client.helpers(of: agent, in: workspace, includeLastResult: readingChat || sameLaunch)
                 }
                 results[parent] = .success(list?.helpers.isEmpty == false || list?.lastResult != nil ? list : nil)
             } catch {
