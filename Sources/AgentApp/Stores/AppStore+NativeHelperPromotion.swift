@@ -52,8 +52,11 @@ extension AppStore {
     }
 
     private func nativeSessionRecord(_ activity: HerdrClient.ThreadActivity) -> String? {
-        let text = activity.transcript.isEmpty ? (activity.details?.reply ?? "") : activity.transcript
-        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        let transcript = activity.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reply = activity.details?.reply.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if transcript.isEmpty { return reply.isEmpty ? nil : reply }
+        // Some providers keep a longer reply in the details than in their terminal preview.
+        return reply.isEmpty || transcript.contains(reply) ? transcript : transcript + "\n\n" + reply
     }
 
     /// Refresh the imported session record in place. Ordinary messages in the new chat keep their order.
@@ -64,8 +67,15 @@ extension AppStore {
               !Task.isCancelled, bots.contains(bot), bot.promotedHelper == source, herdrServer(for: bot) == server,
               preparingDirectTurn || !isAnswering(bot) else { return }
         if let text = nativeSessionRecord(activity) {
-            if let record = bot.messages.first(where: { $0.metadata[PromotedHelper.rowKey] == "session" }) {
-                record.content = text
+            if let index = bot.messages.firstIndex(where: { $0.metadata[PromotedHelper.rowKey] == "session" }) {
+                let record = bot.messages[index]
+                if text.contains(record.content) {
+                    record.content = text
+                } else if !record.content.contains(text) {
+                    // Providers may trim earlier output between reads. Keep the imported record as well.
+                    let result = ChatMessage(role: .assistant, content: text, metadata: [PromotedHelper.rowKey: "finishedSession"])
+                    bot.messages.insert(result, at: index + 1)
+                }
             } else {
                 let index = bot.messages.firstIndex { $0.metadata[PromotedHelper.noticeKey] != nil } ?? 0
                 bot.messages.insert(ChatMessage(role: .assistant, content: text, metadata: [PromotedHelper.rowKey: "session"]), at: index)

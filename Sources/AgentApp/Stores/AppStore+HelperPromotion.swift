@@ -92,8 +92,8 @@ extension AppStore {
             name = "\(base) \(suffix)"; suffix += 1
         }
         let notice = AppOnlyLine.line(origin.awaitsReply
-            ? "You can message \(name) now. Its outstanding helper result will appear here."
-            : "Earlier work is from \(parent.name)’s helper.")
+            ? "You can message \(name) now. Its outstanding helper reply will appear here."
+            : "Earlier assignments and replies are from \(parent.name)’s helper.")
         notice.metadata[PromotedHelper.noticeKey] = "1"
         let bot = Bot(name: name, title: "Helper from \(parent.name)", backend: .herdr, messages: history + [notice])
         bot.promotedHelper = origin
