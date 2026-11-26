@@ -84,17 +84,23 @@ mkdir "$WORK/installed" "$WORK/update" "$WORK/feed" "$WORK/home"
 # /usr/bin/python3 can be an Xcode launcher with a separate process serving requests.
 python3 -u - "$WORK" "${SWARMHUB_REHEARSAL_PORT:-0}" > "$WORK/server.log" 2>&1 <<'PYTHON' &
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler
+from socketserver import ThreadingTCPServer
 from pathlib import Path
 import os, sys
 work = Path(sys.argv[1])
+# HTTPServer performs a reverse DNS lookup during bind. This loopback feed uses the literal address.
+class FeedServer(ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
 class Feed(SimpleHTTPRequestHandler):
     def log_message(self, template, *args):
         with (work / "feed.log").open("a") as log:
             print(template % args, file=log)
-with ThreadingHTTPServer(("127.0.0.1", int(sys.argv[2])), partial(Feed, directory=str(work / "feed"))) as server:
+with FeedServer(("127.0.0.1", int(sys.argv[2])), partial(Feed, directory=str(work / "feed"))) as server:
     ready = work / "server-starting"
-    ready.write_text(f"{os.getpid()} {server.server_port}\n")
+    ready.write_text(f"{os.getpid()} {server.server_address[1]}\n")
     ready.rename(work / "server-ready")
     server.serve_forever()
 PYTHON
