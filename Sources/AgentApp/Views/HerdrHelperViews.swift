@@ -502,7 +502,8 @@ struct HerdrHelperView: View {
                 }
                 BotAvatar(bot: bot, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text([shown?.name ?? "Helper", "Helper of " + owner].joined(separator: " · ")).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text([shown?.name ?? "Helper", "Helper of " + owner].joined(separator: " · "))
+                        .font(.system(size: 14, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     Text([stopped ? "Stopped" : unavailable ? "Status unavailable" : shown?.statusLine, groupName ?? store.helperGroupNames[selection.parent] ?? selection.groupRuntime].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
