@@ -86,8 +86,9 @@ impl Command {
         // Older sessions can have a registered bot's exact launch receipt without a parent_bot_id.
         let (core, bot, agent): (String, String, String) = history.db().ok()?.query_row(
             "SELECT core_id,coalesce(parent_bot_id,
-                (SELECT min(id) FROM bots WHERE noted_launch=j.launch_key AND agent_name=j.agent HAVING count(*)=1)),agent
-             FROM journal j WHERE launch_key=?1 AND NOT EXISTS (SELECT 1 FROM helpers WHERE launch=j.id)",
+                (SELECT min(id) FROM bots WHERE removed_ms IS NULL AND noted_launch=j.launch_key AND agent_name=j.agent HAVING count(*)=1)),agent
+             FROM journal j WHERE launch_key=?1 AND NOT EXISTS (SELECT 1 FROM helpers WHERE launch=j.id)
+                AND NOT EXISTS (SELECT 1 FROM bots WHERE id=j.parent_bot_id AND removed_ms IS NOT NULL)",
             [launch], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         ).optional().ok()??;
         if !bots::valid_id(&bot) {

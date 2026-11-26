@@ -1713,7 +1713,7 @@ def smoke(hc, bridge, chrome=None):
                         port = base.rsplit(":", 1)[1]
                         stop(process)
                         process, base = start_bridge(port)
-                    exercise(root, claude, request, until, chrome, base, token, restart)
+                    exercise(root, claude, request, until, chrome, base, token, restart, bridge)
                     return
                 if selected_focus == "bot-helper-model":
                     catalog = {"harness": "Fixture", "model_transport": "environment"}

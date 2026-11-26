@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 
-def exercise(root, executable, request, until, chrome, base, token, restart):
+def exercise(root, executable, request, until, chrome, base, token, restart, bridge):
     owner = "10000000-0000-4000-8000-000000000001"
     bot = request("/api/agents", {"name": "reviewed", "template": "fixture", "task": "Start", "workspace_id": owner}, status=201)
     settings = "/api/bot-agent-settings/" + owner
@@ -116,6 +116,12 @@ print('Would print audit.')
     command_reply(project, args)
     restart()
     command_reply(project, args)
+    hook = subprocess.run([bridge, "review-codex-permission"], input=json.dumps({
+        "hook_event_name":"PermissionRequest","tool_name":"Bash","cwd":str(project),"tool_input":args
+    }), capture_output=True, text=True, check=True, timeout=8, env={**os.environ,
+        "SWARMHUB_JOURNAL":str(root / "workspace/workspace.sqlite3"),"SWARMHUB_LAUNCH_KEY":key,
+        "SWARMHUB_APPROVAL_SOCKET":str(root / "workspace/approval.sock")})
+    assert json.loads(hook.stdout)["hookSpecificOutput"]["decision"]["behavior"] == "allow"
     command_reply(neighbor, args, "deny")
     command_reply(project, {"command": args["command"] + "Extra"}, "deny")
     command_reply(project, {**args, "workdir": str(neighbor)}, "deny", eligible=False)
