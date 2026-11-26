@@ -7,7 +7,6 @@ struct NewGroupSheet: View {
     var preselected: Set<UUID> = []
     @State private var name = ""; @State private var picked: Set<UUID> = []
 
-    @State private var choosingPack = false
     @State private var pack: TeamPack?
     @State private var packError: String?
     @State private var serverID: String?
@@ -18,17 +17,21 @@ struct NewGroupSheet: View {
             if let packError { Text(packError).font(.callout).foregroundStyle(.secondary) }
         }.padding(20).frame(width: 420).background(AppColor.panel)
             .onAppear { picked = preselected }
-            .fileImporter(isPresented: $choosingPack, allowedContentTypes: [.json]) { result in
-                do {
-                    let url = try result.get()
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    pack = try TeamPack.read(url)
-                    packError = nil
-                } catch {
-                    if (error as NSError).code != NSUserCancelledError { packError = error.localizedDescription }
-                }
-            }
+    }
+
+    private func choosePack() {
+        packError = nil
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.begin { answer in
+            guard answer == .OK, let url = panel.url else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do { pack = try TeamPack.read(url) }
+            catch { packError = error.localizedDescription }
+        }
     }
 
     private var groupForm: some View {
@@ -47,7 +50,7 @@ struct NewGroupSheet: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.frame(height: 260)
             HStack {
-                Button("Import Team Pack…") { packError = nil; choosingPack = true }
+                Button("Import Team Pack…", action: choosePack)
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Create") { if store.createGroup(name: name, memberIDs: ordered(bots)) != nil { dismiss() } }
@@ -63,7 +66,7 @@ struct NewGroupSheet: View {
             Text("Import Team Pack").font(.title3.weight(.semibold))
             Text(pack.name).font(.headline)
             Text("Creates a group and \(pack.members.count) new bots. Each bot starts with an empty chat and the destination workspace’s permissions.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Picker("Workspace", selection: Binding(get: { server.id }, set: { serverID = $0 })) {
                 ForEach(servers) { Text($0.name).tag($0.id) }
             }
@@ -95,7 +98,7 @@ struct NewGroupSheet: View {
                         }
                     }
                 }.padding(4)
-            }.frame(height: 230)
+            }.frame(minHeight: 130, idealHeight: 200, maxHeight: 230)
             HStack {
                 Button("Back") { self.pack = nil; packError = nil }
                 Spacer()

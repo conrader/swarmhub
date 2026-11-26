@@ -21,57 +21,64 @@ struct TeamWorkflowEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Skills & handoffs").font(.title3.weight(.semibold))
             Text(bot.name + " in " + group.name).foregroundStyle(.secondary)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Skills").font(.headline)
-                    ForEach(draft.skills.indices, id: \.self) { index in
-                        VStack(alignment: .leading) {
-                            HStack {
-                                TextField("Skill name", text: $draft.skills[index].name)
-                                Button("Remove") { draft.skills.remove(at: index) }.accessibilityLabel("Remove skill " + draft.skills[index].name)
-                            }
-                            TextField("Instructions for this skill", text: $draft.skills[index].instructions, axis: .vertical).lineLimit(2...8)
-                        }
-                    }
-                    HStack {
-                        Button("Add skill") { draft.skills.append(.init(name: "", instructions: "")) }
-                        if bot.backend == .herdr {
-                            Button("From workspace…") { choosingSkill = true }
-                                .popover(isPresented: $choosingSkill) {
-                                    WorkspaceSkillPicker(server: store.herdrServer(for: bot)) { skill in
-                                        draft.skills.append(skill)
-                                        choosingSkill = false
-                                    }
-                                }
-                        }
-                    }
-                    Divider().padding(.vertical, 4)
-                    Text("Handoff rules").font(.headline)
-                    let peers = store.members(of: group).filter { $0.id != bot.id }
-                    ForEach(draft.handoffs.indices, id: \.self) { index in
-                        VStack(alignment: .leading) {
-                            HStack {
-                                Picker("Hand off to", selection: $draft.handoffs[index].recipient) {
-                                    ForEach(peers) { Text($0.name).tag($0.id) }
-                                }
-                                Button("Remove") { draft.handoffs.remove(at: index) }.accessibilityLabel("Remove handoff rule")
-                            }
-                            TextField("When should this member take over?", text: $draft.handoffs[index].condition, axis: .vertical)
-                                .lineLimit(1...5)
-                        }
-                    }
-                    Button("Add handoff rule") {
-                        if let peer = peers.first { draft.handoffs.append(.init(recipient: peer.id, condition: "")) }
-                    }.disabled(peers.isEmpty)
-                }.textFieldStyle(.roundedBorder).padding(3)
-            }
-            if let error { Text(error).font(.callout).foregroundStyle(.secondary) }
-            HStack {
+            if choosingSkill {
+                WorkspaceSkillPicker(server: store.herdrServer(for: bot)) { skill in
+                    draft.skills.append(skill)
+                    choosingSkill = false
+                }
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") { save() }.keyboardShortcut(.defaultAction).disabled(draft == original)
+                Button("Back") { choosingSkill = false }.keyboardShortcut(.cancelAction)
+            } else {
+                editor
             }
         }.padding(20).frame(width: 470, height: 440).background(AppColor.panel)
+    }
+
+    @ViewBuilder private var editor: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Skills").font(.headline)
+                ForEach(draft.skills.indices, id: \.self) { index in
+                    VStack(alignment: .leading) {
+                        HStack {
+                            TextField("Skill name", text: $draft.skills[index].name)
+                            Button("Remove") { draft.skills.remove(at: index) }.accessibilityLabel("Remove skill " + draft.skills[index].name)
+                        }
+                        TextField("Instructions for this skill", text: $draft.skills[index].instructions, axis: .vertical).lineLimit(2...8)
+                    }
+                }
+                HStack {
+                    Button("Add skill") { draft.skills.append(.init(name: "", instructions: "")) }
+                    if bot.backend == .herdr {
+                        Button("From workspace…") { choosingSkill = true }
+                    }
+                }
+                Divider().padding(.vertical, 4)
+                Text("Handoff rules").font(.headline)
+                let peers = store.members(of: group).filter { $0.id != bot.id }
+                ForEach(draft.handoffs.indices, id: \.self) { index in
+                    VStack(alignment: .leading) {
+                        HStack {
+                            Picker("Hand off to", selection: $draft.handoffs[index].recipient) {
+                                ForEach(peers) { Text($0.name).tag($0.id) }
+                            }
+                            Button("Remove") { draft.handoffs.remove(at: index) }.accessibilityLabel("Remove handoff rule")
+                        }
+                        TextField("When should this member take over?", text: $draft.handoffs[index].condition, axis: .vertical)
+                            .lineLimit(1...5)
+                    }
+                }
+                Button("Add handoff rule") {
+                    if let peer = peers.first { draft.handoffs.append(.init(recipient: peer.id, condition: "")) }
+                }.disabled(peers.isEmpty)
+            }.textFieldStyle(.roundedBorder).padding(3)
+        }
+        if let error { Text(error).font(.callout).foregroundStyle(.secondary) }
+        HStack {
+            Spacer()
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Save") { save() }.keyboardShortcut(.defaultAction).disabled(draft == original)
+        }
     }
 
     private func save() {
@@ -115,7 +122,7 @@ private struct WorkspaceSkillPicker: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else { ProgressView() }
-        }.padding(14).frame(width: 280, height: 210)
+        }.frame(maxWidth: .infinity, alignment: .leading)
         .task(id: attempt) {
             problem = nil
             do { skills = try await store.herdrClient(for: server).workspaceSkills().filter { !$0.archived } }
