@@ -99,13 +99,19 @@ struct SidebarTerminalButton: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot
     let target: LiveTerminal
+    var avatarSize: CGFloat? = nil
 
     var body: some View {
         Button {
             store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target), fallbackBot: bot)
         } label: {
-            Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
-                .frame(width: 24, height: 24).contentShape(Rectangle())
+            Group {
+                if let avatarSize {
+                    AvatarTerminalBadge(avatarSize: avatarSize)
+                } else {
+                    Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
+                }
+            }.frame(width: 24, height: 24).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Preview terminal for " + target.title)
