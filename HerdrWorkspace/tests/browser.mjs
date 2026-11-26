@@ -2330,6 +2330,19 @@ try {
         ? `!document.getElementById("agent-usage").hidden && document.getElementById("agent-usage").textContent.includes(${JSON.stringify(expected)})`
         : 'document.getElementById("agent-usage").hidden && !document.getElementById("agent-usage").textContent');
     }
+  } else if (focus === "save-project-command" || focus === "revoke-project-command") {
+    await evaluate('document.getElementById("workspace-tools").open = true; document.getElementById("approvals-open").click()');
+    if (focus === "save-project-command") {
+      await check('document.querySelector("#approval-list button")');
+      await evaluate('document.querySelector("#approval-list button").click()');
+      await check('!document.getElementById("approval-command").hidden && document.getElementById("approval-input").textContent.includes("ImporterTests")');
+      await evaluate('document.getElementById("approval-command").click()');
+    }
+    await check('document.getElementById("approval-command-rules").textContent.includes("swift test --filter ImporterTests")');
+    if (focus === "revoke-project-command") {
+      await evaluate('document.querySelector("#approval-command-rules button").click()');
+      await check('!document.querySelector("#approval-command-rules button")');
+    }
   } else if (focus === "command-reviewer") {
     await check('!document.getElementById("approval-count").hidden && !document.getElementById("approvals-open").disabled');
     await evaluate('document.getElementById("workspace-tools").open = true; document.getElementById("approvals-open").click()');

@@ -82,6 +82,10 @@ print('Would print audit.')
     review("Bash", "codex", None)
 
     # The workspace's persistent rule is bound to an exact request, owner, provider and working directory.
+    def browser(focus):
+        subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)],
+                       env={**os.environ, "SWARMHUB_TEST_FOCUS": focus}, check=True, timeout=35)
+
     def command_reply(cwd, input, choice=None, provider="codex", launch=key):
         frame = json.dumps(dict(key=launch, provider=provider, tool="Bash", cwd=str(cwd), input=input)).encode()
         with socket.socket(socket.AF_UNIX) as peer:
@@ -92,7 +96,10 @@ print('Would print audit.')
                 row = until(pending)
                 if choice == "remember_command":
                     assert row["can_remember_command"]
-                request(f"/api/approvals/{row['id']}", choice, status=202)
+                if chrome and choice == "remember_command":
+                    browser("save-project-command")
+                else:
+                    request(f"/api/approvals/{row['id']}", choice, status=202)
             assert peer.recv(1) == (b"D" if choice == "deny" else b"A")
         until(lambda: pending() is None)
 
@@ -117,7 +124,10 @@ print('Would print audit.')
         other_key, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
                                 (another["address"], another["created_ms"])).fetchone()
     command_reply(project, args, "deny", launch=other_key)
-    assert request("/api/project-command-rules/" + str(rule["id"]) + "/revoke", {})["revoked"]
+    if chrome:
+        browser("revoke-project-command")
+    else:
+        assert request("/api/project-command-rules/" + str(rule["id"]) + "/revoke", {})["revoked"]
     command_reply(project, args, "deny")
     assert request("/api/project-command-rules") == []
     print("Exact command grant survived restart, stayed scoped to its folder, request, bot and provider, and was revoked.")
