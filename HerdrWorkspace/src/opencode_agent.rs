@@ -14,6 +14,8 @@ use std::{
     process::{Command, Stdio},
 };
 
+mod children;
+pub(crate) use children::capture as capture_child;
 pub mod first_task;
 pub mod follow_up;
 pub mod models;
@@ -79,6 +81,7 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
         .recursive(true)
         .create(&plugin)?;
     write_plugin(&plugin, "reply.js", REPLY)?;
+    write_plugin(&plugin, "children.js", include_str!("opencode-children.js"))?;
     write_plugin(&plugin, "approvals.js", APPROVALS)?;
     write_plugin(&plugin, "package.json", PACKAGE)?;
 
