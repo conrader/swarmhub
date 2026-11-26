@@ -168,8 +168,9 @@ class ChildScenario:
             turn = request(route)["active_turn"]
             assert turn and request(route, {"turn": turn})["requested_turn"] == turn
             until(lambda: request(route)["state"] == "stopped")
-            receipt = next(e["tool_response"] for e in self.events()
-                           if e.get("tool_name") == "TaskStop" and e["hook_event_name"] == "PostToolUse")
+            # The independent observer and the workspace receipt hook run concurrently.
+            receipt = until(lambda: next((e["tool_response"] for e in self.events()
+                                if e.get("tool_name") == "TaskStop" and e["hook_event_name"] == "PostToolUse"), None))
             assert receipt["task_type"] == "local_agent" and receipt["task_id"] == self.child
             assert next(c for c in children() if c["id"] == self.sibling)["state"] == "working"
             try:
