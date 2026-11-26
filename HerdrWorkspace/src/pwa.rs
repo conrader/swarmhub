@@ -26,6 +26,15 @@ pub(crate) fn routes() -> Router<Workspace> {
             }),
         )
         .route(
+            "/ci-push.js",
+            get(|| async {
+                asset(
+                    "text/javascript; charset=utf-8",
+                    include_bytes!("../web/pwa/ci-push.js"),
+                )
+            }),
+        )
+        .route(
             "/workspace-sw.js",
             get(|| async {
                 asset(

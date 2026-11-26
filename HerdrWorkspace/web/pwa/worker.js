@@ -33,3 +33,25 @@ self.addEventListener("fetch", (event) => {
       "Referrer-Policy":"no-referrer", "X-Content-Type-Options":"nosniff"},
   })));
 });
+
+self.addEventListener("push", (event) => {
+  event.waitUntil(self.registration.showNotification("SwarmHub", {
+    body: "A watched pull request failed CI. Open Needs attention to review it.",
+    icon: "/pwa/icon-192.png", tag: "swarmhub-ci", data: "ci-review",
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  if (event.notification.data !== "ci-review") return;
+  event.notification.close();
+  event.waitUntil((async () => {
+    const tabs = await self.clients.matchAll({type:"window"});
+    const workspace = tabs.find(tab => new URL(tab.url).pathname === "/");
+    if (workspace) {
+      await workspace.focus();
+      workspace.postMessage("ci-review");
+    } else {
+      await self.clients.openWindow("/#ci-review");
+    }
+  })());
+});

@@ -43,6 +43,7 @@
   <script src="/attention.js" defer></script>
   <script src="/activity.js" defer></script>
   <script src="/desktop-notices.js" defer></script>
+  <script src="/ci-push.js" defer></script>
   <script src="/skills.js" defer></script>
   <script src="/vault.js" defer></script>
   <script src="/page-charts.js" defer></script>
@@ -569,6 +570,12 @@
       <p class="subtle">Get alerts for new results, approvals, and group questions while SwarmHub is open. Alerts omit names and message text.</p>
       <button id="desktop-notices-toggle" type="button">Enable desktop notifications</button>
       <p id="desktop-notices-status" role="status"></p>
+    </details>
+    <details id="ci-push-settings" class="desktop-notices">
+      <summary>CI alerts on this device</summary>
+      <p>Get a notification when a watched pull request fails, even after closing SwarmHub.</p>
+      <button id="ci-push-toggle" type="button" disabled>Enable CI alerts</button>
+      <p id="ci-push-status" role="status"></p>
     </details>
     <div class="activity-actions"><label><input id="activity-unread-only" type="checkbox"> Unread only</label><button id="activity-read-all" type="button" disabled>Mark all as read</button></div>
     <p id="activity-status" role="status" hidden></p>

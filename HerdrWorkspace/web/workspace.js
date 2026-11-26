@@ -344,6 +344,7 @@ function renderState() {
   window.dictation?.render();
   window.directThreads?.render();
   window.desktopNotices?.render();
+  window.ciPush?.openPendingReview();
   syncLiveDraft();
 }
 
