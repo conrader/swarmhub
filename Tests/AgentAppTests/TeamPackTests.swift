@@ -69,6 +69,20 @@ import Testing
         else { #expect(task.content.contains(guidance)) }
         #expect(imported.messages.contains { $0.role == .system && $0.content.contains("handed a task to Scout") })
         #expect(sender.messages.contains { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.answer })
+        let review = try #require(imported.messages.first { $0.authorID == receiver.id })
+        #expect(review.content == "Fixture says hi" && review.turnState == .finished)
+        #expect(task.content.contains("in the group “Source”"))
+        let groupReplies = imported.messages.filter { $0.role == .assistant }
+        #expect(groupReplies.map(\.authorID) == [sender.id, receiver.id, sender.id])
+        #expect(groupReplies.last?.metadata[TurnKey.forUser] == review.id.uuidString)
+        let followUp = try #require(await engine.turns().last)
+        #expect(followUp.session.contains("group-") && followUp.text.contains("Scout: Fixture says hi"))
+        #expect(followUp.text.contains("Original task: @Patch prepare the draft"))
+        #expect(!followUp.text.contains("When the condition is met"))
+        let receiverReply = try #require(receiver.messages.last { $0.role == .assistant })
+        dest.herdrReplyEnded(receiverReply, from: receiver, finished: true)
+        #expect(imported.messages.filter { $0.authorID == receiver.id }.count == 1)
+        #expect(!dest.anyTurnRunning)
         #expect(bystander.messages.isEmpty)
         let trigger = try #require(imported.messages.first { $0.role == .user })
         let reply = try #require(imported.messages.first { $0.role == .assistant })
@@ -78,6 +92,33 @@ import Testing
         try await waitUntil { !dest.anyTurnRunning }
         #expect(receiver.messages.filter { $0.metadata[AppStore.groupHandoffSourceKey] != nil }.count == 1)
         #expect(imported.messages.last?.content.contains("could not be sent") == true)
+    }
+
+    @Test func queuedReviewRestoresInItsGroupWithoutSharingUnrelatedReplies() async throws {
+        let url = temporaryStore(), defaults = isolatedDefaults(), engine = GroupBackend(name: "Patch")
+        let store = AppStore(storeURL: url, autoStart: false, backendFactory: { _ in engine }, keyStore: InMemoryKeyStore(), defaults: defaults)
+        let patch = Bot(name: "Patch", backend: .herdr), scout = Bot(name: "Scout", backend: .herdr)
+        store.bots = [patch, scout]
+        let group = try #require(store.createGroup(name: "Release", memberIDs: [patch.id, scout.id]))
+        let task = ChatMessage(role: .user, content: "Prepare the draft")
+        let source = [group.id, task.id, patch.id].map(\.uuidString).joined(separator: "/")
+        task.metadata[AppStore.groupHandoffSourceKey + "." + patch.id.uuidString] = scout.id.uuidString.lowercased()
+        group.messages = [task]
+        store.herdrMovingWork.insert(patch.id)
+        let summary = RunSummary(model: "review-model", seconds: 12, tools: 3)
+        #expect(!store.returnGroupHandoff(nil, from: scout, to: patch, answer: "private answer", summary: summary, receiptMetadata: [:]))
+        #expect(!store.returnGroupHandoff(source, from: patch, to: scout, answer: "wrong recipient", summary: summary, receiptMetadata: [:]))
+        #expect(store.returnGroupHandoff(source, from: scout, to: patch, answer: "Three changes verified", summary: summary, receiptMetadata: [:]))
+        let result = try #require(group.messages.last)
+        #expect(result.runSummary == summary && result.metadata[TurnWaitCopy.key] == "waiting")
+        #expect(group.messages.count == 2 && !store.anyTurnRunning)
+        let reopened = AppStore(storeURL: url, autoStart: false, backendFactory: { _ in engine }, keyStore: InMemoryKeyStore(), defaults: defaults)
+        let restored = try #require(reopened.groups.first)
+        reopened.resumeRestoredNextMessages()
+        try await waitUntil { restored.messages.contains { $0.authorID == patch.id && $0.turnState == .finished } }
+        let replies = restored.messages.filter { $0.role == .assistant }
+        #expect(replies.map(\.authorID) == [scout.id, patch.id])
+        #expect(replies.first?.id == result.id && replies.last?.metadata[TurnKey.forUser] == result.id.uuidString)
     }
 
     @Test(arguments: [false, true])

@@ -77,9 +77,13 @@ extension AppStore {
     /// the reply addresses to other bots are delivered, or refused back to it; and when the reply answers another
     /// bot's message, it is passed back to that bot, unless this bot wrote to a further bot first. A reply that did
     /// not finish (the person stopped it, or it failed) sends nothing and ends the exchange it was part of.
-    func herdrMessagesEnded(_ text: String, from bot: Bot, triggers: [ChatMessage], finished: Bool, passOutgoing: Bool = true) {
+    func herdrMessagesEnded(_ text: String, from bot: Bot, triggers: [ChatMessage], finished: Bool, passOutgoing: Bool = true, summary: RunSummary? = nil) {
         let part = herdrExchangePart(in: triggers), owed = herdrOwed(by: part)
-        guard finished else { herdrExchangeBroke(at: bot, owed: owed, line: HerdrMessageLine.unfinished); return }
+        guard finished else {
+            recordUnfinishedGroupHandoff(part, from: bot)
+            herdrExchangeBroke(at: bot, owed: owed, line: HerdrMessageLine.unfinished)
+            return
+        }
         let own = Self.herdrID(bot)
         let before = HerdrBotRelay.ids(part?.metadata[HerdrBotRelay.ExchangeKey.chain]), chain = before.isEmpty ? [own] : before
         // How often each two bots have written to each other in this exchange: what bounds two that keep following up.
@@ -111,6 +115,7 @@ extension AppStore {
             herdrCount(times)
             var metadata = [HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined(chain), HerdrBotRelay.ExchangeKey.waiting: HerdrBotRelay.joined(owed),
                             HerdrBotRelay.ExchangeKey.rounds: HerdrBotRelay.joined(rounds: rounds)]
+            metadata[Self.groupHandoffReturnKey] = part?.metadata[Self.groupHandoffReturnKey]
             switch HerdrBotMessage.target(named: message.to, among: candidates, from: own, rounds: rounds) {
             case .bot(let id):
                 guard let target = peers.first(where: { Self.herdrID($0) == id }) else { continue }
@@ -140,9 +145,15 @@ extension AppStore {
             if let askedOn { notice(HerdrMessageLine.askedOn.render(bot.name, askedOn.name, asker.name), in: asker) }
             return
         }
-        let metadata = [HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined(chain), HerdrBotRelay.ExchangeKey.waiting: HerdrBotRelay.joined(Array(owed.dropLast())),
+        var metadata = [HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined(chain), HerdrBotRelay.ExchangeKey.waiting: HerdrBotRelay.joined(Array(owed.dropLast())),
                         HerdrBotRelay.ExchangeKey.from: own, HerdrBotRelay.ExchangeKey.rounds: HerdrBotRelay.joined(rounds: rounds)]
-        if herdrPassOn(HerdrBotRelay.reply(from: bot.name, answer.filter { !$0.isEmpty }.joined(separator: "\n\n")), to: asker, kind: HerdrBotRelay.answer, asker: asker, name: bot.name, extra: metadata) {
+        let visible = answer.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let source = part?.metadata[Self.groupHandoffReturnKey]
+        if owed.count == 1, returnGroupHandoff(source, from: bot, to: asker, answer: visible, summary: summary, receiptMetadata: metadata) {
+            return
+        }
+        metadata[Self.groupHandoffReturnKey] = source
+        if herdrPassOn(HerdrBotRelay.reply(from: bot.name, visible), to: asker, kind: HerdrBotRelay.answer, asker: asker, name: bot.name, extra: metadata) {
             notice(HerdrMessageLine.answered.render(bot.name, asker.name), in: bot)
         } else { notice(HerdrMessageLine.answerNotPassed.render(bot.name, asker.name), in: bot) }
     }
@@ -168,6 +179,7 @@ extension AppStore {
         turns.nextMessages.removeAll { next in waiting.contains { $0.id == next.id } }
         for next in waiting {
             giveBack(next)
+            recordUnfinishedGroupHandoff(next.bubble, from: bot)
             herdrExchangeBroke(at: bot, owed: herdrOwed(by: next.bubble), line: HerdrMessageLine.stopped)
             next.bubble.metadata[Self.herdrExchangeEndedKey] = "1"
         }
