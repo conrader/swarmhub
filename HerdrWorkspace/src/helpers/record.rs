@@ -74,6 +74,10 @@ impl View {
         self.state == "live"
     }
 
+    pub(super) fn answer_id(&self) -> Option<i64> {
+        self.reply.as_ref().filter(|_| self.answered).map(|reply| reply.id)
+    }
+
     fn status_word(&self) -> Option<&str> {
         self.status.as_ref().map(|status| status.state.as_str())
     }
@@ -262,7 +266,10 @@ pub(super) fn views(
     let mut rows = db.prepare(
         "WITH recent AS (
              SELECT h.launch FROM helpers h JOIN journal j ON j.id=h.launch
-             WHERE h.parent_key=?1 AND j.core_id=?2 ORDER BY h.launch DESC LIMIT ?3
+             WHERE h.parent_key=?1 AND j.core_id=?2 AND
+                 (?3!=0 OR (j.address IS NOT NULL AND j.created_ms IS NOT NULL
+                     AND j.launch_key NOT IN (SELECT value FROM json_each(?4))))
+             ORDER BY h.launch DESC LIMIT CASE WHEN ?3=0 THEN ?5 ELSE ?3 END
          ), last_answer AS (
              SELECT h.launch FROM helpers h JOIN journal j ON j.id=h.launch
              JOIN journal r ON r.id=(SELECT max(id) FROM journal WHERE reply_for=j.launch_key AND kind='reply')
@@ -289,13 +296,13 @@ pub(super) fn views(
          ORDER BY id DESC LIMIT 1",
     )?;
     let mut latest_reply = db.prepare(
-        "SELECT id,text,at_ms,
+        "SELECT id,substr(text,1,?5),at_ms,
                 id>(SELECT coalesce(max(id),0) FROM journal task
                     WHERE task.kind='task' AND task.core_id=?2 AND task.address=?3 AND task.created_ms=?4)
          FROM journal WHERE reply_for=?1 AND kind='reply' ORDER BY id DESC LIMIT 1",
     )?;
     let mut helpers = Vec::new();
-    let mut found = rows.query(params![parent_key, core_id, recent_launches as i64, live_keys])?;
+    let mut found = rows.query(params![parent_key, core_id, recent_launches as i64, live_keys, RECENT_LAUNCHES as i64])?;
     while let Some(row) = found.next()? {
         let launch: i64 = row.get(0)?;
         let key: String = row.get(1)?;
@@ -322,7 +329,7 @@ pub(super) fn views(
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })?;
         let reply = latest_reply
-            .query_row(params![key, core_id, address, created_ms], |row| {
+            .query_row(params![key, core_id, address, created_ms, reply_chars as i64 + 1], |row| {
                 let text: String = row.get(1)?;
                 let truncated = text.chars().count() > reply_chars;
                 Ok((
@@ -404,6 +411,23 @@ pub(crate) fn parents(
         }
     }
     Ok(helpers)
+}
+
+/// Live parent sessions with saved child terminals, including those whose children all closed.
+pub(crate) fn session_parents(history: &History, core_id: &str, agents: &[Terminal]) -> Result<Vec<ParentRef>, StoreError> {
+    let keys: Vec<_> = agents.iter().filter(|agent| agent.state == "live").filter_map(Terminal::launch_key).collect();
+    if keys.is_empty() { return Ok(Vec::new()); }
+    let keys = serde_json::to_string(&keys).map_err(|_| StoreError)?;
+    let db = history.db()?;
+    let mut query = db.prepare_cached(
+        "SELECT p.address,p.created_ms FROM journal p
+         WHERE p.core_id=?1 AND p.launch_key IN (SELECT value FROM json_each(?2))
+           AND p.address IS NOT NULL AND p.created_ms IS NOT NULL
+           AND EXISTS (SELECT 1 FROM helpers h JOIN journal j ON h.launch=j.id
+                       WHERE h.parent_key=p.launch_key AND j.core_id=p.core_id AND j.address IS NOT NULL)"
+    )?;
+    Ok(query.query_map(params![core_id, keys], |row| Ok(ParentRef { address: row.get(0)?, created_ms: row.get(1)? }))?
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 /// Whether any helper was ever started, so a workspace without helpers asks Core nothing for them.
@@ -865,13 +889,19 @@ mod tests {
         assert!(due(&everyone, answered_at, now() + 1_000).is_empty());
 
         let archived = views(&history, "core", &parent, &[], 50, 0).unwrap();
-        assert_eq!(archived.len(), 1);
+        let owning = session_parents(&history, "core", &everyone[2..3]).unwrap();
+        assert_eq!(owning.len(), 1);
+        assert_eq!(owning[0].address, "t7");
+        assert!(session_parents(&history, "other-core", &everyone).unwrap().is_empty());
+        assert_eq!(archived.len(), 2);
+        assert_eq!(archived[1].address, "t8");
         assert!(!archived[0].live() && archived[0].reply.as_ref().unwrap().text == "Two");
         assert!(views(&history, "other-core", &parent, &[], 50, 0).unwrap().is_empty());
 
         // The HTTP listing includes every live helper, even with a newer, ended launch.
         let listed = views(&history, "core", &parent, &everyone, 50, 0).unwrap();
-        assert_eq!(listed.len(), 1);
+        assert_eq!(listed.len(), 2);
+        assert!(!listed[1].live() && listed[1].address == "t8");
         assert!(listed[0].live() && listed[0].name == "tests");
         let (missed, _) = history
             .start_task("core", &everyone[1], "Undelivered follow-up", None, false, &[])

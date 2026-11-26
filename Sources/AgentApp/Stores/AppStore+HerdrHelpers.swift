@@ -366,7 +366,7 @@ extension AppStore {
                     let sameLaunch = previous?.parent == agent.ref && previous?.core == workspace.core
                     list = try await client.helpers(of: agent, in: workspace, includeLastResult: readingChat || sameLaunch)
                 }
-                results[parent] = .success(list?.helpers.isEmpty == false || list?.lastResult != nil ? list : nil)
+                results[parent] = .success(list?.sidebarSessions.isEmpty == false ? list : nil)
             } catch {
                 results[parent] = .unavailable
             }
@@ -439,7 +439,7 @@ extension AppStore {
                 return
             }
             helperListingFailures[parent] = nil
-            let shown = list.helpers.isEmpty && list.lastResult == nil ? nil : list
+            let shown = list.sidebarSessions.isEmpty ? nil : list
             if herdrHelpers[parent] != shown { herdrHelpers[parent] = shown }
             if herdrHelperReads[parent] != .streamed { herdrHelperReads[parent] = .streamed }
         }
