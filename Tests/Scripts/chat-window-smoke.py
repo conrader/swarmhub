@@ -1122,6 +1122,19 @@ def live_terminals(source_app):
                     center = panel("nativeSession.details")
                     return center and expected <= {str(attribute(n, "AXValue") or label(n)) for n in descendants(center)}
                 wait_for("child task, step and reply in the center", shows_details)
+                # AX exposes the full string even when SwiftUI draws an ellipsis. In
+                # the default window both labels fit on separate lines if necessary.
+                from AppKit import NSFont, NSFontAttributeName, NSFontWeightSemibold
+                from Foundation import NSString
+                title = "Layout reader · Helper of Patch"
+                title_text = next(n for n in descendants(panel("nativeSession.details")) if attribute(n, "AXValue") == title)
+                title_size = ax.AXValueGetValue(attribute(title_text, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+                window_size = ax.AXValueGetValue(attribute(window, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+                if window_size.width >= 1120:
+                    font = NSFont.systemFontOfSize_weight_(14, NSFontWeightSemibold)
+                    width = NSString.stringWithString_(title).sizeWithAttributes_({NSFontAttributeName: font}).width
+                    assert title_size.width >= width - 2, f"Truncated helper owner at {title_size.width} pt, needs {width} pt"
+
                 assert not panel("inspector.terminal") and panel("nativeSession.commandOutput")
                 child_finished.set()
                 expected.remove("I am checking the header.")
