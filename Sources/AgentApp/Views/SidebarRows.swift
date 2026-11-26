@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// P20 sidebar geometry, after Grok Bot's left column (values in points).
+/// Workspace sidebar geometry in points.
 enum SidebarMetrics {
-    static let rowHeight: CGFloat = 58, mark: CGFloat = 36, rowPadding: CGFloat = 12, markGap: CGFloat = 12
+    static let rowHeight: CGFloat = 54, mark: CGFloat = 28, rowPadding: CGFloat = 9, markGap: CGFloat = 9
     /// The selected row's highlight sits this far in from the column edges.
     static let listInset: CGFloat = 12
-    static let selectionRadius: CGFloat = 10, nameSize: CGFloat = 15, fragmentSize: CGFloat = 14, badge: CGFloat = 12
+    static let selectionRadius: CGFloat = 7, nameSize: CGFloat = 13, fragmentSize: CGFloat = 12, badge: CGFloat = 12
     /// How strongly the open chat's row is washed with the accent.
     static let selectionWash = 0.22
     /// The top row holds the 32 pt round search and + buttons; it is taller than the 28 pt title zone it covers.
@@ -26,19 +26,23 @@ enum SidebarMetrics {
 private struct RowText: View {
     let name: String; let fragment: String; let unread: Bool
     var program: String? = nil
+    var mainBotLabel: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
                 Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
                     .lineLimit(1).layoutPriority(1)
+                if let mainBotLabel { HerdrMainBotStar(label: mainBotLabel) }
                 if let program {
-                    Text(program).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(program).font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary).lineLimit(1).help(program)
                 }
             }
             // A blank fragment still takes its line, so every row is the same height.
             Text(fragment.isEmpty ? " " : fragment).font(.system(size: SidebarMetrics.fragmentSize)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.tail)
-        }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -58,7 +62,7 @@ private struct UnreadDot: View {
     var body: some View { Circle().fill(.tint).frame(width: 8, height: 8) }
 }
 
-/// A bot in the sidebar: its 36 pt mark (with a badge when it needs attention), name, latest-message line and context actions.
+/// A bot in the sidebar: its mark (with a badge when it needs attention), name, latest-message line and context actions.
 struct BotRow: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.activityNow) private var fixedNow
@@ -78,7 +82,7 @@ struct BotRow: View {
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: answering, isHovered: hovering,
-                          probe: "sidebar", hasActiveCodingAgent: coding, mainBotLabel: main)
+                          probe: "sidebar", hasActiveCodingAgent: coding)
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
                             Circle().fill(AppColor.clay).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
@@ -88,11 +92,10 @@ struct BotRow: View {
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
                 if answering {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, program: store.herdrProgramName(for: bot)) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main) }
                 } else {
-                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.herdrProgramName(for: bot))
+                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main)
                 }
-                Spacer(minLength: 4)
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         }.buttonStyle(.plain).accessibilityValue(bot.isUnread ? "Unread" : "").contextMenu {
@@ -125,7 +128,6 @@ struct GroupRow: View {
                 } else {
                     RowText(name: group.name, fragment: fragment(fixedNow ?? .now), unread: group.isUnread)
                 }
-                Spacer(minLength: 4)
                 if group.isMuted { Image(systemName: "bell.slash").font(.system(size: 10)).foregroundStyle(.tertiary) }
                 if group.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }

@@ -991,6 +991,7 @@ def live_terminals(source_app):
 
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
     reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
+    standby = dict(id=str(uuid.uuid4()), name="StandbyQA", backend="Herdr")
     group = dict(id=str(uuid.uuid4()), name="ReleaseQA", memberIDs=[owner["id"]], messages=[])
     group["messages"] = [dict(id=str(uuid.uuid4()), role="user", createdAt=800000000 + i,
                               content=f"QA message {i} in the group") for i in range(160)]
@@ -1000,6 +1001,8 @@ def live_terminals(source_app):
                    "group-" + hashlib.sha256(session.encode()).hexdigest()[:24], "GroupHelperQA", "NestedQA"]
     agents = [dict(name=name, address="terminal" + str(i), created_ms=100 + i,
                    state="live", status=dict(state="working")) for i, name in enumerate(agent_names)]
+    agents[0]["template"] = "active-cli"
+    templates = [dict(name="next-cli", runtime=dict(harness="Claude Code")), dict(name="active-cli", runtime=dict(harness="Codex"))]
     for child, parent in [(1, 0), (3, 2), (4, 3)]:
         agents[child]["parent"] = {k: agents[parent][k] for k in ("address", "created_ms")}
     job = "b" * 64
@@ -1015,7 +1018,7 @@ def live_terminals(source_app):
                 self.send_error(403)
                 return
             if route == "/api/workspace":
-                reply = dict(core="qa", agents=agents, templates=[], helper_results=True, helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
+                reply = dict(core="qa", agents=agents, templates=templates, helper_results=True, helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
             elif route == "/api/approvals":
                 reply = dict(pending=[])
             elif route == "/api/attention":
@@ -1048,7 +1051,7 @@ def live_terminals(source_app):
             pass
 
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
-        store.write_text(json.dumps(dict(version=2, bots=[reader, owner], groups=[group],
+        store.write_text(json.dumps(dict(version=2, bots=[reader, owner, standby], groups=[group],
                                          scrollPositions={group["id"].upper(): group["messages"][77]["id"]})))
         Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -1056,6 +1059,10 @@ def live_terminals(source_app):
                 press(window, "ReaderQA", sidebar=True)
                 field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
                 enter_draft(field, "Draft stays in ReaderQA")
+                wait_for("Patch’s live Codex label before opening its chat", lambda: any(
+                    "Patch" in label(b).split(", ") and "Codex" in label(b).split(", ") for b in buttons(window)))
+                wait_for("idle bot’s configured Claude label without opening it", lambda: any(
+                    "StandbyQA" in label(b).split(", ") and "Claude" in label(b).split(", ") for b in buttons(window)))
                 press(window, "Live terminals")
 
                 application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])

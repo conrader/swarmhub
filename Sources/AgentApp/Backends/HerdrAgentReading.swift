@@ -39,6 +39,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     var core: String?
     var activeTemplate: String?
     private var activeProgram: String?
+    private(set) var launchedProgramName: String?
     var confirmed = false
     var vaultSessionStale = false
     var autoRestartPending = false
@@ -76,6 +77,7 @@ struct HerdrAgentReading: Equatable, Sendable {
         reviewDescription = agent.reviewDescription
         self.session = agent.ref; activeTemplate = agent.template
         let session = profiles.lazy.flatMap { $0.sessions ?? [] }.first { (core == nil || $0.core == nil || core == $0.core) && $0.address == agent.address && $0.createdMs == agent.createdMs }
+        launchedProgramName = HerdrProgramName.friendly(display: session?.runtime?.displayName, program: session?.runtime?.harness)
         activeProgram = session?.runtime?.displayName ?? session?.runtime?.harness ?? usable.first { $0.name == agent.template }?.label
         guard let session else { running = .unknown; return }
         guard let id = session.runtime?.modelId, !id.isEmpty else { running = .unstated; return }

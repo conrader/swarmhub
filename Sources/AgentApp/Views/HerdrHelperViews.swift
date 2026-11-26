@@ -117,11 +117,11 @@ struct HerdrHelperRow: View {
                 HerdrHelperGlyph(helper: helper).font(.system(size: 11, weight: .semibold)).frame(width: 14)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(helper.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
+                        Text(helper.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
-                        sessionTime.font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
+                        sessionTime.font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
                     }
-                    Text(Self.fragment(helper)).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    Text(Self.fragment(helper)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                 }
             }
             .padding(.horizontal, 10).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))

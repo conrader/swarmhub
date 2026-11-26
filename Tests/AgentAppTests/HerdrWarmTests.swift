@@ -354,3 +354,19 @@ private final class WarmBridge: @unchecked Sendable {
     let posted = MockHTTPProtocol.recorded(http.host).filter { $0.httpMethod == "POST" }.compactMap { $0.url?.path }
     #expect(posted == (!guarded && pendingReview ? [] : ["/api/agents/t1/5" + expected]))
 }
+
+@MainActor @Test func sidebarUsesTheRecordedLaunchIfItsTemplateHasSinceChangedAI() {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Patch", backend: .herdr)
+    store.bots = [bot]
+    let agent = HerdrClient.Agent(address: "t1", name: "patch", state: "live", createdMs: 44, template: "shared", status: nil)
+    let current = HerdrClient.Template(name: "shared", description: nil, error: nil, runtime: .init(harness: "Claude Code", provider: nil, model: nil))
+    let profile = HerdrClient.Profile(id: 1, runtimeName: "patch", sessions: [.init(address: "t1", createdMs: 44, runtime: .init(harness: "Codex", provider: nil, model: nil))])
+    store.herdrAgentReadings[bot.id] = .init(templates: [current], ownTemplate: nil, sharedTemplate: nil, ownModel: nil, offered: [], agent: agent, profiles: [profile])
+    let server = store.herdrServer(for: bot)
+    store.herdrAgentPresence[bot.id] = .init(server: server, agent: agent, program: "Claude")
+    #expect(store.sidebarProgram(for: bot) == "Codex")
+    let replacement = HerdrClient.Agent(address: "t1", name: "patch", state: "live", createdMs: 45, template: "shared", status: nil)
+    store.herdrAgentPresence[bot.id] = .init(server: server, agent: replacement, program: "Claude")
+    #expect(store.sidebarProgram(for: bot) == "Claude")
+}
