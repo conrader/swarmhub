@@ -253,6 +253,37 @@ def group_restart(source_app):
         print(f"Verified 620 group messages across two restarts, including saved message {anchor_number}.")
 
 
+def verify_workspace_columns(window):
+    def dividers():
+        return [e for e in descendants(window) if attribute(e, "AXRole") == "AXSplitter"]
+
+    def dimensions():
+        sides = dividers()
+        width = ax.AXValueGetValue(attribute(window, "AXSize"), ax.kAXValueCGSizeType, None)[1].width
+        assert len(sides) == 2, sides
+        sidebar, chat = [float(attribute(e, "AXValue")) for e in sides]
+        return sidebar, chat, width - sidebar - chat - 2
+
+    sidebar, chat, details = dimensions()
+    assert abs(sidebar - 236) <= 1 and abs(details - 256) <= 1, (sidebar, chat, details)
+    print(f"Window columns: {sidebar:g} / {chat:g} / {details:g} pt", flush=True)
+    original_size = ax.AXValueGetValue(attribute(window, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+    shrink = min(64, original_size.width - 980)
+    if shrink > 0:
+        reduced = ax.AXValueCreate(ax.kAXValueCGSizeType, (original_size.width - shrink, original_size.height))
+        assert ax.AXUIElementSetAttributeValue(window, "AXSize", reduced) == 0
+        wait_for("chat absorbs window resize", lambda: abs(dimensions()[1] - (chat - shrink)) <= 1)
+        assert ax.AXUIElementSetAttributeValue(window, "AXSize", ax.AXValueCreate(ax.kAXValueCGSizeType, original_size)) == 0
+        wait_for("chat restores after resize", lambda: abs(dimensions()[1] - chat) <= 1)
+    right = dividers()[1]
+    if ax.AXUIElementSetAttributeValue(right, "AXValue", chat - 48) != 0:
+        raise RuntimeError("Could not widen the Details column")
+    wait_for("manually enlarged Details", lambda: abs(dimensions()[2] - details - 48) <= 1)
+    right = dividers()[1]
+    assert ax.AXUIElementSetAttributeValue(right, "AXValue", chat) == 0
+    wait_for("original Details width", lambda: abs(dimensions()[2] - details) <= 1)
+
+
 def verify_media(window):
     import Quartz
 
@@ -1155,6 +1186,7 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
                     return any(label(b) == native_preview and attribute(b, "AXIdentifier") == "overview.activeHelpers"
                                for b in buttons(window))
                 wait_for("working OpenCode session in Overview", overview_preview)
+                verify_workspace_columns(window)
                 capture("working")
                 press(window, native_preview)
                 wait_for("terminal from the active helper card", lambda: panel("inspector.terminal") and shows_details())
@@ -1943,7 +1975,11 @@ def team_inspector(source_app, appearance):
 
                 shop = frame(element("web-1 · /srv/shop"))
                 docs = frame(element("local · /code/docs"))
-                assert abs(shop[1] - docs[1]) <= 1 and shop[0] != docs[0], (shop, docs)
+                right = frame(w)[0] + frame(w)[2] - 14
+                if shop[0] + shop[2] + 5 + docs[2] <= right:
+                    assert abs(shop[1] - docs[1]) <= 1 and shop[0] != docs[0], (shop, docs)
+                else:
+                    assert docs[1] > shop[1] and abs(shop[0] - docs[0]) <= 1, (shop, docs)
                 open_detail_section(w, "Routines")
                 wait_for("failed skill read offers retry", lambda: element("Reload shared skills"))
                 skills_online = True

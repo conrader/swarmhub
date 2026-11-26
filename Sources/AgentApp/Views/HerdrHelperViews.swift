@@ -137,6 +137,36 @@ struct SidebarTerminalButton: View {
     }
 }
 
+/// Give a session its own title line when the name and clock cannot fit side by side.
+private struct SidebarSessionLabel<Clock: View>: View {
+    let name: String
+    let detail: String
+    @ViewBuilder let clock: () -> Clock
+
+    private var title: some View { Text(verbatim: name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary) }
+    private var fragment: some View { Text(verbatim: detail).font(.system(size: 11)).foregroundStyle(.secondary) }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    title.fixedSize()
+                    Spacer(minLength: 0)
+                    clock().fixedSize()
+                }
+                Color.clear.frame(height: 14).overlay(alignment: .leading) { fragment }
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                title
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    fragment.frame(maxWidth: .infinity, alignment: .leading)
+                    clock().fixedSize()
+                }
+            }
+        }.lineLimit(1)
+    }
+}
+
 /// Show the session name and elapsed time above its current assignment or saved answer.
 struct HerdrHelperRow: View {
     let helper: HerdrClient.Helper; let selected: Bool; let open: () -> Void
@@ -148,16 +178,11 @@ struct HerdrHelperRow: View {
         Button(action: open) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 HerdrHelperGlyph(helper: helper).font(.system(size: 11, weight: .semibold)).frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(helper.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
-                        Spacer(minLength: 4)
-                        sessionTime.font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1)
-                    }
-                    Text(Self.fragment(helper)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                SidebarSessionLabel(name: helper.name, detail: Self.fragment(helper)) {
+                    sessionTime.font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 10).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+            .padding(.leading, 7).padding(.trailing, 3).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
             .background(selected ? AppColor.selection : hovering ? AppColor.selection.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
             .overlay {
                 if selected, contrast == .increased {
@@ -294,15 +319,10 @@ private struct SidebarNativeThreads: View {
                 Image(systemName: icon)
                     .foregroundStyle(color)
                     .font(.system(size: 11)).frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(verbatim: thread.name).font(.system(size: 12, weight: .semibold))
-                        Spacer(minLength: 4)
-                        NativeThreadDuration(thread: thread).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                    }
-                    Text(verbatim: subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
-                }.lineLimit(1)
-            }.padding(.horizontal, 10).frame(height: HerdrHelperRow.height)
+                SidebarSessionLabel(name: thread.name, detail: subtitle) {
+                    NativeThreadDuration(thread: thread).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                }
+            }.padding(.leading, 7).padding(.trailing, 3).frame(height: HerdrHelperRow.height)
                 .background(selected ? AppColor.selection : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain)

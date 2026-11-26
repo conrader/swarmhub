@@ -129,14 +129,14 @@ struct SidebarView: View {
 
     /// The account and Settings button.
     private var bottomBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 5) {
             // One button: the person's initial and "Settings" (two buttons that opened the same window read as two things).
             SettingsLink {
-                HStack(spacing: 8) {
+                HStack(spacing: 5) {
                     Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(AppColor.onAccent)
                         .frame(width: 22, height: 22).background(Circle().fill(.tint))
-                    Text("Settings").font(.system(size: 13, weight: .medium))
-                }.padding(.leading, 5).padding(.trailing, 14)
+                    Text("Settings").font(.system(size: 13, weight: .medium)).fixedSize()
+                }.padding(.leading, 5).padding(.trailing, 9)
                     .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
             }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
             Spacer(minLength: 2)
@@ -151,7 +151,7 @@ struct SidebarView: View {
                     .font(.system(size: 13, weight: .medium))
                     .frame(height: SidebarMetrics.roundButton)
             }.buttonStyle(.plain).help("Workspace activity (\(AppCommand.activity.shortcutText))")
-        }.padding(.horizontal, SidebarMetrics.listInset + 4).frame(height: SidebarMetrics.bottomBar)
+        }.padding(.horizontal, SidebarMetrics.listInset).frame(height: SidebarMetrics.bottomBar)
     }
 
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
