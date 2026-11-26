@@ -5,6 +5,7 @@ struct HerdrHelperModelSection: View {
     let bot: Bot
     let server: HerdrServer
     let templates: [HerdrClient.Template]
+    var approvalsOnly = false
     var preset: HerdrClient.BotAgentSettings? = nil
 
     @State private var saved: HerdrClient.BotAgentSettings?
@@ -19,6 +20,20 @@ struct HerdrHelperModelSection: View {
     private var draft: HerdrHelperPolicy.Tier? { program.isEmpty ? nil : .init(template: program, model: model) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if !approvalsOnly { helperModel }
+            else if saved == nil {
+                if problem.isEmpty { ProgressView("Loading approval settings…").controlSize(.small) }
+                else {
+                    Text(problem).font(.callout)
+                    Button("Try again") { Task { await load() } }
+                }
+            }
+            approvalSettings
+        }.task(id: "\(bot.id)-\(server.id)") { await load() }
+    }
+
+    private var helperModel: some View {
         SettingBlock(title: "Helper model", detail: "For new helpers started by \(bot.name).") {
             if let saved {
                 Picker("AI", selection: Binding(get: { program }, set: { program = $0; model = ""; problem = "" })) {
@@ -43,7 +58,10 @@ struct HerdrHelperModelSection: View {
                 Text(problem).font(.callout).foregroundStyle(.secondary)
                 if saved == nil { Button("Try again") { Task { await load() } } }
             }
-        }.task(id: "\(bot.id)-\(server.id)") { await load() }
+        }
+    }
+
+    @ViewBuilder private var approvalSettings: some View {
         if let saved {
             if let reviewer = saved.commandReviewer {
                 SettingBlock(title: "Command reviewer", detail: "When Codex asks to run a shell command, Claude Code on this workspace sends its arguments and working directory to the selected model for a second opinion.") {

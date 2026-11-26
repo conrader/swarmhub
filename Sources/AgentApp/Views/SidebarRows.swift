@@ -109,7 +109,7 @@ struct GroupRow: View {
     var askNewSection: (UUID?) -> Void = { _ in }
     @State private var hovering = false
     var body: some View {
-        let selected = store.selectedGroup?.id == group.id
+        let selected = !store.showOnlyAttention && store.selectedGroup?.id == group.id
         let working = store.isStreaming(in: group)
         let fragment = { (now: Date) in SidebarFragment.text(messages: group.messages, draft: drafts.texts[group.id],
                                             isWorking: working,

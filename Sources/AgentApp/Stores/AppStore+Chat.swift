@@ -61,7 +61,7 @@ extension AppStore {
         }
         guard focusedWorkspaceWindows?.insert(id).inserted == true else { return }
         // Refocusing reads arriving replies but preserves a deliberate Mark Unread.
-        if let group = selectedGroup, group.unreadCount > 0 {
+        if let group = selectedGroup, showsGroupChat(group), group.unreadCount > 0 {
             group.unreadCount = 0
             save()
         } else if let bot = selectedBot, showsDirectChat(bot), bot.unreadCount > 0 {

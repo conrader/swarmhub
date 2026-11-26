@@ -967,6 +967,7 @@ def activity_decisions(source_app):
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
     reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
     agent = dict(name="patch-" + owner["id"][:6], address="session", created_ms=80, state="live")
+    agent["session_usage"] = dict(total_tokens=1200, opencode_cost_usd=2.0)
     token = str(uuid.uuid4())
     pending = [dict(id=i, agent=agent["name"], provider="Codex", tool=tool, cwd="/qa",
                     arguments="argument-" + str(i), core="qa", address="session", created_ms=created)
@@ -1055,6 +1056,31 @@ def activity_decisions(source_app):
                 press(sheet(), "Done")
                 wait_for("Activity dismissed", lambda: not sheet())
                 wait_for("empty sidebar badge", lambda: count_is(0))
+                press(window, "Patch", sidebar=True)
+                wait_for("writable bot composer", lambda: any(label(b) == "/goal" for b in buttons(window)))
+                if not any(label(b) == "Approvals" for b in buttons(window)):
+                    press(window, "Details")
+                press(window, "Approvals")
+                wait_for("bot approvals clear", lambda: any(attribute(e, "AXValue") == "No pending requests"
+                                                            for e in descendants(window)))
+                composer = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
+                enter_draft(composer, "--budget 2.00 inspect this build")
+                press(window, "/goal")
+                wait_for("goal preserves the draft", lambda: attribute(composer, "AXValue") == "/goal --budget 2.00 inspect this build")
+                press(window, "Send message")
+
+                def stopped_at_budget():
+                    goal = next(b for b in json.loads(store.read_text())["bots"] if b["name"] == "Patch").get("goal") or {}
+                    return goal.get("state") == "stopped" and goal["iteration"] == 0 and goal["lastSpend"]["usd"] == 2
+
+                wait_for("goal stopped before issuing a paid step", stopped_at_budget)
+                press(window, "+ Screenshot")
+                application = attribute(window, "AXParent")
+                def cancel_button():
+                    return next((b for w in attribute(application, "AXWindows") for b in buttons(w) if label(b) == "Cancel"), None)
+                wait_for("screenshot picker", cancel_button)
+                assert ax.AXUIElementPerformAction(cancel_button(), "AXPress") == 0
+                print("Verified the screenshot picker, per-bot approvals and a zero-dispatch USD limit.")
                 print("Verified sidebar counts and CI review. Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
         finally:
             server.shutdown()
