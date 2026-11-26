@@ -320,6 +320,7 @@ struct Session {
 #[derive(Deserialize)]
 struct SessionData {
     id: String,
+    permissions: Option<serde_json::Value>,
 }
 
 pub(super) fn valid_session(value: &str) -> bool {
@@ -341,6 +342,7 @@ pub(super) async fn create_session(
     base: &Url,
     password: &str,
     model: Option<&str>,
+    read_only: bool,
 ) -> io::Result<ApiSession> {
     let client = Client::builder()
         .http1_only()
@@ -352,6 +354,7 @@ pub(super) async fn create_session(
         .map_err(|_| io::Error::other("Could not connect to OpenCode."))?;
     let not_created = || io::Error::other("OpenCode could not create a session.");
     let mut create = json!({});
+    if read_only { create["permissions"] = super::document_permissions(); }
     if let Some(model) = model {
         let (provider, model) = model.split_once('/').ok_or_else(not_created)?;
         create["model"] = json!({"providerID":provider,"id":model});
@@ -377,8 +380,11 @@ pub(super) async fn create_session(
     }
     let session = serde_json::from_slice::<Session>(&body)
         .map_err(|_| not_created())?
-        .data
-        .id;
+        .data;
+    if read_only && session.permissions.as_ref() != Some(&super::document_permissions()) {
+        return Err(io::Error::other("OpenCode did not confirm read-only document access."));
+    }
+    let session = session.id;
     if !valid_session(&session) {
         return Err(not_created());
     }
@@ -520,6 +526,7 @@ pub(super) fn run(
     handoff: Handoff,
     model: Option<String>,
     capped: bool,
+    read_only: bool,
 ) -> io::Result<()> {
     let mut secret = [0; 32];
     if SystemRandom::new().fill(&mut secret).is_err() {
@@ -537,15 +544,15 @@ pub(super) fn run(
     server.env(super::USAGE_ROOT, usage_root.as_ref().map_or(Path::new("/dev/null"), |file| file.path()));
     // Do not attach Mini or send the first prompt until the server has installed
     // the spending hooks. An ignored or incompatible plugin cannot run a paid turn.
-    let ready = if capped { Some(tempfile::NamedTempFile::new()?) } else { None };
-    server.env_remove("SWARMHUB_OPENCODE_CAP_READY");
-    if let Some(file) = &ready { server.env("SWARMHUB_OPENCODE_CAP_READY", file.path()); }
+    let ready = if capped || read_only { Some(tempfile::NamedTempFile::new()?) } else { None };
+    server.env_remove("SWARMHUB_OPENCODE_POLICY_READY");
+    if let Some(file) = &ready { server.env("SWARMHUB_OPENCODE_POLICY_READY", file.path()); }
     let (_server, url) = start(server, &password)?;
     let client = std::thread::spawn(move || -> io::Result<()> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let session = runtime.block_on(create_session(&url, &password, model.as_deref()))?;
+        let session = runtime.block_on(create_session(&url, &password, model.as_deref(), read_only))?;
         if let Some(file) = &usage_root {
             let result = fs::write(file.path(), &session.id);
             if capped { result?; }
@@ -554,7 +561,7 @@ pub(super) fn run(
             runtime.block_on(session.attention(&password))?;
             let deadline = std::time::Instant::now() + REQUEST;
             while fs::read_to_string(file.path()).ok().as_deref() != Some(handoff.launch.as_str()) {
-                if std::time::Instant::now() >= deadline { return Err(io::Error::other("OpenCode did not activate the session spending limit.")); }
+                if std::time::Instant::now() >= deadline { return Err(io::Error::other("OpenCode did not confirm the required session protections.")); }
                 std::thread::sleep(Duration::from_millis(50));
             }
         }
@@ -636,7 +643,7 @@ mod tests {
                 }),
             );
         let server = tokio::spawn(async move { axum::serve(local, app).await.unwrap() });
-        let session = create_session(&url, "fake-password", None).await.unwrap();
+        let session = create_session(&url, "fake-password", None, false).await.unwrap();
         assert_eq!(session.id, "ses_fixture");
         session.submit("fake-password", &handoff).await;
         drop(handoff);

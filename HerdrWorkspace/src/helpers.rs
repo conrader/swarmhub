@@ -403,17 +403,18 @@ async fn registered(w: &Workspace, key: &str) -> Result<String, String> {
         return Err(UNREGISTERED.into());
     }
     let core_id = w.core.identify().await.map_err(explain)?.core.id;
-    let registered = stored(w.history.db())?
+    let role: Option<bool> = stored(w.history.db())?
         .query_row(
-            "SELECT 1 FROM journal WHERE launch_key=?1 AND core_id=?2",
+            "SELECT document_read_only FROM journal WHERE launch_key=?1 AND core_id=?2",
             params![key, core_id],
-            |_| Ok(()),
+            |row| row.get(0),
         )
         .optional()
-        .map_err(|_| STORAGE)?
-        .is_some();
-    if !registered {
-        return Err(UNREGISTERED.into());
+        .map_err(|_| STORAGE)?;
+    match role {
+        None => return Err(UNREGISTERED.into()),
+        Some(true) => return Err("This bot can only read documents and reply.".into()),
+        Some(false) => {}
     }
     Ok(core_id)
 }

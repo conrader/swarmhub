@@ -595,6 +595,9 @@ def opencode_reply(root, bridge, request, core, browser):
     if focus in ("opencode-children", "opencode-child-stop"):
         from opencode_child_sessions import ChildSession, InterruptChild
         child = InterruptChild(root) if focus == "opencode-child-stop" else ChildSession(root)
+    if focus == "opencode-document-review":
+        from opencode_document_review import DocumentReview
+        child = DocumentReview(root)
     image_mode = focus == "opencode-image"
     if image_mode:
         png = (Path(__file__).resolve().parents[2] / "Tests/Fixtures/chat-media/render.png").read_bytes()
@@ -683,7 +686,7 @@ def opencode_reply(root, bridge, request, core, browser):
                     return
                 chunk = {"id": "chatcmpl-local", "object": "chat.completion.chunk", "created": int(time.time()),
                          "model": request["model"], "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
-                if focus == "opencode-usage" and finish:
+                if focus in ("opencode-usage", "opencode-document-review") and finish:
                     chunk["usage"] = {"prompt_tokens": 1000, "completion_tokens": 100, "total_tokens": 1100}
                 self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
                 self.wfile.flush()
@@ -702,7 +705,9 @@ def opencode_reply(root, bridge, request, core, browser):
                   "package": "@opencode/ai/providers/openai-compatible",
                   "models": {name: {"name": name.title(), "capabilities": {"tools": True}} for name in ("default", "fast", "detailed", "discovered")},
                   "settings": {"baseURL": f"http://127.0.0.1:{endpoint.server_port}/v1"}}}}
-        if focus == "opencode-usage":
+        if focus == "opencode-document-review":
+            config["permissions"][0]["effect"] = "deny"
+        if focus in ("opencode-usage", "opencode-document-review"):
             config["providers"]["fixture"]["models"]["default"]["cost"] = {"input": 10, "output": 20}
         if image_mode:
             config["providers"]["fixture"]["models"]["default"]["capabilities"]["input"] = ["text", "image"]
@@ -2525,7 +2530,7 @@ def smoke(hc, bridge, chrome=None):
                     assert request("/api/drive-files/disconnect",{}) == {"configured":False}
                     assert request("/api/vault")["entries"] == []
                     return
-                if focus in ("opencode", "opencode-status", "opencode-approvals", "opencode-image", "opencode-usage", "opencode-children", "opencode-child-stop"):
+                if focus in ("opencode", "opencode-status", "opencode-approvals", "opencode-image", "opencode-usage", "opencode-children", "opencode-child-stop", "opencode-document-review"):
                     browser = ["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, temp] if chrome else None
                     opencode_reply(root, bridge, request, core, browser)
                     return

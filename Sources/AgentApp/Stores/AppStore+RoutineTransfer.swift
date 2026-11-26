@@ -106,6 +106,7 @@ extension AppStore {
                 throw BackendError.unavailable("A destination bot has a matching session identifier. Its routines could not be safely bound.")
             }
             var sessionClient = recipient
+            sessionClient.expectsDocumentReview = bots.first { $0.id == change.botID }?.documentReadOnly == true
             sessionClient.expectedSessionCapCents = bots.first { $0.id == change.botID }?.sessionCapCents
             let warmed = try await sessionClient.warm(name: name, template: change.after.template,
                                                   model: change.after.model, workspaceID: change.botID)

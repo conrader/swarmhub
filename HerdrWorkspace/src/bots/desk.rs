@@ -679,6 +679,7 @@ async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result
         profile_id: profile,
         expected_runtime: None,
         expected_session_cap_cents: None,
+        expected_document_read_only: false,
         model_choice: None,
         model_id,
         expected_core: None,

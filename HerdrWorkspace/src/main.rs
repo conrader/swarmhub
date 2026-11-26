@@ -806,6 +806,8 @@ struct Launch {
     model_id: Option<String>,
     workspace_id: Option<String>,
     expected_session_cap_cents: Option<i64>,
+    #[serde(default)]
+    expected_document_read_only: bool,
     expected_core: Option<String>,
     standing_instructions: Option<String>,
     instructions_revision: Option<i64>,
@@ -1051,6 +1053,12 @@ async fn launch_agent(
     if body.expected_session_cap_cents.is_some() && body.expected_session_cap_cents != settings.session_cap_cents {
         return Err(ApiError::Conflict("The workspace has a different session spending limit for this bot. Check its settings before sending."));
     }
+    if body.expected_document_read_only && !settings.document_read_only {
+        return Err(ApiError::Conflict("Read-only document access has not been set up for this bot."));
+    }
+    if settings.document_read_only && !api_first_task {
+        return Err(Failure::Input("Read-only document review requires the standard OpenCode API template.").into());
+    }
     if settings.session_cap_cents.is_some() && !api_first_task {
         return Err(Failure::Input("This bot has a session spending limit. Choose the standard OpenCode API template.").into());
     }
@@ -1082,7 +1090,7 @@ async fn launch_agent(
     ))?;
     if let Some(id) = owner {
         if let Err(error) = w.history.db().and_then(|db| {
-            db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=?3,launch_tool_review=?4,session_cap_cents=?5 WHERE id=?2", rusqlite::params![id, record, auto_mode, review_every_tool, settings.session_cap_cents])
+            db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=?3,launch_tool_review=?4,session_cap_cents=?5,document_read_only=?6 WHERE id=?2", rusqlite::params![id, record, auto_mode, review_every_tool, settings.session_cap_cents, settings.document_read_only])
                 .map(|_| ()).map_err(StoreError::from)
         }) {
             w.history.finish(record, DeliveryState::NotSent, Some("The bot for this launch could not be saved."), None)?;

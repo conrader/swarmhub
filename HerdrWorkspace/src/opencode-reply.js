@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from "node:child_process";
-import { closeSync, constants, openSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, constants, openSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { createConnection } from "node:net";
 import { observeChildren } from "./children.js";
 import { approvalDesk } from "./approvals.js";
@@ -147,7 +147,19 @@ export default {
     const path = process.env.SWARMHUB_REPLY_SOCKET;
     if (!executable || !key || !process.env.SWARMHUB_JOURNAL) return;
     const capped = !!process.env.SWARMHUB_OPENCODE_CAP_CENTS;
-    if (capped) await installSpendLimit(ctx, executable, key);
+    const review = process.env.SWARMHUB_OPENCODE_DOCUMENT_REVIEW === "1";
+    if (review) {
+      await ctx.tool.transform(editor => {
+        for (const tool of editor.list()) {
+          if (tool.id !== "read") editor.remove(tool.id);
+        }
+      });
+      await ctx.tool.hook("execute.before", call => {
+        if (call.tool !== "read") throw new Error("This bot can only read documents.");
+      });
+    }
+    if (capped) await installSpendLimit(ctx, executable);
+    if (capped || review) writeFileSync(process.env.SWARMHUB_OPENCODE_POLICY_READY, key, {mode:0o600});
     const controller = new AbortController();
     const running = new Map();
     const inbox = new Map();
@@ -307,9 +319,9 @@ export default {
     void observeChildren(ctx, executable, controller.signal).catch(() => {});
     void listen().catch(() => {}).finally(close);
     return () => {
-      // A capped, privately spawned inference server may never continue after
+      // A private server with enforced role settings may never continue after
       // the workspace plugin is disabled or unloaded during a config reload.
-      if (capped && process.env.SWARMHUB_OPENCODE_CAP_READY) process.kill(process.pid, "SIGTERM");
+      if ((capped || review) && process.env.SWARMHUB_OPENCODE_POLICY_READY) process.kill(process.pid, "SIGTERM");
       controller.abort();
       close();
     };

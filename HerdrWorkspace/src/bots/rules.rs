@@ -1117,7 +1117,11 @@ pub(crate) fn on_reply(
     let newest = typed.last();
     let visible = blocks::visible(text);
 
-    for block in blocks::blocks(text) {
+    let read_only: bool = db.query_row(
+        "SELECT document_read_only FROM journal WHERE launch_key=?1", [key], |r| r.get(0),
+    )?;
+    let commands = if read_only { Vec::new() } else { blocks::blocks(text) };
+    for block in commands {
         let (to, sent) = match block {
             blocks::Block::Message { to, kind, text } => {
                 let kind = Kind::parse(&kind).unwrap_or(Kind::Ask);
@@ -1180,6 +1184,21 @@ pub(crate) fn on_reply(
         }) else {
             continue;
         };
+        if read_only {
+            // Only an explicit answer to this single incoming request can leave the
+            // chat. Never forward prose from an unrelated or mixed turn.
+            if typed.len() == 1 && about.kind == "ask" {
+                let requester = super::name_of(db, &about.sender);
+                for block in blocks::blocks(text) {
+                    if let blocks::Block::Message { to, kind, text } = block
+                        && kind == "tell" && to.eq_ignore_ascii_case(&requester) {
+                        let _ = close(ctx, bot, id, Closing::Reply(&text), "block")?;
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
         let wrote: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM bot_messages WHERE sender=?1 AND id>?2)",
             params![bot.id, id],

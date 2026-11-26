@@ -198,6 +198,7 @@ extension AppStore {
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
         let liveServer = herdrServer(for: bot)
         var client = try herdrClient(for: liveServer)
+        client.expectsDocumentReview = bot.documentReadOnly
         client.expectedSessionCapCents = bot.sessionCapCents
         var backend = HerdrBackend(client: client, botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
         if launchWorkEnabled {

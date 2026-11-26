@@ -20,6 +20,7 @@ pub(crate) struct Settings {
     pub choice: Option<Tier>,
     pub auto_mode: bool,
     pub session_cap_cents: Option<i64>,
+    pub document_read_only: bool,
     pub review_every_tool: bool,
     pub command_reviewer: crate::command_reviewer::Model,
     pub reviewer_bot_id: Option<String>,
@@ -34,6 +35,7 @@ enum Edit {
     Model(ModelEdit),
     Auto(AutoEdit),
     SessionCap(SessionCapEdit),
+    DocumentReview(DocumentReviewEdit),
     ToolReview(ToolReviewEdit),
     Reviewer(ReviewerEdit),
     BotReviewer(BotReviewerEdit),
@@ -62,6 +64,9 @@ struct ReviewerEdit {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionCapEdit { session_cap_cents: i64 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DocumentReviewEdit { document_read_only: bool }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,7 +91,7 @@ pub(crate) fn routes() -> Router<Workspace> {
 pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
     Ok(db
         .query_row(
-            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id,review_every_tool,session_cap_cents FROM bot_agent_settings WHERE bot=?1",
+            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id,review_every_tool,session_cap_cents,document_read_only FROM bot_agent_settings WHERE bot=?1",
             [id],
             |r| {
                 let template: Option<String> = r.get(0)?;
@@ -94,6 +99,7 @@ pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
                 Ok(Settings {
                     review_every_tool: r.get(6)?,
                     session_cap_cents: r.get(7)?,
+                    document_read_only: r.get(8)?,
                     reviewer_bot_id: r.get(5)?,
                     reviewer_bots: None,
                     choice: template
@@ -164,7 +170,7 @@ async fn save(
     Json(body): Json<Edit>,
 ) -> Result<Json<Settings>, ApiError> {
     let existing: &[String] = match &body {
-        Edit::SessionCap(_) => &[],
+        Edit::SessionCap(_) | Edit::DocumentReview(_) => &[],
         Edit::Model(e) => &e.existing_agents,
         Edit::Auto(e) => &e.existing_agents,
         Edit::ToolReview(e) => &e.existing_agents,
@@ -203,6 +209,13 @@ async fn save(
             return Err(ApiError::Conflict("Turn off review for every tool before enabling Auto mode."));
         }
         match &body {
+            Edit::DocumentReview(edit) => {
+                if !edit.document_read_only {
+                    return Err(Failure::Input("This role keeps read-only document access.").into());
+                }
+                tx.execute("INSERT INTO bot_agent_settings(bot,document_read_only) VALUES(?1,1)
+                    ON CONFLICT(bot) DO UPDATE SET document_read_only=1", [&bot])
+            }
             Edit::SessionCap(edit) => {
                 // The app sets this before exposing a newly created bot. Existing sessions
                 // have an immutable ceiling recorded when they launch.

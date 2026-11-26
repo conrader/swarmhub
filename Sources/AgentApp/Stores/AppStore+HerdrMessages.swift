@@ -86,7 +86,7 @@ extension AppStore {
         let rounds = HerdrBotRelay.rounds(part?.metadata[HerdrBotRelay.ExchangeKey.rounds])
         let peers = herdrPeers(of: bot), open = peers.filter(herdrTakesMessages).map(\.name)
         let candidates = peers.map { HerdrBotMessage.Candidate(id: Self.herdrID($0), name: $0.name, open: herdrTakesMessages($0)) }
-        var messages = HerdrBotMessage.messages(in: text)
+        var messages = bot.documentReadOnly ? [] : HerdrBotMessage.messages(in: text)
         // A bot that answers another bot's message and still addresses that bot with a block has put its answer
         // there: those words go back with the reply, not as a new message.
         var answer = [HerdrBotRelay.visible(text)]

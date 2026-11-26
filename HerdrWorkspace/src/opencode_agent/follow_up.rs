@@ -673,7 +673,7 @@ mod tests {
                 }),
             );
         let server = tokio::spawn(async move { axum::serve(listener, fake).await.unwrap() });
-        let session = super::super::first_task::create_session(&url, "fixture", None)
+        let session = super::super::first_task::create_session(&url, "fixture", None, false)
             .await
             .unwrap();
         let worker =

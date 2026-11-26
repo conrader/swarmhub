@@ -353,7 +353,7 @@ func vacatingASavedMainRoleLeavesItsServerWithoutAMain(deleteOwner: Bool) throws
     let template = HerdrClient.Template(name: "local", description: nil, error: nil, runtime: nil, supportsSessionCap: true)
     #expect(store.createHerdrBot(proposal, manager: manager, templates: [template]) == nil)
     let id = UUID()
-    let bot = try #require(store.createHerdrBot(proposal, manager: manager, templates: [template], confirmedCapID: id))
+    let bot = try #require(store.createHerdrBot(proposal, manager: manager, templates: [template], confirmedRoleID: id))
     #expect(bot.id == id && bot.sessionCapCents == 200 && bot.requiresToolReview == nil)
     let restored = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(bot))
     #expect(restored.sessionCapCents == 200)
@@ -361,4 +361,21 @@ func vacatingASavedMainRoleLeavesItsServerWithoutAMain(deleteOwner: Bool) throws
         let invalid = HerdrBotRequest.requests(in: block("{\"op\":\"create_bot\",\"name\":\"Legal\",\"spend_cap_usd\":" + raw + "}"))
         #expect(invalid.first?.sessionCapCents == 0)
     }
+}
+
+@Test @MainActor func aDocumentReviewerRequiresWorkspaceSupportAndKeepsItsRoleWhenReopened() throws {
+    let (store, manager, _) = relayStore()
+    let text = block(#"{"op":"create_bot","name":"Legal","runtime":"OpenCode","document_read_only":true,"spend_cap_usd":2}"#)
+    let message = ChatMessage(role: .assistant, content: text)
+    manager.messages.append(message)
+    let proposal = try #require(store.herdrRequests(in: message, of: manager).first)
+    #expect(proposal.request.documentReadOnly == true)
+    var template = HerdrClient.Template(name: "opencode", description: nil, error: nil, runtime: nil, supportsSessionCap: true)
+    let id = UUID()
+    #expect(store.createHerdrBot(proposal, manager: manager, templates: [template], confirmedRoleID: id) == nil)
+    template.supportsDocumentReview = true
+    #expect(store.createHerdrBot(proposal, manager: manager, templates: [template]) == nil)
+    let legal = try #require(store.createHerdrBot(proposal, manager: manager, templates: [template], confirmedRoleID: id))
+    let restored = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(legal))
+    #expect(restored.documentReadOnly && restored.sessionCapCents == 200)
 }
