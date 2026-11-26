@@ -160,7 +160,12 @@ extension HerdrClient {
             }
             let task: String
             let reply: String
+            struct Terminal: Decodable {
+                let command: String
+                let output: String
+            }
             let steps: [Step]
+            let terminal: Terminal?
         }
         let details: Details?
         let transcript: String

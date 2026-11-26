@@ -1,6 +1,7 @@
 """Real OpenCode subagent, backed by a local streaming model with a controllable child."""
 import json
 import re
+import shlex
 import threading
 
 
@@ -14,6 +15,7 @@ class ChildSession:
     def __init__(self, root):
         self.file = root / "sidebar.txt"
         self.file.write_text("expanded")
+        self.command = "cat " + shlex.quote(str(self.file))
         self.started = threading.Event()
         self.release = threading.Event()
         self.returned = threading.Event()
@@ -50,6 +52,8 @@ class ChildSession:
             if not receipts:
                 return (({"role": "assistant", "content": self.progress}, None), *self.call("read", {"path": str(self.file)}))
             assert "expanded" in receipts[-1]
+            if len(receipts) == 1:
+                return self.call("shell", {"command": self.command})
             assert self.finish_answer.wait(30)
             text = self.child_reply
         return (({"role": "assistant", "content": text}, None), ({}, "stop"))
@@ -77,9 +81,12 @@ class ChildSession:
             self.release.set()
             def progress_with_step():
                 snapshot = request(activity + f"?core={core}")
-                return snapshot if snapshot["details"]["steps"] and self.progress in snapshot["transcript"] else None
+                steps = snapshot["details"]["steps"]
+                return snapshot if any("shell" in step["text"] and step["state"] == "completed" for step in steps) else None
             progress = until(progress_with_step)
             assert progress["state"] == "working" and progress["details"]["reply"] == self.progress
+            assert progress["details"]["terminal"]["command"] == self.command
+            assert "expanded" in progress["details"]["terminal"]["output"]
             assert not child("working")["reply"]
             self.finish_answer.set()
             assert self.returned.wait(20)
@@ -94,6 +101,7 @@ class ChildSession:
             request(path + "/end", {})
         assert child("answered") == answered
         saved = request(activity + f"?core={core}")
+        assert saved["details"]["terminal"] == progress["details"]["terminal"]
         assert "details" not in answered
         assert saved["details"]["reply"] == self.child_reply and saved["details"]["task"] == self.child_task
         assert any(str(self.file) in step["text"] for step in saved["details"]["steps"])

@@ -38,7 +38,7 @@ class ChildScenario:
         command = shlex.join([sys.executable, str(hook), str(self.receipts)])
         hooks = {event: [{"hooks": [{"type": "command", "command": command}]}]
                  for event in ("SubagentStart", "SubagentStop", "PostToolUse")}
-        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(Explore)", "Read"]}}))
+        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(Explore)", "Read", "Bash(cat:*)"]}}))
 
     @property
     def handler(self):
@@ -91,6 +91,13 @@ class ChildScenario:
                         send("content_block_delta", index=0, delta={"type":"input_json_delta",
                              "partial_json":json.dumps({"file_path":str(scenario.sample)})})
                         spawn = True
+                    elif is_child and not any("toolu_child_shell" in json.dumps(m) for m in child_messages):
+                        send("content_block_start", index=0, content_block={
+                            "type":"tool_use", "id":"toolu_child_shell", "name":"Bash", "input":{},
+                        })
+                        send("content_block_delta", index=0, delta={"type":"input_json_delta",
+                             "partial_json":json.dumps({"command": "cat " + shlex.quote(str(scenario.sample))})})
+                        spawn = True
                     else:
                         if is_child:
                             scenario.started.set()
@@ -140,6 +147,8 @@ class ChildScenario:
                 query = "?core=" + quote(bot["core"], safe="")
                 activity = base + "/claude-threads/" + child
                 running = request(activity + query)
+                assert running["details"]["terminal"]["output"].strip() == "Child workspace fixture", running
+                assert running["details"]["terminal"]["command"] == "cat " + shlex.quote(str(self.sample))
                 assert "Read" in running["transcript"] and "sidebar.txt" in running["transcript"], running
                 for url in (activity + "?core=unrelated", base + "/codex-threads/" + child + query):
                     try:
@@ -184,6 +193,7 @@ class ChildScenario:
             assert final["reply"] == CHILD and final["completed_ms"] >= final["created_ms"]
             request(base + "/end", {})
             archived = request(activity + query)
+            assert archived["details"]["terminal"] == running["details"]["terminal"]
             assert "details" not in final and archived["details"]["reply"] == CHILD
             assert any("Read" in step["text"] for step in archived["details"]["steps"])
             assert CHILD in archived["transcript"] and PARENT not in archived["transcript"] and archived["state"] == "answered"

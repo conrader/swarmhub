@@ -1013,6 +1013,7 @@ def live_terminals(source_app):
     screens = []
     archives = []
     child_finished = Event()
+    child_started_ms = int(time.time() * 1000) - 72000
     history_reads = []
     workers = [dict(host="test-host", complete=True, jobs=[
         dict(job=job, owner=owner["id"], state="working", provider="codex")])]
@@ -1035,7 +1036,8 @@ def live_terminals(source_app):
             elif route == "/api/agents/terminal0/100/opencode-threads/ses_layout":
                 reply = dict(state="answered" if child_finished.is_set() else "working",
                              details=dict(task="Check the full header assignment.",
-                                          reply="Complete sidebar result." if child_finished.is_set() else "",
+                                          reply="Complete sidebar result." if child_finished.is_set() else "I am checking the header.",
+                                          terminal=dict(command="cat sidebar.txt", output="The sidebar is expanded."),
                                           steps=[dict(text="Read sidebar.txt", state="completed")]),
                              transcript="Task Check header.\n\ncompleted · read · sidebar.txt")
             elif route.endswith("/helpers"):
@@ -1053,9 +1055,13 @@ def live_terminals(source_app):
                                                        answered=True, reply=dict(id=1, text="Result from " + name))]
                 elif address == "terminal0" and created == "100":
                     reply["opencode_threads"] = [dict(id="ses_layout",parent="ses_owner",runtime="opencode",
-                        name="Layout reader",model="fixture/default",created_ms=100,completed_ms=110,
+                        name="Layout reader", model="fixture/default", created_ms=child_started_ms,
+                        completed_ms=child_started_ms + 74000 if child_finished.is_set() else None,
                         state="answered" if child_finished.is_set() else "working", task="Check header.",
                         reply="Sidebar result." if child_finished.is_set() else "")]
+                    reply["opencode_threads"].append(dict(id="ses_nested", parent="ses_layout", runtime="opencode",
+                        name="Nested reader", model="fixture/default", created_ms=105, completed_ms=110,
+                        state="answered", task="Inspect the header", reply="Header checked."))
                     reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
                                                 answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
                     reply["recent_sessions"] = [dict(address="finished", created_ms=65, name="EarlierQA", state="gone",
@@ -1088,6 +1094,18 @@ def live_terminals(source_app):
                     "StandbyQA" in label(b).split(", ") and "Claude" in label(b).split(", ") for b in buttons(window)))
                 child_label = "OpenCode agent Layout reader, Working"
                 wait_for("native child under Patch", lambda: any(label(b) == child_label for b in buttons(window)))
+                def has_nested():
+                    return any(label(b) == "OpenCode agent Nested reader, Answered" for b in buttons(window))
+                wait_for("nested session under its provider parent", has_nested)
+                press(window, "Sessions for Layout reader")
+                wait_for("nested session folded", lambda: not has_nested())
+                press(window, "Sessions for Patch")
+                wait_for("parent bot folded", lambda: not any(label(b) == child_label for b in buttons(window)))
+                press(window, "Sessions for Patch")
+                wait_for("parent bot expanded", lambda: any(label(b) == child_label for b in buttons(window)))
+                assert not has_nested()
+                press(window, "Sessions for Layout reader")
+                wait_for("nested session reopened", has_nested)
                 press(window, child_label)
                 def panel(identifier):
                     return next((n for n in descendants(window) if attribute(n, "AXIdentifier") == identifier), None)
@@ -1098,15 +1116,15 @@ def live_terminals(source_app):
                 patch = next(b for b in buttons(window) if "Patch" in label(b).split(", "))
                 press(window, label(patch))
                 press(window, child_label)
-                expected = {"Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
-                            "Read sidebar.txt", "No reply yet."}
+                expected = {"Layout reader · Helper of Patch", "OpenCode · fixture/default", "Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
+                            "Read sidebar.txt", "I am checking the header.", "$ cat sidebar.txt", "The sidebar is expanded."}
                 def shows_details():
                     center = panel("nativeSession.details")
                     return center and expected <= {str(attribute(n, "AXValue") or label(n)) for n in descendants(center)}
                 wait_for("child task, step and reply in the center", shows_details)
-                assert not panel("inspector.terminal")
+                assert not panel("inspector.terminal") and panel("nativeSession.commandOutput")
                 child_finished.set()
-                expected.remove("No reply yet.")
+                expected.remove("I am checking the header.")
                 expected.add("Complete sidebar result.")
                 wait_for("completed reply without reopening the session", shows_details)
                 press(window, "Preview Layout reader in Details")

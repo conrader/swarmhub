@@ -99,8 +99,25 @@ struct NativeThreadOutput: View {
                 }.buttonStyle(.link)
             }
         }
-        helperPart("Latest reply", detail: nil) {
-            Text(verbatim: reply.isEmpty ? "No reply yet." : reply).textSelection(.enabled)
+        helperPart("Latest reply", detail: details?.terminal == nil ? nil : "Terminal output below") {
+            if reply.isEmpty {
+                Text("No reply yet.").foregroundStyle(.secondary)
+            } else {
+                NativeSessionReply(text: reply)
+            }
+            if let terminal = details?.terminal {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: "$ " + terminal.command)
+                        .foregroundStyle(.secondary).lineLimit(2).help(terminal.command)
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(verbatim: terminal.output).fixedSize().frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(maxHeight: 126).fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppColor.sidebar, in: RoundedRectangle(cornerRadius: 4))
+                .accessibilityElement(children: .contain).accessibilityIdentifier("nativeSession.commandOutput")
+            }
         }
     }
 
@@ -149,6 +166,16 @@ struct NativeThreadOutput: View {
     }
 }
 
+private struct NativeSessionReply: View {
+    let text: String
+    @StateObject private var message = ChatMessage(role: .assistant, content: "")
+
+    var body: some View {
+        MarkdownContent(message: message).textSelection(.enabled)
+            .onChange(of: text, initial: true) { _, value in message.content = value }
+    }
+}
+
 /// The center pane shows the selected child's work. The same session can independently
 /// open in the terminal inspector, including after its parent process has ended.
 struct NativeSessionView: View {
@@ -158,7 +185,12 @@ struct NativeSessionView: View {
     let native: HerdrHelperSelection.Native
 
     var body: some View {
-        let target = LiveTerminal(thread: native.thread, owner: native.owner, core: native.core)
+        let listing = store.herdrHelpers[selection.parent]
+        let siblings = listing?.core == native.core && listing?.parent == native.owner ? listing?.nativeThreads ?? [] : []
+        let thread = siblings.first { $0.id == native.thread.id && $0.provider == native.thread.provider } ?? native.thread
+        let ownerName = siblings.first { $0.id == thread.parent && $0.provider == thread.provider }?.name
+            ?? store.delegatingSession(for: selection)?.helper.name ?? bot.name
+        let target = LiveTerminal(thread: thread, owner: native.owner, core: native.core)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -168,10 +200,20 @@ struct NativeSessionView: View {
                     .buttonStyle(.plain).accessibilityLabel("Back to " + (store.groupOwningHelper(selection, of: bot)?.name ?? bot.name))
                 BotAvatar(bot: bot, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(verbatim: native.thread.name).font(.system(size: 14, weight: .semibold))
-                    Text("Helper of " + bot.name).font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: thread.name + " · Helper of " + ownerName).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(thread.statusLine)
+                        NativeThreadDuration(thread: thread)
+                    }.font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if let model = thread.model, !model.isEmpty {
+                    Text(verbatim: thread.provider.label + " · " + model)
+                        .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                        .padding(.horizontal, 7).padding(.vertical, 4)
+                        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 5))
+                        .layoutPriority(1).help(model)
+                }
                 ChatTerminalPreviewButton(server: native.server, target: target)
                 ShowDetailsItem()
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header")

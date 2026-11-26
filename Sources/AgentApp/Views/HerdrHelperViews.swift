@@ -5,6 +5,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage private var expanded: Bool
     @State private var collapsed: Set<HerdrHelperSelection> = []
+    @State private var foldedThreads: Set<LiveTerminal.Source> = []
     let bot: Bot
     let parents: [HerdrHelperParent]
     let workers: [HerdrCodejobRow]
@@ -51,7 +52,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
                         if let list = store.herdrHelpers[parent], !list.nativeThreads.isEmpty {
-                            SidebarNativeThreads(bot: bot, parent: parent, threads: list.nativeThreads, owner: list.parent, core: list.core)
+                            SidebarNativeThreads(bot: bot, parent: parent, threads: list.nativeThreads, owner: list.parent, core: list.core, folded: $foldedThreads)
                         }
                         ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
                             HStack(spacing: 0) {
@@ -75,7 +76,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             if !collapsed.contains(row.id),
                                let list = store.herdrHelpers[row.id.parent.children(of: row.helper.ref, core: row.core)],
                                !list.nativeThreads.isEmpty {
-                                SidebarNativeThreads(bot: bot, parent: row.id.parent.children(of: row.helper.ref, core: row.core), threads: list.nativeThreads, owner: list.parent, core: list.core)
+                                SidebarNativeThreads(bot: bot, parent: row.id.parent.children(of: row.helper.ref, core: row.core), threads: list.nativeThreads, owner: list.parent, core: list.core, folded: $foldedThreads)
                                     .padding(.leading, CGFloat(min(row.depth + 1, 5)) * 10)
                             }
                         }
@@ -205,30 +206,55 @@ private struct SidebarNativeThreads: View {
     let owner: HerdrClient.AgentRef
     let core: String
 
+    @Binding var folded: Set<LiveTerminal.Source>
+
+    private struct ThreadKey: Hashable {
+        let provider: HerdrClient.ChildRuntime
+        let id: String
+    }
+
     private struct Row: Identifiable {
         let thread: HerdrClient.NativeThread
         let depth: Int
-        var id: String { thread.id }
+        let hasChildren: Bool
+        var id: ThreadKey { ThreadKey(provider: thread.provider, id: thread.id) }
     }
 
     private var rows: [Row] {
-        let ids = Set(threads.map(\.id))
-        let children = Dictionary(grouping: threads, by: \.parent)
-        var pending = threads.filter { !ids.contains($0.parent) }.reversed().map { Row(thread: $0, depth: 0) }
-        var seen: Set<String> = []
+        let ids = Set(threads.map { ThreadKey(provider: $0.provider, id: $0.id) })
+        let children = Dictionary(grouping: threads) { ThreadKey(provider: $0.provider, id: $0.parent) }
+        let roots = threads.filter { !ids.contains(ThreadKey(provider: $0.provider, id: $0.parent)) }
+        var pending = roots.reversed().map { ($0, 0) }
+        var seen: Set<ThreadKey> = []
         var result: [Row] = []
-        while let row = pending.popLast(), seen.insert(row.id).inserted {
-            result.append(row)
-            pending += (children[row.id] ?? []).reversed().map { Row(thread: $0, depth: row.depth + 1) }
+        while let (thread, depth) = pending.popLast() {
+            let key = ThreadKey(provider: thread.provider, id: thread.id)
+            guard seen.insert(key).inserted else { continue }
+            let nested = children[key] ?? []
+            result.append(Row(thread: thread, depth: depth, hasChildren: !nested.isEmpty))
+            if !nested.isEmpty && !folded.contains(LiveTerminal(thread: thread, owner: owner, core: core).id) {
+                pending += nested.reversed().map { ($0, depth + 1) }
+            }
         }
         return result
     }
 
     var body: some View {
         ForEach(rows) { row in
+            let target = LiveTerminal(thread: row.thread, owner: owner, core: core)
             HStack(spacing: 0) {
                 button(row.thread)
-                SidebarTerminalButton(bot: bot, target: LiveTerminal(thread: row.thread, owner: owner, core: core))
+                if row.hasChildren {
+                    let closed = folded.contains(target.id)
+                    Button {
+                        if closed { folded.remove(target.id) } else { folded.insert(target.id) }
+                    } label: {
+                        Image(systemName: closed ? "chevron.right" : "chevron.down")
+                            .font(.caption).frame(width: 24, height: 30).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel("Sessions for " + row.thread.name)
+                        .accessibilityValue(closed ? "Collapsed" : "Expanded")
+                }
+                SidebarTerminalButton(bot: bot, target: target)
             }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
         }
     }
@@ -272,14 +298,7 @@ private struct SidebarNativeThreads: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(verbatim: thread.name).font(.system(size: 12, weight: .semibold))
                         Spacer(minLength: 4)
-                        if thread.state == "working" && thread.createdMs > 0 {
-                            TimelineView(.periodic(from: .now, by: 1)) { tick in
-                                Text(ActivityCopy.duration(tick.date.timeIntervalSince1970 - Double(thread.createdMs) / 1000, compact: true))
-                            }.font(.caption2.monospaced()).foregroundStyle(.secondary)
-                        } else if let end = thread.completedMs, end >= thread.createdMs {
-                            Text(ActivityCopy.duration((Double(end) - Double(thread.createdMs)) / 1000, compact: true))
-                                .font(.caption2.monospaced()).foregroundStyle(.secondary)
-                        }
+                        NativeThreadDuration(thread: thread).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                     Text(verbatim: subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
                 }.lineLimit(1)
@@ -291,6 +310,22 @@ private struct SidebarNativeThreads: View {
             .accessibilityValue(detail).accessibilityAddTraits(selected ? .isSelected : [])
             .help((openInCenter ? "Open session for " : "Preview session for ") + thread.name)
 
+    }
+}
+
+struct NativeThreadDuration: View {
+    let thread: HerdrClient.NativeThread
+
+    var body: some View {
+        if thread.createdMs > 0 {
+            if thread.state == "working" {
+                TimelineView(.periodic(from: .now, by: 1)) { tick in
+                    Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince1970 - Double(thread.createdMs) / 1000), compact: true))
+                }
+            } else if let end = thread.completedMs, end >= thread.createdMs {
+                Text(ActivityCopy.duration((Double(end) - Double(thread.createdMs)) / 1000, compact: true))
+            }
+        }
     }
 }
 

@@ -22,13 +22,14 @@ async function belongsToRoot(ctx, parent, rootFile) {
 function snapshot(session, messages) {
   const lines = [];
   const steps = [];
-  let task = "", reply = "", latestText = "", model;
+  let task = "", reply = "", latestText = "", model, terminal;
   for (const message of messages) {
     if (message.type === "user") {
       task = shorten(message.text, 8000).replace(/^You are a subagent spawned by another session\.\n/, "");
       reply = "";
       latestText = "";
       steps.length = 0;
+      terminal = undefined;
       if (task) lines.push("Task " + task);
     } else if (message.type === "assistant") {
       if (message.model?.id) model = [message.model.providerID, message.model.id].filter(Boolean).join("/");
@@ -36,6 +37,10 @@ function snapshot(session, messages) {
       for (const part of parts) {
         if (part.type === "tool") {
           const state = part.state ?? {};
+          if (part.name === "shell" && typeof state.input?.command === "string") {
+            const output = (state.content ?? []).filter(c => c.type === "text").map(c => c.text).join("\n");
+            if (output.trim()) terminal = { command: shorten(state.input.command, 2048), output: output.slice(-8192) };
+          }
           steps.push({ text: [part.name, shorten(state.input?.path, 256)].filter(Boolean).join(" · "), state: state.status });
           if (steps.length > 64) steps.shift();
           lines.push([state.status, part.name, shorten(state.input?.path, 512)].filter(Boolean).join(" · "));
@@ -55,7 +60,7 @@ function snapshot(session, messages) {
     : session.outcome === "interrupted" ? "stopped" : reply ? "answered" : "finished";
   return { id: session.id, parent: session.parentID, name: shorten(session.title || session.agent, 120) || "OpenCode agent",
     model: shorten(model, 240) || null, created_ms: time.created, completed_ms: ended,
-    details: { task, reply: state === "working" ? latestText : shorten(reply, 24000), steps },
+    details: { task, reply: state === "working" ? latestText : shorten(reply, 24000), steps, terminal },
     state, task: shorten(task, 300), reply: shorten(reply, 300), transcript: lines.join("\n\n").slice(-30000) };
 }
 

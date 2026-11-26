@@ -17,6 +17,7 @@ use std::{
 
 pub(crate) mod claude_preview;
 pub(crate) mod claude_children;
+pub(crate) mod child_output;
 
 pub(crate) const TOOL_REVIEW_ENV: &str = "SWARMHUB_REVIEW_EVERY_TOOL";
 
@@ -59,6 +60,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some("capture-claude-reply") => capture_claude(),
+        Some("capture-claude-shell") => claude_children::shell(),
         Some("capture-claude-child") => claude_children::hook(),
         Some("claude-preview-hook") => {
             claude_preview::hook();
@@ -361,6 +363,10 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         settings["hooks"][event] = json!([{"hooks":[child_hook]}]);
     }
     settings["hooks"]["PostToolUse"].as_array_mut().unwrap().push(json!({"matcher":"^(Agent|Task)$","hooks":[child_hook]}));
+    let shell_hook = json!({"type":"command","command":format!("{} capture-claude-shell", shell_quote(executable)),"timeout":TOOL_HOOK_SECONDS});
+    for event in ["PostToolUse", "PostToolUseFailure"] {
+        settings["hooks"][event].as_array_mut().unwrap().push(json!({"matcher":"^Bash$","hooks":[shell_hook]}));
+    }
     let mut args: Vec<_> = env::args_os().skip(2).collect();
     let approvals = args
         .first()

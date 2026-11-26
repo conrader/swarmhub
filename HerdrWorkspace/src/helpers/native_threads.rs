@@ -30,7 +30,7 @@ impl Child {
                     json_extract(c.summary,'$.active_turn'), c.transcript,
                     coalesce(json_extract(c.summary,'$.details'),
                         (SELECT json_object('task',json_extract(record,'$.task'),'reply',json_extract(record,'$.reply'),
-                                            'steps',json_extract(record,'$.steps'))
+                                            'steps',json_extract(record,'$.steps'),'terminal',json_extract(record,'$.terminal'))
                          FROM claude_children WHERE c.runtime='claude' AND launch=c.launch AND thread=c.thread
                          AND json_type(record,'$.steps')='array'))
              FROM native_children c JOIN journal p ON p.id=c.launch

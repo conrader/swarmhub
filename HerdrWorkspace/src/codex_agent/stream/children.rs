@@ -338,13 +338,18 @@ impl Snapshot {
         } else {
             answer
         };
+        let terminal = last.and_then(|turn| turn["items"].as_array()).and_then(|items| {
+            items.iter().rev().filter(|item| item["type"] == "commandExecution").find_map(|item| {
+                crate::agent::child_output::ChildCommandOutput::new(item["command"].as_str()?, item["aggregatedOutput"].as_str()?)
+            })
+        });
         let mut steps: Vec<_> = last.and_then(|turn| turn["items"].as_array()).into_iter().flatten()
             .rev().filter_map(step).take(64).collect();
         steps.reverse();
         let summary = json!({"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
             "model":thread["model"],"created_ms":thread["createdAt"].as_i64().unwrap_or_default().saturating_mul(1000),
             "completed_ms":last.and_then(|t| t["completedAt"].as_i64()).map(|s| s.saturating_mul(1000)),
-            "details":{"task":clipped(task,8000),"reply":clipped(latest_reply,24000),"steps":steps},
+            "details":{"task":clipped(task,8000),"reply":clipped(latest_reply,24000),"steps":steps,"terminal":terminal},
             "state":state,"task":clipped(task,300),"reply":clipped(answer,300)});
         Snapshot {
             id: id.into(),
@@ -424,7 +429,7 @@ mod tests {
         assert_eq!(snapshot.summary["task"], "Check tests");
         assert_eq!(snapshot.summary["reply"], "All green");
         assert_eq!(snapshot.summary["details"], json!({"task":"Check tests","reply":"All green",
-            "steps":[{"text":"cargo test","state":null}]}));
+            "steps":[{"text":"cargo test","state":null}],"terminal":{"command":"cargo test","output":"1 passed"}}));
         assert_eq!(
             snapshot.transcript,
             "Task Check tests\n\n$ cargo test\n1 passed\n\nCodex All green"
