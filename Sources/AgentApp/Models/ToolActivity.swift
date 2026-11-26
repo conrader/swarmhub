@@ -115,11 +115,12 @@ enum ActivityCopy {
     }
 
     /// "1 m 12 s", "45 s", "1 h 3 m".
-    static func duration(_ seconds: TimeInterval) -> String {
+    static func duration(_ seconds: TimeInterval, compact: Bool = false) -> String {
+        let gap = compact ? "" : " "
         let total = max(0, Int(seconds))
-        if total >= 3600 { return "\(total / 3600) h \(total % 3600 / 60) m" }
-        if total >= 60 { return "\(total / 60) m \(total % 60) s" }
-        return "\(total) s"
+        if total >= 3600 { return "\(total / 3600)\(gap)h \(total % 3600 / 60)\(gap)m" }
+        if total >= 60 { return "\(total / 60)\(gap)m \(total % 60)\(gap)s" }
+        return "\(total)\(gap)s"
     }
 
     /// What the agent's server says a live reply is waiting for, when that says more than the phase read from text

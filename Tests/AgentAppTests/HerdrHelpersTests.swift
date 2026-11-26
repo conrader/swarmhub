@@ -29,7 +29,7 @@ private let listingJSON = """
     #expect(list.core == "c0" && list.limit == 3 && list.stopAfterSeconds == 60 && list.parent == HerdrClient.AgentRef(address: "t2x", createdMs: 1794843679838))
     #expect(list.helpers.map(\.name) == ["two", "three", "four", "five"] && list.helpers[0].id == "t31/1794843760636")
     #expect(list.helpers[0].runLine == "some-model" && list.helpers[0].difficultyLine == "Easy task" && list.helpers[0].reply?.text == "follow-up ok" && list.helpers[1].runLine.isEmpty)
-    #expect(list.helpers.map(\.statusLine) == ["Answered", "Working", "Finished", "Gone"])
+    #expect(list.helpers.map(\.statusLine) == ["Answered", "Working", "Answered", "Session ended"])
     #expect(list.helpers.map(\.isLive) == [true, true, false, false] && list.helpers.map(\.isWorking) == [false, true, false, false])
     #expect(HerdrHelperRow.fragment(list.helpers[0]) == "Answered · follow-up ok" && HerdrHelperRow.fragment(list.helpers[1]) == "Working")
     #expect(HerdrHelpersSection.count(list) == "2 of 3 running")
@@ -38,6 +38,20 @@ private let listingJSON = """
     let failed = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live", status: .init(state: "error"))
     let starting = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live"), quiet = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "finished")
     #expect([waiting, failed, starting, quiet].map(\.statusLine) == ["Waiting for an answer in its terminal", "Reported an error", "Starting", "Stopped without an answer"])
+}
+
+@Test func sidebarDistinguishesCurrentWorkFromAnEarlierReply() {
+    let reply = HerdrClient.Helper.Reply(id: 1, text: "14 call sites updated.")
+    var helper = HerdrClient.Helper(address: "r", createdMs: 4, name: "tests", task: "Run CI", state: "live",
+                                    status: .init(state: "working"), answered: true, reply: reply)
+    #expect(HerdrHelperRow.fragment(helper) == "Working · Run CI")
+    helper.status = .init(state: "blocked")
+    #expect(HerdrHelperRow.fragment(helper) == "Waiting · Run CI")
+    helper.status = .init(state: "error")
+    #expect(HerdrHelperRow.fragment(helper) == "Reported an error · Run CI")
+    let archived = HerdrClient.Helper(address: "r", createdMs: 4, name: "tests", state: "gone", answered: true, reply: reply)
+    #expect(archived.statusLine == "Answered")
+    #expect(HerdrHelperRow.fragment(archived) == "Answered · 14 call sites updated.")
 }
 
 /// A helper's terminal is named by the agent that started it; it is never taken for a bot's own agent.

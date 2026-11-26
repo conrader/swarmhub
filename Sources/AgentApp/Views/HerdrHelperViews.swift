@@ -127,11 +127,11 @@ struct SidebarTerminalButton: View {
     }
 }
 
-/// One helper: its name, the model it runs on by its label, then what it is doing and
-/// its task. Pressing it opens the helper's read-only view.
+/// Show the session name and elapsed time above its current assignment or saved answer.
 struct HerdrHelperRow: View {
     let helper: HerdrClient.Helper; let selected: Bool; let open: () -> Void
     @State private var hovering = false
+    @Environment(\.colorSchemeContrast) private var contrast
     static let height: CGFloat = 44
 
     var body: some View {
@@ -148,11 +148,17 @@ struct HerdrHelperRow: View {
                 }
             }
             .padding(.horizontal, 10).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
-            .background(selected ? AnyShapeStyle(TintShapeStyle().opacity(SidebarMetrics.selectionWash)) : hovering ? AnyShapeStyle(AppColor.selection.opacity(0.6)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
-            .overlay(alignment: .leading) { if selected { Capsule().fill(.tint).frame(width: 3, height: 18).padding(.leading, 3.5).accessibilityHidden(true) } }
+            .background(selected ? AppColor.selection : hovering ? AppColor.selection.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+            .overlay {
+                if selected, contrast == .increased {
+                    RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius).strokeBorder(.primary)
+                }
+            }
             .onHover { hovering = $0 }
-        }.buttonStyle(.plain).help("Helper \(helper.name): \(helper.statusLine). \(helper.assignment ?? "")")
-            .accessibilityLabel("Helper \(helper.name), \(helper.runLine), \(helper.statusLine)")
+        }.buttonStyle(.plain)
+            .help([helper.name, helper.runLine, helper.statusLine, helper.assignment ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
+            .accessibilityLabel(["Helper " + helper.name, helper.runLine, helper.statusLine].filter { !$0.isEmpty }.joined(separator: ", "))
+            .accessibilityValue(Self.rowDetail(helper))
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -160,23 +166,24 @@ struct HerdrHelperRow: View {
         let start = Date(timeIntervalSince1970: Double(helper.createdMs) / 1000)
         if helper.isWorking && helper.createdMs > 1_000_000_000_000 {
             TimelineView(.periodic(from: .now, by: 1)) { tick in
-                Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince(start)))).monospacedDigit()
+                Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince(start)), compact: true)).monospacedDigit()
             }
-        } else if helper.answered == true, let end = helper.reply?.atMs, Double(end) >= Double(helper.createdMs) {
-            Text(ActivityCopy.duration((Double(end) - Double(helper.createdMs)) / 1000)).monospacedDigit()
-        } else {
-            Text(helper.runLine)
+        } else if helper.showingAnswer, let end = helper.reply?.atMs, Double(end) >= Double(helper.createdMs) {
+            Text(ActivityCopy.duration((Double(end) - Double(helper.createdMs)) / 1000, compact: true)).monospacedDigit()
         }
     }
 
-    /// "Working · Fix the failing test": the status, then the task on the same line.
-    nonisolated static func fragment(_ helper: HerdrClient.Helper) -> String {
-        if let answer = helper.resultPreview {
-            let line = answer.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            return "Answered · " + line
+    nonisolated private static func rowDetail(_ helper: HerdrClient.Helper) -> String {
+        if helper.showingAnswer, let answer = helper.resultPreview {
+            return answer.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         }
-        let task = helper.taskLine
-        return task.isEmpty ? helper.statusLine : "\(helper.statusLine) · \(task)"
+        return helper.taskLine
+    }
+
+    nonisolated static func fragment(_ helper: HerdrClient.Helper) -> String {
+        let state = helper.isLive && helper.status?.state == "blocked" ? "Waiting" : helper.statusLine
+        let detail = rowDetail(helper)
+        return detail.isEmpty ? state : "\(state) · \(detail)"
     }
 }
 
