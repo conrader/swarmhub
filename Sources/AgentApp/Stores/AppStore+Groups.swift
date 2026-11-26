@@ -204,10 +204,13 @@ extension AppStore {
     private func validateGroupDraft(_ text: String, attachments: [ChatAttachment], bot: Bot, group: GroupChat) -> Bool {
         guard validateHerdrDraft(text, attachments: attachments, bot: bot) else { return false }
         do {
-            let limit = (try? herdrBackend(for: bot)).map { backend in
-                groupMessageBudget(backend, hasFiles: !attachments.isEmpty)
-            } ?? HerdrClient.messageBytes
-            try HerdrClient.validateMessage(group.workflowPrefix(for: bot, members: members(of: group)) + "\(userName): \(text)", limit: limit)
+            let backend = try? herdrBackend(for: bot)
+            let limit = backend.map { groupMessageBudget($0, hasFiles: !attachments.isEmpty) } ?? HerdrClient.messageBytes
+            let message = "\(userName): \(text)"
+            try HerdrClient.validateMessage(message, limit: limit)
+            _ = try TeamWorkflowDelivery(workflow: group.workflowPrefix(for: bot, members: members(of: group)), message: message,
+                inlineLimit: limit, fileLimit: backend.map { groupMessageBudget($0, hasFiles: true) } ?? limit,
+                occupiedNames: Set(attachments.map { $0.name.lowercased() }))
             return true
         } catch { presentError(error.localizedDescription, reason: .send, bot: bot); return false }
     }

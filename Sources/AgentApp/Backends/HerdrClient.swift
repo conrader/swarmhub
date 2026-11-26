@@ -144,6 +144,7 @@ struct HerdrClient: Sendable {
         var archivedHelperParents: [ArchivedHelperParent]? = nil
         var codexTurnSteer: Bool? = nil
         var launchAttachments: Bool? = nil
+        var groupWorkflowFile: Bool? = nil
         func launchTemplate(named name: String?) -> Template? {
             templates.first { $0.error == nil && (name == nil || $0.name == name) }
         }
@@ -513,6 +514,8 @@ struct HerdrClient: Sendable {
         let mime: String
         let data: Data
 
+        var isWorkflow = false
+
         var uploadName: String {
             let cleaned = String(name.unicodeScalars.map { scalar in
                 (scalar.isASCII && (CharacterSet.alphanumerics.contains(scalar) || " ._-".unicodeScalars.contains(scalar))) ? Character(String(scalar)) : "_"
@@ -521,7 +524,12 @@ struct HerdrClient: Sendable {
         }
 
         static func validate(_ files: [Self]) throws {
-            guard files.count <= 4, files.reduce(0, { $0 + $1.data.count }) <= maxBytes else {
+            let uploads = files.filter { !$0.isWorkflow }
+            let workflows = files.filter(\.isWorkflow)
+            guard workflows.count <= 1, workflows.allSatisfy({ $0.data.count <= 2 * 1024 * 1024 }) else {
+                throw BackendError.unavailable("Group instructions must fit in one 2 MB text file.")
+            }
+            guard uploads.count <= 4, uploads.reduce(0, { $0 + $1.data.count }) <= maxBytes else {
                 throw BackendError.unavailable("Attach up to four files totaling 8 MB per message.")
             }
         }
@@ -566,7 +574,7 @@ struct HerdrClient: Sendable {
         for file in files {
             let mime = file.mime.range(of: #"^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$"#, options: .regularExpression) != nil
                 ? file.mime : "application/octet-stream"
-            body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(file.uploadName)\"\r\nContent-Type: \(mime)\r\n\r\n".utf8))
+            body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"\(file.isWorkflow ? "workflow" : "file")\"; filename=\"\(file.uploadName)\"\r\nContent-Type: \(mime)\r\n\r\n".utf8))
             body.append(file.data)
         }
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))
@@ -624,6 +632,13 @@ struct HerdrClient: Sendable {
         try TaskFile.validate(files)
         var text = Self.plain(text, bytes: Int.max)
         let current = try await workspaceForDelivery(name: name, status: status)
+        var files = files
+        if current.groupWorkflowFile != true, let index = files.firstIndex(where: \.isWorkflow) {
+            files[index].isWorkflow = false
+            guard (try? TaskFile.validate(files)) != nil else {
+                throw BackendError.unavailable("Update this workspace to send long group instructions with all your attachments.")
+            }
+        }
         if !files.isEmpty, current.attachments != true {
             throw BackendError.unavailable("This server cannot receive attachments. Update its workspace and Herdr Core, then try again.")
         }

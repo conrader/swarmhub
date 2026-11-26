@@ -42,12 +42,13 @@ import Testing
         #expect(imported.workflows[members[0].id]?.skills == [skill])
     }
 
-    @Test func configuredHandoffDeliversOnceToTheImportedPeerAndReturnsItsAnswer() async throws {
+    @Test(arguments: [false, true]) func configuredHandoffDeliversOnceToTheImportedPeerAndReturnsItsAnswer(longSkill: Bool) async throws {
         let source = store(), author = Bot(name: "Patch", backend: .herdr), peer = Bot(name: "Scout", backend: .herdr)
         source.bots = [author, peer]
         let group = try #require(source.createGroup(name: "Source", memberIDs: [author.id, peer.id]))
         group.workflows[author.id] = .init(handoffs: [.init(recipient: peer.id, condition: "The draft is ready.")])
-        group.workflows[peer.id] = .init(skills: [.init(name: "Review", instructions: "Check all release numbers.")])
+        let guidance = (longSkill ? String(repeating: "Ż", count: 4800) : "") + "Check all release numbers."
+        group.workflows[peer.id] = .init(skills: [.init(name: "Review", instructions: guidance)])
         let engine = GroupBackend(name: "Fixture")
         let dest = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in engine },
                             keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
@@ -63,7 +64,9 @@ import Testing
         #expect(dest.send(text: "@Patch prepare the draft", to: imported))
         try await waitUntil { !dest.anyTurnRunning }
         let task = try #require(receiver.messages.first { $0.metadata[AppStore.groupHandoffSourceKey] != nil })
-        #expect(task.content.contains("Check all release numbers.") && task.content.contains("Review release 15."))
+        #expect(task.content.contains("Review release 15."))
+        if longSkill { #expect(task.attachments.first?.text?.contains(guidance) == true) }
+        else { #expect(task.content.contains(guidance)) }
         #expect(imported.messages.contains { $0.role == .system && $0.content.contains("handed a task to Scout") })
         #expect(sender.messages.contains { $0.metadata[HerdrBotRelay.Key.kind] == HerdrBotRelay.answer })
         #expect(bystander.messages.isEmpty)
@@ -75,6 +78,57 @@ import Testing
         try await waitUntil { !dest.anyTurnRunning }
         #expect(receiver.messages.filter { $0.metadata[AppStore.groupHandoffSourceKey] != nil }.count == 1)
         #expect(imported.messages.last?.content.contains("could not be sent") == true)
+    }
+
+    @Test(arguments: [false, true])
+    func fullSkillAndAllFourUserFilesReachTheGroupMember(firstTurn: Bool) async throws {
+        let bot = Bot(name: "Patch", backend: .herdr), peer = Bot(name: "Scout", backend: .herdr)
+        let group = GroupChat(name: "Crew", memberIDs: [bot.id, peer.id])
+        let sessionID = GroupRouting.sessionID(group: group.id, bot: bot.id)
+        let name = try #require(HerdrBackend.groupRuntimeName(sessionID: sessionID, botID: bot.id))
+        let capture = LockedValue<Data?>(nil)
+        let route = firstTurn ? "/api/agents/with-files" : "/api/agents/t7/50/messages/with-files"
+        let (host, session) = MockHTTPProtocol.serve { request in
+            switch request.url?.path {
+            case "/api/workspace":
+                let agent: [String: Any] = ["name": name, "address": "t7", "created_ms": 50, "state": "live"]
+                return (200, ["core": "test-core", "templates": [["name": "fixture"]], "group_workflow_file": true,
+                              "attachments": true, "launch_attachments": true, "agents": firstTurn ? [] : [agent]])
+            case route:
+                _ = capture.swap(request.bodyData)
+                if firstTurn { return (201, ["address": "t7", "name": name, "created_ms": 50, "state": "live"]) }
+                return (200, ["queued": false])
+            case "/api/profiles": return (200, [])
+            case "/api/history/test-core/t7/50":
+                return (200, ["items": capture.current == nil ? [] : [["id": 2, "kind": "reply", "text": "Release checked."]]])
+            default: return (200, [:])
+            }
+        }
+        var client = HerdrClient(baseURL: URL(string: "https://\(host)")!, token: "fixture", session: session)
+        client.following = .polling
+        client.pollInterval = .milliseconds(1)
+        let backend = HerdrBackend(client: client, botName: bot.name, botID: bot.id, template: "fixture")
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
+                             keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        store.bots = [bot, peer]
+        store.groups = [group]
+        let skill = String(repeating: "ż", count: 4800) + " LAST INSTRUCTION"
+        group.workflows[bot.id] = .init(skills: [.init(name: "Release review", instructions: skill)],
+                                       handoffs: [.init(recipient: peer.id, condition: "Draft ready")])
+        let files = ["team-workflow.txt", "notes.txt", "draft.txt", "review.txt"].map { name in
+            ChatAttachment(id: UUID(), kind: .text, name: name, mimeType: "text/plain", byteCount: name.utf8.count, text: name)
+        }
+        try #require(store.send(text: "@Patch review the release.", attachments: files, to: group))
+        try await waitUntil { !store.anyTurnRunning }
+        let data = try #require(capture.current)
+        let posted = String(decoding: data, as: UTF8.self)
+        #expect(posted.contains(skill))
+        #expect(posted.contains(peer.id.uuidString.lowercased()))
+        #expect(posted.contains("name=\"workflow\"; filename=\"team-workflow-2.txt\""))
+        #expect(posted.components(separatedBy: "name=\"file\";").count == 5)
+        #expect(files.allSatisfy { posted.contains("filename=\"" + $0.name + "\"") })
+        #expect(posted.contains("@Patch review the release."))
+        #expect(group.messages.last?.content == "Release checked.")
     }
 
     @Test func packRejectsCredentialsAndUnknownHandoffRecipientsBeforeImport() throws {
