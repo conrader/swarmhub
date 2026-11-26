@@ -98,6 +98,7 @@ async fn follow(
         agent: Value::Null,
         helpers: Value::Null,
         helper_failures: 0,
+        codex_child_revision: 0,
         queue,
         w,
     };
@@ -155,6 +156,7 @@ struct Stream {
     agent: Value,
     helpers: Value,
     helper_failures: u8,
+    codex_child_revision: i64,
     queue: mpsc::Sender<Event>,
 }
 
@@ -266,7 +268,18 @@ impl Stream {
             tokio::select! {
                 () = self.queue.closed() => return Err(Over),
                 changed = live.changed() => if changed.is_err() { return Err(Over) },
-                changed = journal.changed() => if changed.is_err() { return Err(Over) },
+                changed = journal.changed() => {
+                    if changed.is_err() { return Err(Over); }
+                    if let Some(key) = self.key.as_ref() {
+                        let revision = self.w.history.db().ok().and_then(|db| db.query_row(
+                            "SELECT coalesce(sum(c.revision),0) FROM codex_children c JOIN journal p ON p.id=c.launch WHERE p.launch_key=?1",
+                            [key], |r| r.get::<_,i64>(0)).ok());
+                        if let Some(revision) = revision {
+                            helpers_changed = self.codex_child_revision != revision;
+                            self.codex_child_revision = revision;
+                        }
+                    }
+                },
                 () = own.notified() => { sleep(SETTLE).await; agent_changed = true }
                 () = children.notified() => { sleep(SETTLE).await; helpers_changed = true }
                 _ = recheck.tick() => { agent_changed = true; helpers_changed = self.helper_failures > 0 || !self.no_helpers() }

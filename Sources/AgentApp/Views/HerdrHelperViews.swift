@@ -50,6 +50,9 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         } else if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
+                        if let list = store.herdrHelpers[parent], let threads = list.codexThreads, !threads.isEmpty {
+                            SidebarCodexThreads(bot: bot, threads: threads, owner: list.parent, core: list.core)
+                        }
                         ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
                             HStack(spacing: 0) {
                                 HerdrHelperRow(helper: row.helper, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
@@ -69,6 +72,12 @@ struct SidebarBotSessions<ParentRow: View>: View {
                                     SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: row.helper.ref, title: row.helper.name, core: row.core))
                                 }
                             }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
+                            if !collapsed.contains(row.id),
+                               let list = store.herdrHelpers[row.id.parent.children(of: row.helper.ref, core: row.core)],
+                               let threads = list.codexThreads, !threads.isEmpty {
+                                SidebarCodexThreads(bot: bot, threads: threads, owner: list.parent, core: list.core)
+                                    .padding(.leading, CGFloat(min(row.depth + 1, 5)) * 10)
+                            }
                         }
                     }
                     ForEach(workers) { row in
@@ -184,6 +193,86 @@ struct HerdrHelperRow: View {
         let state = helper.isLive && helper.status?.state == "blocked" ? "Waiting" : helper.statusLine
         let detail = rowDetail(helper)
         return detail.isEmpty ? state : "\(state) · \(detail)"
+    }
+}
+
+/// Codex threads have a transcript on their owning launch, even when Core has no child PTY.
+private struct SidebarCodexThreads: View {
+    @EnvironmentObject private var store: AppStore
+    let bot: Bot
+    let threads: [HerdrClient.CodexThread]
+    let owner: HerdrClient.AgentRef
+    let core: String
+
+    private struct Row: Identifiable {
+        let thread: HerdrClient.CodexThread
+        let depth: Int
+        var id: String { thread.id }
+    }
+
+    private var rows: [Row] {
+        let ids = Set(threads.map(\.id))
+        let children = Dictionary(grouping: threads, by: \.parent)
+        var pending = threads.filter { !ids.contains($0.parent) }.reversed().map { Row(thread: $0, depth: 0) }
+        var seen: Set<String> = []
+        var result: [Row] = []
+        while let row = pending.popLast(), seen.insert(row.id).inserted {
+            result.append(row)
+            pending += (children[row.id] ?? []).reversed().map { Row(thread: $0, depth: row.depth + 1) }
+        }
+        return result
+    }
+
+    var body: some View {
+        ForEach(rows) { row in
+            button(row.thread).padding(.leading, CGFloat(min(row.depth, 5)) * 10)
+        }
+    }
+
+    private func button(_ thread: HerdrClient.CodexThread) -> some View {
+        let target = LiveTerminal(thread: thread, owner: owner, core: core)
+        let server = store.herdrServer(for: bot)
+        let selected = store.inspectorTerminal?.target?.id == target.id && store.inspectorTerminal?.server == server
+        let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : thread.task
+        let icon: String
+        let color: Color
+        switch thread.state {
+        case "working": (icon, color) = ("circle.dotted", .accentColor)
+        case "answered": (icon, color) = ("checkmark.circle.fill", .green)
+        case "error": (icon, color) = ("exclamationmark.circle", .orange)
+        default: (icon, color) = ("stop.circle", .secondary)
+        }
+        let subtitle = [thread.statusLine, detail].filter { !$0.isEmpty }.joined(separator: " · ")
+        return Button {
+            store.previewInInspector(.init(server: server, target: target), fallbackBot: bot)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .foregroundStyle(color)
+                    .font(.system(size: 11)).frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(verbatim: thread.name).font(.system(size: 12, weight: .semibold))
+                        Spacer(minLength: 4)
+                        if thread.state == "working" && thread.createdMs > 0 {
+                            TimelineView(.periodic(from: .now, by: 1)) { tick in
+                                Text(ActivityCopy.duration(tick.date.timeIntervalSince1970 - Double(thread.createdMs) / 1000, compact: true))
+                            }.font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        } else if let end = thread.completedMs, end >= thread.createdMs {
+                            Text(ActivityCopy.duration((Double(end) - Double(thread.createdMs)) / 1000, compact: true))
+                                .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(verbatim: subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+                }.lineLimit(1)
+            }.padding(.horizontal, 10).frame(height: HerdrHelperRow.height)
+                .background(selected ? AppColor.selection : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityLabel("Codex agent " + thread.name + ", " + thread.statusLine)
+            .accessibilityValue(detail).accessibilityAddTraits(selected ? .isSelected : [])
+            .help("Open " + thread.name + "’s Codex session in Details")
+
     }
 }
 

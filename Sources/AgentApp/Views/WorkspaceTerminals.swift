@@ -5,6 +5,7 @@ import SwiftUI
 struct LiveTerminal: Identifiable, Hashable, Codable {
     enum Source: Hashable, Codable {
         case agent(HerdrClient.AgentRef)
+        case codexThread(core: String, owner: HerdrClient.AgentRef, thread: String)
         case job(host: String, owner: UUID, key: String)
     }
     let id: Source
@@ -16,6 +17,13 @@ struct LiveTerminal: Identifiable, Hashable, Codable {
         id = .agent(agent)
         self.title = title
         self.detail = detail
+        self.core = core
+    }
+
+    init(thread: HerdrClient.CodexThread, owner: HerdrClient.AgentRef, core: String) {
+        id = .codexThread(core: core, owner: owner, thread: thread.id)
+        title = thread.name
+        detail = ["Codex session", thread.model].compactMap { $0 }.joined(separator: " · ")
         self.core = core
     }
 
@@ -178,6 +186,19 @@ struct WorkspaceTerminals: View {
                 .compactMap { $0 }.joined(separator: " · ")
             return LiveTerminal(agent: agent.ref, title: names[agent.name] ?? agent.name, detail: detail, core: roster.core)
         }
+        let visibleOwners = Set(results.compactMap { terminal -> HerdrClient.AgentRef? in
+            if case .agent(let ref) = terminal.id { return ref }
+            return nil
+        })
+        var seenThreads = Set<LiveTerminal.Source>()
+        for (parent, list) in store.herdrHelpers where list.core == roster.core && visibleOwners.contains(list.parent) {
+            guard let bot = store.bots.first(where: { $0.id == parent.botID }),
+                  store.herdrServer(for: bot) == server else { continue }
+            for thread in list.codexThreads ?? [] where thread.state == "working" {
+                let entry = LiveTerminal(thread: thread, owner: list.parent, core: list.core)
+                if seenThreads.insert(entry.id).inserted { results.append(entry) }
+            }
+        }
         for host in roster.codejobActivity?.hosts ?? [] where request.groupID == nil {
             for job in host.jobs where job.isWorking {
                 let name = store.bots.first { $0.id == job.owner }?.name ?? "Worker"
@@ -199,11 +220,18 @@ private struct TerminalOutput: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if case .codexThread = target.id {
+                Text(target.detail).font(.caption).foregroundStyle(.secondary)
+            }
             if let problem { Text(problem).font(.callout).foregroundStyle(.secondary) }
             if let mirror {
                 TerminalMirror(url: mirror.url, token: mirror.token, agent: mirror.ref, core: mirror.core) { problem = $0 }
             } else if let output {
-                TerminalTextGrid(output: output)
+                if case .codexThread = target.id {
+                    TerminalTextGrid(output: output, scrollback: true)
+                } else {
+                    TerminalTextGrid(output: output)
+                }
             } else if problem == nil { ProgressView("Connecting…") }
         }.task {
             while !Task.isCancelled {
@@ -229,6 +257,12 @@ private struct TerminalOutput: View {
                             return
                         }
                         text = try await client.screen(of: ref)
+                    case .codexThread(let core, let owner, let thread):
+                        struct Transcript: Decodable { let transcript: String }
+                        let route = "/api/agents/\(owner.address)/\(owner.createdMs)/codex-threads/\(thread)"
+                        let query = core.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+                        let result: Transcript = try await client.get(route + "?core=" + query)
+                        text = result.transcript
                     case .job(let host, let owner, let key):
                         struct Tail: Decodable { let text: String? }
                         let tail: Tail = try await client.get("/api/codejobs/\(host)/\(owner.uuidString.lowercased())/\(key)/output")

@@ -13,6 +13,8 @@
 //!
 //! If the app server does not come up, `run-codex` starts Codex the way it did before and the reply appears whole.
 
+mod children;
+
 use crate::session_usage as usage;
 
 use crate::agent::session;
@@ -363,6 +365,7 @@ pub async fn run() -> Result<(), Failed> {
     });
 
     let mut follower = Follower { launch_key: key.clone(), ..Default::default() };
+    let child_writer = children::Writer::new(journal.clone(), key.clone());
     let mut feed = Feed {
         path: journal.with_file_name("replies.sock"),
         key,
@@ -379,11 +382,20 @@ pub async fn run() -> Result<(), Failed> {
         let join_at = follower.retries.first().map(|(at, _, _)| *at);
         tokio::select! {
             _ = &mut ended => return Ok(()),
-            _ = alive.tick() => if orphaned() { return Ok(()) },
+            _ = alive.tick() => {
+                if orphaned() { return Ok(()); }
+                if connection.is_some() {
+                    let requests = follower.read_children();
+                    send_all(&mut connection, requests).await;
+                }
+            },
             message = next(&mut connection) => {
                 let requests = match message {
                     Some(text) => {
                         let requests = follower.heard(&text);
+                        if let Some(child) = follower.children.snapshot.take() {
+                            child_writer.put(child);
+                        }
                         for change in [follower.usage.take(), follower.model_change.take()].into_iter().flatten() {
                             if let Err(error) = change.save(&journal, &feed.key) {
                                 note(&format!("Could not save Codex session telemetry: {error}"));
@@ -586,6 +598,7 @@ struct Reply {
 
 #[derive(Default)]
 struct Follower {
+    children: children::Children,
     launch_key: String,
     command: Option<crate::tool_activity::Frame>,
     usage: Option<usage::Change>,
@@ -796,6 +809,7 @@ impl Follower {
             return Vec::new();
         }
         let params = message.params;
+        self.children.observe(&method, &params);
         let thread = params["threadId"].as_str().unwrap_or_default();
         // Never infer a turn's execution model from the launch arguments. The protocol supplies
         // a thread setting, and occasionally an explicit reroute that applies to just this turn.
@@ -971,6 +985,7 @@ impl Follower {
         let Some(id) = id.as_ref().and_then(Value::as_u64) else {
             return Vec::new();
         };
+        if self.children.answer(id, result.as_ref()) { return Vec::new(); }
         if self.listing == Some(id) {
             self.listing = None;
             let threads: Vec<String> = result
@@ -991,6 +1006,7 @@ impl Follower {
         };
         match result {
             Some(result) if other_conversation(&result["thread"]) => {
+                self.children.see_thread(&result["thread"]);
                 self.skip(&thread);
                 let (_, leave) = self.request("thread/unsubscribe", json!({"threadId":thread}));
                 vec![leave]
@@ -1022,6 +1038,7 @@ impl Follower {
                     self.activate(&thread);
                 }
                 if result["thread"]["id"].as_str() == Some(thread.as_str()) {
+                    self.children.see_thread(&result["thread"]);
                     self.configured(&thread, model_id(&result["thread"]["model"]).or_else(|| model_id(&result["model"])));
                 }
                 self.joined.insert(thread);

@@ -424,8 +424,9 @@ pub(crate) fn session_parents(history: &History, core_id: &str, agents: &[Termin
         "SELECT p.address,p.created_ms FROM journal p
          WHERE p.core_id=?1 AND p.launch_key IN (SELECT value FROM json_each(?2))
            AND p.address IS NOT NULL AND p.created_ms IS NOT NULL
-           AND EXISTS (SELECT 1 FROM helpers h JOIN journal j ON h.launch=j.id
-                       WHERE h.parent_key=p.launch_key AND j.core_id=p.core_id AND j.address IS NOT NULL)"
+           AND (EXISTS (SELECT 1 FROM codex_children c WHERE c.launch=p.id)
+            OR EXISTS (SELECT 1 FROM helpers h JOIN journal j ON h.launch=j.id
+                       WHERE h.parent_key=p.launch_key AND j.core_id=p.core_id AND j.address IS NOT NULL))"
     )?;
     Ok(query.query_map(params![core_id, keys], |row| Ok(ParentRef { address: row.get(0)?, created_ms: row.get(1)? }))?
         .collect::<Result<Vec<_>, _>>()?)
@@ -447,14 +448,18 @@ pub(crate) fn archived_parents(history: &History, core_id: &str, agents: &[Termi
     let db = history.db()?;
     // The last journal row for each child invalidates the Mac's cached listing on a late reply.
     let mut query = db.prepare_cached(
-        "SELECT p.core_id,p.agent,p.address,p.created_ms,up.address,up.created_ms,
-                max((SELECT max(entry.id) FROM journal entry WHERE entry.core_id=j.core_id
-                     AND entry.address=j.address AND entry.created_ms=j.created_ms))
-         FROM helpers h JOIN journal j ON j.id=h.launch JOIN journal p ON p.launch_key=h.parent_key
+        "WITH owners(launch,revision) AS (
+           SELECT p.id,max((SELECT max(e.id) FROM journal e WHERE e.core_id=j.core_id
+                      AND e.address=j.address AND e.created_ms=j.created_ms))
+             FROM helpers h JOIN journal j ON j.id=h.launch JOIN journal p ON p.launch_key=h.parent_key
+             WHERE p.core_id=j.core_id AND j.address IS NOT NULL AND j.created_ms IS NOT NULL GROUP BY p.id
+           UNION ALL SELECT launch,sum(revision) FROM codex_children GROUP BY launch
+         )
+         SELECT p.core_id,p.agent,p.address,p.created_ms,up.address,up.created_ms,sum(owners.revision)
+         FROM owners JOIN journal p ON p.id=owners.launch
          LEFT JOIN helpers parent_link ON parent_link.launch=p.id
          LEFT JOIN journal up ON up.launch_key=parent_link.parent_key AND up.core_id=p.core_id
-         WHERE p.core_id=j.core_id AND p.address IS NOT NULL AND p.created_ms IS NOT NULL
-           AND j.address IS NOT NULL AND j.created_ms IS NOT NULL
+         WHERE p.address IS NOT NULL AND p.created_ms IS NOT NULL
            AND (p.core_id!=?1 OR p.launch_key NOT IN (SELECT value FROM json_each(?2)))
            AND (parent_link.launch IS NULL OR (up.address IS NOT NULL AND up.created_ms IS NOT NULL))
          GROUP BY p.id ORDER BY p.id DESC"

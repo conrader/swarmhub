@@ -181,7 +181,7 @@ extension AppStore {
             let key = parent.children(of: helper.ref, core: first.core)
             let children = herdrHelpers[key]?.sidebarSessions ?? []
             let selection = parent.selection(for: helper)
-            rows.append(.init(id: selection, helper: helper, core: first.core, depth: depth, hasChildren: !children.isEmpty))
+            rows.append(.init(id: selection, helper: helper, core: first.core, depth: depth, hasChildren: herdrHelpers[key]?.hasSidebarSessions == true))
             if !collapsed.contains(selection) {
                 pending += children.reversed().map { (key, $0, depth + 1) }
             }
@@ -499,7 +499,7 @@ extension AppStore {
                         continue
                     }
                 }
-                results[parent] = .success(list?.sidebarSessions.isEmpty == false ? list : nil)
+                results[parent] = .success(list?.hasSidebarSessions == true ? list : nil)
             } catch {
                 results[parent] = .unavailable
             }
@@ -596,7 +596,7 @@ extension AppStore {
                 group.addTask {
                     guard let list = try? await client.helpers(of: archive.session, core: archive.core),
                           list.parent == archive.session, list.core == archive.core else { return (parent, .unavailable) }
-                    return (parent, .success(list.sidebarSessions.isEmpty ? nil : list))
+                    return (parent, .success(list.hasSidebarSessions ? list : nil))
                 }
                 pending += 1
             }
@@ -622,7 +622,7 @@ extension AppStore {
                 return
             }
             helperListingFailures[parent] = nil
-            let shown = list.sidebarSessions.isEmpty ? nil : list
+            let shown = list.hasSidebarSessions ? list : nil
             if herdrHelpers[parent] != shown { herdrHelpers[parent] = shown }
             if herdrHelperReads[parent] != .streamed { herdrHelperReads[parent] = .streamed }
         }

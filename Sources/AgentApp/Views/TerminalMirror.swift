@@ -5,6 +5,7 @@ import WebKit
 /// in a nominal 80-column terminal. The web observer uses the live PTY's own geometry instead.
 struct TerminalTextGrid: View {
     let output: String
+    var scrollback = false
 
     var body: some View {
         let rows = output.split(separator: "\n", omittingEmptySubsequences: false).flatMap { line -> [String] in
@@ -17,21 +18,29 @@ struct TerminalTextGrid: View {
                 rest = rest[part.endIndex...]
             }
             return wrapped
-        }.suffix(24)
+        }
         GeometryReader { geometry in
             let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
             let cell = ("0" as NSString).size(withAttributes: [.font: font])
             let size = CGSize(width: cell.width * 80, height: ceil(cell.height) * 24)
             let scale = min(geometry.size.width / size.width, geometry.size.height / size.height)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { row in
-                    Text(verbatim: row.element).font(Font(font)).fixedSize()
-                        .frame(height: ceil(cell.height), alignment: .leading)
-                }
-            }.frame(width: size.width, height: size.height, alignment: .topLeading)
-                .scaleEffect(scale, anchor: .topLeading)
+            if scrollback {
+                ScrollView {
+                    Text(verbatim: rows.joined(separator: "\n"))
+                        .font(.system(size: 14 * scale, design: .monospaced))
+                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                }.defaultScrollAnchor(.bottom)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(rows.suffix(24).enumerated()), id: \.offset) { row in
+                        Text(verbatim: row.element).font(Font(font)).fixedSize()
+                            .frame(height: ceil(cell.height), alignment: .leading)
+                    }
+                }.frame(width: size.width, height: size.height, alignment: .topLeading)
+                    .scaleEffect(scale, anchor: .topLeading)
+                    .accessibilityRepresentation { Text(verbatim: rows.suffix(24).joined(separator: "\n")) }
+            }
         }.clipped().background(AppColor.chat)
-            .accessibilityRepresentation { Text(verbatim: rows.joined(separator: "\n")) }
     }
 }
 
