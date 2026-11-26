@@ -9,9 +9,9 @@ struct InfoPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Details").font(.headline).accessibilityAddTraits(.isHeader)
-                Spacer()
+            HStack(spacing: 6) {
+                Text("Details").font(.headline).fixedSize().accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
                 if bot.backend == .herdr {
                     Button {
                         let target: LiveTerminal?

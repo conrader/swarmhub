@@ -76,7 +76,7 @@ struct BotRow: View {
         // Sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
             // An agent that waits at a question says so, whatever its last message was.
-            if let cap = bot.sessionCapCents, !answering, !attention, !bot.isUnread, (drafts.texts[bot.id] ?? "").isEmpty {
+            if let cap = bot.sessionCapCents, !answering, store.herdrPrompts[bot.id] == nil, !bot.isUnread, (drafts.texts[bot.id] ?? "").isEmpty {
                 if let usage = store.herdrPresence(for: bot)?.usage?.estimatedCost {
                     return usage + " / " + (Decimal(cap) / 100).formatted(.currency(code: "USD")) + " cap"
                 }
