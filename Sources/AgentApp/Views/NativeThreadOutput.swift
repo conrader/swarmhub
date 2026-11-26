@@ -110,8 +110,9 @@ struct NativeThreadOutput: View {
                     Text(verbatim: "$ " + terminal.command)
                         .foregroundStyle(.secondary).lineLimit(2).help(terminal.command)
                     ScrollView([.horizontal, .vertical]) {
-                        Text(verbatim: terminal.output).fixedSize().frame(maxWidth: .infinity, alignment: .leading)
-                    }.frame(maxHeight: 126).fixedSize(horizontal: false, vertical: true)
+                        Text(verbatim: terminal.output).fixedSize()
+                    }.defaultScrollAnchor(.topLeading)
+                    .frame(maxHeight: 126).fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                 .padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -200,7 +201,8 @@ struct NativeSessionView: View {
                     .buttonStyle(.plain).accessibilityLabel("Back to " + (store.groupOwningHelper(selection, of: bot)?.name ?? bot.name))
                 BotAvatar(bot: bot, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(verbatim: thread.name + " · Helper of " + ownerName).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text(verbatim: thread.name + " · Helper of " + ownerName)
+                        .font(.system(size: 14, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 5) {
                         Text(thread.statusLine)
                         NativeThreadDuration(thread: thread)
