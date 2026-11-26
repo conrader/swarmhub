@@ -106,8 +106,8 @@ struct HerdrBackend: AgentBackend {
     """
     static let publishMarker = "Page drafts for review"
     static let publishNote = """
-    \(publishMarker): When presenting release notes or a Page for review, return a closed page-draft code fence containing one JSON object with string fields "title" and "markdown". Leave the Page unpublished during review. On a request to shorten it, return the revised page-draft card. Approval records acceptance of that wording; publish only when the person requested publication.
-    Publishing a requested deliverable: when the user asks for a file or a Page as a deliverable, publish the finished version before your final reply. Use "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-file PATH for a file, or "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" publish-page "Title" < report.md for a Page. Publish images and videos with their file extensions so the person can view them in chat.
+    \(publishMarker): For release notes or Pages awaiting review, use a closed page-draft fence with {"title":"…","markdown":"…"}. Make shorter returns a revised card. Approve accepts wording only.
+    For requested deliverables, publish before replying. With "${SWARMHUB_PUBLISHER:-swarmhub-herdr}" run publish-file PATH (keep media extensions) or publish-page "Title" < report.md.
     """
     static let choiceMarker = "Choice cards for the person"
     static let choiceNote = """
