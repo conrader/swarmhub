@@ -1095,6 +1095,11 @@ def live_terminals(source_app):
                 press(window, label(nested_button()))
                 wait_for("nested helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA"
                                                                 for n in descendants(window)))
+                press(window, "Preview NestedQA in Details")
+                wait_for("embedded preview", lambda: any(attribute(n, "AXIdentifier") == "inspector.terminal" for n in descendants(window)))
+                output("/api/agents/terminal4/104/output", updates=2)
+                choose("Back to Details")
+                wait_for("helper assignment still open", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA" for n in descendants(window)))
                 press(window, "Preview terminal for NestedQA")
                 output("/api/agents/terminal4/104/output")
                 choose("Back to Details")
@@ -1124,6 +1129,9 @@ def live_terminals(source_app):
                     print("Sidebar buttons", [label(b) for b in buttons(window)], flush=True)
                     raise
                 press(window, label(owner_row()))
+                press(window, "Preview Patch in Details")
+                output("/api/agents/terminal0/100/output", updates=2)
+                choose("Back to Details")
                 worker_label = "Codex working for Patch · test-host · " + job[:8]
                 def sidebar_worker():
                     return any(label(b) == worker_label for b in buttons(window))

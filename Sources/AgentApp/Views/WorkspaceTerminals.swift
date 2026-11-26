@@ -34,6 +34,26 @@ struct TerminalBrowserRequest: Identifiable, Hashable, Codable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+struct ChatTerminalPreviewButton: View {
+    @EnvironmentObject private var store: AppStore
+    let server: HerdrServer
+    let target: LiveTerminal
+    var beforeOpening: () -> Void = {}
+
+    var body: some View {
+        Button {
+            beforeOpening()
+            store.previewInInspector(.init(server: server, target: target))
+        } label: {
+            Image(systemName: "eye")
+        }
+        .buttonStyle(.bordered).controlSize(.small)
+        .help("Preview this terminal in Details")
+        .accessibilityLabel("Preview " + target.title + " in Details")
+    }
+}
+
+
 struct WorkspaceTerminals: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
