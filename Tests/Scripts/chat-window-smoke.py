@@ -1298,7 +1298,7 @@ def session_usage_overview(source_app):
             server.shutdown()
 
 
-def activity_decisions(source_app):
+def activity_decisions(source_app, named_review_only=False):
     import Quartz
     from threading import Thread
 
@@ -1370,6 +1370,22 @@ def activity_decisions(source_app):
         Thread(target=server.serve_forever, daemon=True).start()
         try:
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                if named_review_only:
+                    # Watch a named review arrive while the chat remains open on the same request.
+                    reviewer = dict(bot_id=str(uuid.uuid4()), bot_name=None, model="", assessment=None)
+                    pending[:] = [dict(pending[1], id=9, reviewer=reviewer)]
+                    press(window, "Patch", sidebar=True)
+                    def chat_text(line):
+                        return any(attribute(e, "AXValue") == line for e in descendants(window))
+                    wait_for("command review in progress in chat", lambda: chat_text("Reviewing command…"), seconds=12)
+                    reviewer.update(bot_name="Scout", model="opus", assessment="This command prints orchid.")
+                    wait_for("attributed review live in chat", lambda: chat_text("Scout · Claude review")
+                             and chat_text("This command prints orchid."), seconds=12)
+                    assert not decisions
+                    press(window, "Deny")
+                    wait_for("user decided after reading Scout’s review", lambda: (9, "deny") in decisions)
+                    print("Scout’s background review appeared in the open Patch chat. The decision waited for the person.")
+                    return
                 press(window, "ReaderQA", sidebar=True)
                 def count_is(expected):
                     return any(label(b) == "Needs Attention" and str(attribute(b, "AXValue")) == str(expected)
@@ -1776,6 +1792,8 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity-decisions":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--named-review":
+        activity_decisions(Path(sys.argv[2]).resolve(strict=True), named_review_only=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--team-pack":
         for appearance in ("Dark", "Light"):
             team_pack(Path(sys.argv[2]).resolve(strict=True), appearance)
