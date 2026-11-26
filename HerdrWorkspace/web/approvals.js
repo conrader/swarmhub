@@ -110,6 +110,7 @@
     $("approval-path").textContent = "";
     state.signature = null;
     $("approval-detail").hidden = true;
+    $("approval-command-hour").hidden = true;
     $("approval-command").hidden = true;
     $("approval-remember-options").hidden = true;
     $("approval-list-view").hidden = false;
@@ -132,6 +133,7 @@
     $("approval-action").textContent = `${request.agent} requests ${request.tool}`;
     $("approval-path").textContent = [request.provider, visible(request.cwd)].filter(Boolean).join(" · ");
     $("approval-input").textContent = visible(resources ? JSON.stringify(JSON.parse(request.arguments), null, 2) : request.arguments);
+    $("approval-command-hour").hidden = !request.can_remember_command_hour;
     $("approval-command").hidden = !request.can_remember_command;
     $("approval-remember-options").hidden = !request.can_remember_read;
     show("approval-notice", instruction);
@@ -148,7 +150,7 @@
       reviewer.hidden = !advice;
       const reviewText = advice ? `Claude ${advice.model} · ${visible(advice.assessment ?? "Reviewing command…")}` : "";
       if (reviewer.textContent !== reviewText) reviewer.textContent = reviewText;
-      for (const button of ["allow", "deny", "terminal", "remember", "command"]) $("approval-" + button).disabled = !waiting || state.working;
+      for (const button of ["allow", "deny", "terminal", "remember", "command", "command-hour"]) $("approval-" + button).disabled = !waiting || state.working;
       if (!waiting && !state.working && $("approval-notice").textContent === state.active.instruction) {
         $("approval-input").textContent = "";
         $("approval-path").textContent = "";
@@ -179,7 +181,7 @@
     function ruleRow(rule, command) {
       const row = document.createElement("li");
       const detail = command ? `${visible(rule.command)} · ${visible(rule.cwd)} · ${rule.provider}` : `${rule.path} · Until ${displayDate(rule.expires_ms)}`;
-      row.append(...item(rule.agent, detail));
+      row.append(...item(rule.agent, command && rule.expires_ms != null ? detail + " · Until " + displayDate(rule.expires_ms) : detail));
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = command ? "Revoke command rule" : "Revoke read rule";
@@ -359,6 +361,7 @@
   $("approval-close").addEventListener("click", () => { if (!state.working) dialog.close(); });
   $("approval-back").addEventListener("click", () => { show("approval-notice", ""); listView(); });
   $("approval-allow").addEventListener("click", () => decide("approve"));
+  $("approval-command-hour").addEventListener("click", () => decide("remember_command_hour"));
   $("approval-command").addEventListener("click", () => decide("remember_command"));
   $("approval-remember").addEventListener("click", () => decide("remember_read"));
   $("approval-deny").addEventListener("click", () => decide("deny"));

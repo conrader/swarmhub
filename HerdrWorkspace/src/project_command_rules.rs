@@ -1,7 +1,7 @@
 //! A user's standing approval of an exact foreground shell request for one bot and directory.
 use crate::{
     bots,
-    history::{History, StoreError},
+    history::{History, StoreError, now},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -113,7 +113,8 @@ impl Command {
     pub(crate) fn matching(&self, db: &Connection) -> rusqlite::Result<Option<i64>> {
         db.query_row(
             "SELECT id FROM project_command_rules WHERE core=?1 AND bot=?2 AND provider=?3
-            AND cwd=?4 AND directory_id=?5 AND command=?6 AND timeout_ms=?7",
+            AND cwd=?4 AND directory_id=?5 AND command=?6 AND timeout_ms=?7
+            AND (expires_ms IS NULL OR expires_ms>?8)",
             params![
                 self.core,
                 self.bot,
@@ -121,17 +122,21 @@ impl Command {
                 self.dir.path,
                 self.dir.identity,
                 self.command,
-                self.timeout
+                self.timeout,
+                now()
             ],
             |r| r.get(0),
         )
         .optional()
     }
 
-    pub(crate) fn save(&self, db: &Connection) -> rusqlite::Result<()> {
-        db.execute("INSERT INTO project_command_rules(core,bot,agent,provider,cwd,directory_id,command,timeout_ms)
-            VALUES(?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT DO NOTHING",
-            params![self.core,self.bot,self.agent,self.provider,self.dir.path,self.dir.identity,self.command,self.timeout])?;
+    pub(crate) fn save(&self, db: &Connection, expires_ms: Option<i64>) -> rusqlite::Result<()> {
+        // SQLite scalar max returns NULL if either grant is permanent.
+        db.execute("INSERT INTO project_command_rules(core,bot,agent,provider,cwd,directory_id,command,timeout_ms,expires_ms)
+            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+            ON CONFLICT(core,bot,provider,cwd,directory_id,command,timeout_ms)
+            DO UPDATE SET expires_ms=max(project_command_rules.expires_ms,excluded.expires_ms)",
+            params![self.core,self.bot,self.agent,self.provider,self.dir.path,self.dir.identity,self.command,self.timeout,expires_ms])?;
         Ok(())
     }
 }
@@ -144,13 +149,15 @@ pub(crate) struct Rule {
     provider: String,
     cwd: String,
     command: String,
+    expires_ms: Option<i64>,
 }
 
 pub(crate) fn list(db: &Connection) -> Result<Vec<Rule>, StoreError> {
     let mut q = db.prepare(
-        "SELECT id,bot,agent,provider,cwd,command FROM project_command_rules ORDER BY id DESC",
+        "SELECT id,bot,agent,provider,cwd,command,expires_ms FROM project_command_rules
+         WHERE expires_ms IS NULL OR expires_ms>?1 ORDER BY id DESC",
     )?;
-    Ok(q.query_map([], |r| {
+    Ok(q.query_map([now()], |r| {
         Ok(Rule {
             id: r.get(0)?,
             bot: r.get(1)?,
@@ -158,6 +165,7 @@ pub(crate) fn list(db: &Connection) -> Result<Vec<Rule>, StoreError> {
             provider: r.get(3)?,
             cwd: r.get(4)?,
             command: r.get(5)?,
+            expires_ms: r.get(6)?,
         })
     })?
     .collect::<Result<_, _>>()?)

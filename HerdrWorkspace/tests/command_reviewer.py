@@ -4,6 +4,7 @@ import os
 import socket
 import sqlite3
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -96,10 +97,11 @@ print('Would print audit.')
                 row = until(pending)
                 if eligible is not None:
                     assert row["can_remember_command"] == eligible
-                if choice == "remember_command":
+                    assert row["can_remember_command_hour"] == eligible
+                if choice in ("remember_command", "remember_command_hour"):
                     assert row["can_remember_command"]
-                if chrome and choice == "remember_command":
-                    browser("save-project-command")
+                if chrome and choice in ("remember_command", "remember_command_hour"):
+                    browser("save-hour-command" if choice == "remember_command_hour" else "save-project-command")
                 else:
                     request(f"/api/approvals/{row['id']}", choice, status=202)
             assert peer.recv(1) == (b"D" if choice == "deny" else b"A")
@@ -110,8 +112,26 @@ print('Would print audit.')
     neighbor = root / "other-project"
     neighbor.mkdir()
     args = {"command": "swift test --filter ImporterTests"}
+    before = int(time.time() * 1000)
+    command_reply(project, args, "remember_command_hour")
+    timed = until(lambda: next(iter(request("/api/project-command-rules")), None))
+    assert before + 3_600_000 <= timed["expires_ms"] <= int(time.time() * 1000) + 3_600_000
+    restart()
+    command_reply(project, args)
+    command_reply(neighbor, args, "deny")
+    # Advance only this fixture's deadline. The next real hook must ask again.
+    with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
+        db.execute("UPDATE project_command_rules SET expires_ms=? WHERE id=?", (int(time.time()*1000), timed["id"]))
+    assert request("/api/project-command-rules") == []
+    command_reply(project, args, "deny")
+    command_reply(project, args, "remember_command_hour")
+    renewed = until(lambda: next(iter(request("/api/project-command-rules")), None))
+    assert renewed["id"] == timed["id"] and renewed["expires_ms"] > timed["expires_ms"]
+    assert request("/api/project-command-rules/" + str(renewed["id"]) + "/revoke", {})["revoked"]
+    print("One-hour command consent survived restart, expired, required a new decision and could be renewed and revoked.")
     command_reply(project, args, "remember_command")
     rule = until(lambda: next(iter(request("/api/project-command-rules")), None))
+    assert rule["expires_ms"] is None
     assert rule["cwd"] == str(project.resolve()) and rule["command"] == args["command"]
     command_reply(project, args)
     restart()

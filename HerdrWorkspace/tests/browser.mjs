@@ -2330,16 +2330,19 @@ try {
         ? `!document.getElementById("agent-usage").hidden && document.getElementById("agent-usage").textContent.includes(${JSON.stringify(expected)})`
         : 'document.getElementById("agent-usage").hidden && !document.getElementById("agent-usage").textContent');
     }
-  } else if (focus === "save-project-command" || focus === "revoke-project-command") {
+  } else if (["save-hour-command", "save-project-command", "revoke-project-command"].includes(focus)) {
     await check('!document.getElementById("approvals-open").disabled');
     await evaluate('document.getElementById("workspace-tools").open = true; document.getElementById("approvals-open").click()');
-    if (focus === "save-project-command") {
+    if (focus !== "revoke-project-command") {
+      const button = focus === "save-hour-command" ? "approval-command-hour" : "approval-command";
       await check('document.querySelector("#approval-list button")');
       await evaluate('document.querySelector("#approval-list button").click()');
       await check('!document.getElementById("approval-command").hidden && document.getElementById("approval-input").textContent.includes("ImporterTests")');
-      await evaluate('document.getElementById("approval-command").click()');
+      await check(`!document.getElementById('${button}').hidden`);
+      await evaluate(`document.getElementById('${button}').click()`);
     }
     await check('document.getElementById("approval-command-rules").textContent.includes("swift test --filter ImporterTests")');
+    if (focus === "save-hour-command") await check('document.getElementById("approval-command-rules").textContent.includes("Until ")');
     if (focus === "revoke-project-command") {
       await evaluate('document.querySelector("#approval-command-rules button").click()');
       await check('!document.querySelector("#approval-command-rules button")');
