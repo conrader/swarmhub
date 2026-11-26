@@ -141,7 +141,7 @@ struct SidebarView: View {
             Spacer(minLength: 2)
             Button {
                 if let server = store.selectedBot.map({ store.herdrServer(for: $0) }) ?? store.herdrServers.first {
-                    store.terminalBrowser = TerminalBrowserRequest(server: server)
+                    openWindow(value: TerminalBrowserRequest(server: server))
                 }
             } label: { Image(systemName: "terminal").frame(width: 24, height: SidebarMetrics.roundButton) }
                 .buttonStyle(.plain).accessibilityLabel("Live terminals").help("Preview agent and helper terminals")

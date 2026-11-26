@@ -12,7 +12,6 @@ import UserNotifications
     @Published var runningTurns: [UUID: ConversationTurn] = [:]
     var turnLimits: TurnLimits
     @Published var showOnlyAttention = false
-    @Published var terminalBrowser: TerminalBrowserRequest?
     @Published var showingActivity = false
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false

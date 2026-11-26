@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct HerdrActiveHelpersSection: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var store: AppStore
 
     @State private var details: HerdrHelperOverview.Row?
@@ -21,7 +22,7 @@ struct HerdrActiveHelpersSection: View {
                         if row.job.isWorking {
                             Button("Preview output", systemImage: "terminal") {
                                 let target = LiveTerminal(host: row.id.host, job: row.job, botName: row.bot.name)
-                                store.terminalBrowser = TerminalBrowserRequest(server: store.herdrServer(for: row.bot), target: target)
+                                openWindow(value: TerminalBrowserRequest(server: store.herdrServer(for: row.bot), target: target))
                             }.controlSize(.small)
                         }
                         Text("sb-codejob · \(row.id.host) · \(row.id.job.prefix(8))")

@@ -3,6 +3,7 @@ import SwiftUI
 /// A group's shared thread: the user's messages and each member's replies under its own avatar.
 struct GroupChatView: View {
     @Environment(\.workspaceApprovals) private var approvalInboxes
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
     @State private var draft = ""; private var intake: AttachmentIntake { store.attachmentIntake(for: group.id) }
     @State private var verifyingAttachmentSupport = false
@@ -24,7 +25,7 @@ struct GroupChatView: View {
                 Spacer()
                 if let bot = members.first(where: { $0.backend == .herdr }) {
                     Button("Terminals", systemImage: "terminal") {
-                        store.terminalBrowser = TerminalBrowserRequest(server: store.herdrServer(for: bot), group: group)
+                        openWindow(value: TerminalBrowserRequest(server: store.herdrServer(for: bot), groupID: group.id))
                     }.controlSize(.small).accessibilityLabel("Group terminals")
                 }
                 ShowDetailsItem()

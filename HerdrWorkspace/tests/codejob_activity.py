@@ -147,7 +147,11 @@ def bridge_reads(binary, root, host):
             elif method == "machine.exec":
                 argv = params["argv"]
                 assert argv == ["/usr/bin/python3", "-I", "-B", "-c", PROBE, argv[-1]]
-                assert json.loads(argv[-1]) == host["scope"] and params["on"] == "worker"
+                scope = json.loads(argv[-1])
+                query = scope.pop("preview", None)
+                assert scope == host["scope"] and params["on"] == "worker"
+                if query is not None:
+                    assert set(query) == {"owner", "job"}
                 assert params["cwd"] == "/" and "line" not in params
                 calls.append(method)
                 p = subprocess.run(argv, cwd="/", capture_output=True, timeout=4)
@@ -170,6 +174,7 @@ def bridge_reads(binary, root, host):
                     roster = get_roster()
                     assert len(calls) == before + int(state == "connected")
                     return roster
+                read.output = get_roster
                 yield read
         finally:
             core.shutdown()
@@ -192,8 +197,8 @@ def running_bridge(binary, root, endpoint, host):
         url = wait(startup_line, "fixture bridge startup").split()[-1].rstrip("/")
         assert url.startswith("http://127.0.0.1:")
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        def read():
-            request = urllib.request.Request(url + "/api/workspace?codejobs=true",
+        def read(route="/api/workspace?codejobs=true"):
+            request = urllib.request.Request(url + route,
                                              headers={"Authorization": "Bearer " + TOKEN})
             with opener.open(request, timeout=10) as reply:
                 return json.load(reply)
@@ -312,6 +317,24 @@ def main():
                 item = snapshot()
                 working, = item["jobs"]
                 assert item["complete"] and working == dict(waiting, state="working", provider="codex", owner=OWNER)
+                if args.bridge:
+                    route = "/api/codejobs/fixture-host/" + OWNER + "/" + working["job"] + "/output"
+                    log = status.with_suffix(".log")
+                    with log.open("ab") as stream:
+                        stream.write(b"x" * 9000 + b"\nunique worker output\n")
+                    log.chmod(0o600)
+                    assert read.output(route)["text"].endswith("unique worker output\n")
+                    assert len(read.output(route)["text"]) <= 8192
+                    other = route.replace(OWNER, OTHER)
+                    assert read.output(other)["text"] is None
+                    moved = log.with_suffix(".held")
+                    log.rename(moved)
+                    try:
+                        log.symlink_to(moved)
+                        assert read.output(route)["text"] is None
+                    finally:
+                        log.unlink()
+                        moved.rename(log)
                 if local_read:
                     # Real local Core receives the full fixed -c argument, without "on".
                     assert local_read()["codejob_activity"] == [item]

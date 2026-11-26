@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A terminal address can be reused. Native targets always include the launch time, and detached targets
 /// keep their host, owner and job identity. Opening a preview never writes to a running session.
-struct LiveTerminal: Identifiable, Equatable {
-    enum Source: Hashable {
+struct LiveTerminal: Identifiable, Hashable, Codable {
+    enum Source: Hashable, Codable {
         case agent(HerdrClient.AgentRef)
         case job(host: String, owner: UUID, key: String)
     }
@@ -26,11 +26,12 @@ struct LiveTerminal: Identifiable, Equatable {
     }
 }
 
-struct TerminalBrowserRequest: Identifiable {
-    let id = UUID()
+struct TerminalBrowserRequest: Identifiable, Hashable, Codable {
+    var id = UUID()
     let server: HerdrServer
     var target: LiveTerminal?
-    var group: GroupChat?
+    var groupID: UUID?
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 struct WorkspaceTerminals: View {
@@ -49,6 +50,8 @@ struct WorkspaceTerminals: View {
         _selected = State(initialValue: request.target)
     }
 
+    private var group: GroupChat? { store.groups.first { $0.id == request.groupID } }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -56,7 +59,7 @@ struct WorkspaceTerminals: View {
                     Button { selected = nil } label: { Image(systemName: "chevron.left") }
                         .accessibilityLabel("All terminals")
                 }
-                Text(selected?.title ?? request.group.map { $0.name + " terminals" } ?? "Live terminals").font(.headline)
+                Text(selected?.title ?? group.map { $0.name + " terminals" } ?? "Live terminals").font(.headline)
                 Spacer()
                 if selected == nil {
                     Picker("Workspace", selection: Binding(get: { server.id }, set: { id in
@@ -103,7 +106,8 @@ struct WorkspaceTerminals: View {
             while !Task.isCancelled {
                 do {
                     let client = try store.herdrClient(for: server)
-                    let roster = try await client.workspace(includingCodejobs: request.group == nil)
+                    guard store.herdrServer(id: server.id) == server else { problem = "The workspace connection changed."; return }
+                    let roster = try await client.workspace(includingCodejobs: request.groupID == nil)
                     try Task.checkCancellation()
                     terminals = rows(roster)
                     loaded = true
@@ -122,7 +126,7 @@ struct WorkspaceTerminals: View {
         let byRef = Dictionary(agents.map { ($0.ref, $0) }, uniquingKeysWith: { a, _ in a })
         var names: [String: String] = [:]
         for bot in store.bots where bot.backend == .herdr && store.herdrServer(for: bot) == server {
-            if let group = request.group {
+            if let group {
                 guard group.memberIDs.contains(bot.id) else { continue }
                 for name in store.approvalAgentNames(for: bot, in: group) { names[name] = bot.name }
             } else {
@@ -130,7 +134,7 @@ struct WorkspaceTerminals: View {
             }
         }
         var results = agents.compactMap { agent -> LiveTerminal? in
-            if request.group != nil {
+            if request.groupID != nil {
                 var root = agent
                 var seen = Set<HerdrClient.AgentRef>()
                 while let parent = root.parent, let next = byRef[parent], seen.insert(parent).inserted { root = next }
@@ -141,7 +145,7 @@ struct WorkspaceTerminals: View {
                 .compactMap { $0 }.joined(separator: " · ")
             return LiveTerminal(agent: agent.ref, title: names[agent.name] ?? agent.name, detail: detail, core: roster.core)
         }
-        for host in roster.codejobActivity?.hosts ?? [] where request.group == nil {
+        for host in roster.codejobActivity?.hosts ?? [] where request.groupID == nil {
             for job in host.jobs where job.isWorking {
                 let name = store.bots.first { $0.id == job.owner }?.name ?? "Worker"
                 results.append(LiveTerminal(host: host.host, job: job, botName: name))

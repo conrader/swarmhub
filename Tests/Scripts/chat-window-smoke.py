@@ -960,6 +960,115 @@ def message_search(source_app):
         print("Verified live and imported search, archive paging, restored positions, and recovery from a missing archive.")
 
 
+def live_terminals(source_app):
+    import hashlib
+
+    owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
+    reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
+    group = dict(id=str(uuid.uuid4()), name="ReleaseQA", memberIDs=[owner["id"]], messages=[])
+    session = "group-" + group["id"] + "-" + owner["id"]
+    group["sessions"] = {owner["id"]: session}
+    agent_names = ["patch-" + owner["id"][:6], "HelperQA",
+                   "group-" + hashlib.sha256(session.encode()).hexdigest()[:24], "GroupHelperQA", "NestedQA"]
+    agents = [dict(name=name, address="terminal" + str(i), created_ms=100 + i,
+                   state="live", status=dict(state="working")) for i, name in enumerate(agent_names)]
+    for child, parent in [(1, 0), (3, 2), (4, 3)]:
+        agents[child]["parent"] = {k: agents[parent][k] for k in ("address", "created_ms")}
+    job = "b" * 64
+    token = str(uuid.uuid4())
+    screens = []
+    workers = [dict(host="test-host", complete=True, jobs=[
+        dict(job=job, owner=owner["id"], state="working", provider="codex")])]
+
+    class Workspace(BaseHTTPRequestHandler):
+        def do_GET(self):
+            route = self.path.split("?")[0]
+            if self.headers.get("Authorization") != "Bearer " + token:
+                self.send_error(403)
+                return
+            if route == "/api/workspace":
+                reply = dict(core="qa", agents=agents, templates=[], codejob_activity=workers)
+            elif route == "/api/approvals":
+                reply = dict(pending=[])
+            elif route == "/api/attention":
+                reply = dict(ci_failures=[])
+            elif route.endswith("/output"):
+                screens.append(route)
+                reply = dict(text=route + " line " + str(screens.count(route)))
+            elif route.endswith("/helpers"):
+                reply = dict(core="qa", helpers=[], parent=dict(address="terminal0", created_ms=100))
+            else:
+                self.send_error(404)
+                return
+            data = json.dumps(reply).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
+        store.write_text(json.dumps(dict(version=2, bots=[reader, owner], groups=[group])))
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                press(window, "ReaderQA", sidebar=True)
+                field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
+                enter_draft(field, "Draft stays in ReaderQA")
+                press(window, "Live terminals")
+
+                application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
+                def sheet():
+                    return next((w for w in attribute(application, "AXWindows") or [] if label(w) == "Live terminals"), None)
+
+                def choose(name):
+                    wait_for(name, lambda: sheet() and any(label(b) == name for b in buttons(sheet())))
+                    press(sheet(), name)
+
+                def output(route, updates=1):
+                    def displayed():
+                        return sheet() and any(str(attribute(e, "AXValue") or "").startswith(route + " line ")
+                                               for e in descendants(sheet())) and screens.count(route) >= updates
+                    wait_for("output from " + route, displayed)
+
+                for title, route in [("Patch", "/api/agents/terminal0/100/output"),
+                                     ("HelperQA", "/api/agents/terminal1/101/output"),
+                                     ("NestedQA", "/api/agents/terminal4/104/output"),
+                                     ("Patch · Codex working", "/api/codejobs/test-host/" + owner["id"] + "/" + job + "/output")]:
+                    choose("Preview " + title)
+                    output(route, updates=2)
+                    choose("All terminals")
+                choose("Done")
+                wait_for("terminal window closed", lambda: not sheet())
+                wait_for("return to existing draft", lambda: attribute(field, "AXValue") == "Draft stays in ReaderQA")
+                press(window, "ReleaseQA", sidebar=True)
+                press(window, "Group terminals")
+                choose("Preview Patch")
+                output("/api/agents/terminal2/102/output")
+                choose("All terminals")
+                choose("Preview NestedQA")
+                output("/api/agents/terminal4/104/output")
+                choose("All terminals")
+                choose("Preview GroupHelperQA")
+                output("/api/agents/terminal3/103/output")
+                # Replace the process at the same terminal address while its preview is open.
+                agents[3]["created_ms"] = 999
+                wait_for("stale terminal stopped", lambda: any(attribute(e, "AXValue") == "This terminal session has ended."
+                                                               for e in descendants(sheet())))
+                assert "/api/agents/terminal3/999/output" not in screens
+                choose("Done")
+                wait_for("group terminal window closed", lambda: not sheet())
+                agents.clear()
+                workers.clear()
+                press(window, "ReaderQA", sidebar=True)
+                print("Verified live output for bot, helper, nested helper, group session and detached worker; replaced session never attached.")
+        finally:
+            server.shutdown()
+
+
 def activity_decisions(source_app):
     import Quartz
     from threading import Thread
@@ -1291,6 +1400,8 @@ if __name__ == "__main__":
             team_inspector(Path(sys.argv[2]).resolve(strict=True), appearance)
     elif len(sys.argv) == 3 and sys.argv[1] == "--steer-reopen":
         steer_reopen(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
+        live_terminals(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
         workspace_activity(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--window-unread":
@@ -1306,4 +1417,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--terminals | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE")

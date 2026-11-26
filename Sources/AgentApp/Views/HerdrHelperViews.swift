@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The disclosure belongs to the bot. Direct and group sessions keep their own identities.
 struct SidebarBotSessions<ParentRow: View>: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var store: AppStore
     @AppStorage private var expanded: Bool
     let bot: Bot
@@ -66,7 +67,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
     private func previewButton(_ ref: HerdrClient.AgentRef, name: String, core: String?) -> some View {
         Button {
             let target = LiveTerminal(agent: ref, title: name, core: core)
-            store.terminalBrowser = TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target)
+            openWindow(value: TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target))
         } label: {
             Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
                 .frame(width: 24, height: 30).contentShape(Rectangle())
