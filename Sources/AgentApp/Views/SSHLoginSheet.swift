@@ -14,7 +14,7 @@ struct SSHLoginSheet: View {
     private enum Field { case user, password }
 
     init(server: HerdrServer, keepSavedLogin: Bool = false, connected: @escaping (HerdrServer) -> Void) {
-        fixedUser = keepSavedLogin && !server.sshUser.isEmpty
+        fixedUser = keepSavedLogin
         self.server = server
         self.connected = connected
         _user = State(initialValue: server.sshUser)
@@ -23,7 +23,7 @@ struct SSHLoginSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Sign in to \(server.sshHost)").font(.title2.bold())
-            if fixedUser { LabeledContent("Username", value: user) }
+            if fixedUser { LabeledContent("Username", value: user.isEmpty ? "From SSH configuration" : user) }
             else { TextField("Username", text: $user).focused($focus, equals: .user) }
             SecureField("Password", text: $password).focused($focus, equals: .password)
             Text("SwarmHub remembers this password until you quit the app.").font(.caption).foregroundStyle(.secondary)
@@ -33,11 +33,11 @@ struct SSHLoginSheet: View {
                 Button("Cancel") { attempt?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
                 Button(attempt == nil ? "Sign In" : "Signing In…", action: signIn)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(attempt != nil || login.isEmpty || !HerdrTunnel.isSafe(user: login) || password.isEmpty)
+                    .disabled(attempt != nil || (!fixedUser && login.isEmpty) || !HerdrTunnel.isSafe(user: login) || password.isEmpty)
             }
         }
         .textFieldStyle(.roundedBorder).controlSize(.large).padding(24).frame(width: 380)
-        .onAppear { focus = user.isEmpty ? .user : .password }
+        .onAppear { focus = !fixedUser && user.isEmpty ? .user : .password }
         .onDisappear { attempt?.cancel(); password = "" }
     }
 

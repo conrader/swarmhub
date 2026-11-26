@@ -30,10 +30,9 @@ struct ChatSSHLoginBar: View {
         }
         .font(.callout).padding(.horizontal, 16).padding(.vertical, 6).background(.regularMaterial)
         .sheet(isPresented: $signingIn) {
-            SSHLoginSheet(server: server, keepSavedLogin: true) { signedIn in
+            SSHLoginSheet(server: server, keepSavedLogin: true) { _ in
                 guard store.herdrServer(id: server.id) == server else { return }
-                if signedIn != server { store.saveHerdrServer(signedIn, token: nil) }
-                Task { await store.refreshHerdrHelpers(on: signedIn.id) }
+                Task { await store.refreshHerdrHelpers(on: server.id) }
             }
         }
     }
