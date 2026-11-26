@@ -11,6 +11,7 @@ struct HerdrHelperModelSection: View {
     @State private var saved: HerdrClient.BotAgentSettings?
     @State private var program = ""
     @State private var model = ""
+    @State private var approvalTemplates: [HerdrClient.Template] = []
     @State private var editingControls = false
     @State private var saving = false
     @State private var reviewerError: String?
@@ -113,7 +114,7 @@ struct HerdrHelperModelSection: View {
                 Text("Applies to standard Claude, Codex and Antigravity launches. Managed permissions still apply.")
                     .foregroundStyle(.secondary)
                 if let reviewing = saved.reviewEveryTool {
-                    let selected = HerdrAgentReading.template(own: store.herdrTemplate(for: bot), shared: nil, in: templates).template
+                    let selected = HerdrAgentReading.template(own: store.herdrTemplate(for: bot), shared: nil, in: approvalsOnly ? approvalTemplates : templates).template
                     if reviewing || selected?.supportsToolReview == true {
                         Toggle("Ask before every tool call", isOn: Binding(get: { reviewing }, set: { value in Task { await setReview(value) } }))
                             .toggleStyle(.switch).disabled(saving)
@@ -140,14 +141,19 @@ struct HerdrHelperModelSection: View {
 
     private func load() async {
         problem = ""
+        approvalTemplates = []
         do {
             let result: HerdrClient.BotAgentSettings
             if let preset { result = preset }
             else { result = try await store.herdrClient(for: server).botAgentSettings(for: bot.id) }
+            if approvalsOnly, result.reviewEveryTool != nil {
+                approvalTemplates = try await store.herdrTemplates(on: server)
+            }
+            try Task.checkCancellation()
             saved = result
             program = result.choice?.template ?? ""
             model = result.choice?.model ?? ""
-        } catch HerdrClient.Failure.http(404, _) {
+        } catch is CancellationError { return } catch HerdrClient.Failure.http(404, _) {
             problem = "Update this server’s SwarmHub workspace to choose a coding model and use Auto mode."
         } catch { problem = error.localizedDescription }
     }
