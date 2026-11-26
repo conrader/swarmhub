@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from threading import Thread
+from threading import Thread, Timer
 import time
 import uuid
 
@@ -1343,7 +1343,7 @@ def activity_decisions(source_app):
                                       cwd="/qa", command="swift test --filter ImporterTests")
                     if decision == "remember_command_hour":
                         rule["expires_ms"] = int(time.time() * 1000) + 3600000
-                        threading.Timer(2.5, rules.append, args=(rule,)).start()
+                        Timer(2.5, rules.append, args=(rule,)).start()
                     else:
                         rules.append(rule)
                 decisions.append((request_id, decision))
