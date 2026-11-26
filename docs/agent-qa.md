@@ -192,3 +192,9 @@ The Page draft check runs a private workspace and Herdr Core with a scripted CLI
 ```sh
 /usr/bin/python3 Tests/Scripts/page-draft-window.py /Applications/SwarmHub.app /path/to/swarmhub-herdr /path/to/herdr-core
 ```
+
+To check terminal scaling, run the private window against a real workspace and Herdr Core. The driver opens the preview from a bot’s chat header, moves the native divider, waits for new output on the last terminal row, restores the panel width and verifies the original process geometry.
+
+```sh
+/usr/bin/python3 Tests/Scripts/terminal-preview-window.py /Applications/SwarmHub.app /path/to/swarmhub-herdr /path/to/herdr-core
+```
