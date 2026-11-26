@@ -19,6 +19,7 @@ struct HerdrHandoff: Sendable {
     /// How many messages the summary stands for and how many are there word for word: what the app says afterwards.
     var olderMessages = 0, recentMessages = 0
     var origin: Origin = .imported
+    var pendingHelperReply: String?
 
     /// Where the conversation comes from, which decides how the agent is told about it and what its files are called.
     enum Origin: Sendable, Equatable {
@@ -26,7 +27,7 @@ struct HerdrHandoff: Sendable {
         case imported
         /// The bot's own chat so far, for an agent that starts fresh after the bot's agent program or model was
         /// changed (`AppStore+HerdrCarryOver.swift`).
-        case ownChat
+        case ownChat, promotedHelper
 
         var handoffFile: String { self == .imported ? "grok-handoff.md" : "conversation-so-far.md" }
         var fullFile: String { self == .imported ? "grok-history-full.md" : "conversation-full.md" }
@@ -34,6 +35,7 @@ struct HerdrHandoff: Sendable {
         var opening: String {
             switch self {
             case .imported: "You are continuing an existing conversation that moved here from another app. It is older than anything already said in this chat; messages written here since the move are not in it."
+            case .promotedHelper: "This permanent bot chat continues the selected helper session. Its original assignment, session output and later chat messages are included as context."
             case .ownChat: "You are continuing a conversation this bot already had with the person in this chat. The agent that held it was replaced by you, because another agent program or model was chosen, so you start without it: this is the conversation up to now."
             }
         }
@@ -55,7 +57,9 @@ struct HerdrHandoff: Sendable {
         lines.append("Secrets were replaced by \(GrokRedactor.marker). Answer the current user message below.")
         let head = lines.joined(separator: "\n")
         let title: String
-        if summary == nil {
+        if pendingHelperReply != nil {
+            title = "The original helper just finished. Its result follows."
+        } else if summary == nil {
             title = withFiles ? "The last messages, in case you cannot open the files:" : "The last messages:"
         } else {
             title = withFiles ? "A summary, in case you cannot open the files:" : "A summary of the conversation:"
@@ -63,7 +67,7 @@ struct HerdrHandoff: Sendable {
         let fits = bytes - head.utf8.count - title.utf8.count - 4
         let room = withFiles ? min(fits, Self.excerptBytes) : fits
         var excerpt = ""
-        if let text = summary {
+        if let text = pendingHelperReply ?? summary {
             excerpt = HerdrClient.plain(text, bytes: max(0, room))
         } else {
             // The newest blocks that fit, in the order they were said.

@@ -438,5 +438,9 @@ private let listingJSON = """
     #expect(first.promotedHelper?.awaitsReply == false && first.promotedHelper?.handoffID != nil)
     #expect(first.messages.filter { $0.role != .system }.map(\.content) == ["A","A in progress","A finished","Continue in my new chat"])
     #expect(second.messages.filter { $0.role != .system }.map(\.content) == ["B","B finished"])
+    let handoff = try #require(await store.herdrCarryHandoff(for:first.id,status:{ _ in }))
+    #expect(handoff.note(bytes:1600,withFiles:true).contains("A finished"))
+    #expect(handoff.note(bytes:1600,withFiles:false).contains("A finished"))
+    #expect(!handoff.note(bytes:1600,withFiles:true).contains("B finished"))
     #expect(first.messages.last === user && store.herdrCarryLines(of:first).contains { $0.text == "A finished" })
 }

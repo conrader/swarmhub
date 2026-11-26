@@ -12,6 +12,7 @@ struct PromotedHelper: Codable, Equatable {
         let runtime: HerdrClient.ChildRuntime
         let id: String
         var awaitingResult: Bool
+        var pendingReplyExcerpt: String?
     }
     var native: NativeSession?
     var awaitsReply: Bool { pendingAfter != nil || native?.awaitingResult == true }

@@ -80,6 +80,10 @@ extension AppStore {
                 let index = bot.messages.firstIndex { $0.metadata[PromotedHelper.noticeKey] != nil } ?? 0
                 bot.messages.insert(ChatMessage(role: .assistant, content: text, metadata: [PromotedHelper.rowKey: "session"]), at: index)
             }
+            // Put the late result in the next prompt even when newer direct messages fill the normal excerpt.
+            let reply = activity.details?.reply ?? ""
+            let excerpt = GrokHandoff.cleanSummary(reply.isEmpty ? String(text.suffix(2000)) : reply)
+            bot.promotedHelper?.native?.pendingReplyExcerpt = excerpt.isEmpty ? nil : excerpt
             bot.promotedHelper?.handoffID = UUID()
             setHerdrCarryOver(.init(old: nil, at: now()), for: bot)
             if !showsDirectChat(bot) { bot.unreadCount += 1 }
