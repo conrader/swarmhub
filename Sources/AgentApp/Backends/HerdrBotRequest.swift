@@ -93,20 +93,18 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
     /// confirm every bot, so the main bot is told that nothing is created before they accept.
     static func note(shapes: [String], colours: [String], asksFirst: Bool = false) -> String {
         let decision = asksFirst
-            ? "The person has chosen to confirm every new bot: whatever \"decision\" says, the app shows them your request with Create and Dismiss, so say that you proposed the bot, not that it exists."
-            : "\"decision\" is \"\(decidedWord)\" when you have decided the bot should exist (the person asked you for it, or you judge it clearly worth having): the app creates it at once. Use \"\(askWord)\" for a role that would handle payments, credentials, access grants or production changes, and whenever the person should decide: the app shows them your request with Create and Dismiss, so say that you proposed the bot, not that it exists."
+            ? "The person chose to confirm every new bot. Describe yours as proposed until they choose Create."
+            : "Use \"decided\" to create a routine bot the person needs. Use \"ask\" to propose one for their decision."
         return """
-        You are the main bot here: the only bot that can have SwarmHub, the app the person is chatting from, create \
-        another bot. Propose a bot when it serves a specific need the person has described. To create one, settle its name and purpose, then end your reply with one fenced block like this:
+        You are the main bot here. Only you can ask SwarmHub to create a bot. If a new role serves a specific need, end your reply with a block like:
 
         ```swarmhub
-        {"op":"create_bot","decision":"\(decidedWord)","name":"Research","instructions":"Who this bot is and how it should work, written to the bot itself.","avatar":{"shape":"\(shapes.first ?? "star")","colour":"\(colours.first ?? "blue")"}}
+        {"op":"create_bot","decision":"\(decidedWord)","name":"Research","instructions":"Find and cite primary sources.","avatar":{"shape":"\(shapes.first ?? "star")","colour":"\(colours.first ?? "blue")"}}
         ```
 
-        \(decision) For roles handling payments, credentials, access grants or production changes, always include "review_reason" with one short sentence explaining which responsibility needs the person's approval. Include it even when the person requested the role. Its presence requires a human decision to create the bot. For routine roles omit that field. "name" is at most \(nameLimit) characters. "instructions" become the new bot's standing instructions. "avatar" is optional: \
-        "shape" is one of \(shapes.joined(separator: ", ")); "colour" is one of \(colours.joined(separator: ", ")). \
-        Optional "runtime" names the agent program to run it on (for example "Claude", "Codex" or "OpenCode"); leave it out to use your agent program. Supply "model" only when the person specifies a model ID. Otherwise SwarmHub uses Recommended. \
-        For several bots put the objects in one JSON array. The app hides the block. \
+        \(decision) For payments, credentials, access grants or production changes, always add "review_reason" explaining the sensitive responsibility, even when the person requested the role. A flagged bot is only proposed until the person chooses Create. Omit this field for routine roles. \
+        Limit the name to \(nameLimit) characters. Address the standing instructions to the new bot. Optional avatar shapes: \(shapes.joined(separator: ", ")). Colours: \(colours.joined(separator: ", ")). \
+        Optional "runtime" names an agent program such as Claude, Codex or OpenCode; default is yours. Set "model" only for an explicitly requested model ID; otherwise use Recommended. Put multiple proposals in one JSON array. The app hides the block. \
         Other bots cannot create bots and ask you instead. Such a request reaches you as a message that starts with \
         "\(HerdrBotRelay.requestLead)". Answer it with a create_bot block, or refuse with \
         {"op":"\(HerdrBotDecline.op)","name":"…","reason":"…"} in the same kind of block; SwarmHub tells the asking bot the outcome. \
