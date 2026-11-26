@@ -20,13 +20,21 @@ import ApplicationServices as ax
 
 
 def attribute(element, key):
-    return ax.AXUIElementCopyAttributeValue(element, key, None)[1]
+    error, value = ax.AXUIElementCopyAttributeValue(element, key, None)
+    return value if error == 0 else None
 
 
 def descendants(element):
-    yield element
-    for child in attribute(element, "AXChildren") or ():
-        yield from descendants(child)
+    # SwiftUI can expose the same accessibility element under more than one parent.
+    pending = [element]
+    seen = set()
+    while pending:
+        node = pending.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        yield node
+        pending.extend(reversed(attribute(node, "AXChildren") or ()))
 
 
 def label(element):
@@ -186,14 +194,16 @@ def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_envi
     process = subprocess.Popen(arguments, env=environment)
     try:
         application = ax.AXUIElementCreateApplication(process.pid)
-        windows = lambda: attribute(application, "AXWindows") or []
+        def windows():
+            return [window for window in attribute(application, "AXWindows") or ()
+                    if attribute(window, "AXRole") == "AXWindow"]
         running = lambda: NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
         wait_for("private app launch", lambda: running() and running().isFinishedLaunching(), seconds=15)
         running().activateWithOptions_(3)
         if not windows():
             # A direct executable launch can be running without an open-document event.
             subprocess.run(["open", "-a", str(app)], check=True)
-        wait_for("private workspace", windows, seconds=15)
+        wait_for("private workspace window in the logged-in desktop session", windows, seconds=15)
         yield windows()[0]
     finally:
         if process.poll() is None:
