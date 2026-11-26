@@ -592,16 +592,12 @@ async fn deliver_completion(w: &Workspace, item: &Waiting) {
     crate::deliver_completion(w, &hello.core.id, &agent, item.id, &item.bot, &item.text).await;
 }
 
-/// Starts the agent of `bot` ahead of its first task, as the app does when a chat opens: the same name, its
-/// saved profile, the registered template, model, instructions and projects.
-async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result<Terminal, String> {
-    let templates = w.core.templates().await.map_err(crate::helpers::explain)?;
+pub(crate) fn bot_template<'a>(bot: &Bot, templates: &'a [crate::core::Template], catalog: &crate::runtimes::Catalog) -> Option<&'a crate::core::Template> {
     let usable = |template: &&crate::core::Template| {
         template.error.is_none() && crate::core::valid_name(&template.name)
     };
-    let template = if bot.template.is_empty() {
+    if bot.template.is_empty() {
         // The first program Core lists, and a beta one only when there is no other.
-        let catalog = crate::runtimes::Catalog::load(w.history.file());
         templates
             .iter()
             .filter(usable)
@@ -612,20 +608,25 @@ async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result
             .filter(usable)
             .find(|template| template.name == bot.template)
     }
-    .ok_or_else(|| {
-        format!(
-            "Herdr has no template {:?} to start its agent from.",
-            bot.template
-        )
-    })?;
-    let catalog = crate::runtimes::Catalog::load(w.history.file());
+}
+
+pub(crate) fn bot_model(bot: &Bot, template: &crate::core::Template, catalog: &crate::runtimes::Catalog) -> Option<String> {
     // A bot with no model of its own starts on the first one the server lists, as in the app.
-    let model_id = match catalog.models(template) {
+    match catalog.models(template) {
         Some(_) if bot.model == "@provider-default" => None,
         Some(_) if !bot.model.is_empty() => Some(bot.model.clone()),
         Some((_, offered)) => offered.first().map(|model| model.id.clone()),
         None => None,
-    };
+    }
+}
+
+/// Starts a bot using its saved profile, registered model, instructions and projects.
+async fn start(w: &Workspace, bot: &Bot, fixture_core: Option<String>) -> Result<Terminal, String> {
+    let templates = w.core.templates().await.map_err(crate::helpers::explain)?;
+    let catalog = crate::runtimes::Catalog::load(w.history.file());
+    let template = bot_template(bot, &templates, &catalog)
+        .ok_or_else(|| format!("Herdr has no template {:?} to start its agent from.", bot.template))?;
+    let model_id = bot_model(bot, template, &catalog);
     let (profile, name, projects) = {
         let db = w.history.db().map_err(|_| STORAGE)?;
         let profiles: Vec<(i64, String)> = db

@@ -274,7 +274,29 @@ struct HerdrHelperPolicyDraft: Equatable, Sendable {
 }
 
 extension HerdrClient {
-    struct BotAgentSettings: Decodable { let choice: HerdrHelperPolicy.Tier?; let autoMode: Bool; var autoChangedMs: UInt64? = nil; var commandReviewer: String? = nil }
+    struct BotAgentSettings: Decodable {
+        struct Candidate: Decodable, Identifiable {
+            let id, name, model: String
+            var label: String {
+                let display = model == "@provider-default" ? "Claude default" : model
+                return Approval.visible(name + " · " + display)
+            }
+        }
+        let choice: HerdrHelperPolicy.Tier?
+        let autoMode: Bool
+        var autoChangedMs: UInt64? = nil
+        var commandReviewer: String? = nil
+        var reviewerBotId: String? = nil
+        var reviewerBots: [Candidate]? = nil
+
+        var reviewerLabel: String {
+            if let id = reviewerBotId {
+                return reviewerBots?.first(where: { $0.id == id })?.label ?? "Selected bot unavailable"
+            }
+            guard let model = commandReviewer, model != "off" else { return "Off" }
+            return "Claude " + model.capitalized
+        }
+    }
 
     func botAgentSettings(for bot: UUID) async throws -> BotAgentSettings {
         try await get("/api/bot-agent-settings/\(bot.uuidString.lowercased())")
@@ -285,7 +307,7 @@ extension HerdrClient {
         return try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["choice": choice, "existing_agents": existingAgents])
     }
     func setCommandReviewer(_ model: String, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
-        try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["command_reviewer": model, "existing_agents": existingAgents])
+        try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", model.hasPrefix("bot:") ? ["reviewer_bot_id": String(model.dropFirst(4)), "existing_agents": existingAgents] : ["command_reviewer": model, "existing_agents": existingAgents])
     }
     func setProjectAutoMode(_ enabled: Bool, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {
         try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["auto_mode": enabled, "existing_agents": existingAgents])

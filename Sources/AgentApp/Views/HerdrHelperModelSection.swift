@@ -35,8 +35,8 @@ struct HerdrHelperModelSection: View {
                 if let saved {
                     LibraryFlow(spacing: 5) {
                         InspectorTag(text: saved.autoMode ? "New sessions: Auto" : "New sessions: Standard")
-                        if let reviewer = saved.commandReviewer {
-                            InspectorTag(text: reviewer == "off" ? "Command reviewer: Off" : "Command reviewer: Claude " + reviewer.capitalized)
+                        if saved.commandReviewer != nil {
+                            InspectorTag(text: "Command reviewer: " + saved.reviewerLabel)
                         }
                     }
                     if editingControls {
@@ -88,9 +88,15 @@ struct HerdrHelperModelSection: View {
     @ViewBuilder private var approvalSettings: some View {
         if let saved {
             if let reviewer = saved.commandReviewer {
-                SettingBlock(title: "Command reviewer", detail: "When Codex asks to run a shell command, Claude Code on this workspace sends its arguments and working directory to the selected model for a second opinion.") {
-                    Picker("Reviewer", selection: Binding(get: { reviewer }, set: { value in Task { await setReviewer(value) } })) {
+                SettingBlock(title: "Command reviewer", detail: "Claude reviews the command and working directory in the background. A bot uses its own model and standing instructions. You decide whether the command runs.") {
+                    Picker("Reviewer", selection: Binding(get: { saved.reviewerBotId.map { "bot:" + $0 } ?? reviewer }, set: { value in Task { await setReviewer(value) } })) {
                         Text("Off").tag("off")
+                        if let id = saved.reviewerBotId, saved.reviewerBots?.contains(where: { $0.id == id }) != true {
+                            Text("Selected bot unavailable").tag("bot:" + id)
+                        }
+                        ForEach(saved.reviewerBots ?? []) { candidate in
+                            Text(candidate.label).tag("bot:" + candidate.id)
+                        }
                         ForEach(["haiku", "sonnet", "opus"], id: \.self) { model in
                             Text("Claude " + model.capitalized).tag(model)
                         }

@@ -858,6 +858,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-ci-review.sql"),
         include_str!("migrate-project-command-rules.sql"),
         include_str!("migrate-command-rule-expiry.sql"),
+        include_str!("migrate-named-reviewer.sql"),
     ]
 }
 
