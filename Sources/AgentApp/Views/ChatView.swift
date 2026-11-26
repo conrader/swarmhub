@@ -169,6 +169,7 @@ struct ChatView: View {
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
                      manage: { action in if let request = action.request { draft = request } else { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot, again: true) } },
                      wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name,
+                     offersGoal: bot.backend == .herdr && !bot.isDemo && !bot.isReadOnlyArchive,
                      goalCommand: { command in
                          let notice = store.handleGoalCommand(command, in: bot, attachments: intake.items)
                          if case .start = command, notice == nil { intake.items = []; store.replyTo = nil }

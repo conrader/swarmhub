@@ -967,11 +967,13 @@ def activity_decisions(source_app):
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
     reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
     agent = dict(name="patch-" + owner["id"][:6], address="session", created_ms=80, state="live")
+    agent["session_usage"] = dict(total_tokens=1200, opencode_cost_usd=2.0)
     token = str(uuid.uuid4())
     pending = [dict(id=i, agent=agent["name"], provider="Codex", tool=tool, cwd="/qa",
                     arguments="argument-" + str(i), core="qa", address="session", created_ms=created)
                for i, tool, created in [(1, "Read", 80), (2, "Bash", 80), (3, "Previous", 79)]]
     decisions = []
+    reviewed = []
 
     class Inbox(BaseHTTPRequestHandler):
         def reply(self, body):
@@ -988,13 +990,19 @@ def activity_decisions(source_app):
                 self.send_error(403)
             elif route == "/api/workspace":
                 self.reply(dict(core="qa", agents=[agent], templates=[]))
+            elif route == "/api/attention":
+                failures = [] if reviewed else [dict(id=7, bot="Patch", pull_request="repo/pull/12", check_run="CI")]
+                self.reply(dict(ci_failures=failures, completions=[]))
             elif route == "/api/approvals":
                 self.reply(dict(pending=[r for r in pending if r["id"] not in dict(decisions)]))
             else:
                 self.send_error(404)
 
         def do_POST(self):
-            if self.path.startswith("/api/approvals/") and self.headers.get("Authorization") == "Bearer " + token:
+            if self.path == "/api/attention/ci/7/review" and self.headers.get("Authorization") == "Bearer " + token:
+                reviewed.append(7)
+                self.reply(dict(reviewed=True))
+            elif self.path.startswith("/api/approvals/") and self.headers.get("Authorization") == "Bearer " + token:
                 request_id = int(self.path.split("/")[-1])
                 decision = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 decisions.append((request_id, decision))
@@ -1011,14 +1019,24 @@ def activity_decisions(source_app):
         try:
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
                 press(window, "ReaderQA", sidebar=True)
-                press(window, "Activity")
+                def count_is(expected):
+                    return any(label(b) == "Needs Attention" and str(attribute(b, "AXValue")) == str(expected)
+                               for b in buttons(window))
+
+                wait_for("two approvals and one failing check", lambda: count_is(3))
+                footer = [attribute(e, "AXValue") for e in descendants(window)]
+                assert "0 SSH hosts" in footer and "2 bots" in footer
+                press(window, "Needs Attention")
 
                 def sheet():
-                    return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
+                    return next((e for e in descendants(window) if attribute(e, "AXIdentifier") == "workspace.attention"), None)
 
                 def names():
                     return [label(b) for b in buttons(sheet())] if sheet() else []
 
+                wait_for("CI entry in inbox", lambda: "Mark reviewed" in names())
+                press(sheet(), "Mark reviewed")
+                wait_for("CI review receipt", lambda: reviewed == [7])
                 pid = ax.AXUIElementGetPid(window, None)[1]
                 for request_id, tool, decision, key in [(2, "Bash", "deny", 51), (1, "Read", "approve", 36)]:
                     inspect = "Inspect " + tool + " request"
@@ -1034,10 +1052,36 @@ def activity_decisions(source_app):
                     wait_for("exact keyboard decision", lambda: (request_id, decision) in decisions)
                     assert sheet()
                 assert decisions == [(2, "deny"), (1, "approve")]
-                wait_for("both requests cleared", lambda: names() == ["Done"])
+                wait_for("both requests cleared", lambda: "Done" in names() and not any(n.startswith("Inspect ") or n.startswith("Patch,") for n in names()))
                 press(sheet(), "Done")
                 wait_for("Activity dismissed", lambda: not sheet())
-                print("Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
+                wait_for("empty sidebar badge", lambda: count_is(0))
+                press(window, "Patch", sidebar=True)
+                wait_for("writable bot composer", lambda: any(label(b) == "/goal" for b in buttons(window)))
+                if not any(label(b) == "Approvals" for b in buttons(window)):
+                    press(window, "Details")
+                press(window, "Approvals")
+                wait_for("bot approvals clear", lambda: any(attribute(e, "AXValue") == "No pending requests"
+                                                            for e in descendants(window)))
+                composer = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
+                enter_draft(composer, "--budget 2.00 inspect this build")
+                press(window, "/goal")
+                wait_for("goal preserves the draft", lambda: attribute(composer, "AXValue") == "/goal --budget 2.00 inspect this build")
+                press(window, "Send message")
+
+                def stopped_at_budget():
+                    goal = next(b for b in json.loads(store.read_text())["bots"] if b["name"] == "Patch").get("goal") or {}
+                    return goal.get("state") == "stopped" and goal["iteration"] == 0 and goal["lastSpend"]["usd"] == 2
+
+                wait_for("goal stopped before issuing a paid step", stopped_at_budget)
+                press(window, "+ Screenshot")
+                application = ax.AXUIElementCreateApplication(pid)
+                def cancel_button():
+                    return next((b for w in attribute(application, "AXWindows") or [] for b in buttons(w) if label(b) == "Cancel"), None)
+                wait_for("screenshot picker", cancel_button)
+                assert ax.AXUIElementPerformAction(cancel_button(), "AXPress") == 0
+                print("Verified the screenshot picker, per-bot approvals and a zero-dispatch USD limit.")
+                print("Verified sidebar counts and CI review. Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
         finally:
             server.shutdown()
 

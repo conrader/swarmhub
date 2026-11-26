@@ -47,7 +47,7 @@ private struct PinnedBotTile: View {
     @State private var hovering = false
 
     var body: some View {
-        let selected = store.selectedBot?.id == bot.id && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id
+        let selected = !store.showOnlyAttention && store.selectedBot?.id == bot.id && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id
         let coding = store.hasActiveCodingAgent(bot), attention = store.needsAttention(bot)
         let main = store.herdrMainBotLabel(bot)
         Button { store.open(bot) } label: {
@@ -78,7 +78,7 @@ private struct PinnedGroupTile: View {
     @State private var hovering = false
 
     var body: some View {
-        let selected = store.selectedGroup?.id == group.id
+        let selected = !store.showOnlyAttention && store.selectedGroup?.id == group.id
         Button { store.open(group) } label: {
             PinnedTileFrame(name: group.name, unread: group.isUnread, selected: selected, hovering: hovering) {
                 GroupAvatarStack(group: group, members: store.members(of: group), size: SidebarMetrics.pinnedMark, isHovered: hovering,

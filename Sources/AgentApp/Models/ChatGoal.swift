@@ -39,6 +39,48 @@ struct ChatGoal: Codable, Equatable {
     var objective: String
     let destination: Destination
     var state = State.queued
+    struct SpendReading: Codable, Equatable {
+        let core: String
+        let agent: HerdrClient.AgentRef
+        let tokens: Int64
+        let usd: Double
+    }
+
+    var budgetUSD: Double?
+    var lastSpend: SpendReading?
+    var spendProgress: String? {
+        guard let budgetUSD else { return nil }
+        let ceiling = budgetUSD.formatted(.currency(code: "USD"))
+        if let lastSpend { return "Session spend: \(lastSpend.usd.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))) / \(ceiling)" }
+        return "Session budget: \(ceiling) · checked before each step"
+    }
+
+    mutating func permitsNextStep(spend: SpendReading?) -> Bool {
+        guard let budgetUSD else { return true }
+        guard let spend, spend.usd.isFinite, spend.usd >= 0, spend.tokens >= 0 else {
+            wait("This goal needs an OpenCode session with reported USD usage. Resume after usage becomes available.")
+            return false
+        }
+        if let previous = lastSpend {
+            guard previous.core == spend.core, previous.agent == spend.agent, spend.usd >= previous.usd else {
+                wait("The priced session changed. Start a new goal to use its budget.")
+                return false
+            }
+        }
+        if spend.usd >= budgetUSD {
+            lastSpend = spend
+            stop()
+            detail = "The session reached its spending limit."
+            return false
+        }
+        if let previous = lastSpend, spend.tokens <= previous.tokens {
+            wait("Waiting for updated token and cost totals from the last step. Resume when usage is available.")
+            return false
+        }
+        lastSpend = spend
+        return true
+    }
+
     var stepLimit: Int?
     var stepProgress: String? { stepLimit.map { "Steps: \(iteration) of \($0)" } }
     var iteration = 0

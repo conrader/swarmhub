@@ -3,6 +3,7 @@ import SwiftUI
 struct InfoPanel: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
+    @Environment(\.workspaceApprovals) private var inboxes
     var modelPreset: HerdrAgentControls.Preset? = nil
     var skillsPreset: HerdrSkillsModel? = nil
 
@@ -27,6 +28,20 @@ struct InfoPanel: View {
     @ViewBuilder private var panelContent: some View {
         switch store.visibleInfoTab(for: bot) {
         case .overview: overview
+        case .approvals:
+            let server = store.herdrServer(for: bot)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Pending approvals").font(.headline)
+                if inboxes[server.id]?.unavailable == true {
+                    Text("Can’t check approvals on " + server.name).foregroundStyle(.secondary)
+                } else if inboxes[server.id] == nil {
+                    ProgressView("Checking approvals…").controlSize(.small)
+                } else if store.approvals(for: bot, in: nil, inboxes: inboxes).isEmpty && store.herdrPrompts[bot.id] == nil {
+                    Text("No pending requests").foregroundStyle(.secondary)
+                }
+                HerdrChatApprovals(bot: bot, server: server).id(server.id)
+                HerdrHelperModelSection(bot: bot, server: server, templates: [], approvalsOnly: true)
+            }
         case .model: HerdrAgentControls(bot: bot, preset: modelPreset).id(bot.id)
         case .team:
             let server = store.herdrServer(for: bot)

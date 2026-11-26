@@ -2,9 +2,11 @@ import Foundation
 
 /// Only a single-line draft beginning with a complete command token is executable.
 enum SlashCommand: Equatable {
-    case commands, goalUsage, invalidStepLimit, start(String, stepLimit: Int? = nil), status, stop
+    case commands, goalUsage, invalidStepLimit, invalidBudget, start(String, stepLimit: Int? = nil, budgetUSD: Double? = nil), status, stop
 
     static let stepLimitUsage = "Use /goal --steps N <objective>, with a positive whole number for N."
+
+    static let budgetUsage = "Use /goal --budget 2.00 <objective> to check OpenCode session spend before each step."
 
     enum Name: String, CaseIterable {
         case goal = "/goal"
@@ -12,7 +14,7 @@ enum SlashCommand: Equatable {
 
         var usage: String {
             switch self {
-            case .goal: "[--steps N] <objective> · status · stop"
+            case .goal: "[--steps N] [--budget USD] <objective> · status · stop"
             case .commands: "List chat commands"
             }
         }
@@ -33,14 +35,27 @@ enum SlashCommand: Equatable {
             case "status": return .status
             case "stop": return .stop
             default:
-                let fields = argument.split(maxSplits: 2, whereSeparator: \.isWhitespace)
-                // The native text view can replace two typed hyphens with a single dash.
-                let flags = ["--steps", "—steps", "–steps"]
-                let flag = String(fields[0])
-                if flags.contains(where: { flag.hasPrefix($0 + "=") }) { return .invalidStepLimit }
-                guard flags.contains(flag) else { return .start(argument) }
-                guard fields.count == 3, let limit = Int(fields[1]), limit > 0 else { return .invalidStepLimit }
-                return .start(String(fields[2]), stepLimit: limit)
+                var rest = argument[...]
+                var steps: Int?
+                var budget: Double?
+                while !rest.isEmpty {
+                    let fields = rest.split(maxSplits: 2, whereSeparator: \.isWhitespace)
+                    let flag = fields[0].replacingOccurrences(of: "—", with: "--").replacingOccurrences(of: "–", with: "--")
+                    if flag.hasPrefix("--budget=") { return .invalidBudget }
+                    if flag.hasPrefix("--steps=") { return .invalidStepLimit }
+                    switch flag {
+                    case "--steps":
+                        guard fields.count == 3, steps == nil, let n = Int(fields[1]), n > 0 else { return .invalidStepLimit }
+                        steps = n
+                    case "--budget":
+                        guard fields.count == 3, budget == nil, fields[1].wholeMatch(of: #/[0-9]+(?:\.[0-9]{1,2})?/#) != nil,
+                              let usd = Double(fields[1]), usd.isFinite, usd > 0 else { return .invalidBudget }
+                        budget = usd
+                    default: return .start(String(rest), stepLimit: steps, budgetUSD: budget)
+                    }
+                    rest = fields[2]
+                }
+                return .goalUsage
             }
         }
     }
@@ -84,6 +99,7 @@ enum ComposerSubmission: Equatable {
         case nil: self = .message
         case .commands?: self = .edit("/", hint: nil)
         case .goalUsage?: self = .edit("/goal ", hint: "Enter an objective, or use /goal --steps 3 <objective> to limit goal turns.")
+        case .invalidBudget?: self = .notice(SlashCommand.budgetUsage)
         case .invalidStepLimit?: self = .notice(SlashCommand.stepLimitUsage)
         case .stop?: self = .goal(.stop)
         case .status?: self = .goal(.status)

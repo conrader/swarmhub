@@ -14,7 +14,7 @@ import Testing
         store.selectedBot = bot
         store.showInfo = false
         let tabs = store.infoTabs(for: bot)
-        #expect(tabs == [.overview, .model, .team, .routines, .skills, .media])
+        #expect(tabs == [.overview, .approvals, .routines, .model, .team, .skills, .media])
         #expect(AppCommand.routines.isEnabled(in: store))
         AppCommand.routines.performWorkspaceAction(in: store)
         #expect(store.showInfo && store.visibleInfoTab(for: bot) == .routines)
@@ -36,13 +36,16 @@ import Testing
         let image = try #require(renderer.cgImage)
         #expect(image.width == 900)
         let bitmap = NSBitmapImageRep(cgImage: image)
-        let inkedColumns = (0..<bitmap.pixelsWide).filter { x in
-            (0..<bitmap.pixelsHigh).contains { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 }
+        let middle = bitmap.pixelsHigh / 2
+        // The top row contains three primary tabs. The bottom row contains the four secondary tabs.
+        for (band, count) in [(0..<middle, 3), (middle..<bitmap.pixelsHigh, 4)] {
+            let inkedColumns = (0..<bitmap.pixelsWide).filter { x in
+                band.contains { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 }
+            }
+            let gutters = zip(inkedColumns, inkedColumns.dropFirst()).count { $1 - $0 > 18 }
+            #expect(gutters == count - 1)
+            #expect((inkedColumns.first ?? 0) >= 18 && (inkedColumns.last ?? image.width) < image.width - 18)
         }
-        // Separate the painted controls by their gutters, allowing letter and icon spacing.
-        let gutters = zip(inkedColumns, inkedColumns.dropFirst()).count { $1 - $0 > 18 }
-        #expect(gutters == tabs.count - 1)
-        #expect((inkedColumns.first ?? 0) >= 18 && (inkedColumns.last ?? image.width) < image.width - 18)
     }
 
     @Test func decodesServerSchedulesAndSummaries() throws {

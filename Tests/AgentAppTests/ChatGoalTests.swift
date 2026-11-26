@@ -55,6 +55,29 @@ private actor GoalBackend: AgentBackend {
 }
 
 struct ChatGoalTests {
+    @MainActor @Test func sessionSpendGuardChecksIdentityAndFreshUsageAfterRestore() throws {
+        let store = goalStore(GoalBackend())
+        let bot = addGoalBot(store, "Budget")
+        var goal = ChatGoal(objective: "Review", destination: store.goalDestination(for: bot))
+        goal.budgetUSD = 2
+        let agent = HerdrClient.AgentRef(address: "s", createdMs: 1)
+        let start = ChatGoal.SpendReading(core: "qa", agent: agent, tokens: 100, usd: 1.5)
+        let unknown = goal.permitsNextStep(spend: nil)
+        #expect(!unknown && goal.state == .waiting)
+        goal.resume()
+        let allowed = goal.permitsNextStep(spend: start)
+        #expect(allowed)
+        var restored = try JSONDecoder().decode(ChatGoal.self, from: JSONEncoder().encode(goal))
+        let stale = restored.permitsNextStep(spend: start)
+        #expect(!stale && restored.state == .waiting)
+        restored.resume()
+        let changed = restored.permitsNextStep(spend: .init(core: "another", agent: agent, tokens: 101, usd: 1.6))
+        #expect(!changed && restored.state == .waiting)
+        restored.resume()
+        let capped = restored.permitsNextStep(spend: .init(core: "qa", agent: agent, tokens: 125, usd: 2))
+        #expect(!capped && restored.state == .stopped)
+    }
+
     @Test @MainActor func cappedGoalStopsAtItsLastStepAndKeepsTheResult() async throws {
         let backend = GoalBackend(), store = goalStore(backend)
         let bot = addGoalBot(store, "Owner")

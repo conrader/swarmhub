@@ -61,7 +61,7 @@ extension AppStore {
         }
         guard focusedWorkspaceWindows?.insert(id).inserted == true else { return }
         // Refocusing reads arriving replies but preserves a deliberate Mark Unread.
-        if let group = selectedGroup, group.unreadCount > 0 {
+        if let group = selectedGroup, showsGroupChat(group), group.unreadCount > 0 {
             group.unreadCount = 0
             save()
         } else if let bot = selectedBot, showsDirectChat(bot), bot.unreadCount > 0 {
@@ -71,16 +71,17 @@ extension AppStore {
     }
 
     func showsGroupChat(_ group: GroupChat) -> Bool {
-        workspaceIsFrontmost && selectedGroup?.id == group.id
+        !showOnlyAttention && workspaceIsFrontmost && selectedGroup?.id == group.id
     }
 
     func showsDirectChat(_ bot: Bot) -> Bool {
-        workspaceIsFrontmost && selectedBot?.id == bot.id && selectedGroup == nil && openHerdrHelper?.botID != bot.id
+        !showOnlyAttention && workspaceIsFrontmost && selectedBot?.id == bot.id && selectedGroup == nil && openHerdrHelper?.botID != bot.id
     }
 
     /// Selecting a chat clears both the automatic unread count and the manual flag.
     /// `remember: false` (ui-smoke) leaves the chat restored at the next launch unchanged.
     func open(_ bot: Bot, remember: Bool = true, helper: HerdrHelperSelection? = nil) {
+        if showOnlyAttention { showOnlyAttention = false }
         selectedBot = bot; selectedGroup = nil; openHerdrHelper = helper
         if remember { rememberSelection(bot: bot) }
         if helper == nil, bot.isUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }

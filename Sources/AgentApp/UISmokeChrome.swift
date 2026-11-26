@@ -202,7 +202,7 @@ enum ChromeHit {
         var facts: [String: Any] = [:]
         for id in buttons { if let rect = frames[id] { facts[id] = probe(window, at: CGPoint(x: rect.midX, y: rect.midY)) } }
         if let row = frames["sidebar_row"] {
-            let left = buttons.compactMap { frames[$0]?.minX }.filter { row.contains(CGPoint(x: $0, y: row.midY)) }.min() ?? row.maxX
+            let left = buttons.compactMap { frames[$0] }.filter { $0.intersects(row) }.map(\.minX).min() ?? row.maxX
             let start = max(row.minX, CGFloat(lightsMaxX ?? 0))
             facts["sidebar_row_blank"] = probe(window, at: CGPoint(x: (start + left) / 2, y: row.midY))
         }

@@ -346,4 +346,12 @@ On the MacBook, the native private-window test opened a conversation, received b
 
 A second migration run selected two existing bots at once. The first had an active direct chat and a 1,440-minute routine. The second had a paused 180-minute routine. The Mac and Linux workspaces hosted separate databases and separate Core processes. The test interrupted a fresh chat task on each leg, selected both bots, and moved them through the Mac window. Each destination supplied its own reply and retained both intervals. On each leg the source had zero active copies, the destination had exactly one active copy of the first routine, and the second routine stayed paused. The original chat message remained present after both moves.
 
-The interactive preview places a Needs Attention shortcut and count above the bot list and shows hosts and bot count below the list. The native sidebar still opens the workspace inbox through Activity. The preview's spending example also includes a monetary goal ceiling. The current Mac goal limit counts steps. These differences remain open.
+The interactive preview places a Needs Attention shortcut and count above the bot list and shows hosts and bot count below the list. The native sidebar still opens the workspace inbox through Activity. The preview's spending example also includes a monetary goal ceiling. The current Mac goal limit counts steps. The next release addresses these differences.
+
+## Interactive workspace checks for 0.8.21
+
+A private MacBook window opened Needs Attention from a different bot. It counted two pending commands from one active session and one failing check. The test inspected and resolved both commands using the keyboard and marked the check as reviewed. A request from an older session was excluded. The sidebar badge returned to zero. The full Activity view also remained accessible with the sidebar hidden.
+
+The same test opened the bot’s Approvals tab, prefixed an existing draft with the composer’s /goal control and submitted it to a workspace fixture already reporting USD 2.00 of OpenCode usage. With a USD 2.00 budget, the saved goal stopped at iteration zero. The screenshot button opened the native file chooser.
+
+The budget gates the start of each autonomous goal step. Providers that do not report session prices cannot run budgeted steps. A strict provider billing ceiling during an already running step and flat-rate subscription pricing are outside the coverage of this test.

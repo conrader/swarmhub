@@ -6,7 +6,7 @@ extension HerdrClient {
         let completions: [JobCompletion]?
     }
 
-    struct JobCompletion: Decodable, Identifiable {
+    struct JobCompletion: Decodable, Equatable, Sendable, Identifiable {
         let id: String
         let ownerBotId: String
         let ownerName: String?

@@ -17,6 +17,10 @@ struct SlashCommandTests {
         for draft in ["/goal --steps=2 check", "/goal --steps", "/goal --steps 2", "/goal --steps 0 work", "/goal --steps 999999999999999999999999 work"] {
             #expect(ComposerSubmission(draft: draft, hasAttachments: false) == .notice(SlashCommand.stepLimitUsage))
         }
+        #expect(SlashCommand.parse("/goal —budget 2.00 --steps 4 inspect") == .start("inspect", stepLimit: 4, budgetUSD: 2))
+        for value in ["-2", "0", "NaN", "2e4", "1.555", "2 --budget 3"] {
+            #expect(SlashCommand.parse("/goal --budget " + value + " inspect") == .invalidBudget)
+        }
         #expect(SlashCommand.parse("/goal status") == .status)
         #expect(SlashCommand.parse("/goal\tstop") == .stop)
     }

@@ -59,6 +59,7 @@ extension AppStore {
     }
 
     func open(_ group: GroupChat, remember: Bool = true) {
+        if showOnlyAttention { showOnlyAttention = false }
         selectedGroup = group
         if remember { rememberSelection(group: group) }
         if group.isUnread { group.unreadCount = 0; group.manualUnread = false; save() }

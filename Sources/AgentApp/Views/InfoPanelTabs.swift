@@ -5,6 +5,7 @@ import SwiftUI
 extension AgentInfoTab {
     var symbol: String {
         switch self {
+        case .approvals: "checkmark.shield"
         case .overview: "info.circle"
         case .team: "person.2"
         case .model: "cpu"
@@ -36,12 +37,18 @@ struct InfoTabBar: View {
     let select: (AgentInfoTab) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(tabs.enumerated()), id: \.element) { index, tab in
-                if index > 0 { Spacer(minLength: 2) }
-                item(tab)
+        VStack(spacing: 2) {
+            tabRow(Array(tabs.prefix(3)))
+            if tabs.count > 3 { tabRow(Array(tabs.dropFirst(3))) }
+        }.padding(.horizontal, 8).padding(.vertical, 4)
+    }
+
+    private func tabRow(_ row: [AgentInfoTab]) -> some View {
+        HStack(spacing: 2) {
+            ForEach(row, id: \.self) { tab in
+                item(tab).frame(maxWidth: .infinity)
             }
-        }.padding(.horizontal, 8).padding(.vertical, 6)
+        }
     }
 
     private func item(_ tab: AgentInfoTab) -> some View {
