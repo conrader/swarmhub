@@ -31,7 +31,7 @@ func pinnedRowsCenterTheirOccupiedTiles(sidebarWidth: Int) throws {
 }
 
 /// Keep both buttons mounted across the transfer. The only magenta ink in this fixture is the role star.
-@MainActor @Test func mainBotStarMovesBetweenPinnedAndRegularAvatars() async throws {
+@MainActor @Test func mainBotStarMovesFromPinnedAvatarToRegularBotName() async throws {
     _ = NSApplication.shared
     let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let pinned = Bot(name: "Pinned", backend: .herdr, avatarName: .faceMint)
@@ -79,8 +79,9 @@ func pinnedRowsCenterTheirOccupiedTiles(sidebarWidth: Int) throws {
     #expect(first.count >= 6 && first.allSatisfy { (70...92).contains($0) })
     store.setCanManageBots(regular, true)
     let next = try await starColumns()
-    // The regular row's mark starts at x=12, before its name.
-    #expect(next.count >= 5 && next.allSatisfy { (12...29).contains($0) })
+    let nameWidth = (regular.name as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: SidebarMetrics.nameSize, weight: .medium)]).width
+    let nameEnd = Int(SidebarMetrics.rowPadding + SidebarMetrics.mark + SidebarMetrics.markGap + nameWidth)
+    #expect(next.count >= 5 && next.allSatisfy { (nameEnd...(nameEnd + 20)).contains($0) })
     store.setCanManageBots(regular, false)
     let cleared = try await starColumns()
     #expect(cleared.isEmpty)

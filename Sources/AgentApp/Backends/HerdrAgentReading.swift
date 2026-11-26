@@ -38,7 +38,7 @@ struct HerdrAgentReading: Equatable, Sendable {
     var session: HerdrClient.AgentRef?
     var core: String?
     var activeTemplate: String?
-    private var activeProgram: String?
+    private(set) var activeProgram: String?
     var confirmed = false
     var vaultSessionStale = false
     var autoRestartPending = false
