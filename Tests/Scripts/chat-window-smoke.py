@@ -48,6 +48,15 @@ def press(window, title, sidebar=False):
     raise RuntimeError(f"Button unavailable: {title}")
 
 
+def press_link(window, title):
+    def activate():
+        for item in descendants(window):
+            if attribute(item, "AXRole") == "AXLink" and label(item) == title:
+                return ax.AXUIElementPerformAction(item, "AXPress") == 0
+        return False
+    wait_for(title, activate)
+
+
 def open_detail_section(window, name):
     def button(title):
         return next((b for b in buttons(window) if label(b) == title), None)
@@ -1592,11 +1601,10 @@ def team_inspector(source_app, appearance):
                 wait_for("Patch in sidebar", lambda: any(label(b).startswith("Patch,") for b in buttons(window)))
                 press(window, "Patch", sidebar=True)
                 open_detail_section(window, "Overview")
-                wait_for("read available projects", lambda: any(label(b) == "Edit bot projects" for b in buttons(window)))
-                press(window, "Edit bot projects")
+                press_link(window, "Edit bot projects")
                 shop = next(e for e in descendants(window) if label(e) == "Patch may use Shop")
                 assert ax.AXUIElementPerformAction(shop, "AXPress") == 0
-                press(window, "Finish editing projects")
+                press_link(window, "Finish editing projects")
                 wait_for("shop selected before quit", lambda: any("web-1 · /srv/shop" in
                          (attribute(e, "AXValue"), label(e)) for e in descendants(window)))
             catalog_online = False
@@ -1613,14 +1621,14 @@ def team_inspector(source_app, appearance):
                 open_detail_section(w, "Overview")
                 wait_for("saved project after a failed catalog read", lambda: False in catalog_reads and element("web-1 · Shop"))
                 catalog_online = True
-                press(w, "Reload bot projects")
+                press_link(w, "Reload bot projects")
                 wait_for("selected folder after catalog recovery", lambda: element("web-1 · /srv/shop"))
                 assert not element("local · /code/docs")
-                press(w, "Edit bot projects")
+                press_link(w, "Edit bot projects")
                 toggle = lambda: next((e for e in descendants(w) if label(e) == "Patch may use Docs"), None)
                 wait_for("Docs project switch", toggle)
                 assert ax.AXUIElementPerformAction(toggle(), "AXPress") == 0
-                press(w, "Finish editing projects")
+                press_link(w, "Finish editing projects")
                 wait_for("new project beside original assignment", lambda: element("local · /code/docs") and element("web-1 · /srv/shop"))
                 press(w, "Scout", sidebar=True)
                 wait_for("Scout’s empty assignment list", lambda: element("No projects selected"))
@@ -1654,7 +1662,7 @@ def team_inspector(source_app, appearance):
                 wait_for("restored Team panel", lambda: element("No open handoffs, check-ins or promises."))
                 press(w, "Patch", sidebar=True)
                 wait_for("restored CI watch", lambda: element(watch))
-                print(f"Verified the three primary sections on one row, all four More destinations, completed exchanges, CI watches and reopening Details in {appearance}.")
+                print(f"Verified the three primary sections on one row, all four More destinations, saved per-bot folders after a failed catalog read and retry, completed exchanges, CI watches and reopening Details in {appearance}.")
         finally:
             server.shutdown()
 
