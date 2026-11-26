@@ -1071,7 +1071,14 @@ def live_terminals(source_app):
                 assert "/api/agents/terminal3/999/output" not in screens
                 choose("Back to Details")
                 wait_for("group terminal window closed", lambda: not sheet())
-                press(window, "Patch", sidebar=True)
+                def owner_row():
+                    return next((b for b in buttons(window) if "Patch" in label(b).split(", ")), None)
+                try:
+                    wait_for("Patch in the sidebar", owner_row)
+                except RuntimeError:
+                    print("Sidebar buttons", [label(b) for b in buttons(window)], flush=True)
+                    raise
+                press(window, label(owner_row()))
                 worker_label = "Codex working for Patch · test-host · " + job[:8]
                 def sidebar_worker():
                     return any(label(b) == worker_label for b in buttons(window))
