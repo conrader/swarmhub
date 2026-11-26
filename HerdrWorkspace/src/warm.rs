@@ -304,7 +304,7 @@ impl Start {
                 ..Self::default()
             },
             Some((started, untried)) => Self {
-                ready: !blocked && terminal.reported(),
+                ready: !blocked && reported(history, terminal),
                 warm: true,
                 warm_ends_ms: idle_limit_now()
                     .filter(|_| untried)
@@ -324,10 +324,15 @@ fn not_ready() -> Failure {
 /// Whether a task for this agent would have to wait: it started warm, has had no task, and has not reported.
 pub(crate) fn starting(history: &History, agent: &Terminal) -> bool {
     let start = Start::of(history, agent);
-    start.warm && !agent.reported()
+    start.warm && !start.ready && !agent.status.as_ref().is_some_and(|s| s.state == "blocked")
 }
 
-/// Waits until the agent's program has reported its status once, as Core does before a launch's first task.
+/// OpenCode advertises readiness by binding its launch-specific API endpoint.
+fn reported(history: &History, agent: &Terminal) -> bool {
+    if agent.uses_opencode_api() { return crate::opencode_agent::follow_up::ready(history.file(), agent); }
+    agent.reported()
+}
+
 async fn ready(w: &Workspace, agent: &Terminal, wait: Wait) -> Result<Terminal, Failure> {
     let wait = start_wait(std::env::var(START_WAIT).ok().as_deref(), wait);
     let age = Duration::from_millis((now().max(0) as u64).saturating_sub(agent.created_ms));
@@ -338,7 +343,7 @@ async fn ready(w: &Workspace, agent: &Terminal, wait: Wait) -> Result<Terminal, 
             return Err(Failure::Missing);
         }
         current.require_live()?;
-        if current.reported() {
+        if reported(&w.history, &current) {
             return Ok(current);
         }
         if Instant::now() >= until {
@@ -348,27 +353,27 @@ async fn ready(w: &Workspace, agent: &Terminal, wait: Wait) -> Result<Terminal, 
     }
 }
 
-/// Types a task into an agent that takes its tasks through its terminal. A warm agent's first task waits until
-/// the agent is ready and carries what the launch kept for it; every other task goes straight to Core.
+/// Keep the first-task envelope and readiness check across terminal and structured API delivery.
 pub(crate) async fn send(
     w: &Workspace,
     agent: &Terminal,
     prompt: String,
+    group: Option<crate::group_preview::Binding>,
     wait: Wait,
 ) -> Result<Delivery, Failure> {
     let Some(key) = agent.launch_key() else {
-        return send_prompt(w, agent, prompt, None, wait).await;
+        return send_prompt(w, agent, prompt, group, None, wait).await;
     };
     let lookup =
         |_| Failure::Input("The workspace could not read this session. The task was not sent.");
     if waiting(&w.history, key).map_err(lookup)?.is_none() {
-        return send_prompt(w, agent, prompt, None, wait).await;
+        return send_prompt(w, agent, prompt, group, None, wait).await;
     }
     let gate = gate(key);
     let _one = gate.lock().await;
     // Another task may have been the first while this one waited its turn.
     let Some(waiting) = waiting(&w.history, key).map_err(lookup)? else {
-        return send_prompt(w, agent, prompt, None, wait).await;
+        return send_prompt(w, agent, prompt, group, None, wait).await;
     };
     core::validate_task(&prompt)?;
     let hints: Vec<&str> = waiting.hints.iter().map(String::as_str).collect();
@@ -376,16 +381,24 @@ pub(crate) async fn send(
     let agent = ready(w, agent, wait).await?;
     // From here on the agent may have been written to, so it is never ended for being idle.
     mark(&w.history, waiting.launch, "tried_ms").map_err(lookup)?;
-    send_prompt(w, &agent, prompt, Some(waiting.launch), wait).await
+    send_prompt(w, &agent, prompt, group, Some(waiting.launch), wait).await
 }
 
 async fn send_prompt(
     w: &Workspace,
     agent: &Terminal,
     prompt: String,
+    group: Option<crate::group_preview::Binding>,
     warm_launch: Option<i64>,
     wait: Wait,
 ) -> Result<Delivery, Failure> {
+    if agent.uses_opencode_api() {
+        let delivery = w.send_opencode(agent, prompt, group, wait).await?;
+        if let Some(launch) = warm_launch {
+            mark(&w.history, launch, "delivered_ms").map_err(|_| Failure::Uncertain)?;
+        }
+        return Ok(delivery);
+    }
     let typed = crate::person_profile::prompt(&w.history, agent.display_name(), prompt.clone())?;
     let settling_until = warm_launch.map(|_| Instant::now() + Duration::from_secs(10));
     loop {

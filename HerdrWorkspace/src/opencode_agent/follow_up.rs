@@ -144,6 +144,10 @@ fn capability(journal: &Path, launch: &str) -> io::Result<Capability> {
     serde_json::from_slice(&bytes).map_err(io::Error::other)
 }
 
+pub(crate) fn ready(journal: &Path, agent: &Terminal) -> bool {
+    agent.launch_key().and_then(|key| capability(journal, key).ok()).is_some_and(|cap| cap.terminal == agent.address)
+}
+
 pub async fn send(journal: &Path, agent: &Terminal, task: &str) -> Result<Delivery, Failure> {
     send_task(journal, agent, task, None).await
 }
@@ -518,7 +522,7 @@ async fn handle(
                 session.send(password, &text).await
             } {
                 Outcome::Submitted => Response::Accepted,
-                Outcome::NotSent => Response::Unavailable,
+                Outcome::Ready | Outcome::NotSent => Response::Unavailable,
                 Outcome::Uncertain => Response::Uncertain,
             },
         }
