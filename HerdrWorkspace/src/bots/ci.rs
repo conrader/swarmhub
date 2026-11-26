@@ -133,10 +133,12 @@ fn settle(ctx: &Ctx<'_>, id: i64, bot: &str, url: &str, outcome: &Outcome) -> ru
                 failure: Some(link.clone()),
             })
             .unwrap();
-            ctx.db.execute(
+            if ctx.db.execute(
                 &format!("UPDATE bot_checkins SET schedule=?3,next_ms=?4 WHERE {owned}"),
                 params![id, bot, schedule, ctx.now],
-            )?;
+            )? == 1 {
+                crate::ci_push::enqueue(ctx.db, id, bot, ctx.now)?;
+            }
         }
         Outcome::Finished(reason) => {
             if ctx.db.execute(
@@ -319,11 +321,14 @@ mod tests {
             .unwrap();
             settle(ctx, watch.id, &bot.id, url, &Outcome::Waiting)?;
             assert_eq!(plans::fire_due(ctx)?, 0);
+            ctx.db.execute("INSERT INTO ci_push_devices(endpoint) VALUES('https://web.push.apple.com/example')", [])?;
             let failure = Outcome::Failed("https://github.com/example/project/runs/2".into());
             settle(ctx, watch.id, &bot.id, url, &failure)?;
             assert_eq!(plans::fire_due(ctx)?, 1);
             settle(ctx, watch.id, &bot.id, url, &failure)?;
             assert_eq!(plans::fire_due(ctx)?, 0);
+            let queued: i64 = ctx.db.query_row("SELECT count(*) FROM ci_push_queue WHERE watch=?1", [watch.id], |r| r.get(0))?;
+            assert_eq!(queued,1);
             let task: String = ctx.db.query_row(
                 "SELECT text FROM bot_outbox WHERE cause='checkin'",
                 [],

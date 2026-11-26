@@ -10,7 +10,7 @@
     <p>Open this workspace from an app icon on your device. You’ll still use the same live workspace and access token.</p>
     <p><strong>iPhone or iPad:</strong> In Safari, open <b>Share</b> and choose <b>Add to Home Screen</b>. Turn on <b>Open as Web App</b> if shown, then choose <b>Add</b>.</p>
     <p><strong>Android:</strong> In Chrome, open the browser menu and choose <b>Install and create shortcut</b> or <b>Add to home screen</b>, then <b>Install</b> if offered.</p>
-    <p class="subtle">Use a secure SwarmHub address that this device can reach. A localhost address on another computer won’t connect from your phone by itself. The installed app needs a connection to the workspace server. Installation does not add notifications when the workspace is closed.</p>
+    <p class="subtle">Use a secure SwarmHub address that this device can reach. A localhost address on another computer won’t connect from your phone by itself. The installed app needs a connection to the workspace server. To get CI alerts after closing the app, open Activity and enable CI alerts on this device.</p>
     <p id="workspace-install-status" role="status" hidden></p>
     <div class="dialog-actions"><button type="button" id="workspace-install-prompt" class="primary" hidden>Install app</button></div>`;
   document.body.append(dialog);

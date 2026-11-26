@@ -53,6 +53,7 @@ mod profile_avatars;
 mod profiles;
 mod projects;
 mod pwa;
+mod ci_push;
 mod reactions;
 mod results;
 mod roster_sections;
@@ -281,6 +282,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("SwarmHub agent access to GitHub is unavailable: {error}");
     }
     helpers::start_serving(workspace.clone());
+    tokio::spawn(ci_push::deliver(workspace.history.clone()));
     bots::start_serving(workspace.clone());
     warm::start_sweeping(workspace.clone());
     service::keep_core_running();
@@ -378,6 +380,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(job_reviews::routes())
         .merge(outbound::routes())
         .merge(attention::routes())
+        .merge(ci_push::routes())
         .merge(activity::routes())
         .merge(skills::routes())
         .merge(skillshare::routes())
