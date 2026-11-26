@@ -45,7 +45,9 @@ struct InfoPanel: View {
         case .approvals:
             let server = store.herdrServer(for: bot)
             VStack(alignment: .leading, spacing: 12) {
-                Text("Pending approvals").font(.headline)
+                HerdrHelperModelSection(bot: bot, server: server, templates: [], approvalsOnly: true)
+                Divider()
+                Text("Pending approvals").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 if inboxes[server.id]?.unavailable == true {
                     Text("Can’t check approvals on " + server.name).foregroundStyle(.secondary)
                 } else if inboxes[server.id] == nil {
@@ -54,9 +56,9 @@ struct InfoPanel: View {
                     Text("No pending requests").foregroundStyle(.secondary)
                 }
                 HerdrChatApprovals(bot: bot, server: server).id(server.id)
-                HerdrCommandRules(botID: bot.id, server: server).id("\(server.id)/\(bot.id)")
-                HerdrHelperModelSection(bot: bot, server: server, templates: [], approvalsOnly: true)
-            }
+                Divider()
+                HerdrCommandRules(botID: bot.id, server: server)
+            }.id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
         case .model: HerdrAgentControls(bot: bot, preset: modelPreset).id(bot.id)
         case .team:
             let server = store.herdrServer(for: bot)
@@ -68,7 +70,11 @@ struct InfoPanel: View {
             }.id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
         case .routines:
             let server = store.herdrServer(for: bot)
-            HerdrRoutinesPanel(bot: bot, server: server, inInspector: true)
+            VStack(alignment: .leading, spacing: 12) {
+                HerdrRoutinesPanel(bot: bot, server: server, inInspector: true)
+                Divider()
+                InspectorSharedSkills(server: server)
+            }
                 .id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
         case .skills: HerdrSkillsPanel(bot: bot, preset: skillsPreset)
         case .media: MediaTabView(bot: bot)

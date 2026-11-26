@@ -376,13 +376,11 @@ private struct HerdrBotProjectsBody: View {
                     } else if chosen.isEmpty {
                         Text("No projects selected").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        ForEach(chosen) { kept in
-                            let folder = model.projects.first { $0.id == kept.id }?.folder
-                            let label = kept.machine + " · " + (folder ?? kept.name)
-                            Text(verbatim: label).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
-                                .padding(.horizontal, 6).padding(.vertical, 3)
-                                .background(AppColor.selection, in: RoundedRectangle(cornerRadius: 4))
-                                .help(label).accessibilityLabel(label)
+                        LibraryFlow(spacing: 5) {
+                            ForEach(chosen) { kept in
+                                let folder = model.projects.first { $0.id == kept.id }?.folder
+                                InspectorTag(text: kept.machine + " · " + (folder ?? kept.name))
+                            }
                         }
                     }
                 }

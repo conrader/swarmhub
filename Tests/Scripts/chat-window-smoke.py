@@ -1537,6 +1537,11 @@ def team_inspector(source_app, appearance):
 
     catalog_online = False
     catalog_reads = []
+    skills_online = False
+    long_skill = "format-" + "generated-file-" * 8 + "names"
+    skills = [dict(name=name, enabled=True) for name in
+              ("Changelog", "Code review", long_skill, "Docs", "Lint", "Accessibility", "Test runner")]
+    skills.append(dict(name="Disabled fixture skill", enabled=False))
     catalog = [dict(id=1, name="Shop", machine="web-1", folder="/srv/shop", note=""),
                dict(id=2, name="Docs", machine="local", folder="/code/docs", note="")]
 
@@ -1549,6 +1554,16 @@ def team_inspector(source_app, appearance):
                     body = dict(core="qa", agents=[], templates=[])
                 elif self.path == "/api/machines":
                     body = dict(machines=[])
+                elif self.path.startswith("/api/bot-agent-settings/"):
+                    patch = parts[-1].lower() == bots[0]["id"].lower()
+                    body = dict(auto_mode=patch, command_reviewer="sonnet" if patch else "off")
+                elif self.path == "/api/project-command-rules":
+                    body = [dict(id=1, bot=bots[0]["id"], agent="patch", provider="Codex", cwd="/srv/shop", command="swift test")]
+                elif self.path == "/api/skillshare":
+                    if not skills_online:
+                        self.send_error(503)
+                        return
+                    body = dict(installed=True, skills=skills)
                 elif self.path == "/api/projects":
                     catalog_reads.append(catalog_online)
                     if not catalog_online:
@@ -1639,7 +1654,45 @@ def team_inspector(source_app, appearance):
                 positions = [ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1] for e in primary]
                 assert max(p.y for p in positions) - min(p.y for p in positions) <= 1
                 assert positions[0].x < positions[1].x < positions[2].x
-                for name in ("Approvals", "Routines", "Model", "Skills", "Media", "Team"):
+                def frame(e):
+                    position = ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1]
+                    size = ax.AXValueGetValue(attribute(e, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+                    return position.x, position.y, size.width
+
+                shop = frame(element("web-1 · /srv/shop"))
+                docs = frame(element("local · /code/docs"))
+                assert abs(shop[1] - docs[1]) <= 1 and shop[0] != docs[0], (shop, docs)
+                open_detail_section(w, "Routines")
+                wait_for("failed skill read offers retry", lambda: element("Reload shared skills"))
+                skills_online = True
+                press_link(w, "Reload shared skills")
+                wait_for("shared skill names", lambda: element("Changelog") and element(long_skill))
+                assert not element("Disabled fixture skill") and not element("Test runner")
+                changelog = frame(element("Changelog"))
+                review = frame(element("Code review"))
+                long_tag = frame(element(long_skill))
+                assert abs(changelog[1] - review[1]) <= 1 and long_tag[1] > review[1]
+                left, _, width = frame(w)
+                assert left <= long_tag[0] and long_tag[0] + long_tag[2] <= left + width
+                press_link(w, "Show 1 more")
+                wait_for("expanded skills", lambda: element("Test runner"))
+                press_link(w, "Show fewer skills")
+                wait_for("collapsed skills", lambda: not element("Test runner"))
+                press_link(w, "Manage shared skills")
+                wait_for("Skills section selected", lambda: attribute(element("More Details sections"), "AXValue") == "Skills")
+                open_detail_section(w, "Approvals")
+                wait_for("Patch approval controls", lambda: element("New sessions: Auto") and element("Command reviewer: Claude Sonnet"))
+                wait_for("Patch’s scoped command", lambda: element("swift test"))
+                press_link(w, "Edit approval controls")
+                wait_for("approval editor", lambda: element("Auto mode for new sessions"))
+                press_link(w, "Finish editing approval controls")
+                press(w, "Scout", sidebar=True)
+                wait_for("Scout approval controls", lambda: element("New sessions: Standard") and element("Command reviewer: Off"))
+                wait_for("Scout’s empty scoped rules", lambda: element("No saved command rules"))
+                assert not element("swift test")
+                press(w, "Patch", sidebar=True)
+                wait_for("restored Patch rule", lambda: element("swift test"))
+                for name in ("Model", "Media", "Team"):
                     open_detail_section(w, name)
                 wait_for("Patch’s scheduled CI watch", lambda: element(watch))
                 def right_edge(e):
@@ -1662,7 +1715,7 @@ def team_inspector(source_app, appearance):
                 wait_for("restored Team panel", lambda: element("No open handoffs, check-ins or promises."))
                 press(w, "Patch", sidebar=True)
                 wait_for("restored CI watch", lambda: element(watch))
-                print(f"Verified the three primary sections on one row, all four More destinations, saved per-bot folders after a failed catalog read and retry, completed exchanges, CI watches and reopening Details in {appearance}.")
+                print(f"Verified the three primary sections on one row, all four More destinations, saved per-bot folders after a failed catalog read and retry, wrapping projects and skills, skill retry and expansion, completed exchanges, CI watches and reopening Details in {appearance}.")
         finally:
             server.shutdown()
 
