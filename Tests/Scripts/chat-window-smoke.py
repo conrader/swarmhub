@@ -1579,10 +1579,7 @@ def team_inspector(source_app, appearance):
         preferences = home / "Library/Preferences"
         preferences.mkdir(exist_ok=True, parents=True)
         domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
-        (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({
-            "appearance": appearance,
-            "herdrProjects." + bots[0]["id"].lower(): json.dumps([dict(id=1, machine="web-1", name="Shop")]).encode()
-        }))
+        (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({"appearance": appearance}))
         bots[0]["messages"] = [dict(id=str(uuid.uuid4()), role=role, content=text, createdAt=800000010 + index)
                                for index, (role, text) in enumerate((
                                    ("user", "Check the changes in this release with Scout."),
@@ -1590,6 +1587,19 @@ def team_inspector(source_app, appearance):
         store.write_text(json.dumps(dict(version=2, groups=[], bots=bots)))
         Thread(target=server.serve_forever, daemon=True).start()
         try:
+            catalog_online = True
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                wait_for("Patch in sidebar", lambda: any(label(b).startswith("Patch,") for b in buttons(window)))
+                press(window, "Patch", sidebar=True)
+                open_detail_section(window, "Overview")
+                wait_for("read available projects", lambda: any(label(b) == "Edit bot projects" for b in buttons(window)))
+                press(window, "Edit bot projects")
+                shop = next(e for e in descendants(window) if label(e) == "Patch may use Shop")
+                assert ax.AXUIElementPerformAction(shop, "AXPress") == 0
+                press(window, "Finish editing projects")
+                wait_for("shop selected before quit", lambda: any("web-1 · /srv/shop" in
+                         (attribute(e, "AXValue"), label(e)) for e in descendants(window)))
+            catalog_online = False
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as w:
                 def element(title):
                     return next((e for e in descendants(w) if str(attribute(e, "AXValue") or "") == title

@@ -348,7 +348,7 @@ private struct HerdrBotProjectsBody: View {
 
     var body: some View {
         let chosen = store.herdrProjects(for: bot), server = store.herdrServer(for: bot)
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
             if model.projects.isEmpty && chosen.isEmpty {
                 if !quietWhenEmpty {
                     SettingBlock(title: HerdrProjectsCopy.botTitle, detail: model.phase == .reading ? "Checking…" : HerdrProjectsCopy.botNone) { EmptyView() }
