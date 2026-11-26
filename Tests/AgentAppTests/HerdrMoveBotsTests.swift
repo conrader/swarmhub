@@ -204,6 +204,28 @@ import Testing
         await #expect(throws: HerdrMoveError.undoUnavailable) { try await store.undoHerdrMove(record) }
     }
 
+    @Test func anActiveMoveRequiresTheReceiptOfTheSameSourceLaunch() async throws {
+        let f = Fixture(remoteWorking: true)
+        let request = ChatMessage(role: .user, content: "Continue my unfinished report")
+        let reply = ChatMessage(role: .assistant, content: "Finished the first section.", isStreaming: true)
+        f.analyst.messages = [request, reply]
+        _ = f.store.beginTurn(in: f.analyst, bot: f.analyst, assistant: reply)
+        let roster = try await f.store.herdrMoveWorkspace(on: f.source)
+        let live = try #require(roster.agents.first { $0.address == "analyst-agent" })
+        func checkpoint() -> MoveCheckpoint? {
+            f.store.moveCheckpoint(for: f.analyst, agents: [live], workspace: roster)
+        }
+        #expect(checkpoint() == nil)
+        func record(_ created: UInt64) {
+            reply.deliveryReceipt = .init(server: f.source.id, turn: .init(core: "this-mac", address: live.address,
+                createdMs: created, after: 0, launched: false), text: request.content)
+        }
+        record(live.createdMs + 1)
+        #expect(checkpoint() == nil)
+        record(live.createdMs)
+        #expect(checkpoint()?.request.id == request.id)
+    }
+
     @Test func streamingTurnStaysOnTheSourceAndIsNeverStopped() async throws {
         let f = Fixture(), store = f.store
         let turn = store.beginTurn(in: f.analyst, bot: f.analyst, assistant: nil)
