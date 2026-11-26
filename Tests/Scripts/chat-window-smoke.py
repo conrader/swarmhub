@@ -1312,6 +1312,11 @@ def qa_inbox_proposals(window, store, command, decisions):
     command["reviewer"].update(bot_name="Scout", model="opus", assessment="Runs only the named tests.")
     wait_for("open request stays open when Scout answers", lambda: shown("Runs only the named tests.") and shown("Deny"), seconds=12)
     assert not decisions
+    press(window, "Done")
+    press(window, "Needs Attention")
+    wait_for("finished review credited on the collapsed request", lambda: shown("Reviewed by Scout") and shown("Inspect Bash request"))
+    press(window, "Inspect Bash request")
+    wait_for("review remains available", lambda: shown("Runs only the named tests."))
     press(window, "Deny")
     wait_for("exact command denied", lambda: decisions == [(2, "deny")])
     press(window, "Dismiss proposal for Legal")
