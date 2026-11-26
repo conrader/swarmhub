@@ -74,7 +74,7 @@ struct TerminalMirror: NSViewRepresentable {
             view.callAsyncJavaScript("window.openTerminalPreview(address, created, token, core)", arguments: [
                 "address": mirror.agent.address, "created": NSNumber(value: mirror.agent.createdMs),
                 "token": mirror.token, "core": mirror.core as Any? ?? NSNull()
-            ], in: nil, contentWorld: .page) { result in
+            ], in: nil, in: .page) { result in
                 if case .failure(let error) = result { self.mirror.failed(error.localizedDescription) }
             }
         }

@@ -1022,7 +1022,8 @@ def live_terminals(source_app):
 
                 application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
                 def sheet():
-                    return next((w for w in attribute(application, "AXWindows") or [] if label(w) == "Live terminals"), None)
+                    floating = next((w for w in attribute(application, "AXWindows") or [] if label(w) == "Live terminals"), None)
+                    return floating or next((n for n in descendants(window) if attribute(n, "AXIdentifier") == "inspector.terminal"), None)
 
                 def choose(name):
                     wait_for(name, lambda: sheet() and any(label(b) == name for b in buttons(sheet())))
@@ -1030,7 +1031,7 @@ def live_terminals(source_app):
 
                 def output(route, updates=1):
                     def displayed():
-                        return sheet() and any(str(attribute(e, "AXValue") or "").startswith(route + " line ")
+                        return sheet() and any(str(attribute(e, "AXValue") or "").replace("\n", "").startswith(route + " line ")
                                                for e in descendants(sheet())) and screens.count(route) >= updates
                     wait_for("output from " + route, displayed)
 
@@ -1059,7 +1060,7 @@ def live_terminals(source_app):
                 wait_for("stale terminal stopped", lambda: any(attribute(e, "AXValue") == "This terminal session has ended."
                                                                for e in descendants(sheet())))
                 assert "/api/agents/terminal3/999/output" not in screens
-                choose("Done")
+                choose("Back to Details")
                 wait_for("group terminal window closed", lambda: not sheet())
                 agents.clear()
                 workers.clear()
