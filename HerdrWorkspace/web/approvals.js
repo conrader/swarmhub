@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const state = { pending: [], history: [], rules: [], active: null, polling: false, working: false, signature: null };
+  const state = { pending: [], history: [], rules: [], commandRules: [], active: null, polling: false, working: false, signature: null };
   const dialog = $("approval-dialog");
   const parkSection = document.createElement("section");
   const parkHeading = document.createElement("h3");
@@ -77,6 +77,7 @@
       state.pending = result.pending;
       state.history = result.history;
       state.rules = result.read_rules;
+      state.commandRules = result.command_rules || [];
       refreshBadge();
       if (dialog.open) render();
     } catch (error) {
@@ -109,6 +110,7 @@
     $("approval-path").textContent = "";
     state.signature = null;
     $("approval-detail").hidden = true;
+    $("approval-command").hidden = !request.can_remember_command;
     $("approval-remember-options").hidden = true;
     $("approval-list-view").hidden = false;
     render();
@@ -130,6 +132,7 @@
     $("approval-action").textContent = `${request.agent} requests ${request.tool}`;
     $("approval-path").textContent = [request.provider, visible(request.cwd)].filter(Boolean).join(" · ");
     $("approval-input").textContent = visible(resources ? JSON.stringify(JSON.parse(request.arguments), null, 2) : request.arguments);
+    $("approval-command").hidden = !request.can_remember_command;
     $("approval-remember-options").hidden = !request.can_remember_read;
     show("approval-notice", instruction);
     $("approval-back").focus();
@@ -145,7 +148,7 @@
       reviewer.hidden = !advice;
       const reviewText = advice ? `Claude ${advice.model} · ${visible(advice.assessment ?? "Reviewing command…")}` : "";
       if (reviewer.textContent !== reviewText) reviewer.textContent = reviewText;
-      for (const button of ["allow", "deny", "terminal", "remember"]) $("approval-" + button).disabled = !waiting || state.working;
+      for (const button of ["allow", "deny", "terminal", "remember", "command"]) $("approval-" + button).disabled = !waiting || state.working;
       if (!waiting && !state.working && $("approval-notice").textContent === state.active.instruction) {
         $("approval-input").textContent = "";
         $("approval-path").textContent = "";
@@ -153,7 +156,7 @@
       }
       return;
     }
-    const signature = JSON.stringify([state.pending.map(({id}) => id), state.history, state.rules, state.parks]);
+    const signature = JSON.stringify([state.pending.map(({id}) => id), state.history, state.rules, state.commandRules, state.parks]);
     if (state.signature === signature) return;
     state.signature = signature;
     $("approval-list").replaceChildren(...state.pending.map((request) => {
@@ -168,30 +171,33 @@
     $("approval-history").replaceChildren(...state.history.map((record) => {
       const row = document.createElement("li");
       const outcome = record.unconfirmed ? "Decision not confirmed · check terminal"
-        : record.automatic ? "Allowed by read rule" : status[record.state] || record.state;
+        : record.automatic ? (record.tool === "Bash" ? "Allowed by command rule" : "Allowed by read rule") : status[record.state] || record.state;
       row.append(...item(`${record.agent} · ${record.tool}`,
         `${record.provider} · ${outcome} · ${displayDate(record.resolved_ms ?? record.requested_ms)}`));
       return row;
     }));
-    $("approval-read-rules").replaceChildren(...state.rules.map((rule) => {
+    function ruleRow(rule, command) {
       const row = document.createElement("li");
-      row.append(...item(rule.agent, `${rule.path} · Until ${displayDate(rule.expires_ms)}`));
+      const detail = command ? `${visible(rule.command)} · ${visible(rule.cwd)} · ${rule.provider}` : `${rule.path} · Until ${displayDate(rule.expires_ms)}`;
+      row.append(...item(rule.agent, detail));
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = "Revoke read rule";
+      button.textContent = command ? "Revoke command rule" : "Revoke read rule";
       button.addEventListener("click", async () => {
         if (!app.authorized || button.disabled) return;
         button.disabled = true;
         try {
-          await api(`/api/approval-rules/${rule.id}/revoke`, {});
-          show("approval-notice", "Read rule revoked.");
+          await api(`/api/${command ? "project-command-rules" : "approval-rules"}/${rule.id}/revoke`, {});
+          show("approval-notice", command ? "Command rule revoked." : "Read rule revoked.");
           await poll();
         } catch (error) { if (dialog.open) show("approval-notice", error.message); }
         finally { button.disabled = false; }
       });
       row.append(button);
       return row;
-    }));
+    }
+    $("approval-read-rules").replaceChildren(...state.rules.map(rule => ruleRow(rule, false)));
+    $("approval-command-rules").replaceChildren(...state.commandRules.map(rule => ruleRow(rule, true)));
     parkList.replaceChildren(...(state.parks || []).map(({id, state}) => {
       const row = document.createElement("li");
       const button = document.createElement("button");
@@ -202,7 +208,7 @@
       return row;
     }));
     parkSection.hidden = !parkList.children.length;
-    for (const [id, text] of [["approval-list", "No requests are waiting."], ["approval-history", "No decisions recorded."], ["approval-read-rules","No temporary read rules."]]) {
+    for (const [id, text] of [["approval-list", "No requests are waiting."], ["approval-history", "No decisions recorded."], ["approval-read-rules","No temporary read rules."], ["approval-command-rules", "No saved command rules."]]) {
       if ($(id).children.length) continue;
       const empty = document.createElement("li");
       empty.textContent = text;
@@ -341,18 +347,19 @@
   function lockIfNeeded() {
     if (app.authorized) return;
     if (dialog.open) dialog.close();
-    state.pending = state.history = state.rules = state.parks = [];
+    state.pending = state.history = state.rules = state.commandRules = state.parks = [];
     parkList.replaceChildren();
     state.active = null;
     refreshBadge();
     $("approval-input").textContent = $("approval-reviewer").textContent = $("approval-path").textContent = $("approval-action").textContent = "";
-    for (const id of ["approval-list", "approval-history", "approval-read-rules"]) $(id).replaceChildren();
+    for (const id of ["approval-list", "approval-history", "approval-read-rules", "approval-command-rules"]) $(id).replaceChildren();
   }
   window.approvalInbox = { open, openPark, lockIfNeeded };
   $("approvals-open").addEventListener("click", () => void open());
   $("approval-close").addEventListener("click", () => { if (!state.working) dialog.close(); });
   $("approval-back").addEventListener("click", () => { show("approval-notice", ""); listView(); });
   $("approval-allow").addEventListener("click", () => decide("approve"));
+  $("approval-command").addEventListener("click", () => decide("remember_command"));
   $("approval-remember").addEventListener("click", () => decide("remember_read"));
   $("approval-deny").addEventListener("click", () => decide("deny"));
   $("approval-terminal").addEventListener("click", () => decide("terminal"));

@@ -115,6 +115,7 @@ struct Review {
     arguments: String,
     expires_ms: i64,
     can_remember_read: bool,
+    can_remember_command: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     reviewer: Option<crate::command_reviewer::Advice>,
 }
@@ -174,6 +175,7 @@ impl Provider {
 enum Decision {
     Approve,
     RememberRead,
+    RememberCommand,
     Deny,
     Terminal,
 }
@@ -181,14 +183,14 @@ enum Decision {
 impl Decision {
     fn reply(self) -> u8 {
         match self {
-            Self::Approve | Self::RememberRead => b'A',
+            Self::Approve | Self::RememberRead | Self::RememberCommand => b'A',
             Self::Deny => b'D',
             Self::Terminal => b'T',
         }
     }
     fn audit(self) -> &'static str {
         match self {
-            Self::Approve | Self::RememberRead => "approved",
+            Self::Approve | Self::RememberRead | Self::RememberCommand => "approved",
             Self::Deny => "denied",
             Self::Terminal => "terminal",
         }
@@ -235,6 +237,8 @@ pub fn routes() -> Router<Workspace> {
         .route("/api/approvals", get(inbox))
         .route("/api/approvals/{id}", post(decide))
         .route("/api/approval-rules/{id}/revoke", post(revoke_read))
+        .route("/api/project-command-rules", get(command_rules))
+        .route("/api/project-command-rules/{id}/revoke", post(revoke_command))
 }
 
 #[derive(Default, Deserialize)]
@@ -307,8 +311,17 @@ async fn inbox(
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(StoreError::from)?;
     Ok(Json(
-        json!({"pending":pending,"history":history,"read_rules":rules}),
+        json!({"pending":pending,"history":history,"read_rules":rules,"command_rules":crate::project_command_rules::list(&db)?}),
     ))
+}
+
+async fn command_rules(State(w): State<Workspace>) -> Result<impl IntoResponse, StoreError> {
+    Ok(Json(crate::project_command_rules::list(&*w.history.db()?)?))
+}
+
+async fn revoke_command(State(w): State<Workspace>, Path(id): Path<i64>) -> Result<impl IntoResponse, StoreError> {
+    let count = w.history.db()?.execute("DELETE FROM project_command_rules WHERE id=?1", [id])?;
+    Ok(Json(json!({"revoked": count == 1})))
 }
 
 async fn revoke_read(
@@ -329,7 +342,8 @@ async fn decide(
         if Instant::now() >= pending.until {
             return None;
         }
-        if matches!(decision, Decision::RememberRead) && !pending.info.can_remember_read {
+        if (matches!(decision, Decision::RememberRead) && !pending.info.can_remember_read)
+            || (matches!(decision, Decision::RememberCommand) && !pending.info.can_remember_command) {
             return None;
         }
         pending.answer.take()
@@ -366,7 +380,13 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
         None
     };
     let launch = request.key.clone();
-    let automatic = if let (Some(read), Some(session)) = (read.as_ref(), session.as_deref()) {
+    let command = if request.tool == "Bash" && matches!(request.provider, Provider::Claude | Provider::Codex) {
+        crate::project_command_rules::Command::identify(&w.history, &launch, request.provider.name(), &request.cwd, request.input.get()).await
+    } else { None };
+    let command_match = || command.as_ref().and_then(|c| c.matching(&*w.history.db().ok()?).ok().flatten());
+    let automatic = if command.is_some() {
+        command_match()
+    } else if let (Some(read), Some(session)) = (read.as_ref(), session.as_deref()) {
         let found = matching_rule(&w, &launch, session, read);
         if found.is_some() && launch_live(&w, &launch).await {
             found
@@ -384,7 +404,7 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     let review_input = reviewer.map(|model| (model, json!({
         "tool": request.tool, "working_directory": request.cwd, "arguments": request.input
     }).to_string()));
-    let registered = match register(&w, request, read.is_some(), automatic.is_some(), reviewer) {
+    let registered = match register(&w, request, read.is_some(), command.is_some(), automatic.is_some(), reviewer) {
         Ok(Some(id)) => id,
         _ => return,
     };
@@ -419,7 +439,10 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     } else {
         Decision::Approve
     };
-    if let Some(rule) = automatic {
+    if command.is_some() && (automatic.is_some() || matches!(decision, Decision::RememberCommand)) {
+        let valid = command.as_ref().unwrap().unchanged().await && launch_live(&w, &launch).await;
+        if !valid || (automatic.is_some() && command_match() != automatic) { decision = Decision::Terminal; }
+    } else if let Some(rule) = automatic {
         if let (Some(read), Some(session)) = (read.as_ref(), session.as_deref()) {
             if !read.unchanged().await || matching_rule(&w, &launch, session, read) != Some(rule) {
                 decision = Decision::Terminal;
@@ -476,6 +499,9 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
                     "INSERT INTO approval_rule_audit(approval_id,kind) VALUES (?1,?2)",
                     params![id, kind],
                 )?;
+            }
+            if applied && matches!(decision, Decision::RememberCommand) && let Some(command) = &command {
+                command.save(&tx)?;
             }
             tx.commit().map_err(StoreError::from)
         })
@@ -536,6 +562,7 @@ fn register(
     w: &Workspace,
     request: HookRequest,
     can_remember_read: bool,
+    can_remember_command: bool,
     automatic: bool,
     reviewer: Option<crate::command_reviewer::Model>,
 ) -> Result<Option<Registered>, StoreError> {
@@ -580,6 +607,7 @@ fn register(
                 arguments,
                 expires_ms: requested + 45_000,
                 can_remember_read,
+                can_remember_command,
                 reviewer: reviewer.map(|model| crate::command_reviewer::Advice { model, assessment: None }),
             },
             until: Instant::now() + WAIT,
@@ -726,7 +754,7 @@ mod switch_tests {
         desk.pending.lock().unwrap().insert(7, Pending {
             info: Review { id:7, agent:bot.agent_name, tool:"SSH directory listing (fixture)".into(),
                 provider:"Gemini", cwd:"/fixture".into(), arguments:"archived-project".into(),
-                expires_ms:30_000, can_remember_read:false, reviewer:None },
+                expires_ms:30_000, can_remember_read:false, can_remember_command:false, reviewer:None },
             launch:key.clone(), until:Instant::now() + WAIT, answer:Some(tx),
         });
         let summary = desk.summary(&history).unwrap().pop().unwrap();

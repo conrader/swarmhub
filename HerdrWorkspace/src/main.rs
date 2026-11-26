@@ -3,6 +3,7 @@ mod agent;
 mod appearance;
 mod approval_rules;
 mod command_reviewer;
+mod project_command_rules;
 mod approvals;
 mod attention;
 mod bot_agent_settings;

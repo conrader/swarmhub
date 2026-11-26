@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 
-def exercise(root, executable, request, until, chrome, base, token):
+def exercise(root, executable, request, until, chrome, base, token, restart):
     owner = "10000000-0000-4000-8000-000000000001"
     bot = request("/api/agents", {"name": "reviewed", "template": "fixture", "task": "Start", "workspace_id": owner}, status=201)
     settings = "/api/bot-agent-settings/" + owner
@@ -80,3 +80,44 @@ print('Would print audit.')
     review("apply_patch", "codex", None)
     request(settings, {"command_reviewer": "off"})
     review("Bash", "codex", None)
+
+    # The workspace's persistent rule is bound to an exact request, owner, provider and working directory.
+    def command_reply(cwd, input, choice=None, provider="codex", launch=key):
+        frame = json.dumps(dict(key=launch, provider=provider, tool="Bash", cwd=str(cwd), input=input)).encode()
+        with socket.socket(socket.AF_UNIX) as peer:
+            peer.settimeout(8)
+            peer.connect(str(root / "workspace/approval.sock"))
+            peer.sendall(len(frame).to_bytes(4, "little") + frame)
+            if choice is not None:
+                row = until(pending)
+                if choice == "remember_command":
+                    assert row["can_remember_command"]
+                request(f"/api/approvals/{row['id']}", choice, status=202)
+            assert peer.recv(1) == (b"D" if choice == "deny" else b"A")
+        until(lambda: pending() is None)
+
+    project = root / "shop"
+    project.mkdir()
+    neighbor = root / "other-project"
+    neighbor.mkdir()
+    args = {"command": "swift test --filter ImporterTests"}
+    command_reply(project, args, "remember_command")
+    rule = until(lambda: next(iter(request("/api/project-command-rules")), None))
+    assert rule["cwd"] == str(project.resolve()) and rule["command"] == args["command"]
+    command_reply(project, args)
+    restart()
+    command_reply(project, args)
+    command_reply(neighbor, args, "deny")
+    command_reply(project, {"command": args["command"] + "Extra"}, "deny")
+    command_reply(project, {**args, "workdir": str(neighbor)}, "deny")
+    command_reply(project, args, "deny", provider="claude")
+    another = request("/api/agents", {"name": "second", "template": "fixture", "task": "Start",
+                                      "workspace_id": "20000000-0000-4000-8000-000000000002"}, status=201)
+    with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
+        other_key, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
+                                (another["address"], another["created_ms"])).fetchone()
+    command_reply(project, args, "deny", launch=other_key)
+    assert request("/api/project-command-rules/" + str(rule["id"]) + "/revoke", {})["revoked"]
+    command_reply(project, args, "deny")
+    assert request("/api/project-command-rules") == []
+    print("Exact command grant survived restart, stayed scoped to its folder, request, bot and provider, and was revoked.")
