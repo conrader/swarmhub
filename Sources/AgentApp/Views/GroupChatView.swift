@@ -10,6 +10,10 @@ struct GroupChatView: View {
     @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
+    private var jumpToLatest: JumpToLatestButton {
+        JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, action: viewport.latest)
+    }
+
     var body: some View {
         let members = store.members(of: group), shown = group.messages.filter { !$0.isSilent }
         let _ = viewport.show(group.id, order: shown.map(\.id), model: store.chatScroll)
@@ -70,10 +74,10 @@ struct GroupChatView: View {
                         }
                     }
                     if let guidance = store.helperSteeringDrafts[group.id] {
-                        HelperSteeringComposer(draft: guidance, chatID: group.id).id(ObjectIdentifier(guidance))
+                        HelperSteeringComposer(draft: guidance, chatID: group.id, jump: jumpToLatest).id(ObjectIdentifier(guidance))
                     } else {
                         AttachmentComposer(intake: intake) { attachments in
-                         ComposerView(text: $draft, attachments: attachments, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
+                         ComposerView(text: $draft, attachments: attachments, jump: jumpToLatest, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
                                      send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
                                      pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
@@ -83,7 +87,6 @@ struct GroupChatView: View {
                     }
                     }
                     .frame(maxWidth: .infinity).glassGroup(spacing: 4)
-                    .overlay(alignment: .top) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, action: viewport.latest).alignmentGuide(.top) { $0[.bottom] } }
                 }
                 .task(id: store.scrollTarget) { await viewport.reveal(store.scrollTarget, in: store) }
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }

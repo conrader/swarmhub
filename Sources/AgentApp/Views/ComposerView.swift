@@ -4,6 +4,7 @@ import SwiftUI
 /// The active composer submits guidance to its current turn. Stop is a separate control.
 struct ComposerView: View {
     @Binding var text: String; @Binding var attachments: [ChatAttachment]
+    var jump: JumpToLatestButton? = nil
     let isStreaming: Bool; var canSteer = false; var awaitingSteer = false
     /// P28 D2: a one-time caption under the composer after the first steer.
     var hint: String? = nil
@@ -117,7 +118,8 @@ struct ComposerView: View {
                     }.help("Start a goal with this draft")
                     GoalBudgetButton(draft: $text) { focused = true }
                 }
-                Spacer()
+                Spacer(minLength: 4)
+                jump
                 Text("⌘↵ send").font(.caption.monospaced()).foregroundStyle(.secondary)
             }.buttonStyle(.bordered).controlSize(.small)
             if let commandNotice, noticeDraft == text { Text(commandNotice).font(.callout).textSelection(.enabled) }
