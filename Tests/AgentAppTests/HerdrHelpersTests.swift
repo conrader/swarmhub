@@ -40,6 +40,24 @@ private let listingJSON = """
     #expect([waiting, failed, starting, quiet].map(\.statusLine) == ["Waiting for an answer in its terminal", "Reported an error", "Starting", "Stopped without an answer"])
 }
 
+@Test func nativeCodexChildrenKeepTheirOwningLaunchAndCore() throws {
+    let list = try decoded(HerdrClient.Helpers.self, """
+        {"core":"c1","parent":{"address":"t2","created_ms":10},"helpers":[],"codex_threads":[
+        {"id":"child","parent":"root","name":"Atlas","created_ms":15,"state":"working","task":"Read logs","reply":"","model":"qa"}]}
+        """)
+    let thread = try #require(list.codexThreads?.first)
+    #expect(list.hasSidebarSessions && list.sidebarSessions.isEmpty)
+    #expect(thread.name == "Atlas" && thread.task == "Read logs" && thread.statusLine == "Working")
+    let terminal = LiveTerminal(thread: thread, owner: list.parent, core: list.core)
+    #expect(terminal.id == .codexThread(core: "c1", owner: list.parent, thread: "child"))
+    #expect(terminal.id != LiveTerminal(thread: thread, owner: .init(address: "t2", createdMs: 20), core: list.core).id)
+    #expect(terminal.id != LiveTerminal(thread: thread, owner: list.parent, core: "c2").id)
+    let legacy = try decoded(HerdrClient.Helpers.self, """
+        {"core":"c1","parent":{"address":"t2","created_ms":10},"helpers":[]}
+        """)
+    #expect(!legacy.hasSidebarSessions && legacy.codexThreads == nil)
+}
+
 @Test func sidebarDistinguishesCurrentWorkFromAnEarlierReply() {
     let reply = HerdrClient.Helper.Reply(id: 1, text: "14 call sites updated.")
     var helper = HerdrClient.Helper(address: "r", createdMs: 4, name: "tests", task: "Run CI", state: "live",

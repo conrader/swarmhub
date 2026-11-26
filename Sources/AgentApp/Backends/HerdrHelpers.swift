@@ -73,10 +73,36 @@ extension HerdrClient {
         var difficultyLine: String? { difficulty.flatMap { $0.isEmpty ? nil : "\($0.prefix(1).uppercased())\($0.dropFirst()) task" } }
     }
 
+    struct CodexThread: Decodable, Sendable, Equatable, Identifiable {
+        let id: String
+        let parent: String
+        let name: String
+        let model: String?
+        let createdMs: Int64
+        var completedMs: Int64? = nil
+        let state: String
+        let task: String
+        let reply: String
+
+        var statusLine: String {
+            switch state {
+            case "working": "Working"
+            case "answered": "Answered"
+            case "error": "Reported an error"
+            case "stopped": "Stopped"
+            case "finished": "Finished"
+            default: "Status unavailable"
+            }
+        }
+    }
+
     /// An agent's running helpers, newest first. `limit`: how many it may have running at once; nil without a usable
     /// policy. `stopAfterSeconds`: how long after its answer the server stops an idle helper, which then leaves the list.
     struct Helpers: Decodable, Sendable, Equatable {
         let core: String; let parent: AgentRef; var limit: Int? = nil; var stopAfterSeconds: Int? = nil; let helpers: [Helper]
+
+        var codexThreads: [CodexThread]? = nil
+        var hasSidebarSessions: Bool { !(codexThreads ?? []).isEmpty || !sidebarSessions.isEmpty }
 
         var lastResult: Helper? = nil
         var recentSessions: [Helper]? = nil
