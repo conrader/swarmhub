@@ -13,6 +13,7 @@ struct NativeThreadOutput: View {
     let openedParent: () -> Void
     @State private var activity: HerdrClient.ThreadActivity?
     @State private var requestedTurn: String?
+    @State private var sendingClaudeRequest = false
     @State private var readError: String?
     @State private var actionError: String?
 
@@ -142,7 +143,23 @@ struct NativeThreadOutput: View {
                 if store.openHelperParent(parent.selection, of: parent.bot) { openedParent() }
             }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openParent")
         }
-        if runtime != .claude, activity?.state == "working", let turn = activity?.activeTurn {
+        if runtime == .claude, activity?.state == "working", let turn = activity?.activeTurn {
+            let pending = sendingClaudeRequest || activity?.stopRequested == true
+            Button(pending ? "Stop requested" : "Ask Claude to stop") {
+                sendingClaudeRequest = true
+                actionError = nil
+                Task {
+                    defer { sendingClaudeRequest = false }
+                    do {
+                        let client = try connectedClient()
+                        try await client.requestClaudeStop(turn, owner: owner, core: core, thread: thread)
+                        activity = try await client.threadActivity(runtime, owner: owner, core: core, thread: thread)
+                    } catch { actionError = error.localizedDescription }
+                }
+            }.controlSize(.small).disabled(pending || readError != nil)
+                .help("Ask the parent Claude session to stop this helper run. Its status updates when Claude confirms.")
+                .accessibilityIdentifier("claudeChild.stop")
+        } else if activity?.state == "working", let turn = activity?.activeTurn, runtime != .claude {
             Button(requestedTurn == turn ? "Stopping…" : "Stop helper") {
                 requestedTurn = turn
                 actionError = nil

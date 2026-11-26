@@ -18,6 +18,14 @@ struct Record {
     reply: String,
     created: i64,
     ended: Option<i64>,
+    #[serde(default)]
+    stopped: bool,
+    last_stop_call: Option<String>,
+    #[serde(default)]
+    stop_controls: bool,
+    #[serde(default)]
+    run_generation: u64,
+    requested_at: Option<i64>,
     steps: Vec<Step>,
     terminal: Option<ChildCommandOutput>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -42,7 +50,7 @@ struct Step {
     state: String,
 }
 
-fn identifier(value: &str) -> bool {
+pub(super) fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value
@@ -69,7 +77,8 @@ impl Record {
         json!({
             "id":thread, "runtime":"claude", "parent":self.parent_agent.as_deref().unwrap_or(&self.session),
             "name":name, "model":self.model, "created_ms":self.created, "completed_ms":self.ended,
-            "state":if self.ended.is_none() {"working"} else if self.reply.is_empty() {"finished"} else {"answered"},
+            "active_turn":self.prompt_id.as_ref().filter(|_| self.stop_controls && self.ended.is_none()).map(|_| self.run_generation.to_string()),
+            "state":if self.stopped {"stopped"} else if self.ended.is_none() {"working"} else if self.reply.is_empty() {"finished"} else {"answered"},
             "task":self.task.chars().take(300).collect::<String>(), "reply":self.reply.chars().take(300).collect::<String>()
         })
     }
@@ -79,6 +88,9 @@ impl Record {
             let transcript = self.transcript();
             let start = transcript.ceil_char_boundary(transcript.len().saturating_sub(64 * 1024));
             self.previous_runs = transcript[start..].to_owned();
+            self.run_generation += 1;
+            self.stopped = false;
+            self.requested_at = None;
             self.task.clear();
             self.awaiting_assignment = true;
             self.created = history::now();
@@ -92,6 +104,20 @@ impl Record {
         {
             self.task = assignment.task;
             self.awaiting_assignment = false;
+        }
+    }
+
+    fn stop(&mut self, call: &str) {
+        if self.last_stop_call.as_deref() == Some(call) {
+            return;
+        }
+        self.last_stop_call = Some(call.into());
+        self.stopped = true;
+        self.ended.get_or_insert_with(history::now);
+        for step in &mut self.steps {
+            if step.state == "Running" {
+                step.state = "Stopped".into();
+            }
         }
     }
 
@@ -128,6 +154,9 @@ impl Record {
         }
         if !self.reply.is_empty() {
             parts.push(format!("Claude {}", self.reply));
+        }
+        if self.stopped {
+            parts.push("Stopped".into());
         }
         parts.join("\n\n")
     }
@@ -198,6 +227,7 @@ pub(super) fn hook() -> Result<(), Box<dyn std::error::Error>> {
                         row.role = role;
                     }
                     if e["hook_event_name"] == "SubagentStart" {
+                        row.stop_controls = std::env::var_os(super::claude_control::ENABLED).is_some();
                         row.start(text(&e["prompt_id"], 128));
                     } else {
                         row.ended.get_or_insert_with(history::now);
@@ -206,6 +236,16 @@ pub(super) fn hook() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 })?;
+            }
+        }
+        Some("PostToolUse") if e["tool_name"] == "TaskStop" => {
+            let result = &e["tool_response"];
+            if result["task_type"] == "local_agent"
+                && let Some(child) = result["task_id"].as_str()
+                && e["tool_input"]["task_id"] == child
+                && let Some(call) = e["tool_use_id"].as_str().filter(|id| identifier(id))
+            {
+                update(&journal, &key, session, child, |row| row.stop(call))?;
             }
         }
         Some("PostToolUse") if e["tool_name"] == "SendMessage" => {
@@ -316,6 +356,26 @@ pub(crate) fn step(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stopped_session_keeps_its_transcript_and_can_run_again() {
+        let mut row = Record { task: "Review".into(), steps: vec![Step {
+            call: "read".into(), text: "Read notes".into(), state: "Running".into(),
+        }], ..Record::default() };
+        row.stop_controls = true;
+        row.start(Some("again".into()));
+        let first_run = row.summary("child")["active_turn"].clone();
+        row.stop("stop-one");
+        let ended = row.ended;
+        row.stop("stop-one");
+        assert_eq!(row.ended, ended);
+        assert_eq!(row.summary("child")["state"], "stopped");
+        row.start(Some("again".into()));
+        row.stop("stop-one");
+        assert_eq!(row.summary("child")["state"], "working");
+        assert_ne!(row.summary("child")["active_turn"], first_run);
+        assert_eq!(row.transcript(), "Task Review\n\nStopped · Read notes\n\nStopped");
+    }
 
     #[test]
     fn resume_receipt_can_precede_start_or_follow_a_fast_stop() {
