@@ -1302,7 +1302,7 @@ def smoke(hc, bridge, chrome=None):
             (templates / "desktop-fixture.md").write_text(f"---\ndescription: Scratch X11 test agent\ncommand: {command}\n---\n")
         if selected_focus == "command-reviewer":
             (templates / "review-profile.md").write_text(
-                f"---\ndescription: Claude reviewer\ncommand: {shlex.quote(bridge)} run-claude\n---\n"
+                "---\ndescription: Claude reviewer\ncommand: swarmhub-herdr run-claude\n---\n"
             )
         if selected_focus == "bot-helper-model":
             (templates / "coding-fixture.md").write_text((templates / "fixture.md").read_text())

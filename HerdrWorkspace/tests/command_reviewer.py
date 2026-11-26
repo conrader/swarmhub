@@ -94,7 +94,7 @@ print('Would print audit.')
              "instructions": "Track project impact", "template": "review-profile"}
     request("/api/bots", {"bots": [scout]})
     assert request(settings)["reviewer_bots"] == [{"id": scout["id"], "name": "Scout", "model": "opus"}]
-    request(settings, {"reviewer_bot_id": owner}, status=400)
+    request(settings, {"reviewer_bot_id": owner}, status=422)
     assert request(settings, {"reviewer_bot_id": scout["id"]})["reviewer_bot_id"] == scout["id"]
     assert request(other)["reviewer_bot_id"] is None
     restart()
@@ -105,7 +105,7 @@ print('Would print audit.')
     request("/api/bots", {"bots": [{**scout, "template": "fixture"}]})
     assert request(settings)["reviewer_bots"] == []
     review("Bash", "codex", None, named=scout["id"], unavailable=True)
-    request(settings, {"reviewer_bot_id": scout["id"]}, status=400)
+    request(settings, {"reviewer_bot_id": scout["id"]}, status=422)
     assert request(settings, {"command_reviewer": "haiku"})["reviewer_bot_id"] is None
     request(settings, {"command_reviewer": "off"})
 
