@@ -412,6 +412,22 @@ extension ChatGoalTests {
         #expect(bot.goal?.stepSpending?.pending == nil)
     }
 
+    @MainActor @Test func centExactGoalCapHandlesFloatingPointSessionTotals() {
+        let store = goalStore(GoalBackend()), bot = addGoalBot(store, "Owner")
+        var goal = ChatGoal(objective: "Check price", destination: store.goalDestination(for: bot))
+        goal.stepSpending = .init()
+        goal.budgetUSD = 0.01
+        func reading(_ tokens: Int64, _ usd: Double) -> ChatGoal.SpendReading {
+            .init(core: "qa", agent: .init(address: "t2", createdMs: 11), tokens: tokens, usd: usd)
+        }
+        let allowed = goal.permitsNextStep(spend: reading(100, 0.1 + 0.2))
+        #expect(allowed)
+        let recorded = goal.recordStepCost(reading(200, 0.31))
+        #expect(recorded)
+        let stopped = goal.stopAtGoalSpendingLimit()
+        #expect(stopped && goal.stepSpending?.chargedUSD == Decimal(string: "0.01"))
+    }
+
     @MainActor @Test func perGoalMeterRestoresAnUnpricedStepOnceAndSkipsSpendBetweenSteps() throws {
         let store = goalStore(GoalBackend()), bot = addGoalBot(store, "Owner")
         var goal = ChatGoal(objective: "Check two steps", destination: store.goalDestination(for: bot))

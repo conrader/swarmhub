@@ -44,6 +44,15 @@ struct ChatGoal: Codable, Equatable {
         let agent: HerdrClient.AgentRef
         let tokens: Int64
         let usd: Double
+
+        // OpenCode accumulates dollars as a Double. Discard sub-picodollar noise
+        // before subtracting two readings so a cent-exact cap stops on its boundary.
+        var reportedDollars: Decimal? {
+            guard usd.isFinite, usd >= 0, var raw = Decimal(string: String(usd)) else { return nil }
+            var rounded = Decimal()
+            NSDecimalRound(&rounded, &raw, 12, .plain)
+            return rounded
+        }
     }
 
     var budgetUSD: Double?
@@ -66,6 +75,14 @@ struct ChatGoal: Codable, Equatable {
         return "Session budget: \(ceiling) · checked before each step"
     }
 
+    mutating func stopAtGoalSpendingLimit() -> Bool {
+        guard let charged = stepSpending?.chargedUSD, let budgetUSD,
+              let limit = Decimal(string: String(budgetUSD)), charged >= limit else { return false }
+        stop()
+        detail = "This goal reached its spending limit."
+        return true
+    }
+
     mutating func permitsNextStep(spend: SpendReading?) -> Bool {
         guard let budgetUSD else { return true }
         guard let spend, spend.usd.isFinite, spend.usd >= 0, spend.tokens >= 0 else {
@@ -83,11 +100,7 @@ struct ChatGoal: Codable, Equatable {
                 wait("Waiting for the cost of the preceding goal step. Resume when updated usage is available.")
                 return false
             }
-            guard let limit = Decimal(string: String(budgetUSD)), let charged = stepSpending?.chargedUSD, charged < limit else {
-                stop()
-                detail = "This goal reached its spending limit."
-                return false
-            }
+            if stopAtGoalSpendingLimit() { return false }
             stepSpending?.pending = spend
             lastSpend = spend
             return true
@@ -112,7 +125,7 @@ struct ChatGoal: Codable, Equatable {
         guard var spending = stepSpending, let start = spending.pending, let end,
               start.core == end.core, start.agent == end.agent, end.tokens > start.tokens,
               end.usd.isFinite, end.usd >= start.usd,
-              let endUSD = Decimal(string: String(end.usd)), let startUSD = Decimal(string: String(start.usd))
+              let endUSD = end.reportedDollars, let startUSD = start.reportedDollars
         else { return false }
         spending.chargedUSD += endUSD - startUSD
         spending.pending = nil

@@ -82,7 +82,7 @@ extension AppStore {
             guard var goal = bot.goal, goal.state == .queued, turns.scheduledGoals.contains(goal.id),
                   isIdle(bot), turns.pendingInterrupts[bot.id] == nil, !hasWaitingTurn(in: bot), turnCapacityProblem(for: [bot]) == nil else { continue }
             turns.scheduledGoals.remove(goal.id)
-            if goal.stopAtStepLimit() {
+            if goal.stopAtStepLimit() || goal.stopAtGoalSpendingLimit() {
                 bot.goal = goal
                 save()
                 continue
