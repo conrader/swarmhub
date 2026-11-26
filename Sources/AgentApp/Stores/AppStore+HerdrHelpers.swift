@@ -38,12 +38,21 @@ struct HerdrHelperSource: Hashable, Sendable {
     let session: HerdrClient.AgentRef
 }
 
+struct HelperBranch: Codable, Hashable {
+    let core: String
+    let owner: HerdrClient.AgentRef
+    let child: HerdrClient.AgentRef
+    let groupRuntime: String?
+}
+
 struct SidebarHelperSession: Identifiable {
     let id: HerdrHelperSelection
     let helper: HerdrClient.Helper
     let core: String
     let depth: Int
     let hasChildren: Bool
+    let branch: HelperBranch
+    let folded: Bool
 }
 
 extension Dictionary where Key == HerdrHelperParent {
@@ -196,7 +205,31 @@ extension AppStore {
         }
     }
 
-    func sidebarSessions(under root: HerdrHelperParent, collapsed: Set<HerdrHelperSelection>) -> [SidebarHelperSession] {
+    private func helperFoldsKey(for bot: Bot) -> String {
+        "sidebar.foldedWorkspaceSessions." + bot.id.uuidString + "." + herdrServer(for: bot).id
+    }
+
+    private func foldedBranches(of bot: Bot) -> Set<HelperBranch> {
+        guard let data = defaults.data(forKey: helperFoldsKey(for: bot)) else { return [] }
+        return (try? JSONDecoder().decode(Set<HelperBranch>.self, from: data)) ?? []
+    }
+
+    func setHelperBranchFolded(_ closed: Bool, branch: HelperBranch, for bot: Bot) {
+        var folds = foldedBranches(of: bot)
+        guard closed != folds.contains(branch) else { return }
+        if closed { folds.insert(branch) } else { folds.remove(branch) }
+        let key = helperFoldsKey(for: bot)
+        if folds.isEmpty { defaults.removeObject(forKey: key) }
+        else if let data = try? JSONEncoder().encode(folds) { defaults.set(data, forKey: key) }
+        objectWillChange.send()
+    }
+
+    func visibleHelperSessions(under root: HerdrHelperParent, for bot: Bot) -> [SidebarHelperSession] {
+        let folds = foldedBranches(of: bot)
+        return sidebarSessions(under: root) { folds.contains($0) }
+    }
+
+    func sidebarSessions(under root: HerdrHelperParent, isFolded: (HelperBranch) -> Bool = { _ in false }) -> [SidebarHelperSession] {
         guard let first = herdrHelpers[root] else { return [] }
         var pending = first.sidebarSessions.reversed().map { (root, $0, 0) }
         var seen: Set<HerdrClient.AgentRef> = [first.parent]
@@ -206,8 +239,11 @@ extension AppStore {
             let key = parent.children(of: helper.ref, core: first.core)
             let children = herdrHelpers[key]?.sidebarSessions ?? []
             let selection = parent.selection(for: helper)
-            rows.append(.init(id: selection, helper: helper, core: first.core, depth: depth, hasChildren: herdrHelpers[key]?.hasSidebarSessions == true))
-            if !collapsed.contains(selection) {
+            let branch = HelperBranch(core: first.core, owner: parent.source?.session ?? first.parent, child: helper.ref, groupRuntime: parent.groupRuntime)
+            let closed = isFolded(branch)
+            rows.append(.init(id: selection, helper: helper, core: first.core, depth: depth,
+                              hasChildren: herdrHelpers[key]?.hasSidebarSessions == true, branch: branch, folded: closed))
+            if !closed {
                 pending += children.reversed().map { (key, $0, depth + 1) }
             }
         }
@@ -218,7 +254,7 @@ extension AppStore {
         guard let source = selection.source else { return nil }
         let root = HerdrHelperParent(botID: selection.botID, groupRuntime: selection.groupRuntime, archive: selection.archive)
         guard herdrHelpers[root]?.core == source.core else { return nil }
-        return sidebarSessions(under: root, collapsed: []).first { $0.helper.ref == source.session }
+        return sidebarSessions(under: root).first { $0.helper.ref == source.session }
     }
 
     enum HelperBackDestination {

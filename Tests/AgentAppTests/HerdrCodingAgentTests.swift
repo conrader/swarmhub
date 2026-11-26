@@ -370,17 +370,45 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         let branch = root.children(of: child.ref, core: "one")
         store.herdrHelpers[branch] = .init(core: "one", parent: child.ref, helpers: [nested])
         store.herdrHelpers[root.children(of: nested.ref, core: "one")] = .init(core: "one", parent: nested.ref, helpers: [child])
-        let rows = store.sidebarSessions(under: root, collapsed: [])
+        let rows = store.sidebarSessions(under: root)
         #expect(rows.map(\.depth) == [0, 1])
         #expect(rows.map(\.id) == [root.selection(for: child), branch.selection(for: nested)])
         #expect(store.delegatingSession(for: rows[1].id)?.id == root.selection(for: child))
-        #expect(store.sidebarSessions(under: root, collapsed: [rows[0].id]).count == 1)
+        #expect(store.sidebarSessions(under: root, isFolded: { $0 == rows[0].branch }).count == 1)
         store.herdrHelpers[root] = .init(core: "other", parent: owner, helpers: [child])
-        #expect(store.sidebarSessions(under: root, collapsed: []).map(\.id) == [root.selection(for: child)])
+        #expect(store.sidebarSessions(under: root).map(\.id) == [root.selection(for: child)])
         #expect(store.delegatingSession(for: rows[1].id) == nil)
         let direct = HerdrHelperParent(botID: root.botID)
         store.herdrHelpers[direct] = .init(core: "one", parent: owner, helpers: [child])
-        #expect(store.sidebarSessions(under: direct, collapsed: []).count == 1)
+        #expect(store.sidebarSessions(under: direct).count == 1)
+    }
+
+    @Test func workspaceHelperFoldSurvivesReloadAndDistinguishesCoreGroupAndLaunch() throws {
+        let store = makeStore(), bot = Bot(name: "Owner", backend: .herdr)
+        let root = HerdrHelperParent(botID: bot.id)
+        let owner = HerdrClient.AgentRef(address: "main", createdMs: 1)
+        let helper = HerdrClient.Helper(address: "term", createdMs: 2, name: "Review", state: "live")
+        let sub = HerdrClient.Helper(address: "item", createdMs: 3, name: "Citations", state: "live")
+        func populate(_ app: AppStore, _ parent: HerdrHelperParent, _ core: String, _ launch: HerdrClient.AgentRef) {
+            app.herdrHelpers[parent] = .init(core: core, parent: launch, helpers: [helper])
+            app.herdrHelpers[parent.children(of: helper.ref, core: core)] = .init(core: core, parent: helper.ref, helpers: [sub])
+        }
+        populate(store, root, "one", owner)
+        let row = try #require(store.visibleHelperSessions(under: root, for: bot).first)
+        store.setHelperBranchFolded(true, branch: row.branch, for: bot)
+        let reopened = AppStore(storeURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+                                autoStart: false, keyStore: InMemoryKeyStore(), defaults: store.defaults)
+        populate(reopened, root, "one", owner)
+        #expect(reopened.visibleHelperSessions(under: root, for: bot).map(\.folded) == [true])
+        let group = HerdrHelperParent(botID: bot.id, groupRuntime: "release")
+        populate(reopened, group, "one", owner)
+        #expect(reopened.visibleHelperSessions(under: group, for: bot).count == 2)
+        populate(reopened, root, "two", owner)
+        #expect(reopened.visibleHelperSessions(under: root, for: bot).count == 2)
+        populate(reopened, root, "one", .init(address: owner.address, createdMs: 4))
+        #expect(reopened.visibleHelperSessions(under: root, for: bot).count == 2)
+        reopened.setHelperBranchFolded(false, branch: row.branch, for: bot)
+        #expect(store.visibleHelperSessions(under: root, for: bot).count == 2)
     }
 
     @Test func nativeBackFollowsTheProviderTreeWithinItsArchivedWorkspaceSession() throws {

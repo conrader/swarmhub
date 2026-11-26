@@ -7,8 +7,6 @@ extension Bot {
 /// The disclosure belongs to the bot. Direct and group sessions keep their own identities.
 struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
-    @AppStorage private var expanded: Bool
-    @State private var collapsed: Set<HerdrHelperSelection> = []
     let bot: Bot
     let parents: [HerdrHelperParent]
     let workers: [HerdrCodejobRow]
@@ -16,23 +14,20 @@ struct SidebarBotSessions<ParentRow: View>: View {
 
     init(bot: Bot, parents: [HerdrHelperParent], workers: [HerdrCodejobRow], @ViewBuilder row: () -> ParentRow) {
         self.bot = bot
-        self.parents = parents.sorted {
-            if $0.groupRuntime != $1.groupRuntime { return ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
-            return ($0.archive?.session.createdMs ?? .max) > ($1.archive?.session.createdMs ?? .max)
-        }
+        self.parents = AppStore.sortedSidebarRoots(parents)
         self.workers = workers
         parentRow = row()
-        _expanded = AppStorage(wrappedValue: true, bot.sessionsExpandedKey)
     }
 
     var body: some View {
+        let expanded = store.sessionsExpanded(for: bot)
         if parents.isEmpty && workers.isEmpty {
             botControls
         } else {
             HStack(spacing: 0) {
                 botControls
                 Button {
-                    expanded.toggle()
+                    store.setSessionsExpanded(!expanded, for: bot)
                 } label: {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -54,34 +49,17 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         } else if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
-                        if let list = store.herdrHelpers[parent], !list.nativeThreads.isEmpty {
-                            SidebarNativeThreads(bot: bot, parent: parent, list: list)
-                        }
-                        ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
-                            HStack(spacing: 0) {
-                                HerdrHelperRow(helper: row.helper, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
-                                    store.open(bot, helper: row.id)
+                        ForEach(store.sessionRows(under: parent, for: bot)) { item in
+                            Group {
+                                switch item {
+                                case .workspace(let row):
+                                    HerdrHelperRow(bot: bot, row: row, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
+                                        store.open(bot, helper: row.id)
+                                    }
+                                case .native(let row, let selection, _):
+                                    SidebarNativeThread(bot: bot, row: row, selection: selection)
                                 }
-                                if row.hasChildren {
-                                    let folded = collapsed.contains(row.id)
-                                    Button {
-                                        if folded { collapsed.remove(row.id) } else { collapsed.insert(row.id) }
-                                    } label: {
-                                        Image(systemName: folded ? "chevron.right" : "chevron.down")
-                                            .font(.caption).frame(width: 24, height: 30).contentShape(Rectangle())
-                                    }.buttonStyle(.plain).accessibilityLabel("Sessions for " + row.helper.name)
-                                        .accessibilityValue(folded ? "Collapsed" : "Expanded")
-                                }
-                                if row.helper.isLive {
-                                    SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: row.helper.ref, title: row.helper.name, core: row.core))
-                                }
-                            }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
-                            if !collapsed.contains(row.id),
-                               let list = store.herdrHelpers[row.id.parent.children(of: row.helper.ref, core: row.core)],
-                               !list.nativeThreads.isEmpty {
-                                SidebarNativeThreads(bot: bot, parent: row.id.parent.children(of: row.helper.ref, core: row.core), list: list)
-                                    .padding(.leading, CGFloat(min(row.depth + 1, 5)) * 10)
-                            }
+                            }.padding(.leading, CGFloat(min(item.depth, 5)) * 10)
                         }
                     }
                     ForEach(workers) { row in
@@ -145,64 +123,95 @@ struct SidebarTerminalButton: View {
     }
 }
 
-/// Give a session its own title line when the name and clock cannot fit side by side.
-private struct SidebarSessionLabel<Clock: View>: View {
+/// Put the terminal and disclosure beside the title. The assignment can use the whole second line.
+private struct SidebarSessionRow<Glyph: View, Clock: View>: View {
+    @Environment(\.colorSchemeContrast) private var contrast
+    @State private var hovering = false
+    let bot: Bot
     let name: String
     let detail: String
+    let selected: Bool
+    let target: LiveTerminal?
+    let folded: Bool
+    let toggleBranch: (() -> Void)?
+    let accessibilityName: String
+    let accessibilityDetail: String
+    let helpText: String
+    let open: () -> Void
+    @ViewBuilder let glyph: () -> Glyph
     @ViewBuilder let clock: () -> Clock
 
-    private var title: some View { Text(verbatim: name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary) }
-    private var fragment: some View { Text(verbatim: detail).font(.system(size: 11)).foregroundStyle(.secondary) }
+    private var controlsWidth: CGFloat { (target == nil ? 0 : 24) + (toggleBranch == nil ? 0 : 24) }
+
+    private var title: some View { Text(verbatim: name).font(.system(size: 12, weight: .semibold)) }
+    private var subtitle: some View { Text(verbatim: detail).font(.system(size: 11)).foregroundStyle(.secondary) }
+    private var duration: some View { clock().font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary) }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    title.fixedSize()
-                    Spacer(minLength: 0)
-                    clock().fixedSize()
+        ZStack(alignment: .topTrailing) {
+            Button(action: open) {
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    glyph().font(.system(size: 11, weight: .semibold)).frame(width: 14).accessibilityHidden(true)
+                    ViewThatFits(in: .horizontal) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                                title.fixedSize()
+                                Spacer(minLength: 0)
+                                duration.fixedSize()
+                            }.padding(.trailing, controlsWidth)
+                            Color.clear.frame(height: 14).overlay(alignment: .leading) { subtitle }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            title.padding(.trailing, controlsWidth)
+                            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                                subtitle.frame(maxWidth: .infinity, alignment: .leading)
+                                duration.fixedSize()
+                            }
+                        }
+                    }.lineLimit(1)
+                }.padding(.leading, 7).padding(.trailing, 3)
+                    .frame(maxWidth: .infinity, minHeight: HerdrHelperRow.height).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel(accessibilityName).accessibilityValue(accessibilityDetail)
+                .accessibilityAddTraits(selected ? .isSelected : []).help(helpText)
+            HStack(spacing: 0) {
+                if let toggleBranch {
+                    Button(action: toggleBranch) {
+                        Image(systemName: folded ? "chevron.right" : "chevron.down")
+                            .font(.caption).frame(width: 24, height: 24).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel("Sessions for " + name)
+                        .accessibilityValue(folded ? "Collapsed" : "Expanded")
                 }
-                Color.clear.frame(height: 14).overlay(alignment: .leading) { fragment }
+                if let target { SidebarTerminalButton(bot: bot, target: target) }
             }
-            VStack(alignment: .leading, spacing: 1) {
-                title
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    fragment.frame(maxWidth: .infinity, alignment: .leading)
-                    clock().fixedSize()
-                }
+        }
+        .background(selected ? AppColor.selection : hovering ? AppColor.selection.opacity(0.6) : .clear,
+                    in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
+        .overlay {
+            if selected, contrast == .increased {
+                RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius).strokeBorder(.primary).allowsHitTesting(false)
             }
-        }.lineLimit(1)
+        }
+        .onHover { hovering = $0 }
     }
 }
 
-/// Show the session name and elapsed time above its current assignment or saved answer.
 struct HerdrHelperRow: View {
-    let helper: HerdrClient.Helper; let selected: Bool; let open: () -> Void
-    @State private var hovering = false
-    @Environment(\.colorSchemeContrast) private var contrast
+    @EnvironmentObject private var store: AppStore
+    let bot: Bot
+    let row: SidebarHelperSession
+    let selected: Bool
+    let open: () -> Void
+    private var helper: HerdrClient.Helper { row.helper }
     static let height: CGFloat = 44
 
     var body: some View {
-        Button(action: open) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                HerdrHelperGlyph(helper: helper).font(.system(size: 11, weight: .semibold)).frame(width: 14)
-                SidebarSessionLabel(name: helper.name, detail: Self.fragment(helper)) {
-                    sessionTime.font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
-                }
-            }
-            .padding(.leading, 7).padding(.trailing, 3).frame(height: Self.height).contentShape(RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
-            .background(selected ? AppColor.selection : hovering ? AppColor.selection.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
-            .overlay {
-                if selected, contrast == .increased {
-                    RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius).strokeBorder(.primary)
-                }
-            }
-            .onHover { hovering = $0 }
-        }.buttonStyle(.plain)
-            .help([helper.name, helper.runLine, helper.statusLine, helper.assignment ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
-            .accessibilityLabel(["Helper " + helper.name, helper.runLine, helper.statusLine].filter { !$0.isEmpty }.joined(separator: ", "))
-            .accessibilityValue(Self.rowDetail(helper))
-            .accessibilityAddTraits(selected ? .isSelected : [])
+        SidebarSessionRow(bot: bot, name: helper.name, detail: Self.fragment(helper), selected: selected,
+                          target: helper.isLive ? LiveTerminal(agent: helper.ref, title: helper.name, core: row.core) : nil,
+                          folded: row.folded, toggleBranch: row.hasChildren ? { store.setHelperBranchFolded(!row.folded, branch: row.branch, for: bot) } : nil,
+                          accessibilityName: ["Helper " + helper.name, helper.runLine, helper.statusLine].filter { !$0.isEmpty }.joined(separator: ", "),
+                          accessibilityDetail: Self.rowDetail(helper),
+                          helpText: [helper.name, helper.runLine, helper.statusLine, helper.assignment ?? ""].filter { !$0.isEmpty }.joined(separator: " · "),
+                          open: open, glyph: { HerdrHelperGlyph(helper: helper) }, clock: { sessionTime })
     }
 
     @ViewBuilder private var sessionTime: some View {
@@ -231,42 +240,17 @@ struct HerdrHelperRow: View {
 }
 
 /// Provider-native threads have a transcript on their owning launch, even when Core has no child PTY.
-private struct SidebarNativeThreads: View {
+private struct SidebarNativeThread: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot
-    let parent: HerdrHelperParent
-    let list: HerdrClient.Helpers
-    private var owner: HerdrClient.AgentRef { list.parent }
-    private var core: String { list.core }
+    let row: NativeSidebarRow
+    let selection: HerdrHelperSelection
 
     var body: some View {
-        ForEach(store.nativeSidebarRows(list, for: bot)) { row in
-            let target = row.target
-            HStack(spacing: 0) {
-                button(row.thread)
-                if row.hasChildren {
-                    let closed = row.folded
-                    Button {
-                        store.setNativeSessionFolded(!closed, target: target.id, for: bot)
-                    } label: {
-                        Image(systemName: closed ? "chevron.right" : "chevron.down")
-                            .font(.caption).frame(width: 24, height: 30).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityLabel("Sessions for " + row.thread.name)
-                        .accessibilityValue(closed ? "Collapsed" : "Expanded")
-                }
-                SidebarTerminalButton(bot: bot, target: target)
-            }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
-        }
-    }
-
-    private func button(_ thread: HerdrClient.NativeThread) -> some View {
-        let server = store.herdrServer(for: bot)
-        let selection = HerdrHelperSelection(botID: bot.id, helperID: thread.id, groupRuntime: parent.groupRuntime,
-                                             source: parent.source, archive: parent.archive,
-                                             native: .init(thread: thread, core: core, owner: owner, server: server))
+        let thread = row.thread
         let current = store.openHerdrHelper?.native
-        let selected = !store.showOnlyAttention && store.openHerdrHelper?.parent == parent
-            && current?.owner == owner && current?.core == core && current?.server == server
+        let selected = !store.showOnlyAttention && store.openHerdrHelper?.parent == selection.parent
+            && current?.owner == selection.native?.owner && current?.core == selection.native?.core && current?.server == selection.native?.server
             && current?.thread.id == thread.id && current?.thread.provider == thread.provider
         let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : thread.task
         let icon: String
@@ -278,23 +262,12 @@ private struct SidebarNativeThreads: View {
         default: (icon, color) = ("stop.circle", .secondary)
         }
         let subtitle = [thread.statusLine, detail].filter { !$0.isEmpty }.joined(separator: " · ")
-        return Button {
-            store.open(bot, helper: selection)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(color)
-                    .font(.system(size: 11)).frame(width: 14)
-                SidebarSessionLabel(name: thread.name, detail: subtitle) {
-                    NativeThreadDuration(thread: thread).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                }
-            }.padding(.leading, 7).padding(.trailing, 3).frame(height: HerdrHelperRow.height)
-                .background(selected ? AppColor.selection : Color.clear, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain)
-            .accessibilityLabel(thread.provider.label + " agent " + thread.name + ", " + thread.statusLine)
-            .accessibilityValue(detail).accessibilityAddTraits(selected ? .isSelected : [])
-            .help("Open session for " + thread.name)
+        return SidebarSessionRow(bot: bot, name: thread.name, detail: subtitle, selected: selected, target: row.target,
+                                 folded: row.folded, toggleBranch: row.hasChildren ? { store.setNativeSessionFolded(!row.folded, target: row.id, for: bot) } : nil,
+                                 accessibilityName: thread.provider.label + " agent " + thread.name + ", " + thread.statusLine,
+                                 accessibilityDetail: detail, helpText: "Open session for " + thread.name,
+                                 open: { store.open(bot, helper: selection) },
+                                 glyph: { Image(systemName: icon).foregroundStyle(color) }, clock: { NativeThreadDuration(thread: thread) })
 
     }
 }
