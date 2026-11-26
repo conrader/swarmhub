@@ -998,6 +998,9 @@ def live_terminals(source_app):
             elif route.endswith("/helpers"):
                 _, _, _, address, created, _ = route.split("/")
                 reply = dict(core="qa", helpers=[], parent=dict(address=address, created_ms=int(created)))
+                for child in agents:
+                    if child.get("parent") == reply["parent"]:
+                        reply["helpers"].append(dict(child, task="Assigned to " + child["name"]))
                 if address == "terminal0":
                     reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
                                                 answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
@@ -1056,6 +1059,19 @@ def live_terminals(source_app):
                 choose("Done")
                 wait_for("terminal window closed", lambda: not sheet())
                 wait_for("return to existing draft", lambda: attribute(field, "AXValue") == "Draft stays in ReaderQA")
+                def nested_button():
+                    return next((b for b in buttons(window) if label(b).startswith("Helper NestedQA,")), None)
+                wait_for("nested helper beneath its group parent", nested_button)
+                press(window, "Sessions for GroupHelperQA")
+                wait_for("nested branch collapsed", lambda: not nested_button())
+                press(window, "Sessions for GroupHelperQA")
+                wait_for("nested branch expanded", nested_button)
+                press(window, label(nested_button()))
+                wait_for("nested helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA"
+                                                                for n in descendants(window)))
+                press(window, "Preview terminal for NestedQA")
+                output("/api/agents/terminal4/104/output")
+                choose("Back to Details")
                 press(window, "ReleaseQA", sidebar=True)
                 press(window, "Group terminals")
                 choose("Preview Patch")
@@ -1073,6 +1089,7 @@ def live_terminals(source_app):
                 assert "/api/agents/terminal3/999/output" not in screens
                 choose("Back to Details")
                 wait_for("group terminal window closed", lambda: not sheet())
+                wait_for("orphan removed after its parent address was reused", lambda: not nested_button())
                 def owner_row():
                     return next((b for b in buttons(window) if "Patch" in label(b).split(", ")), None)
                 try:
