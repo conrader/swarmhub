@@ -39,6 +39,15 @@ struct MarkdownContent: View {
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index, expected: block, choice: answer, shownContent: shownContent)
                     }.id(options)
+                case .pageDraft(let draft):
+                    let key = "pageReview.\(index)"
+                    let status = actionTarget.map { store.choiceStatus(message, target: $0, key: key, binary: false) }
+                    PageDraftCard(draft: draft, prose: rendered.prose, picked: status?.picked ?? message.metadata[key],
+                                  enabled: index >= 0 && !message.isStreaming && status?.enabled == true) { decision in
+                        guard let actionTarget else { return }
+                        store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
+                                                expected: block, pageDecision: decision, shownContent: shownContent)
+                    }
                 case .draft(let draft):
                     DraftCardView(message: message, target: actionTarget, index: index, draft: draft).id(draft)
                 case .image(let alt, let url):
@@ -329,6 +338,36 @@ struct ChoicesCard: View {
 }
 
 /// Inline review and editing for a draft sent back to its author.
+private struct PageDraftCard: View {
+    let draft: PageDraft
+    let prose: [TranscriptText.Prose]
+    let picked: String?
+    let enabled: Bool
+    let decide: (PageDraft.Decision) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Draft · Page", systemImage: "doc.text").font(.caption).foregroundStyle(.secondary)
+            Text(verbatim: draft.title).font(.headline).accessibilityAddTraits(.isHeader)
+            ProseBlock(text: draft.markdown, rendered: prose)
+            Divider()
+            if let picked {
+                let approved = picked == PageDraft.Decision.approve.rawValue || picked == PageDraft.Decision.approve.reply
+                Label(approved ? "Draft approved" : "Shorter draft requested", systemImage: approved ? "checkmark.circle" : "arrow.uturn.backward")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Button("Make shorter") { decide(.shorten) }
+                    Button("Approve") { decide(.approve) }.buttonStyle(NeutralPrimaryButtonStyle())
+                }.disabled(!enabled)
+            }
+        }
+        .padding(12).frame(maxWidth: 500, alignment: .leading)
+        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 11))
+        .overlay { RoundedRectangle(cornerRadius: 11).strokeBorder(AppColor.separator, lineWidth: 1) }
+    }
+}
+
 private struct DraftCardView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage

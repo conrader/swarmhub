@@ -177,7 +177,7 @@ extension AppStore {
             row.content = prose.isEmpty ? report.evidence : prose
             let needsAnswer = ChatCardParser.parseVisibleReply(row.content).contains {
                 switch $0 {
-                case .choices, .multiChoices, .draft: true
+                case .choices, .multiChoices, .draft, .pageDraft: true
                 default: false
                 }
             } || ChatChoiceInference.options(in: row.content) != nil

@@ -58,7 +58,7 @@ extension AppStore {
                 // Older stores and composer replies link to the row, not a particular block.
                 let cards = ChatCardParser.parseVisibleReply(source.content).filter {
                     switch $0 {
-                    case .choices, .multiChoices, .draft: true
+                    case .choices, .multiChoices, .draft, .pageDraft: true
                     default: false
                     }
                 }
@@ -70,7 +70,7 @@ extension AppStore {
 
     /// A card action uses the target captured by its view, independent of the current chat selection.
     @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock,
-                                              choice: ChatChoiceAnswer? = nil, editedDraft: DraftCard? = nil, shownContent: String? = nil) -> Bool {
+                                              choice: ChatChoiceAnswer? = nil, pageDecision: PageDraft.Decision? = nil, editedDraft: DraftCard? = nil, shownContent: String? = nil) -> Bool {
         guard let (bot, conversation) = actionConversation(target),
               let source = conversation.messages.first(where: { $0.id == sourceID }),
               source.role == .assistant else { return false }
@@ -101,6 +101,15 @@ extension AppStore {
                   let reply = choice?.multipleText(options: options) else { return false }
             queueChoice = true
             key = "picked.\(index)"; text = reply; value = reply
+        case .pageDraft(let draft):
+            key = "pageReview.\(index)"
+            guard let pageDecision, !source.isStreaming,
+                  choiceStatus(source, target: target, key: key, binary: false).enabled,
+                  let json = try? JSONEncoder().encode(draft) else { return false }
+            question = String(decoding: json, as: UTF8.self)
+            text = pageDecision.reply
+            value = pageDecision.rawValue
+            queueChoice = true
         case .draft(let original):
             guard !source.isStreaming, source.turnState == nil || source.turnState == .finished else { return false }
             queueChoice = false
@@ -143,7 +152,7 @@ extension AppStore {
         guard source.metadata[key] == nil else { return false }
         guard queueChoice || isIdle(conversation) else { return false }
         var metadata = [ChoiceReply.cardKey: key]
-        if let question, queueChoice {
+        if let question, queueChoice, !key.hasPrefix("pageReview.") {
             let excerpt = question.trimmingCharacters(in: .whitespacesAndNewlines)
             let quote = excerpt.count > 1200 ? "…" + String(excerpt.suffix(1200)) : excerpt
             metadata[ChoiceReply.quoteKey] = "\(bot.name): \(quote)"

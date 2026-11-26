@@ -9,7 +9,24 @@ enum ChatBlock: Equatable {
     case multiChoices(prompt: String, options: [String])
     /// Draft with inline Edit, Copy, and Send actions.
     case draft(DraftCard)
+    case pageDraft(PageDraft)
     case image(alt: String, url: String)
+}
+
+struct PageDraft: Codable, Equatable {
+    let title: String
+    let markdown: String
+
+    enum Decision: String {
+        case approve, shorten
+
+        var reply: String {
+            switch self {
+            case .approve: "I approve the wording of this Page draft."
+            case .shorten: "Make this Page draft shorter and return a revised draft for review."
+            }
+        }
+    }
 }
 
 struct DraftCard: Hashable, Encodable {
@@ -109,6 +126,14 @@ enum ChatCardParser {
                 return .multiChoices(prompt: prompt.joined(separator: " "), options: options)
             }
             return language.lowercased() == "choices" && options.count >= 2 ? .choices(prompt: prompt.joined(separator: " "), options: options) : .code(language: language, body: body.joined(separator: "\n"))
+        case "page-draft":
+            let json = body.joined(separator: "\n")
+            guard closed, let draft = try? JSONDecoder().decode(PageDraft.self, from: Data(json.utf8)),
+                  !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !draft.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .code(language: language, body: json)
+            }
+            return .pageDraft(draft)
         case "draft", "email", "message":
             var draft = DraftCard(body: "")
             var rest = body[...]
