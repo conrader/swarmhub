@@ -51,9 +51,10 @@ import SwiftUI
             Usage: \(CommandLine.arguments.first ?? AppConstants.name) --agent-qa OUTPUT_DIRECTORY [--hunt]
             Run --hunt for built-in checks, or send JSON objects on stdin. Each result is one JSON line.
             Example: {"action":"open","bot":"Mira"}
-            Actions: inspect, open(bot), unfold, fold, child(id, optional bot), terminal(optional id and bot), readTerminal, steer, cancelGuidance, parent, draft(text), send(optional text), pin, unpin,
+            Actions: inspect, open(bot), unfold/fold(optional bot, id), child(id, optional bot), terminal(optional id and bot), readTerminal, steer, cancelGuidance, parent, draft(text), send(optional text), pin, unpin,
               appearance(value: dark/light), viewport(width,height), details(value: show/hide),
               screen(value: workspace/whatsNew), capture, expect(field,value), finding(kind,text).
+            Session ids can be qualified with provider. Children report depth, hasChildren and expanded.
             Fields are strings. Expect supports selected, draft, pinned, unread, child, guidance, terminal, terminalContains, visibleChildren, lastRole, and contains (with text).
             Findings take the kind bug or improvement. Close stdin to save report.json beside replay.jsonl.
             """)
@@ -101,7 +102,11 @@ import SwiftUI
     var state: [String: Any] {
         let bot = store.selectedBot
         return ["selected": bot?.name ?? "", "bots": store.bots.map { ["name": $0.name, "unread": $0.unreadCount, "pinned": store.isPinned($0.id)] as [String: Any] },
-                "children": bot.map { visibleChildren($0).map { ["id": $0.id, "name": $0.name, "state": $0.state] } } ?? [],
+                "children": bot.map { visibleChildren($0).map { row in
+                    ["id": row.thread.id, "name": row.thread.name, "state": row.thread.state,
+                     "provider": row.thread.provider.rawValue, "depth": row.depth,
+                     "hasChildren": row.hasChildren, "expanded": row.hasChildren && !row.folded] as [String: Any]
+                } } ?? [],
                 "guidance": bot.flatMap { store.helperSteeringDrafts[$0.id]?.target.selection.helperID } ?? "",
                 "child": store.openHerdrHelper?.helperID ?? "", "terminal": store.inspectorTerminal?.target?.id.child?.thread ?? "",
                 "draft": bot.map { store.helperSteeringDrafts[$0.id]?.text ?? store.drafts.text(for: $0.id) } ?? "", "details": store.showInfo, "screen": screen,
@@ -156,13 +161,13 @@ import SwiftUI
         case let action where ["fold", "unfold", "child", "parent", "terminal", "steer"].contains(action):
             let owner: Bot
             if let name = command["bot"] {
-                guard ["child", "terminal"].contains(action), command["id"] != nil else {
+                guard ["fold", "unfold"].contains(action) || (["child", "terminal"].contains(action) && command["id"] != nil) else {
                     throw QAError("Specify a session id to open or preview a session under another bot.")
                 }
                 guard let bot = store.bots.first(where: { $0.name == name }) else { throw QAError("Unknown bot: " + name) }
                 owner = bot
             } else { owner = try requireBot() }
-            try sessionAction(action, bot: owner, target: command["id"])
+            try sessionAction(action, bot: owner, target: command["id"], provider: command["provider"])
         case "open":
             let name = try field("bot")
             guard let target = store.bots.first(where: { $0.name == name }) else { throw QAError("Unknown bot: " + name) }

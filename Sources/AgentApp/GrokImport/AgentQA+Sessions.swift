@@ -18,9 +18,10 @@ extension AgentQA {
                                              codexThreads: SessionSampleProtocol.reviewThreads)
     }
 
-    func visibleChildren(_ bot: Bot) -> [HerdrClient.NativeThread] {
-        guard store.defaults.object(forKey: bot.sessionsExpandedKey) as? Bool != false else { return [] }
-        return store.herdrHelpers[bot.id]?.nativeThreads ?? []
+    func visibleChildren(_ bot: Bot) -> [NativeSidebarRow] {
+        guard store.defaults.object(forKey: bot.sessionsExpandedKey) as? Bool != false,
+              let list = store.herdrHelpers[bot.id] else { return [] }
+        return store.nativeSidebarRows(list, for: bot)
     }
 
     func terminalActivity() async throws -> HerdrClient.ThreadActivity {
@@ -30,21 +31,33 @@ extension AgentQA {
         return try await store.herdrClient(for: request.server).threadActivity(child.runtime, owner: child.owner, core: child.core, thread: child.thread)
     }
 
-    func sessionAction(_ action: String, bot: Bot, target: String?) throws {
-        if action == "child" || (action == "terminal" && target != nil) {
-            guard let list = store.herdrHelpers[bot.id], let child = visibleChildren(bot).first(where: { $0.id == target }) else {
+    func sessionAction(_ action: String, bot: Bot, target: String?, provider: String?) throws {
+        if provider != nil && target == nil { throw QAError("Specify a session id with its provider.") }
+        if let target {
+            let matches = visibleChildren(bot).filter {
+                $0.thread.id == target && (provider == nil || $0.thread.provider.rawValue == provider)
+            }
+            guard matches.count <= 1 else { throw QAError("More than one visible session has this id. Specify its provider.") }
+            guard let list = store.herdrHelpers[bot.id], let row = matches.first else {
                 throw QAError("Choose a visible session id under " + bot.name + ".")
             }
+            let child = row.thread
             let server = store.herdrServer(for: bot)
-            if action == "terminal" {
-                store.previewInInspector(.init(server: server, target: LiveTerminal(thread: child, owner: list.parent, core: list.core)))
-            } else {
+            switch action {
+            case "fold", "unfold":
+                guard row.hasChildren else { throw QAError("This session has no child sessions.") }
+                store.setNativeSessionFolded(action == "fold", target: row.id, for: bot)
+            case "terminal":
+                store.previewInInspector(.init(server: server, target: row.target))
+            case "child":
                 let native = HerdrHelperSelection.Native(thread: child, core: list.core, owner: list.parent, server: server)
                 store.open(bot, helper: .init(botID: bot.id, helperID: child.id, native: native))
+            default: throw QAError("This action applies to the open session.")
             }
             return
         }
         switch action {
+        case "child": throw QAError("Choose a visible session id under " + bot.name + ".")
         case "unfold", "fold":
             guard store.herdrHelpers[bot.id]?.hasSidebarSessions == true else { throw QAError("This bot has no sessions.") }
             store.defaults.set(action == "unfold", forKey: bot.sessionsExpandedKey)

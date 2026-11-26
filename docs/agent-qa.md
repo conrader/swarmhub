@@ -19,12 +19,12 @@ Omit `--hunt` to send one JSON object per line on standard input. Wait for the `
 | --- | --- | --- |
 | `inspect` | | Names, unread counts and pins, selected chat, draft and messages, current screen and viewport |
 | `open` | `bot` | Open a sample chat by the name in state |
-| `unfold`, `fold` | | Expand or collapse the selected bot’s sessions. Inspect `state.children` for visible ids. |
+| `unfold`, `fold` | Optional `bot`, `id` | Expand or collapse a bot, or pass the id of a visible parent session to expand or collapse just its branch. |
 | `child` | `id`, optional `bot` | Open a visible session in the center, including one under a different bot |
 | `terminal` | Optional `id` and `bot` | Preview a visible session in Details while keeping the current chat and draft open. Omit both fields to preview the open session. |
 | `readTerminal` | | Read the transcript currently shown in Details |
 | `steer`, `cancelGuidance` | | Open or dismiss the instruction for the selected session. Use `draft` and `send` to guide it through the parent. |
-| `parent` | | Return to the parent chat and its draft |
+| `parent` | | Go back one level to the delegating session or its conversation |
 | `draft` | `text` | Type or clear the selected chat’s draft |
 | `send` | Optional `text` | Submit the text or current draft and wait for the local reply |
 | `pin`, `unpin` | | Pin or unpin the selected chat |
@@ -35,6 +35,8 @@ Omit `--hunt` to send one JSON object per line on standard input. Wait for the `
 | `capture` | | Save a PNG of the current screen and return its filename |
 | `expect` | `field`, `value` | Compare selected chat (`selected`), `draft`, `pinned`, `unread` or `lastRole`. Helper checks include `child`, `terminal`, and `visibleChildren`. For `contains` or `terminalContains`, also pass `text` and expect `true` or `false` |
 | `finding` | `kind` = `bug` or `improvement`, plus `text` | Save an observation with its step number and screenshot |
+
+Under **Patch**, the working **review** session has a child named **citations**. Each row in `state.children` reports its `depth` (starting at zero), `provider`, `hasChildren`, and `expanded`. A folded branch hides its descendants from both `child` and `terminal(id)`. If two visible sessions have the same id, include `provider` to choose one.
 
 For an exploratory review, inspect a compact window in both appearances, compare it with a larger window, and open the PNGs. Look for clipped controls, unreadable text, ambiguous actions and state that leaks between bots. Record what you saw and the expected behavior. Keep a visual observation labelled as such when you have only reproduced it in the offscreen renderer. Provider behavior, macOS dialogs and physical mouse or keyboard events require a separate live test.
 
