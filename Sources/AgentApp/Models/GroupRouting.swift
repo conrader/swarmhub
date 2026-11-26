@@ -56,8 +56,8 @@ enum GroupRouting {
     }
 
     static func herdrContext(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage],
-                             current: ChatMessage, limit: Int, userName: String) throws -> String {
-        let message = "\(userName): \(current.modelText)"
+                             current: ChatMessage, limit: Int, userName: String, currentLine: String? = nil) throws -> String {
+        let message = currentLine ?? "\(userName): \(current.modelText)"
         try HerdrClient.validateMessage(message, limit: limit)
         let room = limit - HerdrClient.plain(message, bytes: Int.max).utf8.count - 1
         let previous = messages.prefix { $0.id != current.id }

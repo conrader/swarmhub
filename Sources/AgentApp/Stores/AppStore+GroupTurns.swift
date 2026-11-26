@@ -63,7 +63,8 @@ extension AppStore {
         }
         objectWillChange.send(); save()
         let sessionID = turnSessionID(in: group, bot: bot)
-        let configuredHandoffs = group.workflows[bot.id]?.handoffs ?? []
+        let isReview = trigger.metadata[Self.groupHandoffResultKey] != nil
+        let configuredHandoffs = isReview ? [] : (group.workflows[bot.id]?.handoffs ?? [])
         var end: TurnEnd
         do {
             try Task.checkCancellation()
@@ -72,15 +73,20 @@ extension AppStore {
             let messages = readableMessages(group.messages, for: bot.id).filter { $0.metadata[TurnWaitCopy.key] != "waiting" }
             let herdr = activeBackend as? HerdrBackend
             var files = herdr == nil ? [] : try trigger.attachments.map(attachmentEncoder.taskFile(for:))
-            let workflow = group.workflowPrefix(for: bot, members: self.members(of: group))
+            var workflow = group.workflowPrefix(for: bot, members: self.members(of: group), includeHandoffs: !isReview)
+            let author = trigger.authorID.flatMap { id in members.first { $0.id == id }?.name } ?? userName
+            let current = "\(author): \(trigger.modelText)"
+            if isReview {
+                let original = group.messages.first { $0.id == trigger.replyToID }?.modelText ?? ""
+                workflow += "Continue your original group task using the review below.\nOriginal task: " + original + "\n\n"
+            }
             let context: String
             if let herdr {
                 let limit = groupMessageBudget(herdr, hasFiles: !files.isEmpty)
-                let current = "\(userName): \(trigger.modelText)"
                 let inline = workflow.utf8.count + current.utf8.count <= limit
                 let available = inline ? limit - workflow.utf8.count : limit
-                let history = try GroupRouting.herdrContext(for: member, groupName: group.name, members: members,
-                    messages: messages, current: trigger, limit: available, userName: userName)
+                let history = isReview && current.utf8.count > available ? current : try GroupRouting.herdrContext(for: member, groupName: group.name, members: members,
+                    messages: messages, current: trigger, limit: available, userName: userName, currentLine: current)
                 let delivery = try TeamWorkflowDelivery(workflow: workflow, message: history, inlineLimit: limit,
                     fileLimit: groupMessageBudget(herdr, hasFiles: true), occupiedNames: Set(files.map { $0.uploadName.lowercased() }))
                 context = delivery.text

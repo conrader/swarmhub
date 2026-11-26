@@ -42,10 +42,10 @@ extension GroupChat {
         }
     }
 
-    func workflowPrefix(for bot: Bot, members: [Bot]) -> String {
+    func workflowPrefix(for bot: Bot, members: [Bot], includeHandoffs: Bool = true) -> String {
         guard let workflow = workflows[bot.id] else { return "" }
         var entries = workflow.skills.map { "Skill · " + $0.name + "\n" + $0.instructions }
-        for rule in workflow.handoffs where !bot.documentReadOnly {
+        for rule in workflow.handoffs where includeHandoffs && !bot.documentReadOnly {
             guard let peer = members.first(where: { $0.id == rule.recipient }) else { continue }
             entries.append("Handoff to " + peer.name + " when: " + rule.condition +
                            "\nWhen the condition is met, end your reply with one fenced block. Replace TASK with the work to send.\n" +
