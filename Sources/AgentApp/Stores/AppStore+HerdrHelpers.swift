@@ -221,6 +221,54 @@ extension AppStore {
         return sidebarSessions(under: root, collapsed: []).first { $0.helper.ref == source.session }
     }
 
+    enum HelperBackDestination {
+        case session(HerdrHelperSelection, String)
+        case group(GroupChat)
+        case chat(Bot)
+
+        func delegatorName(for bot: Bot) -> String {
+            if case .session(_, let name) = self { return name }
+            return bot.name
+        }
+
+        var name: String {
+            switch self {
+            case .session(_, let name): name
+            case .group(let group): group.name
+            case .chat(let bot): bot.name
+            }
+        }
+    }
+
+    func backDestination(for selection: HerdrHelperSelection, of bot: Bot) -> HelperBackDestination {
+        guard selection.botID == bot.id else { return .chat(bot) }
+        let conversation = groupOwningHelper(selection, of: bot).map(HelperBackDestination.group) ?? .chat(bot)
+        if let native = selection.native {
+            guard native.server == herdrServer(for: bot) else { return conversation }
+            if let list = herdrHelpers[selection.parent], list.core == native.core, list.parent == native.owner {
+                let threads = list.nativeThreads.filter { $0.provider == native.thread.provider }
+                if let child = threads.first(where: { $0.id == selection.helperID }), child.id != child.parent,
+                   let parent = threads.first(where: { $0.id == child.parent }) {
+                    let target = HerdrHelperSelection(botID: bot.id, helperID: parent.id, groupRuntime: selection.groupRuntime,
+                                                     source: selection.source, archive: selection.archive,
+                                                     native: .init(thread: parent, core: list.core, owner: list.parent, server: native.server))
+                    return .session(target, parent.name)
+                }
+            }
+            guard selection.source?.core == native.core, selection.source?.session == native.owner else { return conversation }
+        }
+        if let parent = delegatingSession(for: selection) { return .session(parent.id, parent.helper.name) }
+        return conversation
+    }
+
+    func open(_ destination: HelperBackDestination, of bot: Bot) {
+        switch destination {
+        case .session(let selection, _): open(bot, helper: selection)
+        case .group(let group): open(group)
+        case .chat(let owner): open(owner)
+        }
+    }
+
     func groupOwningHelper(_ selection: HerdrHelperSelection, of bot: Bot) -> GroupChat? {
         guard bot.id == selection.botID, let runtime = selection.groupRuntime else { return nil }
         return groups.first { $0.memberIDs.contains(bot.id) && approvalAgentNames(for: bot, in: $0).contains(runtime) }

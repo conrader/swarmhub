@@ -383,6 +383,40 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         #expect(store.sidebarSessions(under: direct, collapsed: []).count == 1)
     }
 
+    @Test func nativeBackFollowsTheProviderTreeWithinItsArchivedWorkspaceSession() throws {
+        let store = makeStore()
+        let bot = Bot(name: "Patch", backend: .herdr)
+        let server = store.herdrServer(for: bot)
+        let workspace = HerdrClient.Helper(address: "qa", createdMs: 2, name: "Workspace review", state: "live")
+        let root = HerdrHelperParent(botID: bot.id, groupRuntime: "old-team",
+                                     archive: .init(core: "old", session: parent))
+        let branch = root.children(of: workspace.ref, core: "old")
+        let review = HerdrClient.NativeThread(id: "r", parent: "main", runtime: .claude, name: "Review",
+                                              model: nil, createdMs: 3, state: "working", task: "", reply: "")
+        let child = HerdrClient.NativeThread(id: "c", parent: "r", runtime: .claude, name: "Citations",
+                                             model: nil, createdMs: 4, state: "working", task: "", reply: "")
+        var other = review
+        other.runtime = .codex
+        store.herdrHelpers[root] = .init(core: "old", parent: parent, helpers: [workspace])
+        store.herdrHelpers[branch] = .init(core: "old", parent: workspace.ref, helpers: [],
+                                            codexThreads: [other], claudeThreads: [review, child])
+        let selected = HerdrHelperSelection(botID: bot.id, helperID: child.id, groupRuntime: root.groupRuntime,
+                                           source: branch.source, archive: root.archive,
+                                           native: .init(thread: child, core: "old", owner: workspace.ref, server: server))
+        store.open(store.backDestination(for: selected, of: bot), of: bot)
+        let first = try #require(store.openHerdrHelper)
+        #expect(first.native?.thread == review && first.parent == branch)
+        store.open(store.backDestination(for: first, of: bot), of: bot)
+        #expect(store.openHerdrHelper == root.selection(for: workspace))
+        store.herdrHelpers[branch]?.claudeThreads = [child]
+        store.open(store.backDestination(for: selected, of: bot), of: bot)
+        #expect(store.openHerdrHelper == root.selection(for: workspace))
+        store.herdrHelpers[root] = .init(core: "restarted", parent: parent, helpers: [workspace])
+        store.herdrHelpers[branch] = nil
+        store.open(store.backDestination(for: selected, of: bot), of: bot)
+        #expect(store.openHerdrHelper == nil && store.selectedBot?.id == bot.id)
+    }
+
     @Test func unmatchedRosterChildrenPreventAnEmptyOverview() async throws {
         let store = makeStore()
         let bot = Bot(name: "Direct", backend: .herdr)
