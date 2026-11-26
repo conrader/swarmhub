@@ -986,7 +986,7 @@ def message_search(source_app):
         print("Verified live and imported search, archive paging, restored positions, and recovery from a missing archive.")
 
 
-def live_terminals(source_app):
+def live_terminals(source_app, screenshots=None, appearance=None, library=None):
     import hashlib
 
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
@@ -1082,9 +1082,25 @@ def live_terminals(source_app):
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
         store.write_text(json.dumps(dict(version=2, bots=[reader, owner, standby, pinned], groups=[group], sidebar=dict(pinned=[pinned["id"]]),
                                          scrollPositions={group["id"].upper(): group["messages"][77]["id"]})))
+        environment = {}
+        if screenshots is not None:
+            preferences = home / "Library/Preferences"
+            preferences.mkdir(exist_ok=True)
+            domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
+            (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({"appearance": appearance}))
+            snapshot = home / "helper-window.png"
+            trigger = home / "helper-window.png.request"
+            environment = {"DYLD_INSERT_LIBRARIES": str(library), "SWARMHUB_QA_SNAPSHOT_PATH": str(snapshot)}
+
+        def capture(state):
+            if screenshots is not None:
+                trigger.touch()
+                wait_for("image of the private Mac window", lambda: snapshot.exists() and not trigger.exists(), seconds=15)
+                shutil.copyfile(snapshot, screenshots / f"{appearance.lower()}-{state}.png")
+
         Thread(target=server.serve_forever, daemon=True).start()
         try:
-            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token, environment) as window:
                 press(window, "ReaderQA", sidebar=True)
                 field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
                 enter_draft(field, "Draft stays in ReaderQA")
@@ -1136,10 +1152,12 @@ def live_terminals(source_app):
                     assert title_size.width >= width - 2, f"Truncated helper owner at {title_size.width} pt, needs {width} pt"
 
                 assert not panel("inspector.terminal") and panel("nativeSession.commandOutput")
+                capture("working")
                 child_finished.set()
                 expected.remove("I am checking the header.")
                 expected.add("Complete sidebar result.")
                 wait_for("completed reply without reopening the session", shows_details)
+                capture("answered")
                 press(window, "Preview Layout reader in Details")
                 wait_for("docked transcript beside child details", lambda: panel("inspector.terminal") and shows_details())
                 press(window, "Back to Details")
@@ -1150,6 +1168,8 @@ def live_terminals(source_app):
                 field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
                 wait_for("draft after navigating through a child", lambda: attribute(field, "AXValue") == "Draft stays in ReaderQA")
                 print("Verified central native session details, docked transcript, return to parent and cross-chat draft.", flush=True)
+                if screenshots is not None:
+                    return
                 press(window, "Live terminals")
 
                 application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
@@ -2014,6 +2034,20 @@ if __name__ == "__main__":
         steer_reopen(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--session-usage":
         session_usage_overview(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--helper-screenshots":
+        import platform
+        if tuple(int(n) for n in platform.mac_ver()[0].split(".")[:2]) < (14, 4):
+            raise SystemExit("Capturing the private test window requires macOS 14.4 or later.")
+        source_app = Path(sys.argv[2]).resolve(strict=True)
+        destination = Path(sys.argv[3]).resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="SwarmHub-capture-") as scratch:
+            library = Path(scratch) / "capture.dylib"
+            subprocess.run(["xcrun", "clang", "-dynamiclib", "-fobjc-arc", str(Path(__file__).with_name("qa-window-capture.m")),
+                            "-framework", "AppKit", "-framework", "ScreenCaptureKit", "-o", str(library)], check=True)
+            subprocess.run(["codesign", "--force", "--sign", "-", library], check=True)
+            for appearance in ("Dark", "Light"):
+                live_terminals(source_app, destination, appearance, library)
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
         live_terminals(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
@@ -2031,4 +2065,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--session-usage | --terminals | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--session-usage | --terminals | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")

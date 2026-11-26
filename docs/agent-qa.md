@@ -98,6 +98,12 @@ python3 Tests/Scripts/chat-window-smoke.py "$qa_pid"
 
 The smoke test requires PyObjC’s ApplicationServices module and macOS Accessibility access. It measures text inside the window as it restores the saved message, jumps to the end and switches between bots. Run it against a freshly opened sample window. Quit that instance to discard the session.
 
+To compare the helper session with the website’s Interactive preview, capture its working and answered states in both appearances. The driver expands the bot and its nested helper, opens the session, and waits for the reply to update. It writes four PNGs of the test window to the specified directory. This check requires macOS 14.4 or later, Xcode command-line tools and Accessibility access.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-window-smoke.py --helper-screenshots /Applications/SwarmHub.app ./helper-screenshots
+```
+
 To measure switching through a larger roster, use an app built in Release configuration and a logged-in Mac with Accessibility access.
 
 ```sh
