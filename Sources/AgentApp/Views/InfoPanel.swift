@@ -25,6 +25,7 @@ struct InfoPanel: View {
                         store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target))
                     }.controlSize(.small).accessibilityLabel("Show terminal in Details")
                 }
+                MoreInfoSections(tabs: Array(store.infoTabs(for: bot).dropFirst(3)), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
                 Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }
                     .buttonStyle(.plain).help("Close").accessibilityLabel("Close")
@@ -40,7 +41,7 @@ struct InfoPanel: View {
 
     @ViewBuilder private var panelContent: some View {
         switch store.visibleInfoTab(for: bot) {
-        case .overview: overview
+        case .overview: overview.id(bot.id)
         case .approvals:
             let server = store.herdrServer(for: bot)
             VStack(alignment: .leading, spacing: 12) {
@@ -100,11 +101,11 @@ struct InfoPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             let instructions = bot.outboundPersona.trimmingCharacters(in: .whitespacesAndNewlines)
             if !instructions.isEmpty, instructions != Bot.defaultPersona {
-                BotInstructions(text: instructions).id(bot.id)
+                BotInstructions(text: instructions)
             }
             if bot.backend == .herdr {
                 Divider()
-                BotUsageOverview(bot: bot).id(bot.id)
+                BotUsageOverview(bot: bot)
                 HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
                 HerdrOverviewSection(bot: bot)
                 Button("Team activity", systemImage: AgentInfoTab.team.symbol) { store.openInfoTab(.team) }
@@ -112,6 +113,11 @@ struct InfoPanel: View {
                 HerdrHelpersSection(bot: bot)
             }
             groups
+        }
+        .task(id: store.herdrServer(for: bot)) {
+            guard store.launchWorkEnabled, bot.backend == .herdr else { return }
+            let server = store.herdrServer(for: bot)
+            await store.refreshProjectAssignments(on: server, using: store.herdrProjectsModel(for: server))
         }
     }
 

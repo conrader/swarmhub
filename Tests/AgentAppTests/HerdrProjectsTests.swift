@@ -392,3 +392,27 @@ private func gapplanWorkerMachineResponse(_ name: String, fallback: String) thro
     let machine = try #require(await client.machines().machines.first)
     #expect(machine.name == "old" && machine.reachable && machine.worker == nil)
 }
+
+@MainActor @Test func unavailableCatalogKeepsAssignmentsWhileConfirmedEmptyCatalogRemovesThem() async {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Patch", backend: .herdr)
+    store.bots = [bot]
+    let target = store.herdrServer(for: bot)
+    let saved = [HerdrBotProject(id: 2, name: "Shop", machine: "web-1")]
+    store.setHerdrProjects(saved, for: bot)
+    let (host, session) = MockHTTPProtocol.serve { request in
+        switch request.url?.path {
+        case "/api/machines": return (200, ["machines": []])
+        case "/api/machines/ssh-key": return (200, ["keys": []])
+        case "/api/projects":
+            let reads = MockHTTPProtocol.recorded(request.url?.host ?? "").filter { $0.url?.path == "/api/projects" }.count
+            return reads == 1 ? (503, [:]) : (200, ["projects": []])
+        default: return (404, [:])
+        }
+    }
+    let model = HerdrProjectsModel { HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "fixture", session: session) }
+    await store.refreshProjectAssignments(on: target, using: model)
+    #expect(model.projectsUnavailable && store.herdrProjects(for: bot) == saved)
+    await store.refreshProjectAssignments(on: target, using: model)
+    #expect(!model.projectsUnavailable && store.herdrProjects(for: bot).isEmpty)
+}

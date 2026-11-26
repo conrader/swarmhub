@@ -48,6 +48,34 @@ def press(window, title, sidebar=False):
     raise RuntimeError(f"Button unavailable: {title}")
 
 
+def press_link(window, title):
+    def activate():
+        for item in descendants(window):
+            if attribute(item, "AXRole") == "AXLink" and label(item) == title:
+                return ax.AXUIElementPerformAction(item, "AXPress") == 0
+        return False
+    wait_for(title, activate)
+
+
+def open_detail_section(window, name):
+    def button(title):
+        return next((b for b in buttons(window) if label(b) == title), None)
+    if not button("Overview"):
+        press(window, "Details")
+        wait_for("Details sections", lambda: button("Overview"))
+    if button(name):
+        press(window, name)
+        return
+    press(window, "More Details sections")
+    application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
+    def item():
+        return next((b for w in attribute(application, "AXWindows") or [] for b in buttons(w)
+                     if label(b) == name), None)
+    wait_for("section " + name, item)
+    assert ax.AXUIElementPerformAction(item(), "AXPress") == 0
+    wait_for("selected section " + name, lambda: attribute(button("More Details sections"), "AXValue") == name)
+
+
 def enter_draft(field, text):
     if field is None or ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
         raise RuntimeError("Could not focus the composer")
@@ -684,9 +712,7 @@ def workspace_pages(source_app, service_binary):
 
                 wait_for("Page author", lambda: button(window, "PagesQA,"))
                 press(window, "PagesQA", sidebar=True)
-                if not button(window, "Media"):
-                    press(window, "Details")
-                press(window, "Media")
+                open_detail_section(window, "Media")
                 click(window, "Browse published Pages")
                 media_library = panel("bot workspace library", lambda s: has_text(s, "Published Pages"))
                 click(media_library, other["title"])
@@ -1509,6 +1535,11 @@ def team_inspector(source_app, appearance):
     exchange = dict(id=7, kind="ask", state="answered", text="Verified three changes for the release.",
                     **{"from": {"name": "Patch"}, "to": {"name": "Scout"}})
 
+    catalog_online = False
+    catalog_reads = []
+    catalog = [dict(id=1, name="Shop", machine="web-1", folder="/srv/shop", note=""),
+               dict(id=2, name="Docs", machine="local", folder="/code/docs", note="")]
+
     class Team(BaseHTTPRequestHandler):
         def do_GET(self):
             parts = self.path.split("/")
@@ -1516,6 +1547,14 @@ def team_inspector(source_app, appearance):
             if self.headers.get("Authorization") == "Bearer " + token:
                 if self.path.split("?")[0] == "/api/workspace":
                     body = dict(core="qa", agents=[], templates=[])
+                elif self.path == "/api/machines":
+                    body = dict(machines=[])
+                elif self.path == "/api/projects":
+                    catalog_reads.append(catalog_online)
+                    if not catalog_online:
+                        self.send_error(503)
+                        return
+                    body = dict(projects=catalog)
                 elif len(parts) == 5 and parts[2] == "bots" and parts[3] in owners:
                     patch = owners[parts[3]] == "Patch"
                     body = {"exchanges": {"exchanges": []},
@@ -1557,6 +1596,18 @@ def team_inspector(source_app, appearance):
         store.write_text(json.dumps(dict(version=2, groups=[], bots=bots)))
         Thread(target=server.serve_forever, daemon=True).start()
         try:
+            catalog_online = True
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                wait_for("Patch in sidebar", lambda: any(label(b).startswith("Patch,") for b in buttons(window)))
+                press(window, "Patch", sidebar=True)
+                open_detail_section(window, "Overview")
+                press_link(window, "Edit bot projects")
+                shop = next(e for e in descendants(window) if label(e) == "Patch may use Shop")
+                assert ax.AXUIElementPerformAction(shop, "AXPress") == 0
+                press_link(window, "Finish editing projects")
+                wait_for("shop selected before quit", lambda: any("web-1 · /srv/shop" in
+                         (attribute(e, "AXValue"), label(e)) for e in descendants(window)))
+            catalog_online = False
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as w:
                 def element(title):
                     return next((e for e in descendants(w) if str(attribute(e, "AXValue") or "") == title
@@ -1564,19 +1615,39 @@ def team_inspector(source_app, appearance):
 
                 wait_for("Patch sidebar row", lambda: any(label(b).startswith("Patch,") for b in buttons(w)))
                 press(w, "Patch", sidebar=True)
-                if not element("Team"):
-                    press(w, "Details")
-                press(w, "Team")
                 import Quartz
                 size = ax.AXValueCreate(ax.kAXValueCGSizeType, Quartz.CGSizeMake(980, 620))
                 assert ax.AXUIElementSetAttributeValue(w, "AXSize", size) == 0
+                open_detail_section(w, "Overview")
+                wait_for("saved project after a failed catalog read", lambda: False in catalog_reads and element("web-1 · Shop"))
+                catalog_online = True
+                press_link(w, "Reload bot projects")
+                wait_for("selected folder after catalog recovery", lambda: element("web-1 · /srv/shop"))
+                assert not element("local · /code/docs")
+                press_link(w, "Edit bot projects")
+                toggle = lambda: next((e for e in descendants(w) if label(e) == "Patch may use Docs"), None)
+                wait_for("Docs project switch", toggle)
+                assert ax.AXUIElementPerformAction(toggle(), "AXPress") == 0
+                press_link(w, "Finish editing projects")
+                wait_for("new project beside original assignment", lambda: element("local · /code/docs") and element("web-1 · /srv/shop"))
+                press(w, "Scout", sidebar=True)
+                wait_for("Scout’s empty assignment list", lambda: element("No projects selected"))
+                assert not element("local · /code/docs")
+                press(w, "Patch", sidebar=True)
+                wait_for("Patch’s restored projects", lambda: element("web-1 · /srv/shop") and element("local · /code/docs"))
+                primary = [element(title) for title in ("Overview", "Approvals", "Routines")]
+                positions = [ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1] for e in primary]
+                assert max(p.y for p in positions) - min(p.y for p in positions) <= 1
+                assert positions[0].x < positions[1].x < positions[2].x
+                for name in ("Approvals", "Routines", "Model", "Skills", "Media", "Team"):
+                    open_detail_section(w, name)
                 wait_for("Patch’s scheduled CI watch", lambda: element(watch))
                 def right_edge(e):
                     x = ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1].x
                     width = ax.AXValueGetValue(attribute(e, "AXSize"), ax.kAXValueCGSizeType, None)[1].width
                     return x + width
 
-                assert right_edge(element("Media")) <= right_edge(w) and right_edge(element("Close")) <= right_edge(w)
+                assert right_edge(element("More Details sections")) <= right_edge(w) and right_edge(element("Close")) <= right_edge(w)
                 wait_for("completed exchange", lambda: element("Recent exchanges"))
                 disclosure = next(e for e in descendants(w) if "Patch → Scout" in label(e))
                 assert ax.AXUIElementPerformAction(disclosure, "AXPress") == 0
@@ -1591,7 +1662,7 @@ def team_inspector(source_app, appearance):
                 wait_for("restored Team panel", lambda: element("No open handoffs, check-ins or promises."))
                 press(w, "Patch", sidebar=True)
                 wait_for("restored CI watch", lambda: element(watch))
-                print("Verified the Team tab, completed exchanges, CI watches, bot switching and reopening Details.")
+                print(f"Verified the three primary sections on one row, all four More destinations, saved per-bot folders after a failed catalog read and retry, completed exchanges, CI watches and reopening Details in {appearance}.")
         finally:
             server.shutdown()
 

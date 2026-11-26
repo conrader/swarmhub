@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// The agent panel's tab bar: each tab is an SF Symbol
-/// over a short caption (`.symbolCaption`); `.symbolOnly` is kept for the render that compares the two.
 extension AgentInfoTab {
     var symbol: String {
         switch self {
@@ -14,8 +12,7 @@ extension AgentInfoTab {
         case .media: "photo.on.rectangle"
         }
     }
-    /// The caption under the symbol; the full name is the tab's help and accessibility label.
-    var caption: String { rawValue }
+
 }
 
 extension AppStore {
@@ -30,39 +27,67 @@ extension AppStore {
 }
 
 struct InfoTabBar: View {
-    enum Style { case symbolCaption, symbolOnly }
     let tabs: [AgentInfoTab]
     let selection: AgentInfoTab
-    var style = Style.symbolCaption
     let select: (AgentInfoTab) -> Void
 
     var body: some View {
-        VStack(spacing: 2) {
-            tabRow(Array(tabs.prefix(3)))
-            if tabs.count > 3 { tabRow(Array(tabs.dropFirst(3))) }
-        }.padding(.horizontal, 8).padding(.vertical, 4)
-    }
-
-    private func tabRow(_ row: [AgentInfoTab]) -> some View {
         HStack(spacing: 2) {
-            ForEach(row, id: \.self) { tab in
-                item(tab).frame(maxWidth: .infinity)
+            ForEach(tabs.prefix(3), id: \.self) { tab in
+                let selected = selection == tab
+                Button { select(tab) } label: {
+                    Text(tab.rawValue).font(.system(size: 12, weight: selected ? .semibold : .medium))
+                        .lineLimit(1).frame(maxWidth: .infinity).padding(.vertical, 5)
+                        .foregroundStyle(selected ? .primary : .secondary)
+                        .background {
+                            if selected { RoundedRectangle(cornerRadius: 4).fill(AppColor.raised) }
+                        }
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityLabel(tab.rawValue).accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
+        .padding(2).background(AppColor.selection, in: RoundedRectangle(cornerRadius: 6))
+        .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator) }
+        .padding(.horizontal, 11).padding(.vertical, 6)
     }
+}
 
-    private func item(_ tab: AgentInfoTab) -> some View {
-        let selected = tab == selection
-        return Button { select(tab) } label: {
-            VStack(spacing: 2) {
-                Image(systemName: tab.symbol).font(.system(size: style == .symbolOnly ? 14 : 13)).frame(height: 17)
-                if style == .symbolCaption { Text(tab.caption).font(.system(size: 11, weight: selected ? .semibold : .regular)).lineLimit(1).fixedSize() }
+struct MoreInfoSections: View {
+    let tabs: [AgentInfoTab]
+    let selection: AgentInfoTab
+    let select: (AgentInfoTab) -> Void
+    @State private var open = false
+
+    var body: some View {
+        if !tabs.isEmpty {
+            Button { open.toggle() } label: {
+                HStack(spacing: 3) {
+                    Text(tabs.contains(selection) ? selection.rawValue : "More")
+                    Image(systemName: "chevron.down").font(.caption2)
+                }.lineLimit(1)
             }
-            .padding(.horizontal, style == .symbolOnly ? 8 : 2.5).frame(height: style == .symbolOnly ? 28 : 36)
-            .contentShape(Rectangle())
-            .background { if selected { InspectorSurface(selected: true) } }
+            .controlSize(.small).fixedSize()
+            .help("Model, team, skills and media")
+            .accessibilityLabel("More Details sections")
+            .accessibilityValue(tabs.contains(selection) ? selection.rawValue : "")
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(tabs, id: \.self) { tab in
+                        Button {
+                            open = false
+                            select(tab)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: tab.symbol).frame(width: 16)
+                                Text(tab.rawValue)
+                                Spacer()
+                                if tab == selection { Image(systemName: "checkmark") }
+                            }.padding(6).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityAddTraits(tab == selection ? .isSelected : [])
+                    }
+                }.padding(6).frame(width: 148)
+            }
         }
-        .buttonStyle(.plain).foregroundStyle(selected ? .primary : .secondary)
-        .help(tab.rawValue).accessibilityLabel(tab.rawValue).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

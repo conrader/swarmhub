@@ -24,6 +24,7 @@ import Foundation
     @Published private(set) var phase: Phase
     @Published private(set) var listing: HerdrMachines
     @Published private(set) var keys: HerdrSSHKeys?
+    @Published private(set) var projectsUnavailable = false
     @Published private(set) var projects: [HerdrProject]
     @Published var adding: Adding
     /// The fields of adding a server.
@@ -38,6 +39,7 @@ import Foundation
     @Published private(set) var said: [String: String] = [:]
     @Published private(set) var makingKey = false
 
+    private var catalogRevision = UUID()
     private let client: @MainActor () throws -> HerdrClient
 
     init(client: @escaping @MainActor () throws -> HerdrClient) {
@@ -57,15 +59,29 @@ import Foundation
     var trimmedTarget: String { target.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// Reads the servers, the Herdr server's key and the projects. A workspace without these routes says it is older.
-    func load() async {
+    @discardableResult func load() async -> [HerdrProject]? {
+        let revision = UUID()
+        catalogRevision = revision
         if phase != .ready { phase = .reading }
         do {
             let client = try client()
-            listing = try await client.machines()
-            keys = try? await client.sshKeys()
-            projects = (try? await client.projects()) ?? projects
+            let machines = try await client.machines()
+            let publicKeys = try? await client.sshKeys()
+            let catalog = try? await client.projects()
+            guard revision == catalogRevision, !Task.isCancelled else { return nil }
+            listing = machines
+            keys = publicKeys
+            projectsUnavailable = catalog == nil
+            if let catalog { projects = catalog }
             phase = .ready
-        } catch { if phase != .ready { phase = .unavailable(HerdrProjectsCopy.reason(error)) } }
+            return catalog
+        } catch {
+            if revision == catalogRevision && !Task.isCancelled {
+                projectsUnavailable = true
+                if phase != .ready { phase = .unavailable(HerdrProjectsCopy.reason(error)) }
+            }
+            return nil
+        }
     }
 
     /// Makes the Herdr server's key pair when it has none; the workspace never replaces one.
@@ -133,6 +149,7 @@ import Foundation
             let saved: HerdrProject
             if let id = draft.id { saved = try await client.changeProject(id, name: name, machine: draft.machine, folder: folder, note: note) }
             else { saved = try await client.addProject(name: name, machine: draft.machine, folder: folder, note: note) }
+            catalogRevision = UUID()
             if let index = projects.firstIndex(where: { $0.id == saved.id }) { projects[index] = saved } else { projects.append(saved) }
             self.draft = nil
             if let fresh = try? await client.machines() { listing = fresh }
@@ -140,13 +157,18 @@ import Foundation
         } catch { projectProblem = HerdrProjectsCopy.reason(error); return nil }
     }
 
-    func removeProject(_ project: HerdrProject) async {
+    @discardableResult func removeProject(_ project: HerdrProject) async -> [HerdrProject]? {
         do {
             let client = try client()
-            projects = try await client.removeProject(project.id)
+            let catalog = try await client.removeProject(project.id)
+            let revision = UUID()
+            catalogRevision = revision
+            projects = catalog
+            projectsUnavailable = false
             if draft?.id == project.id { draft = nil }
             if let fresh = try? await client.machines() { listing = fresh }
-        } catch { projectProblem = HerdrProjectsCopy.reason(error) }
+            return revision == catalogRevision ? catalog : nil
+        } catch { projectProblem = HerdrProjectsCopy.reason(error); return nil }
     }
 }
 
@@ -161,6 +183,12 @@ extension AppStore {
         }
         herdrProjectModels[id] = model
         return model
+    }
+
+    func refreshProjectAssignments(on server: HerdrServer, using model: HerdrProjectsModel) async {
+        guard let catalog = await model.load(), !Task.isCancelled,
+              herdrServer(id: server.id) == server, model.projects == catalog else { return }
+        reconcileHerdrProjects(on: server, with: catalog)
     }
 
     // MARK: A bot's projects
