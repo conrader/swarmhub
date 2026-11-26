@@ -32,11 +32,24 @@ extension AppStore {
         let metadata = [key: delivery, HerdrBotRelay.ExchangeKey.chain: HerdrBotRelay.joined([sender, receiver]),
                         HerdrBotRelay.ExchangeKey.rounds: HerdrBotRelay.joined(rounds: [HerdrBotRelay.pair(sender, receiver): 1])]
         let skills = group.workflows[id]?.skills.map { "Skill · " + $0.name + "\n" + $0.instructions } ?? []
-        let text = HerdrBotRelay.message(from: bot.name, (skills + [task]).joined(separator: "\n\n"))
-        do { try HerdrClient.validateMessage(text) }
-        catch { receipt("Handoff to " + peer.name + " could not be sent. " + error.localizedDescription); return }
+        let text: String
+        var attachments = [ChatAttachment]()
+        do {
+            let backend = try? herdrBackend(for: peer)
+            let envelope = HerdrBotRelay.message(from: bot.name, "").utf8.count
+            let inlineLimit = backend.map { groupMessageBudget($0, hasFiles: false) } ?? HerdrClient.messageBytes
+            let fileLimit = backend.map { groupMessageBudget($0, hasFiles: true) } ?? HerdrClient.messageBytes
+            let workflow = skills.isEmpty ? "" : skills.joined(separator: "\n\n") + "\n\n"
+            let delivery = try TeamWorkflowDelivery(workflow: workflow, message: task,
+                inlineLimit: inlineLimit - envelope, fileLimit: fileLimit - envelope, occupiedNames: [])
+            text = HerdrBotRelay.message(from: bot.name, delivery.text)
+            if let file = delivery.file {
+                attachments = [.init(id: UUID(), kind: .text, name: file.name, mimeType: file.mime,
+                                     byteCount: file.data.count, text: String(decoding: file.data, as: UTF8.self))]
+            }
+        } catch { receipt("Handoff to " + peer.name + " could not be sent. " + error.localizedDescription); return }
         trigger.metadata[sentKey] = receiver
-        guard herdrPassOn(text, to: peer, kind: HerdrBotRelay.message, asker: bot, name: bot.name, extra: metadata) else {
+        guard herdrPassOn(text, to: peer, kind: HerdrBotRelay.message, asker: bot, name: bot.name, extra: metadata, attachments: attachments) else {
             trigger.metadata[sentKey] = nil
             receipt("Handoff to " + peer.name + " could not be delivered.")
             return

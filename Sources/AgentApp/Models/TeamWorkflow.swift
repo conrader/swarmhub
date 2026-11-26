@@ -57,6 +57,35 @@ extension GroupChat {
     }
 }
 
+/// Move instructions to a file only when the workspace cannot fit them beside this turn.
+struct TeamWorkflowDelivery {
+    let text: String
+    var file: HerdrClient.TaskFile?
+
+    init(workflow: String, message: String, inlineLimit: Int, fileLimit: Int, occupiedNames: Set<String>) throws {
+        if workflow.isEmpty || (workflow + message).utf8.count <= inlineLimit {
+            try HerdrClient.validateMessage(message, limit: inlineLimit)
+            text = workflow + message
+            return
+        }
+        var name = "team-workflow.txt"
+        var suffix = 1
+        while occupiedNames.contains(name) {
+            suffix += 1
+            name = "team-workflow-\(suffix).txt"
+        }
+        let note = "Read the group instructions in " + name + " before answering."
+        let withMessage = note + "\n\n" + message
+        let includeMessage = withMessage.utf8.count > fileLimit
+        text = includeMessage ? "Read the group instructions and current task in " + name + "." : withMessage
+        try HerdrClient.validateMessage(text, limit: fileLimit)
+        let contents = includeMessage ? workflow + "\nCurrent task:\n" + message : workflow
+        let file = HerdrClient.TaskFile(name: name, mime: "text/plain", data: Data(contents.utf8), isWorkflow: true)
+        try HerdrClient.TaskFile.validate([file])
+        self.file = file
+    }
+}
+
 extension HerdrClient {
     struct WorkspaceSkill: Decodable, Identifiable {
         let id: Int

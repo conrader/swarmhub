@@ -428,11 +428,11 @@ extension AppStore {
     /// Puts a message the person did not write into `bot`'s chat, marked as passed on, and has its agent answer it: at
     /// once when the bot is idle, otherwise as its next message when the running answer ends.
     /// `extra`: what else the message carries (an exchange between bots: `HerdrBotRelay.ExchangeKey`).
-    @discardableResult func herdrPassOn(_ text: String, to bot: Bot, kind: String, asker: Bot, name: String?, extra: [String: String] = [:]) -> Bool {
+    @discardableResult func herdrPassOn(_ text: String, to bot: Bot, kind: String, asker: Bot, name: String?, extra: [String: String] = [:], attachments: [ChatAttachment] = []) -> Bool {
         var metadata = extra.merging([HerdrBotRelay.Key.kind: kind, HerdrBotRelay.Key.asker: asker.id.uuidString.lowercased()]) { _, own in own }
         metadata[HerdrBotRelay.Key.name] = name
-        if isIdle(bot) { return send(text: text, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true, metadata: metadata) }
-        let message = ChatMessage(role: .user, content: text, metadata: metadata)
+        if isIdle(bot) { return send(text: text, attachments: attachments, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true, metadata: metadata) }
+        let message = ChatMessage(role: .user, content: text, metadata: metadata, attachments: attachments)
         bot.messages.append(message)
         return waitForTurn(message, in: bot, reason: TurnWaitCopy.afterAnswer)
     }
