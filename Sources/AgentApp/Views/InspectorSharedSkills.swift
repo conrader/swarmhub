@@ -68,7 +68,7 @@ struct InspectorSharedSkills: View {
             }
         }
         if skills.count > 6 {
-            Button(expanded ? "Show fewer skills" : "Show \(skills.count - 6) more skills") { expanded.toggle() }
+            Button(expanded ? "Show fewer skills" : "Show \(skills.count - 6) more") { expanded.toggle() }
                 .buttonStyle(.link)
         }
         if library.hiddenCount > 0 {
