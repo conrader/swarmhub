@@ -124,6 +124,13 @@ print('Would print audit.')
         other_key, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
                                 (another["address"], another["created_ms"])).fetchone()
     command_reply(project, args, "deny", launch=other_key)
+    # A new session of the same bot, with a different runtime name, still owns its project rule.
+    reopened = request("/api/agents", {"name": "reopened", "template": "fixture", "task": "Start",
+                                       "workspace_id": owner}, status=201)
+    with sqlite3.connect(root / "workspace/workspace.sqlite3") as db:
+        reopened_key, = db.execute("SELECT launch_key FROM journal WHERE address=? AND created_ms=? AND launch_key IS NOT NULL",
+                                   (reopened["address"], reopened["created_ms"])).fetchone()
+    command_reply(project, args, launch=reopened_key)
     if chrome:
         browser("revoke-project-command")
     else:

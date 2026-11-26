@@ -9,7 +9,7 @@ CREATE TABLE project_command_rules (
     directory_id TEXT NOT NULL,
     command TEXT NOT NULL,
     timeout_ms INTEGER NOT NULL,
-    UNIQUE(core, bot, agent, provider, cwd, directory_id, command, timeout_ms)
+    UNIQUE(core, bot, provider, cwd, directory_id, command, timeout_ms)
 );
 PRAGMA user_version=75;
 COMMIT;

@@ -83,11 +83,23 @@ impl Command {
         {
             return None;
         }
-        let (core, bot, agent): (String, String, String) = history.db().ok()?.query_row(
-            "SELECT core_id,parent_bot_id,agent FROM journal WHERE launch_key=?1 AND parent_bot_id IS NOT NULL
-             AND NOT EXISTS (SELECT 1 FROM helpers WHERE launch=journal.id)", [launch],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        ).optional().ok()??;
+        let (core, bot, agent) = {
+            let db = history.db().ok()?;
+            let (core, owner, agent): (String, Option<String>, String) = db
+                .query_row(
+                    "SELECT core_id,parent_bot_id,agent FROM journal WHERE launch_key=?1
+                 AND NOT EXISTS (SELECT 1 FROM helpers WHERE launch=journal.id)",
+                    [launch],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()
+                .ok()??;
+            let bot = match owner {
+                Some(id) => id,
+                None => bots::of_agent(&db, &agent).ok()??.id,
+            };
+            (core, bot, agent)
+        };
         if !bots::valid_id(&bot) {
             return None;
         }
@@ -108,9 +120,21 @@ impl Command {
     }
 
     pub(crate) fn matching(&self, db: &Connection) -> rusqlite::Result<Option<i64>> {
-        db.query_row("SELECT id FROM project_command_rules WHERE core=?1 AND bot=?2 AND agent=?3 AND provider=?4
-            AND cwd=?5 AND directory_id=?6 AND command=?7 AND timeout_ms=?8",
-            params![self.core,self.bot,self.agent,self.provider,self.dir.path,self.dir.identity,self.command,self.timeout], |r| r.get(0)).optional()
+        db.query_row(
+            "SELECT id FROM project_command_rules WHERE core=?1 AND bot=?2 AND provider=?3
+            AND cwd=?4 AND directory_id=?5 AND command=?6 AND timeout_ms=?7",
+            params![
+                self.core,
+                self.bot,
+                self.provider,
+                self.dir.path,
+                self.dir.identity,
+                self.command,
+                self.timeout
+            ],
+            |r| r.get(0),
+        )
+        .optional()
     }
 
     pub(crate) fn save(&self, db: &Connection) -> rusqlite::Result<()> {

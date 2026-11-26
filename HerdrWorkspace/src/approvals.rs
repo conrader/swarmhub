@@ -439,8 +439,8 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     } else {
         Decision::Approve
     };
-    if command.is_some() && (automatic.is_some() || matches!(decision, Decision::RememberCommand)) {
-        let valid = command.as_ref().unwrap().unchanged().await && launch_live(&w, &launch).await;
+    if let Some(command) = &command && (automatic.is_some() || matches!(decision, Decision::RememberCommand)) {
+        let valid = command.unchanged().await && launch_live(&w, &launch).await;
         if !valid || (automatic.is_some() && command_match() != automatic) { decision = Decision::Terminal; }
     } else if let Some(rule) = automatic {
         if let (Some(read), Some(session)) = (read.as_ref(), session.as_deref()) {
