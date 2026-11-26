@@ -768,8 +768,8 @@ async fn start(
 pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/api/agents/{id}/{created}/helpers", get(list))
-        .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(native_threads::read_codex).post(native_threads::interrupt))
-        .route("/api/agents/{id}/{created}/opencode-threads/{thread}", get(native_threads::read_opencode))
+        .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(native_threads::read_codex).post(native_threads::interrupt_codex))
+        .route("/api/agents/{id}/{created}/opencode-threads/{thread}", get(native_threads::read_opencode).post(native_threads::interrupt_opencode))
         .route("/api/agents/{id}/{created}/claude-threads/{thread}", get(native_threads::read_claude))
         .merge(settings::routes())
         .merge(crate::bot_agent_settings::routes())

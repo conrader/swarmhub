@@ -1,3 +1,4 @@
+import { childControls } from "./child-control.js";
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 
@@ -59,15 +60,21 @@ function save(executable, data) {
 
 // Read child activity on a separate subscription so saving it cannot hold up a parent reply.
 export async function observeChildren(ctx, executable, signal) {
-  for await (const {data} of ctx.event.subscribe({types, signal})) {
-    try {
-      const session = await ctx.session.get({sessionID: data.sessionID});
-      if (!session?.parentID || !await belongsToRoot(ctx, session.parentID, process.env.SWARMHUB_OPENCODE_USAGE_ROOT)) continue;
-      const messages = await ctx.session.context({sessionID: session.id});
-      const value = snapshot(session, messages);
-      await save(executable, value).catch(() => save(executable, value));
-    } catch {
-      if (!signal.aborted) console.warn("SwarmHub could not record an OpenCode child activity update.");
+  const controls = childControls(ctx, process.env.SWARMHUB_LAUNCH_KEY);
+  signal.addEventListener("abort", () => controls.close(), { once: true });
+  try {
+    for await (const {type, data} of ctx.event.subscribe({types, signal})) {
+      try {
+        const session = await ctx.session.get({sessionID: data.sessionID});
+        if (!session?.parentID || !await belongsToRoot(ctx, session.parentID, process.env.SWARMHUB_OPENCODE_USAGE_ROOT)) continue;
+        const turn = await controls.observe(session, type === "session.execution.started").catch(() => null);
+        const messages = await ctx.session.context({sessionID: session.id});
+        const value = snapshot(session, messages);
+        value.active_turn = turn;
+        await save(executable, value).catch(() => save(executable, value));
+      } catch {
+        if (!signal.aborted) console.warn("SwarmHub could not record an OpenCode child activity update.");
+      }
     }
-  }
+  } finally { controls.close(); }
 }
