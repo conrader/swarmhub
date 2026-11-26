@@ -487,6 +487,7 @@ pub(super) fn run(
     mut mini: Command,
     handoff: Handoff,
     model: Option<String>,
+    capped: bool,
 ) -> io::Result<()> {
     let mut secret = [0; 32];
     if SystemRandom::new().fill(&mut secret).is_err() {
@@ -502,6 +503,11 @@ pub(super) fn run(
     // launch-scoped binding that stays alive as long as Mini, including across model changes.
     let usage_root = tempfile::NamedTempFile::new().ok();
     server.env(super::USAGE_ROOT, usage_root.as_ref().map_or(Path::new("/dev/null"), |file| file.path()));
+    // Do not attach Mini or send the first prompt until the server has installed
+    // the spending hooks. An ignored or incompatible plugin cannot run a paid turn.
+    let ready = if capped { Some(tempfile::NamedTempFile::new()?) } else { None };
+    server.env_remove("SWARMHUB_OPENCODE_CAP_READY");
+    if let Some(file) = &ready { server.env("SWARMHUB_OPENCODE_CAP_READY", file.path()); }
     let (_server, url) = start(server, &password)?;
     let client = std::thread::spawn(move || -> io::Result<()> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -510,6 +516,13 @@ pub(super) fn run(
         let session = runtime.block_on(create_session(&url, &password, model.as_deref()))?;
         if let Some(file) = &usage_root {
             let _ = fs::write(file.path(), &session.id);
+        }
+        if let Some(file) = &ready {
+            let _ = runtime.block_on(session.model_state(&password));
+            runtime.block_on(session.attention(&password))?;
+            if fs::read_to_string(file.path()).ok().as_deref() != Some(handoff.launch.as_str()) {
+                return Err(io::Error::other("OpenCode did not activate the session spending limit."));
+            }
         }
         let mut attached = Process(
             mini.args(["mini", "--server", url.as_str(), "--session", &session.id])

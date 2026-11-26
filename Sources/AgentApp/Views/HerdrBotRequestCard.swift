@@ -36,6 +36,7 @@ struct HerdrBotRequestCard: View {
                             BotAvatar(bot: bot, size: 30)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(bot.name).font(.callout.weight(.medium))
+                                if let cap = bot.sessionCapCents { Text(HerdrBotRequest.capLabel(cap)).font(.caption) }
                                 FoldedWords(text: bot.persona == Bot.defaultPersona ? "No special instructions." : bot.persona, name: "instructions")
                             }
                             Spacer()
@@ -60,6 +61,7 @@ struct HerdrBotRequestCard: View {
                                     Text([item.request.runtime, item.request.model ?? "Recommended model"].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                                     if let asker = item.askerID.flatMap({ id in store.bots.first { $0.id == id }?.name }) { Text("asked for by \(asker)").font(.caption).foregroundStyle(.secondary) }
                                 }
+                                if let cap = item.request.sessionCapCents { Text(HerdrBotRequest.capLabel(cap)).font(.caption) }
                                 if let reason = item.request.reviewReason {
                                     Label("Sensitive role", systemImage: "hand.raised").font(.caption.weight(.semibold)).foregroundStyle(AppColor.caution)
                                     Text(verbatim: reason).font(.callout).fixedSize(horizontal: false, vertical: true)

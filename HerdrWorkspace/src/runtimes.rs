@@ -201,6 +201,7 @@ pub struct Catalog {
 #[derive(Serialize)]
 pub struct Choice {
     supports_tool_review: bool,
+    supports_session_cap: bool,
     name: String,
     description: String,
     error: Option<&'static str>,
@@ -310,6 +311,7 @@ impl Catalog {
         let beta = matches!(runtime.harness.as_str(), GEMINI | "Antigravity CLI");
         Choice {
             supports_tool_review: supports_tool_review(&template.command),
+            supports_session_cap: crate::opencode_agent::first_task::OptIn::new(&template).is_some(),
             name: template.name,
             description: template.description,
             error,

@@ -54,6 +54,7 @@ struct HerdrServerMoveRecord {
 }
 
 enum HerdrMoveError: LocalizedError {
+    case sessionCapUnavailable
     case serversChanged, sameWorkspace, selectionChanged, aiUnavailable, undoUnavailable, undoBusy, mainChanged, saveFailed, toolReviewUnavailable
 
     var errorDescription: String? {
@@ -61,6 +62,7 @@ enum HerdrMoveError: LocalizedError {
         case .serversChanged: "A server changed while this sheet was open. Open Move Bots again to see the current servers."
         case .sameWorkspace: "Both connections lead to the same Herdr workspace. Choose another destination server."
         case .selectionChanged: "The selected bots changed. Review the bot list and try again."
+        case .sessionCapUnavailable: "Choose a standard OpenCode API template on a workspace that supports session spending limits."
         case .toolReviewUnavailable: "Choose a standard Claude template on a workspace that supports review before every tool call."
         case .aiUnavailable: "The selected AI or model is unavailable on the destination server. Go back and check the connection."
         case .undoUnavailable: "A moved bot’s settings changed. This move can no longer be undone as a group."
@@ -199,6 +201,7 @@ extension AppStore {
         do {
             for change in changes {
                 guard let bot = byID[change.botID] else { continue }
+                try await copySessionCap(for: bot, to: destinationClient, template: change.after.template, templates: templates)
                 var preference = bot.requiresToolReview
                 if workspace.templates.contains(where: { $0.supportsToolReview != nil }) {
                     preference = try await sourceClient.botAgentSettings(for: bot.id).reviewEveryTool ?? preference
@@ -255,15 +258,16 @@ extension AppStore {
         herdrMoveInProgress = true
         defer { herdrMoveInProgress = false }
         let beforeUndo = try validatedUndoTargets(for: record)
-        if beforeUndo.contains(where: { $0.0.requiresToolReview != nil }) {
+        if beforeUndo.contains(where: { $0.0.requiresToolReview != nil || $0.0.sessionCapCents != nil }) {
             let source = try herdrClient(for: record.source)
             let destination = try herdrClient(for: record.destination)
             let templates = try await source.workspace().templates
             let canRead = try await destination.workspace().templates.contains { $0.supportsToolReview != nil }
-            for (bot, change) in beforeUndo where bot.requiresToolReview != nil {
+            for (bot, change) in beforeUndo {
                 var current = bot.requiresToolReview
-                if canRead { current = try await destination.botAgentSettings(for: bot.id).reviewEveryTool ?? current }
+                if canRead && current != nil { current = try await destination.botAgentSettings(for: bot.id).reviewEveryTool ?? current }
                 let original = change.before.template.isEmpty ? herdrMoveDefault(in: templates)?.name : change.before.template
+                try await copySessionCap(for: bot, to: source, template: original, templates: templates)
                 try await copyToolReview(current, for: bot, to: source, template: original, templates: templates)
             }
         }
@@ -292,6 +296,14 @@ extension AppStore {
         }
         try await recoverRoutineMove(from: record.source, to: record.destination)
         objectWillChange.send()
+    }
+
+    private func copySessionCap(for bot: Bot, to client: HerdrClient, template: String?, templates: [HerdrClient.Template]) async throws {
+        guard let cap = bot.sessionCapCents else { return }
+        let target = templates.first { $0.name == template && $0.error == nil }
+        guard target?.supportsSessionCap == true, try await client.setSessionCap(cap, for: bot.id).sessionCapCents == cap else {
+            throw HerdrMoveError.sessionCapUnavailable
+        }
     }
 
     private func copyToolReview(_ preference: Bool?, for bot: Bot, to client: HerdrClient,

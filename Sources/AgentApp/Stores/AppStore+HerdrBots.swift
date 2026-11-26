@@ -138,7 +138,7 @@ extension AppStore {
     /// otherwise the new bot runs like the main bot. Called when the person presses Create, or for a request the main
     /// bot decided itself (`settleHerdrReply`).
     @discardableResult func createHerdrBot(_ pending: PendingHerdrBot, manager: Bot, templates: [HerdrClient.Template] = [],
-                                           offered: [HerdrClient.Template.Model] = [], byPerson: Bool = true, reviewedLaunch: (id: UUID, template: HerdrClient.Template)? = nil) -> Bot? {
+                                           offered: [HerdrClient.Template.Model] = [], byPerson: Bool = true, reviewedLaunch: (id: UUID, template: HerdrClient.Template)? = nil, confirmedCapID: UUID? = nil) -> Bot? {
         let handled = defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? []
         guard createsHerdrBots(manager), !handled.contains(pending.id) else { return nil }
         if pending.request.reviewReason == nil, hasRoleReview(for: pending, manager: manager) { return nil }
@@ -156,6 +156,10 @@ extension AppStore {
         let template = reviewedLaunch?.template ?? proposed
         let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
         let effective = template ?? inherited
+        if let cents = request.sessionCapCents {
+            guard cents > 0, confirmedCapID != nil, effective?.supportsSessionCap == true,
+                  reviewedLaunch == nil else { return nil }
+        }
         if let runtime = request.runtime, template == nil {
             presentError("Couldn’t find the requested agent \(runtime) on \(server.name). Check its setup or ask for another agent.", reason: .setup, bot: manager)
             return nil
@@ -171,7 +175,8 @@ extension AppStore {
                 return nil
             }
         }
-        let bot = Bot(id: reviewedLaunch?.id ?? UUID(), name: request.name, title: "Created by \(manager.name)", persona: request.instructions.isEmpty ? Bot.defaultPersona : request.instructions, backend: .herdr)
+        let bot = Bot(id: reviewedLaunch?.id ?? confirmedCapID ?? UUID(), name: request.name, title: "Created by \(manager.name)", persona: request.instructions.isEmpty ? Bot.defaultPersona : request.instructions, backend: .herdr)
+        bot.sessionCapCents = request.sessionCapCents
         if reviewedLaunch != nil { bot.requiresToolReview = true }
         if request.shape != nil || request.colour != nil {
             bot.avatarMark = AvatarLook.effectiveMark(shape: request.shape, colour: request.colour, seed: bot.avatarSeed); bot.avatarMarkMigrated = false
@@ -191,13 +196,22 @@ extension AppStore {
         var templates: [HerdrClient.Template] = [], offered: [HerdrClient.Template.Model] = []
         var reviewedLaunch: (id: UUID, template: HerdrClient.Template)?
         let server = herdrServer(for: manager)
+        var confirmedCapID: UUID?
+        let cap = pending.request.sessionCapCents
         let flagged = pending.request.reviewReason != nil
-        if flagged || pending.request.runtime != nil || pending.request.model != nil {
+        if flagged || cap != nil || pending.request.runtime != nil || pending.request.model != nil {
             do {
                 let client = try herdrClient(for: server)
                 templates = try await client.workspace().templates.filter { $0.error == nil }
                 let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
                 let proposed = HerdrBotRequest.template(for: pending.request.runtime, in: templates) ?? inherited
+                if let cap {
+                    guard cap > 0, !flagged, proposed?.supportsSessionCap == true else { throw HerdrMoveError.sessionCapUnavailable }
+                    let digest = SHA256.hash(data: Data(("swarmhub-capped-bot:" + pending.id).utf8))
+                    let id = digest.withUnsafeBytes { UUID(uuid: $0.loadUnaligned(as: uuid_t.self)) }
+                    guard try await client.setSessionCap(cap, for: id).sessionCapCents == cap else { throw HerdrMoveError.sessionCapUnavailable }
+                    confirmedCapID = id
+                }
                 if flagged {
                     guard byPerson, let template = (proposed?.supportsToolReview == true ? proposed : templates.first { $0.supportsToolReview == true }) else {
                         throw HerdrMoveError.toolReviewUnavailable
@@ -215,6 +229,10 @@ extension AppStore {
                     offered = (try? await client.models(for: template)) ?? template.models ?? []
                 }
             } catch {
+                if cap != nil {
+                    presentError("Couldn’t set the session limit on \(server.name). \(error.localizedDescription)", reason: .setup, bot: manager)
+                    return nil
+                }
                 if flagged {
                     presentError("Couldn’t check tool approval settings on \(server.name). \(error.localizedDescription)", reason: .setup, bot: manager)
                     return nil
@@ -222,7 +240,7 @@ extension AppStore {
             }
         }
         guard server == herdrServer(for: manager) else { return nil }
-        let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered, byPerson: byPerson, reviewedLaunch: reviewedLaunch)
+        let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered, byPerson: byPerson, reviewedLaunch: reviewedLaunch, confirmedCapID: confirmedCapID)
         if byPerson, let bot { tellHerdrAsker(of: pending, HerdrBotRelay.decision(.created(bot.name), main: manager.name)) }
         return bot
     }
@@ -305,7 +323,7 @@ extension AppStore {
             }
             let waiting = herdrRequests(in: reply, of: bot, askerID: herdrAsker(of: request)?.id)
             let existing = Set(bot.pendingRoleReviews.map(\.id))
-            let reviews = waiting.filter { $0.request.reviewReason != nil && !existing.contains($0.id) }
+            let reviews = waiting.filter { ($0.request.reviewReason != nil || $0.request.sessionCapCents != nil) && !existing.contains($0.id) }
             if !reviews.isEmpty { bot.pendingRoleReviews += reviews; save() }
             herdrSettling.formUnion(waiting.map(\.id))
             Task { await settleHerdrReply(text, main: bot, waiting: waiting, request: request) }
@@ -319,7 +337,12 @@ extension AppStore {
     }
 
     private func hasRoleReview(for pending: PendingHerdrBot, manager: Bot) -> Bool {
-        manager.pendingRoleReviews.contains { $0.request.name.caseInsensitiveCompare(pending.request.name) == .orderedSame }
+        manager.pendingRoleReviews.contains { saved in
+            guard saved.request.name.caseInsensitiveCompare(pending.request.name) == .orderedSame else { return false }
+            if saved.request.reviewReason != nil { return true }
+            guard let cap = saved.request.sessionCapCents else { return false }
+            return pending.request.sessionCapCents.map { $0 > cap } ?? true
+        }
     }
 
     private func mayCreateWithoutReview(_ pending: PendingHerdrBot, manager: Bot) -> Bool {

@@ -76,7 +76,13 @@ struct BotRow: View {
         // Sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
             // An agent that waits at a question says so, whatever its last message was.
-            bot.isDemo ? SimpleCopy.sampleLabel : !answering && store.herdrPrompts[bot.id] != nil ? HerdrPrompt.sidebar : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: answering,
+            if let cap = bot.sessionCapCents, !answering, !attention, !bot.isUnread, (drafts.texts[bot.id] ?? "").isEmpty {
+                if let usage = store.herdrPresence(for: bot)?.usage?.estimatedCost {
+                    return usage + " / " + (Decimal(cap) / 100).formatted(.currency(code: "USD")) + " cap"
+                }
+                return HerdrBotRequest.capLabel(cap)
+            }
+            return bot.isDemo ? SimpleCopy.sampleLabel : !answering && store.herdrPrompts[bot.id] != nil ? HerdrPrompt.sidebar : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: answering,
                                                                        archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
         }
         Button { store.open(bot) } label: {
