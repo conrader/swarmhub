@@ -83,6 +83,15 @@ pub(super) fn forwarded_resource(path: &str, headers: &HeaderMap) -> bool {
     if !matches!(name, "127.0.0.1" | "localhost") || !port.parse::<u16>().is_ok_and(|p| p > 0 && p.to_string() == port) {
         return false;
     }
+    // WebKit GETs through a forwarded port carry that port as Host. Only the
+    // observer's geometry read is eligible. The API still requires its bearer token.
+    if let Some(agent) = path.strip_prefix("/api/agents/").and_then(|s| s.strip_suffix("/geometry"))
+        && let Some((address, created)) = agent.rsplit_once('/')
+        && !address.is_empty() && !address.contains('/') && created.parse::<u64>().is_ok()
+    {
+        return headers.get("x-swarmhub-terminal-preview").is_some_and(|v| v == "1")
+            && headers.get(header::ORIGIN).is_none_or(|v| v == format!("http://{host}").as_str());
+    }
     if path.starts_with("/attach/") {
         return headers.get(header::ORIGIN).is_some_and(|v| v == format!("http://{host}").as_str());
     }
@@ -97,6 +106,9 @@ fn forwarded_terminal_accepts_its_assets_and_same_origin_attach() {
     headers.insert(header::HOST, "127.0.0.1:49152".parse().unwrap());
     assert!(forwarded_resource("/chat-terminal", &headers));
     assert!(forwarded_resource("/vendor/xterm.js", &headers));
+    assert!(!forwarded_resource("/api/agents/t1/5/geometry", &headers));
+    headers.insert("x-swarmhub-terminal-preview", "1".parse().unwrap());
+    assert!(forwarded_resource("/api/agents/t1/5/geometry", &headers));
     assert!(!forwarded_resource("/api/approvals", &headers));
     assert!(!forwarded_resource("/attach/t1/5", &headers));
     headers.insert(header::ORIGIN, "http://127.0.0.1:8787".parse().unwrap());

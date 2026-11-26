@@ -34,7 +34,7 @@ window.openTerminalPreview = (address, created, token, expectedCore) => {
   let announcedEnd = false;
   async function refreshGeometry() {
     try {
-      const result = await fetch("/api/agents/" + path + "/geometry", {headers: {Authorization: "Bearer " + token}});
+      const result = await fetch("/api/agents/" + path + "/geometry", {headers: {Authorization: "Bearer " + token, "X-SwarmHub-Terminal-Preview": "1"}});
       if (result.ok && watching) {
         const geometry = await result.json();
         size(geometry.cols, geometry.rows);

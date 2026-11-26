@@ -1033,7 +1033,12 @@ def live_terminals(source_app):
                     def displayed():
                         return sheet() and any(str(attribute(e, "AXValue") or "").replace("\n", "").startswith(route + " line ")
                                                for e in descendants(sheet())) and screens.count(route) >= updates
-                    wait_for("output from " + route, displayed)
+                    try:
+                        wait_for("output from " + route, displayed)
+                    except RuntimeError:
+                        print("Preview contents", [(attribute(e, "AXRole"), label(e), str(attribute(e, "AXValue"))[:160])
+                                                   for e in descendants(sheet())][-32:], "reads", screens[-5:], flush=True)
+                        raise
 
                 for title, route in [("Patch", "/api/agents/terminal0/100/output"),
                                      ("HelperQA", "/api/agents/terminal1/101/output"),
