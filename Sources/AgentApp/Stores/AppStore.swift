@@ -53,6 +53,7 @@ import UserNotifications
     @Published var herdrHelperReads: [HerdrHelperParent: HerdrHelperRead] = [:]
     @Published var helperRosters: [String: HerdrHelperRoster] = [:]
     @Published var helperGroupNames: [HerdrHelperParent: String] = [:]
+    var archivedHelperRevisions: [HerdrHelperParent: Int64] = [:]
     var helperListingFailures: [HerdrHelperParent: Int] = [:]
     var cachedServerList: (json: String?, legacy: String?, servers: [HerdrServer])?
     var teamPolling: Task<Void, Never>?

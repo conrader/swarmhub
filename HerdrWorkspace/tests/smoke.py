@@ -1862,6 +1862,17 @@ def smoke(hc, bridge, chrome=None):
                     roster = request("/api/workspace?codejobs=true")
                     assert {"address": direct["address"], "created_ms": direct["created_ms"]} in roster["helper_session_parents"]
                     assert "Launch model=chat-model" in request(f"/api/agents/{direct['address']}/{direct['created_ms']}/output")["text"]
+                    parent_ref = {"address": direct["address"], "created_ms": direct["created_ms"]}
+                    assert all(item["session"] != parent_ref for item in roster["archived_helper_parents"])
+                    request(f"/api/agents/{direct['address']}/{direct['created_ms']}/end", {})
+                    def ended_parent():
+                        current = request("/api/workspace?codejobs=true")
+                        return next((item for item in current["archived_helper_parents"] if item["session"] == parent_ref), None)
+                    archived_owner = until(ended_parent)
+                    assert archived_owner["agent"] == "direct" and archived_owner["core"] == roster["core"]
+                    saved = request(route + "?core=" + urllib.parse.quote(roster["core"]))
+                    assert {identity(h) for h in saved["recent_sessions"] + ([saved["last_result"]] if saved.get("last_result") else [])} == {identity(first_helper), identity(second_helper)}
+                    request(route + "?core=unrelated", status=404)
                     return
                 assert b"SwarmHub" in request("/", authorized=False)
                 request("/api/workspace", status=401, authorized=False)

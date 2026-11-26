@@ -753,7 +753,8 @@ async fn workspace_state(State(w): State<Workspace>, Query(query): Query<Workspa
     }
     let parents = helpers::parents(&w.history, &hello.core.id, &agents)?;
     let session_parents = if query.codejobs {
-        Some(helpers::session_parents(&w.history, &hello.core.id, &agents)?)
+        Some((helpers::session_parents(&w.history, &hello.core.id, &agents)?,
+              helpers::archived_parents(&w.history, &hello.core.id, &agents)?))
     } else { None };
     let agents: Vec<_> = agents
         .iter()
@@ -777,8 +778,9 @@ async fn workspace_state(State(w): State<Workspace>, Query(query): Query<Workspa
                "attachments":hello.supports("terminal.put"),"terminal_preview":true,"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"codex_turn_steer":true,"helper_results":true,"end_if_idle":true,
                "workspace_root":core::bot_workspace_root().ok().flatten(),"terminal_attach":hello.supports("terminal.attach"),
                "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)});
-    if let Some(session_parents) = session_parents {
+    if let Some((session_parents, archived_helper_parents)) = session_parents {
         roster["helper_session_parents"] = json!(session_parents);
+        roster["archived_helper_parents"] = json!(archived_helper_parents);
         roster["codejob_activity"] = json!(codejob_activity::snapshot(&w.core, hello.supports("machine.exec")).await);
     }
     Ok(Json(roster))

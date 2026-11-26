@@ -16,7 +16,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::get,
 };
 use policy::{Difficulty, Policy, Tier, Unusable};
@@ -40,7 +40,7 @@ mod settings;
 mod spool;
 
 use record::{Admitted, RECENT_LAUNCHES, View, Wanted, admit, list_text, one_line, read_text, views};
-pub(crate) use record::{ParentRef, parents, session_parents};
+pub(crate) use record::{ParentRef, archived_parents, parents, session_parents};
 pub(crate) use spool::{ENV as SPOOL_ENV, directory as spool_directory};
 
 #[cfg(test)]
@@ -765,18 +765,24 @@ pub fn routes() -> Router<Workspace> {
         .merge(crate::bot_agent_settings::routes())
 }
 
+#[derive(Deserialize)]
+struct ListingQuery { core: Option<String> }
+
 async fn list(
     State(w): State<Workspace>,
     Path((id, created)): Path<(String, u64)>,
+    Query(query): Query<ListingQuery>,
 ) -> Result<Json<Listing>, ApiError> {
-    let core_id = w.core.identify().await?.core.id;
+    let current = w.core.identify().await?.core.id;
+    let core_id = query.core.unwrap_or_else(|| current.clone());
     let key = crate::live_reply::launch_key(&w.history, &core_id, &id, created)?
         .ok_or(Failure::Missing)?;
     let parent = ParentRef {
         address: id,
         created_ms: created,
     };
-    Ok(Json(listing(&w, core_id, &key, parent).await?))
+    let same_core = current == core_id;
+    Ok(Json(listing(&w, core_id, &key, parent, same_core).await?))
 }
 
 /// The running helpers of the agent with this launch key: what `GET …/helpers` answers and what an event
@@ -786,6 +792,7 @@ pub(crate) async fn listing(
     core_id: String,
     key: &str,
     parent: ParentRef,
+    current_core: bool,
 ) -> Result<Listing, ApiError> {
     // An agent that never started a helper has none running: no need to ask Core for its terminals.
     let any: bool = w
@@ -798,7 +805,7 @@ pub(crate) async fn listing(
         )
         .map_err(StoreError::from)?;
     let mut helpers = if any {
-        let agents = w.core.agents().await?;
+        let agents = if current_core { w.core.agents().await? } else { Vec::new() };
         views(&w.history, &core_id, key, &agents, LIST_REPLY_CHARS, 0)?
     } else {
         Vec::new()

@@ -51,13 +51,13 @@ extension AppStore {
         guard selection.botID == parent.id, selection.helperID == helper.id, bots.contains(parent) else { throw CancellationError() }
         if let existing = promotedBot(for: helper.ref, core: core, parent: parent) { return existing }
         guard persistenceEnabled, storeRestoreOffer == nil, let list = herdrHelpers[selection.parent], list.core == core,
-              list.inChat.contains(where: { $0.ref == helper.ref }) else {
+              list.sidebarSessions.contains(where: { $0.ref == helper.ref }) else {
             throw BackendError.unavailable("Reopen this helper from its parent chat to promote it.")
         }
         let client = try herdrClient(for: server)
-        let fresh = try await client.helpers(of: list.parent)
+        let fresh = try await client.helpers(of: list.parent, core: selection.archive == nil ? nil : core)
         guard fresh.core == core, fresh.parent == list.parent,
-              let source = fresh.inChat.first(where: { $0.ref == helper.ref }) else {
+              let source = fresh.sidebarSessions.first(where: { $0.ref == helper.ref }) else {
             throw BackendError.unavailable("The workspace could not confirm this helper’s identity.")
         }
         let rows = try await client.helperConversation(source.ref, core: core)

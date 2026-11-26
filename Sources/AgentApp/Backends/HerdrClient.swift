@@ -137,6 +137,7 @@ struct HerdrClient: Sendable {
         var endIfIdle: Bool? = nil
         var helperResults: Bool? = nil
         var helperSessionParents: [AgentRef]? = nil
+        var archivedHelperParents: [ArchivedHelperParent]? = nil
         var codexTurnSteer: Bool? = nil
         var launchAttachments: Bool? = nil
         func launchTemplate(named name: String?) -> Template? {
