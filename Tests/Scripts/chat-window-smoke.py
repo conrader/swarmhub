@@ -1526,6 +1526,11 @@ def team_inspector(source_app, appearance):
     exchange = dict(id=7, kind="ask", state="answered", text="Verified three changes for the release.",
                     **{"from": {"name": "Patch"}, "to": {"name": "Scout"}})
 
+    catalog_online = False
+    catalog_reads = []
+    catalog = [dict(id=1, name="Shop", machine="web-1", folder="/srv/shop", note=""),
+               dict(id=2, name="Docs", machine="local", folder="/code/docs", note="")]
+
     class Team(BaseHTTPRequestHandler):
         def do_GET(self):
             parts = self.path.split("/")
@@ -1533,6 +1538,14 @@ def team_inspector(source_app, appearance):
             if self.headers.get("Authorization") == "Bearer " + token:
                 if self.path.split("?")[0] == "/api/workspace":
                     body = dict(core="qa", agents=[], templates=[])
+                elif self.path == "/api/machines":
+                    body = dict(machines=[])
+                elif self.path == "/api/projects":
+                    catalog_reads.append(catalog_online)
+                    if not catalog_online:
+                        self.send_error(503)
+                        return
+                    body = dict(projects=catalog)
                 elif len(parts) == 5 and parts[2] == "bots" and parts[3] in owners:
                     patch = owners[parts[3]] == "Patch"
                     body = {"exchanges": {"exchanges": []},
@@ -1566,7 +1579,10 @@ def team_inspector(source_app, appearance):
         preferences = home / "Library/Preferences"
         preferences.mkdir(exist_ok=True, parents=True)
         domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
-        (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({"appearance": appearance}))
+        (preferences / (domain + ".plist")).write_bytes(plistlib.dumps({
+            "appearance": appearance,
+            "herdrProjects." + bots[0]["id"].lower(): json.dumps([dict(id=1, machine="web-1", name="Shop")]).encode()
+        }))
         bots[0]["messages"] = [dict(id=str(uuid.uuid4()), role=role, content=text, createdAt=800000010 + index)
                                for index, (role, text) in enumerate((
                                    ("user", "Check the changes in this release with Scout."),
@@ -1585,6 +1601,23 @@ def team_inspector(source_app, appearance):
                 size = ax.AXValueCreate(ax.kAXValueCGSizeType, Quartz.CGSizeMake(980, 620))
                 assert ax.AXUIElementSetAttributeValue(w, "AXSize", size) == 0
                 open_detail_section(w, "Overview")
+                wait_for("saved project after a failed catalog read", lambda: False in catalog_reads and element("web-1 · Shop"))
+                catalog_online = True
+                open_detail_section(w, "Approvals")
+                open_detail_section(w, "Overview")
+                wait_for("selected folder after catalog recovery", lambda: element("web-1 · /srv/shop"))
+                assert not element("local · /code/docs")
+                press(w, "Edit bot projects")
+                toggle = lambda: next((e for e in descendants(w) if label(e) == "Patch may use Docs"), None)
+                wait_for("Docs project switch", toggle)
+                assert ax.AXUIElementPerformAction(toggle(), "AXPress") == 0
+                press(w, "Finish editing projects")
+                wait_for("new project beside original assignment", lambda: element("local · /code/docs") and element("web-1 · /srv/shop"))
+                press(w, "Scout", sidebar=True)
+                wait_for("Scout’s empty assignment list", lambda: element("No projects selected"))
+                assert not element("local · /code/docs")
+                press(w, "Patch", sidebar=True)
+                wait_for("Patch’s restored projects", lambda: element("web-1 · /srv/shop") and element("local · /code/docs"))
                 primary = [element(title) for title in ("Overview", "Approvals", "Routines")]
                 positions = [ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1] for e in primary]
                 assert max(p.y for p in positions) - min(p.y for p in positions) <= 1

@@ -306,7 +306,7 @@ private struct HerdrProjectsBody: View {
             }
         }
         .confirmationDialog("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
-            Button("Remove", role: .destructive) { if let project = removing { Task { await model.removeProject(project); store.reconcileHerdrProjects(on: server, with: model.projects) } } }
+            Button("Remove", role: .destructive) { if let project = removing { Task { if let catalog = await model.removeProject(project) { store.reconcileHerdrProjects(on: server, with: catalog) } } } }
         } message: { Text("No bot can use it any more. The folder itself is not touched.") }
         if !model.machines.isEmpty {
             Text("\(HerdrProjectsCopy.consequence) \(HerdrProjectsCopy.notIsolation)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -314,8 +314,7 @@ private struct HerdrProjectsBody: View {
     }
 
     private func load() async {
-        await model.load()
-        if model.phase == .ready { store.reconcileHerdrProjects(on: server, with: model.projects) }
+        if let catalog = await model.load() { store.reconcileHerdrProjects(on: server, with: catalog) }
     }
 }
 
@@ -339,6 +338,7 @@ private struct HerdrBotProjectsBody: View {
     @ObservedObject var bot: Bot
     let quietWhenEmpty: Bool
     @State private var note = ""
+    @State private var editing = false
 
     var body: some View {
         let chosen = store.herdrProjects(for: bot), server = store.herdrServer(for: bot)
@@ -347,29 +347,58 @@ private struct HerdrBotProjectsBody: View {
                 if !quietWhenEmpty {
                     SettingBlock(title: HerdrProjectsCopy.botTitle, detail: model.phase == .reading ? "Checking…" : HerdrProjectsCopy.botNone) { EmptyView() }
                 }
-            } else {
-                SettingBlock(title: HerdrProjectsCopy.botTitle, detail: HerdrProjectsCopy.consequence(bot.name)) {
-                    ForEach(model.projects) { project in
-                        let on = chosen.contains { $0.id == project.id }
-                        HerdrProjectCard(project: project, selected: on) {
-                            Toggle("\(bot.name) may use \(project.name)", isOn: Binding(get: { on }, set: { set(project, $0) })).labelsHidden().toggleStyle(.appleSwitch).controlSize(.small)
-                                .accessibilityLabel("\(bot.name) may use \(project.name)")
+            } else if quietWhenEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Divider()
+                    HStack {
+                        Text("Projects").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Spacer()
+                        if !model.projects.isEmpty {
+                            Button(editing ? "Done" : "Edit") { editing.toggle() }
+                                .buttonStyle(.link).accessibilityLabel(editing ? "Finish editing projects" : "Edit bot projects")
                         }
                     }
-                    // A project the server no longer lists stays visible until the list is read again.
-                    ForEach(chosen.filter { kept in !model.projects.contains { $0.id == kept.id } }) { kept in
-                        if model.phase != .ready { Text(kept.label).font(.callout).foregroundStyle(.secondary) }
+                    if editing {
+                        choices(chosen)
+                    } else if chosen.isEmpty {
+                        Text("No projects selected").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(chosen) { kept in
+                            let folder = model.projects.first { $0.id == kept.id }?.folder
+                            let label = kept.machine + " · " + (folder ?? kept.name)
+                            Text(verbatim: label).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                                .padding(.horizontal, 6).padding(.vertical, 3)
+                                .background(AppColor.selection, in: RoundedRectangle(cornerRadius: 4))
+                                .help(label).accessibilityLabel(label)
+                        }
                     }
-                    if !note.isEmpty { Text(note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                }
+            } else {
+                SettingBlock(title: HerdrProjectsCopy.botTitle, detail: HerdrProjectsCopy.consequence(bot.name)) {
+                    choices(chosen)
                 }
             }
         }
         // Only the real app reads on its own; a preview or test store shows what it was given.
-        .task(id: server.id) {
+        .task(id: server) {
             guard store.launchWorkEnabled else { return }
-            await model.load()
-            if model.phase == .ready { store.reconcileHerdrProjects(on: server, with: model.projects) }
+            if let catalog = await model.load() { store.reconcileHerdrProjects(on: server, with: catalog) }
         }
+    }
+
+    @ViewBuilder private func choices(_ chosen: [HerdrBotProject]) -> some View {
+        ForEach(model.projects) { project in
+            let on = chosen.contains { $0.id == project.id }
+            HerdrProjectCard(project: project, selected: on) {
+                Toggle("\(bot.name) may use \(project.name)", isOn: Binding(get: { on }, set: { set(project, $0) })).labelsHidden().toggleStyle(.appleSwitch).controlSize(.small)
+                    .accessibilityLabel("\(bot.name) may use \(project.name)")
+            }
+        }
+        // A project the server no longer lists stays visible until the list is read again.
+        ForEach(chosen.filter { kept in !model.projects.contains { $0.id == kept.id } }) { kept in
+            Text(kept.label).font(.callout).foregroundStyle(.secondary)
+        }
+        if !note.isEmpty { Text(note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
     }
 
     private func set(_ project: HerdrProject, _ on: Bool) {

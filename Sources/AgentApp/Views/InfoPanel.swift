@@ -106,7 +106,7 @@ struct InfoPanel: View {
             if bot.backend == .herdr {
                 Divider()
                 BotUsageOverview(bot: bot).id(bot.id)
-                HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
+                HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true).id(bot.id)
                 HerdrOverviewSection(bot: bot)
                 Button("Team activity", systemImage: AgentInfoTab.team.symbol) { store.openInfoTab(.team) }
                 HerdrActiveHelpersSection()
