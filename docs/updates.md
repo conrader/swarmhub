@@ -100,7 +100,7 @@ Build the release on the Mac that holds the keys. A local Terminal or an SSH ses
 
 1. In `Resources/Info.plist`, set `CFBundleShortVersionString` and raise `CFBundleVersion`. Sparkle compares the build number, so it must go up every time.
 2. If the workspace server changed, raise `version` in `HerdrWorkspace/Cargo.toml` (and the same line in `Cargo.lock`). Raise `API` in `HerdrWorkspace/src/update.rs` and `HerdrCompatibility.level` in the app together when the app needs to know about the change.
-3. Write `docs/releases/v<version>.md`: what changed, in plain words. This is what people read in the update window.
+3. Write `docs/releases/v<version>.md`: what changed, in plain words. This file also appears in Settings → What’s New. If an unpublished candidate is superseded, move its notes to `docs/release-candidates/` before preparing the next release. Keep the shipped changes in the published version’s notes.
 4. Run the checks: `swift test`, `bash Tests/Scripts/pysuites.sh . /tmp/pysuites`, and in `HerdrWorkspace` `cargo test` and `python3 tests/update_smoke.py "$(command -v hc)"`.
 5. Commit.
 6. For a new workspace server, a release carries three programs. `./scripts/package-workspace.sh` builds them and puts each in `dist/workspace` beside a small file that describes it (its fragment):
