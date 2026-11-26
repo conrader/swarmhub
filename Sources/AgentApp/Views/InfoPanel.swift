@@ -25,6 +25,7 @@ struct InfoPanel: View {
                         store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target))
                     }.controlSize(.small).accessibilityLabel("Show terminal in Details")
                 }
+                MoreInfoSections(tabs: Array(store.infoTabs(for: bot).dropFirst(3)), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
                 Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }
                     .buttonStyle(.plain).help("Close").accessibilityLabel("Close")

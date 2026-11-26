@@ -22,7 +22,7 @@ import Testing
     let scroll = try #require(descendants(host, of: NSScrollView.self).first)
     let document = try #require(scroll.documentView)
     let viewport = scroll.convert(scroll.bounds, to: host)
-    try #require(host.bounds.height - viewport.height > 150, "The fixed header should include the tabs and bot identity")
+    try #require(host.bounds.height - viewport.height > 120, "The fixed header should include the tabs and bot identity")
     let previewHeight = document.frame.height
     let initialButtons = descendants(document, of: NSButton.self).count
 

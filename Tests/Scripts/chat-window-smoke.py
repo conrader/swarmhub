@@ -48,6 +48,25 @@ def press(window, title, sidebar=False):
     raise RuntimeError(f"Button unavailable: {title}")
 
 
+def open_detail_section(window, name):
+    def button(title):
+        return next((b for b in buttons(window) if label(b) == title), None)
+    if not button("Overview"):
+        press(window, "Details")
+        wait_for("Details sections", lambda: button("Overview"))
+    if button(name):
+        press(window, name)
+        return
+    press(window, "More Details sections")
+    application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
+    def item():
+        return next((b for w in attribute(application, "AXWindows") or [] for b in buttons(w)
+                     if label(b) == name), None)
+    wait_for("section " + name, item)
+    assert ax.AXUIElementPerformAction(item(), "AXPress") == 0
+    wait_for("selected section " + name, lambda: attribute(button("More Details sections"), "AXValue") == name)
+
+
 def enter_draft(field, text):
     if field is None or ax.AXUIElementSetAttributeValue(field, "AXFocused", True) != 0:
         raise RuntimeError("Could not focus the composer")
@@ -684,9 +703,7 @@ def workspace_pages(source_app, service_binary):
 
                 wait_for("Page author", lambda: button(window, "PagesQA,"))
                 press(window, "PagesQA", sidebar=True)
-                if not button(window, "Media"):
-                    press(window, "Details")
-                press(window, "Media")
+                open_detail_section(window, "Media")
                 click(window, "Browse published Pages")
                 media_library = panel("bot workspace library", lambda s: has_text(s, "Published Pages"))
                 click(media_library, other["title"])
@@ -1564,9 +1581,13 @@ def team_inspector(source_app, appearance):
 
                 wait_for("Patch sidebar row", lambda: any(label(b).startswith("Patch,") for b in buttons(w)))
                 press(w, "Patch", sidebar=True)
-                if not element("Team"):
-                    press(w, "Details")
-                press(w, "Team")
+                open_detail_section(w, "Overview")
+                primary = [element(title) for title in ("Overview", "Approvals", "Routines")]
+                positions = [ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1] for e in primary]
+                assert max(p.y for p in positions) - min(p.y for p in positions) <= 1
+                assert positions[0].x < positions[1].x < positions[2].x
+                for name in ("Approvals", "Routines", "Model", "Skills", "Media", "Team"):
+                    open_detail_section(w, name)
                 import Quartz
                 size = ax.AXValueCreate(ax.kAXValueCGSizeType, Quartz.CGSizeMake(980, 620))
                 assert ax.AXUIElementSetAttributeValue(w, "AXSize", size) == 0
@@ -1576,7 +1597,7 @@ def team_inspector(source_app, appearance):
                     width = ax.AXValueGetValue(attribute(e, "AXSize"), ax.kAXValueCGSizeType, None)[1].width
                     return x + width
 
-                assert right_edge(element("Media")) <= right_edge(w) and right_edge(element("Close")) <= right_edge(w)
+                assert right_edge(element("More Details sections")) <= right_edge(w) and right_edge(element("Close")) <= right_edge(w)
                 wait_for("completed exchange", lambda: element("Recent exchanges"))
                 disclosure = next(e for e in descendants(w) if "Patch → Scout" in label(e))
                 assert ax.AXUIElementPerformAction(disclosure, "AXPress") == 0

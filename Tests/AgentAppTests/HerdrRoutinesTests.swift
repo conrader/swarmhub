@@ -35,17 +35,7 @@ import Testing
         renderer.scale = 3
         let image = try #require(renderer.cgImage)
         #expect(image.width == 900)
-        let bitmap = NSBitmapImageRep(cgImage: image)
-        let middle = bitmap.pixelsHigh / 2
-        // The top row contains three primary tabs. The bottom row contains the four secondary tabs.
-        for (band, count) in [(0..<middle, 3), (middle..<bitmap.pixelsHigh, 4)] {
-            let inkedColumns = (0..<bitmap.pixelsWide).filter { x in
-                band.contains { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 }
-            }
-            let gutters = zip(inkedColumns, inkedColumns.dropFirst()).count { $1 - $0 > 18 }
-            #expect(gutters == count - 1)
-            #expect((inkedColumns.first ?? 0) >= 18 && (inkedColumns.last ?? image.width) < image.width - 18)
-        }
+        #expect(image.height <= 44 * 3, "The primary section strip should fit one row")
     }
 
     @Test func decodesServerSchedulesAndSummaries() throws {
