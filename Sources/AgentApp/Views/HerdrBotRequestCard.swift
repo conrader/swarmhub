@@ -15,11 +15,13 @@ struct HerdrMainBotStar: View {
 /// nothing of those is created until Create is pressed, and a name already on the server can only be dismissed.
 struct HerdrBotRequestCard: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var manager: Bot
+    var showsCreatedBots = true
     @State private var creating: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let pending = store.pendingHerdrBots(for: manager), unasked = store.herdrUnaskedBots(of: manager)
+        let pending = store.pendingHerdrBots(for: manager)
+        let unasked = showsCreatedBots ? store.herdrUnaskedBots(of: manager) : []
         // A card that arrives or leaves does so gently, so the message box does not jump.
         Group { card(pending, unasked) }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: pending.count + unasked.count)
     }
@@ -65,7 +67,11 @@ struct HerdrBotRequestCard: View {
                             if creating.contains(item.id) { ProgressView().controlSize(.small) }
                             else {
                                 Button("Not now") { store.refuseHerdrBot(item, manager: manager) }
-                                if !item.taken { Button("Create") { create(item) }.buttonStyle(.appleProminent) }
+                                    .accessibilityLabel(showsCreatedBots ? "Not now" : "Dismiss proposal for " + item.request.name)
+                                if !item.taken {
+                                    Button("Create") { create(item) }.buttonStyle(.appleProminent)
+                                        .accessibilityLabel(showsCreatedBots ? "Create" : "Create " + item.request.name)
+                                }
                             }
                         }
                     }

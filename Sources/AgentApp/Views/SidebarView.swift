@@ -193,8 +193,10 @@ private struct SidebarAttentionButton: View {
             .help("Pending requests, interrupted replies and failed checks. Open to check saved SSH servers.")
             .task(id: inboxes) {
                 while !Task.isCancelled {
-                    chatCount = store.workspaceActivity(inboxes: inboxes, attentionOnly: true).reduce(0) {
-                        $0 + max(1, store.workspaceReviews(in: $1.chat, inboxes: inboxes).count)
+                    chatCount = store.workspaceActivity(inboxes: inboxes, attentionOnly: true).reduce(0) { count, row in
+                        var requests = store.workspaceReviews(in: row.chat, inboxes: inboxes).count
+                        if case .bot(let bot) = row.chat { requests += store.pendingHerdrBots(for: bot).count }
+                        return count + max(1, requests)
                     }
                     do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 }
