@@ -108,6 +108,11 @@ import Testing
         let summary = RunSummary(model: "review-model", seconds: 12, tools: 3)
         #expect(!store.returnGroupHandoff(nil, from: scout, to: patch, answer: "private answer", summary: summary, receiptMetadata: [:]))
         #expect(!store.returnGroupHandoff(source, from: patch, to: scout, answer: "wrong recipient", summary: summary, receiptMetadata: [:]))
+        let relay = ChatMessage(role: .user, content: "Please review", metadata: [
+            AppStore.groupHandoffReturnKey: source, HerdrBotRelay.Key.asker: patch.id.uuidString.lowercased()])
+        store.recordUnfinishedGroupHandoff(relay, from: scout)
+        store.recordUnfinishedGroupHandoff(relay, from: scout)
+        #expect(group.messages.filter { $0.role == .system }.count == 1)
         #expect(store.returnGroupHandoff(source, from: scout, to: patch, answer: "Three changes verified", summary: summary, receiptMetadata: [:]))
         let result = try #require(group.messages.last)
         #expect(result.runSummary == summary && result.metadata[TurnWaitCopy.key] == "waiting")

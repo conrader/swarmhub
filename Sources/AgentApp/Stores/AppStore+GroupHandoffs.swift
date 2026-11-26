@@ -32,12 +32,13 @@ extension AppStore {
                                  metadata: [Self.groupHandoffResultKey: source, TurnWaitCopy.recipients: requester.id.uuidString],
                                  replyToID: trigger.id, authorID: reviewer.id, turnState: .finished)
         result.runSummary = summary
-        trigger.metadata[settled] = result.id.uuidString
         guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            group.messages.append(ChatMessage(role: .system, content: reviewer.name + " finished the handoff without an answer."))
+            noteMissingReview(source, in: group, trigger: trigger, text: reviewer.name + " finished the handoff without an answer.")
             save()
             return true
         }
+        group.messages.removeAll { $0.metadata["groupHandoffMissingReview"] == source }
+        trigger.metadata[settled] = result.id.uuidString
         group.messages.append(result)
         var metadata = receiptMetadata
         metadata[HerdrBotRelay.Key.kind] = HerdrBotRelay.answer
@@ -59,16 +60,20 @@ extension AppStore {
         return true
     }
 
+    private func noteMissingReview(_ source: String, in group: GroupChat, trigger: ChatMessage, text: String) {
+        let key = "groupHandoffMissingReview"
+        guard !group.messages.contains(where: { $0.metadata[key] == source }) else { return }
+        group.messages.append(ChatMessage(role: .system, content: text, metadata: [key: source], replyToID: trigger.id))
+    }
+
     func recordUnfinishedGroupHandoff(_ part: ChatMessage?, from reviewer: Bot) {
-        guard let part, let raw = part.metadata[HerdrBotRelay.Key.asker], let id = UUID(uuidString: raw),
+        guard let part, let source = part.metadata[Self.groupHandoffReturnKey], let raw = part.metadata[HerdrBotRelay.Key.asker], let id = UUID(uuidString: raw),
               let requester = bots.first(where: { $0.id == id }),
-              let (group, trigger) = handoffOrigin(part.metadata[Self.groupHandoffReturnKey], reviewer: reviewer, requester: requester)
+              let (group, trigger) = handoffOrigin(source, reviewer: reviewer, requester: requester)
         else { return }
         let key = Self.groupHandoffResultKey + "." + requester.id.uuidString
         guard trigger.metadata[key] == nil else { return }
-        let notice = ChatMessage(role: .system, content: reviewer.name + " stopped before returning a review to " + requester.name + ".", replyToID: trigger.id)
-        trigger.metadata[key] = notice.id.uuidString
-        group.messages.append(notice)
+        noteMissingReview(source, in: group, trigger: trigger, text: reviewer.name + " stopped before returning a review to " + requester.name + ".")
     }
 
     /// The source group authorizes a specific peer. Delivery uses the ordinary, attributed bot message queue.
