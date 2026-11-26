@@ -64,7 +64,7 @@ struct WorkspaceApprovalReader: ViewModifier {
     private var targets: [Target] {
         guard store.launchWorkEnabled else { return [] }
         let servers = store.herdrServers
-        let frequent = store.showingActivity || store.anyTurnRunning
+        let frequent = store.showOnlyAttention || store.showingActivity || store.anyTurnRunning
         var byServer: [String: Target] = [:]
         func add(_ bot: Bot, _ group: GroupChat? = nil) {
             guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return }
@@ -86,7 +86,7 @@ struct WorkspaceApprovalReader: ViewModifier {
             foreground.insert(store.herdrServer(for: bot, in: servers).id)
         }
         return servers.compactMap { server in
-            guard server.kind != .ssh || store.showingActivity || foreground.contains(server.id)
+            guard server.kind != .ssh || store.showOnlyAttention || store.showingActivity || foreground.contains(server.id)
                     || store.herdrTunnels.isOpen(server.id) else { return nil }
             return byServer[server.id]
         }

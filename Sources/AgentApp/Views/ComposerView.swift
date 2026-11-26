@@ -224,6 +224,10 @@ struct ComposerView: View {
                 }
                 return nil
             }
+            if modifiers == .command && (event.keyCode == 36 || event.keyCode == 76) {
+                if !event.isARepeat && reading.isEmpty { submit() }
+                return nil
+            }
             guard modifiers == .command, event.charactersIgnoringModifiers == "v",
                   let item = PasteboardAttachments.item() else { return event }
             switch item {

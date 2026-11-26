@@ -85,7 +85,7 @@ extension AppStore {
     /// App-wide only: something answers somewhere (Stop menu fallback, headless waits).
     var anyTurnRunning: Bool { !runningTurns.isEmpty }
     /// The chat the window shows: the open group, else the selected bot's chat.
-    var openConversation: (any Conversation)? { selectedGroup ?? selectedBot }
+    var openConversation: (any Conversation)? { showOnlyAttention ? nil : selectedGroup ?? selectedBot }
     func canSteer(in conversation: any Conversation) -> Bool { turn(in: conversation)?.steerAvailable == true }
 
     /// Claims `conversation`'s slot; the caller checked it was free.

@@ -122,6 +122,14 @@ struct WorkspaceActivityView: View {
 
     private var servers: [HerdrServer] { store.herdrServers.filter { serverReadings[$0.id]?.server == $0 || inboxes[$0.id]?.server == $0 } }
 
+    private func close() {
+        if attentionOnly {
+            if let group = store.selectedGroup { store.open(group) }
+            else if let bot = store.selectedBot { store.open(bot, helper: store.openHerdrHelper) }
+            else { store.showOnlyAttention = false }
+        } else { dismiss() }
+    }
+
     private func completionRow(_ result: HerdrClient.JobCompletion, on server: HerdrServer) -> some View {
         let bot = store.bots.first { $0.id == UUID(uuidString: result.ownerBotId) && $0.backend == .herdr && store.herdrServer(for: $0) == server }
         return VStack(alignment: .leading, spacing: 3) {
@@ -151,9 +159,10 @@ struct WorkspaceActivityView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
+                if attentionOnly && store.sidebarHidden { ShowSidebarItem() }
                 Text(attentionOnly ? "Needs Attention" : "Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Done") { close() }.keyboardShortcut(.cancelAction)
             }.padding()
             Divider()
             ForEach(inboxes.values.filter(\.unavailable).map(\.server).sorted { $0.id < $1.id }) { server in
@@ -199,7 +208,7 @@ struct WorkspaceActivityView: View {
                                 ForEach(section.rows) { row in
                                     Button {
                                         store.open(row.chat)
-                                        dismiss()
+                                        if !attentionOnly { dismiss() }
                                     } label: {
                                         HStack {
                                             VStack(alignment: .leading, spacing: 2) {
@@ -234,7 +243,11 @@ struct WorkspaceActivityView: View {
                     }
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.frame(width: 440, height: 420)
+        }.frame(width: attentionOnly ? nil : 440, height: attentionOnly ? nil : 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppColor.chat)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(attentionOnly ? "workspace.attention" : "workspace.activity")
         .task(id: inboxes) {
             // Messages and remote helper snapshots can change independently of the store's published lists.
             while !Task.isCancelled {

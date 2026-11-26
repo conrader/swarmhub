@@ -39,7 +39,7 @@ struct InfoPanel: View {
                 } else if store.approvals(for: bot, in: nil, inboxes: inboxes).isEmpty && store.herdrPrompts[bot.id] == nil {
                     Text("No pending requests").foregroundStyle(.secondary)
                 }
-                HerdrChatApprovals(bot: bot, server: server).id(server)
+                HerdrChatApprovals(bot: bot, server: server).id(server.id)
                 Button("Approval settings") { store.openInfoTab(.model) }
             }
         case .model: HerdrAgentControls(bot: bot, preset: modelPreset).id(bot.id)

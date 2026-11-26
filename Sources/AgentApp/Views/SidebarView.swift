@@ -151,7 +151,7 @@ struct SidebarView: View {
     /// helper's row is the selected one.
     @ViewBuilder private func row(_ bot: Bot, parents: [HerdrHelperParent]) -> some View {
         SidebarBotSessions(bot: bot, parents: parents) {
-            BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
+            BotRow(bot: bot, drafts: store.drafts, selected: !store.showOnlyAttention && selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
         }
     }
 }
@@ -169,7 +169,6 @@ private struct SidebarAttentionButton: View {
         let count = chatCount + failures
         Button {
             store.showOnlyAttention = true
-            store.showingActivity = true
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "tray").foregroundStyle(.secondary)
@@ -180,6 +179,7 @@ private struct SidebarAttentionButton: View {
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background((count == 0 ? Color.secondary : Color.accentColor).opacity(0.14), in: Capsule())
             }.padding(.horizontal, 9).frame(height: 32)
+                .background(store.showOnlyAttention ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
                 .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(AppColor.separator) }
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("Needs Attention").accessibilityValue(String(count))

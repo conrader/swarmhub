@@ -30,7 +30,9 @@ struct ContentView: View {
                 .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
         } detail: {
             Group {
-                if let group = store.selectedGroup {
+                if store.showOnlyAttention {
+                    WorkspaceActivityView(attentionOnly: true)
+                } else if let group = store.selectedGroup {
                     GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
@@ -90,9 +92,7 @@ struct ContentView: View {
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
-        .sheet(isPresented: $store.showingActivity, onDismiss: { store.showOnlyAttention = false }) {
-            WorkspaceActivityView(attentionOnly: store.showOnlyAttention)
-        }
+        .sheet(isPresented: $store.showingActivity) { WorkspaceActivityView() }
         .modifier(WorkspaceApprovalReader())
         .modifier(HerdrVaultPrompts(anotherSheet: hasCompetingVaultSheet))
         .alert("Something went wrong", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.dismissError() } })) { Button("OK") { store.dismissError() } } message: { Text(store.modalErrorMessage ?? "") }

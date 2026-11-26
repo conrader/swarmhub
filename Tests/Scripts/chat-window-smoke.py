@@ -1028,7 +1028,7 @@ def activity_decisions(source_app):
                 press(window, "Needs Attention")
 
                 def sheet():
-                    return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
+                    return next((e for e in descendants(window) if attribute(e, "AXIdentifier") == "workspace.attention"), None)
 
                 def names():
                     return [label(b) for b in buttons(sheet())] if sheet() else []
@@ -1051,7 +1051,7 @@ def activity_decisions(source_app):
                     wait_for("exact keyboard decision", lambda: (request_id, decision) in decisions)
                     assert sheet()
                 assert decisions == [(2, "deny"), (1, "approve")]
-                wait_for("both requests cleared", lambda: names() == ["Done"])
+                wait_for("both requests cleared", lambda: "Done" in names() and not any(n.startswith("Inspect ") or n.startswith("Patch,") for n in names()))
                 press(sheet(), "Done")
                 wait_for("Activity dismissed", lambda: not sheet())
                 wait_for("empty sidebar badge", lambda: count_is(0))
