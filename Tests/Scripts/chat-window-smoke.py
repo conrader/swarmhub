@@ -987,7 +987,7 @@ def live_terminals(source_app):
                 self.send_error(403)
                 return
             if route == "/api/workspace":
-                reply = dict(core="qa", agents=agents, templates=[], codejob_activity=workers)
+                reply = dict(core="qa", agents=agents, templates=[], helper_results=True, codejob_activity=workers)
             elif route == "/api/approvals":
                 reply = dict(pending=[])
             elif route == "/api/attention":
@@ -996,7 +996,11 @@ def live_terminals(source_app):
                 screens.append(route)
                 reply = dict(text=route + " line " + str(screens.count(route)))
             elif route.endswith("/helpers"):
-                reply = dict(core="qa", helpers=[], parent=dict(address="terminal0", created_ms=100))
+                _, _, _, address, created, _ = route.split("/")
+                reply = dict(core="qa", helpers=[], parent=dict(address=address, created_ms=int(created)))
+                if address == "terminal0":
+                    reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
+                                                answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
             else:
                 self.send_error(404)
                 return
@@ -1067,6 +1071,24 @@ def live_terminals(source_app):
                 assert "/api/agents/terminal3/999/output" not in screens
                 choose("Back to Details")
                 wait_for("group terminal window closed", lambda: not sheet())
+                press(window, "Patch", sidebar=True)
+                worker_label = "Codex working for Patch · test-host · " + job[:8]
+                def sidebar_worker():
+                    return any(label(b) == worker_label for b in buttons(window))
+                wait_for("detached worker beneath Patch", sidebar_worker)
+                press(window, "Sessions for Patch")
+                wait_for("worker hidden when Patch collapses", lambda: not sidebar_worker())
+                press(window, "Sessions for Patch")
+                wait_for("worker restored after expanding Patch", sidebar_worker)
+                press(window, worker_label)
+                output("/api/codejobs/test-host/" + owner["id"] + "/" + job + "/output")
+                choose("Back to Details")
+                def answered_button():
+                    return next((b for b in buttons(window) if label(b).startswith("Helper AnsweredQA,")), None)
+                wait_for("answered helper in the same tree", answered_button)
+                press(window, label(answered_button()))
+                wait_for("saved helper reply", lambda: any(attribute(n, "AXValue") == "The import passed." for n in descendants(window)))
+                press(window, "Steer via Patch")
                 agents.clear()
                 workers.clear()
                 press(window, "ReaderQA", sidebar=True)

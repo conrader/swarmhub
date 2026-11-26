@@ -390,7 +390,14 @@ struct HerdrHelperView: View {
                         else { quiet(log == nil ? "Loading…" : "No steps yet.") }
                     }
                     part(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", symbol: "arrowshape.turn.up.left.fill", colour: AppColor.sage) {
-                        if reply.content.isEmpty { quiet(log == nil ? "Loading…" : "No reply yet.") } else { MarkdownContent(message: reply).textSelection(.enabled) }
+                        if !reply.content.isEmpty {
+                            MarkdownContent(message: reply).textSelection(.enabled)
+                        } else if let latest = shown?.resultPreview {
+                            Text(verbatim: latest).textSelection(.enabled)
+                            if shown?.reply?.truncated == true { quiet("Showing the saved excerpt.") }
+                        } else {
+                            quiet(log == nil && problem.isEmpty ? "Loading…" : "No reply yet.")
+                        }
                     }
                     part("Terminal", symbol: "terminal.fill", colour: AppColor.olive, boxed: false) {
                         if let screen = log?.screen, !screen.isEmpty {

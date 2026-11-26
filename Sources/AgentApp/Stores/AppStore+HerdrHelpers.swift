@@ -364,12 +364,7 @@ extension AppStore {
                     let readingChat = parent.groupRuntime == nil && selectedGroup == nil && selectedBot?.id == parent.botID
                     let previous = herdrHelpers[parent]
                     let sameLaunch = previous?.parent == agent.ref && previous?.core == workspace.core
-                    if !readingChat, sameLaunch, previous?.helpers.isEmpty == true,
-                       !workspace.agents.contains(where: { $0.parent == agent.ref }) {
-                        list = previous
-                    } else {
-                        list = try await client.helpers(of: agent, in: workspace, includeLastResult: readingChat || sameLaunch)
-                    }
+                    list = try await client.helpers(of: agent, in: workspace, includeLastResult: readingChat || sameLaunch)
                 }
                 results[parent] = .success(list?.helpers.isEmpty == false || list?.lastResult != nil ? list : nil)
             } catch {
