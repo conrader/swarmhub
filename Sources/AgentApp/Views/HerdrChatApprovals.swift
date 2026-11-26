@@ -125,29 +125,28 @@ struct HerdrCommandRules: View {
             }
             if let error { Text(error).font(.caption).foregroundStyle(AppColor.caution) }
         }
-        .task(id: rules?.compactMap(\.expiresMs).min()) {
-            while let next = rules?.compactMap(\.expiresMs).min() {
-                let milliseconds = next - Int64(Date.now.timeIntervalSince1970 * 1000)
-                if milliseconds > 0 {
-                    do { try await Task.sleep(for: .milliseconds(milliseconds)) } catch { return }
-                }
-                guard !Task.isCancelled else { return }
-                rules?.removeAll { ($0.expiresMs ?? Int64.max) <= next }
-            }
-        }
         .task(id: inboxes[server.id]?.requests) {
-            do {
-                let result = try await store.herdrClient(for: server).commandRules(for: botID)
-                guard !Task.isCancelled else { return }
-                rules = result
-                error = nil
-            } catch HerdrClient.Failure.http(404, _) {
-                if !Task.isCancelled {
+            while !Task.isCancelled {
+                do {
+                    let result = try await store.herdrClient(for: server).commandRules(for: botID)
+                    guard !Task.isCancelled else { return }
+                    rules = result
+                    error = nil
+                } catch HerdrClient.Failure.http(404, _) {
+                    guard !Task.isCancelled else { return }
                     rules = nil
                     error = "Update this workspace to use scoped command rules."
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.error = error.localizedDescription
                 }
+                // A hook can confirm its decision after the request disappears from the inbox.
+                let now = Int64(Date.now.timeIntervalSince1970 * 1000)
+                let untilExpiry = rules?.compactMap(\.expiresMs).min().map { $0 - now } ?? 8_000
+                do { try await Task.sleep(for: .milliseconds(max(500, min(8_000, untilExpiry)))) }
+                catch { return }
             }
-            catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
 }

@@ -1339,10 +1339,13 @@ def activity_decisions(source_app):
                 request_id = int(self.path.split("/")[-1])
                 decision = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 if decision in ("remember_command", "remember_command_hour"):
-                    rules.append(dict(id=8, bot=owner["id"], agent=agent["name"], provider="Codex",
-                                      cwd="/qa", command="swift test --filter ImporterTests"))
+                    rule = dict(id=8, bot=owner["id"], agent=agent["name"], provider="Codex",
+                                      cwd="/qa", command="swift test --filter ImporterTests")
                     if decision == "remember_command_hour":
-                        rules[-1]["expires_ms"] = int(time.time() * 1000) + 3600000
+                        rule["expires_ms"] = int(time.time() * 1000) + 3600000
+                        threading.Timer(2.5, rules.append, args=(rule,)).start()
+                    else:
+                        rules.append(rule)
                 decisions.append((request_id, decision))
                 self.reply(dict(id=request_id))
             elif self.path == "/api/project-command-rules/8/revoke" and self.headers.get("Authorization") == "Bearer " + token:
@@ -1416,7 +1419,7 @@ def activity_decisions(source_app):
                 wait_for("one-hour permission", lambda: any(label(b) == "Allow here for 1 hour" for b in buttons(window)), seconds=12)
                 press(window, "Allow here for 1 hour")
                 wait_for("saved deadline", lambda: (5, "remember_command_hour") in decisions and any(
-                    str(attribute(e, "AXValue") or "").startswith("Until ") for e in descendants(window)), seconds=12)
+                    str(attribute(e, "AXValue") or "").startswith("Until ") for e in descendants(window)), seconds=20)
                 press(window, "Revoke")
                 wait_for("timed rule removed", lambda: not rules)
                 print("Verified a one-hour command decision, visible expiry and revocation; older workspaces retain their original actions.")

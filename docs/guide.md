@@ -288,7 +288,7 @@ When Grok Bot is on this Mac, **Settings → Servers** shows a **Grok Bot** card
 
 ### Updates
 
-In **Details → Approvals**, **Control level** shows the selected bot’s saved mode for new sessions and its configured command reviewer. Choose **Edit** to change them. **Scoped rules** lists saved commands for that bot. In **Details → Routines**, **Shared skills** shows enabled skills from that server’s library. Choose **Manage** to open Skills and inspect the library or its project-specific settings.
+In **Details → Approvals**, **Control level** shows the selected bot’s saved mode for new sessions and its configured command reviewer. Choose **Edit** to change them. **Scoped rules** lists saved commands for that bot. Choose **Allow here for 1 hour** on a command request to give it a deadline. You can see the expiry time and revoke the permission from this list. In **Details → Routines**, **Shared skills** shows enabled skills from that server’s library. Choose **Manage** to open Skills and inspect the library or its project-specific settings.
 
 **Settings → Software Update** answers whether everything is up to date: the app, and for each server its workspace (the bridge) and Herdr Core. When something is behind, **Review updates** appears above the chat list, and the page has one button, **Update Now** or **Update All**, that installs what is ready: the servers first, then the app.
 
