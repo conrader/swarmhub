@@ -53,8 +53,8 @@ struct HerdrApprovalReview: View {
             }.frame(maxHeight: 140).fixedSize(horizontal: false, vertical: true)
             if let reviewer = request.reviewer {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Claude \(reviewer.model.capitalized) review").font(.subheadline.bold())
-                    Text(reviewer.assessment.map(HerdrClient.Approval.visible) ?? "Reviewing command…")
+                    Text(reviewer.title).font(.subheadline.bold())
+                    Text((reviewer.problem ?? reviewer.assessment).map(HerdrClient.Approval.visible) ?? "Reviewing command…")
                         .font(.callout).textSelection(.enabled)
                 }.accessibilityIdentifier("approval.commandReview")
             }

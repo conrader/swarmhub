@@ -47,6 +47,15 @@ extension HerdrClient {
         struct Reviewer: Decodable, Equatable, Sendable {
             let model: String
             let assessment: String?
+            var botId: String? = nil
+            var botName: String? = nil
+            var problem: String? = nil
+
+            var title: String {
+                if let botName { return Approval.visible(botName) + " · Claude review" }
+                if botId != nil { return "Selected bot review" }
+                return "Claude " + model.capitalized + " review"
+            }
         }
         var reviewer: Reviewer? = nil
         var canRememberCommand: Bool? = nil

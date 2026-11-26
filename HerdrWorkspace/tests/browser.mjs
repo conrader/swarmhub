@@ -2353,6 +2353,7 @@ try {
     await check('document.querySelector("#approval-list button")');
     await evaluate('document.querySelector("#approval-list button").click()');
     await check('!document.getElementById("approval-reviewer").hidden && document.getElementById("approval-reviewer").textContent.includes("Would print audit.")');
+    await check(`document.getElementById("approval-reviewer").textContent.includes(${JSON.stringify(process.env.SWARMHUB_EXPECT_REVIEWER)})`);
     await evaluate('document.getElementById("approval-deny").click()');
     await check('!document.querySelector("#approval-list button") && !document.getElementById("approval-reviewer").textContent');
   } else if (focus === "opencode-inbox") {

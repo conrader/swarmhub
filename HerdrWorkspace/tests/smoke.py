@@ -1300,6 +1300,10 @@ def smoke(hc, bridge, chrome=None):
             desktop_fixture.write_text(Path(__file__).with_name("desktop-click-fixture.py").read_text())
             command = shlex.join([bridge, "run-desktop", "--", "/usr/bin/python3", str(desktop_fixture), str(root / "desktop-clicks.log")])
             (templates / "desktop-fixture.md").write_text(f"---\ndescription: Scratch X11 test agent\ncommand: {command}\n---\n")
+        if selected_focus == "command-reviewer":
+            (templates / "review-profile.md").write_text(
+                "---\ndescription: Claude reviewer\ncommand: swarmhub-herdr run-claude\n---\n"
+            )
         if selected_focus == "bot-helper-model":
             (templates / "coding-fixture.md").write_text((templates / "fixture.md").read_text())
             fixture.write_text(FIXTURE.replace('status("idle")', 'print("Launch model=" + os.environ.get("SWARMHUB_MODEL_ID", "") + " auto=" + os.environ.get("SWARMHUB_PROJECT_AUTO", ""), flush=True)\nstatus("idle")', 1))

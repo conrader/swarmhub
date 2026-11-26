@@ -148,7 +148,8 @@
       const advice = waiting?.reviewer;
       const reviewer = $("approval-reviewer");
       reviewer.hidden = !advice;
-      const reviewText = advice ? `Claude ${advice.model} · ${visible(advice.assessment ?? "Reviewing command…")}` : "";
+      const author = advice?.bot_id ? visible(advice.bot_name || "Selected bot") : "Claude " + (advice?.model || "");
+      const reviewText = advice ? `${author} · ${visible(advice.problem ?? advice.assessment ?? "Reviewing command…")}` : "";
       if (reviewer.textContent !== reviewText) reviewer.textContent = reviewText;
       for (const button of ["allow", "deny", "terminal", "remember", "command", "command-hour"]) $("approval-" + button).disabled = !waiting || state.working;
       if (!waiting && !state.working && $("approval-notice").textContent === state.active.instruction) {
@@ -176,6 +177,11 @@
         : record.automatic ? (record.tool === "Bash" ? "Allowed by command rule" : "Allowed by read rule") : status[record.state] || record.state;
       row.append(...item(`${record.agent} · ${record.tool}`,
         `${record.provider} · ${outcome} · ${displayDate(record.resolved_ms ?? record.requested_ms)}`));
+      if (record.reviewer?.assessment) {
+        const review = document.createElement("p");
+        review.textContent = `${visible(record.reviewer.bot_name)} · ${visible(record.reviewer.assessment)}`;
+        row.append(review);
+      }
       return row;
     }));
     function ruleRow(rule, command) {

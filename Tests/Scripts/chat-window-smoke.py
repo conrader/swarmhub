@@ -1567,6 +1567,14 @@ def team_inspector(source_app, appearance):
     catalog = [dict(id=1, name="Shop", machine="web-1", folder="/srv/shop", note=""),
                dict(id=2, name="Docs", machine="local", folder="/code/docs", note="")]
 
+    scout_id = bots[1]["id"].lower()
+    selected_reviewers = {}
+    def settings_for(owner):
+        patch = owner == bots[0]["id"].lower()
+        selected = selected_reviewers.get(owner)
+        return dict(auto_mode=patch, command_reviewer="sonnet" if patch and not selected else "off",
+                    reviewer_bot_id=selected, reviewer_bots=[dict(id=scout_id, name="Scout", model="opus")] if patch else [])
+
     class Team(BaseHTTPRequestHandler):
         def do_GET(self):
             parts = self.path.split("/")
@@ -1577,8 +1585,7 @@ def team_inspector(source_app, appearance):
                 elif self.path == "/api/machines":
                     body = dict(machines=[])
                 elif self.path.startswith("/api/bot-agent-settings/"):
-                    patch = parts[-1].lower() == bots[0]["id"].lower()
-                    body = dict(auto_mode=patch, command_reviewer="sonnet" if patch else "off")
+                    body = settings_for(parts[-1].lower())
                 elif self.path == "/api/project-command-rules":
                     body = [dict(id=1, bot=bots[0]["id"], agent="patch", provider="Codex", cwd="/srv/shop", command="swift test")]
                 elif self.path == "/api/skillshare":
@@ -1610,6 +1617,17 @@ def team_inspector(source_app, appearance):
             self.wfile.write(data)
 
         def do_POST(self):
+            if self.path.startswith("/api/bot-agent-settings/") and self.headers.get("Authorization") == "Bearer " + token:
+                owner = self.path.rsplit("/", 1)[1]
+                incoming = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if incoming.get("reviewer_bot_id") != scout_id or owner != bots[0]["id"].lower():
+                    self.send_error(400)
+                    return
+                selected_reviewers[owner] = scout_id
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps(settings_for(owner)).encode())
+                return
             if self.path == "/api/bots" and self.headers.get("Authorization") == "Bearer " + token:
                 self.rfile.read(int(self.headers.get("Content-Length", 0)))
                 self.send_response(200)
@@ -1707,6 +1725,15 @@ def team_inspector(source_app, appearance):
                 wait_for("Patch’s scoped command", lambda: element("swift test"))
                 press_link(w, "Edit approval controls")
                 wait_for("approval editor", lambda: element("Auto mode for new sessions"))
+                popup = next(e for e in descendants(w) if attribute(e, "AXIdentifier") == "bot.commandReviewer"
+                             and attribute(e, "AXRole") == "AXPopUpButton")
+                assert ax.AXUIElementPerformAction(popup, "AXPress") == 0
+                def choose_scout():
+                    option = next((e for e in descendants(popup) if attribute(e, "AXRole") == "AXMenuItem"
+                                   and "Scout" in label(e)), None)
+                    return option and ax.AXUIElementPerformAction(option, "AXPress") == 0
+                wait_for("choose Scout as command reviewer", choose_scout)
+                wait_for("Patch’s selected reviewer", lambda: element("Command reviewer: Scout · opus"))
                 press_link(w, "Finish editing approval controls")
                 press(w, "Scout", sidebar=True)
                 wait_for("Scout approval controls", lambda: element("New sessions: Standard") and element("Command reviewer: Off"))

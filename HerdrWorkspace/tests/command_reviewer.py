@@ -28,11 +28,15 @@ if payload['arguments']['command'] == 'printf hold':
     (Path(payload['working_directory']) / 'reviewer.pid').write_text(str(os.getpid()))
     time.sleep(40)
 assert payload['arguments']['command'] == 'printf audit'
+model = sys.argv[sys.argv.index('--model')+1]
+if model != 'haiku':
+    assert model == 'opus' and 'Scout' in sys.argv[sys.argv.index('--system-prompt')+1]
+    assert 'Track project impact' in sys.argv[sys.argv.index('--system-prompt')+1]
 print('Would print audit.')
 """)
     pending = lambda: next(iter(request("/api/approvals?pending_only=true")["pending"]), None)
 
-    def review(tool, provider, expected, command="printf audit"):
+    def review(tool, provider, expected, command="printf audit", named=None, unavailable=False):
         frame = json.dumps(dict(key=key, provider=provider, tool=tool, cwd=str(root),
                                 input={"command": command})).encode()
         with socket.socket(socket.AF_UNIX) as peer:
@@ -57,14 +61,18 @@ print('Would print audit.')
 
                 until(reviewer_exited)
                 return
-            if expected:
+            if unavailable:
+                row = until(lambda: (r if (r := pending()) and r.get("reviewer", {}).get("problem") else None))
+                assert row["reviewer"]["bot_id"] == named and row["reviewer"]["assessment"] is None
+            elif expected:
                 row = until(lambda: (r if (r := pending()) and r.get("reviewer", {}).get("assessment") else None))
-                assert row["reviewer"] == {"model": "haiku", "assessment": expected}, row
+                author = {"model": "opus", "bot_id": named, "bot_name": "Scout"} if named else {"model": "haiku"}
+                assert row["reviewer"] == {**author, "assessment": expected}, row
             else:
                 assert "reviewer" not in row
             if chrome and expected:
                 subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)],
-                               check=True, timeout=35)
+                               env={**os.environ, "SWARMHUB_EXPECT_REVIEWER": "Scout" if named else "Claude haiku"}, check=True, timeout=35)
             else:
                 request("/api/approvals/" + str(row["id"]), "deny", status=202)
             assert peer.recv(1) == b"D"
@@ -81,6 +89,25 @@ print('Would print audit.')
     review("apply_patch", "codex", None)
     request(settings, {"command_reviewer": "off"})
     review("Bash", "codex", None)
+
+    scout = {"id": "30000000-0000-4000-8000-000000000003", "name": "Scout", "model": "opus",
+             "instructions": "Track project impact", "template": "review-profile"}
+    request("/api/bots", {"bots": [scout]})
+    assert request(settings)["reviewer_bots"] == [{"id": scout["id"], "name": "Scout", "model": "opus"}]
+    request(settings, {"reviewer_bot_id": owner}, status=422)
+    assert request(settings, {"reviewer_bot_id": scout["id"]})["reviewer_bot_id"] == scout["id"]
+    assert request(other)["reviewer_bot_id"] is None
+    restart()
+    review("Bash", "codex", "Would print audit.", named=scout["id"])
+    history = request("/api/approvals")["history"]
+    assert any(r.get("reviewer") == {"bot_id": scout["id"], "bot_name": "Scout", "model": "opus",
+                                    "assessment": "Would print audit."} and r["state"] == "denied" for r in history)
+    request("/api/bots", {"bots": [{**scout, "template": "fixture"}]})
+    assert request(settings)["reviewer_bots"] == []
+    review("Bash", "codex", None, named=scout["id"], unavailable=True)
+    request(settings, {"reviewer_bot_id": scout["id"]}, status=422)
+    assert request(settings, {"command_reviewer": "haiku"})["reviewer_bot_id"] is None
+    request(settings, {"command_reviewer": "off"})
 
     # The workspace's persistent rule is bound to an exact request, owner, provider and working directory.
     def browser(focus):

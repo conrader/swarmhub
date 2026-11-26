@@ -132,6 +132,8 @@ struct Record {
     state: String,
     automatic: bool,
     unconfirmed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reviewer: Option<crate::command_reviewer::Advice>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -295,7 +297,8 @@ async fn inbox(
         .prepare(
             "SELECT id,agent,tool,requested_ms,resolved_ms,state,provider,
             EXISTS(SELECT 1 FROM approval_rule_audit WHERE approval_id=approvals.id AND kind='rule'),
-            EXISTS(SELECT 1 FROM approval_rule_audit WHERE approval_id=approvals.id AND kind='unconfirmed')
+            EXISTS(SELECT 1 FROM approval_rule_audit WHERE approval_id=approvals.id AND kind='unconfirmed'),
+            reviewer_bot_id,reviewer_name,reviewer_model,assessment
          FROM approvals WHERE state!='pending'
          ORDER BY id DESC LIMIT 40",
         )
@@ -312,6 +315,10 @@ async fn inbox(
                 provider: row.get(6)?,
                 automatic: row.get(7)?,
                 unconfirmed: row.get(8)?,
+                reviewer: if let Some(id) = row.get::<_,Option<String>>(9)? {
+                    Some(crate::command_reviewer::Advice { bot_id: Some(id), bot_name: row.get(10)?,
+                        model: row.get(11)?, assessment: row.get(12)?, problem: None })
+                } else { None },
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -404,10 +411,9 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     };
     let reviewer = if matches!(request.provider, Provider::Codex) && request.tool == "Bash" {
         w.history.db().ok().and_then(|db| crate::bot_agent_settings::for_launch(&db, &launch).ok())
-            .map(|settings| settings.command_reviewer)
-            .filter(|model| *model != crate::command_reviewer::Model::Off)
+            .and_then(|s| crate::command_reviewer::Advice::pending(s.command_reviewer, s.reviewer_bot_id))
     } else { None };
-    let review_input = reviewer.map(|model| (model, json!({
+    let review_input = reviewer.clone().map(|model| (model, json!({
         "tool": request.tool, "working_directory": request.cwd, "arguments": request.input
     }).to_string()));
     let registered = match register(&w, request, read.is_some(), command.is_some(), automatic.is_some(), reviewer) {
@@ -418,12 +424,17 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
     let mut decision = if let Some(answer) = answer {
         // The user's decision, expiry or departure drops the future and its subprocess immediately.
         let review = async {
-            if let Some((model, input)) = review_input {
-                let text = crate::command_reviewer::assess(model, &input).await;
+            if let Some((mut review, input)) = review_input {
+                review.review(&w, &input).await;
                 if let Ok(mut map) = w.approvals.pending.lock()
                     && let Some(item) = map.get_mut(&id)
                     && let Some(advice) = item.info.reviewer.as_mut() {
-                    advice.assessment = Some(text);
+                    if review.bot_id.is_some() && review.assessment.is_some()
+                        && let Ok(db) = w.history.db() {
+                        let _ = db.execute("UPDATE approvals SET reviewer_bot_id=?2,reviewer_name=?3,reviewer_model=?4,assessment=?5 WHERE id=?1",
+                            params![id,review.bot_id,review.bot_name,review.model,review.assessment]);
+                    }
+                    *advice = review;
                 }
             }
             std::future::pending::<Decision>().await
@@ -571,7 +582,7 @@ fn register(
     can_remember_read: bool,
     can_remember_command: bool,
     automatic: bool,
-    reviewer: Option<crate::command_reviewer::Model>,
+    reviewer: Option<crate::command_reviewer::Advice>,
 ) -> Result<Option<Registered>, StoreError> {
     let arguments = request.input.get().to_owned();
     let mut pending = w.approvals.pending.lock().map_err(|_| StoreError)?;
@@ -616,7 +627,7 @@ fn register(
                 can_remember_read,
                 can_remember_command,
                 can_remember_command_hour: can_remember_command,
-                reviewer: reviewer.map(|model| crate::command_reviewer::Advice { model, assessment: None }),
+                reviewer,
             },
             until: Instant::now() + WAIT,
             answer: Some(send),
