@@ -329,13 +329,22 @@ impl Snapshot {
             _ => "working",
         };
         let active_turn = last.filter(|turn| turn["status"] == "inProgress").and_then(|turn| turn["id"].as_str());
+        let latest_reply = if state == "working" {
+            last.and_then(|turn| turn["items"].as_array())
+                .and_then(|items| items.iter().rev()
+                    .filter(|item| item["type"] == "agentMessage")
+                    .find_map(|item| item["text"].as_str().filter(|text| !text.trim().is_empty())))
+                .unwrap_or(answer)
+        } else {
+            answer
+        };
         let mut steps: Vec<_> = last.and_then(|turn| turn["items"].as_array()).into_iter().flatten()
             .rev().filter_map(step).take(64).collect();
         steps.reverse();
         let summary = json!({"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
             "model":thread["model"],"created_ms":thread["createdAt"].as_i64().unwrap_or_default().saturating_mul(1000),
             "completed_ms":last.and_then(|t| t["completedAt"].as_i64()).map(|s| s.saturating_mul(1000)),
-            "details":{"task":clipped(task,8000),"reply":clipped(answer,24000),"steps":steps},
+            "details":{"task":clipped(task,8000),"reply":clipped(latest_reply,24000),"steps":steps},
             "state":state,"task":clipped(task,300),"reply":clipped(answer,300)});
         Snapshot {
             id: id.into(),
@@ -388,6 +397,18 @@ mod tests {
         let saved = Snapshot::read(CHILD, ROOT, "", &thread);
         assert!(saved.summary["active_turn"].is_null());
         assert_eq!(saved.summary["state"], "stopped");
+    }
+
+    #[test]
+    fn working_child_shows_commentary_without_marking_the_task_answered() {
+        let thread = json!({"status":{"type":"active"},"turns":[{"id":TURN,"status":"inProgress","items":[
+            {"type":"agentMessage","phase":"commentary","text":"Checking the failing test."},
+            {"type":"commandExecution","command":"cargo test","status":"inProgress"},
+            {"type":"reasoning","text":"private reasoning"}]}]});
+        let snapshot = Snapshot::read(CHILD, ROOT, "Check tests", &thread);
+        assert_eq!(snapshot.summary["details"]["reply"], "Checking the failing test.");
+        assert_eq!(snapshot.summary["state"], "working");
+        assert_eq!(snapshot.summary["reply"], "");
     }
 
     #[test]

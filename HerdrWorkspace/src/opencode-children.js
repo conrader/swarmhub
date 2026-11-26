@@ -22,11 +22,12 @@ async function belongsToRoot(ctx, parent, rootFile) {
 function snapshot(session, messages) {
   const lines = [];
   const steps = [];
-  let task = "", reply = "", model;
+  let task = "", reply = "", latestText = "", model;
   for (const message of messages) {
     if (message.type === "user") {
       task = shorten(message.text, 8000).replace(/^You are a subagent spawned by another session\.\n/, "");
       reply = "";
+      latestText = "";
       steps.length = 0;
       if (task) lines.push("Task " + task);
     } else if (message.type === "assistant") {
@@ -41,7 +42,10 @@ function snapshot(session, messages) {
         }
       }
       const text = parts.filter(p => p.type === "text").map(p => p.text).join("\n\n").trim();
-      if (text) lines.push("OpenCode " + shorten(text, 24000));
+      if (text) {
+        latestText = shorten(text, 24000);
+        lines.push("OpenCode " + latestText);
+      }
       if (message.finish === "stop" || message.finish === "length") reply = text;
     }
   }
@@ -51,7 +55,7 @@ function snapshot(session, messages) {
     : session.outcome === "interrupted" ? "stopped" : reply ? "answered" : "finished";
   return { id: session.id, parent: session.parentID, name: shorten(session.title || session.agent, 120) || "OpenCode agent",
     model: shorten(model, 240) || null, created_ms: time.created, completed_ms: ended,
-    details: { task, reply: shorten(reply, 24000), steps },
+    details: { task, reply: state === "working" ? latestText : shorten(reply, 24000), steps },
     state, task: shorten(task, 300), reply: shorten(reply, 300), transcript: lines.join("\n\n").slice(-30000) };
 }
 
