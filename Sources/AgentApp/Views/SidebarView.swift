@@ -127,7 +127,8 @@ struct SidebarView: View {
     /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
     /// helper's row is the selected one.
     @ViewBuilder private func row(_ bot: Bot) -> some View {
-        BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
-        if bot.backend == .herdr { HerdrHelperRows(bot: bot) }
+        SidebarBotSessions(bot: bot) {
+            BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
+        }
     }
 }

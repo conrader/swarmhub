@@ -382,6 +382,11 @@ def steer_reopen(source_app):
                             return next((label(b) for b in buttons(window) if label(b).startswith("Helper RenderQA,")), None)
 
                         wait_for("coding helper in the sidebar", helper_button, seconds=25)
+                        disclosure = "Sessions for " + owner["name"]
+                        press(window, disclosure)
+                        wait_for("collapsed bot hides its helper", lambda: not helper_button())
+                        press(window, disclosure)
+                        wait_for("expanded bot shows its helper", helper_button)
                         press(window, helper_button())
                         back = "Back to " + owner["name"]
                         wait_for("coding helper details", lambda: any(label(b) == back for b in buttons(window)))

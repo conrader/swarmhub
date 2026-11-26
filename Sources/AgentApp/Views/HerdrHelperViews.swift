@@ -1,13 +1,56 @@
 import SwiftUI
 
-/// A Herdr bot's helper agents in the sidebar, nested under the bot's row while the server lists any, newest first.
-struct HerdrHelperRows: View {
+/// The disclosure belongs to the bot. Direct and group sessions keep their own identities.
+struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var bot: Bot
+    @AppStorage private var expanded: Bool
+    let bot: Bot
+    let parentRow: ParentRow
+
+    init(bot: Bot, @ViewBuilder row: () -> ParentRow) {
+        self.bot = bot
+        parentRow = row()
+        _expanded = AppStorage(wrappedValue: true, "sidebar.sessionsExpanded.\(bot.id)")
+    }
+
     var body: some View {
-        ForEach(store.herdrHelpers[bot.id]?.helpers ?? []) { helper in
-            HerdrHelperRow(helper: helper, selected: store.isOpen(helper, of: bot)) { store.open(helper, of: bot) }
+        let parents = store.herdrHelpers.keys.filter {
+            $0.botID == bot.id && store.herdrHelpers[$0]?.helpers.isEmpty == false
+        }.sorted { ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
+        if parents.isEmpty {
+            parentRow
+        } else {
+            HStack(spacing: 0) {
+                parentRow
+                Button {
+                    expanded.toggle()
+                } label: {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .frame(width: 28, height: 32).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Sessions for " + bot.name)
+                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                .help(expanded ? "Hide sessions" : "Show sessions")
+            }
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(parents, id: \.self) { parent in
+                        if let group = store.helperGroupNames[parent] {
+                            Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
+                        }
+                        ForEach(store.herdrHelpers[parent]?.helpers ?? []) { helper in
+                            let selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: parent.groupRuntime)
+                            HerdrHelperRow(helper: helper, selected: store.openHerdrHelper == selection) {
+                                store.open(helper, of: bot, groupRuntime: parent.groupRuntime)
+                            }
+                        }
+                    }
+                }
+                .overlay(alignment: .leading) { Rectangle().fill(AppColor.separator).frame(width: 1).accessibilityHidden(true) }
                 .padding(.leading, SidebarMetrics.rowPadding + SidebarMetrics.mark / 2)
+            }
         }
     }
 }
