@@ -25,6 +25,8 @@ Bots work on a computer that runs two programs: Herdr Core, which keeps each bot
 
 **A server.** In the setup wizard or Settings → Servers → Add a server, enter the SSH destination and test the connection. If the workspace is missing, choose **Set up on server**. The app installs the workspace for that SSH account and checks the connection again. During a bot move, the same installer is called **Set up over SSH**. For manual setup, follow [Run locally](../HerdrWorkspace/README.md#run-locally) there: `swarmhub-herdr service run` starts an installed service, starts Herdr Core when it is not running, and keeps the access key in `~/.config/swarmhub-herdr/token`, which is where the app looks for it. Herdr Core needs at least one agent template, for example for Claude Code or Codex. An AI program asks a person a question the first time it works in a new folder; `swarmhub-herdr service prepare` on the server answers those for the bots' folder ([what it does](#what-setting-up-this-mac-does), under the switch), or open each program once in that folder and answer yourself.
 
+**Signing in over SSH.** When the server offers password login, enter your SSH username and password in SwarmHub’s **Sign In** window. You can retry there if the password is rejected. SwarmHub remembers the password until you quit. For key-based login, use a key the server already accepts. If needed, select its private key on the Mac under **Connection details → SSH key file**. Signing in with a password does not generate or install an SSH key.
+
 ### 2. Start the app
 
 Build and run from a checkout on a Mac with Xcode:
