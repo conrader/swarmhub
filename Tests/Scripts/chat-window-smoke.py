@@ -1329,7 +1329,7 @@ def qa_inbox_proposals(window, store, command, decisions):
     press(window, "Needs Attention")
     def shown(text):
         return any(label(e) == text or attribute(e, "AXValue") == text for e in descendants(window))
-    wait_for("command and proposal cards together", lambda: shown("swift test --filter ImporterTests") and shown("Create Payments"))
+    wait_for("command and proposal cards together", lambda: shown("swift test --filter ImporterTests") and shown("Create Payments") and shown("Sensitive role") and shown("Prepares supplier payments."))
     press(window, "Inspect Bash request")
     wait_for("pending command review", lambda: shown("Reviewing command…"))
     command["reviewer"].update(bot_name="Scout", model="opus", assessment="Runs only the named tests.")
@@ -1373,6 +1373,7 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
         owner["canManageBots"] = True
         requests = [dict(op="create_bot", name=name, decision="ask", instructions=work)
                     for name, work in [("Payments", "Prepare supplier invoices."), ("Legal", "Review contracts.")]]
+        requests[0].update(decision="decided", review_reason="Prepares supplier payments.")
         owner["messages"] = [dict(id=str(uuid.uuid4()), role="assistant", createdAt=800000010,
             content="".join("\n```swarmhub\n" + json.dumps(r) + "\n```\n" for r in requests))]
         pending[:] = [dict(pending[1], arguments=json.dumps({"command":"swift test --filter ImporterTests"}),

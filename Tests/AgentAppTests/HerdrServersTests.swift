@@ -286,7 +286,7 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(store.herdrTemplate(for: coder) == "two" && store.herdrModel(for: coder) == HerdrModelChoice.recommended && coder.persona == Bot.defaultPersona)
     jarvis.messages.append(ChatMessage(role: .assistant, content: "```swarmhub\n{\"op\":\"create_bot\",\"name\":\"Extra\"}\n```"))
     let extra = try #require(store.pendingHerdrBots(for: jarvis).first)
-    store.dismissHerdrBot(extra)
+    store.dismissHerdrBot(extra, manager: jarvis)
     #expect(store.pendingHerdrBots(for: jarvis).isEmpty && !store.bots.contains { $0.name == "Extra" }, "a dismissed request is gone and nothing was created")
 }
 

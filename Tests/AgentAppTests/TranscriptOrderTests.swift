@@ -238,7 +238,7 @@ import Testing
         #expect(requests.map(\.request.name) == ["Scout"])
         #expect(reopened.pendingHerdrModels(for: main).map(\.request.model) == ["fixture"])
         #expect(reopened.pendingAboutYou(for: main).map(\.text) == ["Uses metric."])
-        reopened.dismissHerdrBot(try #require(requests.first))
+        reopened.dismissHerdrBot(try #require(requests.first), manager: main)
         #expect(reopened.pendingHerdrBots(for: main).isEmpty)
     }
 

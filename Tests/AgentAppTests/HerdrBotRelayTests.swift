@@ -303,3 +303,40 @@ func vacatingASavedMainRoleLeavesItsServerWithoutAMain(deleteOwner: Bool) throws
     ask(store, boppy, for: "Servers")
     try await waitUntil { passedOn(jarvis, HerdrBotRelay.request).count == 4 }
 }
+
+@MainActor @Test func flaggedRolesRequireReviewEvenWhenTheMainBotDecides() throws {
+    let requests = HerdrBotRequest.requests(in: block(#"[{"op":"create_bot","name":"Payments","decision":"decided"},{"op":"create_bot","name":"PAYMENTS","decision":"decided","review_reason":"  Moves   money.  "},{"op":"create_bot","name":"Keys","decision":"decided","review_reason":null},{"op":"create_bot","name":"Scout","decision":"decided"}]"#))
+    #expect(requests.map(\.name) == ["PAYMENTS", "Keys", "Scout"])
+    #expect(requests.map(\.decided) == [false, false, true])
+    #expect(requests[0].reviewReason == "Moves money.")
+    #expect(requests[1].reviewReason?.isEmpty == false)
+}
+
+@MainActor @Test func flaggedRoleSurvivesLaterRepliesAndRestartUntilThePersonDecides() async throws {
+    let (store, manager, _) = relayStore()
+    let flagged = ChatMessage(role: .assistant, content: block(#"{"op":"create_bot","name":"Payments","decision":"decided","review_reason":"Prepares payments.","instructions":"Prepare invoices."}"#))
+    manager.messages.append(flagged)
+    store.herdrReplyEnded(flagged, from: manager, finished: true)
+    try await waitUntil { store.herdrSettling.isEmpty }
+    let conflicting = ChatMessage(role: .assistant, content: block(#"{"op":"create_bot","name":"payments","decision":"decided","instructions":"Skip review."}"#))
+    manager.messages.append(conflicting)
+    store.herdrReplyEnded(conflicting, from: manager, finished: true)
+    try await waitUntil { store.herdrSettling.isEmpty }
+    let stale = try #require(store.herdrRequests(in: conflicting, of: manager).first)
+    #expect(store.createHerdrBot(stale, manager: manager) == nil)
+    #expect(store.pendingHerdrBots(for: manager).map(\.request.reviewReason) == ["Prepares payments."])
+    for _ in 0..<70 { manager.messages.append(ChatMessage(role: .assistant, content: "Other work.")) }
+    store.save()
+    let reopened = AppStore(storeURL: store.fileURL, autoStart: false, keyStore: store.keyStore, defaults: store.defaults)
+    let main = try #require(reopened.bots.first { $0.id == manager.id })
+    let pending = try #require(reopened.pendingHerdrBots(for: main).first)
+    #expect(reopened.bots.count == 2)
+    #expect(reopened.createHerdrBot(pending, manager: main, byPerson: false) == nil)
+    let approved = try #require(reopened.createHerdrBot(pending, manager: main))
+    #expect(approved.persona == "Prepare invoices.")
+    #expect(reopened.pendingHerdrBots(for: main).isEmpty)
+    reopened.defaults.removeObject(forKey: AppStore.herdrHandledRequestsKey)
+    let original = try #require(main.messages.first { $0.id == flagged.id })
+    #expect(reopened.herdrRequests(in: original, of: main).isEmpty)
+    #expect(reopened.createHerdrBot(pending, manager: main) == nil)
+}

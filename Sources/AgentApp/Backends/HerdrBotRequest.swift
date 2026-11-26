@@ -7,7 +7,7 @@ import Foundation
 /// decided and the app adds the bot at once; with `"ask"`, or no decision, the app shows the request to the person
 /// and adds the bot only when they accept. Other bots ask the main bot (`HerdrBotRelay.swift`).
 /// Foundation only, so the parser and the note also build on Linux beside `HerdrClient`.
-struct HerdrBotRequest: Equatable, Sendable {
+struct HerdrBotRequest: Codable, Equatable, Sendable {
     var name: String
     /// The new bot's standing instructions; empty keeps the app's default.
     var instructions: String
@@ -16,23 +16,26 @@ struct HerdrBotRequest: Equatable, Sendable {
     /// An agent program by its name, or a template name; nil runs it like the bot that asked.
     var runtime: String?
     var model: String?
+    var reviewReason: String?
     /// The main bot wrote `"decision":"decided"`: it created the bot on its own decision. False asks the person.
     var decided = false
 
     static let op = "create_bot", nameLimit = 40, instructionsLimit = 6_000, perReply = 8
     static let decidedWord = "decided", askWord = "ask"
-    /// Only the note that explains the decision contains it: an agent that started before reads that note once.
-    static let marker = "\"decision\":\"\(decidedWord)\""
+    /// Active sessions that only received the older creation instructions need the updated note.
+    static let marker = "\"review_reason\""
 
     /// Every creation request in a reply, in order; one per name. A fence that is not valid JSON, or still being
     /// written, yields nothing.
     static func requests(in reply: String) -> [HerdrBotRequest] {
         var found: [HerdrBotRequest] = []
         for object in objects(in: reply) {
-            guard let request = HerdrBotRequest(object), !found.contains(where: { $0.name.caseInsensitiveCompare(request.name) == .orderedSame }) else { continue }
-            found.append(request)
+            guard let request = HerdrBotRequest(object) else { continue }
+            if let existing = found.firstIndex(where: { $0.name.caseInsensitiveCompare(request.name) == .orderedSame }) {
+                if found[existing].reviewReason == nil, request.reviewReason != nil { found[existing] = request }
+            } else if found.count < perReply { found.append(request) }
         }
-        return Array(found.prefix(perReply))
+        return found
     }
 
     init(name: String, instructions: String = "", shape: String? = nil, colour: String? = nil, runtime: String? = nil, model: String? = nil, decided: Bool = false) {
@@ -66,7 +69,11 @@ struct HerdrBotRequest: Equatable, Sendable {
         let avatar = object["avatar"] as? [String: Any]
         shape = word(avatar?["shape"])?.lowercased(); colour = word(avatar?["colour"] ?? avatar?["color"])?.lowercased()
         runtime = word(object["runtime"]); model = word(object["model"], limit: 160)
-        decided = word(object["decision"])?.lowercased() == Self.decidedWord
+        if object["review_reason"] != nil {
+            let reason = (object["review_reason"] as? String)?.split(whereSeparator: \.isWhitespace).joined(separator: " ") ?? ""
+            reviewReason = reason.isEmpty ? "The main bot flagged this role for your review." : String(reason.prefix(500))
+        }
+        decided = reviewReason == nil && word(object["decision"])?.lowercased() == Self.decidedWord
     }
 
     /// The template a request's `runtime` means: a template by name, else the first one whose agent program has that
@@ -96,7 +103,7 @@ struct HerdrBotRequest: Equatable, Sendable {
         {"op":"create_bot","decision":"\(decidedWord)","name":"Research","instructions":"Who this bot is and how it should work, written to the bot itself.","avatar":{"shape":"\(shapes.first ?? "star")","colour":"\(colours.first ?? "blue")"}}
         ```
 
-        \(decision) "name" is at most \(nameLimit) characters. "instructions" become the new bot's standing instructions. "avatar" is optional: \
+        \(decision) For roles handling payments, credentials, access grants or production changes, always include "review_reason" with one short sentence explaining which responsibility needs the person's approval. Include it even when the person requested the role. Its presence requires a human decision to create the bot. For routine roles omit that field. "name" is at most \(nameLimit) characters. "instructions" become the new bot's standing instructions. "avatar" is optional: \
         "shape" is one of \(shapes.joined(separator: ", ")); "colour" is one of \(colours.joined(separator: ", ")). \
         Optional "runtime" names the agent program to run it on (for example "Claude", "Codex" or "OpenCode"); leave it out to use your agent program. Supply "model" only when the person specifies a model ID. Otherwise SwarmHub uses Recommended. \
         For several bots put the objects in one JSON array. The app hides the block. \
@@ -126,4 +133,12 @@ struct HerdrBotRequest: Equatable, Sendable {
         }
         return bodies
     }
+}
+
+/// A proposal keeps its identity when it outlives the conversation page that introduced it.
+struct HerdrCreationProposal: Codable, Identifiable, Equatable {
+    let id: String
+    let request: HerdrBotRequest
+    var taken: Bool
+    var askerID: UUID? = nil
 }

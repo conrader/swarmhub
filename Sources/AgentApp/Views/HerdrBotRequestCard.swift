@@ -60,6 +60,10 @@ struct HerdrBotRequestCard: View {
                                     Text([item.request.runtime, item.request.model ?? "Recommended model"].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                                     if let asker = item.askerID.flatMap({ id in store.bots.first { $0.id == id }?.name }) { Text("asked for by \(asker)").font(.caption).foregroundStyle(.secondary) }
                                 }
+                                if let reason = item.request.reviewReason {
+                                    Label("Sensitive role", systemImage: "hand.raised").font(.caption.weight(.semibold)).foregroundStyle(AppColor.caution)
+                                    Text(verbatim: reason).font(.callout).fixedSize(horizontal: false, vertical: true)
+                                }
                                 if item.taken { Text("You already have a bot with this name. Ask \(manager.name) for another name.").font(.caption).foregroundStyle(AppColor.caution).fixedSize(horizontal: false, vertical: true) }
                                 else { FoldedWords(text: item.request.instructions.isEmpty ? "No special instructions." : item.request.instructions, name: "instructions") }
                             }

@@ -151,6 +151,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     private(set) var needsRetiredBackendMigration = false
     var isReadOnlyArchive: Bool { archivedMembers != nil || retiredBackend != nil }
     var promotedHelper: PromotedHelper?
+    var pendingRoleReviews: [HerdrCreationProposal] = []
     @Published var goal: ChatGoal?
     var offersReleaseNotesExample = false
     var showsReleaseNotesExample: Bool { (isDemo || offersReleaseNotesExample) && messages.isEmpty && grokSourceID == nil && !isReadOnlyArchive }
@@ -172,7 +173,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     var outboundPersona: String { grokSourceID == nil ? persona : SecretFilter.redacted(persona, replacement: GrokRedactor.marker) }
     static func ==(lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots, retiredBackend, offersReleaseNotesExample, goal, promotedHelper }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots, retiredBackend, offersReleaseNotesExample, goal, promotedHelper, pendingRoleReviews }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id)
         let savedBackend = try c.decodeIfPresent(String.self, forKey: .backend)
@@ -197,6 +198,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         grokSourceID = try c.decodeIfPresent(String.self, forKey: .grokSourceID); grokHistoryCount = try c.decodeIfPresent(Int.self, forKey: .grokHistoryCount) ?? 0
         archivedMembers = try c.decodeIfPresent([String].self, forKey: .archivedMembers)
         manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
+        pendingRoleReviews = try c.decodeIfPresent([HerdrCreationProposal].self, forKey: .pendingRoleReviews) ?? []
         promotedHelper = try c.decodeIfPresent(PromotedHelper.self, forKey: .promotedHelper)
         goal = try? c.decodeIfPresent(ChatGoal.self, forKey: .goal)
         offersReleaseNotesExample = try c.decodeIfPresent(Bool.self, forKey: .offersReleaseNotesExample) ?? false
@@ -222,6 +224,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(grokHistoryCount, forKey: .grokHistoryCount); try c.encodeIfPresent(archivedMembers, forKey: .archivedMembers)
         try c.encode(manualUnread, forKey: .manualUnread)
         try c.encodeIfPresent(avatarMark, forKey: .avatarMark)
+        if !pendingRoleReviews.isEmpty { try c.encode(pendingRoleReviews, forKey: .pendingRoleReviews) }
         try c.encodeIfPresent(promotedHelper, forKey: .promotedHelper)
         try c.encodeIfPresent(goal, forKey: .goal)
         try c.encodeIfPresent(retiredBackend, forKey: .retiredBackend)
