@@ -331,7 +331,7 @@ struct HerdrHelperView: View {
                     }
                     if listed?.isLive == true && !unavailable && !stopped {
                         ChatTerminalPreviewButton(server: store.herdrServer(for: bot),
-                                                  target: LiveTerminal(agent: shown.ref, title: shown.name, core: core)) {
+                                                  target: LiveTerminal(agent: shown.ref, title: shown.name, core: store.herdrHelpers[selection.parent]?.core ?? core)) {
                             if let closeOverviewDetails {
                                 closeOverviewDetails()
                                 store.open(bot, helper: selection)
@@ -354,11 +354,11 @@ struct HerdrHelperView: View {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
                     part("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
-                        Text(TranscriptText.inline(shown?.task ?? log?.tasks.first?.text ?? "")).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        Text(Self.assignment(shown?.task ?? log?.tasks.first?.text ?? "")).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         ForEach(Array(followUps(after: shown?.task).enumerated()), id: \.offset) { _, text in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Follow-up").font(.caption).foregroundStyle(.secondary)
-                                Text(TranscriptText.inline(text)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                Text(Self.assignment(text)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
@@ -483,6 +483,22 @@ struct HerdrHelperView: View {
                 Text(detail).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
             }
         }
+    }
+
+    /// A task can contain shell syntax. Only paired inline code markers change how its text appears.
+    static func assignment(_ source: String) -> AttributedString {
+        var result = AttributedString()
+        var start = source.startIndex
+        for span in source.ranges(of: #/`[^`]+`/#) {
+            result.append(AttributedString(source[start..<span.lowerBound]))
+            var code = AttributedString(source[span].dropFirst().dropLast())
+            code.inlinePresentationIntent = .code
+            code.font = .body.monospaced()
+            result.append(code)
+            start = span.upperBound
+        }
+        result.append(AttributedString(source[start...]))
+        return result
     }
 
     /// Every later task the helper was given (`helper send`).

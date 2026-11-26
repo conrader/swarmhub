@@ -312,3 +312,9 @@ private let listingJSON = """
     await store.refreshHerdrHelpers(on: server.id)
     #expect(store.chatSSHLoginRequests.isEmpty)
 }
+
+@Test @MainActor func helperAssignmentPreservesShellTextAndMarksOnlyPairedCodeSpans() {
+    let task = HerdrHelperView.assignment("Use `read_csv` for *tmp* <input>\nπ `unpaired")
+    #expect(String(task.characters) == "Use read_csv for *tmp* <input>\nπ `unpaired")
+    #expect(task.runs.filter { $0.inlinePresentationIntent == .code }.map { String(task.characters[$0.range]) } == ["read_csv"])
+}
