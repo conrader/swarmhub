@@ -1664,10 +1664,11 @@ def team_inspector(source_app, appearance):
 
     scout_id = bots[1]["id"].lower()
     selected_reviewers = {}
+    tool_review = {}
     def settings_for(owner):
         patch = owner == bots[0]["id"].lower()
         selected = selected_reviewers.get(owner)
-        return dict(auto_mode=patch, command_reviewer="sonnet" if patch and not selected else "off",
+        return dict(auto_mode=patch and not tool_review.get(owner, False), review_every_tool=tool_review.get(owner, False), command_reviewer="sonnet" if patch and not selected else "off",
                     reviewer_bot_id=selected, reviewer_bots=[dict(id=scout_id, name="Scout", model="opus")] if patch else [])
 
     class Team(BaseHTTPRequestHandler):
@@ -1676,7 +1677,7 @@ def team_inspector(source_app, appearance):
             body = None
             if self.headers.get("Authorization") == "Bearer " + token:
                 if self.path.split("?")[0] == "/api/workspace":
-                    body = dict(core="qa", agents=[], templates=[])
+                    body = dict(core="qa", agents=[], templates=[{"name":"claude","supports_tool_review":True}])
                 elif self.path == "/api/machines":
                     body = dict(machines=[])
                 elif self.path.startswith("/api/bot-agent-settings/"):
@@ -1715,6 +1716,12 @@ def team_inspector(source_app, appearance):
             if self.path.startswith("/api/bot-agent-settings/") and self.headers.get("Authorization") == "Bearer " + token:
                 owner = self.path.rsplit("/", 1)[1]
                 incoming = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if "review_every_tool" in incoming:
+                    tool_review[owner] = incoming["review_every_tool"]
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(json.dumps(settings_for(owner)).encode())
+                    return
                 if incoming.get("reviewer_bot_id") != scout_id or owner != bots[0]["id"].lower():
                     self.send_error(400)
                     return
@@ -1829,6 +1836,14 @@ def team_inspector(source_app, appearance):
                     return option and ax.AXUIElementPerformAction(option, "AXPress") == 0
                 wait_for("choose Scout as command reviewer", choose_scout)
                 wait_for("Patch’s selected reviewer", lambda: element("Command reviewer: Scout · opus"))
+                def switch(identifier):
+                    return next((e for e in descendants(w) if attribute(e, "AXIdentifier") == identifier
+                                 and attribute(e, "AXRole") in ("AXCheckBox", "AXSwitch")), None)
+                wait_for("review every tool switch", lambda: switch("bot.reviewEveryTool"))
+                assert ax.AXUIElementPerformAction(switch("bot.reviewEveryTool"), "AXPress") == 0
+                wait_for("per-call policy enabled", lambda: element("New sessions: Ask every tool"))
+                assert tool_review == {bots[0]["id"].lower(): True}
+                assert not attribute(switch("bot.autoMode"), "AXEnabled")
                 press_link(w, "Finish editing approval controls")
                 press(w, "Scout", sidebar=True)
                 wait_for("Scout approval controls", lambda: element("New sessions: Standard") and element("Command reviewer: Off"))
@@ -1836,6 +1851,7 @@ def team_inspector(source_app, appearance):
                 assert not element("swift test")
                 press(w, "Patch", sidebar=True)
                 wait_for("restored Patch rule", lambda: element("swift test"))
+                wait_for("restored Patch policy", lambda: element("New sessions: Ask every tool"))
                 for name in ("Model", "Media", "Team"):
                     open_detail_section(w, name)
                 wait_for("Patch’s scheduled CI watch", lambda: element(watch))
