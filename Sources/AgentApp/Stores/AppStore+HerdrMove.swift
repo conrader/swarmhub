@@ -123,8 +123,7 @@ extension AppStore {
         let sourceClient = try herdrClient(for: source)
         let workspace = try await sourceClient.workspace(includingCodejobs: true)
         guard let sourceCore = workspace.core else { throw HerdrMoveError.serversChanged }
-        let sourceWorkspace: HerdrClient.Workspace? = workspace
-        if let core = sourceWorkspace?.core, core == destinationWorkspace.core { throw HerdrMoveError.sameWorkspace }
+        if sourceCore == destinationWorkspace.core { throw HerdrMoveError.sameWorkspace }
         try Task.checkCancellation()
         try checkHerdrMoveServers(source: source, destination: destination)
         let targets = movableHerdrBots(on: source).filter { selected.contains($0.id) }
@@ -145,8 +144,8 @@ extension AppStore {
         var warmStarts: [Task<Void, Never>] = []
         let changes = targets.compactMap { bot -> HerdrServerMoveRecord.Change? in
             let agentNames = herdrExistingAgentNames(for: bot)
-            let agents = sourceWorkspace.map { moveAgents(named: agentNames, in: $0) } ?? []
-            if workspace.codejobActivity?.hosts?.contains(where: { $0.jobs.contains { $0.owner == bot.id } }) == true {
+            let agents = moveAgents(named: agentNames, in: workspace)
+            if bot.goal?.state.active == true || workspace.codejobActivity?.hosts?.contains(where: { $0.jobs.contains { $0.owner == bot.id } }) == true {
                 skipped.append(bot.name)
                 return nil
             }
@@ -154,13 +153,13 @@ extension AppStore {
                 if resumeActiveWork, let checkpoint = moveCheckpoint(for: bot, agents: agents, workspace: workspace) {
                     interrupted[bot.id] = checkpoint
                 } else {
-                skipped.append(bot.name)
-                return nil
+                    skipped.append(bot.name)
+                    return nil
                 }
             }
 
             let before = herdrMoveChoice(for: bot)
-            let match = matchingMoveTemplate(for: bot, source: sourceWorkspace?.templates ?? [], destination: templates)
+            let match = matchingMoveTemplate(for: bot, source: workspace.templates, destination: templates)
             let template = explicit ?? match ?? fallback
             let model: String
             if !template.takesModel { model = "" }
@@ -171,10 +170,8 @@ extension AppStore {
             let isMain = wasMain && mainAvailable
             names[bot.id] = agentNames
             if let warming = herdrWarming[bot.id] { warmStarts.append(warming) }
-            let launch = sourceWorkspace?.core.flatMap { core in
-                agents.first { $0.name == agentNames[0] || HerdrClient.suffix(of: $0.name) == HerdrClient.suffix(of: agentNames[0]) }
-                    .map { HerdrAgentLaunch(server: source.id, core: core, address: $0.address, createdMs: $0.createdMs) }
-            }
+            let launch = agents.first { $0.name == agentNames[0] || HerdrClient.suffix(of: $0.name) == HerdrClient.suffix(of: agentNames[0]) }
+                .map { HerdrAgentLaunch(server: source.id, core: sourceCore, address: $0.address, createdMs: $0.createdMs) }
             return .init(botID: bot.id, name: bot.name, before: before, after: .init(template: template.name, model: model),
                          projects: herdrProjects(for: bot), wasMain: wasMain, isMain: isMain,
                          carryOver: herdrCarryOver(for: bot), sourceLaunch: launch, messageCount: bot.messages.count,
@@ -187,8 +184,9 @@ extension AppStore {
             record.receipts = try await stageRoutines(record, workspace: workspace, destination: destinationWorkspace)
             for change in changes {
                 guard let checkpoint = interrupted[change.botID], let bot = byID[change.botID] else { continue }
-                try await interruptForMove(bot, checkpoint: checkpoint, source: source, core: sourceCore, client: sourceClient)
-                record.resumed.append(bot.name)
+                if try await interruptForMove(bot, checkpoint: checkpoint, source: source, core: sourceCore, client: sourceClient) {
+                    record.resumed.append(bot.name)
+                }
             }
             try Task.checkCancellation()
             try checkHerdrMoveServers(source: source, destination: destination)
