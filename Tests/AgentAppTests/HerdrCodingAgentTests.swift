@@ -203,12 +203,13 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         store.herdrCodejobReads[server.id] = .init(server: server, hosts: [], observed: .now)
         func listing(_ state: String) -> HerdrClient.Helpers {
             var result = list([])
-            for runtime in [HerdrClient.ChildRuntime.claude, .opencode, .codex] {
+            for runtime in [HerdrClient.ChildRuntime.claude, .opencode, .codex, .gemini] {
                 let thread = HerdrClient.NativeThread(id: "shared", parent: "root", runtime: runtime, name: "Scout",
                                                       model: nil, createdMs: 1, state: state, task: "Inspect", reply: "")
                 switch runtime {
                 case .claude: result.claudeThreads = [thread]
                 case .opencode: result.opencodeThreads = [thread]
+                case .gemini: result.geminiThreads = [thread]
                 case .codex: result.codexThreads = [thread]
                 }
             }
@@ -216,7 +217,7 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         }
         store.herdrLive(.helpers(listing("working")), botID: bot.id)
         let rows = store.herdrHelperOverview.nativeRows
-        #expect(Set(rows.map(\.id)).count == 3)
+        #expect(Set(rows.map(\.id)).count == 4)
         #expect(rows.allSatisfy { $0.bot.id == bot.id && $0.server == server && $0.target.id.child?.owner == parent })
         #expect(store.hasActiveCodingAgent(bot) && !store.herdrHelperOverview.confirmedEmpty)
         let old = HerdrHelperParent(botID: bot.id, archive: .init(core: "archive", session: parent))

@@ -78,6 +78,14 @@ pub(super) async fn read_claude(
     activity(w, address, created, thread, query, "claude").await
 }
 
+pub(super) async fn read_gemini(
+    State(w): State<Workspace>,
+    Path((address, created, thread)): Path<(String, u64, String)>,
+    Query(query): Query<ListingQuery>,
+) -> Result<Json<Value>, ApiError> {
+    activity(w, address, created, thread, query, "gemini").await
+}
+
 pub(super) async fn read_opencode(
     State(w): State<Workspace>,
     Path((address, created, thread)): Path<(String, u64, String)>,
@@ -98,6 +106,10 @@ async fn activity(
     let mut child = Child::load(&w, &core, &address, created, &thread, runtime)?;
     if child.state == "working" {
         match child.owner_is_live(&w, &core, &address, created).await {
+            Ok(true) if runtime == "gemini" => {
+                crate::gemini_agent::children::refresh_live(w.history.file(), &child.launch_key).await;
+                child = Child::load(&w, &core, &address, created, &thread, runtime)?;
+            }
             Ok(true) => {}
             Ok(false) => {
                 child.active_turn = None;

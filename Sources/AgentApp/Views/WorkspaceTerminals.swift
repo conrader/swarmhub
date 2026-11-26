@@ -8,6 +8,7 @@ struct LiveTerminal: Identifiable, Hashable, Codable {
         case codexThread(core: String, owner: HerdrClient.AgentRef, thread: String)
         case claudeThread(core: String, owner: HerdrClient.AgentRef, thread: String)
         case opencodeThread(core: String, owner: HerdrClient.AgentRef, thread: String)
+        case geminiThread(core: String, owner: HerdrClient.AgentRef, thread: String)
         case job(host: String, owner: UUID, key: String)
 
         var child: (runtime: HerdrClient.ChildRuntime, core: String, owner: HerdrClient.AgentRef, thread: String)? {
@@ -15,6 +16,7 @@ struct LiveTerminal: Identifiable, Hashable, Codable {
             case let .codexThread(core, owner, thread): (.codex, core, owner, thread)
             case let .claudeThread(core, owner, thread): (.claude, core, owner, thread)
             case let .opencodeThread(core, owner, thread): (.opencode, core, owner, thread)
+            case let .geminiThread(core, owner, thread): (.gemini, core, owner, thread)
             default: nil
             }
         }
@@ -36,6 +38,7 @@ struct LiveTerminal: Identifiable, Hashable, Codable {
         case .codex: .codexThread(core: core, owner: owner, thread: thread.id)
         case .claude: .claudeThread(core: core, owner: owner, thread: thread.id)
         case .opencode: .opencodeThread(core: core, owner: owner, thread: thread.id)
+        case .gemini: .geminiThread(core: core, owner: owner, thread: thread.id)
         }
         title = thread.name
         detail = thread.sessionDetail
@@ -271,7 +274,7 @@ private struct TerminalOutput: View {
                             return
                         }
                         text = try await client.screen(of: ref)
-                    case .codexThread, .claudeThread, .opencodeThread: return
+                    case .codexThread, .claudeThread, .opencodeThread, .geminiThread: return
                     case .job(let host, let owner, let key):
                         struct Tail: Decodable { let text: String? }
                         let tail: Tail = try await client.get("/api/codejobs/\(host)/\(owner.uuidString.lowercased())/\(key)/output")

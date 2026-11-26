@@ -154,6 +154,8 @@ pub(crate) struct Listing {
     claude_threads: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     opencode_threads: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    gemini_threads: Vec<serde_json::Value>,
     /// Running helpers only, newest first.
     helpers: Vec<View>,
 }
@@ -769,6 +771,7 @@ pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/api/agents/{id}/{created}/helpers", get(list))
         .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(native_threads::read_codex).post(native_threads::interrupt_codex))
+        .route("/api/agents/{id}/{created}/gemini-threads/{thread}", get(native_threads::read_gemini))
         .route("/api/agents/{id}/{created}/opencode-threads/{thread}", get(native_threads::read_opencode).post(native_threads::interrupt_opencode))
         .route("/api/agents/{id}/{created}/claude-threads/{thread}", get(native_threads::read_claude).post(native_threads::request_claude_stop))
         .merge(settings::routes())
@@ -814,17 +817,23 @@ pub(crate) async fn listing(
             |row| row.get(0),
         )
         .map_err(StoreError::from)?;
-    let mut threads: Vec<serde_json::Value> = {
+    let load_threads = || -> Result<Vec<serde_json::Value>, StoreError> {
         let db = w.history.db()?;
         let mut stmt = db.prepare_cached("SELECT json_remove(c.summary,'$.details') FROM native_children c JOIN journal p ON p.id=c.launch
             WHERE p.launch_key=?1 ORDER BY c.thread DESC").map_err(StoreError::from)?;
         let rows = stmt.query_map([key], |r| r.get::<_,String>(0)).map_err(StoreError::from)?;
         rows.map(|s| serde_json::from_str(&s.map_err(StoreError::from)?).map_err(|_| StoreError))
-            .collect::<Result<Vec<_>,_>>()?
+            .collect::<Result<Vec<_>,_>>()
     };
+    let mut threads = load_threads()?;
     let native_work = threads.iter().any(|c| c["state"] == "working");
     let agents = if (any || native_work) && current_core { w.core.agents().await? } else { Vec::new() };
-    if native_work && !agents.iter().any(|agent| agent.state == "live" && agent.launch_key() == Some(key)) {
+    let owner_live = agents.iter().any(|agent| agent.state == "live" && agent.launch_key() == Some(key));
+    if owner_live && threads.iter().any(|c| c["runtime"] == "gemini" && c["state"] == "working") {
+        crate::gemini_agent::children::refresh_live(w.history.file(),key).await;
+        threads = load_threads()?;
+    }
+    if native_work && !owner_live {
         for thread in &mut threads {
             if thread["state"] == "working" { thread["state"] = "stopped".into(); }
         }
@@ -848,6 +857,7 @@ pub(crate) async fn listing(
     let last_result = latest.filter(|&i| !helpers[i].live()).map(|i| helpers.remove(i));
     let (helpers, recent_sessions) = helpers.into_iter().partition(View::live);
     let (stop_after_seconds, stop_unanswered_after_seconds) = Policy::delays(w.history.file());
+    let (gemini_threads, threads): (Vec<_>, Vec<_>) = threads.into_iter().partition(|row| row["runtime"] == "gemini");
     let (opencode_threads, threads): (Vec<_>, Vec<_>) = threads.into_iter().partition(|row| row["runtime"] == "opencode");
     let (claude_threads, codex_threads) = threads.into_iter().partition(|row| row["runtime"] == "claude");
     Ok(Listing {
@@ -863,6 +873,7 @@ pub(crate) async fn listing(
         codex_threads,
         claude_threads,
         opencode_threads,
+        gemini_threads,
         helpers,
     })
 }
