@@ -29,6 +29,7 @@ use std::{
     process::Command,
 };
 
+pub(crate) mod children;
 mod sign_in;
 pub(crate) mod startup;
 pub(crate) mod status;
@@ -158,6 +159,9 @@ fn install_hooks(folder: &Path, exe: &str) -> Result<(), Box<dyn std::error::Err
 /// What a hook tells on standard input. Everything else in it is skipped.
 #[derive(Deserialize)]
 struct Event {
+    session_id: Option<String>,
+    transcript_path: Option<String>,
+    cwd: Option<String>,
     hook_event_name: String,
     tool_name: Option<String>,
     tool_input: Option<Value>,
@@ -223,6 +227,7 @@ fn handle() -> Result<(), ()> {
     let Ok(event) = serde_json::from_reader::<_, Event>(io::stdin().lock().take(HOOK_LIMIT)) else {
         return Ok(());
     };
+    children::observe(&journal, &key, &event);
     let mut saved = Ok(());
     match event.hook_event_name.as_str() {
         "SessionStart" => {

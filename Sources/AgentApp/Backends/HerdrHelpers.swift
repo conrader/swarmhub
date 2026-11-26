@@ -74,12 +74,13 @@ extension HerdrClient {
     }
 
     enum ChildRuntime: String, Codable, Sendable {
-        case claude, codex, opencode
+        case claude, codex, opencode, gemini
         var label: String {
             switch self {
             case .claude: "Claude"
             case .codex: "Codex"
             case .opencode: "OpenCode"
+            case .gemini: "Gemini CLI"
             }
         }
     }
@@ -121,7 +122,8 @@ extension HerdrClient {
         var codexThreads: [NativeThread]? = nil
         var claudeThreads: [NativeThread]? = nil
         var opencodeThreads: [NativeThread]? = nil
-        var nativeThreads: [NativeThread] { (codexThreads ?? []) + (claudeThreads ?? []) + (opencodeThreads ?? []) }
+        var geminiThreads: [NativeThread]? = nil
+        var nativeThreads: [NativeThread] { [codexThreads, claudeThreads, opencodeThreads, geminiThreads].compactMap { $0 }.flatMap { $0 } }
         var hasSidebarSessions: Bool { !nativeThreads.isEmpty || !sidebarSessions.isEmpty }
 
         var lastResult: Helper? = nil

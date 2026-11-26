@@ -309,6 +309,8 @@ impl Stream {
         self.helpers["helpers"]
             .as_array()
             .is_some_and(|helpers| helpers.is_empty())
+            && !self.helpers["gemini_threads"].as_array().is_some_and(|threads|
+                threads.iter().any(|child| child["state"] == "working"))
     }
 
     fn find_launch(&mut self) -> Result<(), StoreError> {
