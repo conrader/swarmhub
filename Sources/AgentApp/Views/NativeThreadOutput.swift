@@ -86,11 +86,7 @@ struct NativeThreadOutput: View {
             if let steps = details?.steps {
                 if steps.isEmpty { Text("No steps recorded.").foregroundStyle(.secondary) }
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(verbatim: step.text).textSelection(.enabled)
-                        Spacer()
-                        if let state = step.state { Text(verbatim: state).font(.caption).foregroundStyle(.secondary) }
-                    }
+                    NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command)
                 }
             } else if activity == nil && readError == nil {
                 ProgressView("Loading steps…").controlSize(.small)
