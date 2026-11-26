@@ -11,6 +11,7 @@ struct HerdrHelperModelSection: View {
     @State private var saved: HerdrClient.BotAgentSettings?
     @State private var program = ""
     @State private var model = ""
+    @State private var editingControls = false
     @State private var saving = false
     @State private var reviewerError: String?
     @State private var autoProblem = ""
@@ -21,15 +22,33 @@ struct HerdrHelperModelSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if !approvalsOnly { helperModel }
-            else if saved == nil {
-                if problem.isEmpty { ProgressView("Loading approval settings…").controlSize(.small) }
+            if approvalsOnly {
+                HStack {
+                    Text("Control level").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    if saved != nil {
+                        Button(editingControls ? "Done" : "Edit") { editingControls.toggle() }
+                            .buttonStyle(.link).accessibilityLabel(editingControls ? "Finish editing approval controls" : "Edit approval controls")
+                    }
+                }
+                if let saved {
+                    LibraryFlow(spacing: 5) {
+                        InspectorTag(text: saved.autoMode ? "New sessions: Auto" : "New sessions: Standard")
+                        if let reviewer = saved.commandReviewer {
+                            InspectorTag(text: reviewer == "off" ? "Command reviewer: Off" : "Command reviewer: Claude " + reviewer.capitalized)
+                        }
+                    }
+                    if editingControls { approvalSettings }
+                } else if problem.isEmpty { ProgressView("Loading approval settings…").controlSize(.small) }
                 else {
                     Text(problem).font(.callout)
                     Button("Try again") { Task { await load() } }
                 }
+            } else {
+                helperModel
+                approvalSettings
             }
-            approvalSettings
         }.task(id: "\(bot.id)-\(server.id)") { await load() }
     }
 

@@ -91,13 +91,16 @@ struct HerdrCommandRules: View {
     @Environment(\.workspaceApprovals) private var inboxes
     let botID: UUID
     let server: HerdrServer
-    @State private var rules: [HerdrClient.CommandRule] = []
+    @State private var rules: [HerdrClient.CommandRule]?
     @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !rules.isEmpty { Text("Saved command rules").font(.headline) }
-            ForEach(rules) { rule in
+            Text("Scoped rules").font(.caption.weight(.semibold)).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
+            if let rules, rules.isEmpty, error == nil {
+                Text("No saved command rules").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(rules ?? []) { rule in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(HerdrClient.Approval.visible(rule.command)).font(.body.monospaced()).textSelection(.enabled)
                     Text(rule.provider + " · " + HerdrClient.Approval.visible(rule.cwd)).font(.caption)
@@ -105,7 +108,7 @@ struct HerdrCommandRules: View {
                         Task {
                             do {
                                 try await store.herdrClient(for: server).revokeCommandRule(rule.id)
-                                rules.removeAll { $0.id == rule.id }
+                                rules?.removeAll { $0.id == rule.id }
                                 error = nil
                             } catch { self.error = error.localizedDescription }
                         }
@@ -120,7 +123,12 @@ struct HerdrCommandRules: View {
                 guard !Task.isCancelled else { return }
                 rules = result
                 error = nil
-            } catch HerdrClient.Failure.http(404, _) { rules = [] }
+            } catch HerdrClient.Failure.http(404, _) {
+                if !Task.isCancelled {
+                    rules = nil
+                    error = "Update this workspace to use scoped command rules."
+                }
+            }
             catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }

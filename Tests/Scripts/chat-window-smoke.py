@@ -1554,6 +1554,11 @@ def team_inspector(source_app, appearance):
                     body = dict(core="qa", agents=[], templates=[])
                 elif self.path == "/api/machines":
                     body = dict(machines=[])
+                elif self.path.startswith("/api/bot-agent-settings/"):
+                    patch = parts[-1].lower() == bots[0]["id"].lower()
+                    body = dict(auto_mode=patch, command_reviewer="sonnet" if patch else "off")
+                elif self.path == "/api/project-command-rules":
+                    body = [dict(id=1, bot=bots[0]["id"], agent="patch", provider="Codex", cwd="/srv/shop", command="swift test")]
                 elif self.path == "/api/skillshare":
                     if not skills_online:
                         self.send_error(503)
@@ -1675,7 +1680,19 @@ def team_inspector(source_app, appearance):
                 wait_for("collapsed skills", lambda: not element("Test runner"))
                 press_link(w, "Manage shared skills")
                 wait_for("Skills section selected", lambda: attribute(element("More Details sections"), "AXValue") == "Skills")
-                for name in ("Approvals", "Model", "Media", "Team"):
+                open_detail_section(w, "Approvals")
+                wait_for("Patch approval controls", lambda: element("New sessions: Auto") and element("Command reviewer: Claude Sonnet"))
+                wait_for("Patch’s scoped command", lambda: element("swift test"))
+                press_link(w, "Edit approval controls")
+                wait_for("approval editor", lambda: element("Auto mode for new sessions"))
+                press_link(w, "Finish editing approval controls")
+                press(w, "Scout", sidebar=True)
+                wait_for("Scout approval controls", lambda: element("New sessions: Standard") and element("Command reviewer: Off"))
+                wait_for("Scout’s empty scoped rules", lambda: element("No saved command rules"))
+                assert not element("swift test")
+                press(w, "Patch", sidebar=True)
+                wait_for("restored Patch rule", lambda: element("swift test"))
+                for name in ("Model", "Media", "Team"):
                     open_detail_section(w, name)
                 wait_for("Patch’s scheduled CI watch", lambda: element(watch))
                 def right_edge(e):
