@@ -42,7 +42,7 @@ private struct RowText: View {
             // A blank fragment still takes its line, so every row is the same height.
             Text(fragment.isEmpty ? " " : fragment).font(.system(size: SidebarMetrics.fragmentSize)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.tail)
-        }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -96,7 +96,6 @@ struct BotRow: View {
                 } else {
                     RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.herdrProgramName(for: bot), mainBotLabel: main)
                 }
-                Spacer(minLength: 4)
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         }.buttonStyle(.plain).accessibilityValue(bot.isUnread ? "Unread" : "").contextMenu {
@@ -129,7 +128,6 @@ struct GroupRow: View {
                 } else {
                     RowText(name: group.name, fragment: fragment(fixedNow ?? .now), unread: group.isUnread)
                 }
-                Spacer(minLength: 4)
                 if group.isMuted { Image(systemName: "bell.slash").font(.system(size: 10)).foregroundStyle(.tertiary) }
                 if group.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
