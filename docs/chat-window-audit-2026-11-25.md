@@ -355,3 +355,16 @@ A private MacBook window opened Needs Attention from a different bot. It counted
 The same test opened the bot’s Approvals tab, prefixed an existing draft with the composer’s /goal control and submitted it to a workspace fixture already reporting USD 2.00 of OpenCode usage. With a USD 2.00 budget, the saved goal stopped at iteration zero. The screenshot button opened the native file chooser.
 
 The budget gates the start of each autonomous goal step. Providers that do not report session prices cannot run budgeted steps. A strict provider billing ceiling during an already running step and flat-rate subscription pricing are outside the coverage of this test.
+
+## Interactive preview, helper navigation and sidebar runtime labels
+
+On November 26 the browser driver opened the five workspace scenarios at [swarmhub.org](https://swarmhub.org/) and selected the working and answered helpers in both appearances. The reference places a main bot’s star beside its name, its AI at the end of the same line, and each helper beneath its parent. The native comparison used the rendered SwiftUI sidebar in dark and light appearances and a separate MacBook window driven through macOS Accessibility.
+
+| Behavior | Observation |
+| --- | --- |
+| Return from a helper | In 0.8.35 the arrow on a group’s nested helper opened the bot’s direct chat. In the 0.8.36 candidate, nine consecutive trips from the nested helper back through its delegating helper returned to the group, with its draft and previously visible message 77 intact. A separate 620-message test reopened the saved position through two restarts. |
+| List bots before opening their chats | In a private 0.8.37 window the selected chat was ReaderQA. The sidebar identified Patch’s live Codex process and StandbyQA’s configured Claude program. The workspace’s first usable template was Claude. The selected chat and draft stayed available while inspecting terminals. |
+| Distinguish the launch AI from an edited template | A store regression supplied a template that now runs Claude and a saved launch on Codex. The sidebar selected Codex for that launch, then Claude for a replacement process at the same address with a different creation time. |
+| Main bot designation | A native rendering test transferred the main role from a pinned bot to an ordinary row and then removed it. It located the star on the pinned avatar, beside the ordinary bot’s name, and absent after removal. |
+
+Two limits matter when comparing the live product with the walkthrough. The nested navigation test supplies parent and child records from a workspace fixture. The stock workspace currently rejects a helper’s request to launch another helper. Ordinary bot-to-helper delegation and inspection have their own coverage. The Payments walkthrough also promises approval before every action after creation. The native Inbox test covers the human decision to create the bot. The creation path reads the manager’s decision and approval preferences. It does not establish an enforced per-action policy for the created bot.
