@@ -308,7 +308,10 @@ struct HerdrHelperView: View {
 
     var body: some View {
         let shown = listed ?? helper
-        let owner = store.delegatingHelper(for: selection)?.name ?? bot.name
+        let parentSession = store.delegatingSession(for: selection)
+        let group = store.groupOwningHelper(selection, of: bot)
+        let owner = parentSession?.helper.name ?? bot.name
+        let backTitle = "Back to " + (parentSession?.helper.name ?? group?.name ?? bot.name)
         let unavailable = store.herdrHelperReads[selection.parent] == .unavailable
         VStack(spacing: 0) {
             HStack(spacing: 11) {
@@ -316,8 +319,12 @@ struct HerdrHelperView: View {
                     Button("Done", action: closeOverviewDetails)
                 } else {
                     ShowSidebarItem()
-                    Button { store.open(bot) } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle()) }
-                        .buttonStyle(.plain).help("Back to \(bot.name)").accessibilityLabel("Back to \(bot.name)")
+                    Button {
+                        if let parentSession { store.open(bot, helper: parentSession.id) }
+                        else if let group { store.open(group) }
+                        else { store.open(bot) }
+                    } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle()) }
+                        .buttonStyle(.plain).help(backTitle).accessibilityLabel(backTitle)
                 }
                 BotAvatar(bot: bot, size: 26)
                 VStack(alignment: .leading, spacing: 1) {

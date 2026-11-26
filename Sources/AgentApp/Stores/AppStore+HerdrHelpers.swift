@@ -183,13 +183,16 @@ extension AppStore {
         return rows
     }
 
-    func delegatingHelper(for selection: HerdrHelperSelection) -> HerdrClient.Helper? {
+    func delegatingSession(for selection: HerdrHelperSelection) -> SidebarHelperSession? {
         guard let source = selection.source else { return nil }
-        for (key, snapshot) in herdrHelpers where key.botID == selection.botID &&
-            key.groupRuntime == selection.groupRuntime && snapshot.core == source.core {
-            if let helper = snapshot.sidebarSessions.first(where: { $0.ref == source.session }) { return helper }
-        }
-        return nil
+        let root = HerdrHelperParent(botID: selection.botID, groupRuntime: selection.groupRuntime)
+        guard herdrHelpers[root]?.core == source.core else { return nil }
+        return sidebarSessions(under: root, collapsed: []).first { $0.helper.ref == source.session }
+    }
+
+    func groupOwningHelper(_ selection: HerdrHelperSelection, of bot: Bot) -> GroupChat? {
+        guard bot.id == selection.botID, let runtime = selection.groupRuntime else { return nil }
+        return groups.first { $0.memberIDs.contains(bot.id) && approvalAgentNames(for: bot, in: $0).contains(runtime) }
     }
 
     func herdrHasUnansweredHelpers(_ bot: Bot, parent: HerdrClient.AgentRef? = nil) -> Bool {
@@ -538,8 +541,8 @@ extension AppStore {
 
     func openHelperParent(_ selection: HerdrHelperSelection, of bot: Bot) -> Bool {
         guard selection.botID == bot.id else { return false }
-        if let runtime = selection.groupRuntime {
-            guard let group = groups.first(where: { approvalAgentNames(for: bot, in: $0).contains(runtime) && $0.memberIDs.contains(bot.id) })
+        if selection.groupRuntime != nil {
+            guard let group = groupOwningHelper(selection, of: bot)
             else { return false }
             open(group)
             composerFocus = group.id
@@ -557,7 +560,7 @@ extension AppStore {
               herdrHelperReads[selection.parent] != .unavailable,
               herdrHelpers[selection.parent]?.helpers.contains(where: { $0.id == helper.id && $0.isLive }) == true
         else { return false }
-        let owner = delegatingHelper(for: selection).map { "the helper delegated by “\($0.name)” named" } ?? "your helper"
+        let owner = delegatingSession(for: selection).map { "the helper delegated by “\($0.helper.name)” named" } ?? "your helper"
         let text = "Please steer \(owner) “\(helper.name)” with this instruction:\n\(words)"
         if let runtime = selection.groupRuntime {
             guard let group = groups.first(where: { group in

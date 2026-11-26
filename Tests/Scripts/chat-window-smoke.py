@@ -1103,7 +1103,10 @@ def live_terminals(source_app):
                 press(window, "Preview terminal for NestedQA")
                 output("/api/agents/terminal4/104/output")
                 choose("Back to Details")
-                press(window, "ReleaseQA", sidebar=True)
+                press(window, "Back to GroupHelperQA")
+                wait_for("delegating helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to GroupHelperQA"
+                                                                     for n in descendants(window)))
+                press(window, "Back to ReleaseQA")
                 press(window, "Group terminals")
                 choose("Preview Patch")
                 output("/api/agents/terminal2/102/output")
