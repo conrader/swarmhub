@@ -347,7 +347,7 @@ extension AppStore {
         for bot in bots where bot.backend == .herdr && !bot.isReadOnlyArchive {
             let server = herdrServer(for: bot, in: servers)
             guard watch[server.id] != true else { continue }
-            let awaitsHelper = bot.promotedHelper.map { $0.pendingAfter != nil && $0.serverID == server.id } ?? false
+            let awaitsHelper = bot.promotedHelper.map { $0.awaitsReply && $0.serverID == server.id } ?? false
             let busy = awaitsHelper || isAnswering(bot) || herdrReadiness[bot.id]?.isStarting == true
                 || herdrAgentPresence[bot.id].map { $0.server == server && $0.isActive } == true || live.contains(bot.id)
                 || codejobs(for: bot, on: server).contains { $0.job.isWorking }

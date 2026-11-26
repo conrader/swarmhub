@@ -63,7 +63,7 @@ extension AppStore {
         let autoPending = autoSwitchPending(bot)
         let pending = modelPending || autoPending
         let client = try herdrClient(for: server)
-        if bot.promotedHelper?.pendingAfter != nil {
+        if bot.promotedHelper?.awaitsReply == true {
             await collectPromotedReply(for: bot, on: server, workspace: current, client: client, preparingDirectTurn: true)
             try checkChoice()
         }

@@ -147,6 +147,8 @@ extension AppStore {
         let lines = herdrCarryLines(of: bot), name = bot.name
         guard !lines.isEmpty else { endHerdrCarryOver(for: bot); return nil }
         let contextID = bot.promotedHelper?.handoffID ?? botID
+        let origin: HerdrHandoff.Origin = bot.promotedHelper?.native == nil ? .ownChat : .promotedHelper
+        let pendingReply = bot.promotedHelper?.native?.pendingReplyExcerpt
         let url = chatSummaryURL(botID)
         return await Task.detached(priority: .userInitiated) {
             let transcript = GrokHandoff.Transcript(lines)
@@ -162,8 +164,10 @@ extension AppStore {
                 plan.older = spoken.filter { $0.seq <= through }
                 plan.recent = spoken.filter { $0.seq > through }
             }
-            let rendered = GrokHandoff.render(transcript, plan: plan, summary: summary, botName: name, origin: .ownChat)
-            return GrokHandoff.package(rendered, archiveID: contextID, origin: .ownChat)
+            let rendered = GrokHandoff.render(transcript, plan: plan, summary: summary, botName: name, origin: origin)
+            var handoff = GrokHandoff.package(rendered, archiveID: contextID, origin: origin)
+            handoff.pendingHelperReply = pendingReply
+            return handoff
         }.value
     }
 
@@ -172,6 +176,10 @@ extension AppStore {
     func herdrCarriedOver(_ receipt: HerdrHandoffReceipt, botID: UUID, handoffID: UUID? = nil) {
         guard let bot = bots.first(where: { $0.id == botID }), bot.promotedHelper?.handoffID == handoffID, herdrCarryOver(for: bot) != nil else { return }
         endHerdrCarryOver(for: bot)
+        if bot.promotedHelper?.native?.pendingReplyExcerpt != nil {
+            bot.promotedHelper?.native?.pendingReplyExcerpt = nil
+            save()
+        }
         guard let handoff = receipt.handoff else { return }
         grokChatLine(HerdrCarryCopy.read(bot.name, summarised: handoff.summary != nil, older: handoff.olderMessages, recent: handoff.recentMessages, withFiles: receipt.withFiles), in: bot)
     }

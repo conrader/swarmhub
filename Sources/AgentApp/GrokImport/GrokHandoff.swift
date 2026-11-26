@@ -253,7 +253,7 @@ enum GrokHandoff {
 
     /// How every marker of this conversation starts. The note a handoff travels in begins with the marker, and a
     /// saved task that has it shows that the agent session was given the conversation (`HerdrClient.handoffState`).
-    static func lead(for archiveID: UUID, origin: HerdrHandoff.Origin = .imported) -> String { "[SwarmHub \(origin == .ownChat ? "chat handoff" : "handoff") \(archiveID.uuidString.lowercased().prefix(8)) " }
+    static func lead(for archiveID: UUID, origin: HerdrHandoff.Origin = .imported) -> String { "[SwarmHub \(origin == .imported ? "handoff" : "chat handoff") \(archiveID.uuidString.lowercased().prefix(8)) " }
     /// The marker of one revision of the archive. Only `lead` is looked for today; the revision is there for telling
     /// a running agent what was added since it read an older one.
     static func marker(for archiveID: UUID, revision: String, origin: HerdrHandoff.Origin = .imported) -> String { lead(for: archiveID, origin: origin) + "r\(revision)]" }

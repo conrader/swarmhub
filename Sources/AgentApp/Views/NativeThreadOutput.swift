@@ -14,6 +14,7 @@ struct NativeThreadOutput: View {
     @State private var activity: HerdrClient.ThreadActivity?
     @State private var requestedTurn: String?
     @State private var sendingClaudeRequest = false
+    @State private var promotion: Task<Void, Never>?
     @State private var readError: String?
     @State private var actionError: String?
 
@@ -50,6 +51,7 @@ struct NativeThreadOutput: View {
                 }
             }
         }
+        .onDisappear { promotion?.cancel() }
         .task {
             while !Task.isCancelled {
                 do {
@@ -193,6 +195,26 @@ struct NativeThreadOutput: View {
             .buttonStyle(.borderedProminent)
             .accessibilityLabel(title)
             .accessibilityIdentifier(runtime.rawValue + "Child.openParent")
+            if session != nil {
+                let existing = store.promotedBot(for: owner, core: core, parent: parent.bot, runtime: runtime, thread: thread)
+                Button(existing.map { "Open " + $0.name + " chat" } ?? "Promote to bot") {
+                    var selected = parent.selection
+                    selected.native = .init(thread: parent.child, core: core, owner: owner, server: server)
+                    actionError = nil
+                    promotion = Task {
+                        defer { promotion = nil }
+                        do {
+                            let bot = try await store.promoteNativeHelper(selected, of: parent.bot)
+                            try Task.checkCancellation()
+                            store.open(bot)
+                        } catch is CancellationError {
+                        } catch { actionError = error.localizedDescription }
+                    }
+                }
+                .disabled(promotion != nil || (readError != nil && existing == nil))
+                .help("Open a permanent chat with this helper’s model and session history.")
+                .accessibilityIdentifier(runtime.rawValue + "Child.promote")
+            }
         }
     }
 
