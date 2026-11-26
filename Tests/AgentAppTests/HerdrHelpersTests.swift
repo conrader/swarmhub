@@ -70,6 +70,18 @@ private let listingJSON = """
     #expect(target.detail == "Claude session" && target.id.child?.runtime == .claude)
 }
 
+@Test func openCodeChildUsesItsOwnActivityEndpoint() throws {
+    let list = try decoded(HerdrClient.Helpers.self, """
+        {"core":"core","parent":{"address":"t7","created_ms":5},"helpers":[],"opencode_threads":[
+        {"id":"ses_reader","runtime":"opencode","parent":"ses_parent","name":"Reader","created_ms":12,"state":"working","task":"Read logs","reply":""}]}
+        """)
+    let child = try #require(list.nativeThreads.first)
+    let target = LiveTerminal(thread: child, owner: list.parent, core: list.core)
+    #expect(list.hasSidebarSessions && target.detail == "OpenCode session")
+    #expect(target.id == .opencodeThread(core: "core", owner: list.parent, thread: "ses_reader"))
+    #expect(target.id.child?.runtime == .opencode)
+}
+
 @Test func archivedCodexActivityFromAnOlderWorkspaceHasNoInterruptTarget() throws {
     let archived = try decoded(HerdrClient.ThreadActivity.self, """
         {"transcript":"Task Read logs","state":"answered"}

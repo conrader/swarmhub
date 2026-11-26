@@ -1,6 +1,7 @@
 import { execFile, spawnSync } from "node:child_process";
 import { closeSync, constants, openSync, readFileSync, writeSync } from "node:fs";
 import { createConnection } from "node:net";
+import { observeChildren } from "./children.js";
 import { approvalDesk } from "./approvals.js";
 
 const types = ["session.execution.started", "session.execution.succeeded", "session.execution.failed",
@@ -300,6 +301,7 @@ export default {
       approvals.dispose();
       status.close();
     }
+    void observeChildren(ctx, executable, controller.signal).catch(() => {});
     void listen().catch(() => {}).finally(close);
     return () => { controller.abort(); close(); };
   },

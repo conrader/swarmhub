@@ -74,8 +74,14 @@ extension HerdrClient {
     }
 
     enum ChildRuntime: String, Codable, Sendable {
-        case claude, codex
-        var label: String { self == .claude ? "Claude" : "Codex" }
+        case claude, codex, opencode
+        var label: String {
+            switch self {
+            case .claude: "Claude"
+            case .codex: "Codex"
+            case .opencode: "OpenCode"
+            }
+        }
     }
 
     struct NativeThread: Decodable, Sendable, Equatable, Identifiable {
@@ -112,7 +118,8 @@ extension HerdrClient {
 
         var codexThreads: [NativeThread]? = nil
         var claudeThreads: [NativeThread]? = nil
-        var nativeThreads: [NativeThread] { (codexThreads ?? []) + (claudeThreads ?? []) }
+        var opencodeThreads: [NativeThread]? = nil
+        var nativeThreads: [NativeThread] { (codexThreads ?? []) + (claudeThreads ?? []) + (opencodeThreads ?? []) }
         var hasSidebarSessions: Bool { !nativeThreads.isEmpty || !sidebarSessions.isEmpty }
 
         var lastResult: Helper? = nil

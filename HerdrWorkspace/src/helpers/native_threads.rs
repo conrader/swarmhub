@@ -69,6 +69,14 @@ pub(super) async fn read_claude(
     activity(w, address, created, thread, query, "claude").await
 }
 
+pub(super) async fn read_opencode(
+    State(w): State<Workspace>,
+    Path((address, created, thread)): Path<(String, u64, String)>,
+    Query(query): Query<ListingQuery>,
+) -> Result<Json<Value>, ApiError> {
+    activity(w, address, created, thread, query, "opencode").await
+}
+
 async fn activity(
     w: Workspace,
     address: String,

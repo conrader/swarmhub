@@ -152,6 +152,8 @@ pub(crate) struct Listing {
     codex_threads: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     claude_threads: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    opencode_threads: Vec<serde_json::Value>,
     /// Running helpers only, newest first.
     helpers: Vec<View>,
 }
@@ -767,6 +769,7 @@ pub fn routes() -> Router<Workspace> {
     Router::new()
         .route("/api/agents/{id}/{created}/helpers", get(list))
         .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(native_threads::read_codex).post(native_threads::interrupt))
+        .route("/api/agents/{id}/{created}/opencode-threads/{thread}", get(native_threads::read_opencode))
         .route("/api/agents/{id}/{created}/claude-threads/{thread}", get(native_threads::read_claude))
         .merge(settings::routes())
         .merge(crate::bot_agent_settings::routes())
@@ -845,6 +848,7 @@ pub(crate) async fn listing(
     let last_result = latest.filter(|&i| !helpers[i].live()).map(|i| helpers.remove(i));
     let (helpers, recent_sessions) = helpers.into_iter().partition(View::live);
     let (stop_after_seconds, stop_unanswered_after_seconds) = Policy::delays(w.history.file());
+    let (opencode_threads, threads): (Vec<_>, Vec<_>) = threads.into_iter().partition(|row| row["runtime"] == "opencode");
     let (claude_threads, codex_threads) = threads.into_iter().partition(|row| row["runtime"] == "claude");
     Ok(Listing {
         core: core_id,
@@ -858,6 +862,7 @@ pub(crate) async fn listing(
         recent_sessions,
         codex_threads,
         claude_threads,
+        opencode_threads,
         helpers,
     })
 }
