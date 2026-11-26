@@ -77,8 +77,10 @@ struct BotRow: View {
         let fragment = { (now: Date) in
             // An agent that waits at a question says so, whatever its last message was.
             if let cap = bot.sessionCapCents, !answering, store.herdrPrompts[bot.id] == nil, !bot.isUnread, (drafts.texts[bot.id] ?? "").isEmpty {
-                if let usage = store.herdrPresence(for: bot)?.usage?.estimatedCost {
-                    return usage + " / " + (Decimal(cap) / 100).formatted(.currency(code: "USD")) + " cap"
+                if let amount = store.herdrPresence(for: bot)?.usage?.opencodeCostUsd, amount.isFinite, amount > 0 {
+                    let spent = amount < 0.0001 ? "<0.0001" : amount.formatted(.number.precision(.fractionLength(2...4)))
+                    let limit = (Decimal(cap) / 100).formatted(.number.precision(.fractionLength(2)))
+                    return "$" + spent + " / $" + limit
                 }
                 return HerdrBotRequest.capLabel(cap)
             }
