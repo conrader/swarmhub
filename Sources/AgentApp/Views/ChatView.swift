@@ -43,6 +43,8 @@ struct ChatView: View {
                     ChatModelButton(reading: store.herdrAgentReadings[bot.id], usage: store.herdrPresence(for: bot)?.usage) { store.openInfoTab(.model) }
                 }
                 if let session {
+                    ChatTerminalPreviewButton(server: store.herdrServer(for: bot),
+                                              target: LiveTerminal(agent: session, title: bot.name))
                     Button("Terminal", systemImage: "terminal") { terminal = HerdrTerminalTarget(agent: session) }
                         .buttonStyle(.bordered).controlSize(.small).fixedSize()
                         .accessibilityLabel("Open terminal for \(bot.name)").accessibilityIdentifier("chat.bot.terminal")
