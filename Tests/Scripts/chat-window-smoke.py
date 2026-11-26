@@ -992,6 +992,7 @@ def live_terminals(source_app):
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
     reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
     standby = dict(id=str(uuid.uuid4()), name="StandbyQA", backend="Herdr")
+    pinned = dict(id=str(uuid.uuid4()), name="PinnedQA", backend="Herdr")
     group = dict(id=str(uuid.uuid4()), name="ReleaseQA", memberIDs=[owner["id"]], messages=[])
     group["messages"] = [dict(id=str(uuid.uuid4()), role="user", createdAt=800000000 + i,
                               content=f"QA message {i} in the group") for i in range(160)]
@@ -1001,6 +1002,8 @@ def live_terminals(source_app):
                    "group-" + hashlib.sha256(session.encode()).hexdigest()[:24], "GroupHelperQA", "NestedQA"]
     agents = [dict(name=name, address="terminal" + str(i), created_ms=100 + i,
                    state="live", status=dict(state="working")) for i, name in enumerate(agent_names)]
+    agents.append(dict(name="pinnedqa-" + pinned["id"][:6], address="pinned", created_ms=110,
+                       state="live", status=dict(state="working")))
     agents[0]["template"] = "active-cli"
     templates = [dict(name="next-cli", runtime=dict(harness="Claude Code")), dict(name="active-cli", runtime=dict(harness="Codex"))]
     for child, parent in [(1, 0), (3, 2), (4, 3)]:
@@ -1051,7 +1054,7 @@ def live_terminals(source_app):
             pass
 
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
-        store.write_text(json.dumps(dict(version=2, bots=[reader, owner, standby], groups=[group],
+        store.write_text(json.dumps(dict(version=2, bots=[reader, owner, standby, pinned], groups=[group], sidebar=dict(pinned=[pinned["id"]]),
                                          scrollPositions={group["id"].upper(): group["messages"][77]["id"]})))
         Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -1095,6 +1098,16 @@ def live_terminals(source_app):
                 choose("Done")
                 wait_for("terminal window closed", lambda: not sheet())
                 wait_for("return to existing draft", lambda: attribute(field, "AXValue") == "Draft stays in ReaderQA")
+                press(window, "Preview terminal for PinnedQA")
+                output("/api/agents/pinned/110/output")
+                choose("Back to Details")
+                worker_label = "Codex working for Patch · test-host · " + job[:8]
+                press(window, worker_label)
+                output("/api/codejobs/test-host/" + owner["id"] + "/" + job + "/output")
+                choose("Back to Details")
+                wait_for("ReaderQA draft after pinned bot and detached worker previews",
+                         lambda: any(attribute(e, "AXRole") == "AXTextArea" and attribute(e, "AXValue") == "Draft stays in ReaderQA"
+                                     for e in descendants(window)))
                 press(window, "ReleaseQA", sidebar=True)
                 wait_for("original group reading position", lambda: 77 in visible_messages(window))
                 def group_composer():
@@ -1155,7 +1168,6 @@ def live_terminals(source_app):
                 press(window, "Preview Patch in Details")
                 output("/api/agents/terminal0/100/output", updates=2)
                 choose("Back to Details")
-                worker_label = "Codex working for Patch · test-host · " + job[:8]
                 def sidebar_worker():
                     return any(label(b) == worker_label for b in buttons(window))
                 wait_for("detached worker beneath Patch", sidebar_worker)
@@ -1189,7 +1201,7 @@ def live_terminals(source_app):
                     return {name for button in buttons(window) for name in ["AnsweredQA", "EarlierQA"]
                             if label(button).startswith("Helper " + name + ",")}
                 wait_for("both closed sessions after relaunch", lambda: restored() == {"AnsweredQA", "EarlierQA"})
-                print("Verified live terminal identities and two closed helpers after switching chats and relaunching the app.")
+                print("Verified pinned bot and detached worker previews preserve the current draft, live terminal identities, and two closed helpers after relaunch.")
         finally:
             server.shutdown()
 

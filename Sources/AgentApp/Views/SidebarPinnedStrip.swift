@@ -67,6 +67,11 @@ private struct PinnedBotTile: View {
             .accessibilityValue(bot.isUnread ? "Unread" : "")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .contextMenu { SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection, requestDelete: requestDelete) }
+            .overlay(alignment: .topLeading) {
+                if let ref = store.herdrTerminalSession(for: bot) {
+                    SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: ref, title: bot.name))
+                }
+            }
     }
 }
 
