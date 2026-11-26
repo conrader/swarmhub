@@ -4,7 +4,7 @@ import SwiftUI
 /// A private sample workspace driven over standard input. Each request finishes before the next is read.
 @MainActor final class AgentQA {
     typealias Command = [String: String]
-    static let commands = ["inspect", "sidebarButtons", "pressSidebar", "unfold", "fold", "child", "terminal", "readTerminal", "steer", "cancelGuidance", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
+    static let commands = ["inspect", "unfold", "fold", "child", "terminal", "readTerminal", "steer", "cancelGuidance", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
     let store: AppStore
     let directory: URL
     var screen = "workspace"
@@ -51,7 +51,7 @@ import SwiftUI
             Usage: \(CommandLine.arguments.first ?? AppConstants.name) --agent-qa OUTPUT_DIRECTORY [--hunt]
             Run --hunt for built-in checks, or send JSON objects on stdin. Each result is one JSON line.
             Example: {"action":"open","bot":"Mira"}
-            Actions: inspect, open(bot), unfold, fold, child(id), terminal, readTerminal, steer, cancelGuidance, parent, draft(text), send(optional text), pin, unpin,
+            Actions: inspect, open(bot), unfold, fold, child(id, optional bot), terminal(optional id and bot), readTerminal, steer, cancelGuidance, parent, draft(text), send(optional text), pin, unpin,
               appearance(value: dark/light), viewport(width,height), details(value: show/hide),
               screen(value: workspace/whatsNew), capture, expect(field,value), finding(kind,text).
             Fields are strings. Expect supports selected, draft, pinned, unread, child, guidance, terminal, terminalContains, visibleChildren, lastRole, and contains (with text).
@@ -149,14 +149,20 @@ import SwiftUI
         }
         switch try field("action") {
         case "inspect": break
-        case "sidebarButtons": return ["buttons": try await sidebarButtons(press: nil)]
-        case "pressSidebar": _ = try await sidebarButtons(press: field("label"))
         case "cancelGuidance":
             let bot = try requireBot()
             guard store.helperSteeringDrafts.removeValue(forKey: bot.id) != nil else { throw QAError("No instruction is open.") }
         case "readTerminal": return ["transcript": try await terminalActivity().transcript]
         case let action where ["fold", "unfold", "child", "parent", "terminal", "steer"].contains(action):
-            try sessionAction(action, bot: requireBot(), target: command["id"])
+            let owner: Bot
+            if let name = command["bot"] {
+                guard ["child", "terminal"].contains(action), command["id"] != nil else {
+                    throw QAError("Specify a session id to open or preview a session under another bot.")
+                }
+                guard let bot = store.bots.first(where: { $0.name == name }) else { throw QAError("Unknown bot: " + name) }
+                owner = bot
+            } else { owner = try requireBot() }
+            try sessionAction(action, bot: owner, target: command["id"])
         case "open":
             let name = try field("bot")
             guard let target = store.bots.first(where: { $0.name == name }) else { throw QAError("Unknown bot: " + name) }

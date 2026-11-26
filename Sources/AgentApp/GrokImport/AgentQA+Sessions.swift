@@ -32,12 +32,17 @@ extension AgentQA {
         case "unfold", "fold":
             guard store.herdrHelpers[bot.id]?.hasSidebarSessions == true else { throw QAError("This bot has no sessions.") }
             store.defaults.set(action == "unfold", forKey: bot.sessionsExpandedKey)
-        case "child":
+        case "child" where target != nil, "terminal" where target != nil:
             guard let list = store.herdrHelpers[bot.id], let child = visibleChildren(bot).first(where: { $0.id == target }) else {
-                throw QAError("Choose a visible session id under the selected bot.")
+                throw QAError("Choose a visible session id under " + bot.name + ".")
             }
-            let native = HerdrHelperSelection.Native(thread: child, core: list.core, owner: list.parent, server: store.herdrServer(for: bot))
-            store.open(bot, helper: .init(botID: bot.id, helperID: child.id, native: native))
+            let server = store.herdrServer(for: bot)
+            if action == "terminal" {
+                store.previewInInspector(.init(server: server, target: LiveTerminal(thread: child, owner: list.parent, core: list.core)))
+            } else {
+                let native = HerdrHelperSelection.Native(thread: child, core: list.core, owner: list.parent, server: server)
+                store.open(bot, helper: .init(botID: bot.id, helperID: child.id, native: native))
+            }
         case "terminal", "parent", "steer":
             guard let selection = store.openHerdrHelper, let native = selection.native else { throw QAError("Open a child first.") }
             if action == "terminal" {

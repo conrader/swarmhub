@@ -20,8 +20,9 @@ Omit `--hunt` to send one JSON object per line on standard input. Wait for the `
 | `inspect` | | Names, unread counts and pins, selected chat, draft and messages, current screen and viewport |
 | `open` | `bot` | Open a sample chat by the name in state |
 | `unfold`, `fold` | | Expand or collapse the selected bot’s sessions. Inspect `state.children` for visible ids. |
-| `child` | `id` | Open a visible sample session |
-| `terminal`, `readTerminal` | | Show the selected child’s terminal in Details or read its transcript |
+| `child` | `id`, optional `bot` | Open a visible session in the center, including one under a different bot |
+| `terminal` | Optional `id` and `bot` | Preview a visible session in Details while keeping the current chat and draft open. Omit both fields to preview the open session. |
+| `readTerminal` | | Read the transcript currently shown in Details |
 | `steer`, `cancelGuidance` | | Open or dismiss the instruction for the selected session. Use `draft` and `send` to guide it through the parent. |
 | `parent` | | Return to the parent chat and its draft |
 | `draft` | `text` | Type or clear the selected chat’s draft |
