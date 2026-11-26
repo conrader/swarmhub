@@ -972,6 +972,7 @@ def activity_decisions(source_app):
                     arguments="argument-" + str(i), core="qa", address="session", created_ms=created)
                for i, tool, created in [(1, "Read", 80), (2, "Bash", 80), (3, "Previous", 79)]]
     decisions = []
+    reviewed = []
 
     class Inbox(BaseHTTPRequestHandler):
         def reply(self, body):
@@ -988,13 +989,19 @@ def activity_decisions(source_app):
                 self.send_error(403)
             elif route == "/api/workspace":
                 self.reply(dict(core="qa", agents=[agent], templates=[]))
+            elif route == "/api/attention":
+                failures = [] if reviewed else [dict(id=7, bot="Patch", pull_request="repo/pull/12", check_run="CI")]
+                self.reply(dict(ci_failures=failures, completions=[]))
             elif route == "/api/approvals":
                 self.reply(dict(pending=[r for r in pending if r["id"] not in dict(decisions)]))
             else:
                 self.send_error(404)
 
         def do_POST(self):
-            if self.path.startswith("/api/approvals/") and self.headers.get("Authorization") == "Bearer " + token:
+            if self.path == "/api/attention/ci/7/review" and self.headers.get("Authorization") == "Bearer " + token:
+                reviewed.append(7)
+                self.reply(dict(reviewed=True))
+            elif self.path.startswith("/api/approvals/") and self.headers.get("Authorization") == "Bearer " + token:
                 request_id = int(self.path.split("/")[-1])
                 decision = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 decisions.append((request_id, decision))
@@ -1011,7 +1018,14 @@ def activity_decisions(source_app):
         try:
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
                 press(window, "ReaderQA", sidebar=True)
-                press(window, "Activity")
+                def count_is(expected):
+                    return any(label(b) == "Needs Attention" and str(attribute(b, "AXValue")) == str(expected)
+                               for b in buttons(window))
+
+                wait_for("two approvals and one failing check", lambda: count_is(3))
+                footer = [attribute(e, "AXValue") for e in descendants(window)]
+                assert "0 SSH hosts" in footer and "2 bots" in footer
+                press(window, "Needs Attention")
 
                 def sheet():
                     return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
@@ -1019,6 +1033,9 @@ def activity_decisions(source_app):
                 def names():
                     return [label(b) for b in buttons(sheet())] if sheet() else []
 
+                wait_for("CI entry in inbox", lambda: "Mark reviewed" in names())
+                press(sheet(), "Mark reviewed")
+                wait_for("CI review receipt", lambda: reviewed == [7])
                 pid = ax.AXUIElementGetPid(window, None)[1]
                 for request_id, tool, decision, key in [(2, "Bash", "deny", 51), (1, "Read", "approve", 36)]:
                     inspect = "Inspect " + tool + " request"
@@ -1037,7 +1054,8 @@ def activity_decisions(source_app):
                 wait_for("both requests cleared", lambda: names() == ["Done"])
                 press(sheet(), "Done")
                 wait_for("Activity dismissed", lambda: not sheet())
-                print("Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
+                wait_for("empty sidebar badge", lambda: count_is(0))
+                print("Verified sidebar counts and CI review. Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
         finally:
             server.shutdown()
 

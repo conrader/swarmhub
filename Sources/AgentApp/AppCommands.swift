@@ -171,7 +171,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .newGroup: store.showingNewGroup = true
         case .importTemplate: store.showingTemplateImport = true
         case .quickSwitcher: store.showingCommandPalette = true
-        case .activity: store.showingActivity = true
+        case .activity: store.showOnlyAttention = false; store.showingActivity = true
         case .toggleSidebar: store.sidebarHidden.toggle()
         case .toggleInfo: store.showInfo.toggle()
         case .hiddenChats: store.sidebarHidden = false; store.showingHiddenBots.toggle()

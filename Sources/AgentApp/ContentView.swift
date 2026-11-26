@@ -90,7 +90,9 @@ struct ContentView: View {
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
-        .sheet(isPresented: $store.showingActivity) { WorkspaceActivityView() }
+        .sheet(isPresented: $store.showingActivity, onDismiss: { store.showOnlyAttention = false }) {
+            WorkspaceActivityView(attentionOnly: store.showOnlyAttention)
+        }
         .modifier(WorkspaceApprovalReader())
         .modifier(HerdrVaultPrompts(anotherSheet: hasCompetingVaultSheet))
         .alert("Something went wrong", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.dismissError() } })) { Button("OK") { store.dismissError() } } message: { Text(store.modalErrorMessage ?? "") }

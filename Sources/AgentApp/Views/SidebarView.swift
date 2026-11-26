@@ -17,21 +17,6 @@ struct SidebarView: View {
             HStack(spacing: 8) {
                 Spacer(minLength: ChromeMetrics.lightsClearance)
                 HideSidebarButton()
-                Button { store.showingCommandPalette = true } label: {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "magnifyingglass")
-                            Text("Search")
-                            Text(AppCommand.quickSwitcher.shortcutText).foregroundStyle(.secondary)
-                        }.font(.caption).padding(.horizontal, 8).frame(height: 24)
-                            .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 6))
-                            .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator) }
-                            .fixedSize()
-                        RoundSidebarLabel(symbol: "magnifyingglass")
-                    }
-                }
-                    .buttonStyle(.plain).help("Search (\(AppCommand.quickSwitcher.shortcutText))")
-                    .accessibilityLabel("Search").chromeProbe("search").layoutPriority(1)
                 Menu {
                     Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
                     Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }
@@ -43,6 +28,18 @@ struct SidebarView: View {
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                     .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
+            VStack(spacing: 6) {
+                Button { store.showingCommandPalette = true } label: {
+                    HStack {
+                        Text("Jump to bot or Page…").lineLimit(1)
+                        Spacer()
+                        Text(AppCommand.quickSwitcher.shortcutText).font(.caption.monospaced())
+                    }.font(.callout).foregroundStyle(.secondary).padding(.horizontal, 9).frame(height: 28)
+                        .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator) }
+                }.buttonStyle(.plain).accessibilityLabel("Search").chromeProbe("search")
+                SidebarAttentionButton()
+            }.padding(.horizontal, SidebarMetrics.listInset).padding(.vertical, 4)
             ReviewUpdatesButton()
             let layout = store.sidebarLayout
             let sessions = Dictionary(grouping: store.herdrHelpers.keys.filter { store.herdrHelpers[$0]?.helpers.isEmpty == false }, by: \.botID)
@@ -92,7 +89,21 @@ struct SidebarView: View {
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
             // The bottom bar floats over the list where the Mac has Liquid Glass: the rows pass beneath it.
-            .floatingBar(edge: .bottom, backing: AppColor.sidebar) { bottomBar }
+            .floatingBar(edge: .bottom, backing: AppColor.sidebar) {
+                VStack(spacing: 0) {
+                    HStack {
+                        let endpoints = Set(store.herdrServers.filter { $0.kind == .ssh }.compactMap(\.sshEndpoint)
+                            .map { "\($0.host.lowercased()):\($0.port ?? 22)" })
+                        Text(endpoints.count == 1 ? "1 SSH host" : "\(endpoints.count) SSH hosts")
+                            .help("Configured SSH hosts")
+                        Spacer()
+                        Text(AppStore.botCount(store.bots.filter { !$0.isReadOnlyArchive }.count))
+                            .help("Bots in this workspace, including hidden bots")
+                    }.font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, SidebarMetrics.listInset + 6).padding(.top, 6)
+                    bottomBar
+                }
+            }
         }.background(AppColor.sidebar)
         .modifier(SidebarSectionPrompts(prompt: $sectionPrompt, sectionToDelete: $sectionToDelete))
         .alert(BotRemovalCopy.title(botToDelete?.name ?? "bot"), isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
@@ -128,7 +139,7 @@ struct SidebarView: View {
                     .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
             }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
             Spacer(minLength: 2)
-            Button { store.showingActivity = true } label: {
+            Button { store.showOnlyAttention = false; store.showingActivity = true } label: {
                 Label("Activity", systemImage: AppCommand.activity.icon)
                     .font(.system(size: 13, weight: .medium))
                     .frame(height: SidebarMetrics.roundButton)
@@ -142,5 +153,44 @@ struct SidebarView: View {
         SidebarBotSessions(bot: bot, parents: parents) {
             BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
         }
+    }
+}
+
+private struct SidebarAttentionButton: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.workspaceApprovals) private var inboxes
+    @Environment(\.workspaceAttention) private var readings
+    @State private var chatCount = 0
+
+    var body: some View {
+        let failures = store.herdrServers.reduce(0) { count, server in
+            count + (readings[server.id].flatMap { $0.server == server ? $0.failures.count : nil } ?? 0)
+        }
+        let count = chatCount + failures
+        Button {
+            store.showOnlyAttention = true
+            store.showingActivity = true
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "tray").foregroundStyle(.secondary)
+                Text("Needs Attention").font(.callout.weight(.medium))
+                Spacer(minLength: 2)
+                Text(String(count)).font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(count == 0 ? Color.secondary : Color.accentColor)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background((count == 0 ? Color.secondary : Color.accentColor).opacity(0.14), in: Capsule())
+            }.padding(.horizontal, 9).frame(height: 32)
+                .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(AppColor.separator) }
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel("Needs Attention").accessibilityValue(String(count))
+            .help("Pending requests, interrupted replies and failed checks. Open to check saved SSH servers.")
+            .task(id: inboxes) {
+                while !Task.isCancelled {
+                    chatCount = store.workspaceActivity(inboxes: inboxes, attentionOnly: true).reduce(0) {
+                        $0 + max(1, store.workspaceReviews(in: $1.chat, inboxes: inboxes).count)
+                    }
+                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                }
+            }
     }
 }

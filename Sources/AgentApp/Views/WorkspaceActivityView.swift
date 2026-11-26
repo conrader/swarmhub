@@ -11,15 +11,36 @@ struct WorkspaceActivityItem: Identifiable {
     var id: UUID { chat.id }
 }
 
+struct WorkspaceReview: Equatable, Identifiable {
+    let bot: Bot
+    let server: HerdrServer
+    let request: HerdrClient.Approval
+    var id: String { "\(bot.id)-\(server.id)-\(request.id)" }
+}
+
 extension AppStore {
-    func workspaceActivity(inboxes: [String: WorkspaceApprovalInbox] = [:]) -> [WorkspaceActivityItem] {
+    func workspaceReviews(in chat: SidebarChat, inboxes: [String: WorkspaceApprovalInbox]) -> [WorkspaceReview] {
+        func requests(_ bot: Bot, _ group: GroupChat?) -> [WorkspaceReview] {
+            let server = herdrServer(for: bot)
+            return approvals(for: bot, in: group, inboxes: inboxes).map {
+                WorkspaceReview(bot: bot, server: server, request: $0)
+            }
+        }
+        switch chat {
+        case .bot(let bot): return requests(bot, nil)
+        case .group(let group): return members(of: group).flatMap { requests($0, group) }
+        }
+    }
+
+
+    func workspaceActivity(inboxes: [String: WorkspaceApprovalInbox] = [:], attentionOnly: Bool = false) -> [WorkspaceActivityItem] {
         let chats = bots.filter { !$0.isHidden }.map(SidebarChat.bot) + groups.filter { !$0.isHidden }.map(SidebarChat.group)
-        return chats.compactMap { activityItem(for: $0, inboxes: inboxes) }.sorted {
+        return chats.compactMap { activityItem(for: $0, inboxes: inboxes, attentionOnly: attentionOnly) }.sorted {
             $0.chat.displayName.localizedStandardCompare($1.chat.displayName) == .orderedAscending
         }
     }
 
-    private func activityItem(for chat: SidebarChat, inboxes: [String: WorkspaceApprovalInbox]) -> WorkspaceActivityItem? {
+    private func activityItem(for chat: SidebarChat, inboxes: [String: WorkspaceApprovalInbox], attentionOnly: Bool) -> WorkspaceActivityItem? {
         func item(_ section: WorkspaceActivityItem.Section, _ detail: String) -> WorkspaceActivityItem {
             WorkspaceActivityItem(chat: chat, section: section, detail: detail)
         }
@@ -46,14 +67,15 @@ extension AppStore {
         }
 
         if let last = conversation.messages.last(where: { $0.role == .assistant }) {
-            if last.turnState == .stopped, last.metadata[TurnKey.why] == TurnKey.stopPending { return item(.working, "Waiting for stop confirmation…") }
+            if !attentionOnly, last.turnState == .stopped, last.metadata[TurnKey.why] == TurnKey.stopPending { return item(.working, "Waiting for stop confirmation…") }
             if last.needsTurnAttention {
                 if last.stopUnconfirmed { return item(.attention, "Stop unconfirmed") }
                 if last.turnState == .notSent, last.metadata[TurnKey.ambiguous] == "1" { return item(.attention, "Delivery unconfirmed") }
                 return item(.attention, last.turnState == .notSent ? "Message wasn’t sent" : "Reply is incomplete")
             }
-            if last.checkingSavedReply && last.turnState == .incomplete { return item(.working, "Checking for a saved reply") }
+            if !attentionOnly && last.checkingSavedReply && last.turnState == .incomplete { return item(.working, "Checking for a saved reply") }
         }
+        if attentionOnly { return nil }
         if isStreaming(in: conversation) {
             let line: String?
             switch chat {
@@ -76,77 +98,29 @@ extension AppStore {
 }
 
 struct WorkspaceActivityView: View {
+    var attentionOnly = false
+    @Environment(\.workspaceAttention) private var serverReadings
     @EnvironmentObject private var store: AppStore
     @Environment(\.workspaceApprovals) private var inboxes
     @Environment(\.dismiss) private var dismiss
     @State private var items: [WorkspaceActivityItem] = []
 
-    private struct Review: Equatable, Identifiable {
-        let bot: Bot
-        let server: HerdrServer
-        let request: HerdrClient.Approval
-        var id: String { "\(bot.id)-\(server.id)-\(request.id)" }
-    }
+    @State private var selectedReview: WorkspaceReview?
+    @State private var completed: [WorkspaceReview] = []
 
-    @State private var selectedReview: Review?
-    @State private var completed: [Review] = []
-
-    private struct ServerReading {
-        let server: HerdrServer
-        var failures: [HerdrClient.CIFailure]
-        var reviewed: Set<Int64> = []
-        var completions: [HerdrClient.JobCompletion] = []
-    }
-
-    @State private var serverReadings: [String: ServerReading] = [:]
+    @State private var reviewedCI: [String: Set<Int64>] = [:]
 
     private func ciFailures(on server: HerdrServer) -> [HerdrClient.CIFailure] {
         guard let reading = serverReadings[server.id], reading.server == server else { return [] }
-        return reading.failures.filter { !reading.reviewed.contains($0.id) }
+        return reading.failures.filter { reviewedCI[server.id]?.contains($0.id) != true }
     }
-    @State private var attentionUnavailable = Set<String>()
 
     private func completions(on server: HerdrServer) -> [HerdrClient.JobCompletion] {
-        guard let reading = serverReadings[server.id], reading.server == server else { return [] }
+        guard !attentionOnly, let reading = serverReadings[server.id], reading.server == server else { return [] }
         return reading.completions
     }
 
-    private var servers: [HerdrServer] { inboxes.values.map(\.server).sorted { $0.id < $1.id } }
-
-    private func refreshAttention(on server: HerdrServer) async {
-        while !Task.isCancelled {
-            do {
-                let client = try store.herdrClient(for: server)
-                let result: HerdrClient.AttentionInbox = try await client.get("/api/attention")
-                guard !Task.isCancelled else { return }
-                var reading = serverReadings[server.id] ?? ServerReading(server: server, failures: [])
-                if reading.server != server { reading = ServerReading(server: server, failures: []) }
-                reading.failures = result.ciFailures ?? []
-                reading.completions = result.completions ?? []
-                reading.reviewed.formIntersection(reading.failures.map(\.id))
-                serverReadings[server.id] = reading
-                attentionUnavailable.remove(server.id)
-            } catch {
-                guard !Task.isCancelled else { return }
-                serverReadings[server.id] = nil
-                attentionUnavailable.insert(server.id)
-            }
-            do { try await Task.sleep(for: .seconds(4)) } catch { return }
-        }
-    }
-
-    private func reviews(in chat: SidebarChat) -> [Review] {
-        func requests(_ bot: Bot, _ group: GroupChat?) -> [Review] {
-            let server = store.herdrServer(for: bot)
-            return store.approvals(for: bot, in: group, inboxes: inboxes).map {
-                Review(bot: bot, server: server, request: $0)
-            }
-        }
-        switch chat {
-        case .bot(let bot): return requests(bot, nil)
-        case .group(let group): return store.members(of: group).flatMap { requests($0, group) }
-        }
-    }
+    private var servers: [HerdrServer] { store.herdrServers.filter { serverReadings[$0.id]?.server == $0 || inboxes[$0.id]?.server == $0 } }
 
     private func completionRow(_ result: HerdrClient.JobCompletion, on server: HerdrServer) -> some View {
         let bot = store.bots.first { $0.id == UUID(uuidString: result.ownerBotId) && $0.backend == .herdr && store.herdrServer(for: $0) == server }
@@ -177,7 +151,7 @@ struct WorkspaceActivityView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                Text(attentionOnly ? "Needs Attention" : "Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }.padding()
@@ -186,14 +160,14 @@ struct WorkspaceActivityView: View {
                 Label("Can’t check approvals on \(server.name)", systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
             }
-            ForEach(servers.filter { attentionUnavailable.contains($0.id) && inboxes[$0.id]?.unavailable == false }) { server in
+            ForEach(servers.filter { serverReadings[$0.id]?.unavailable == true && inboxes[$0.id]?.unavailable == false }) { server in
                 Label("Can’t check background jobs or CI on \(server.name)", systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
             }
             Group {
                 if items.isEmpty && servers.allSatisfy({ ciFailures(on: $0).isEmpty && completions(on: $0).isEmpty }) {
-                    ContentUnavailableView("No chat activity", systemImage: AppCommand.activity.icon,
-                                           description: Text("Chats with pending work or unread messages appear here."))
+                    ContentUnavailableView(attentionOnly ? "No pending items" : "No chat activity", systemImage: AppCommand.activity.icon,
+                                           description: Text(attentionOnly ? "Requests, interrupted replies and failed checks appear here." : "Chats with pending work or unread messages appear here."))
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 3) {
@@ -203,7 +177,7 @@ struct WorkspaceActivityView: View {
                                     ForEach(ciFailures(on: server)) { failure in
                                         WorkspaceCIFailureRow(server: server, failure: failure) {
                                             guard serverReadings[server.id]?.server == server else { return }
-                                            serverReadings[server.id]?.reviewed.insert(failure.id)
+                                            reviewedCI[server.id, default: []].insert(failure.id)
                                         }
                                     }
                                 }
@@ -241,7 +215,7 @@ struct WorkspaceActivityView: View {
                                     }.buttonStyle(.plain).accessibilityLabel("\(row.chat.displayName), \(row.detail)")
                                         .accessibilityValue(row.chat.isUnread ? "Unread" : "")
                                     if row.section == .attention {
-                                        ForEach(reviews(in: row.chat).filter { !completed.contains($0) }) { review in
+                                        ForEach(store.workspaceReviews(in: row.chat, inboxes: inboxes).filter { !completed.contains($0) }) { review in
                                             if selectedReview == review {
                                                 HerdrApprovalReview(request: review.request, server: review.server, keyboardDecisions: true) {
                                                     completed.append(review)
@@ -261,19 +235,10 @@ struct WorkspaceActivityView: View {
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }.frame(width: 440, height: 420)
-        .background {
-            ForEach(servers) { server in
-                Color.clear.task(id: server) { await refreshAttention(on: server) }
-                    .onDisappear {
-                        serverReadings[server.id] = nil
-                        attentionUnavailable.remove(server.id)
-                    }
-            }
-        }
         .task(id: inboxes) {
             // Messages and remote helper snapshots can change independently of the store's published lists.
             while !Task.isCancelled {
-                items = store.workspaceActivity(inboxes: inboxes)
+                items = store.workspaceActivity(inboxes: inboxes, attentionOnly: attentionOnly)
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }

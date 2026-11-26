@@ -3,7 +3,7 @@ import Foundation
 /// The window chrome checks C1-C12, read from the `chrome` facts only; each failure is one line for `errors` (0.5 pt tolerance).
 enum ChromeChecks {
     static let tolerance = 0.5
-    static let rowButtons = ["hide_sidebar", "search", "new_bot"]
+    static let rowButtons = ["hide_sidebar", "new_bot"]
     static let topEdges = ["sidebar_row", "chat_header", "details_header"]
 
     static func run(_ facts: [String: Any]) -> (passed: [String: Bool], errors: [String]) {
@@ -84,7 +84,7 @@ enum ChromeChecks {
     /// Buttons hit app content (never chrome, never the drag strip); blank points hit the drag strip or the system title zone.
     static func c8(_ facts: [String: Any]) -> [String] {
         let hit = object(facts, "hit")
-        var errors = rowButtons.compactMap { id -> String? in
+        var errors = (rowButtons + ["search"]).compactMap { id -> String? in
             guard let fact = hit[id] as? [String: Any] else { return "\(id) not probed" }
             return fact["kind"] as? String == "app_content" ? nil : "\(id) hits \(fact["kind"] ?? "?") (\(fact["class"] ?? "?"))"
         }
