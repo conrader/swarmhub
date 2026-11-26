@@ -23,8 +23,15 @@ import SwiftUI
     /// Removes workspace sidebar widths outside the supported range, so the column opens at its ideal width. Settings keeps its own.
     @discardableResult static func dropStaleSavedWidths(in defaults: UserDefaults = .standard) -> [String] {
         let saved = defaults.dictionaryRepresentation().filter { key, _ in key.hasPrefix(autosavePrefix) && key.hasSuffix(autosaveSuffix) && !key.contains("Settings") }
-        let stale = saved.filter { savedWidth($0.value).map { !range.contains($0) } ?? true }.keys.sorted()
+        // Earlier releases autosaved their 280 pt default just like a manual drag.
+        let migrationKey = "sidebarPreviewWidthMigrated"
+        let replacingDefault = !defaults.bool(forKey: migrationKey)
+        let stale = saved.filter { entry in
+            guard let width = savedWidth(entry.value) else { return true }
+            return !range.contains(width) || (replacingDefault && width == 280)
+        }.keys.sorted()
         stale.forEach(defaults.removeObject(forKey:))
+        if replacingDefault { defaults.set(true, forKey: migrationKey) }
         openAtIdeal = saved.count == stale.count
         launchFacts = ["dropped": stale.count, "open_at_ideal": openAtIdeal]
         return stale
