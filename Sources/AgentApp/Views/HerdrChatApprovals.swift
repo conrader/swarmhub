@@ -61,6 +61,10 @@ struct HerdrApprovalReview: View {
             HStack {
                 Button("Allow once") { respond(.approve) }
                     .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                if request.canRememberCommand == true {
+                    Button("Always allow here") { respond(.rememberCommand) }
+                        .help("Save this exact command for this bot and folder. Revoke it in Details → Approvals.")
+                }
                 Button("Deny") { respond(.deny) }
                     .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.delete, modifiers: .command) : nil)
             }.disabled(busy)
@@ -78,6 +82,46 @@ struct HerdrApprovalReview: View {
                 try await store.herdrClient(for: server).decide(request, decision)
                 didDecide()
             } catch { self.error = error.localizedDescription }
+        }
+    }
+}
+
+struct HerdrCommandRules: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.workspaceApprovals) private var inboxes
+    let botID: UUID
+    let server: HerdrServer
+    @State private var rules: [HerdrClient.CommandRule] = []
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !rules.isEmpty { Text("Saved command rules").font(.headline) }
+            ForEach(rules) { rule in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(HerdrClient.Approval.visible(rule.command)).font(.body.monospaced()).textSelection(.enabled)
+                    Text(rule.provider + " · " + HerdrClient.Approval.visible(rule.cwd)).font(.caption)
+                    Button("Revoke") {
+                        Task {
+                            do {
+                                try await store.herdrClient(for: server).revokeCommandRule(rule.id)
+                                rules.removeAll { $0.id == rule.id }
+                                error = nil
+                            } catch { self.error = error.localizedDescription }
+                        }
+                    }
+                }
+            }
+            if let error { Text(error).font(.caption).foregroundStyle(AppColor.caution) }
+        }
+        .task(id: inboxes[server.id]?.requests) {
+            do {
+                let result = try await store.herdrClient(for: server).commandRules(for: botID)
+                guard !Task.isCancelled else { return }
+                rules = result
+                error = nil
+            } catch HerdrClient.Failure.http(404, _) { rules = [] }
+            catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
 }

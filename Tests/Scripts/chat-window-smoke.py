@@ -1133,6 +1133,7 @@ def activity_decisions(source_app):
                     arguments="argument-" + str(i), core="qa", address="session", created_ms=created)
                for i, tool, created in [(1, "Read", 80), (2, "Bash", 80), (3, "Previous", 79)]]
     decisions = []
+    rules = []
     reviewed = []
 
     class Inbox(BaseHTTPRequestHandler):
@@ -1150,6 +1151,8 @@ def activity_decisions(source_app):
                 self.send_error(403)
             elif route == "/api/workspace":
                 self.reply(dict(core="qa", agents=[agent], templates=[]))
+            elif route == "/api/project-command-rules":
+                self.reply(rules.copy())
             elif route == "/api/attention":
                 failures = [] if reviewed else [dict(id=7, bot="Patch", pull_request="repo/pull/12", check_run="CI")]
                 self.reply(dict(ci_failures=failures, completions=[]))
@@ -1165,8 +1168,14 @@ def activity_decisions(source_app):
             elif self.path.startswith("/api/approvals/") and self.headers.get("Authorization") == "Bearer " + token:
                 request_id = int(self.path.split("/")[-1])
                 decision = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if decision == "remember_command":
+                    rules.append(dict(id=8, bot=owner["id"], agent=agent["name"], provider="Codex",
+                                      cwd="/qa", command="swift test --filter ImporterTests"))
                 decisions.append((request_id, decision))
                 self.reply(dict(id=request_id))
+            elif self.path == "/api/project-command-rules/8/revoke" and self.headers.get("Authorization") == "Bearer " + token:
+                rules.clear()
+                self.reply(dict(revoked=True))
             else:
                 self.send_error(404)
 
@@ -1223,6 +1232,13 @@ def activity_decisions(source_app):
                 press(window, "Approvals")
                 wait_for("bot approvals clear", lambda: any(attribute(e, "AXValue") == "No pending requests"
                                                             for e in descendants(window)))
+                pending.append(dict(pending[1], id=4, can_remember_command=True,
+                                    arguments=json.dumps({"command": "swift test --filter ImporterTests"})))
+                wait_for("project-specific permission", lambda: any(label(b) == "Always allow here" for b in buttons(window)), seconds=12)
+                press(window, "Always allow here")
+                wait_for("saved project rule", lambda: bool(rules) and any(label(b) == "Revoke" for b in buttons(window)), seconds=12)
+                press(window, "Revoke")
+                wait_for("project rule removed", lambda: not rules and not any(label(b) == "Revoke" for b in buttons(window)))
                 composer = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
                 enter_draft(composer, "--budget 2.00 inspect this build")
                 press(window, "/goal")
@@ -1240,7 +1256,7 @@ def activity_decisions(source_app):
                     return next((b for w in attribute(application, "AXWindows") or [] for b in buttons(w) if label(b) == "Cancel"), None)
                 wait_for("screenshot picker", cancel_button)
                 assert ax.AXUIElementPerformAction(cancel_button(), "AXPress") == 0
-                print("Verified the screenshot picker, per-bot approvals and a zero-dispatch USD limit.")
+                print("Verified saving and revoking a scoped command in the bot inspector, the screenshot picker and a zero-dispatch USD limit.")
                 print("Verified sidebar counts and CI review. Reviewed two requests from a different chat, denied and approved by keyboard, and excluded a stale session.")
         finally:
             server.shutdown()

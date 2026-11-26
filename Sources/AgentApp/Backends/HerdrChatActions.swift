@@ -49,6 +49,7 @@ extension HerdrClient {
             let assessment: String?
         }
         var reviewer: Reviewer? = nil
+        var canRememberCommand: Bool? = nil
 
         static func visible(_ value: String) -> String {
             value.unicodeScalars.map { scalar in
@@ -86,7 +87,20 @@ extension HerdrClient {
         return matches
     }
 
-    enum Decision: String { case approve, deny }
+    struct CommandRule: Decodable, Identifiable, Sendable {
+        let id: Int
+        let bot, agent, provider, cwd, command: String
+    }
+    func commandRules(for botID: UUID) async throws -> [CommandRule] {
+        let rules: [CommandRule] = try await get("/api/project-command-rules")
+        return rules.filter { UUID(uuidString: $0.bot) == botID }
+    }
+    func revokeCommandRule(_ id: Int) async throws {
+        struct Result: Decodable { let revoked: Bool }
+        let _: Result = try await send(request("/api/project-command-rules/\(id)/revoke", method: "POST", body: Data("{}".utf8)))
+    }
+
+    enum Decision: String { case approve, deny, rememberCommand = "remember_command" }
     func decide(_ approval: Approval, _ decision: Decision) async throws {
         struct Accepted: Decodable { let id: Int }
         let _: Accepted = try await send(request("/api/approvals/\(approval.id)", method: "POST", body: try JSONEncoder().encode(decision.rawValue)))

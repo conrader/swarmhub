@@ -386,6 +386,8 @@
       <ul class="library-items" id="approval-list"></ul>
       <h3>Recent decisions</h3>
       <ul class="library-items" id="approval-history"></ul>
+      <h3>Saved command rules</h3>
+      <ul class="library-items" id="approval-command-rules"></ul>
       <h3>Temporary read rules</h3>
       <ul class="library-items" id="approval-read-rules"></ul>
     </section>
@@ -400,6 +402,7 @@
         <button type="button" id="approval-terminal">Use terminal</button>
         <button type="button" id="approval-deny" class="danger">Deny</button>
         <button type="button" id="approval-allow" class="primary">Allow once</button>
+        <button type="button" id="approval-command" hidden>Always allow here</button>
       </div>
       <div id="approval-remember-options" hidden>
         <p class="subtle">For this path and this OpenCode session only. SwarmHub checks for file changes before approving each request. The rule ends when the workspace restarts.</p>

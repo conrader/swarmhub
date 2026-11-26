@@ -53,6 +53,7 @@ struct InfoPanel: View {
                     Text("No pending requests").foregroundStyle(.secondary)
                 }
                 HerdrChatApprovals(bot: bot, server: server).id(server.id)
+                HerdrCommandRules(botID: bot.id, server: server).id("\(server.id)/\(bot.id)")
                 HerdrHelperModelSection(bot: bot, server: server, templates: [], approvalsOnly: true)
             }
         case .model: HerdrAgentControls(bot: bot, preset: modelPreset).id(bot.id)

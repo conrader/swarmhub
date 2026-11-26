@@ -1708,7 +1708,12 @@ def smoke(hc, bridge, chrome=None):
                     return
                 if selected_focus == "command-reviewer":
                     from command_reviewer import exercise
-                    exercise(root, claude, request, until, chrome, base, token)
+                    def restart():
+                        nonlocal process, base
+                        port = base.rsplit(":", 1)[1]
+                        stop(process)
+                        process, base = start_bridge(port)
+                    exercise(root, claude, request, until, chrome, base, token, restart, bridge)
                     return
                 if selected_focus == "bot-helper-model":
                     catalog = {"harness": "Fixture", "model_transport": "environment"}
