@@ -200,22 +200,24 @@ struct NativeSessionView: View {
                 } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22) }
                     .buttonStyle(.plain).accessibilityLabel("Back to " + (store.groupOwningHelper(selection, of: bot)?.name ?? bot.name))
                 BotAvatar(bot: bot, size: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(verbatim: thread.name + " · Helper of " + ownerName)
-                        .font(.system(size: 14, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 5) {
-                        Text(thread.statusLine)
-                        NativeThreadDuration(thread: thread)
-                    }.font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let model = thread.model, !model.isEmpty {
-                    Text(verbatim: thread.provider.label + " · " + model)
-                        .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
-                        .padding(.horizontal, 7).padding(.vertical, 4)
-                        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 5))
-                        .layoutPriority(1).help(model)
-                }
+                let title = thread.name + " · Helper of " + ownerName
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: title).font(.system(size: 14, weight: .semibold))
+                            status(of: thread)
+                        }.fixedSize()
+                        Spacer(minLength: 0)
+                        modelBadge(for: thread).fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(verbatim: title).font(.system(size: 14, weight: .semibold)).lineLimit(2)
+                        HStack(spacing: 5) {
+                            status(of: thread).fixedSize()
+                            modelBadge(for: thread)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.help(title)
                 ChatTerminalPreviewButton(server: native.server, target: target)
                 ShowDetailsItem()
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header")
@@ -224,4 +226,21 @@ struct NativeSessionView: View {
                                thread: native.thread.id, detail: target.detail, session: native.thread, openedParent: {})
         }.background(AppColor.chat).accessibilityElement(children: .contain).accessibilityIdentifier("nativeSession.details")
     }
+    private func status(of thread: HerdrClient.NativeThread) -> some View {
+        HStack(spacing: 5) {
+            Text(thread.statusLine)
+            NativeThreadDuration(thread: thread)
+        }.font(.caption).foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private func modelBadge(for thread: HerdrClient.NativeThread) -> some View {
+        if let model = thread.model, !model.isEmpty {
+            Text(verbatim: thread.provider.label + " · " + model)
+                .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 7).padding(.vertical, 2)
+                .background(AppColor.card, in: RoundedRectangle(cornerRadius: 5))
+                .help(model)
+        }
+    }
+
 }
