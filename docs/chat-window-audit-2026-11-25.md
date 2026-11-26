@@ -368,3 +368,11 @@ On November 26 the browser driver opened the five workspace scenarios at [swarmh
 | Main bot designation | A native rendering test transferred the main role from a pinned bot to an ordinary row and then removed it. It located the star on the pinned avatar, beside the ordinary bot’s name, and absent after removal. |
 
 Two limits matter when comparing the live product with the walkthrough. The nested navigation test supplies parent and child records from a workspace fixture. The stock workspace currently rejects a helper’s request to launch another helper. Ordinary bot-to-helper delegation and inspection have their own coverage. The Payments walkthrough also promises approval before every action after creation. The native Inbox test covers the human decision to create the bot. The creation path reads the manager’s decision and approval preferences. It does not establish an enforced per-action policy for the created bot.
+
+### Sensitive bot proposals in 0.8.38
+
+The browser walkthrough for Team shows Jarvis creating Legal and proposing Payments for a person's decision. On the MacBook, the Accessibility driver opened Needs Attention from a different bot's chat, read the sensitive-role label and reason, denied a command, dismissed Legal, then created Payments. It verified that only Payments was added, with the reviewed instructions, and that the pending count dropped to zero. Light and dark native renders showed the reason immediately below the role name.
+
+A store regression used a flagged proposal marked `decided`, followed by an unflagged proposal with the same name in different case. Neither could create the bot. After 70 unrelated messages and a restart, the original proposal could still be accepted. A second decision on the same card had no effect. The manager supplies the flag. Approval of creation and permission to run future tools remain separate decisions. The preview's per-action promise still requires runtime enforcement.
+
+On the same MacBook a private copy of its installed 0.8.20 app updated to 0.8.38 build 72 through Sparkle. On a separate Mac the update also installed from 0.8.37, and a rehearsal rejected an archive signed with a different key. The public feed and all three signed workspace targets were verified after publication.
