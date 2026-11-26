@@ -15,10 +15,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
 
     init(bot: Bot, parents: [HerdrHelperParent], workers: [HerdrCodejobRow], @ViewBuilder row: () -> ParentRow) {
         self.bot = bot
-        self.parents = parents.sorted {
-            if $0.groupRuntime != $1.groupRuntime { return ($0.groupRuntime ?? "") < ($1.groupRuntime ?? "") }
-            return ($0.archive?.session.createdMs ?? .max) > ($1.archive?.session.createdMs ?? .max)
-        }
+        self.parents = AppStore.sortedSidebarRoots(parents)
         self.workers = workers
         parentRow = row()
         _expanded = AppStorage(wrappedValue: true, bot.sessionsExpandedKey)
@@ -53,19 +50,17 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         } else if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
-                        if let list = store.herdrHelpers[parent], !list.nativeThreads.isEmpty {
-                            SidebarNativeThreads(bot: bot, parent: parent, list: list)
-                        }
-                        ForEach(store.visibleHelperSessions(under: parent, for: bot)) { row in
-                            HerdrHelperRow(bot: bot, row: row, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
-                                store.open(bot, helper: row.id)
-                            }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
-                            if !row.folded,
-                               let list = store.herdrHelpers[row.id.parent.children(of: row.helper.ref, core: row.core)],
-                               !list.nativeThreads.isEmpty {
-                                SidebarNativeThreads(bot: bot, parent: row.id.parent.children(of: row.helper.ref, core: row.core), list: list)
-                                    .padding(.leading, CGFloat(min(row.depth + 1, 5)) * 10)
-                            }
+                        ForEach(store.sessionRows(under: parent, for: bot)) { item in
+                            Group {
+                                switch item {
+                                case .workspace(let row):
+                                    HerdrHelperRow(bot: bot, row: row, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
+                                        store.open(bot, helper: row.id)
+                                    }
+                                case .native(let row, let selection, _):
+                                    SidebarNativeThread(bot: bot, row: row, selection: selection)
+                                }
+                            }.padding(.leading, CGFloat(min(item.depth, 5)) * 10)
                         }
                     }
                     ForEach(workers) { row in
@@ -246,29 +241,17 @@ struct HerdrHelperRow: View {
 }
 
 /// Provider-native threads have a transcript on their owning launch, even when Core has no child PTY.
-private struct SidebarNativeThreads: View {
+private struct SidebarNativeThread: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot
-    let parent: HerdrHelperParent
-    let list: HerdrClient.Helpers
-    private var owner: HerdrClient.AgentRef { list.parent }
-    private var core: String { list.core }
+    let row: NativeSidebarRow
+    let selection: HerdrHelperSelection
 
     var body: some View {
-        ForEach(store.nativeSidebarRows(list, for: bot)) { row in
-            button(row).padding(.leading, CGFloat(min(row.depth, 5)) * 10)
-        }
-    }
-
-    private func button(_ row: NativeSidebarRow) -> some View {
         let thread = row.thread
-        let server = store.herdrServer(for: bot)
-        let selection = HerdrHelperSelection(botID: bot.id, helperID: thread.id, groupRuntime: parent.groupRuntime,
-                                             source: parent.source, archive: parent.archive,
-                                             native: .init(thread: thread, core: core, owner: owner, server: server))
         let current = store.openHerdrHelper?.native
-        let selected = !store.showOnlyAttention && store.openHerdrHelper?.parent == parent
-            && current?.owner == owner && current?.core == core && current?.server == server
+        let selected = !store.showOnlyAttention && store.openHerdrHelper?.parent == selection.parent
+            && current?.owner == selection.native?.owner && current?.core == selection.native?.core && current?.server == selection.native?.server
             && current?.thread.id == thread.id && current?.thread.provider == thread.provider
         let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : thread.task
         let icon: String

@@ -102,13 +102,9 @@ import SwiftUI
     var state: [String: Any] {
         let bot = store.selectedBot
         return ["selected": bot?.name ?? "", "bots": store.bots.map { ["name": $0.name, "unread": $0.unreadCount, "pinned": store.isPinned($0.id)] as [String: Any] },
-                "children": bot.map { visibleChildren($0).map { row in
-                    ["id": row.thread.id, "name": row.thread.name, "state": row.thread.state,
-                     "provider": row.thread.provider.rawValue, "depth": row.depth,
-                     "hasChildren": row.hasChildren, "expanded": row.hasChildren && !row.folded] as [String: Any]
-                } } ?? [],
+                "children": bot.map { visibleChildren($0).map(\.qaState) } ?? [],
                 "guidance": bot.flatMap { store.helperSteeringDrafts[$0.id]?.target.selection.helperID } ?? "",
-                "child": store.openHerdrHelper?.helperID ?? "", "terminal": store.inspectorTerminal?.target?.id.child?.thread ?? "",
+                "child": store.openHerdrHelper?.helperID ?? "", "terminal": terminalID,
                 "draft": bot.map { store.helperSteeringDrafts[$0.id]?.text ?? store.drafts.text(for: $0.id) } ?? "", "details": store.showInfo, "screen": screen,
                 "messages": bot?.messages.map { ["role": $0.role.rawValue, "text": $0.content] } ?? [],
                 "appearance": scheme == .dark ? "dark" : "light", "width": Int(size.width), "height": Int(size.height)]
@@ -157,7 +153,7 @@ import SwiftUI
         case "cancelGuidance":
             let bot = try requireBot()
             guard store.helperSteeringDrafts.removeValue(forKey: bot.id) != nil else { throw QAError("No instruction is open.") }
-        case "readTerminal": return ["transcript": try await terminalActivity().transcript]
+        case "readTerminal": return ["transcript": try await terminalTranscript()]
         case let action where ["fold", "unfold", "child", "parent", "terminal", "steer"].contains(action):
             let owner: Bot
             if let name = command["bot"] {
@@ -223,8 +219,8 @@ import SwiftUI
             let actual: String
             switch try field("field") {
             case "child": actual = store.openHerdrHelper?.helperID ?? ""
-            case "terminal": actual = store.inspectorTerminal?.target?.id.child?.thread ?? ""
-            case "terminalContains": actual = String(try await terminalActivity().transcript.contains(field("text")))
+            case "terminal": actual = terminalID
+            case "terminalContains": actual = String(try await terminalTranscript().contains(field("text")))
             case "visibleChildren": actual = String(visibleChildren(bot).count)
             case "selected": actual = bot.name
             case "pinned": actual = String(store.isPinned(bot.id))
