@@ -7,6 +7,13 @@ struct HerdrHelperSelection: Hashable, Sendable {
     var groupRuntime: String? = nil
     var source: HerdrHelperSource? = nil
     var archive: HerdrHelperSource? = nil
+    struct Native: Hashable, Sendable {
+        let thread: HerdrClient.NativeThread
+        let core: String
+        let owner: HerdrClient.AgentRef
+        let server: HerdrServer
+    }
+    var native: Native? = nil
     var parent: HerdrHelperParent { .init(botID: botID, groupRuntime: groupRuntime, source: source, archive: archive) }
 }
 
@@ -559,17 +566,22 @@ extension AppStore {
                 reads[parent] = .unavailable
             }
         }
-        if let selected = openHerdrHelper, selected.archive == nil,
-           let old = previousHelpers[selected.parent],
-           (found[selected.parent]?.core != old.core || found[selected.parent]?.parent != old.parent
-            || found[selected.parent]?.sidebarSessions.contains(where: { $0.id == selected.helperID }) != true),
-           let replacement = found.first(where: { key, list in
-               key.botID == selected.botID && key.groupRuntime == selected.groupRuntime && key.archive != nil
-                   && list.core == old.core && list.parent == old.parent && list.sidebarSessions.contains { $0.id == selected.helperID }
-           }) {
-            var moved = selected
-            moved.archive = replacement.key.archive
-            openHerdrHelper = moved
+        if let selected = openHerdrHelper, selected.archive == nil, let old = previousHelpers[selected.parent] {
+            func containsSelection(_ list: HerdrClient.Helpers?) -> Bool {
+                guard let list, list.core == old.core, list.parent == old.parent else { return false }
+                if let native = selected.native {
+                    return list.core == native.core && list.parent == native.owner
+                        && list.nativeThreads.contains { $0.id == selected.helperID && $0.provider == native.thread.provider }
+                }
+                return list.sidebarSessions.contains { $0.id == selected.helperID }
+            }
+            if !containsSelection(found[selected.parent]), let replacement = found.first(where: { key, list in
+                key.botID == selected.botID && key.groupRuntime == selected.groupRuntime && key.archive != nil && containsSelection(list)
+            }) {
+                var moved = selected
+                moved.archive = replacement.key.archive
+                openHerdrHelper = moved
+            }
         }
         if found != herdrHelpers { herdrHelpers = found }
         if reads != herdrHelperReads { herdrHelperReads = reads }

@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from threading import Thread, Timer
+from threading import Event, Thread, Timer
 import time
 import uuid
 
@@ -1012,6 +1012,7 @@ def live_terminals(source_app):
     token = str(uuid.uuid4())
     screens = []
     archives = []
+    child_finished = Event()
     history_reads = []
     workers = [dict(host="test-host", complete=True, jobs=[
         dict(job=job, owner=owner["id"], state="working", provider="codex")])]
@@ -1031,6 +1032,12 @@ def live_terminals(source_app):
             elif route.endswith("/output"):
                 screens.append(route)
                 reply = dict(text=route + " line " + str(screens.count(route)))
+            elif route == "/api/agents/terminal0/100/opencode-threads/ses_layout":
+                reply = dict(state="answered" if child_finished.is_set() else "working",
+                             details=dict(task="Check the full header assignment.",
+                                          reply="Complete sidebar result." if child_finished.is_set() else "",
+                                          steps=[dict(text="Read sidebar.txt", state="completed")]),
+                             transcript="Task Check header.\n\ncompleted · read · sidebar.txt")
             elif route.endswith("/helpers"):
                 _, _, _, address, created, _ = route.split("/")
                 core = "prior" if "core=prior" in self.path else "qa"
@@ -1045,6 +1052,10 @@ def live_terminals(source_app):
                     reply["recent_sessions"] = [dict(address="finished", created_ms=65, name=name, state="gone",
                                                        answered=True, reply=dict(id=1, text="Result from " + name))]
                 elif address == "terminal0" and created == "100":
+                    reply["opencode_threads"] = [dict(id="ses_layout",parent="ses_owner",runtime="opencode",
+                        name="Layout reader",model="fixture/default",created_ms=100,completed_ms=110,
+                        state="answered" if child_finished.is_set() else "working", task="Check header.",
+                        reply="Sidebar result." if child_finished.is_set() else "")]
                     reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
                                                 answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
                     reply["recent_sessions"] = [dict(address="finished", created_ms=65, name="EarlierQA", state="gone",
@@ -1075,6 +1086,39 @@ def live_terminals(source_app):
                     "Patch" in label(b).split(", ") and "Codex" in label(b).split(", ") for b in buttons(window)))
                 wait_for("idle bot’s configured Claude label without opening it", lambda: any(
                     "StandbyQA" in label(b).split(", ") and "Claude" in label(b).split(", ") for b in buttons(window)))
+                child_label = "OpenCode agent Layout reader, Working"
+                wait_for("native child under Patch", lambda: any(label(b) == child_label for b in buttons(window)))
+                press(window, child_label)
+                def panel(identifier):
+                    return next((n for n in descendants(window) if attribute(n, "AXIdentifier") == identifier), None)
+                wait_for("cross-chat child preview", lambda: panel("inspector.terminal"))
+                assert attribute(field, "AXValue") == "Draft stays in ReaderQA"
+                assert any(label(b) == "Open session" for b in buttons(panel("inspector.terminal")))
+                press(window, "Back to Details")
+                patch = next(b for b in buttons(window) if "Patch" in label(b).split(", "))
+                press(window, label(patch))
+                press(window, child_label)
+                expected = {"Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
+                            "Read sidebar.txt", "No reply yet."}
+                def shows_details():
+                    center = panel("nativeSession.details")
+                    return center and expected <= {str(attribute(n, "AXValue") or label(n)) for n in descendants(center)}
+                wait_for("child task, step and reply in the center", shows_details)
+                assert not panel("inspector.terminal")
+                child_finished.set()
+                expected.remove("No reply yet.")
+                expected.add("Complete sidebar result.")
+                wait_for("completed reply without reopening the session", shows_details)
+                press(window, "Preview Layout reader in Details")
+                wait_for("docked transcript beside child details", lambda: panel("inspector.terminal") and shows_details())
+                press(window, "Back to Details")
+                press(window, "Back to Patch")
+                wait_for("parent composer", lambda: any(attribute(n, "AXRole") == "AXTextArea" and label(n) == "Message"
+                                                         for n in descendants(window)))
+                press(window, "ReaderQA", sidebar=True)
+                field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
+                wait_for("draft after navigating through a child", lambda: attribute(field, "AXValue") == "Draft stays in ReaderQA")
+                print("Verified central native session details, docked transcript, return to parent and cross-chat draft.", flush=True)
                 press(window, "Live terminals")
 
                 application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])

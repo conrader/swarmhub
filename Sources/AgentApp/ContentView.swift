@@ -42,7 +42,13 @@ struct ContentView: View {
                     GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { GroupInfoPanel(group: group) } }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
-                    HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: ChromeMetrics.chatWidthWithInspector)
+                    Group {
+                        if let native = helper.native {
+                            NativeSessionView(bot: bot, selection: helper, native: native)
+                        } else {
+                            HerdrHelperView(bot: bot, selection: helper)
+                        }
+                    }.id(helper).frame(minWidth: ChromeMetrics.chatWidthWithInspector)
                         .rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
                 } else if let bot = store.selectedBot {
                     ChatView(bot: bot).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }

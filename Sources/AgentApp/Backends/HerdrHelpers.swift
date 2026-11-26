@@ -84,7 +84,7 @@ extension HerdrClient {
         }
     }
 
-    struct NativeThread: Decodable, Sendable, Equatable, Identifiable {
+    struct NativeThread: Decodable, Sendable, Hashable, Identifiable {
         let id: String
         let parent: String
         var runtime: ChildRuntime? = nil
@@ -153,6 +153,16 @@ extension HerdrClient {
     }
 
     struct ThreadActivity: Decodable {
+        struct Details: Decodable {
+            struct Step: Decodable {
+                let text: String
+                let state: String?
+            }
+            let task: String
+            let reply: String
+            let steps: [Step]
+        }
+        let details: Details?
         let transcript: String
         let state: String
         let activeTurn: String?
