@@ -15,13 +15,13 @@ struct NativeThreadOutput: View {
     @State private var readError: String?
     @State private var actionError: String?
 
-    private var parent: (selection: HerdrHelperSelection, bot: Bot)? {
+    private var parent: (selection: HerdrHelperSelection, bot: Bot, child: HerdrClient.NativeThread)? {
         for (key, list) in store.herdrHelpers where list.core == core && list.parent == owner {
-            if list.nativeThreads.contains(where: { $0.provider == runtime && $0.id == thread }),
+            if let child = list.nativeThreads.first(where: { $0.provider == runtime && $0.id == thread }),
                let bot = store.bots.first(where: { $0.id == key.botID }), store.herdrServer(for: bot) == server {
                 let selection = HerdrHelperSelection(botID: key.botID, helperID: thread, groupRuntime: key.groupRuntime,
                                                      source: key.source, archive: key.archive)
-                if key.groupRuntime == nil || store.groupOwningHelper(selection, of: bot) != nil { return (selection, bot) }
+                if key.groupRuntime == nil || store.groupOwningHelper(selection, of: bot) != nil { return (selection, bot, child) }
             }
         }
         return nil
@@ -29,7 +29,7 @@ struct NativeThreadOutput: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(detail).font(.caption).foregroundStyle(.secondary)
+            Text(parent?.child.sessionDetail ?? detail).font(.caption).foregroundStyle(.secondary)
             ViewThatFits(in: .horizontal) {
                 HStack { controls }
                 VStack(alignment: .leading) { controls }
