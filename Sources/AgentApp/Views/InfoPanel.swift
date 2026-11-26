@@ -75,36 +75,39 @@ struct InfoPanel: View {
     }
 
     private var identity: some View {
-        VStack(spacing: 6) {
-            BotAvatar(bot: bot, size: 72, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left,
-                      mainBotLabel: store.herdrMainBotLabel(bot)).padding(.bottom, 4)
-            Text(bot.name).font(.title2.bold()).multilineTextAlignment(.center)
-            if !bot.title.isEmpty, bot.title != Bot.placeholderTitle {
-                Text(bot.title).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
-            if bot.grokSourceID != nil, PreparedGrokBundle.meaningful(bot.botDescription).isEmpty {
-                Text("No specific description in Grok").font(.callout).foregroundStyle(.secondary)
-                Button("Edit description") { store.editingBot = bot }.buttonStyle(.link)
-            } else if !bot.botDescription.isEmpty {
-                Text(verbatim: bot.botDescription).font(.callout).foregroundStyle(.secondary)
-                    .lineLimit(1, reservesSpace: true).padding(.top, 2)
+        HStack(alignment: .center, spacing: 9) {
+            BotAvatar(bot: bot, size: 36, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left,
+                      mainBotLabel: store.herdrMainBotLabel(bot))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(bot.name).font(.headline)
+                if !bot.title.isEmpty, bot.title != Bot.placeholderTitle {
+                    Text(bot.title).font(.callout).foregroundStyle(.secondary)
+                }
+                if bot.grokSourceID != nil, PreparedGrokBundle.meaningful(bot.botDescription).isEmpty {
+                    Text("No specific description in Grok").font(.caption).foregroundStyle(.secondary)
+                    Button("Edit description") { store.editingBot = bot }.buttonStyle(.link)
+                } else if !bot.botDescription.isEmpty {
+                    Text(verbatim: bot.botDescription).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 14).padding(.top, 20).padding(.bottom, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14).padding(.vertical, 10)
         .fixedSize(horizontal: false, vertical: true)
     }
 
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 12) {
             let instructions = bot.outboundPersona.trimmingCharacters(in: .whitespacesAndNewlines)
             if !instructions.isEmpty, instructions != Bot.defaultPersona {
                 BotInstructions(text: instructions).id(bot.id)
             }
             if bot.backend == .herdr {
+                Divider()
+                BotUsageOverview(bot: bot).id(bot.id)
+                HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
                 HerdrOverviewSection(bot: bot)
                 Button("Team activity", systemImage: AgentInfoTab.team.symbol) { store.openInfoTab(.team) }
-                HerdrBotProjectsSection(bot: bot, quietWhenEmpty: true)
                 HerdrActiveHelpersSection()
                 HerdrHelpersSection(bot: bot)
             }
