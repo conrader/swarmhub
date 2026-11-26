@@ -695,27 +695,6 @@ extension AppStore {
         return true
     }
 
-    /// Only send through the session that owns this helper. An obsolete group runtime cannot receive a steer.
-    func guideHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot, instruction: String) -> Bool {
-        let words = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, selection.archive == nil, selection.botID == bot.id, selection.helperID == helper.id,
-              herdrHelperReads[selection.parent] != .unavailable,
-              herdrHelpers[selection.parent]?.helpers.contains(where: { $0.id == helper.id && $0.isLive }) == true
-        else { return false }
-        let owner = delegatingSession(for: selection).map { "the helper delegated by “\($0.helper.name)” named" } ?? "your helper"
-        let text = "Please steer \(owner) “\(helper.name)” with this instruction:\n\(words)"
-        if let runtime = selection.groupRuntime {
-            guard let group = groups.first(where: { group in
-                group.memberIDs.contains(bot.id) && HerdrBackend.groupRuntimeName(sessionID: turnSessionID(in: group, bot: bot), botID: bot.id) == runtime
-            }), send(text: text, to: group, recipientIDs: [bot.id], queueChoice: true, usesComposerReply: false) else { return false }
-            open(group)
-        } else {
-            guard send(text: text, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true) else { return false }
-            open(bot)
-        }
-        return true
-    }
-
     func stopHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot) async throws {
         let server = herdrServer(for: bot)
         guard selection.botID == bot.id, selection.helperID == helper.id,

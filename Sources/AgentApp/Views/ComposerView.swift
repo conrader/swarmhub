@@ -261,7 +261,7 @@ enum ComposerMetrics {
 
 /// Send, Stop and Add to this answer: a 28 pt circle drawn here, so it fills its slot exactly (the AppKit round bezels
 /// size themselves and overflowed it). Prominent is the accent with a glyph in the colour that reads on it.
-private struct ComposerRoundButtonStyle: ButtonStyle {
+struct ComposerRoundButtonStyle: ButtonStyle {
     let prominent: Bool
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {

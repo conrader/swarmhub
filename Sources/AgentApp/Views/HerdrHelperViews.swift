@@ -596,7 +596,7 @@ struct HerdrHelperView: View {
                         }
                     }
                     Button(selection.archive == nil ? "Steer via " + bot.name : "Open " + (group?.name ?? bot.name), systemImage: "arrow.right") {
-                        if store.openHelperParent(selection, of: bot) { closeOverviewDetails?() }
+                        if store.beginHelperSteering(selection, of: bot) { closeOverviewDetails?() }
                         else { controlError = "The group session that started this helper is no longer available." }
                     }.buttonStyle(.borderedProminent).accessibilityIdentifier("helper.steerViaParent")
                     if let shown, listed?.isLive == true && !unavailable && !stopped {

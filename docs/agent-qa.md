@@ -22,6 +22,7 @@ Omit `--hunt` to send one JSON object per line on standard input. Wait for the `
 | `unfold`, `fold` | | Expand or collapse the selected bot’s sessions. Inspect `state.children` for visible ids. |
 | `child` | `id` | Open a visible sample session |
 | `terminal`, `readTerminal` | | Show the selected child’s terminal in Details or read its transcript |
+| `steer`, `cancelGuidance` | | Open or dismiss the instruction for the selected session. Use `draft` and `send` to guide it through the parent. |
 | `parent` | | Return to the parent chat and its draft |
 | `draft` | `text` | Type or clear the selected chat’s draft |
 | `send` | Optional `text` | Submit the text or current draft and wait for the local reply |

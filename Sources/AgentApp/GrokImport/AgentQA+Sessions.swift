@@ -38,11 +38,13 @@ extension AgentQA {
             }
             let native = HerdrHelperSelection.Native(thread: child, core: list.core, owner: list.parent, server: store.herdrServer(for: bot))
             store.open(bot, helper: .init(botID: bot.id, helperID: child.id, native: native))
-        case "terminal", "parent":
+        case "terminal", "parent", "steer":
             guard let selection = store.openHerdrHelper, let native = selection.native else { throw QAError("Open a child first.") }
             if action == "terminal" {
                 let target = LiveTerminal(thread: native.thread, owner: native.owner, core: native.core)
                 store.previewInInspector(.init(server: native.server, target: target))
+            } else if action == "steer" {
+                guard store.beginHelperSteering(selection, of: bot) else { throw QAError("This helper is unavailable.") }
             } else if !store.openHelperParent(selection, of: bot) { throw QAError("Could not open the parent chat.") }
         default: throw QAError("Unknown session action.")
         }

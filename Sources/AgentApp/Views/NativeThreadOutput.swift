@@ -181,7 +181,10 @@ struct NativeThreadOutput: View {
         if let parent {
             let title = parent.selection.archive == nil ? "Steer via " + parent.bot.name : "Open chat with " + parent.bot.name
             Button {
-                if store.openHelperParent(parent.selection, of: parent.bot) { openedParent() }
+                var selection = parent.selection
+                selection.native = .init(thread: parent.child, core: core, owner: owner, server: server)
+                if store.beginHelperSteering(selection, of: parent.bot) { openedParent() }
+                else { actionError = "The session that started this helper is no longer available." }
             } label: {
                 HStack(spacing: 5) {
                     Text(title)

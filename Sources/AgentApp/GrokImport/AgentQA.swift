@@ -4,7 +4,7 @@ import SwiftUI
 /// A private sample workspace driven over standard input. Each request finishes before the next is read.
 @MainActor final class AgentQA {
     typealias Command = [String: String]
-    static let commands = ["inspect", "unfold", "fold", "child", "terminal", "readTerminal", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
+    static let commands = ["inspect", "unfold", "fold", "child", "terminal", "readTerminal", "steer", "cancelGuidance", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
     let store: AppStore
     let directory: URL
     var screen = "workspace"
@@ -51,10 +51,10 @@ import SwiftUI
             Usage: \(CommandLine.arguments.first ?? AppConstants.name) --agent-qa OUTPUT_DIRECTORY [--hunt]
             Run --hunt for built-in checks, or send JSON objects on stdin. Each result is one JSON line.
             Example: {"action":"open","bot":"Mira"}
-            Actions: inspect, open(bot), unfold, fold, child(id), terminal, readTerminal, parent, draft(text), send(optional text), pin, unpin,
+            Actions: inspect, open(bot), unfold, fold, child(id), terminal, readTerminal, steer, cancelGuidance, parent, draft(text), send(optional text), pin, unpin,
               appearance(value: dark/light), viewport(width,height), details(value: show/hide),
               screen(value: workspace/whatsNew), capture, expect(field,value), finding(kind,text).
-            Fields are strings. Expect supports selected, draft, pinned, unread, child, terminal, terminalContains, visibleChildren, lastRole, and contains (with text).
+            Fields are strings. Expect supports selected, draft, pinned, unread, child, guidance, terminal, terminalContains, visibleChildren, lastRole, and contains (with text).
             Findings take the kind bug or improvement. Close stdin to save report.json beside replay.jsonl.
             """)
             return 0
@@ -102,8 +102,9 @@ import SwiftUI
         let bot = store.selectedBot
         return ["selected": bot?.name ?? "", "bots": store.bots.map { ["name": $0.name, "unread": $0.unreadCount, "pinned": store.isPinned($0.id)] as [String: Any] },
                 "children": bot.map { visibleChildren($0).map { ["id": $0.id, "name": $0.name, "state": $0.state] } } ?? [],
+                "guidance": bot.flatMap { store.helperSteeringDrafts[$0.id]?.target.selection.helperID } ?? "",
                 "child": store.openHerdrHelper?.helperID ?? "", "terminal": store.inspectorTerminal?.target?.id.child?.thread ?? "",
-                "draft": bot.map { store.drafts.text(for: $0.id) } ?? "", "details": store.showInfo, "screen": screen,
+                "draft": bot.map { store.helperSteeringDrafts[$0.id]?.text ?? store.drafts.text(for: $0.id) } ?? "", "details": store.showInfo, "screen": screen,
                 "messages": bot?.messages.map { ["role": $0.role.rawValue, "text": $0.content] } ?? [],
                 "appearance": scheme == .dark ? "dark" : "light", "width": Int(size.width), "height": Int(size.height)]
     }
@@ -148,8 +149,11 @@ import SwiftUI
         }
         switch try field("action") {
         case "inspect": break
+        case "cancelGuidance":
+            let bot = try requireBot()
+            guard store.helperSteeringDrafts.removeValue(forKey: bot.id) != nil else { throw QAError("No instruction is open.") }
         case "readTerminal": return ["transcript": try await terminalActivity().transcript]
-        case let action where ["fold", "unfold", "child", "parent", "terminal"].contains(action):
+        case let action where ["fold", "unfold", "child", "parent", "terminal", "steer"].contains(action):
             try sessionAction(action, bot: requireBot(), target: command["id"])
         case "open":
             let name = try field("bot")
@@ -170,15 +174,21 @@ import SwiftUI
             guard store.openHerdrHelper == nil else { throw QAError("Open the parent chat to draft a message.") }
             let bot = try requireBot()
             guard let text = command["text"] else { throw QAError("Missing text") }
-            store.drafts.set(text, for: bot.id)
+            if let guidance = store.helperSteeringDrafts[bot.id] { guidance.text = text }
+            else { store.drafts.set(text, for: bot.id) }
         case "pin": store.setPinned((try requireBot()).id, true)
         case "unpin": store.setPinned((try requireBot()).id, false)
         case "send":
             guard store.openHerdrHelper == nil else { throw QAError("Open the parent chat to send a message.") }
             let bot = try requireBot()
-            let text = command["text"] ?? store.drafts.text(for: bot.id)
-            guard store.send(text: text) else { throw QAError(store.errorMessage ?? "Send was declined.") }
-            store.drafts.set("", for: bot.id)
+            if let guidance = store.helperSteeringDrafts[bot.id] {
+                if let text = command["text"] { guidance.text = text }
+                guard store.submitHelperSteering(in: bot.id) else { throw QAError("Helper guidance was declined.") }
+            } else {
+                let text = command["text"] ?? store.drafts.text(for: bot.id)
+                guard store.send(text: text) else { throw QAError(store.errorMessage ?? "Send was declined.") }
+                store.drafts.set("", for: bot.id)
+            }
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(10))
             while !store.isIdle(bot), clock.now < deadline { try await Task.sleep(for: .milliseconds(40)) }
@@ -205,7 +215,8 @@ import SwiftUI
             case "visibleChildren": actual = String(visibleChildren(bot).count)
             case "selected": actual = bot.name
             case "pinned": actual = String(store.isPinned(bot.id))
-            case "draft": actual = store.drafts.text(for: bot.id)
+            case "guidance": actual = store.helperSteeringDrafts[bot.id]?.target.selection.helperID ?? ""
+            case "draft": actual = store.helperSteeringDrafts[bot.id]?.text ?? store.drafts.text(for: bot.id)
             case "unread": actual = String(bot.unreadCount)
             case "lastRole": actual = bot.messages.last?.role.rawValue ?? ""
             case "contains":
