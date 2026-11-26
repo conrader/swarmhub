@@ -417,6 +417,36 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         #expect(store.openHerdrHelper == nil && store.selectedBot?.id == bot.id)
     }
 
+    @Test func sidebarFoldsSurviveReopeningAndKeepOtherLaunchesAndProvidersVisible() throws {
+        let store = makeStore()
+        let bot = Bot(name: "Patch", backend: .herdr)
+        let review = HerdrClient.NativeThread(id: "review", parent: "main", name: "Review", model: nil,
+                                              createdMs: 3, state: "working", task: "", reply: "")
+        let child = HerdrClient.NativeThread(id: "item", parent: review.id, name: "Item", model: nil,
+                                             createdMs: 4, state: "working", task: "", reply: "")
+        var otherReview = review, otherChild = child
+        otherReview.runtime = .claude
+        otherChild.runtime = .claude
+        let list = HerdrClient.Helpers(core: "core", parent: parent, helpers: [],
+                                       codexThreads: [child, review], claudeThreads: [otherReview, otherChild])
+        let row = try #require(store.nativeSidebarRows(list, for: bot).first)
+        #expect(row.thread == review && row.hasChildren)
+        store.setNativeSessionFolded(true, target: row.id, for: bot)
+        let reopened = AppStore(storeURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+                                autoStart: false, keyStore: MemoryKeyStore(), defaults: store.defaults)
+        let rows = reopened.nativeSidebarRows(list, for: bot)
+        #expect(rows.map(\.thread) == [review, otherReview, otherChild])
+        #expect(rows.map(\.depth) == [0, 0, 1])
+        #expect(rows[0].folded && !rows[1].folded)
+        let newLaunch = HerdrClient.Helpers(core: "core", parent: .init(address: parent.address, createdMs: 9),
+                                            helpers: [], codexThreads: [review, child])
+        #expect(reopened.nativeSidebarRows(newLaunch, for: bot).count == 2)
+        let sibling = Bot(name: "Other", backend: .herdr)
+        #expect(reopened.nativeSidebarRows(list, for: sibling).count == 4)
+        reopened.setNativeSessionFolded(false, target: row.id, for: bot)
+        #expect(store.nativeSidebarRows(list, for: bot).count == 4)
+    }
+
     @Test func unmatchedRosterChildrenPreventAnEmptyOverview() async throws {
         let store = makeStore()
         let bot = Bot(name: "Direct", backend: .herdr)

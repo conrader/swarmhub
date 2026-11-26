@@ -9,7 +9,6 @@ struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage private var expanded: Bool
     @State private var collapsed: Set<HerdrHelperSelection> = []
-    @State private var foldedThreads: Set<LiveTerminal.Source> = []
     let bot: Bot
     let parents: [HerdrHelperParent]
     let workers: [HerdrCodejobRow]
@@ -56,7 +55,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
                         if let list = store.herdrHelpers[parent], !list.nativeThreads.isEmpty {
-                            SidebarNativeThreads(bot: bot, parent: parent, threads: list.nativeThreads, owner: list.parent, core: list.core, folded: $foldedThreads)
+                            SidebarNativeThreads(bot: bot, parent: parent, list: list)
                         }
                         ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
                             HStack(spacing: 0) {
@@ -80,7 +79,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             if !collapsed.contains(row.id),
                                let list = store.herdrHelpers[row.id.parent.children(of: row.helper.ref, core: row.core)],
                                !list.nativeThreads.isEmpty {
-                                SidebarNativeThreads(bot: bot, parent: row.id.parent.children(of: row.helper.ref, core: row.core), threads: list.nativeThreads, owner: list.parent, core: list.core, folded: $foldedThreads)
+                                SidebarNativeThreads(bot: bot, parent: row.id.parent.children(of: row.helper.ref, core: row.core), list: list)
                                     .padding(.leading, CGFloat(min(row.depth + 1, 5)) * 10)
                             }
                         }
@@ -236,52 +235,19 @@ private struct SidebarNativeThreads: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot
     let parent: HerdrHelperParent
-    let threads: [HerdrClient.NativeThread]
-    let owner: HerdrClient.AgentRef
-    let core: String
-
-    @Binding var folded: Set<LiveTerminal.Source>
-
-    private struct ThreadKey: Hashable {
-        let provider: HerdrClient.ChildRuntime
-        let id: String
-    }
-
-    private struct Row: Identifiable {
-        let thread: HerdrClient.NativeThread
-        let depth: Int
-        let hasChildren: Bool
-        var id: ThreadKey { ThreadKey(provider: thread.provider, id: thread.id) }
-    }
-
-    private var rows: [Row] {
-        let ids = Set(threads.map { ThreadKey(provider: $0.provider, id: $0.id) })
-        let children = Dictionary(grouping: threads) { ThreadKey(provider: $0.provider, id: $0.parent) }
-        let roots = threads.filter { !ids.contains(ThreadKey(provider: $0.provider, id: $0.parent)) }
-        var pending = roots.reversed().map { ($0, 0) }
-        var seen: Set<ThreadKey> = []
-        var result: [Row] = []
-        while let (thread, depth) = pending.popLast() {
-            let key = ThreadKey(provider: thread.provider, id: thread.id)
-            guard seen.insert(key).inserted else { continue }
-            let nested = children[key] ?? []
-            result.append(Row(thread: thread, depth: depth, hasChildren: !nested.isEmpty))
-            if !nested.isEmpty && !folded.contains(LiveTerminal(thread: thread, owner: owner, core: core).id) {
-                pending += nested.reversed().map { ($0, depth + 1) }
-            }
-        }
-        return result
-    }
+    let list: HerdrClient.Helpers
+    private var owner: HerdrClient.AgentRef { list.parent }
+    private var core: String { list.core }
 
     var body: some View {
-        ForEach(rows) { row in
-            let target = LiveTerminal(thread: row.thread, owner: owner, core: core)
+        ForEach(store.nativeSidebarRows(list, for: bot)) { row in
+            let target = row.target
             HStack(spacing: 0) {
                 button(row.thread)
                 if row.hasChildren {
-                    let closed = folded.contains(target.id)
+                    let closed = row.folded
                     Button {
-                        if closed { folded.remove(target.id) } else { folded.insert(target.id) }
+                        store.setNativeSessionFolded(!closed, target: target.id, for: bot)
                     } label: {
                         Image(systemName: closed ? "chevron.right" : "chevron.down")
                             .font(.caption).frame(width: 24, height: 30).contentShape(Rectangle())
