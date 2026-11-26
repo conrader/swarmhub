@@ -308,17 +308,16 @@ struct HerdrHelperView: View {
                     Button { store.open(bot) } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle()) }
                         .buttonStyle(.plain).help("Back to \(bot.name)").accessibilityLabel("Back to \(bot.name)")
                 }
-                if let shown { HerdrHelperGlyph(helper: shown).font(.system(size: 15, weight: .semibold)) }
+                BotAvatar(bot: bot, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(shown?.name ?? "Helper").font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                    Text([bot.name, groupName ?? selection.groupRuntime].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text([shown?.name ?? "Helper", "Helper of " + bot.name].joined(separator: " · ")).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text([stopped ? "Stopped" : unavailable ? "Status unavailable" : shown?.statusLine, groupName ?? selection.groupRuntime].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if let shown {
                     if !shown.runLine.isEmpty {
                         FactChip(text: shown.runLine).help(shown.difficultyLine.map { "\(bot.name) called this an \($0.lowercased()), and helpers for those run on \(shown.runLine)." } ?? "The model this helper runs on")
                     }
-                    FactChip(text: stopped ? "Stopped" : unavailable ? "Status unavailable" : (listed == nil ? "Finished" : shown.statusLine))
                     if listed?.isLive == true && !unavailable && !stopped {
                         Button("Open terminal", systemImage: "terminal") {
                             terminal = HerdrTerminalTarget(agent: shown.ref, title: "\(bot.name) · \(shown.name)")
@@ -330,12 +329,49 @@ struct HerdrHelperView: View {
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
                     if unavailable {
                         StatusCard(kind: .info, title: "Helper activity is unavailable.", detail: "Showing the last details received from \(store.herdrServer(for: bot).name).")
                     } else if listed == nil, shown != nil {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
+                    part("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
+                        Text(shown?.task ?? log?.tasks.first?.text ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        ForEach(Array(followUps(after: shown?.task).enumerated()), id: \.offset) { _, text in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Follow-up").font(.caption).foregroundStyle(.secondary)
+                                Text(text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    part(log.map { "Steps (\($0.tools.count))" } ?? "Steps", detail: shown?.runLine) {
+                        if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
+                        else { quiet(log == nil ? "Loading…" : "No steps yet.") }
+                    }
+                    part(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", detail: nil) {
+                        if !reply.content.isEmpty {
+                            MarkdownContent(message: reply).textSelection(.enabled)
+                        } else if let latest = shown?.resultPreview {
+                            Text(verbatim: latest).textSelection(.enabled)
+                            if shown?.reply?.truncated == true { quiet("Showing the saved excerpt.") }
+                        } else {
+                            quiet(log == nil && problem.isEmpty ? "Loading…" : "No reply yet.")
+                        }
+                        if let screen = log?.screen, !screen.isEmpty {
+                            Divider()
+                            ScrollView([.horizontal, .vertical]) {
+                                Text(screen).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize()
+                                    .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(maxHeight: 150).fixedSize(horizontal: false, vertical: true)
+                                .background(AppColor.sidebar, in: RoundedRectangle(cornerRadius: 4))
+                                .accessibilityLabel("Terminal output")
+                        }
+                    }
+                    Button("Steer via " + bot.name, systemImage: "arrow.right") {
+                        if store.openHelperParent(selection, of: bot) { closeOverviewDetails?() }
+                        else { controlError = "The group session that started this helper is no longer available." }
+                    }.buttonStyle(.borderedProminent).accessibilityIdentifier("helper.steerViaParent")
                     if let shown, listed?.isLive == true && !unavailable && !stopped {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
@@ -380,42 +416,8 @@ struct HerdrHelperView: View {
                     if !controlError.isEmpty {
                         Text(controlError).font(.callout).foregroundStyle(AppColor.caution)
                     }
-                    part("Task", symbol: "text.bubble.fill", colour: AppColor.sky) {
-                        Text(shown?.task ?? log?.tasks.first?.text ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                        ForEach(Array(followUps(after: shown?.task).enumerated()), id: \.offset) { _, text in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Follow-up").font(.caption).foregroundStyle(.secondary)
-                                Text(text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
-                    part("Steps", symbol: "list.bullet", colour: AppColor.clay, count: log?.tools.count) {
-                        if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
-                        else { quiet(log == nil ? "Loading…" : "No steps yet.") }
-                    }
-                    part(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", symbol: "arrowshape.turn.up.left.fill", colour: AppColor.sage) {
-                        if !reply.content.isEmpty {
-                            MarkdownContent(message: reply).textSelection(.enabled)
-                        } else if let latest = shown?.resultPreview {
-                            Text(verbatim: latest).textSelection(.enabled)
-                            if shown?.reply?.truncated == true { quiet("Showing the saved excerpt.") }
-                        } else {
-                            quiet(log == nil && problem.isEmpty ? "Loading…" : "No reply yet.")
-                        }
-                    }
-                    part("Terminal", symbol: "terminal.fill", colour: AppColor.olive, boxed: false) {
-                        if let screen = log?.screen, !screen.isEmpty {
-                            ScrollView(.horizontal) {
-                                Text(screen).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).fixedSize().padding(12)
-                            }.frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
-                        } else { quiet(log == nil ? "Loading…" : "Its terminal is gone.") }
-                    }
-                    Button("Steer via " + bot.name, systemImage: "arrow.right") {
-                        if store.openHelperParent(selection, of: bot) { closeOverviewDetails?() }
-                        else { controlError = "The group session that started this helper is no longer available." }
-                    }.buttonStyle(.borderedProminent).accessibilityIdentifier("helper.steerViaParent")
                     if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(AppColor.caution).textSelection(.enabled) }
-                }.padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity)
+                }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
@@ -435,16 +437,20 @@ struct HerdrHelperView: View {
         }
     }
 
-    /// One part of what the helper did: a small mark and a heading, and under them the content on its own card.
-    private func part<Content: View>(_ title: String, symbol: String, colour: Color, count: Int? = nil, boxed: Bool = true, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                SymbolTile(symbol: symbol, colour: colour, size: 22)
-                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-                if let count, count > 0 { Text("\(count)").font(.caption).foregroundStyle(.secondary) }
-            }
-            if boxed { VStack(alignment: .leading, spacing: 8) { content() }.appleCard(padding: 14) } else { content() }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    private func part<Content: View>(_ title: String, detail: String?, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text(title).font(.callout.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 4)
+                if let detail, !detail.isEmpty {
+                    Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }.padding(.horizontal, 12).padding(.vertical, 8)
+            Divider()
+            VStack(alignment: .leading, spacing: 6) { content() }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
+        }.background(AppColor.card, in: RoundedRectangle(cornerRadius: 7))
+            .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(AppColor.separator) }
     }
 
     private func quiet(_ text: String) -> some View { Text(text).foregroundStyle(.secondary) }
@@ -453,7 +459,7 @@ struct HerdrHelperView: View {
     private func step(_ call: HerdrClient.ToolCall, running: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: call.failed ? "xmark.circle" : call.finished ? "checkmark.circle" : running ? "circle.dotted" : "circle")
-                .font(.system(size: 11)).foregroundStyle(call.failed ? Color.red : .secondary).frame(width: 14)
+                .font(.system(size: 11)).foregroundStyle(call.failed ? Color.red : call.finished ? AppColor.sage : .secondary).frame(width: 14)
             Text(ActivityCopy.label(HerdrBackend.toolName(call.tool))).font(.callout)
             if let detail = call.detail, !detail.isEmpty {
                 Text(detail).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
