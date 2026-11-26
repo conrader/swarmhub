@@ -25,6 +25,9 @@ struct HerdrServer: Codable, Equatable, Identifiable, Sendable {
     static let listKey = "herdrServers", defaultPort = 8787
     static func botKey(_ botID: UUID) -> String { "herdrServer.\(botID.uuidString.lowercased())" }
 
+    /// Keep the typed endpoint in the saved record, including its SSH port for password and workspace identity.
+    var sshEndpoint: SSHEndpoint? { SSHEndpoint(sshHost) }
+
     /// Keychain account of this server's access token.
     var keyAccount: String { id == Self.defaultID ? HerdrServerList.legacyKeyAccount : "\(HerdrServerList.legacyKeyAccount).\(id)" }
     var port: Int { HerdrClient.validatedBaseURL(address)?.port ?? Self.defaultPort }
@@ -126,7 +129,7 @@ struct HerdrServerDraft: Equatable, Sendable {
         var target = sshDestination.trimmingCharacters(in: .whitespacesAndNewlines)
         if target.hasPrefix("ssh ") { target = String(target.dropFirst(4)).trimmingCharacters(in: .whitespaces) }
         let parts = target.components(separatedBy: "@")
-        guard parts.count <= 2, let host = parts.last, HerdrTunnel.isSafe(host: host) else { return nil }
+        guard parts.count <= 2, let host = parts.last, SSHEndpoint(host) != nil else { return nil }
         if parts.count == 1 { return (host, "") }
         let user = parts[0]
         guard !user.isEmpty, HerdrTunnel.isSafe(user: user) else { return nil }
@@ -164,6 +167,42 @@ struct HerdrServerDraft: Equatable, Sendable {
     }
 }
 
+/// The SSH endpoint and the workspace's HTTP port are independent. Bare IPv6 addresses have no port suffix.
+struct SSHEndpoint {
+    let host: String
+    let port: UInt16?
+
+    init?(_ text: String) {
+        guard HerdrTunnel.isSafe(host: text) else { return nil }
+        let suffix: Substring
+        if text.hasPrefix("[") {
+            guard let close = text.firstIndex(of: "]") else { return nil }
+            let enclosed = text[text.index(after: text.startIndex)..<close]
+            guard enclosed.contains(":"), !enclosed.contains("[") else { return nil }
+            host = String(enclosed)
+            suffix = text.suffix(from: text.index(after: close))
+        } else {
+            guard !text.contains("["), !text.contains("]") else { return nil }
+            if let colon = text.firstIndex(of: ":"), colon == text.lastIndex(of: ":") {
+                host = String(text[..<colon])
+                suffix = text[colon...]
+            } else {
+                host = text
+                suffix = ""
+            }
+        }
+        guard HerdrTunnel.isSafe(host: host) else { return nil }
+        if suffix.isEmpty {
+            port = nil
+        } else {
+            let digits = suffix.dropFirst()
+            guard suffix.first == ":", digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+                  let number = UInt16(digits), number > 0 else { return nil }
+            port = number
+        }
+    }
+}
+
 /// The port forward to an `.ssh` server: `ssh -N -L 127.0.0.1:<port>:127.0.0.1:<port>`, a child process of the app.
 /// ssh is the system's own, so the person's `~/.ssh/config`, agent and known hosts all apply; the app adds nothing
 /// to them and never reads a key. Batch mode: a key that needs a passphrase must already be in the agent, because a
@@ -185,9 +224,10 @@ enum HerdrTunnel {
     /// The options every ssh call of the app shares. A server seen for the first time is trusted once and remembered
     /// (as answering "yes" would); a server whose key later changes is refused.
     static func options(for server: HerdrServer, home: String = HerdrTunnel.realHome) -> [String]? {
-        guard server.kind == .ssh, isSafe(host: server.sshHost), isSafe(user: server.sshUser) else { return nil }
+        guard server.kind == .ssh, let endpoint = server.sshEndpoint, isSafe(user: server.sshUser) else { return nil }
         var arguments = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15",
                          "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"]
+        if let port = endpoint.port { arguments += ["-p", String(port)] }
         if !server.sshKeyPath.isEmpty {
             let path = server.sshKeyPath.hasPrefix("~/") ? (home as NSString).appendingPathComponent(String(server.sshKeyPath.dropFirst(2))) : server.sshKeyPath
             arguments += ["-i", path, "-o", "IdentitiesOnly=yes"]
@@ -198,17 +238,18 @@ enum HerdrTunnel {
 
     /// `ssh -N -L …` binds to loopback here and exits when it cannot bind the requested port.
     static func forwardArguments(for server: HerdrServer, localPort: Int? = nil, home: String = HerdrTunnel.realHome) -> [String]? {
-        guard let options = options(for: server, home: home) else { return nil }
+        guard let endpoint = server.sshEndpoint, let options = options(for: server, home: home) else { return nil }
         let port = server.port
         // Keep the listener on this process, and get an acknowledgement from ssh after it binds the port.
         return ["-N", "-L", "127.0.0.1:\(localPort ?? port):127.0.0.1:\(port)", "-o", "ExitOnForwardFailure=yes",
                 "-S", "none", "-o", "PermitLocalCommand=yes", "-o", "LocalCommand=/bin/echo \(forwardReady)"]
-            + options + ["--", server.sshHost]
+            + options + ["--", endpoint.host]
     }
 
     /// One command on the server (reading the bridge's token file), its output trimmed.
     static func commandArguments(for server: HerdrServer, command: String, home: String = HerdrTunnel.realHome) -> [String]? {
-        options(for: server, home: home).map { $0 + ["--", server.sshHost, command] }
+        guard let endpoint = server.sshEndpoint, let options = options(for: server, home: home) else { return nil }
+        return options + ["--", endpoint.host, command]
     }
 
     /// The last line ssh wrote before it gave up, without the "Warning: Permanently added" notice.

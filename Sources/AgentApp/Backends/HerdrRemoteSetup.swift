@@ -2,7 +2,8 @@ import Foundation
 
 extension AppStore {
     /// Installs a signed workspace build for the SSH account, then uses the service's own setup commands.
-    func installHerdrWorkspace(_ server: HerdrServer) async throws -> String? {
+    func installHerdrWorkspace(_ server: HerdrServer, progress: (String) -> Void = { _ in }) async throws -> String? {
+        progress(WizardCopy.checkingRemote)
         let password = herdrTunnels.password(for: server)
         let platform = try await HerdrTunnel.run("uname -s && uname -m", on: server, password: password)
         let target: String
@@ -16,11 +17,16 @@ extension AppStore {
         }
 
         let installed = try await HerdrTunnel.run(
-            #"if test -x "$HOME/.local/bin/swarmhub-herdr"; then printf yes; fi"#, on: server, password: password
+            #"if "$HOME/.local/bin/swarmhub-herdr" version --json >/dev/null 2>&1; then printf yes; fi"#, on: server, password: password
         )
         if installed != "yes" {
+            progress(WizardCopy.checkingRemoteRelease)
             let release = try await WorkspaceRelease.latest()
-            let program = try await release.downloadProgram(for: target, progress: { _ in })
+            let program = try await release.downloadProgram(for: target, verifying: {
+                progress(WizardCopy.verifyingRemoteDownload)
+            }) { transfer in
+                progress(WizardCopy.remoteDownload(transfer))
+            }
             try Task.checkCancellation()
 
             // Use a file on stdin so the program never appears in process arguments or in a remote command.
@@ -32,20 +38,12 @@ extension AppStore {
             try program.write(to: file)
             let input = try FileHandle(forReadingFrom: file)
             defer { try? input.close() }
-            _ = try await HerdrTunnel.run(#"""
-                set -eu
-                umask 077
-                bin="$HOME/.local/bin"
-                mkdir -p "$bin"
-                draft=$(mktemp "$bin/.swarmhub-herdr.XXXXXX")
-                trap 'rm -f "$draft"' EXIT
-                cat > "$draft"
-                test "$(wc -c < "$draft" | tr -d ' ')" = "\#(program.count)"
-                chmod 700 "$draft"
-                ln "$draft" "$bin/swarmhub-herdr"
-                """#, on: server, password: password, timeout: .seconds(180), standardInput: input)
+            progress(WizardCopy.sendingRemote)
+            _ = try await HerdrTunnel.run(HerdrRemoteSetup.placeProgram(byteCount: program.count), on: server,
+                                          password: password, timeout: .seconds(180), standardInput: input)
         }
 
+        progress(WizardCopy.startingRemote)
         if mac {
             _ = try await HerdrTunnel.run(#"""
                 "$HOME/.local/bin/swarmhub-herdr" service install --port \#(server.port)
@@ -59,6 +57,33 @@ extension AppStore {
 }
 
 enum HerdrRemoteSetup {
+    /// Execute the verified download on its destination before installing it. A prior release can have the
+    /// right CPU architecture and executable bit but depend on a newer system library.
+    static func placeProgram(byteCount: Int) -> String {
+        #"""
+        set -eu
+        umask 077
+        bin="$HOME/.local/bin"
+        program="$bin/swarmhub-herdr"
+        mkdir -p "$bin"
+        draft=$(mktemp "$bin/.swarmhub-herdr.XXXXXX")
+        trap 'rm -f "$draft"' EXIT
+        cat > "$draft"
+        test "$(wc -c < "$draft" | tr -d ' ')" = "\#(byteCount)"
+        chmod 700 "$draft"
+        "$draft" version --json >/dev/null
+        if "$program" version --json >/dev/null 2>&1; then exit 0; fi
+        if [ -L "$program" ]; then
+            echo "The workspace path is a symbolic link to an unavailable program. Check $program and retry." >&2
+            exit 1
+        elif [ -f "$program" ]; then
+            mv -f "$draft" "$program"
+        else
+            ln "$draft" "$program" || "$program" version --json >/dev/null
+        fi
+        """#
+    }
+
     static func lingerWarning(in output: String, for server: HerdrServer) -> String? {
         let lines = output.split(whereSeparator: \.isNewline)
         guard lines.contains("SWARMHUB_LINGER=disabled") else { return nil }
@@ -111,6 +136,7 @@ enum HerdrRemoteSetup {
         done
 
         unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$unit_name"
+        service_pid=
         if [ "$systemd_user" = yes ]; then
             service_path='Environment="PATH=%h/.local/bin:%h/.npm-global/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin"'
             if [ ! -e "$unit" ]; then
@@ -144,9 +170,14 @@ enum HerdrRemoteSetup {
             fi
         else
             SWARMHUB_PORT=\#(port) nohup "$HOME/.local/bin/swarmhub-herdr" service run </dev/null >>"$config/ssh-setup.log" 2>&1 &
+            service_pid=$!
         fi
         for attempt in $(seq 1 30); do
             if curl -fsS --max-time 1 "$url" >/dev/null 2>&1; then exit 0; fi
+            if [ -n "$service_pid" ] && ! kill -0 "$service_pid" 2>/dev/null; then
+                echo "The workspace stopped during startup. Check $config/ssh-setup.log on the server and retry." >&2
+                exit 1
+            fi
             sleep 1
         done
         echo "SwarmHub did not start. Check the user service logs on the server and retry." >&2

@@ -5,6 +5,19 @@ import Foundation
 /// The wizard says "bot" (a "helper" is something a bot starts), "AI" for the agent program a bot runs on and "access
 /// key" for the server's secret. It names no AI and no model itself: those names come from the server.
 enum WizardCopy {
+    static let checkingRemote = "Checking the SSH account and installed workspace…"
+    static let checkingRemoteRelease = "Checking the signed workspace release…"
+    static let verifyingRemoteDownload = "Verifying the downloaded workspace…"
+    static let sendingRemote = "Sending the verified workspace over SSH…"
+    static let startingRemote = "Starting the workspace on the server…"
+    static let checkingRemoteAIs = "Checking which AIs the server can run…"
+
+    static func remoteDownload(_ transfer: WorkspaceRelease.DownloadProgress) -> String {
+        let percent = Int(100 * Double(transfer.received) / Double(max(transfer.total, 1)))
+        let attempt = transfer.attempt > 1 ? " (attempt " + String(transfer.attempt) + ")" : ""
+        return "Downloading the workspace" + attempt + "… " + String(percent) + "%"
+    }
+
     static let setUpServer = "Set up on server"
     static func serverSetupTitle(_ host: String) -> String { "Set up SwarmHub on " + host }
     static func settingUpServer(_ host: String) -> String { "Setting up on " + host + "…" }
@@ -41,7 +54,7 @@ enum WizardCopy {
     static let addressHeader = "Your server"
     static let localIntro = "Checking that this Mac is ready to run your bots."
     static let localSetupIntro = "Set it up once, and your bots work right here."
-    static let sshIntro = "Use the same server name or SSH login you use in Terminal."
+    static let sshIntro = "Enter your SSH host or user@host. For a custom SSH port, use user@host:2222."
     static let addressIntro = "Give its address and access key."
     static let details = "Connection details"
     static func connected(_ name: String) -> String { "\(name) is ready" }

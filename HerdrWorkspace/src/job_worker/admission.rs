@@ -326,8 +326,10 @@ pub(super) fn ram_backed(dir: &File) -> Option<bool> {
     }
     #[cfg(target_os = "linux")]
     {
-        const RAMFS_MAGIC: libc::c_long = 0x8584_58f6;
-        Some(matches!(stat.f_type, libc::TMPFS_MAGIC | RAMFS_MAGIC))
+        // Linux filesystem magic numbers occupy 32 bits. libc exposes f_type as signed on glibc and unsigned on musl.
+        const RAMFS_MAGIC: u32 = 0x8584_58f6;
+        const TMPFS_MAGIC: u32 = libc::TMPFS_MAGIC as u32;
+        Some(matches!(stat.f_type as u32, TMPFS_MAGIC | RAMFS_MAGIC))
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
