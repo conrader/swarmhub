@@ -39,7 +39,12 @@ struct HerdrHelperModelSection: View {
                             InspectorTag(text: reviewer == "off" ? "Command reviewer: Off" : "Command reviewer: Claude " + reviewer.capitalized)
                         }
                     }
-                    if editingControls { approvalSettings }
+                    if editingControls {
+                        approvalSettings
+                    } else if store.autoSwitchPending(bot) || store.herdrAgentReadings[bot.id]?.autoRestartPending == true {
+                        Label("Change pending until the session is idle", systemImage: "clock")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 } else if problem.isEmpty { ProgressView("Loading approval settings…").controlSize(.small) }
                 else {
                     Text(problem).font(.callout)
