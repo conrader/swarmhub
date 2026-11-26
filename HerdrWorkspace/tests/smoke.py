@@ -707,6 +707,7 @@ def opencode_reply(root, bridge, request, core, browser):
                   "settings": {"baseURL": f"http://127.0.0.1:{endpoint.server_port}/v1"}}}}
         if focus == "opencode-document-review":
             config["permissions"][0]["effect"] = "deny"
+            config["providers"]["fixture"]["models"]["default"]["limit"] = {"context": 8192, "output": 2048}
         if focus in ("opencode-usage", "opencode-document-review"):
             config["providers"]["fixture"]["models"]["default"]["cost"] = {"input": 10, "output": 20}
         if image_mode:

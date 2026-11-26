@@ -47,7 +47,10 @@ class DocumentReview:
                 if warm:
                     request(route + "/messages", {"text": "Read the contract"})
                 expected = 3 if warm else 1
-                until(lambda: len(self.results) == expected, seconds=30)
+                try:
+                    until(lambda: len(self.results) == expected, seconds=18)
+                except AssertionError as error:
+                    raise AssertionError((warm, self.tools, self.results, request(route + "/output"))) from error
                 assert self.document.read_text().strip() in self.results[-1]
                 history = f"/api/history/{core}/{session}"
                 until(lambda: any(item["kind"] == "reply" for item in request(history)["items"]), seconds=20)

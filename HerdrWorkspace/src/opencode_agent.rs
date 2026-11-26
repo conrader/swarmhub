@@ -30,7 +30,7 @@ const APPROVALS: &str = include_str!("opencode-approvals.js");
 /// Add only denials to the session. The user's existing rules still govern file reads.
 /// The private plugin supplies the allowlist for built-in, third-party and future tools.
 fn document_permissions() -> Value {
-    Value::Array(["bash", "edit", "write", "apply_patch", "task", "skill"].map(|action|
+    Value::Array(["bash", "execute", "edit", "write", "apply_patch", "task", "skill"].map(|action|
         json!({"action": action, "resource": "*", "effect": "deny"})
     ).into())
 }

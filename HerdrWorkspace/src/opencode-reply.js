@@ -154,6 +154,12 @@ export default {
           if (tool.id !== "read") editor.remove(tool.id);
         }
       });
+      // OpenCode also offers synthetic tools such as code mode outside its tool registry.
+      await ctx.session.hook("context", input => {
+        for (const name of Object.keys(input.tools)) {
+          if (name !== "read") delete input.tools[name];
+        }
+      });
       await ctx.tool.hook("execute.before", call => {
         if (call.tool !== "read") throw new Error("This bot can only read documents.");
       });
