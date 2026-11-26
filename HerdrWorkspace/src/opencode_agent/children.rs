@@ -29,6 +29,7 @@ struct Details {
     task: String,
     reply: String,
     steps: Vec<Step>,
+    terminal: Option<crate::agent::child_output::ChildCommandOutput>,
 }
 
 #[derive(Deserialize, Serialize)]

@@ -1,5 +1,6 @@
 //! Claude's Agent tool can launch a background task and return before its start hook.
 //! Merge its receipt and lifecycle records by child ID inside the owning workspace launch.
+use super::child_output::ChildCommandOutput;
 use crate::history;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ struct Record {
     created: i64,
     ended: Option<i64>,
     steps: Vec<Step>,
+    terminal: Option<ChildCommandOutput>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -176,6 +178,36 @@ pub(super) fn hook() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+/// This hook only receives Bash completions. Other tool results can contain entire
+/// documents and continue through the ordinary tool-activity hook without being read.
+pub(super) fn shell() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+    #[derive(Deserialize)]
+    struct Input { command: String }
+    #[derive(Deserialize)]
+    struct Output { stdout: Option<String>, stderr: Option<String> }
+    #[derive(Deserialize)]
+    struct Event {
+        agent_id: Option<String>,
+        session_id: String,
+        tool_input: Input,
+        tool_response: Option<Output>,
+        error: Option<String>,
+    }
+    let Ok(event) = serde_json::from_reader::<_, Event>(std::io::stdin().lock().take(64 * 1024 * 1024)) else { return Ok(()) };
+    let Some(child) = event.agent_id else { return Ok(()) };
+    let output = match event.tool_response {
+        Some(response) => [response.stdout, response.stderr].into_iter().flatten()
+            .filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n"),
+        None => event.error.unwrap_or_default(),
+    };
+    if let Some(terminal) = ChildCommandOutput::new(&event.tool_input.command, &output) {
+        let (journal, key) = super::session()?;
+        update(&journal, &key, &event.session_id, &child, |record| record.terminal = Some(terminal))?;
     }
     Ok(())
 }
