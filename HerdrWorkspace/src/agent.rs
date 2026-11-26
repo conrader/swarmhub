@@ -16,6 +16,7 @@ use std::{
 };
 
 pub(crate) mod claude_preview;
+pub(crate) mod claude_children;
 
 pub(crate) const TOOL_REVIEW_ENV: &str = "SWARMHUB_REVIEW_EVERY_TOOL";
 
@@ -57,6 +58,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Some("capture-claude-reply") => capture_claude(),
+        Some("capture-claude-child") => claude_children::hook(),
         Some("claude-preview-hook") => {
             claude_preview::hook();
             Ok(())
@@ -353,6 +355,11 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
             "hooks":[{"type":"command","command":activity,"timeout":TOOL_HOOK_SECONDS}]
         }]);
     }
+    let child_hook = json!({"type":"command","command":format!("{} capture-claude-child", shell_quote(executable)),"timeout":TOOL_HOOK_SECONDS});
+    for event in ["SubagentStart", "SubagentStop"] {
+        settings["hooks"][event] = json!([{"hooks":[child_hook]}]);
+    }
+    settings["hooks"]["PostToolUse"].as_array_mut().unwrap().push(json!({"matcher":"^(Agent|Task)$","hooks":[child_hook]}));
     let mut args: Vec<_> = env::args_os().skip(2).collect();
     let approvals = args
         .first()
@@ -423,6 +430,7 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         command.args(["--permission-mode", "auto"]);
     }
     Err(command
+        .env("SWARMHUB_CLAUDE_CHILD_HOOKS", "1")
         .env_remove(crate::runtimes::MODEL_ENV)
         .args(["--settings", &settings.to_string()])
         .args(args)

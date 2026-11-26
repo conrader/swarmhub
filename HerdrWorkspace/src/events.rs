@@ -272,7 +272,7 @@ impl Stream {
                     if changed.is_err() { return Err(Over); }
                     if let Some(key) = self.key.as_ref() {
                         let revision = self.w.history.db().ok().and_then(|db| db.query_row(
-                            "SELECT coalesce(sum(c.revision),0) FROM codex_children c JOIN journal p ON p.id=c.launch WHERE p.launch_key=?1",
+                            "SELECT coalesce(sum(c.revision),0) FROM native_children c JOIN journal p ON p.id=c.launch WHERE p.launch_key=?1",
                             [key], |r| r.get::<_,i64>(0)).ok());
                         if let Some(revision) = revision {
                             helpers_changed = self.codex_child_revision != revision;

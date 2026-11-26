@@ -424,7 +424,7 @@ pub(crate) fn session_parents(history: &History, core_id: &str, agents: &[Termin
         "SELECT p.address,p.created_ms FROM journal p
          WHERE p.core_id=?1 AND p.launch_key IN (SELECT value FROM json_each(?2))
            AND p.address IS NOT NULL AND p.created_ms IS NOT NULL
-           AND (EXISTS (SELECT 1 FROM codex_children c WHERE c.launch=p.id)
+           AND (EXISTS (SELECT 1 FROM native_children c WHERE c.launch=p.id)
             OR EXISTS (SELECT 1 FROM helpers h JOIN journal j ON h.launch=j.id
                        WHERE h.parent_key=p.launch_key AND j.core_id=p.core_id AND j.address IS NOT NULL))"
     )?;
@@ -453,7 +453,7 @@ pub(crate) fn archived_parents(history: &History, core_id: &str, agents: &[Termi
                       AND e.address=j.address AND e.created_ms=j.created_ms))
              FROM helpers h JOIN journal j ON j.id=h.launch JOIN journal p ON p.launch_key=h.parent_key
              WHERE p.core_id=j.core_id AND j.address IS NOT NULL AND j.created_ms IS NOT NULL GROUP BY p.id
-           UNION ALL SELECT launch,sum(revision) FROM codex_children GROUP BY launch
+           UNION ALL SELECT launch,sum(revision) FROM native_children GROUP BY launch
          )
          SELECT p.core_id,p.agent,p.address,p.created_ms,up.address,up.created_ms,sum(owners.revision)
          FROM owners JOIN journal p ON p.id=owners.launch

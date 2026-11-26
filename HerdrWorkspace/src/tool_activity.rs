@@ -27,6 +27,8 @@ const KEEP: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Deserialize)]
 struct Hook {
+    agent_id: Option<String>,
+    session_id: Option<String>,
     hook_event_name: String,
     tool_name: Option<String>,
     tool_input: Option<Value>,
@@ -246,6 +248,24 @@ fn report() {
     let Some(tool) = hook.tool_name.filter(|tool| !tool.is_empty()) else {
         return;
     };
+    if let (Some(child), Some(session)) = (&hook.agent_id, &hook.session_id)
+        && std::env::var_os("SWARMHUB_CLAUDE_CHILD_HOOKS").is_some()
+    {
+        if let Some(call) = &hook.tool_use_id {
+            let label = hook
+                .tool_input
+                .as_ref()
+                .and_then(|args| detail(&tool, args))
+                .map_or_else(|| tool.clone(), |d| format!("{tool} {d}"));
+            let state = match phase {
+                Phase::Started => "Running",
+                Phase::Finished => "Finished",
+                Phase::Failed => "Failed",
+            };
+            crate::agent::claude_children::step(&journal, &key, session, child, call, label, state);
+        }
+        return;
+    }
     send(
         &journal,
         key,

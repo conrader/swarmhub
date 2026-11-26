@@ -8,6 +8,8 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.parse import quote
 
 from claude_preview import smoke, until
 
@@ -24,6 +26,8 @@ class ChildScenario:
 
     def prepare(self, profile):
         # Observe Claude's own lifecycle independently of the workspace's reporting.
+        self.sample = profile.parent / "project" / "sidebar.txt"
+        self.sample.write_text("Child workspace fixture")
         self.receipts = profile / "qa-hook-events.jsonl"
         hook = profile / "observe.py"
         hook.write_text(
@@ -34,7 +38,7 @@ class ChildScenario:
         command = shlex.join([sys.executable, str(hook), str(self.receipts)])
         hooks = {event: [{"hooks": [{"type": "command", "command": command}]}]
                  for event in ("SubagentStart", "SubagentStop", "PostToolUse")}
-        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(Explore)"]}}))
+        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(Explore)", "Read"]}}))
 
     @property
     def handler(self):
@@ -77,12 +81,22 @@ class ChildScenario:
                     payload = {"description": "Read sidebar state", "prompt": f"Reply with {CHILD}.", "subagent_type": "Explore"}
                     send("content_block_delta", index=0, delta={"type": "input_json_delta", "partial_json": json.dumps(payload)})
                 else:
-                    is_child = CHILD in text and "tool_result" not in text
-                    if is_child:
-                        scenario.started.set()
-                        assert scenario.finish.wait(30), "Timed out waiting for the sidebar observation"
-                    send("content_block_start", index=0, content_block={"type": "text", "text": ""})
-                    send("content_block_delta", index=0, delta={"type": "text_delta", "text": CHILD if is_child else PARENT})
+                    child_messages = [message for message in request["messages"] if message.get("role") == "user"]
+                    is_child = any(CHILD in json.dumps(m["content"]) and "tool_result" not in json.dumps(m["content"])
+                                   for m in child_messages) and not any(TASK in json.dumps(m["content"]) for m in child_messages)
+                    if is_child and "tool_result" not in text and any(t.get("name") == "Read" for t in request.get("tools", [])):
+                        send("content_block_start", index=0, content_block={
+                            "type":"tool_use", "id":"toolu_child_read", "name":"Read", "input":{},
+                        })
+                        send("content_block_delta", index=0, delta={"type":"input_json_delta",
+                             "partial_json":json.dumps({"file_path":str(scenario.sample)})})
+                        spawn = True
+                    else:
+                        if is_child:
+                            scenario.started.set()
+                            assert scenario.finish.wait(30), "Timed out waiting for the sidebar observation"
+                        send("content_block_start", index=0, content_block={"type": "text", "text": ""})
+                        send("content_block_delta", index=0, delta={"type": "text_delta", "text": CHILD if is_child else PARENT})
                 send("content_block_stop", index=0)
                 send("message_delta", delta={"stop_reason": "tool_use" if spawn else "end_turn", "stop_sequence": None},
                      usage={"output_tokens": 12})
@@ -118,6 +132,22 @@ class ChildScenario:
                 live = True
             except AssertionError:
                 live = False
+            if self.require_visible:
+                until(lambda: any(row["id"] == child and row["name"] == receipt["description"]
+                                  and row["task"] == receipt["prompt"] and row["state"] == "working"
+                                  for row in request(route).get("claude_threads", [])))
+                base = route.removesuffix("/helpers")
+                query = "?core=" + quote(bot["core"], safe="")
+                activity = base + "/claude-threads/" + child
+                running = request(activity + query)
+                assert "Read" in running["transcript"] and "sidebar.txt" in running["transcript"], running
+                for url in (activity + "?core=unrelated", base + "/codex-threads/" + child + query):
+                    try:
+                        request(url)
+                    except HTTPError as error:
+                        assert error.code == 404
+                    else:
+                        raise AssertionError("A different Core or runtime returned this child")
         finally:
             self.finish.set()
 
@@ -136,6 +166,7 @@ class ChildScenario:
             with sqlite3.connect(data / "workspace.sqlite3") as db:
                 replies = db.execute("SELECT text FROM journal WHERE kind='reply' AND address=? AND created_ms=?",
                                      (bot["address"], bot["created_ms"])).fetchall()
+                assert all(text != CHILD for (text,) in replies), "The child reply entered the parent chat"
                 return any(text == PARENT for (text,) in replies)
 
         until(parent_reply)
@@ -148,6 +179,15 @@ class ChildScenario:
                           "child_listed_while_working": live, "child_listed_after_completion": saved}), flush=True)
         if self.require_visible:
             assert live and saved, "The owning bot must list its live and completed Claude child"
+            final = until(lambda: next((row for row in request(route).get("claude_threads", [])
+                                        if row["id"] == child and row["state"] == "answered"), None))
+            assert final["reply"] == CHILD and final["completed_ms"] >= final["created_ms"]
+            request(base + "/end", {})
+            archived = request(activity + query)
+            assert CHILD in archived["transcript"] and PARENT not in archived["transcript"] and archived["state"] == "answered"
+            until(lambda: any(p["session"] == {"address": bot["address"], "created_ms": bot["created_ms"]}
+                              for p in request("/api/workspace?codejobs=true").get("archived_helper_parents", [])))
+            print("Read the assignment, child tool activity and final reply after closing the owning Core terminal.")
 
 
 if __name__ == "__main__":
