@@ -3,6 +3,7 @@ import Foundation
 /// P16 runtime bookkeeping that lives beside the store (memory only).
 @MainActor final class TurnBook {
     /// Only goals explicitly started here or reconciled on launch may dispatch.
+    var checkingGoalSpend: Set<UUID> = []
     var scheduledGoals: Set<UUID> = []
     /// Older ordinary stops may finish after their local stream releases the slot.
     var pendingInterrupts: [UUID: Set<UUID>] = [:]

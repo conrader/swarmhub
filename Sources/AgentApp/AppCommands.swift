@@ -4,7 +4,7 @@ import SwiftUI
 /// The agent panel's tabs in bar order. Members are at the bottom of Overview; `AppCommand.members` (⌘5) opens
 /// Overview so the old shortcut still lands on them.
 enum AgentInfoTab: String, CaseIterable {
-    case overview = "Overview", model = "Model", team = "Team", routines = "Routines", skills = "Skills", media = "Media"
+    case overview = "Overview", approvals = "Approvals", routines = "Routines", model = "Model", team = "Team", skills = "Skills", media = "Media"
 }
 
 /// Menu items, the quick switcher and the shortcut reference share the same actions and bindings.

@@ -15,6 +15,7 @@ struct GoalStatusView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Goal · \(status)").font(.caption.weight(.semibold))
                 if let steps = goal.stepProgress { Text(steps).font(.caption) }
+                if let spend = goal.spendProgress { Text(spend).font(.caption).help("OpenCode reports an estimate. A step already running may exceed the limit.") }
                 Text(goal.objective).lineLimit(2).help(goal.objective)
                 if !goal.detail.isEmpty { Text(goal.detail).font(.caption).lineLimit(2).help(goal.detail) }
             }.accessibilityElement(children: .combine)

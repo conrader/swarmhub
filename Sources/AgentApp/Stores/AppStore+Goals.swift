@@ -9,8 +9,9 @@ extension AppStore {
         else { return "Goals require a writable workspace bot chat." }
 
         switch command {
-        case .start(let objective, let stepLimit):
+        case .start(let objective, let stepLimit, let budget):
             if bot.goal?.state.active == true {
+                guard budget == nil else { return "Stop the current goal before changing the spending limit." }
                 guard stepLimit == nil else { return "Stop the current goal before starting one with a new step limit." }
                 if let turn = turn(in: bot), !turn.steerAvailable || turn.stopping {
                     return "This goal step cannot take live guidance. Wait for it to finish before updating the goal."
@@ -20,6 +21,7 @@ extension AppStore {
             }
             guard attachments.isEmpty else { return "Start the goal, then attach files to a follow-up." }
             var goal = ChatGoal(objective: objective, destination: goalDestination(for: bot), stepLimit: stepLimit)
+            goal.budgetUSD = budget
             // Check the full first delivery while the person still has their draft.
             goal.initialAttachments = attachments.isEmpty ? nil : attachments
             let probe = UUID()
@@ -36,14 +38,15 @@ extension AppStore {
             if let attempt = goal.attempt, turns.nextMessages.contains(where: { $0.conversation === bot && $0.bubble.metadata[GoalKey.attempt] == attempt.uuidString }) { state = "Waiting for capacity" }
             else if goal.state == .running && herdrWaits(bot).waits { state = "Waiting for you" }
             else { state = goal.state.rawValue.capitalized }
-            return [state, goal.stepProgress, goal.objective].compactMap { $0 }.joined(separator: " · ")
+            return [state, goal.stepProgress, goal.spendProgress, goal.objective].compactMap { $0 }.joined(separator: " · ")
         case .stop:
             guard let goal = bot.goal, goal.state.active else { return "This chat has no active goal." }
             stopGoal(in: bot)
             if turns.saveFailing { return "The goal stopped in this window, but the stop could not be saved." }
+        case .invalidBudget: return SlashCommand.budgetUsage
         case .invalidStepLimit: return SlashCommand.stepLimitUsage
         case .commands, .goalUsage:
-            return "Use /goal [--steps N] <objective>, /goal status, or /goal stop."
+            return "Use /goal [--steps N] [--budget USD] <objective>, /goal status, or /goal stop."
         }
         return nil
     }
@@ -72,7 +75,7 @@ extension AppStore {
     }
 
     /// Called by the normal queue drain, after messages waiting for a slot had their turn.
-    func dispatchQueuedGoals() {
+    func dispatchQueuedGoals(checkedGoal: UUID? = nil, spend: ChatGoal.SpendReading? = nil) {
         guard !turns.scheduledGoals.isEmpty, persistenceEnabled, storeRestoreOffer == nil else { return }
         for bot in bots {
             guard var goal = bot.goal, goal.state == .queued, turns.scheduledGoals.contains(goal.id),
@@ -98,6 +101,19 @@ extension AppStore {
                 save()
                 continue
             }
+            if goal.budgetUSD != nil {
+                if checkedGoal != goal.id {
+                    if turns.checkingGoalSpend.insert(goal.id).inserted {
+                        Task { await checkGoalSpend(goal, bot: bot) }
+                    }
+                    continue
+                }
+                guard goal.permitsNextStep(spend: spend) else {
+                    bot.goal = goal
+                    save()
+                    continue
+                }
+            }
             let files = goal.initialAttachments ?? []
             let token = goal.begin()
             bot.goal = goal
@@ -114,6 +130,24 @@ extension AppStore {
                 save()
             }
         }
+    }
+
+    private func checkGoalSpend(_ goal: ChatGoal, bot: Bot) async {
+        let reading: ChatGoal.SpendReading?
+        do {
+            let client = try herdrClient(for: herdrServer(for: bot))
+            let workspace = try await client.workspace()
+            let live = workspace.agents.filter { $0.isLive && $0.name == goal.destination.agent }
+            if let core = workspace.core, live.count == 1, let agent = live.first,
+               let usage = agent.sessionUsage, let usd = usage.opencodeCostUsd {
+                reading = .init(core: core, agent: agent.ref, tokens: usage.totalTokens, usd: usd)
+            } else { reading = nil }
+        } catch { reading = nil }
+        turns.checkingGoalSpend.remove(goal.id)
+        guard bot.goal?.id == goal.id, bot.goal?.iteration == goal.iteration, bot.goal?.state == .queued,
+              bots.contains(where: { $0 === bot }) else { return }
+        turns.scheduledGoals.insert(goal.id)
+        dispatchQueuedGoals(checkedGoal: goal.id, spend: reading)
     }
 
     func goalDestination(for bot: Bot) -> ChatGoal.Destination {

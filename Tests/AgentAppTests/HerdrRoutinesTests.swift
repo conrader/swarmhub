@@ -14,7 +14,7 @@ import Testing
         store.selectedBot = bot
         store.showInfo = false
         let tabs = store.infoTabs(for: bot)
-        #expect(tabs == [.overview, .model, .team, .routines, .skills, .media])
+        #expect(tabs == [.overview, .approvals, .routines, .model, .team, .skills, .media])
         #expect(AppCommand.routines.isEnabled(in: store))
         AppCommand.routines.performWorkspaceAction(in: store)
         #expect(store.showInfo && store.visibleInfoTab(for: bot) == .routines)

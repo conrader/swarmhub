@@ -20,10 +20,12 @@ struct ComposerView: View {
     var wantsFocus = false; var tookFocus: () -> Void = {}
     /// Who the message goes to (a bot's or a group's name), for the placeholder.
     var recipient: String? = nil
+    var offersGoal = false
     var goalCommand: (SlashCommand) -> String? = { _ in "Goals require a writable workspace bot chat." }
     @State private var slashMenu = SlashMenu()
     @State private var commandNotice: String?
     @State private var noticeDraft: String?
+    @State private var imagePicker = false
     @State private var importing = false; @State private var editorMonitor: Any?; @FocusState private var focused: Bool
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
     private var placeholder: String {
@@ -83,7 +85,7 @@ struct ComposerView: View {
             // One row of 28 pt slots: each control is centred in its slot (the `+` menu is drawn by AppKit and ignores its
             // label's frame), and the slots sit on the draft's last line as it grows.
             HStack(alignment: .bottom, spacing: ComposerMetrics.spacing) {
-                Button { importing = true } label: { Image(systemName: "paperclip").frame(width: ComposerMetrics.control, height: ComposerMetrics.control).contentShape(Rectangle()) }
+                Button { imagePicker = false; importing = true } label: { Image(systemName: "paperclip").frame(width: ComposerMetrics.control, height: ComposerMetrics.control).contentShape(Rectangle()) }
                     .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Attach files").help("Attach images, videos or documents")
                     .composerSlot("composer_attach")
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus") }.composerSlot("composer_manage") }
@@ -103,12 +105,26 @@ struct ComposerView: View {
                         .composerSlot("composer_send")
                 }
             }
+            HStack(spacing: 6) {
+                Button("+ Screenshot") {
+                    imagePicker = true
+                    importing = true
+                }.help("Choose a screenshot to attach")
+                if offersGoal {
+                    Button("/goal") {
+                        if !text.hasPrefix("/goal ") { text = "/goal " + text }
+                        focused = true
+                    }.help("Start a goal with this draft")
+                }
+                Spacer()
+                Text("⌘↵ send").font(.caption.monospaced()).foregroundStyle(.secondary)
+            }.buttonStyle(.bordered).controlSize(.small)
             if let commandNotice, noticeDraft == text { Text(commandNotice).font(.callout).textSelection(.enabled) }
             if let hint, hint != SteerCopy.hint || canSteer { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, ComposerMetrics.control + ComposerMetrics.spacing) }
         }.padding(8)
             .glassSurface(in: RoundedRectangle(cornerRadius: 10, style: .continuous), tint: AppColor.raised.opacity(AppGlass.surfaceTint))
             .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: 768)
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            .fileImporter(isPresented: $importing, allowedContentTypes: imagePicker ? [.image] : [.item], allowsMultipleSelection: true) { result in
                 guard case .success(let urls) = result else { return }
                 let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
                 attach(urls); scoped.forEach { $0.stopAccessingSecurityScopedResource() }
