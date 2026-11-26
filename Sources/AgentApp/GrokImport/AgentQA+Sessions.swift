@@ -3,7 +3,8 @@ import Foundation
 extension AgentQA {
     /// The interactive window and the unattended hunt use the same private workspace responses.
     func installSessionSamples() throws {
-        guard let bot = store.bots.first(where: { $0.name == "Mira" }) else { throw QAError("Mira is missing.") }
+        guard let bot = store.bots.first(where: { $0.name == "Mira" }),
+              let patch = store.bots.first(where: { $0.name == "Patch" }) else { throw QAError("Sample bots are missing.") }
         let server = HerdrServer(id: "qa", name: "Sample workspace", kind: .address, address: "http://workspace.invalid")
         store.saveHerdrServers([server])
         store.setHerdrToken("sample", for: server)
@@ -13,6 +14,8 @@ extension AgentQA {
         store.herdrClientSetup = { $0.session = session }
         store.herdrHelpers[bot.id] = .init(core: "sample", parent: .init(address: "t1", createdMs: 1), helpers: [],
                                            codexThreads: SessionSampleProtocol.children)
+        store.herdrHelpers[patch.id] = .init(core: "sample", parent: .init(address: "t2", createdMs: 2), helpers: [],
+                                             codexThreads: SessionSampleProtocol.reviewThreads)
     }
 
     func visibleChildren(_ bot: Bot) -> [HerdrClient.NativeThread] {
@@ -52,7 +55,9 @@ extension AgentQA {
                 store.previewInInspector(.init(server: native.server, target: target))
             } else if action == "steer" {
                 guard store.beginHelperSteering(selection, of: bot) else { throw QAError("This helper is unavailable.") }
-            } else if !store.openHelperParent(selection, of: bot) { throw QAError("Could not open the parent chat.") }
+            } else {
+                store.open(store.backDestination(for: selection, of: bot), of: bot)
+            }
         default: throw QAError("Unknown session action.")
         }
     }
@@ -67,16 +72,23 @@ private final class SessionSampleProtocol: URLProtocol, @unchecked Sendable {
         .init(id: "rename", parent: "main", name: "rename", model: "Sol", createdMs: started, completedMs: started + 41000,
               state: "answered", task: "Review renamed call sites.", reply: "Updated 14 call sites.")
     ]
+    static let reviewThreads: [HerdrClient.NativeThread] = [
+        .init(id: "review", parent: "main", name: "review", model: "Sol", createdMs: started, state: "working",
+              task: "Review the changes.", reply: ""),
+        .init(id: "citations", parent: "review", name: "citations", model: "Sol", createdMs: started, state: "working",
+              task: "Check references in the review.", reply: "")
+    ]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let url = request.url else { client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return }
         let child = Self.children.first { url.path == "/api/agents/t1/1/codex-threads/" + $0.id }
+            ?? Self.reviewThreads.first { url.path == "/api/agents/t2/2/codex-threads/" + $0.id }
         let accepted = url.host == "workspace.invalid" && url.query == "core=sample" && request.httpMethod == "GET"
         var body = Data()
         if accepted, let child {
-            let command = child.isWorking ? "swift test --filter CSVReaderTests" : "git diff --stat"
-            let output = child.isWorking ? "Running CSVReaderTests" : "14 call sites updated"
+            let command = Self.reviewThreads.contains(child) ? "git status --short" : child.isWorking ? "swift test --filter CSVReaderTests" : "git diff --stat"
+            let output = Self.reviewThreads.contains(child) ? child.task : child.isWorking ? "Running CSVReaderTests" : "14 call sites updated"
             let detail: [String: Any] = ["task": child.task, "reply": child.reply,
                 "steps": [["text": command, "state": child.isWorking ? "inProgress" : "completed"]],
                 "terminal": ["command": command, "output": output]]

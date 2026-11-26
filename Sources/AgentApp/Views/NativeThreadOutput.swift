@@ -245,20 +245,20 @@ struct NativeSessionView: View {
 
     var body: some View {
         let listing = store.herdrHelpers[selection.parent]
-        let siblings = listing?.core == native.core && listing?.parent == native.owner ? listing?.nativeThreads ?? [] : []
+        let siblings = store.herdrServer(for: bot) == native.server && listing?.core == native.core && listing?.parent == native.owner ? listing?.nativeThreads ?? [] : []
         let thread = siblings.first { $0.id == native.thread.id && $0.provider == native.thread.provider } ?? native.thread
-        let ownerName = siblings.first { $0.id == thread.parent && $0.provider == thread.provider }?.name
-            ?? store.delegatingSession(for: selection)?.helper.name ?? bot.name
+        let back = store.backDestination(for: selection, of: bot)
+        let backTitle = "Back to " + back.name
         let target = LiveTerminal(thread: thread, owner: native.owner, core: native.core)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
                 Button {
-                    if !store.openHelperParent(selection, of: bot) { store.open(bot) }
+                    store.open(back, of: bot)
                 } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22) }
-                    .buttonStyle(.plain).accessibilityLabel("Back to " + (store.groupOwningHelper(selection, of: bot)?.name ?? bot.name))
+                    .buttonStyle(.plain).help(backTitle).accessibilityLabel(backTitle)
                 BotAvatar(bot: bot, size: 26)
-                let title = thread.name + " · Helper of " + ownerName
+                let title = thread.name + " · Helper of " + back.delegatorName(for: bot)
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 1) {

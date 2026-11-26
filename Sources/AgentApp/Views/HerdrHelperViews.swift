@@ -502,10 +502,9 @@ struct HerdrHelperView: View {
 
     var body: some View {
         let shown = listed ?? helper
-        let parentSession = store.delegatingSession(for: selection)
+        let back = store.backDestination(for: selection, of: bot)
         let group = store.groupOwningHelper(selection, of: bot)
-        let owner = parentSession?.helper.name ?? bot.name
-        let backTitle = "Back to " + (parentSession?.helper.name ?? group?.name ?? bot.name)
+        let backTitle = "Back to " + back.name
         let unavailable = store.herdrHelperReads[selection.parent] == .unavailable
         VStack(spacing: 0) {
             HStack(spacing: 11) {
@@ -514,15 +513,13 @@ struct HerdrHelperView: View {
                 } else {
                     ShowSidebarItem()
                     Button {
-                        if let parentSession { store.open(bot, helper: parentSession.id) }
-                        else if let group { store.open(group) }
-                        else { store.open(bot) }
+                        store.open(back, of: bot)
                     } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle()) }
                         .buttonStyle(.plain).help(backTitle).accessibilityLabel(backTitle)
                 }
                 BotAvatar(bot: bot, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text([shown?.name ?? "Helper", "Helper of " + owner].joined(separator: " · "))
+                    Text([shown?.name ?? "Helper", "Helper of " + back.delegatorName(for: bot)].joined(separator: " · "))
                         .font(.system(size: 14, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     Text([stopped ? "Stopped" : unavailable ? "Status unavailable" : shown?.statusLine, groupName ?? store.helperGroupNames[selection.parent] ?? selection.groupRuntime].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
