@@ -70,7 +70,10 @@ extension AppStore {
     func sidebarProgram(for bot: Bot) -> String? {
         let reading = herdrAgentReadings[bot.id]
         if let presence = herdrPresence(for: bot) {
-            guard let session = presence.session else { return reading?.runtime?.programName }
+            guard let session = presence.session else {
+                if let program = presence.program, presence.nextTemplate == herdrTemplate(for: bot) { return program }
+                return reading?.runtime?.programName
+            }
             if let program = presence.program { return program }
             return reading?.session == session ? reading?.activeProgram : nil
         }

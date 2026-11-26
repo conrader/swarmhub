@@ -106,13 +106,15 @@ struct HerdrAgentPresence: Equatable {
     let usage: HerdrClient.SessionUsage?
     let template: String?
     let program: String?
+    let nextTemplate: String?
 
-    init(server: HerdrServer, agent: HerdrClient.Agent?, program: String? = nil) {
+    init(server: HerdrServer, agent: HerdrClient.Agent?, program: String? = nil, nextTemplate: String? = nil) {
         self.server = server
         session = agent?.ref
         usage = agent?.sessionUsage
         template = agent?.template
         self.program = program
+        self.nextTemplate = nextTemplate
         isActive = agent?.isStarting == true || agent?.status?.state == "working" || agent?.status?.state == "blocked"
     }
 }
@@ -383,11 +385,18 @@ extension AppStore {
         var presence = herdrAgentPresence.filter { botIDs.contains($0.key) }
         var readiness: [UUID: HerdrAgentReadiness?] = [:]
         var groupNames: [HerdrHelperParent: String] = [:]
+        let usableTemplates = workspace?.templates.filter { $0.error == nil } ?? []
         for bot in group {
             let direct = workspace.flatMap { client?.liveAgent(named: HerdrBackend.agentName(botName: bot.name, botID: bot.id), in: $0) }
             if let workspace, previousPresence[bot.id] == herdrAgentPresence[bot.id] {
-                let program = direct?.template.flatMap { name in workspace.templates.first { $0.name == name }?.programName }
-                presence[bot.id] = HerdrAgentPresence(server: server, agent: direct, program: program)
+                let nextTemplate = herdrTemplate(for: bot)
+                let template: HerdrClient.Template?
+                if let direct {
+                    template = workspace.templates.first { $0.name == direct.template }
+                } else {
+                    template = HerdrAgentReading.template(own: nextTemplate, shared: nil, in: usableTemplates).template
+                }
+                presence[bot.id] = HerdrAgentPresence(server: server, agent: direct, program: template?.programName, nextTemplate: nextTemplate)
                 if let direct, var reading = herdrAgentReadings[bot.id], reading.session == direct.ref,
                    reading.core == workspace.core, reading.codexSessionModel != direct.codexSessionModel {
                     reading.codexSessionModel = direct.codexSessionModel
