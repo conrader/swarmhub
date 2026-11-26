@@ -323,6 +323,22 @@ struct HerdrClient: Sendable {
     }
 
     /// The models a template can start on: its named ones, and what the agent program lists when it can.
+    struct RuntimeAccount: Decodable {
+        enum State: String, Decodable { case signedIn = "signed_in", signedOut = "signed_out", unreported }
+        let state: State
+        let billing: String?
+    }
+
+    func runtimeAccount(template: String?) async throws -> RuntimeAccount {
+        let path = "/api/runtime-account"
+        if let template {
+            guard template != ".", template != "..", template.range(of: #"\A[a-z0-9._-]{1,32}\z"#, options: .regularExpression) != nil
+            else { throw Failure.invalidURL }
+            return try await get(path + "/" + template, timeout: 40)
+        }
+        return try await get(path, timeout: 40)
+    }
+
     func models(for template: Template) async throws -> [Template.Model] {
         var found = template.models ?? []
         if template.discoverModels == true {

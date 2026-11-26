@@ -36,10 +36,10 @@ struct ProbeKey {
     command: [u8; 32],
 }
 
-pub(super) struct Probe<'a> {
+pub(crate) struct Probe<'a> {
     agent: ModelAgent,
-    helper: &'a str,
-    env: BTreeMap<&'a str, &'a str>,
+    pub(crate) helper: &'a str,
+    pub(crate) env: BTreeMap<&'a str, &'a str>,
 }
 
 impl<'a> Probe<'a> {
@@ -52,6 +52,10 @@ impl<'a> Probe<'a> {
         else {
             return None;
         };
+        Self::literal(template, agent)
+    }
+
+    pub(crate) fn literal(template: &'a Template, agent: ModelAgent) -> Option<Self> {
         let command = template.command.as_str();
         // The launch path uses a shell. Discovery only supports literal templates
         // so that it sees the same executable and environment without a shell.

@@ -1300,6 +1300,9 @@ def smoke(hc, bridge, chrome=None):
             desktop_fixture.write_text(Path(__file__).with_name("desktop-click-fixture.py").read_text())
             command = shlex.join([bridge, "run-desktop", "--", "/usr/bin/python3", str(desktop_fixture), str(root / "desktop-clicks.log")])
             (templates / "desktop-fixture.md").write_text(f"---\ndescription: Scratch X11 test agent\ncommand: {command}\n---\n")
+        if selected_focus == "runtime-account":
+            from runtime_account import fixtures as account_fixtures
+            account_fixtures(root, templates, bridge)
         if selected_focus == "command-reviewer":
             (templates / "review-profile.md").write_text(
                 "---\ndescription: Claude reviewer\ncommand: swarmhub-herdr run-claude\n---\n"
@@ -1689,6 +1692,10 @@ def smoke(hc, bridge, chrome=None):
                                        env={**os.environ, "SWARMHUB_LAUNCH_KEY": launch, "SWARMHUB_JOURNAL": str(journal)}, capture_output=True)
                     if chrome:
                         subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)], check=True, timeout=45)
+                    return
+                if selected_focus == "runtime-account":
+                    from runtime_account import exercise
+                    exercise(root, request)
                     return
                 if selected_focus == "session-usage":
                     def agent(name):
