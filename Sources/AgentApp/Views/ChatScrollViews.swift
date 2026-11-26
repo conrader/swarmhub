@@ -13,6 +13,7 @@ import SwiftUI
     private var restoringArchive: String?
     private var order: [UUID] = []
     private var settled = false
+    private var waitingForRow: UUID?
     private var visible = ChatVisibleRows()
     private weak var model: ChatScrollModel?
 
@@ -115,7 +116,8 @@ import SwiftUI
         objectWillChange.send()
         restoringArchive = nil
         settled = false
-        visible = ChatVisibleRows()
+        waitingForRow = nil
+        if self.range != range || archivePage?.key != archive?.key { visible = ChatVisibleRows() }
         archivePage = archive
         destination = target
         self.range = range
@@ -129,7 +131,13 @@ import SwiftUI
         if request == 0, let conversation { _ = model?.open(conversation, shown: order) }
         switch destination {
         case .latest: proxy.scrollTo(ChatScrollAnchor.bottom, anchor: .bottom)
-        case let .row(message, anchor): proxy.scrollTo(message, anchor: anchor)
+        case let .row(message, anchor):
+            // SwiftUI can start the task before the destination row has joined the scroll view.
+            guard visible.height > 0, visible.rows[message] != nil else {
+                waitingForRow = message
+                return
+            }
+            proxy.scrollTo(message, anchor: anchor)
         case let .archive(key): proxy.scrollTo(ChatScrollAnchor.imported(key), anchor: .center)
         }
         await Task.yield()
@@ -141,7 +149,11 @@ import SwiftUI
 
     func measured(_ frames: ChatVisibleRows) {
         visible = frames
-        if settled { report() }
+        if let waitingForRow, frames.height > 0, frames.rows[waitingForRow] != nil {
+            self.waitingForRow = nil
+            objectWillChange.send()
+            revision += 1
+        } else if settled { report() }
     }
 
     private func report() {
