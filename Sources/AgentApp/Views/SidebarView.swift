@@ -48,7 +48,19 @@ struct SidebarView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if !layout.pinned.isEmpty {
-                        SidebarPinnedStrip(chats: layout.pinned, askNewSection: { sectionPrompt = .new($0) }, requestDelete: requestDelete)
+                        let sessionOwners = Set(store.herdrHelpers.compactMap { $0.value.helpers.isEmpty ? nil : $0.key.botID })
+                        let pinnedParents = layout.pinned.compactMap { chat -> Bot? in
+                            if case .bot(let bot) = chat, sessionOwners.contains(bot.id) { return bot }
+                            return nil
+                        }
+                        let tiles = layout.pinned.filter { chat in
+                            if case .bot(let bot) = chat { return !sessionOwners.contains(bot.id) }
+                            return true
+                        }
+                        if !tiles.isEmpty {
+                            SidebarPinnedStrip(chats: tiles, askNewSection: { sectionPrompt = .new($0) }, requestDelete: requestDelete)
+                        }
+                        ForEach(pinnedParents) { bot in row(bot) }
                     }
                     ForEach(layout.sections) { bucket in
                         if bucket.showsHeader {

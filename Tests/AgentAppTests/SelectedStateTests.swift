@@ -6,7 +6,7 @@ import Testing
 /// every surface a control lies on. Words and marks read at 4.5:1; the edge of a control can be seen at 3:1.
 /// The views draw exactly these numbers (`AppColor` and `AppTheme` are built from `Palette`).
 struct SelectedStateTests {
-    private static let accents = ["Clay", "Sage", "Graphite"]
+    private static let accents = ["Blue", "Clay", "Sage", "Graphite"]
     private static let surfaces: [(name: String, pair: Palette.Pair)] = [("sidebar", Palette.sidebar), ("chat", Palette.chat), ("panel", Palette.panel), ("card", Palette.card), ("raised", Palette.raised)]
 
     private func each(_ check: (_ accent: RGB, _ on: RGB, _ text: RGB, _ dark: Bool, _ place: String) -> Void) {
