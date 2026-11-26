@@ -310,3 +310,20 @@ The same MacBook launched the notarized OpenBot 0.79.0 desktop release with a di
 On a Debian 12 x86_64 account with Codex CLI installed, the workspace from the public 0.8.16 release failed to launch. It required glibc 2.39 and the host had glibc 2.36. The old wizard treated its executable bit as proof that it worked. The 0.8.17 draft’s Linux binary had the same dependency.
 
 A MacBook opened the native setup wizard, entered a login with a custom SSH port, selected a private test identity and pressed **Set up on server**. The signed test feed supplied the packaged 0.2.15 Linux workspace. On a fresh account the **Create a bot** button appeared after 22.85 seconds. Another account began with the incompatible 0.2.14 binary. The wizard replaced it and reached **Create a bot** after 32.19 seconds. The bot setup displayed Codex in both cases. The accounts ran on loopback through real OpenSSH in an isolated Debian container without a systemd user session. These timings include downloads and service startup. The test ended before provider sign-in or inference.
+
+## Public 0.8.18 update on 26 November
+
+The v0.8.18 tag points to commit `4181cc97`. The Mac app reports build 52. The signed workspace manifest offers 0.2.15 on Apple silicon, Intel Mac and x86_64 Linux. The release ZIP contains both Mac architectures, the clean source receipt and the 0.8.18 notes shown in Settings. Gatekeeper accepted the archive’s app, and stapler validated its notarization ticket.
+
+A private copy of the published 0.8.16 app rejected an update signed with a different key, then installed the trusted candidate on quit. The rehearsal isolates the bundle identity, keys and target version. After publication, the previous app’s actual feed URL served build 52. Its embedded production public key verified both the downloaded ZIP and the workspace manifest. All three binaries downloaded from the public URLs matched their signed sizes and digests. The Linux workspace update smoke test also upgraded a running workspace, rolled back a failed service and recovered a stalled update.
+
+The signed app’s built-in exploration completed 29 steps with no rejected commands or failed checks. It captured the open inspector in both appearances and the installed release in Settings. In a separate live wizard run, the Mac accessibility tree reported checking the SSH account, sending the verified workspace and starting the remote service before the Codex picker appeared.
+
+The MacBook repeated the 50-chat exercise with the two signed release binaries. Each chat held 96 messages. After every switch the driver checked that the last message was inside the viewport. It also checked draft isolation on each pass.
+
+| Build | Switches | Median | 95th percentile | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| 0.8.17 draft, 51 | 100 | 586.5 ms | 970.6 ms | 1043.2 ms |
+| 0.8.18 public, 52 | 100 | 341.4 ms | 563.0 ms | 714.6 ms |
+
+These consecutive runs measure time to observe the message through Accessibility. An earlier 200-switch build 52 run had a 623.2 ms 95th percentile and an 821.1 ms maximum. The same MacBook produced faster absolute times in the previous test session. System load was uncontrolled. The results cover idle conversations and do not measure an authenticated OpenBot workspace.
