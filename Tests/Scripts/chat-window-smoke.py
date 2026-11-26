@@ -1057,6 +1057,9 @@ def live_terminals(source_app):
                         name="Layout reader",model="fixture/default",created_ms=100,completed_ms=110,
                         state="answered" if child_finished.is_set() else "working", task="Check header.",
                         reply="Sidebar result." if child_finished.is_set() else "")]
+                    reply["opencode_threads"].append(dict(id="ses_nested", parent="ses_layout", runtime="opencode",
+                        name="Nested reader", model="fixture/default", created_ms=105, completed_ms=110,
+                        state="answered", task="Inspect the header", reply="Header checked."))
                     reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
                                                 answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
                     reply["recent_sessions"] = [dict(address="finished", created_ms=65, name="EarlierQA", state="gone",
@@ -1089,6 +1092,18 @@ def live_terminals(source_app):
                     "StandbyQA" in label(b).split(", ") and "Claude" in label(b).split(", ") for b in buttons(window)))
                 child_label = "OpenCode agent Layout reader, Working"
                 wait_for("native child under Patch", lambda: any(label(b) == child_label for b in buttons(window)))
+                def has_nested():
+                    return any(label(b) == "OpenCode agent Nested reader, Answered" for b in buttons(window))
+                wait_for("nested session under its provider parent", has_nested)
+                press(window, "Sessions for Layout reader")
+                wait_for("nested session folded", lambda: not has_nested())
+                press(window, "Sessions for Patch")
+                wait_for("parent bot folded", lambda: not any(label(b) == child_label for b in buttons(window)))
+                press(window, "Sessions for Patch")
+                wait_for("parent bot expanded", lambda: any(label(b) == child_label for b in buttons(window)))
+                assert not has_nested()
+                press(window, "Sessions for Layout reader")
+                wait_for("nested session reopened", has_nested)
                 press(window, child_label)
                 def panel(identifier):
                     return next((n for n in descendants(window) if attribute(n, "AXIdentifier") == identifier), None)
