@@ -1106,10 +1106,16 @@ def live_terminals(source_app):
                 press(window, label(earlier()))
                 wait_for("distinct earlier reply", lambda: any(attribute(n, "AXValue") == "The export passed." for n in descendants(window)))
                 press(window, "Steer via Patch")
-                agents.clear()
+                del agents[1:]
                 workers.clear()
                 press(window, "ReaderQA", sidebar=True)
-                print("Verified live output for bot, helper, nested helper, group session and detached worker; replaced session never attached.")
+            with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                press(window, "ReaderQA", sidebar=True)
+                def restored():
+                    return {name for button in buttons(window) for name in ["AnsweredQA", "EarlierQA"]
+                            if label(button).startswith("Helper " + name + ",")}
+                wait_for("both closed sessions after relaunch", lambda: restored() == {"AnsweredQA", "EarlierQA"})
+                print("Verified live terminal identities and two closed helpers after switching chats and relaunching the app.")
         finally:
             server.shutdown()
 
