@@ -294,6 +294,7 @@ extension AppStore {
             reading?.running = .model(id: record.id, label: record.label)
             reading?.confirmed = true
         }
+        reading?.catalogServer = server
         if let reading {
             if let newer = herdrReadingUpdated[bot.id], newer > started {
                 return requireFresh ? nil : herdrAgentReadings[bot.id]

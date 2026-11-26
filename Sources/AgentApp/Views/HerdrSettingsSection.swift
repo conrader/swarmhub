@@ -471,6 +471,13 @@ struct HerdrAgentControls: View {
             }
         }
         .sheet(item: $moveSource) { HerdrMoveBotsSheet(source: $0, initialBot: bot.id) }
+        .onChange(of: store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? "") { _, saved in
+            guard loaded, template != saved else { return }
+            template = saved
+            models = []
+            Task { await loadModels() }
+        }
+        .onChange(of: store.herdrModel(for: bot)) { _, saved in model = saved }
         .task(id: "\(bot.id)-\(server.id)-\(server.kind == .local ? store.localAIRevision : 0)") {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot)
             loaded = true
