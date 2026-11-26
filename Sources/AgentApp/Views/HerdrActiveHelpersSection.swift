@@ -10,9 +10,20 @@ struct HerdrActiveHelpersSection: View {
         if overview.hasBots {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Helpers and detached workers").font(.headline).accessibilityAddTraits(.isHeader)
-                    .help("Workspace helpers and detached sb-codejob workers reported for your bots.")
+                    .help("Active helper sessions and detached sb-codejob workers reported for your bots.")
                 ForEach(overview.rows) { row in
                     ActiveHelperRow(bot: row.bot, groupName: row.groupName, helper: row.helper) { details = row }
+                }
+                ForEach(overview.nativeRows) { row in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text([row.bot.name, row.groupName, row.target.title].compactMap { $0 }.joined(separator: " · "))
+                            .font(.callout.weight(.medium)).foregroundStyle(.primary)
+                        Text(row.target.detail)
+                        Button("Preview output", systemImage: "terminal") {
+                            store.previewInInspector(.init(server: row.server, target: row.target), fallbackBot: row.bot)
+                        }.controlSize(.small)
+                            .accessibilityLabel("Preview output for \(row.target.title), helper of \(row.bot.name)")
+                    }.inspectorCard(padding: 8)
                 }
                 ForEach(overview.codejobs) { row in
                     VStack(alignment: .leading, spacing: 3) {

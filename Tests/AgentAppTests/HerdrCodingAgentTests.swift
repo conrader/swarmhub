@@ -194,6 +194,39 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         #expect(!store.herdrHelperOverview.confirmedEmpty, "empty streams cannot confirm the workspace roster or detached activity")
     }
 
+    @Test func overviewRoutesWorkingNativeThreadsAndClearsThemWhenFinished() {
+        let store = makeStore()
+        let bot = Bot(name: "Patch", backend: .herdr)
+        store.bots = [bot]
+        let server = store.herdrServer(for: bot)
+        store.helperRosters[server.id] = .available(unattributed: 0)
+        store.herdrCodejobReads[server.id] = .init(server: server, hosts: [], observed: .now)
+        func listing(_ state: String) -> HerdrClient.Helpers {
+            var result = list([])
+            for runtime in [HerdrClient.ChildRuntime.claude, .opencode, .codex] {
+                let thread = HerdrClient.NativeThread(id: "shared", parent: "root", runtime: runtime, name: "Scout",
+                                                      model: nil, createdMs: 1, state: state, task: "Inspect", reply: "")
+                switch runtime {
+                case .claude: result.claudeThreads = [thread]
+                case .opencode: result.opencodeThreads = [thread]
+                case .codex: result.codexThreads = [thread]
+                }
+            }
+            return result
+        }
+        store.herdrLive(.helpers(listing("working")), botID: bot.id)
+        let rows = store.herdrHelperOverview.nativeRows
+        #expect(Set(rows.map(\.id)).count == 3)
+        #expect(rows.allSatisfy { $0.bot.id == bot.id && $0.server == server && $0.target.id.child?.owner == parent })
+        #expect(store.hasActiveCodingAgent(bot) && !store.herdrHelperOverview.confirmedEmpty)
+        let old = HerdrHelperParent(botID: bot.id, archive: .init(core: "archive", session: parent))
+        store.herdrHelpers[old] = listing("working")
+        store.herdrHelperReads[old] = .polled
+        store.herdrLive(.helpers(listing("answered")), botID: bot.id)
+        #expect(store.herdrHelperOverview.nativeRows.isEmpty && store.herdrHelperOverview.confirmedEmpty)
+        #expect(!store.hasActiveCodingAgent(bot))
+    }
+
     @Test func overviewDistinguishesOlderWorkspacesFromIncompleteActivityReads() async {
         let api = LockedValue(2), malformed = LockedValue(false)
         let http = MockHTTPProtocol.serve { _ in
