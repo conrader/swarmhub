@@ -58,6 +58,7 @@ import UserNotifications
     /// A move can be undone while its record is still current and its source cleanup has finished.
     var herdrMoveInProgress = false
     var latestHerdrMoves: [UUID: UUID] = [:]
+    var herdrMovingWork: Set<UUID> = []
     var herdrMovesCleaning: Set<UUID> = []
     @Published var herdrAgentPresence: [UUID: HerdrAgentPresence] = [:]
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details

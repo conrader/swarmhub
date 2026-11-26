@@ -23,6 +23,7 @@ struct HerdrMoveBotsSheet: View {
     @State private var models: [HerdrClient.Template.Model] = []
     @State private var carryHistory = true
     @State private var stopIdleAgents = true
+    @State private var resumeActiveWork = true
     @State private var working: String?
     @State private var problem: String?
     @State private var setupWarnings: [String: String] = [:]
@@ -160,7 +161,8 @@ struct HerdrMoveBotsSheet: View {
                     }.toggleStyle(.checkbox)
                 }
             }
-            Text("Bots with active work stay on \(source.name) until you move them again. Project access is cleared for moved bots.")
+            Toggle("Interrupt active chats and continue on the destination", isOn: $resumeActiveWork)
+            Text("The move carries over the current request and available chat progress. Separate workers and chats awaiting approval stay on \(source.name). Moving clears server-specific project access.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             SettingBlock(title: "AI and model on the destination") {
                 VStack(alignment: .leading, spacing: 10) {
@@ -216,8 +218,11 @@ struct HerdrMoveBotsSheet: View {
                         }
                     }
                 }
+                if !record.resumed.isEmpty {
+                    Text("Queued the interrupted work to continue for " + record.resumed.joined(separator: ", ") + ".")
+                }
                 if !record.receipts.isEmpty {
-                    Text("Moved \(record.receipts.count) routines with their schedules and pause settings.")
+                    Text("Moved \(record.receipts.count) \(record.receipts.count == 1 ? "routine" : "routines") with their schedules and pause settings.")
                 }
                 ForEach(store.bots.filter { record.webhookOwners.contains($0.id) }) { bot in
                     DisclosureGroup("Configure webhook senders for \(bot.name)") {
@@ -368,7 +373,7 @@ struct HerdrMoveBotsSheet: View {
             defer { working = nil }
             do {
                 record = try await store.moveHerdrBots(selection, from: source, to: destination, mapping: mapping,
-                                                       carryHistory: carryHistory, stopIdleAgents: stopIdleAgents)
+                                                       carryHistory: carryHistory, stopIdleAgents: stopIdleAgents, resumeActiveWork: resumeActiveWork)
                 step = .summary
             } catch { problem = error.localizedDescription }
         }

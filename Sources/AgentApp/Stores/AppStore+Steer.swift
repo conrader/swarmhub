@@ -49,6 +49,10 @@ extension AppStore {
     // MARK: Entry
 
     func steer(_ message: ChatMessage, bot: Bot, turn: ConversationTurn) -> Bool {
+        if herdrMovingWork.contains(bot.id) {
+            presentError("The bot is switching servers. Your message is still in the composer.", reason: .send, bot: bot)
+            return false
+        }
         guard !bot.isReadOnlyArchive, storeRestoreOffer == nil, turn.botID == bot.id else { return false }
         let conversation = turn.conversation
         let files: [HerdrClient.TaskFile]
