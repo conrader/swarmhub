@@ -38,7 +38,7 @@ struct LiveTerminal: Identifiable, Hashable, Codable {
         case .opencode: .opencodeThread(core: core, owner: owner, thread: thread.id)
         }
         title = thread.name
-        detail = [thread.provider.label + " session", thread.model].compactMap { $0 }.joined(separator: " · ")
+        detail = thread.sessionDetail
         self.core = core
     }
 
