@@ -358,7 +358,7 @@ extension AppStore {
     /// How many reads of a server may fail in a row before its bots' helpers are taken off the screen.
     static let herdrHelperFailureLimit = 5
 
-    private enum HelperPollResult { case success(HerdrClient.Helpers?), unavailable }
+    private enum HelperPollResult: Sendable { case success(HerdrClient.Helpers?), unavailable }
 
     /// One roster finds direct and group sessions. Only parents with children need a helper listing.
     func refreshHerdrHelpers(on serverID: String) async {
@@ -481,7 +481,7 @@ extension AppStore {
             }
         }
 
-        for (parent, agent) in targets {
+        for (parent, agent) in targets where archiveTargets[parent] == nil {
             guard !streamOwnsHerdrHelpers(parent) else { continue }
             guard let client, let workspace else {
                 results[parent] = .unavailable
@@ -489,19 +489,7 @@ extension AppStore {
             }
             do {
                 var list: HerdrClient.Helpers?
-                if let archive = archiveTargets[parent] {
-                    let liveChildren = archive.core == workspace.core && workspace.agents.contains { $0.isLive && $0.parent == archive.session }
-                    if !liveChildren, archivedHelperRevisions[parent] == archive.revision,
-                       let cached = previousHelpers[parent], cached.helpers.isEmpty {
-                        list = cached
-                    } else {
-                        list = try await client.helpers(of: archive.session, core: archive.core)
-                    }
-                    guard list?.parent == archive.session, list?.core == archive.core else {
-                        results[parent] = .unavailable
-                        continue
-                    }
-                } else if let agent {
+                if let agent {
                     let readingChat = parent.groupRuntime == nil && selectedGroup == nil && selectedBot?.id == parent.botID
                     let previous = herdrHelpers[parent]
                     let sameLaunch = previous?.parent == agent.ref && previous?.core == workspace.core
@@ -515,6 +503,10 @@ extension AppStore {
             } catch {
                 results[parent] = .unavailable
             }
+        }
+        if let client, let workspace, !archiveTargets.isEmpty {
+            let saved = await readArchivedHelpers(archiveTargets, previous: previousHelpers, workspace: workspace, client: client)
+            results.merge(saved) { _, fresh in fresh }
         }
         guard !Task.isCancelled, herdrServer(id: serverID) == server else { return }
         if workspace == nil { herdrHelperFailures[serverID, default: 0] += 1 }
@@ -579,6 +571,38 @@ extension AppStore {
         if found != herdrHelpers { herdrHelpers = found }
         if reads != herdrHelperReads { herdrHelperReads = reads }
         if let workspace, let client { await collectPromotedReplies(on: server, workspace: workspace, client: client) }
+    }
+
+    /// Share a few concurrent reads over the existing connection when a Mac first discovers old sessions.
+    private func readArchivedHelpers(_ targets: [HerdrHelperParent: HerdrClient.ArchivedHelperParent],
+                                     previous: [HerdrHelperParent: HerdrClient.Helpers],
+                                     workspace: HerdrClient.Workspace, client: HerdrClient) async -> [HerdrHelperParent: HelperPollResult] {
+        let liveParents = Set(workspace.agents.filter(\.isLive).compactMap(\.parent))
+        return await withTaskGroup(of: (HerdrHelperParent, HelperPollResult).self) { group in
+            var results: [HerdrHelperParent: HelperPollResult] = [:]
+            var pending = 0
+            for (parent, archive) in targets {
+                if Task.isCancelled { break }
+                let hasLiveChildren = archive.core == workspace.core && liveParents.contains(archive.session)
+                if !hasLiveChildren, archivedHelperRevisions[parent] == archive.revision,
+                   let cached = previous[parent], cached.helpers.isEmpty {
+                    results[parent] = .success(cached)
+                    continue
+                }
+                if pending == 6, let (key, result) = await group.next() {
+                    results[key] = result
+                    pending -= 1
+                }
+                group.addTask {
+                    guard let list = try? await client.helpers(of: archive.session, core: archive.core),
+                          list.parent == archive.session, list.core == archive.core else { return (parent, .unavailable) }
+                    return (parent, .success(list.sidebarSessions.isEmpty ? nil : list))
+                }
+                pending += 1
+            }
+            for await (key, result) in group { results[key] = result }
+            return results
+        }
     }
 
     private func streamOwnsHerdrHelpers(_ parent: HerdrHelperParent) -> Bool {
