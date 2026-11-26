@@ -2331,6 +2331,7 @@ try {
         : 'document.getElementById("agent-usage").hidden && !document.getElementById("agent-usage").textContent');
     }
   } else if (focus === "save-project-command" || focus === "revoke-project-command") {
+    await check('!document.getElementById("approvals-open").disabled');
     await evaluate('document.getElementById("workspace-tools").open = true; document.getElementById("approvals-open").click()');
     if (focus === "save-project-command") {
       await check('document.querySelector("#approval-list button")');

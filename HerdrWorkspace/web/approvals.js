@@ -110,7 +110,7 @@
     $("approval-path").textContent = "";
     state.signature = null;
     $("approval-detail").hidden = true;
-    $("approval-command").hidden = !request.can_remember_command;
+    $("approval-command").hidden = true;
     $("approval-remember-options").hidden = true;
     $("approval-list-view").hidden = false;
     render();
