@@ -43,18 +43,25 @@ extension HerdrClient {
         }
         var isWorking: Bool { isLive && status?.state == "working" }
 
+        /// The process can report new activity after saving a reply.
+        var showingAnswer: Bool {
+            answered == true && !(isLive && ["working", "blocked", "error"].contains(status?.state ?? ""))
+        }
+
         /// A few words on what the helper is doing.
         var statusLine: String {
-            switch state {
+            if showingAnswer { return "Answered" }
+            return switch state {
             case "live":
                 switch status?.state {
                 case "working": "Working"
                 case "blocked": "Waiting for an answer in its terminal"
                 case "error": "Reported an error"
-                case "done" where answered != true: "Finishing"
-                default: answered == true ? "Answered" : "Starting"
+                case "done": "Finishing"
+                default: "Starting"
                 }
-            case "finished": answered == true ? "Finished" : "Stopped without an answer"
+            case "finished": "Stopped without an answer"
+            case "gone": "Session ended"
             default: "Gone"
             }
         }

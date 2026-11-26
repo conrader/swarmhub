@@ -396,3 +396,9 @@ The first render exposed two terminal glyphs on the pinned avatar. The final lig
 **Resolution in 0.8.41 and workspace 0.2.23.** On a real Linux workspace a direct bot started two helpers, ended them and exited. Through an SSH forward, the MacBook opened a private SwarmHub window, selected each archived helper and read its original assignment. The workspace returned both sessions by their original delegating launch and rejected a request for that address in an unrelated Core. A separate native window regression kept an earlier reply open as its parent was replaced. After relaunch, the driver opened an identically addressed helper from a prior Core, checked its distinct reply, then opened a saved group result and returned to the correct group.
 
 A native store benchmark opened 48 archived parent sessions with 100 ms of simulated latency per listing. Fetching the listings sequentially took 5.41 seconds. With up to six concurrent reads the same cold load took 0.93 seconds. Reading the unchanged roster again took 0.009 seconds.
+
+### Reading compact helper rows in 0.8.42
+
+In Chrome, selecting the working and answered helpers in the Interactive preview showed each name beside its elapsed time, with the task or reply beneath. This worked in both appearances at a row width of 184 pixels. A 164-point native row with a long model identifier and no timestamp omitted the helper’s entire name. A working helper with a stored reply also showed a working icon beside the word Answered.
+
+The revised SwiftUI rendering in both appearances keeps audit-payments visible on a waiting row, shows the working task beside its working icon, and shows 41s on the answered row. The native state regression also covers a blocked or failed process with an earlier reply and a saved answer whose terminal has been reaped. The rendering uses synthetic sessions.
