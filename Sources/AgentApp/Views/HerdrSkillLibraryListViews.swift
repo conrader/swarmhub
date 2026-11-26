@@ -12,7 +12,7 @@ struct LibraryFlow: Layout {
         let width = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, row: CGFloat = 0, widest: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = size(of: view, within: width)
             if x > 0, x + size.width > width { x = 0; y += row + spacing; row = 0 }
             x += size.width + spacing; row = max(row, size.height); widest = max(widest, x - spacing)
         }
@@ -22,12 +22,18 @@ struct LibraryFlow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, row: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = size(of: view, within: bounds.width)
             if x > bounds.minX, x + size.width > bounds.maxX { x = bounds.minX; y += row + spacing; row = 0 }
             view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing; row = max(row, size.height)
         }
     }
+    private func size(of view: LayoutSubview, within width: CGFloat) -> CGSize {
+        let ideal = view.sizeThatFits(.unspecified)
+        guard ideal.width > width else { return ideal }
+        return view.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+
 }
 
 /// The Library area.

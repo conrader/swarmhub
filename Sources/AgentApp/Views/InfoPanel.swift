@@ -68,7 +68,11 @@ struct InfoPanel: View {
             }.id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
         case .routines:
             let server = store.herdrServer(for: bot)
-            HerdrRoutinesPanel(bot: bot, server: server, inInspector: true)
+            VStack(alignment: .leading, spacing: 12) {
+                HerdrRoutinesPanel(bot: bot, server: server, inInspector: true)
+                Divider()
+                InspectorSharedSkills(server: server)
+            }
                 .id("\(bot.id)-\(server.id)-\(server.place)-\(server.address)")
         case .skills: HerdrSkillsPanel(bot: bot, preset: skillsPreset)
         case .media: MediaTabView(bot: bot)
