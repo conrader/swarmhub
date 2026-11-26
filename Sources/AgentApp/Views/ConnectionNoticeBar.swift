@@ -15,3 +15,25 @@ struct ConnectionNoticeBar: View {
             .accessibilityIdentifier("connection.notice")
     }
 }
+
+struct ChatSSHLoginBar: View {
+    @EnvironmentObject private var store: AppStore
+    let server: HerdrServer
+    @State private var signingIn = false
+
+    var body: some View {
+        HStack {
+            Image(systemName: "key").accessibilityHidden(true)
+            Text("SSH sign-in required for " + server.name)
+            Spacer()
+            Button("Sign In…") { signingIn = true }
+        }
+        .font(.callout).padding(.horizontal, 16).padding(.vertical, 6).background(.regularMaterial)
+        .sheet(isPresented: $signingIn) {
+            SSHLoginSheet(server: server, keepSavedLogin: true) { _ in
+                guard store.herdrServer(id: server.id) == server else { return }
+                Task { await store.refreshHerdrHelpers(on: server.id) }
+            }
+        }
+    }
+}

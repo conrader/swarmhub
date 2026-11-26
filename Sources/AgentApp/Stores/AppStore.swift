@@ -67,6 +67,7 @@ import UserNotifications
     /// Whether each Herdr bot's agent is running, and ready for a message or still starting (`AppStore+HerdrWarm.swift`):
     /// the chat header says it. `herdrWarming`: the starts ahead of time that are on their way, by bot; a message to
     /// such a bot waits for its start. `herdrNoWarmStarts`: the servers and agent programs that refused such a start.
+    @Published var sshLoginRequests: [String: HerdrServer] = [:]
     @Published var herdrReadiness: [UUID: HerdrAgentReadiness] = [:] { didSet { if herdrReadiness != oldValue { herdrPromptsFollowReadiness() } } }
     /// Waiting terminal prompts, keyed by the bot or group conversation ID.
     @Published var herdrPrompts: [UUID: HerdrPrompt] = [:]

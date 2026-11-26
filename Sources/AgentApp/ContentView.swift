@@ -51,7 +51,13 @@ struct ContentView: View {
                             }
                         }
                 }
-            }.disabled(store.storeRestoreOffer != nil).ignoresSafeArea(.container, edges: .top)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    ForEach(store.chatSSHLoginRequests) { server in ChatSSHLoginBar(server: server) }
+                }
+            }
+            .disabled(store.storeRestoreOffer != nil).ignoresSafeArea(.container, edges: .top)
             .overlay(alignment: .top) { StoreRestorePrompt() }
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .safeAreaInset(edge: .bottom, spacing: 0) {
