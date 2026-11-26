@@ -172,6 +172,7 @@ extension HerdrClient {
         let transcript: String
         let state: String
         let activeTurn: String?
+        var stopRequested: Bool? = nil
     }
 
     private func threadRoute(_ runtime: ChildRuntime, owner: AgentRef, core: String, thread: String) -> String {
@@ -181,6 +182,12 @@ extension HerdrClient {
 
     func threadActivity(_ runtime: ChildRuntime, owner: AgentRef, core: String, thread: String) async throws -> ThreadActivity {
         try await get(threadRoute(runtime, owner: owner, core: core, thread: thread))
+    }
+
+    func requestClaudeStop(_ turn: String, owner: AgentRef, core: String, thread: String) async throws {
+        struct Receipt: Decodable { let requestedTurn: String }
+        let result: Receipt = try await post(threadRoute(.claude, owner: owner, core: core, thread: thread), ["turn": turn])
+        guard result.requestedTurn == turn else { throw BackendError.unavailable("The workspace could not confirm the stop request.") }
     }
 
     func interruptChildTurn(_ turn: String, runtime: ChildRuntime, owner: AgentRef, core: String, thread: String) async throws {

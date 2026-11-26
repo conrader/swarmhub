@@ -22,7 +22,8 @@ NEXT_REPLY = "CLAUDE-RESUMED-RESULT"
 
 
 class ChildScenario:
-    def __init__(self, require_visible):
+    def __init__(self, require_visible, stop=False):
+        self.stop = stop
         self.require_visible = require_visible
         self.started = threading.Event()
         self.finish = threading.Event()
@@ -43,7 +44,7 @@ class ChildScenario:
         command = shlex.join([sys.executable, str(hook), str(self.receipts)])
         hooks = {event: [{"hooks": [{"type": "command", "command": command}]}]
                  for event in ("SubagentStart", "SubagentStop", "PostToolUse")}
-        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(general-purpose)", "SendMessage", "Read", "Bash(cat:*)"]}}))
+        (profile / "settings.json").write_text(json.dumps({"hooks": hooks, "permissions": {"allow": ["Agent(general-purpose)", "SendMessage", "TaskStop", "Read", "Bash(cat:*)"]}}))
 
     @property
     def handler(self):
@@ -79,7 +80,21 @@ class ChildScenario:
                 last = next(row for row in reversed(request["messages"]) if row["role"] == "user")
                 text = json.dumps(last["content"])
                 spawn = TASK in text and any(t.get("name") == "Agent" for t in request.get("tools", []))
-                if RESUME in text and "tool_result" not in text:
+                last_index = 0
+                stop_request = "[SwarmHub stop request]" in text and "tool_result" not in text
+                refused = "toolu_wrong_stop" in text and "tool_result" in text
+                if scenario.stop and (stop_request or refused):
+                    if refused:
+                        assert "only to the selected helper run" in text
+                    tool_id = "toolu_wrong_stop" if stop_request else "toolu_selected_stop"
+                    target = scenario.sibling if stop_request else scenario.child
+                    send("content_block_start", index=0, content_block={
+                        "type": "tool_use", "id": tool_id, "name": "TaskStop", "input": {},
+                    })
+                    send("content_block_delta", index=0, delta={"type": "input_json_delta",
+                         "partial_json": json.dumps({"task_id": target})})
+                    spawn = True
+                elif RESUME in text and "tool_result" not in text:
                     send("content_block_start", index=0, content_block={
                         "type": "tool_use", "id": "toolu_resume_sidebar", "name": "SendMessage", "input": {},
                     })
@@ -92,11 +107,16 @@ class ChildScenario:
                     send("content_block_start", index=0, content_block={"type": "text", "text": ""})
                     send("content_block_delta", index=0, delta={"type": "text_delta", "text": NEXT_REPLY})
                 elif spawn:
-                    send("content_block_start", index=0, content_block={
-                        "type": "tool_use", "id": "toolu_sidebar", "name": "Agent", "input": {},
-                    })
-                    payload = {"description": "Read sidebar state", "prompt": f"Reply with {CHILD}.", "subagent_type": "general-purpose"}
-                    send("content_block_delta", index=0, delta={"type": "input_json_delta", "partial_json": json.dumps(payload)})
+                    titles = ["Read sidebar state", "Inspect the header"] if scenario.stop else ["Read sidebar state"]
+                    for index, title in enumerate(titles):
+                        if index:
+                            send("content_block_stop", index=index - 1)
+                        send("content_block_start", index=index, content_block={
+                            "type": "tool_use", "id": f"toolu_sidebar_{index}", "name": "Agent", "input": {},
+                        })
+                        payload = {"description": title, "prompt": f"Reply with {CHILD}.", "subagent_type": "general-purpose"}
+                        send("content_block_delta", index=index, delta={"type": "input_json_delta", "partial_json": json.dumps(payload)})
+                        last_index = index
                 else:
                     child_messages = [message for message in request["messages"] if message.get("role") == "user"]
                     is_child = any(CHILD in json.dumps(m["content"]) and "tool_result" not in json.dumps(m["content"])
@@ -121,7 +141,7 @@ class ChildScenario:
                             assert scenario.finish.wait(30), "Timed out waiting for the sidebar observation"
                         send("content_block_start", index=0, content_block={"type": "text", "text": ""})
                         send("content_block_delta", index=0, delta={"type": "text_delta", "text": CHILD if is_child else PARENT})
-                send("content_block_stop", index=0)
+                send("content_block_stop", index=last_index)
                 send("message_delta", delta={"stop_reason": "tool_use" if spawn else "end_turn", "stop_sequence": None},
                      usage={"output_tokens": 12})
                 send("message_stop")
@@ -131,8 +151,38 @@ class ChildScenario:
     def events(self):
         return [json.loads(line) for line in self.receipts.read_text().splitlines()] if self.receipts.exists() else []
 
+    def exercise_stop(self, request, bot):
+        base = f"/api/agents/{bot['address']}/{bot['created_ms']}"
+        def children():
+            return request(base + "/helpers").get("claude_threads", [])
+        try:
+            until(lambda: self.started.is_set() and len(children()) == 2)
+            target, sibling = sorted(children(), key=lambda c: c["name"])
+            assert target["name"] == "Inspect the header" and sibling["name"] == "Read sidebar state"
+            self.child, self.sibling = target["id"], sibling["id"]
+            route = base + "/claude-threads/" + self.child + "?core=" + quote(bot["core"], safe="")
+            turn = request(route)["active_turn"]
+            assert turn and request(route, {"turn": turn})["requested_turn"] == turn
+            until(lambda: request(route)["state"] == "stopped")
+            receipt = next(e["tool_response"] for e in self.events()
+                           if e.get("tool_name") == "TaskStop" and e["hook_event_name"] == "PostToolUse")
+            assert receipt["task_type"] == "local_agent" and receipt["task_id"] == self.child
+            assert next(c for c in children() if c["id"] == self.sibling)["state"] == "working"
+            try:
+                request(route, {"turn": turn})
+            except HTTPError as error:
+                assert error.code == 409
+            else:
+                raise AssertionError("A completed run accepted another stop request")
+        finally:
+            self.finish.set()
+        until(lambda: any(c["id"] == self.sibling and c["state"] == "answered" for c in children()))
+        print("Claude stopped the selected helper and its sibling answered.")
+
     def exercise(self, request, profile, data):
         bot = request("/api/agents", {"name": "audit-claude", "template": "claude-preview", "task": TASK})
+        if self.stop:
+            return self.exercise_stop(request, bot)
         route = f"/api/agents/{bot['address']}/{bot['created_ms']}/helpers"
         try:
             assert self.started.wait(30), "Claude never invoked the child model"
@@ -237,6 +287,7 @@ if __name__ == "__main__":
     for name in ("core", "workspace", "claude"):
         args.add_argument(name, type=Path)
     args.add_argument("--require-visible", action="store_true")
+    args.add_argument("--stop", action="store_true", help="Stop one of two live helpers and verify the sibling finishes")
     options = args.parse_args()
     smoke(*[str(path.absolute()) for path in (options.core, options.workspace, options.claude)],
-          scenario=ChildScenario(options.require_visible))
+          scenario=ChildScenario(options.require_visible, options.stop))

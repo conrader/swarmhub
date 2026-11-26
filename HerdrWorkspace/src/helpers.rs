@@ -770,7 +770,7 @@ pub fn routes() -> Router<Workspace> {
         .route("/api/agents/{id}/{created}/helpers", get(list))
         .route("/api/agents/{id}/{created}/codex-threads/{thread}", get(native_threads::read_codex).post(native_threads::interrupt_codex))
         .route("/api/agents/{id}/{created}/opencode-threads/{thread}", get(native_threads::read_opencode).post(native_threads::interrupt_opencode))
-        .route("/api/agents/{id}/{created}/claude-threads/{thread}", get(native_threads::read_claude))
+        .route("/api/agents/{id}/{created}/claude-threads/{thread}", get(native_threads::read_claude).post(native_threads::request_claude_stop))
         .merge(settings::routes())
         .merge(crate::bot_agent_settings::routes())
 }

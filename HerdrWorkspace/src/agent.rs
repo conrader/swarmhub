@@ -17,6 +17,7 @@ use std::{
 
 pub(crate) mod claude_preview;
 pub(crate) mod claude_children;
+pub(crate) mod claude_control;
 pub(crate) mod child_output;
 
 pub(crate) const TOOL_REVIEW_ENV: &str = "SWARMHUB_REVIEW_EVERY_TOOL";
@@ -30,6 +31,7 @@ const MAX_HOOK: usize = 1024 * 1024;
 
 #[derive(Deserialize)]
 struct ClaudeEvent {
+    prompt_id: Option<String>,
     hook_event_name: String,
     last_assistant_message: Option<String>,
     session_id: Option<String>,
@@ -61,6 +63,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         }
         Some("capture-claude-reply") => capture_claude(),
         Some("capture-claude-shell") => claude_children::shell(),
+        Some("scope-claude-stop") => claude_control::prompt(),
         Some("capture-claude-child") => claude_children::hook(),
         Some("claude-preview-hook") => {
             claude_preview::hook();
@@ -362,7 +365,7 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     for event in ["SubagentStart", "SubagentStop"] {
         settings["hooks"][event] = json!([{"hooks":[child_hook]}]);
     }
-    settings["hooks"]["PostToolUse"].as_array_mut().unwrap().push(json!({"matcher":"^(Agent|Task|SendMessage)$","hooks":[child_hook]}));
+    settings["hooks"]["PostToolUse"].as_array_mut().unwrap().push(json!({"matcher":"^(Agent|Task|SendMessage|TaskStop)$","hooks":[child_hook]}));
     let shell_hook = json!({"type":"command","command":format!("{} capture-claude-shell", shell_quote(executable)),"timeout":TOOL_HOOK_SECONDS});
     for event in ["PostToolUse", "PostToolUseFailure"] {
         settings["hooks"][event].as_array_mut().unwrap().push(json!({"matcher":"^Bash$","hooks":[shell_hook]}));
@@ -431,6 +434,11 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         &mut args,
         &mut command,
     );
+    let prompt_hooks = settings["hooks"].as_object_mut().unwrap()
+        .entry("UserPromptSubmit").or_insert_with(|| json!([]));
+    prompt_hooks.as_array_mut().unwrap().push(json!({"hooks":[{
+        "type":"command","command":format!("{} scope-claude-stop", shell_quote(executable)), "timeout":TOOL_HOOK_SECONDS
+    }]}));
     if every_tool {
         command.args(["--permission-mode", "default"]);
     } else if auto_mode {
@@ -438,6 +446,7 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     }
     Err(command
         .env("SWARMHUB_CLAUDE_CHILD_HOOKS", "1")
+        .env(claude_control::ENABLED, "1")
         .env_remove(crate::runtimes::MODEL_ENV)
         .args(["--settings", &settings.to_string()])
         .args(args)
@@ -467,6 +476,11 @@ fn configure_claude_auto(
 fn capture_claude() -> Result<(), Box<dyn std::error::Error>> {
     let payload: ClaudeEvent = serde_json::from_str(&read_input(MAX_HOOK)?)?;
     if payload.hook_event_name == "Stop" {
+        if let Some(prompt) = payload.prompt_id.as_deref()
+            && let Ok((journal, key)) = session()
+        {
+            claude_control::finished(&journal, &key, prompt);
+        }
         let result = payload
             .last_assistant_message
             .as_deref()

@@ -3,8 +3,8 @@
 //! Claude Code and Codex both run `swarmhub-herdr tool-activity` from their PreToolUse and PostToolUse hooks and
 //! describe the call on standard input (`tool_name`, `tool_input`, `tool_use_id`); Gemini CLI's hook
 //! (`gemini_agent`) reports its BeforeTool and AfterTool the same way. The hook sends one line to the
-//! workspace's live socket; the workspace keeps the newest calls of each launch in memory only. Nothing here can
-//! allow, deny or delay a tool: the hook always answers `{}` and gives up at once when the workspace is not running.
+//! workspace's live socket; the workspace keeps the newest calls of each launch in memory only. A Claude
+//! prompt sent by the helper stop control also uses PreToolUse to restrict its tools to the selected helper run.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,6 +27,7 @@ const KEEP: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Deserialize)]
 struct Hook {
+    prompt_id: Option<String>,
     agent_id: Option<String>,
     session_id: Option<String>,
     hook_event_name: String,
@@ -227,12 +228,17 @@ impl Activity {
 
 /// `swarmhub-herdr tool-activity`: the hook itself.
 pub fn hook() {
-    report();
-    // An empty decision: the agent's own permission flow continues unchanged.
-    println!("{{}}");
+    let mut decision = None;
+    report(&mut decision);
+    if let Some(reason) = decision {
+        println!("{}", serde_json::json!({"hookSpecificOutput":{"hookEventName":"PreToolUse",
+            "permissionDecision":"deny","permissionDecisionReason":reason}}));
+    } else {
+        println!("{{}}");
+    }
 }
 
-fn report() {
+fn report(decision: &mut Option<&'static str>) {
     let Ok((journal, key)) = crate::agent::session() else {
         return;
     };
@@ -248,6 +254,13 @@ fn report() {
     let Some(tool) = hook.tool_name.filter(|tool| !tool.is_empty()) else {
         return;
     };
+    if phase == Phase::Started && std::env::var_os(crate::agent::claude_control::ENABLED).is_some()
+        && let (Some(session), Some(prompt)) = (&hook.session_id, &hook.prompt_id)
+        && crate::agent::claude_control::deny_tool(&journal, &key, session, prompt, &tool, hook.tool_input.as_ref())
+    {
+        *decision = Some("This SwarmHub stop request applies only to the selected helper run.");
+        return;
+    }
     if let (Some(child), Some(session)) = (&hook.agent_id, &hook.session_id)
         && std::env::var_os("SWARMHUB_CLAUDE_CHILD_HOOKS").is_some()
     {
