@@ -116,7 +116,7 @@ pub(super) fn prompt() -> Result<(), Box<dyn std::error::Error>> {
 
 // An unrecognized paste or a missing prompt ID must not turn a pending stop into
 // an unrestricted TaskStop. Ordinary, unrelated prompts can act once the request is bound.
-fn unbound_stop(journal: &Path, key: &str, session: &str, tool: &str) -> bool {
+fn unbound_stop(journal: &Path, key: &str, session: &str, prompt: &str, tool: &str) -> bool {
     if tool != "TaskStop" {
         return false;
     }
@@ -125,8 +125,9 @@ fn unbound_stop(journal: &Path, key: &str, session: &str, tool: &str) -> bool {
             "SELECT EXISTS(SELECT 1 FROM claude_children c JOIN journal j ON j.id=c.launch
              WHERE j.launch_key=? AND json_extract(c.record,'$.session')=?
              AND json_extract(c.record,'$.requested_at')>?
-             AND json_extract(c.record,'$.requested_prompt') IS NULL)",
-            params![key, session, history::now() - RETRY_MS],
+             AND (?4='' OR json_extract(c.record,'$.requested_prompt') IS NULL
+                  OR json_extract(c.record,'$.requested_prompt')=?4))",
+            params![key, session, history::now() - RETRY_MS, prompt],
             |r| r.get(0),
         )
     };
@@ -142,13 +143,13 @@ pub(crate) fn deny_tool(
     input: Option<&Value>,
 ) -> bool {
     let Some(path) = guard_path(journal, key, prompt) else {
-        return unbound_stop(journal, key, session, tool);
+        return unbound_stop(journal, key, session, prompt, tool);
     };
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => {
             return error.kind() != io::ErrorKind::NotFound
-                || unbound_stop(journal, key, session, tool);
+                || unbound_stop(journal, key, session, prompt, tool);
         }
     };
     let Ok(target) = serde_json::from_slice::<Target>(&bytes) else {
@@ -174,6 +175,37 @@ pub(super) fn finished(journal: &Path, key: &str, prompt: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_guard_cannot_stop_a_sibling_while_a_request_is_pending() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("journal");
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute_batch(
+            "CREATE TABLE journal(id INTEGER, launch_key TEXT);
+            INSERT INTO journal VALUES(1, 'owner');
+            CREATE TABLE claude_children(launch INTEGER, record TEXT);",
+        )
+        .unwrap();
+        let record = json!({"session":"session","requested_at":history::now()});
+        db.execute(
+            "INSERT INTO claude_children VALUES(1, ?)",
+            [record.to_string()],
+        )
+        .unwrap();
+        let denied = |session, prompt, tool| deny_tool(&path, "owner", session, prompt, tool, None);
+        assert!(denied("session", "unbound", "TaskStop"));
+        assert!(!denied("session", "unbound", "Read"));
+        assert!(!denied("another-session", "unbound", "TaskStop"));
+        db.execute(
+            "UPDATE claude_children SET record=json_set(record,'$.requested_prompt','bound')",
+            [],
+        )
+        .unwrap();
+        assert!(denied("session", "", "TaskStop"));
+        assert!(denied("session", "bound", "TaskStop"));
+        assert!(!denied("session", "unrelated", "TaskStop"));
+    }
 
     #[test]
     fn recognizes_the_typed_command_and_claude_paste_wrapper() {
