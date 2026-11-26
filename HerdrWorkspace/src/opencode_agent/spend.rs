@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn parallel_requests_share_one_reservation_and_settle_once() {
         let dir = tempfile::tempdir().unwrap();
-        let history = crate::history::History::open_at(dir.path()).unwrap();
+        let history = crate::history::History::open_at(&dir.path().join("workspace")).unwrap();
         let mut db = Connection::open(history.file()).unwrap();
         for key in ["first", "other"] {
             db.execute("INSERT INTO journal (launch_key,core_id,agent,kind,state,text,at_ms,session_cap_cents)
