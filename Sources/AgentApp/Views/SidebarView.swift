@@ -139,6 +139,12 @@ struct SidebarView: View {
                     .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
             }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
             Spacer(minLength: 2)
+            Button {
+                if let server = store.selectedBot.map({ store.herdrServer(for: $0) }) ?? store.herdrServers.first {
+                    store.terminalBrowser = TerminalBrowserRequest(server: server)
+                }
+            } label: { Image(systemName: "terminal").frame(width: 24, height: SidebarMetrics.roundButton) }
+                .buttonStyle(.plain).accessibilityLabel("Live terminals").help("Preview agent and helper terminals")
             Button { store.showOnlyAttention = false; store.showingActivity = true } label: {
                 Label("Activity", systemImage: AppCommand.activity.icon)
                     .font(.system(size: 13, weight: .medium))

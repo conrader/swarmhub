@@ -11,7 +11,7 @@ struct ContentView: View {
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private var hasCompetingVaultSheet: Bool {
         (store.showingNewBot && store.herdrConfigured) || store.showingTemplateImport || store.showingGrokImport
-            || store.showingNewGroup || store.editingBot != nil || store.showingCommandPalette || store.showingActivity || store.modalErrorMessage != nil
+            || store.showingNewGroup || store.editingBot != nil || store.showingCommandPalette || store.showingActivity || store.terminalBrowser != nil || store.modalErrorMessage != nil
     }
 
     private func continueLaunch() {
@@ -36,7 +36,8 @@ struct ContentView: View {
                     GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
-                    HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: 500)
+                    HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: ChromeMetrics.chatWidthWithInspector)
+                        .rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
                 } else if let bot = store.selectedBot {
                     ChatView(bot: bot).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
                 } else {
@@ -92,6 +93,7 @@ struct ContentView: View {
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
+        .sheet(item: $store.terminalBrowser) { WorkspaceTerminals(request: $0) }
         .sheet(isPresented: $store.showingActivity) { WorkspaceActivityView() }
         .modifier(WorkspaceApprovalReader())
         .modifier(HerdrVaultPrompts(anotherSheet: hasCompetingVaultSheet))

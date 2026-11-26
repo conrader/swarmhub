@@ -22,6 +22,11 @@ struct GroupChatView: View {
                 Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 Text(members.isEmpty ? "No bots yet" : ([store.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
+                if let bot = members.first(where: { $0.backend == .herdr }) {
+                    Button("Terminals", systemImage: "terminal") {
+                        store.terminalBrowser = TerminalBrowserRequest(server: store.herdrServer(for: bot), group: group)
+                    }.controlSize(.small).accessibilityLabel("Group terminals")
+                }
                 ShowDetailsItem()
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
@@ -69,7 +74,7 @@ struct GroupChatView: View {
                                  send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
                                  pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                                  reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                                 mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), recipient: group.name,
+                                 mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name), wantsFocus: store.composerFocus == group.id, tookFocus: { store.composerFocus = nil }, recipient: group.name,
                                  goalCommand: { store.handleGoalCommand($0, in: group) })
         }
                     }

@@ -18,6 +18,12 @@ struct HerdrActiveHelpersSection: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Label("\(row.bot.name) · \(row.job.description)", systemImage: "terminal")
                             .font(.callout.weight(.medium)).foregroundStyle(.primary)
+                        if row.job.isWorking {
+                            Button("Preview output", systemImage: "terminal") {
+                                let target = LiveTerminal(host: row.id.host, job: row.job, botName: row.bot.name)
+                                store.terminalBrowser = TerminalBrowserRequest(server: store.herdrServer(for: row.bot), target: target)
+                            }.controlSize(.small)
+                        }
                         Text("sb-codejob · \(row.id.host) · \(row.id.job.prefix(8))")
                     }.inspectorCard(padding: 8)
                 }

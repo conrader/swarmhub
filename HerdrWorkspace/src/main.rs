@@ -394,6 +394,7 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(github_project::routes())
         .merge(vault::routes())
         .route("/api/workspace", get(workspace_state))
+        .route("/api/codejobs/{host}/{owner}/{job}/output", get(codejob_activity::log_tail))
         .route("/api/agents", post(launch))
         .route(
             "/api/agents/with-files",

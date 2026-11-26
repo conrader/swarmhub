@@ -17,10 +17,10 @@ struct SidebarBotSessions<ParentRow: View>: View {
 
     var body: some View {
         if parents.isEmpty {
-            parentRow
+            botControls
         } else {
             HStack(spacing: 0) {
-                parentRow
+                botControls
                 Button {
                     expanded.toggle()
                 } label: {
@@ -41,8 +41,13 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         }
                         ForEach(store.herdrHelpers[parent]?.helpers ?? []) { helper in
                             let selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: parent.groupRuntime)
-                            HerdrHelperRow(helper: helper, selected: store.openHerdrHelper == selection) {
-                                store.open(helper, of: bot, groupRuntime: parent.groupRuntime)
+                            HStack(spacing: 0) {
+                                HerdrHelperRow(helper: helper, selected: !store.showOnlyAttention && store.openHerdrHelper == selection) {
+                                    store.open(helper, of: bot, groupRuntime: parent.groupRuntime)
+                                }
+                                if helper.isLive {
+                                    previewButton(helper.ref, name: helper.name, core: store.herdrHelpers[parent]?.core)
+                                }
                             }
                         }
                     }
@@ -52,6 +57,22 @@ struct SidebarBotSessions<ParentRow: View>: View {
             }
         }
     }
+    @ViewBuilder private var botControls: some View {
+        if let ref = store.herdrTerminalSession(for: bot) {
+            HStack(spacing: 0) { parentRow; previewButton(ref, name: bot.name, core: nil) }
+        } else { parentRow }
+    }
+
+    private func previewButton(_ ref: HerdrClient.AgentRef, name: String, core: String?) -> some View {
+        Button {
+            let target = LiveTerminal(agent: ref, title: name, core: core)
+            store.terminalBrowser = TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target)
+        } label: {
+            Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
+                .frame(width: 24, height: 30).contentShape(Rectangle())
+        }.buttonStyle(.plain).help("Preview terminal for " + name).accessibilityLabel("Preview terminal for " + name)
+    }
+
 }
 
 /// One helper: its name, the model it runs on by its label, then what it is doing and
@@ -282,6 +303,7 @@ struct HerdrHelperView: View {
                             .accessibilityIdentifier("helper.terminal")
                     }
                 }
+                if closeOverviewDetails == nil { ShowDetailsItem() }
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView {
@@ -358,6 +380,10 @@ struct HerdrHelperView: View {
                             }.frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
                         } else { quiet(log == nil ? "Loading…" : "Its terminal is gone.") }
                     }
+                    Button("Steer via " + bot.name, systemImage: "arrow.right") {
+                        if store.openHelperParent(selection, of: bot) { closeOverviewDetails?() }
+                        else { controlError = "The group session that started this helper is no longer available." }
+                    }.buttonStyle(.borderedProminent).accessibilityIdentifier("helper.steerViaParent")
                     if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(AppColor.caution).textSelection(.enabled) }
                 }.padding(.horizontal, 28).padding(.vertical, 22).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity)
             }
