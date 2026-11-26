@@ -385,3 +385,58 @@ private let listingJSON = """
     #expect(String(task.characters) == "Use read_csv for *tmp* <input>\nπ `unpaired")
     #expect(task.runs.filter { $0.inlinePresentationIntent == .code }.map { String(task.characters[$0.range]) } == ["read_csv"])
 }
+
+@Test @MainActor func nativePromotionKeepsSiblingHistorySeparateAndCollectsTheFinalRecord() async throws {
+    let store = helperStore(), parent = Bot(name: "Patch", backend: .herdr)
+    store.bots = [parent]
+    let finished = LockedValue(false)
+    let raw = """
+        {"core":"c","parent":{"address":"p","created_ms":4},"helpers":[],"gemini_threads":[
+        {"id":"a","runtime":"gemini","parent":"root","name":"Reader","model":"child-model","created_ms":1,"state":"working","task":"A","reply":""},
+        {"id":"b","runtime":"gemini","parent":"root","name":"Reader","model":"child-model","created_ms":2,"state":"answered","task":"B","reply":"B finished"}]}
+        """
+    let list = try decoded(HerdrClient.Helpers.self, raw)
+    let http = MockHTTPProtocol.serve { request in
+        let path = request.url!.path
+        if path == "/api/workspace" {
+            return (200, ["core":"c","agents":[],"templates":[
+                ["name":"other","runtime":["harness":"Antigravity","display_name":"Gemini"]],
+                ["name":"gemini","model_agent":"Gemini CLI","runtime":["harness":"Gemini CLI"]]]])
+        }
+        guard request.url?.query == "core=c" else { return (400, [:]) }
+        switch path {
+        case "/api/agents/p/4/helpers": return (200, try! JSONSerialization.jsonObject(with: Data(raw.utf8)))
+        case "/api/agents/p/4/gemini-threads/a":
+            return (200, ["state": finished.current ? "answered":"working", "transcript":finished.current ? "A finished":"A in progress"])
+        case "/api/agents/p/4/gemini-threads/b": return (200, ["state":"answered","transcript":"B finished"])
+        default: return (404, [:])
+        }
+    }
+    let server = HerdrServer(id: HerdrServer.defaultID,name:"Test",kind:.address,address:"http://\(http.host)")
+    store.saveHerdrServer(server,token:"t")
+    store.herdrClientSetup = { $0.session = http.session }
+    func selected(_ thread: HerdrClient.NativeThread) -> HerdrHelperSelection {
+        .init(botID:parent.id, helperID:thread.id, native:.init(thread:thread,core:list.core,owner:list.parent,server:server))
+    }
+    store.herdrHelpers[parent.id] = list
+    let a = selected(list.nativeThreads[0]), b = selected(list.nativeThreads[1])
+    let first = try await store.promoteNativeHelper(a, of:parent)
+    let second = try await store.promoteNativeHelper(b, of:parent)
+    #expect(first !== second && first.name == "Reader" && second.name == "Reader 2")
+    #expect(store.herdrTemplate(for:first) == "gemini" && store.herdrModel(for:first) == "child-model")
+    #expect(try await store.promoteNativeHelper(a, of:parent) === first)
+    #expect(store.promotedBot(for:list.parent,core:list.core,parent:parent) == nil)
+    #expect(first.promotedHelper?.awaitsReply == true && second.promotedHelper?.awaitsReply == false)
+    let restored = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(first))
+    #expect(restored.promotedHelper == first.promotedHelper)
+    let user = ChatMessage(role:.user,content:"Continue in my new chat")
+    first.messages.append(user)
+    _ = finished.swap(true)
+    let client = try store.herdrClient(for:server), workspace = try await client.workspace()
+    await store.collectPromotedReplies(on:server,workspace:workspace,client:client)
+    await store.collectPromotedReplies(on:server,workspace:workspace,client:client)
+    #expect(first.promotedHelper?.awaitsReply == false && first.promotedHelper?.handoffID != nil)
+    #expect(first.messages.filter { $0.role != .system }.map(\.content) == ["A","A finished","Continue in my new chat"])
+    #expect(second.messages.filter { $0.role != .system }.map(\.content) == ["B","B finished"])
+    #expect(first.messages.last === user && store.herdrCarryLines(of:first).contains { $0.text == "A finished" })
+}

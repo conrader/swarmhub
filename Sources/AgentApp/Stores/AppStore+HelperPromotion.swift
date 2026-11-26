@@ -8,6 +8,13 @@ struct PromotedHelper: Codable, Equatable {
     var pendingAfter: Int?
     var awaitingTask: String?
     var handoffID: UUID?
+    struct NativeSession: Codable, Equatable {
+        let runtime: HerdrClient.ChildRuntime
+        let id: String
+        var awaitingResult: Bool
+    }
+    var native: NativeSession?
+    var awaitsReply: Bool { pendingAfter != nil || native?.awaitingResult == true }
     static let rowKey = "promotedHelperRow"
     static let noticeKey = "promotedHelperNotice"
 }
@@ -29,10 +36,10 @@ extension HerdrClient {
 }
 
 extension AppStore {
-    func promotedBot(for helper: HerdrClient.AgentRef, core: String, parent: Bot) -> Bot? {
+    func promotedBot(for helper: HerdrClient.AgentRef, core: String, parent: Bot, runtime: HerdrClient.ChildRuntime? = nil, thread: String? = nil) -> Bot? {
         bots.first {
             guard let source = $0.promotedHelper else { return false }
-            return source.core == core && source.session == helper && source.parentID == parent.id && source.serverID == herdrServer(for: parent).id
+            return source.native?.runtime == runtime && source.native?.id == thread && source.core == core && source.session == helper && source.parentID == parent.id && source.serverID == herdrServer(for: parent).id
         }
     }
 
@@ -65,29 +72,34 @@ extension AppStore {
         guard bots.contains(parent), herdrServer(for: parent) == server, storeRestoreOffer == nil else { throw CancellationError() }
         if let existing = promotedBot(for: source.ref, core: core, parent: parent) { return existing }
 
-        let base = source.name
-        var name = base, suffix = 2
-        while bots.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
-            name = "\(base) \(suffix)"; suffix += 1
-        }
         var history = rows.map(promotedRow)
         if !rows.contains(where: \.reachedAgent), let task = source.task, !task.isEmpty {
             history.insert(ChatMessage(role: .user, content: task, metadata: [PromotedHelper.rowKey: "assignment"]), at: 0)
         }
         // The delegated task continues in place. Only its next outstanding reply belongs to this handoff.
         let awaiting = source.isLive && source.answered != true && rows.last?.kind != "reply"
-        let notice = AppOnlyLine.line(awaiting
-            ? "You can message \(name) now. Its outstanding helper reply will appear here."
-            : "Earlier assignments and replies are from \(parent.name)’s helper.")
+        let origin = PromotedHelper(serverID: server.id, core: core, session: source.ref, parentID: parent.id,
+                                    pendingAfter: awaiting ? rows.last?.id ?? 0 : nil,
+                                    awaitingTask: awaiting && rows.isEmpty ? source.assignment : nil)
+        return try savePromotedBot(named: source.name, from: parent, origin: origin, history: history,
+                                   template: source.template ?? herdrTemplate(for: parent) ?? "", model: source.model)
+    }
+
+    func savePromotedBot(named base: String, from parent: Bot, origin: PromotedHelper, history: [ChatMessage],
+                         template: String, model: String?) throws -> Bot {
+        var name = base, suffix = 2
+        while bots.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+            name = "\(base) \(suffix)"; suffix += 1
+        }
+        let notice = AppOnlyLine.line(origin.awaitsReply
+            ? "You can message \(name) now. Its outstanding helper result will appear here."
+            : "Earlier work is from \(parent.name)’s helper.")
         notice.metadata[PromotedHelper.noticeKey] = "1"
-        history.append(notice)
-        let bot = Bot(name: name, title: "Helper from \(parent.name)", backend: .herdr, messages: history)
-        bot.promotedHelper = PromotedHelper(serverID: server.id, core: core, session: source.ref,
-                                             parentID: parent.id, pendingAfter: awaiting ? rows.last?.id ?? 0 : nil,
-                                             awaitingTask: awaiting && rows.isEmpty ? source.assignment : nil)
-        setHerdrServer(server.id, for: bot)
-        setHerdrTemplate(source.template ?? herdrTemplate(for: parent) ?? "", for: bot)
-        setHerdrModel(source.model ?? HerdrModelChoice.recommended, for: bot)
+        let bot = Bot(name: name, title: "Helper from \(parent.name)", backend: .herdr, messages: history + [notice])
+        bot.promotedHelper = origin
+        setHerdrServer(origin.serverID, for: bot)
+        setHerdrTemplate(template, for: bot)
+        setHerdrModel(model ?? HerdrModelChoice.recommended, for: bot)
         setHerdrCarryOver(.init(old: nil, at: now()), for: bot)
         bots.insert(bot, at: 0)
         save()
@@ -101,15 +113,20 @@ extension AppStore {
     }
 
     func collectPromotedReplies(on server: HerdrServer, workspace: HerdrClient.Workspace, client: HerdrClient) async {
-        for bot in herdrBots(on: server) where bot.promotedHelper?.pendingAfter != nil {
+        for bot in herdrBots(on: server) where bot.promotedHelper?.awaitsReply == true {
             await collectPromotedReply(for: bot, on: server, workspace: workspace, client: client)
         }
     }
 
     func collectPromotedReply(for bot: Bot, on server: HerdrServer, workspace: HerdrClient.Workspace,
                               client: HerdrClient, preparingDirectTurn: Bool = false) async {
-        guard let source = bot.promotedHelper, source.serverID == server.id, let after = source.pendingAfter,
+        guard let source = bot.promotedHelper, source.serverID == server.id, source.awaitsReply,
               preparingDirectTurn || !isAnswering(bot) else { return }
+        if let native = source.native {
+            await collectNativeResult(native, source: source, bot: bot, server: server, client: client, preparingDirectTurn: preparingDirectTurn)
+            return
+        }
+        guard let after = source.pendingAfter else { return }
         let live = workspace.core == source.core && workspace.agents.contains { $0.ref == source.session && $0.isLive }
         guard let rows = try? await client.helperConversation(source.session, core: source.core, after: after),
               !Task.isCancelled, bots.contains(bot), bot.promotedHelper == source, herdrServer(for: bot) == server,
