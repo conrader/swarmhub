@@ -422,6 +422,13 @@ struct HerdrHelperView: View {
     /// The helper and its Core as last listed, and its log as last read (a render passes all three in).
     @State private var helper: HerdrClient.Helper?; @State private var core: String?
     @State private var log: HerdrClient.HelperLog?; @State private var problem = ""
+    private struct ReadKey: Equatable {
+        let selection: HerdrHelperSelection
+        let core: String?
+        let helper: HerdrClient.AgentRef?
+        let attempt: Int
+    }
+    @State private var readAttempt = 0
     @StateObject private var reply: ChatMessage
     @State private var guidance = ""
     @State private var controlError = ""
@@ -492,7 +499,11 @@ struct HerdrHelperView: View {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
                     helperPart("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
-                        Text(Self.assignment(shown?.task ?? log?.tasks.first?.text ?? "")).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        if let task = shown?.task ?? log?.tasks.first?.text, !task.isEmpty {
+                            Text(Self.assignment(task)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        } else if log == nil {
+                            quiet(problem.isEmpty ? "Loading…" : "Task unavailable.")
+                        } else { quiet("No task recorded.") }
                         ForEach(Array(followUps(after: shown?.task).enumerated()), id: \.offset) { _, text in
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Follow-up").font(.caption).foregroundStyle(.secondary)
@@ -502,7 +513,8 @@ struct HerdrHelperView: View {
                     }
                     helperPart(log.map { "Steps (\($0.tools.count))" } ?? "Steps", detail: shown?.runLine) {
                         if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
-                        else { quiet(log == nil ? "Loading…" : "No steps yet.") }
+                        else if log == nil { quiet(problem.isEmpty ? "Loading…" : "Steps unavailable.") }
+                        else { quiet("No steps yet.") }
                     }
                     helperPart(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", detail: nil) {
                         if !reply.content.isEmpty {
@@ -512,7 +524,7 @@ struct HerdrHelperView: View {
                             if shown?.reply?.truncated == true { quiet("Showing the saved excerpt.") }
                         } else {
                             if stopped { quiet("Stopped before replying.") }
-                            else if log == nil && problem.isEmpty { quiet("Loading…") }
+                            else if log == nil { quiet(problem.isEmpty ? "Loading…" : "Reply unavailable.") }
                             else if shown?.isLive == false || shown?.answered == true { quiet("No reply recorded.") }
                             else { quiet("No reply yet.") }
                         }
@@ -577,12 +589,19 @@ struct HerdrHelperView: View {
                     if !controlError.isEmpty {
                         Text(controlError).font(.callout).foregroundStyle(AppColor.caution)
                     }
-                    if !problem.isEmpty { Text(problem).font(.caption).foregroundStyle(AppColor.caution).textSelection(.enabled) }
+                    if !problem.isEmpty {
+                        Text(problem).font(.caption).foregroundStyle(AppColor.caution).textSelection(.enabled)
+                        Button("Retry history") { readAttempt += 1 }
+                    }
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
             }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
-            .task(id: selection) { await follow() }
+            .task(id: ReadKey(selection: selection, core: store.herdrHelpers[selection.parent]?.core ?? core,
+                              helper: shown?.ref, attempt: readAttempt)) {
+                problem = ""
+                await follow()
+            }
             .onDisappear { promotion?.cancel() }
             .onChange(of: listed) { _, now in if let now { helper = now } }
             .onChange(of: store.herdrHelpers[selection.parent]?.core) { _, now in if let now { core = now } }
@@ -638,7 +657,7 @@ struct HerdrHelperView: View {
         if let listed { helper = listed }
         if let known = store.herdrHelpers[selection.parent]?.core { core = known }
         // The helper's own session on the event stream; a server without one, or a stream that breaks, is polled.
-        if await followStream() { return }
+        if (listed ?? helper)?.isLive == true, await followStream() { return }
         while !Task.isCancelled {
             let live = listed?.isLive == true
             await read()
@@ -680,7 +699,10 @@ struct HerdrHelperView: View {
     }
 
     private func read() async {
-        guard let helper = listed ?? helper, let core else { return }
+        guard let helper = listed ?? helper, let core else {
+            if !Task.isCancelled { problem = "The workspace hasn’t reported this helper’s history." }
+            return
+        }
         do {
             let fresh = try await store.herdrHelperLog(helper.ref, core: core, of: bot, includeScreen: helper.isLive)
             guard !Task.isCancelled else { return }
