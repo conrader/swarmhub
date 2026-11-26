@@ -17,6 +17,8 @@ use std::{
 
 pub(crate) mod claude_preview;
 
+pub(crate) const TOOL_REVIEW_ENV: &str = "SWARMHUB_REVIEW_EVERY_TOOL";
+
 const MAX_TEXT: usize = 128 * 1024;
 /// How long an agent waits for its Stop hook to save the reply before giving up on it.
 pub(crate) const REPLY_HOOK_SECONDS: u32 = 30;
@@ -57,6 +59,10 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("capture-claude-reply") => capture_claude(),
         Some("claude-preview-hook") => {
             claude_preview::hook();
+            Ok(())
+        }
+        Some("review-claude-tool") => {
+            crate::approvals::claude_tool_hook();
             Ok(())
         }
         Some("review-claude-permission") => {
@@ -354,9 +360,19 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     if approvals {
         args.remove(0);
     }
+    let every_tool = env::var(TOOL_REVIEW_ENV).as_deref() == Ok("1");
     let preview = args.first().is_some_and(|arg| arg == claude_preview::FLAG);
     if preview {
         args.remove(0);
+    }
+    if every_tool {
+        if !args.is_empty() {
+            return Err("Use the standard Claude launch arguments when every tool call requires approval.".into());
+        }
+        let command = format!("{} review-claude-tool || exit 2", shell_quote(executable));
+        settings["hooks"]["PreToolUse"][0]["hooks"].as_array_mut().unwrap().push(
+            json!({"type":"command","command":command,"timeout":55,"onFailure":"block"})
+        );
     }
     if args.iter().any(|arg| {
         arg == "--settings"
@@ -369,7 +385,7 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     // Custom templates can supply their own launch and permission arguments.
     let auto_mode = configure_claude_auto(
         &mut settings,
-        crate::bot_agent_settings::project_auto(),
+        !every_tool && crate::bot_agent_settings::project_auto(),
         args.is_empty(),
         &crate::bot_agent_settings::auto_writable_dirs(),
     );
@@ -385,7 +401,7 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         settings["permissions"]["deny"] = json!([format!("Edit(/{path}/**)")]);
         settings["sandbox"]["filesystem"]["denyWrite"] = json!([path]);
     }
-    if approvals && !auto_mode {
+    if approvals && !auto_mode && !every_tool {
         let command = format!("{} review-claude-permission", shell_quote(executable));
         settings["hooks"]["PermissionRequest"] =
             json!([{"hooks":[{"type":"command","command":command,"timeout":55}]}]);
@@ -401,7 +417,9 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
         &mut args,
         &mut command,
     );
-    if auto_mode {
+    if every_tool {
+        command.args(["--permission-mode", "default"]);
+    } else if auto_mode {
         command.args(["--permission-mode", "auto"]);
     }
     Err(command

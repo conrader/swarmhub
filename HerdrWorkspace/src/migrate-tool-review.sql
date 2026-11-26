@@ -1,0 +1,5 @@
+BEGIN IMMEDIATE;
+ALTER TABLE bot_agent_settings ADD COLUMN review_every_tool INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE journal ADD COLUMN launch_tool_review INTEGER NOT NULL DEFAULT 0;
+PRAGMA user_version=78;
+COMMIT;

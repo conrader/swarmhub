@@ -554,6 +554,11 @@ async fn start(
     let default = policy.tier(difficulty)?;
     let settings = crate::bot_agent_settings::for_launch(&*stored(w.history.db())?, &key).map_err(|_| STORAGE)?;
     let auto_mode = settings.auto_mode;
+    // A helper must honor both the active parent session and the bot's saved settings for new work.
+    let parent_review: bool = stored(w.history.db())?.query_row(
+        "SELECT launch_tool_review FROM journal WHERE launch_key=?1", [&key], |row| row.get(0)
+    ).map_err(|_| STORAGE)?;
+    let review_every_tool = settings.review_every_tool || parent_review;
     let tier = settings.choice.as_ref().unwrap_or(default);
     let task = task.trim().to_owned();
     if task.len() > TASK_LIMIT || core::validate_task(&task).is_err() {
@@ -587,6 +592,9 @@ async fn start(
             difficulty.name()
         )
     })?;
+    if review_every_tool && !crate::runtimes::supports_tool_review(&template.command) {
+        return Err("This bot requires each helper tool call to be reviewed. Choose a standard Claude helper template.".into());
+    }
     let preset = catalog
         .models(template)
         .and_then(|(_, models)| models.into_iter().find(|model| model.id == tier.model));
@@ -622,6 +630,7 @@ async fn start(
         &policy,
         &live,
         &Wanted {
+            review_every_tool,
             core: &core_id,
             parent_key: &key,
             parent_address: &parent.address,
@@ -670,6 +679,7 @@ async fn start(
                 core::LaunchEnv {
                     key: &helper_key,
                     auto_mode,
+                    review_every_tool,
                     journal,
                     approval_socket: approval_socket.to_str().unwrap_or_default(),
                     vault_session: vault_session.as_deref(),

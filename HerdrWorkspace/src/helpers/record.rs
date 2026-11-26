@@ -170,6 +170,7 @@ pub(super) struct Admitted {
 }
 
 pub(super) struct Wanted<'a> {
+    pub(super) review_every_tool: bool,
     pub(super) core: &'a str,
     pub(super) parent_key: &'a str,
     pub(super) parent_address: &'a str,
@@ -222,9 +223,9 @@ pub(super) fn admit(
         return Ok(Err("Choose a shorter helper name.".into()));
     }
     let (record, key): (i64, String) = tx.query_row(
-        "INSERT INTO journal (launch_key,core_id,agent,kind,state,text,at_ms,launch_runtime,launch_template)
-         VALUES (lower(hex(randomblob(16))),?1,?2,'task','pending',?3,?4,?5,?6) RETURNING id,launch_key",
-        params![wanted.core, terminal, wanted.task, now(), wanted.runtime, wanted.template],
+        "INSERT INTO journal (launch_key,core_id,agent,kind,state,text,at_ms,launch_runtime,launch_template,launch_tool_review)
+         VALUES (lower(hex(randomblob(16))),?1,?2,'task','pending',?3,?4,?5,?6,?7) RETURNING id,launch_key",
+        params![wanted.core, terminal, wanted.task, now(), wanted.runtime, wanted.template, wanted.review_every_tool],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     tx.execute(
@@ -625,6 +626,7 @@ mod tests {
 
     fn wanted<'a>(parent_key: &'a str, name: Option<&'a str>) -> Wanted<'a> {
         Wanted {
+            review_every_tool: false,
             core: "core",
             parent_key,
             parent_address: "t7",

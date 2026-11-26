@@ -1351,6 +1351,19 @@ def smoke(hc, bridge, chrome=None):
             "HC_SETTLE_MS": "0", "HC_STARTED_MS": "5000", "LANG": "C.UTF-8",
         }
 
+        if selected_focus == "every-tool-review":
+            strict_probe = root / "strict-probe"
+            strict_probe.write_text("#!/usr/bin/python3\nimport json, os, sys\nfrom pathlib import Path\n"
+                + "assert sys.argv[1:3] == ['--permission-mode','default']\n"
+                + "settings=json.loads(sys.argv[sys.argv.index('--settings')+1])\n"
+                + "assert any('review-claude-tool' in h['command'] for h in settings['hooks']['PreToolUse'][0]['hooks'])\n"
+                + "Path(" + repr(str(root / "review-launches")) + ").open('a').write(os.environ['SWARMHUB_LAUNCH_KEY']+'\\n')\n"
+                + "os.execv('/usr/bin/python3', ['python3'," + repr(str(fixture)) + "])\n")
+            strict_probe.chmod(0o700)
+            core_env["SWARMHUB_CLAUDE_BIN"] = str(strict_probe)
+            (templates / "standard-claude.md").write_text(f"---\ndescription: Reviewed Claude\ncommand: {bridge} run-claude --workspace-approvals\n---\n")
+            (templates / "standard-codex.md").write_text(f"---\ndescription: Codex\ncommand: {bridge} run-codex\n---\n")
+
         if selected_focus == "vault-request":
             # A separately started Core may have inherited the bridge's setting.
             core_env["SWARMHUB_VAULT_KEY_FILE"] = str(vault_key)
@@ -1717,6 +1730,10 @@ def smoke(hc, bridge, chrome=None):
                         subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)],
                                        check=True, timeout=45)
                     return
+                if selected_focus == "every-tool-review":
+                    from every_tool_review import exercise
+                    exercise(root, bridge, request, until)
+                    return
                 if selected_focus == "command-reviewer":
                     from command_reviewer import exercise
                     def restart():
@@ -1743,7 +1760,7 @@ def smoke(hc, bridge, chrome=None):
                     group = parent("group-legacy")
                     second = parent("other", other)
                     url = "/api/bot-agent-settings/" + owner
-                    assert request(url) == {"choice": None, "auto_mode": False, "auto_changed_ms": None, "command_reviewer": "off"}
+                    assert request(url) == {"choice": None, "auto_mode": False, "review_every_tool": False, "auto_changed_ms": None, "command_reviewer": "off"}
                     assert request(url, {"choice": chosen, "existing_agents": ["group-legacy"]})["choice"] == chosen
                     request(url, {"choice": {"template": "missing", "model": "x"}}, status=422)
                     assert request(url)["choice"] == chosen

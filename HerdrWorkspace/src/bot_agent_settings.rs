@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Settings {
     pub choice: Option<Tier>,
     pub auto_mode: bool,
+    pub review_every_tool: bool,
     pub command_reviewer: crate::command_reviewer::Model,
     pub reviewer_bot_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,6 +32,7 @@ pub(crate) struct Settings {
 enum Edit {
     Model(ModelEdit),
     Auto(AutoEdit),
+    ToolReview(ToolReviewEdit),
     Reviewer(ReviewerEdit),
     BotReviewer(BotReviewerEdit),
 }
@@ -63,6 +65,14 @@ struct AutoEdit {
     existing_agents: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ToolReviewEdit {
+    review_every_tool: bool,
+    #[serde(default)]
+    existing_agents: Vec<String>,
+}
+
 pub(crate) fn routes() -> Router<Workspace> {
     Router::new().route("/api/bot-agent-settings/{bot}", get(read).post(save))
 }
@@ -70,12 +80,13 @@ pub(crate) fn routes() -> Router<Workspace> {
 pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
     Ok(db
         .query_row(
-            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id FROM bot_agent_settings WHERE bot=?1",
+            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id,review_every_tool FROM bot_agent_settings WHERE bot=?1",
             [id],
             |r| {
                 let template: Option<String> = r.get(0)?;
                 let model: Option<String> = r.get(1)?;
                 Ok(Settings {
+                    review_every_tool: r.get(6)?,
                     reviewer_bot_id: r.get(5)?,
                     reviewer_bots: None,
                     choice: template
@@ -148,6 +159,7 @@ async fn save(
     let existing = match &body {
         Edit::Model(e) => &e.existing_agents,
         Edit::Auto(e) => &e.existing_agents,
+        Edit::ToolReview(e) => &e.existing_agents,
         Edit::Reviewer(e) => &e.existing_agents,
         Edit::BotReviewer(e) => &e.existing_agents,
     };
@@ -177,7 +189,18 @@ async fn save(
     let result = {
         let mut db = w.history.db()?;
         let tx = db.transaction().map_err(StoreError::from)?;
+        if let Edit::Auto(edit) = &body
+            && edit.auto_mode && for_bot(&tx, &bot).map_err(StoreError::from)?.review_every_tool
+        {
+            return Err(ApiError::Conflict("Turn off review for every tool before enabling Auto mode."));
+        }
         match &body {
+            Edit::ToolReview(edit) => tx.execute(
+                "INSERT INTO bot_agent_settings(bot,review_every_tool,auto_changed_ms) VALUES(?1,?2,?3)
+                 ON CONFLICT(bot) DO UPDATE SET review_every_tool=excluded.review_every_tool,
+                 auto_mode=CASE WHEN excluded.review_every_tool THEN 0 ELSE auto_mode END,
+                 auto_changed_ms=CASE WHEN review_every_tool!=excluded.review_every_tool THEN excluded.auto_changed_ms ELSE auto_changed_ms END",
+                 params![bot,edit.review_every_tool,crate::history::now()]),
             Edit::Model(_) => tx.execute(
                 "INSERT INTO bot_agent_settings(bot,helper_template,helper_model) VALUES(?1,?2,?3)
                  ON CONFLICT(bot) DO UPDATE SET helper_template=excluded.helper_template,helper_model=excluded.helper_model",

@@ -1329,7 +1329,7 @@ def qa_inbox_proposals(window, store, command, decisions):
     press(window, "Needs Attention")
     def shown(text):
         return any(label(e) == text or attribute(e, "AXValue") == text for e in descendants(window))
-    wait_for("command and proposal cards together", lambda: shown("swift test --filter ImporterTests") and shown("Create Payments") and shown("Sensitive role") and shown("Prepares supplier payments."))
+    wait_for("command and proposal cards together", lambda: shown("swift test --filter ImporterTests") and shown("Create Payments with Claude") and shown("Sensitive role") and shown("Prepares supplier payments."))
     press(window, "Inspect Bash request")
     wait_for("pending command review", lambda: shown("Reviewing command…"))
     command["reviewer"].update(bot_name="Scout", model="opus", assessment="Runs only the named tests.")
@@ -1344,7 +1344,7 @@ def qa_inbox_proposals(window, store, command, decisions):
     wait_for("exact command denied", lambda: decisions == [(2, "deny")])
     press(window, "Dismiss proposal for Legal")
     wait_for("dismissed proposal", lambda: not shown("Create Legal") and count(1))
-    press(window, "Create Payments")
+    press(window, "Create Payments with Claude")
     def saved():
         return [b for b in json.loads(store.read_text())["bots"] if b["name"] in ("Payments", "Legal")]
     wait_for("approved bot persisted", lambda: len(saved()) == 1 and saved()[0]["name"] == "Payments" and count(0), seconds=12)
@@ -1380,6 +1380,8 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
                            reviewer=dict(bot_id=str(uuid.uuid4()), model="", assessment=None))]
         reviewed.append(7)
 
+    tool_reviews = set()
+
     class Inbox(BaseHTTPRequestHandler):
         def reply(self, body):
             data = json.dumps(body).encode()
@@ -1394,7 +1396,7 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
             if self.headers.get("Authorization") != "Bearer " + token:
                 self.send_error(403)
             elif route == "/api/workspace":
-                self.reply(dict(core="qa", agents=[agent], templates=[]))
+                self.reply(dict(core="qa", agents=[agent], templates=[dict(name="claude", supports_tool_review=True)] if proposals_only else []))
             elif route == "/api/project-command-rules":
                 self.reply(rules.copy())
             elif route == "/api/attention":
@@ -1406,6 +1408,12 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
                 self.send_error(404)
 
         def do_POST(self):
+            if proposals_only and self.path.startswith("/api/bot-agent-settings/") and self.headers.get("Authorization") == "Bearer " + token:
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                assert body["review_every_tool"] is True
+                tool_reviews.add(self.path.rsplit("/", 1)[1])
+                self.reply(dict(auto_mode=False, review_every_tool=True))
+                return
             if self.path == "/api/attention/ci/7/review" and self.headers.get("Authorization") == "Bearer " + token:
                 reviewed.append(7)
                 self.reply(dict(reviewed=True))
@@ -1438,6 +1446,8 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
                 if proposals_only:
                     qa_inbox_proposals(window, store, pending[0], decisions)
+                    payment = next(b for b in json.loads(store.read_text())["bots"] if b["name"] == "Payments")
+                    assert payment["requiresToolReview"] and payment["id"].lower() in tool_reviews
                     return
                 if named_review_only:
                     # Watch a named review arrive while the chat remains open on the same request.

@@ -200,6 +200,7 @@ pub struct Catalog {
 
 #[derive(Serialize)]
 pub struct Choice {
+    supports_tool_review: bool,
     name: String,
     description: String,
     error: Option<&'static str>,
@@ -308,6 +309,7 @@ impl Catalog {
         };
         let beta = matches!(runtime.harness.as_str(), GEMINI | "Antigravity CLI");
         Choice {
+            supports_tool_review: supports_tool_review(&template.command),
             name: template.name,
             description: template.description,
             error,
@@ -480,6 +482,12 @@ fn assignment(word: &str) -> Option<(&str, &str)> {
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
             && !name.as_bytes()[0].is_ascii_digit()
     })
+}
+
+/// Only the standard Claude wrapper can enforce per-call review. Catalog labels and shell wrappers are insufficient.
+pub(crate) fn supports_tool_review(command: &str) -> bool {
+    command.split_ascii_whitespace().next().and_then(|word| word.rsplit('/').next()) == Some("swarmhub-herdr")
+        && matches!(model_agent(command), Some(ModelAgent::Claude))
 }
 
 fn model_agent(command: &str) -> Option<ModelAgent> {

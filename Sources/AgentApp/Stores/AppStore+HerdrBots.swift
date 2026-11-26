@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Bots that create bots. Each server's main bot is its first non-archived Herdr bot with `canManageBots` on
@@ -137,13 +138,13 @@ extension AppStore {
     /// otherwise the new bot runs like the main bot. Called when the person presses Create, or for a request the main
     /// bot decided itself (`settleHerdrReply`).
     @discardableResult func createHerdrBot(_ pending: PendingHerdrBot, manager: Bot, templates: [HerdrClient.Template] = [],
-                                           offered: [HerdrClient.Template.Model] = [], byPerson: Bool = true) -> Bot? {
+                                           offered: [HerdrClient.Template.Model] = [], byPerson: Bool = true, reviewedLaunch: (id: UUID, template: HerdrClient.Template)? = nil) -> Bot? {
         let handled = defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? []
         guard createsHerdrBots(manager), !handled.contains(pending.id) else { return nil }
         if pending.request.reviewReason == nil, hasRoleReview(for: pending, manager: manager) { return nil }
         if !byPerson, !mayCreateWithoutReview(pending, manager: manager) { return nil }
         if pending.request.reviewReason != nil {
-            guard pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id && $0.request == pending.request }) else { return nil }
+            guard reviewedLaunch?.template.supportsToolReview == true, pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id && $0.request == pending.request }) else { return nil }
         }
         guard !pending.taken else { dismissHerdrBot(pending, manager: manager); return nil }
         let request = pending.request, server = herdrServer(for: manager)
@@ -151,7 +152,8 @@ extension AppStore {
             dismissHerdrBot(pending, manager: manager)
             return nil
         }
-        let template = HerdrBotRequest.template(for: request.runtime, in: templates)
+        let proposed = HerdrBotRequest.template(for: request.runtime, in: templates)
+        let template = reviewedLaunch?.template ?? proposed
         let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
         let effective = template ?? inherited
         if let runtime = request.runtime, template == nil {
@@ -159,7 +161,7 @@ extension AppStore {
             return nil
         }
         var model = HerdrModelChoice.recommended
-        if let requested = request.model {
+        if let requested = request.model, reviewedLaunch == nil || (proposed ?? inherited)?.name == template?.name {
             if let listed = offered.first(where: { $0.id == requested }) {
                 model = listed.id
             } else if effective?.modelAgent == "OpenCode", let id = HerdrModelChoice.apiModelID(requested) {
@@ -169,7 +171,8 @@ extension AppStore {
                 return nil
             }
         }
-        let bot = Bot(name: request.name, title: "Created by \(manager.name)", persona: request.instructions.isEmpty ? Bot.defaultPersona : request.instructions, backend: .herdr)
+        let bot = Bot(id: reviewedLaunch?.id ?? UUID(), name: request.name, title: "Created by \(manager.name)", persona: request.instructions.isEmpty ? Bot.defaultPersona : request.instructions, backend: .herdr)
+        if reviewedLaunch != nil { bot.requiresToolReview = true }
         if request.shape != nil || request.colour != nil {
             bot.avatarMark = AvatarLook.effectiveMark(shape: request.shape, colour: request.colour, seed: bot.avatarSeed); bot.avatarMarkMigrated = false
         }
@@ -186,12 +189,40 @@ extension AppStore {
     /// like the main bot. `byPerson`: Create was pressed, so a bot that asked for this one is told now.
     @discardableResult func acceptHerdrBot(_ pending: PendingHerdrBot, manager: Bot, byPerson: Bool = true) async -> Bot? {
         var templates: [HerdrClient.Template] = [], offered: [HerdrClient.Template.Model] = []
-        if pending.request.runtime != nil || pending.request.model != nil, let client = try? herdrClient(for: herdrServer(for: manager)) {
-            templates = (try? await client.workspace().templates.filter { $0.error == nil }) ?? []
-            let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
-            if let template = HerdrBotRequest.template(for: pending.request.runtime, in: templates) ?? inherited { offered = (try? await client.models(for: template)) ?? template.models ?? [] }
+        var reviewedLaunch: (id: UUID, template: HerdrClient.Template)?
+        let server = herdrServer(for: manager)
+        let flagged = pending.request.reviewReason != nil
+        if flagged || pending.request.runtime != nil || pending.request.model != nil {
+            do {
+                let client = try herdrClient(for: server)
+                templates = try await client.workspace().templates.filter { $0.error == nil }
+                let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
+                let proposed = HerdrBotRequest.template(for: pending.request.runtime, in: templates) ?? inherited
+                if flagged {
+                    guard byPerson, let template = (proposed?.supportsToolReview == true ? proposed : templates.first { $0.supportsToolReview == true }) else {
+                        throw HerdrMoveError.toolReviewUnavailable
+                    }
+                    guard pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id && $0.request == pending.request }) else { return nil }
+                    // Retrying a proposal after a connection loss addresses the same workspace settings.
+                    let digest = SHA256.hash(data: Data(("swarmhub-reviewed-bot:" + pending.id).utf8))
+                    let id = digest.withUnsafeBytes { UUID(uuid: $0.loadUnaligned(as: uuid_t.self)) }
+                    guard try await client.setToolReview(true, for: id).reviewEveryTool == true else {
+                        throw HerdrMoveError.toolReviewUnavailable
+                    }
+                    reviewedLaunch = (id, template)
+                }
+                if let template = reviewedLaunch?.template ?? proposed, pending.request.model != nil {
+                    offered = (try? await client.models(for: template)) ?? template.models ?? []
+                }
+            } catch {
+                if flagged {
+                    presentError("Couldn’t check tool approval settings on \(server.name). \(error.localizedDescription)", reason: .setup, bot: manager)
+                    return nil
+                }
+            }
         }
-        let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered, byPerson: byPerson)
+        guard server == herdrServer(for: manager) else { return nil }
+        let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered, byPerson: byPerson, reviewedLaunch: reviewedLaunch)
         if byPerson, let bot { tellHerdrAsker(of: pending, HerdrBotRelay.decision(.created(bot.name), main: manager.name)) }
         return bot
     }

@@ -23,6 +23,7 @@ struct HerdrClient: Sendable {
         struct Model: Decodable, Sendable, Equatable { let id: String; let label: String? }
         let name: String; let description: String?; let error: String?; let runtime: Runtime?
         /// Set when the template can start its agent on a chosen model; `discoverModels` when the agent program can list them.
+        var supportsToolReview: Bool? = nil
         var modelAgent: String? = nil; var models: [Model]? = nil; var discoverModels: Bool? = nil
         /// The program is in beta on this server, which then lists it after the others, so it is "the server's
         /// first" only when it is the only one. `note` is the server's one sentence on what it cannot do yet,
