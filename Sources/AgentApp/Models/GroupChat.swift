@@ -13,8 +13,8 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
     @Published var grokSourceID: String?; @Published var grokHistoryCount: Int
     /// The member answering right now (not saved); `sessionID` follows it so Stop and steer reach its run.
     var activeMemberID: UUID?
-    /// P16: the round in progress (saved; encoded only when set).
     @Published var workflows: [UUID: TeamWorkflow<UUID>] = [:]
+    /// The round in progress, saved only while active.
     var round: GroupRound?
 
     init(id: UUID = UUID(), name: String, memberIDs: [UUID], messages: [ChatMessage] = [], createdAt: Date = .now) {

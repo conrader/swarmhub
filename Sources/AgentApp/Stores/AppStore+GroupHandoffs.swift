@@ -9,6 +9,9 @@ extension AppStore {
         guard !configured.isEmpty,
               let request = HerdrBotRequest.objects(in: TurnReplyText.complete(reply, in: group)).first(where: { $0["op"] as? String == "group_handoff" })
         else { return }
+        let key = Self.groupHandoffSourceKey
+        let sentKey = key + "." + bot.id.uuidString
+        guard trigger.metadata[sentKey] == nil else { return }
         func receipt(_ text: String) { group.messages.append(ChatMessage(role: .system, content: text)) }
         guard let raw = request["recipient"] as? String, let id = UUID(uuidString: raw),
               let task = (request["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !task.isEmpty,
@@ -19,10 +22,7 @@ extension AppStore {
             receipt("Handoff from " + bot.name + " could not be sent. Check the group rule and the recipient’s workspace and message settings.")
             return
         }
-        let key = Self.groupHandoffSourceKey
-        let sentKey = key + "." + bot.id.uuidString
         let delivery = [group.id, trigger.id, bot.id].map(\.uuidString).joined(separator: "/")
-        guard trigger.metadata[sentKey] == nil else { return }
         let times = Self.herdrMessageTimesKey(bot.id)
         guard herdrAllowed(times, limit: HerdrBotRelay.messageLimit) else {
             receipt(bot.name + " reached its bot messaging limit. The task was not sent to " + peer.name + ".")

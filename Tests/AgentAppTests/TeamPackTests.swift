@@ -56,6 +56,8 @@ import Testing
         try dest.importTeamPack(TeamPack.decode(TeamPack(group: group, store: source).encoded()), on: dest.herdrServers[0])
         let imported = try #require(dest.selectedGroup), members = dest.members(of: imported)
         let sender = members[0], receiver = members[1]
+        dest.defaults.set([sender, receiver].map { $0.id.uuidString.lowercased() }, forKey: "herdrTeamMembers.\(dest.herdrServer(for: receiver).id)")
+        #expect(dest.bridgeCoordinates(receiver))
         let fence = "```swarmhub\n{\"op\":\"group_handoff\",\"recipient\":\"" + receiver.id.uuidString + "\",\"task\":\"Review release 15.\"}\n```"
         await engine.setGroupReply("Ready for review.\n" + fence)
         #expect(dest.send(text: "@Patch prepare the draft", to: imported))
