@@ -84,6 +84,13 @@ def run(app, bridge, core):
             store.write_text(json.dumps(dict(version=2, bots=[dict(id=uid, name="PatchQA", backend="Herdr", messages=[])])))
             def window():
                 return driver["open_workspace"](bundle, home, origin, token, {"SWARMHUB_DISABLE_UPDATES": "1"})
+            def open_bot(w):
+                # A live coding session adds a status prefix to the bot's accessible label.
+                def row():
+                    return next((b for b in driver["buttons"](w)
+                                 if "PatchQA" in driver["label"](b).split(", ")), None)
+                wait("PatchQA in the sidebar", row)
+                press(w, driver["label"](row()))
             # A warm session selects the fixture template before the first chat turn.
             endpoint = urllib.request.Request(origin + "/api/agents", headers={
                 "Authorization": "Bearer " + token, "Origin": origin, "Content-Type": "application/json"},
@@ -91,7 +98,7 @@ def run(app, bridge, core):
             with urllib.request.urlopen(endpoint, timeout=20) as response:
                 assert response.status in (200, 201)
             with window() as w:
-                press(w, "PatchQA", sidebar=True)
+                open_bot(w)
                 field = next(e for e in driver["descendants"](w)
                              if attr(e, "AXRole") == "AXTextArea" and driver["label"](e) == "Message")
                 driver["enter_draft"](field, START)
@@ -111,7 +118,7 @@ def run(app, bridge, core):
                 reviews = [m for m in messages() if m.get("metadata", {}).get("answeredChoiceKey") == "pageReview.0"]
                 assert [json.loads(m["metadata"]["answeredChoiceQuote"]) for m in reviews] == [INITIAL, REVISED]
             with window() as w:
-                press(w, "PatchQA", sidebar=True)
+                open_bot(w)
                 def has(title):
                     return any(title in (attr(e, "AXValue"), driver["label"](e)) for e in driver["descendants"](w))
                 wait("both decisions after restart", lambda: has("Shorter draft requested") and has("Draft approved"))

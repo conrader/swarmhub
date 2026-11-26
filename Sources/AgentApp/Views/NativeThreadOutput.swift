@@ -35,17 +35,14 @@ struct NativeThreadOutput: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         cards(for: parent?.child ?? session)
-                        controls
+                        actionLayout
                         errors
                     }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(parent?.child.sessionDetail ?? detail).font(.caption).foregroundStyle(.secondary)
-                    ViewThatFits(in: .horizontal) {
-                        HStack { controls }
-                        VStack(alignment: .leading) { controls }
-                    }
+                    actionLayout
                     errors
                     if let activity {
                         TerminalTextGrid(output: activity.transcript, scrollback: true)
@@ -79,7 +76,8 @@ struct NativeThreadOutput: View {
         let details = activity?.details
         let task = details?.task ?? child.task
         let reply = details?.reply ?? child.reply
-        helperPart("Task", detail: HerdrClient.NativeThread.statusLabel(activity?.state ?? child.state)) {
+        let state = activity?.state ?? child.state
+        helperPart("Task", detail: HerdrClient.NativeThread.statusLabel(state)) {
             Text(verbatim: task.isEmpty ? "No task recorded." : task).textSelection(.enabled)
         }
         helperPart(details.map { $0.steps.count == 64 ? "Steps (latest 64)" : "Steps (\($0.steps.count))" } ?? "Steps", detail: child.model) {
@@ -102,7 +100,11 @@ struct NativeThreadOutput: View {
         }
         helperPart("Latest reply", detail: details?.terminal == nil ? nil : "Terminal output below") {
             if reply.isEmpty {
-                Text("No reply yet.").foregroundStyle(.secondary)
+                switch state {
+                case "working": Text("No reply yet.").foregroundStyle(.secondary)
+                case "stopped": Text("Stopped before replying.").foregroundStyle(.secondary)
+                default: Text("No reply recorded.").foregroundStyle(.secondary)
+                }
             } else {
                 NativeSessionReply(text: reply)
             }
@@ -123,6 +125,14 @@ struct NativeThreadOutput: View {
         }
     }
 
+    private var actionLayout: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { controls }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 6) { controls }
+        }
+        .controlSize(session == nil ? .small : .regular)
+    }
+
     @ViewBuilder private var controls: some View {
         if session == nil, let state = activity?.state {
             Text(HerdrClient.NativeThread.statusLabel(state)).font(.caption).foregroundStyle(.secondary)
@@ -138,10 +148,6 @@ struct NativeThreadOutput: View {
                     openedParent()
                 }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openSession")
             }
-            let title = parent.selection.archive == nil ? "Steer via " + parent.bot.name : "Open chat with " + parent.bot.name
-            Button(title) {
-                if store.openHelperParent(parent.selection, of: parent.bot) { openedParent() }
-            }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openParent")
         }
         if runtime == .claude, activity?.state == "working", let turn = activity?.activeTurn {
             let pending = sendingClaudeRequest || activity?.stopRequested == true
@@ -156,7 +162,7 @@ struct NativeThreadOutput: View {
                         activity = try await client.threadActivity(runtime, owner: owner, core: core, thread: thread)
                     } catch { actionError = error.localizedDescription }
                 }
-            }.controlSize(.small).disabled(pending || readError != nil)
+            }.disabled(pending || readError != nil)
                 .help("Ask the parent Claude session to stop this helper run. Its status updates when Claude confirms.")
                 .accessibilityIdentifier("claudeChild.stop")
         } else if activity?.state == "working", let turn = activity?.activeTurn, runtime != .claude {
@@ -171,8 +177,22 @@ struct NativeThreadOutput: View {
                         actionError = error.localizedDescription
                     }
                 }
-            }.controlSize(.small).disabled(requestedTurn == turn || readError != nil)
+            }.disabled(requestedTurn == turn || readError != nil)
                 .accessibilityIdentifier(runtime.rawValue + "Child.stop")
+        }
+        if let parent {
+            let title = parent.selection.archive == nil ? "Steer via " + parent.bot.name : "Open chat with " + parent.bot.name
+            Button {
+                if store.openHelperParent(parent.selection, of: parent.bot) { openedParent() }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(title)
+                    Image(systemName: "arrow.right").accessibilityHidden(true)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier(runtime.rawValue + "Child.openParent")
         }
     }
 

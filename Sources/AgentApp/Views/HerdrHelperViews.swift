@@ -575,7 +575,10 @@ struct HerdrHelperView: View {
                             Text(verbatim: latest).textSelection(.enabled)
                             if shown?.reply?.truncated == true { quiet("Showing the saved excerpt.") }
                         } else {
-                            quiet(log == nil && problem.isEmpty ? "Loading…" : "No reply yet.")
+                            if stopped { quiet("Stopped before replying.") }
+                            else if log == nil && problem.isEmpty { quiet("Loading…") }
+                            else if shown?.isLive == false || shown?.answered == true { quiet("No reply recorded.") }
+                            else { quiet("No reply yet.") }
                         }
                         if let screen = log?.screen, !screen.isEmpty {
                             Divider()
