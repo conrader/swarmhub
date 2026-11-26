@@ -63,6 +63,7 @@ struct HerdrBotRequestCard: View {
                                 if let reason = item.request.reviewReason {
                                     Label("Sensitive role", systemImage: "hand.raised").font(.caption.weight(.semibold)).foregroundStyle(AppColor.caution)
                                     Text(verbatim: reason).font(.callout).fixedSize(horizontal: false, vertical: true)
+                                    Text("Each tool call requires approval. Switching to Claude uses its recommended model.").font(.caption).foregroundStyle(.secondary)
                                 }
                                 if item.taken { Text("You already have a bot with this name. Ask \(manager.name) for another name.").font(.caption).foregroundStyle(AppColor.caution).fixedSize(horizontal: false, vertical: true) }
                                 else { FoldedWords(text: item.request.instructions.isEmpty ? "No special instructions." : item.request.instructions, name: "instructions") }
@@ -73,8 +74,8 @@ struct HerdrBotRequestCard: View {
                                 Button("Not now") { store.refuseHerdrBot(item, manager: manager) }
                                     .accessibilityLabel(showsCreatedBots ? "Not now" : "Dismiss proposal for " + item.request.name)
                                 if !item.taken {
-                                    Button("Create") { create(item) }.buttonStyle(.appleProminent)
-                                        .accessibilityLabel(showsCreatedBots ? "Create" : "Create " + item.request.name)
+                                    Button(item.request.reviewReason == nil ? "Create" : "Create with Claude") { create(item) }.buttonStyle(.appleProminent)
+                                        .accessibilityLabel("Create " + item.request.name + (item.request.reviewReason == nil ? "" : " with Claude"))
                                 }
                             }
                         }

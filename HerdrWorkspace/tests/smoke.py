@@ -1717,6 +1717,10 @@ def smoke(hc, bridge, chrome=None):
                         subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)],
                                        check=True, timeout=45)
                     return
+                if selected_focus == "every-tool-review":
+                    from every_tool_review import exercise
+                    exercise(root, bridge, request, until)
+                    return
                 if selected_focus == "command-reviewer":
                     from command_reviewer import exercise
                     def restart():
@@ -1743,7 +1747,7 @@ def smoke(hc, bridge, chrome=None):
                     group = parent("group-legacy")
                     second = parent("other", other)
                     url = "/api/bot-agent-settings/" + owner
-                    assert request(url) == {"choice": None, "auto_mode": False, "auto_changed_ms": None, "command_reviewer": "off"}
+                    assert request(url) == {"choice": None, "auto_mode": False, "review_every_tool": False, "auto_changed_ms": None, "command_reviewer": "off"}
                     assert request(url, {"choice": chosen, "existing_agents": ["group-legacy"]})["choice"] == chosen
                     request(url, {"choice": {"template": "missing", "model": "x"}}, status=422)
                     assert request(url)["choice"] == chosen

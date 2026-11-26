@@ -34,7 +34,7 @@ struct HerdrHelperModelSection: View {
                 }
                 if let saved {
                     LibraryFlow(spacing: 5) {
-                        InspectorTag(text: saved.autoMode ? "New sessions: Auto" : "New sessions: Standard")
+                        InspectorTag(text: saved.reviewEveryTool == true ? "New sessions: Ask every tool" : saved.autoMode ? "New sessions: Auto" : "New sessions: Standard")
                         if saved.commandReviewer != nil {
                             InspectorTag(text: "Command reviewer: " + saved.reviewerLabel)
                         }
@@ -109,9 +109,18 @@ struct HerdrHelperModelSection: View {
                 Toggle(isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } })) {
                     Text("Auto mode for new sessions").font(.headline).foregroundStyle(.primary)
                 }
-                .toggleStyle(.switch).disabled(saving)
+                .toggleStyle(.switch).disabled(saving || saved.reviewEveryTool == true)
                 Text("Applies to standard Claude, Codex and Antigravity launches. Managed permissions still apply.")
                     .foregroundStyle(.secondary)
+                if let reviewing = saved.reviewEveryTool {
+                    let selected = HerdrAgentReading.template(own: store.herdrTemplate(for: bot), shared: nil, in: templates).template
+                    if reviewing || selected?.supportsToolReview == true {
+                        Toggle("Ask before every tool call", isOn: Binding(get: { reviewing }, set: { value in Task { await setReview(value) } }))
+                            .toggleStyle(.switch).disabled(saving)
+                        Text("New Claude sessions and their Claude helpers ask for one decision per tool call in Needs Attention. Other agent programs cannot start while this is on.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if store.autoSwitchPending(bot) || reading?.autoRestartPending == true {
                     Label("Saved change pending. The next direct message can replace the session once it and its helpers are idle.", systemImage: "clock")
                         .foregroundStyle(.primary)
@@ -161,6 +170,21 @@ struct HerdrHelperModelSection: View {
             saved = try await store.herdrClient(for: server).setCommandReviewer(model, for: bot.id, existingAgents: store.herdrExistingAgentNames(for: bot))
             reviewerError = nil
         } catch { reviewerError = error.localizedDescription }
+    }
+
+    private func setReview(_ enabled: Bool) async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            let client = try store.herdrClient(for: server)
+            let names = store.herdrExistingAgentNames(for: bot)
+            saved = try await client.setToolReview(enabled, for: bot.id, existingAgents: names)
+            bot.requiresToolReview = enabled
+            store.save()
+            await store.approvalSettingsChanged(bot, client: client, names: names)
+            autoProblem = ""
+        } catch { autoProblem = error.localizedDescription }
     }
 
     private func setAuto(_ enabled: Bool) async {

@@ -32,6 +32,11 @@ extension AppStore {
         let names = existingAgents ?? herdrExistingAgentNames(for: bot)
         let client = try herdrClient(for: server)
         let saved = try await client.setProjectAutoMode(enabled, for: bot.id, existingAgents: names)
+        await approvalSettingsChanged(bot, client: client, names: names)
+        return saved
+    }
+
+    func approvalSettingsChanged(_ bot: Bot, client: HerdrClient, names: [String]) async {
         markAutoSwitch(bot)
         if launchWorkEnabled {
             await herdrChoiceChanged(for: bot)
@@ -40,7 +45,6 @@ extension AppStore {
             }
             await refreshHerdrAgentReading(for: bot)
         }
-        return saved
     }
 
     /// Called inside the direct turn, after an outstanding warm start and before either history or user input.

@@ -642,10 +642,10 @@ pub(crate) fn launch_status(history: &crate::history::History, key: Option<&str>
     let Ok(settings) = crate::bot_agent_settings::for_launch(&db, key) else { return LaunchStatus::default(); };
     db.query_row(
         "SELECT coalesce(launch_auto != ?2,
-                    ?2 OR coalesce(at_ms < ?3, 0)),
+                    ?2 OR coalesce(at_ms < ?3, 0)) OR launch_tool_review != ?4,
                 codex_sandbox,codex_policy,codex_reviewer,codex_review_event,session_usage,codex_session_model
          FROM journal WHERE launch_key=?1",
-        rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms], |row| Ok(LaunchStatus {
+        rusqlite::params![key, settings.auto_mode, settings.auto_changed_ms, settings.review_every_tool], |row| Ok(LaunchStatus {
             session_usage: row.get::<_, Option<String>>(5)?.and_then(|value| serde_json::from_str(&value).ok()),
             auto_restart_pending: row.get(0)?,
             codex_session_model: row.get(6)?,

@@ -159,6 +159,7 @@ struct Permission {
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
     Claude,
+    ClaudeTool,
     Codex,
     OpenCode,
 }
@@ -166,7 +167,7 @@ pub enum Provider {
 impl Provider {
     fn name(self) -> &'static str {
         match self {
-            Self::Claude => "Claude Code",
+            Self::Claude | Self::ClaudeTool => "Claude Code",
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
         }
@@ -376,6 +377,7 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
         Ok(Ok(request)) if supported(&request) => request,
         _ => return,
     };
+    let every_tool = matches!(request.provider, Provider::ClaudeTool);
     let confirmed = matches!(request.provider, Provider::OpenCode);
     let session = request
         .native_session
@@ -445,6 +447,7 @@ async fn serve_hook(w: Workspace, mut stream: UnixStream) {
             _ = stream.read_u8() => Decision::Terminal,
             reply = timeout(WAIT, answer) => match reply {
                 Ok(Ok(choice)) => choice,
+                _ if every_tool => Decision::Deny,
                 _ => Decision::Terminal,
             },
             result = review => result,
@@ -652,6 +655,8 @@ async fn receive(stream: &mut UnixStream) -> io::Result<HookRequest> {
 
 fn supported(request: &HookRequest) -> bool {
     let permitted = match request.provider {
+        Provider::ClaudeTool => !request.tool.is_empty() && request.tool.len() <= 256
+            && request.tool.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b)),
         Provider::Claude => matches!(
             request.tool.as_str(),
             "Bash"
@@ -698,7 +703,8 @@ fn supported(request: &HookRequest) -> bool {
 
 /// A hook failure or timeout returns no decision, leaving the provider's flow intact.
 pub fn permission_hook(provider: Provider) {
-    if let Ok(Some(decision)) = hook_answer(provider) {
+    if let Ok(Some(byte)) = hook_answer(provider, "PermissionRequest") {
+        let decision = match byte { b'A' => "allow", b'D' => "deny", _ => return };
         let output = json!({"hookSpecificOutput":{
             "hookEventName":"PermissionRequest","decision":{"behavior":decision}
         }});
@@ -706,9 +712,21 @@ pub fn permission_hook(provider: Provider) {
     }
 }
 
-fn hook_answer(provider: Provider) -> Result<Option<&'static str>, Box<dyn std::error::Error>> {
+/// A single PreToolUse call waits for its own decision even for tools Claude normally runs without asking.
+pub fn claude_tool_hook() {
+    let (decision, reason) = match hook_answer(Provider::ClaudeTool, "PreToolUse") {
+        Ok(Some(b'A')) => ("allow", "Approved once in SwarmHub."),
+        Ok(Some(b'T')) => ("ask", "Review this tool call in the terminal."),
+        Ok(Some(b'D')) => ("deny", "SwarmHub did not approve this tool call."),
+        _ => ("deny", "SwarmHub could not obtain approval for this tool call."),
+    };
+    println!("{}", json!({"hookSpecificOutput":{"hookEventName":"PreToolUse",
+        "permissionDecision":decision,"permissionDecisionReason":reason}}));
+}
+
+fn hook_answer(provider: Provider, event: &str) -> Result<Option<u8>, Box<dyn std::error::Error>> {
     let hook: Permission = serde_json::from_str(&read_input(MAX_MESSAGE)?)?;
-    if hook.hook_event_name != "PermissionRequest" {
+    if hook.hook_event_name != event {
         return Ok(None);
     }
     let (_, key) = crate::agent::session()?;
@@ -738,11 +756,7 @@ fn hook_answer(provider: Provider) -> Result<Option<&'static str>, Box<dyn std::
     stream.write_all(&bytes)?;
     let mut byte = [0];
     stream.read_exact(&mut byte)?;
-    Ok(match byte[0] {
-        b'A' => Some("allow"),
-        b'D' => Some("deny"),
-        _ => None,
-    })
+    Ok(Some(byte[0]))
 }
 
 #[cfg(test)]

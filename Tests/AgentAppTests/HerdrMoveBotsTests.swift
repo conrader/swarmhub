@@ -84,6 +84,17 @@ import Testing
         }
     }
 
+    @Test func protectedBotCannotMoveToAnUnreviewedTemplate() async throws {
+        let f = Fixture(remoteWorking: true)
+        f.analyst.requiresToolReview = true
+        await #expect(throws: HerdrMoveError.toolReviewUnavailable) {
+            try await f.store.moveHerdrBots([f.analyst.id], from: f.source, to: f.destination, mapping: .matching,
+                                            carryHistory: true, stopIdleAgents: true, resumeActiveWork: true)
+        }
+        #expect(f.store.herdrServer(for: f.analyst) == f.source)
+        #expect(f.ended.isEmpty)
+    }
+
     @Test func unavailableSourceIsIdentifiedBeforeInterruptingOrMoving() async throws {
         let f = Fixture(sourceOffline: true)
         do {

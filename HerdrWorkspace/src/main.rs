@@ -1032,7 +1032,7 @@ async fn launch_agent(
             return Err(ApiError::Conflict("The owner changed before the fixture launch."));
         }
     }
-    let (owner, auto_mode) = {
+    let (owner, settings) = {
         let db = w.history.db()?;
         let owner = resolve_launch_owner(
             &db,
@@ -1041,14 +1041,17 @@ async fn launch_agent(
             &body.name,
         )
         .map_err(StoreError::from)?;
-        let auto_mode = match owner.as_deref() {
-            Some(id) => bot_agent_settings::for_bot(&db, id)
-                .map_err(StoreError::from)?
-                .auto_mode,
-            None => false,
+        let settings = match owner.as_deref() {
+            Some(id) => bot_agent_settings::for_bot(&db, id).map_err(StoreError::from)?,
+            None => bot_agent_settings::Settings::default(),
         };
-        (owner, auto_mode)
+        (owner, settings)
     };
+    let auto_mode = settings.auto_mode;
+    let review_every_tool = settings.review_every_tool;
+    if review_every_tool && !runtimes::supports_tool_review(&template.command) {
+        return Err(Failure::Input("This bot requires approval before each tool call. Choose a standard Claude template.").into());
+    }
     let started = if body.warm {
         warm::start(
             &w.history,
@@ -1074,7 +1077,7 @@ async fn launch_agent(
     ))?;
     if let Some(id) = owner {
         if let Err(error) = w.history.db().and_then(|db| {
-            db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=?3 WHERE id=?2", rusqlite::params![id, record, auto_mode])
+            db.execute("UPDATE journal SET parent_bot_id=?1,launch_auto=?3,launch_tool_review=?4 WHERE id=?2", rusqlite::params![id, record, auto_mode, review_every_tool])
                 .map(|_| ()).map_err(StoreError::from)
         }) {
             w.history.finish(record, DeliveryState::NotSent, Some("The bot for this launch could not be saved."), None)?;
@@ -1164,6 +1167,7 @@ async fn launch_agent(
                 core::LaunchEnv {
                     key: &key,
                     auto_mode,
+                    review_every_tool,
                     journal,
                     approval_socket: approval_socket.to_str().unwrap_or_default(),
                     vault_session: vault_session.as_deref(),

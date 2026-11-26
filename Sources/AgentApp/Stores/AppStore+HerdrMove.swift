@@ -54,13 +54,14 @@ struct HerdrServerMoveRecord {
 }
 
 enum HerdrMoveError: LocalizedError {
-    case serversChanged, sameWorkspace, selectionChanged, aiUnavailable, undoUnavailable, undoBusy, mainChanged, saveFailed
+    case serversChanged, sameWorkspace, selectionChanged, aiUnavailable, undoUnavailable, undoBusy, mainChanged, saveFailed, toolReviewUnavailable
 
     var errorDescription: String? {
         switch self {
         case .serversChanged: "A server changed while this sheet was open. Open Move Bots again to see the current servers."
         case .sameWorkspace: "Both connections lead to the same Herdr workspace. Choose another destination server."
         case .selectionChanged: "The selected bots changed. Review the bot list and try again."
+        case .toolReviewUnavailable: "Choose a standard Claude template on a workspace that supports review before every tool call."
         case .aiUnavailable: "The selected AI or model is unavailable on the destination server. Go back and check the connection."
         case .undoUnavailable: "A moved bot’s settings changed. This move can no longer be undone as a group."
         case .undoBusy: "A moved bot is still answering. Wait for the reply to finish, then try Undo again."
@@ -196,6 +197,14 @@ extension AppStore {
         guard !changes.isEmpty else { return record }
         let byID = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, $0) })
         do {
+            for change in changes {
+                guard let bot = byID[change.botID] else { continue }
+                var preference = bot.requiresToolReview
+                if workspace.templates.contains(where: { $0.supportsToolReview != nil }) {
+                    preference = try await sourceClient.botAgentSettings(for: bot.id).reviewEveryTool ?? preference
+                }
+                try await copyToolReview(preference, for: bot, to: destinationClient, template: change.after.template, templates: templates)
+            }
             record.receipts = try await stageRoutines(record, workspace: workspace, destination: destinationWorkspace)
             for change in changes {
                 guard let checkpoint = interrupted[change.botID], let bot = byID[change.botID] else { continue }
@@ -245,7 +254,19 @@ extension AppStore {
         guard !herdrMoveInProgress else { throw HerdrMoveError.undoBusy }
         herdrMoveInProgress = true
         defer { herdrMoveInProgress = false }
-        _ = try validatedUndoTargets(for: record)
+        let beforeUndo = try validatedUndoTargets(for: record)
+        if beforeUndo.contains(where: { $0.0.requiresToolReview != nil }) {
+            let source = try herdrClient(for: record.source)
+            let destination = try herdrClient(for: record.destination)
+            let templates = try await source.workspace().templates
+            let canRead = try await destination.workspace().templates.contains { $0.supportsToolReview != nil }
+            for (bot, change) in beforeUndo where bot.requiresToolReview != nil {
+                var current = bot.requiresToolReview
+                if canRead { current = try await destination.botAgentSettings(for: bot.id).reviewEveryTool ?? current }
+                let original = change.before.template.isEmpty ? herdrMoveDefault(in: templates)?.name : change.before.template
+                try await copyToolReview(current, for: bot, to: source, template: original, templates: templates)
+            }
+        }
         let targets: [(Bot, HerdrServerMoveRecord.Change)]
         do {
             try await suspendRoutineMove(record)
@@ -271,6 +292,18 @@ extension AppStore {
         }
         try await recoverRoutineMove(from: record.source, to: record.destination)
         objectWillChange.send()
+    }
+
+    private func copyToolReview(_ preference: Bool?, for bot: Bot, to client: HerdrClient,
+                                template: String?, templates: [HerdrClient.Template]) async throws {
+        guard let preference else { return }
+        let target = templates.first { $0.name == template && $0.error == nil }
+        if preference && target?.supportsToolReview != true { throw HerdrMoveError.toolReviewUnavailable }
+        if templates.contains(where: { $0.supportsToolReview != nil }) {
+            let saved = try await client.setToolReview(preference, for: bot.id)
+            guard saved.reviewEveryTool == preference else { throw HerdrMoveError.toolReviewUnavailable }
+        }
+        bot.requiresToolReview = preference
     }
 
     private func validatedUndoTargets(for record: HerdrServerMoveRecord) throws -> [(Bot, HerdrServerMoveRecord.Change)] {

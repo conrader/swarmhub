@@ -113,3 +113,19 @@ fn claude_does_not_trust_a_redirected_attachment_directory() {
     assert!(settings.get("permissions").is_none());
     assert!(settings.get("sandbox").is_none());
 }
+
+#[test]
+fn every_tool_review_supersedes_project_auto_and_keeps_activity_and_preview() {
+    let root = tempfile::tempdir().unwrap();
+    let mut command = claude(root.path());
+    command.env("SWARMHUB_PROJECT_AUTO", "1").env("SWARMHUB_REVIEW_EVERY_TOOL", "1").arg("--workspace-preview");
+    let (settings, args) = launch(&mut command);
+    assert_eq!(&args[..2], ["--permission-mode", "default"]);
+    let hooks = settings["hooks"]["PreToolUse"][0]["hooks"].as_array().unwrap();
+    assert!(hooks.iter().any(|h| h["command"].as_str().unwrap().contains("tool-activity")));
+    let review = hooks.iter().find(|h| h["command"].as_str().unwrap().contains("review-claude-tool")).unwrap();
+    assert_eq!(review["onFailure"], "block");
+    assert!(settings["hooks"].get("PermissionRequest").is_none());
+    assert!(settings["hooks"].get("Stop").is_some());
+    assert!(!command.arg("--permission-mode=bypassPermissions").output().unwrap().status.success());
+}
