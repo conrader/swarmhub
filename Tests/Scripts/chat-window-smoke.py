@@ -1137,6 +1137,81 @@ def live_terminals(source_app):
             server.shutdown()
 
 
+def session_usage_overview(source_app):
+    token = str(uuid.uuid4())
+    bots = [dict(id=str(uuid.uuid4()), name=name, backend="Herdr", messages=[])
+            for name in ("Patch", "Legal", "ArchiveQA")]
+    previous = dict(id=str(uuid.uuid4()), createdAt=800000000, role="assistant", content="Keep the original chat.")
+    bots[2]["messages"].append(previous)
+    agents = [dict(name=b["name"].lower() + "-" + b["id"][:6], address="session" + str(i),
+                   state="live", created_ms=100+i, status=dict(state="working")) for i, b in enumerate(bots[:2])]
+    agents[0]["session_usage"] = dict(context_tokens=3400, window_tokens=10000, total_tokens=14000)
+    agents[1]["session_usage"] = dict(total_tokens=1200, opencode_cost_usd=0.06)
+    offline = False
+
+    class Workspace(BaseHTTPRequestHandler):
+        def do_GET(self):
+            route = self.path.split("?")[0]
+            if self.headers.get("Authorization") != "Bearer " + token:
+                self.send_error(403)
+                return
+            if route == "/api/workspace":
+                if offline:
+                    self.send_error(503)
+                    return
+                body = dict(core="qa", agents=agents, templates=[], codejob_activity=[])
+            elif route in ["/api/attention", "/api/approvals"]:
+                body = dict(pending=[], ci_failures=[])
+            else:
+                self.send_error(404)
+                return
+            data = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
+        store.write_text(json.dumps(dict(version=2, bots=bots, groups=[])))
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            for appearance in ["Dark", "Light"]:
+                with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token,
+                                    {"AppleInterfaceStyle": appearance}) as window:
+                    press(window, "Patch", sidebar=True)
+                    if not any(label(b) == "Overview" for b in buttons(window)):
+                        press(window, "Details")
+                    press(window, "Overview")
+                    def values():
+                        panel = next((e for e in descendants(window) if attribute(e, "AXIdentifier") == "overview.sessionUsage"), None)
+                        return [str(attribute(e, "AXValue") or label(e)) for e in descendants(panel)] if panel else []
+                    def shows(test):
+                        wait_for("session usage", lambda: test(values()), seconds=18)
+                    shows(lambda v: "34% ctx" in v and "No priced usage reported" in v)
+                    press(window, "Legal", sidebar=True)
+                    shows(lambda v: any("0.06" in t for t in v) and "34% ctx" not in v)
+                    agents[1]["session_usage"]["opencode_cost_usd"] = 0.09
+                    shows(lambda v: any("0.09" in t for t in v))
+                    offline = True
+                    shows(lambda v: "Last reported before the workspace disconnected" in v)
+                    offline = False
+                    del agents[1]["session_usage"]
+                    shows(lambda v: "Usage has not been reported for this session" in v and not any("0.09" in t for t in v))
+                    press(window, "ArchiveQA", sidebar=True)
+                    shows(lambda v: "No active session" in v)
+                    press(window, "Summarize & start fresh")
+                    shows(lambda v: any("Summary ready" in t for t in v))
+                    assert any(previous["id"].lower() == m["id"].lower() for b in json.loads(store.read_text())["bots"]
+                               if b["id"].lower() == bots[2]["id"].lower() for m in b["messages"])
+                    agents[1]["session_usage"] = dict(total_tokens=1200, opencode_cost_usd=0.06)
+            print("Verified per-bot context and priced usage, live updates, disconnection, missing counters and a saved chat summary.")
+        finally:
+            server.shutdown()
+
+
 def activity_decisions(source_app):
     import Quartz
     from threading import Thread
@@ -1484,6 +1559,8 @@ if __name__ == "__main__":
             team_inspector(Path(sys.argv[2]).resolve(strict=True), appearance)
     elif len(sys.argv) == 3 and sys.argv[1] == "--steer-reopen":
         steer_reopen(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--session-usage":
+        session_usage_overview(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
         live_terminals(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
@@ -1501,4 +1578,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--terminals | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--session-usage | --terminals | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE")
