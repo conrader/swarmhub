@@ -68,14 +68,11 @@ extension AppStore {
 
     /// One request waiting for the person's answer. `taken`: a Herdr bot with that name is already on the server.
     /// `askerID`: the bot whose passed-on request the main bot was answering.
-    struct PendingHerdrBot: Identifiable, Equatable {
-        let id: String; let request: HerdrBotRequest; let taken: Bool
-        var askerID: UUID? = nil
-    }
+    typealias PendingHerdrBot = HerdrCreationProposal
 
     /// The requests in the main bot's newest finished reply that were neither created nor dismissed. An older reply's
     /// requests are no longer offered once the bot has answered again, except those it made for another bot, which
-    /// stay until the person answers, because that bot is waiting. Nothing the app is creating right now is offered.
+    /// stay until the person answers. Flagged roles also stay available across turns and launches.
     func pendingHerdrBots(for bot: Bot) -> [PendingHerdrBot] {
         guard createsHerdrBots(bot) else { return [] }
         var seenTurns: Set<String> = []
@@ -84,12 +81,23 @@ extension AppStore {
             if let id = TurnReplyText.turnID(of: row), !seenTurns.insert(id).inserted { return false }
             return !row.isStreaming
         }.reversed()
-        guard let newest = replies.last else { return [] }
-        return replies.flatMap { reply -> [PendingHerdrBot] in
+        let names = Set(herdrBots(on: herdrServer(for: bot)).map { $0.name.lowercased() })
+        let saved = bot.pendingRoleReviews.map { proposal in
+            var current = proposal
+            current.taken = names.contains(proposal.request.name.lowercased())
+            return current
+        }
+        let savedIDs = Set(saved.map(\.id))
+        let protectedNames = Set(saved.map { $0.request.name.lowercased() })
+        let newest = replies.last
+        let recent = replies.flatMap { reply -> [PendingHerdrBot] in
             let asker = herdrPassedOnRequest(answeredBy: reply, in: bot)?.metadata[HerdrBotRelay.Key.asker].flatMap(UUID.init(uuidString:))
             guard reply === newest ? isIdle(bot) || asker != nil : asker != nil else { return [] }
-            return herdrRequests(in: reply, of: bot, askerID: asker).filter { !herdrSettling.contains($0.id) }
+            return herdrRequests(in: reply, of: bot, askerID: asker).filter { proposal in
+                !savedIDs.contains(proposal.id) && (proposal.request.reviewReason != nil || !protectedNames.contains(proposal.request.name.lowercased()))
+            }
         }
+        return (saved + recent).filter { !herdrSettling.contains($0.id) }
     }
 
     /// The unhandled requests of one reply.
@@ -98,14 +106,19 @@ extension AppStore {
         let names = Set(herdrBots(on: herdrServer(for: bot)).map { $0.name.lowercased() })
         return HerdrBotRequest.requests(in: TurnReplyText.complete(reply, in: bot)).compactMap { request in
             let id = Self.herdrRequestID(reply.id, request)
-            return handled.contains(id) ? nil : PendingHerdrBot(id: id, request: request, taken: names.contains(request.name.lowercased()), askerID: askerID)
+            return handled.contains(id) || reply.metadata["roleReview." + request.name.lowercased()] != nil ? nil : PendingHerdrBot(id: id, request: request, taken: names.contains(request.name.lowercased()), askerID: askerID)
         }
     }
 
     static func herdrRequestID(_ messageID: UUID, _ request: HerdrBotRequest) -> String { "\(messageID.uuidString.lowercased())#\(request.name.lowercased())" }
 
     /// The request is settled (created, dismissed, or its name is taken): it is not offered again.
-    func dismissHerdrBot(_ pending: PendingHerdrBot) {
+    func dismissHerdrBot(_ pending: PendingHerdrBot, manager: Bot) {
+        manager.pendingRoleReviews.removeAll { $0.id == pending.id }
+        if pending.request.reviewReason != nil,
+           let reply = manager.messages.last(where: { Self.herdrRequestID($0.id, pending.request) == pending.id }) {
+            reply.metadata["roleReview." + pending.request.name.lowercased()] = "resolved"
+        }
         let handled = (defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? []).filter { $0 != pending.id } + [pending.id]
         defaults.set(Array(handled.suffix(Self.herdrHandledRequestsKept)), forKey: Self.herdrHandledRequestsKey)
         objectWillChange.send()
@@ -113,7 +126,9 @@ extension AppStore {
 
     /// The person pressed Dismiss. A bot that asked for this one is told.
     func refuseHerdrBot(_ pending: PendingHerdrBot, manager: Bot) {
-        dismissHerdrBot(pending)
+        guard pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id }) else { return }
+        dismissHerdrBot(pending, manager: manager)
+        save()
         tellHerdrAsker(of: pending, HerdrBotRelay.decision(pending.taken ? .taken(pending.request.name) : .dismissed(pending.request.name), main: manager.name))
     }
 
@@ -122,11 +137,18 @@ extension AppStore {
     /// otherwise the new bot runs like the main bot. Called when the person presses Create, or for a request the main
     /// bot decided itself (`settleHerdrReply`).
     @discardableResult func createHerdrBot(_ pending: PendingHerdrBot, manager: Bot, templates: [HerdrClient.Template] = [],
-                                           offered: [HerdrClient.Template.Model] = []) -> Bot? {
-        guard createsHerdrBots(manager), !pending.taken else { dismissHerdrBot(pending); return nil }
+                                           offered: [HerdrClient.Template.Model] = [], byPerson: Bool = true) -> Bot? {
+        let handled = defaults.stringArray(forKey: Self.herdrHandledRequestsKey) ?? []
+        guard createsHerdrBots(manager), !handled.contains(pending.id) else { return nil }
+        if pending.request.reviewReason == nil, hasRoleReview(for: pending, manager: manager) { return nil }
+        if !byPerson, !mayCreateWithoutReview(pending, manager: manager) { return nil }
+        if pending.request.reviewReason != nil {
+            guard pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id && $0.request == pending.request }) else { return nil }
+        }
+        guard !pending.taken else { dismissHerdrBot(pending, manager: manager); return nil }
         let request = pending.request, server = herdrServer(for: manager)
         guard !herdrBots(on: server).contains(where: { $0.name.caseInsensitiveCompare(request.name) == .orderedSame }) else {
-            dismissHerdrBot(pending)
+            dismissHerdrBot(pending, manager: manager)
             return nil
         }
         let template = HerdrBotRequest.template(for: request.runtime, in: templates)
@@ -155,7 +177,7 @@ extension AppStore {
         setHerdrServer(server.id, for: bot)
         setHerdrTemplate(template?.name ?? herdrTemplate(for: manager) ?? "", for: bot)
         setHerdrModel(model, for: bot)
-        dismissHerdrBot(pending)
+        dismissHerdrBot(pending, manager: manager)
         notice(AppOnlyLine.created.render(manager.name, bot.name), in: manager)
         return bot
     }
@@ -169,7 +191,7 @@ extension AppStore {
             let inherited = HerdrAgentReading.template(own: herdrTemplate(for: manager), shared: nil, in: templates).template
             if let template = HerdrBotRequest.template(for: pending.request.runtime, in: templates) ?? inherited { offered = (try? await client.models(for: template)) ?? template.models ?? [] }
         }
-        let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered)
+        let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered, byPerson: byPerson)
         if byPerson, let bot { tellHerdrAsker(of: pending, HerdrBotRelay.decision(.created(bot.name), main: manager.name)) }
         return bot
     }
@@ -251,6 +273,9 @@ extension AppStore {
                 Task { await settleHerdrModels(models, main: bot, triggers: triggers) }
             }
             let waiting = herdrRequests(in: reply, of: bot, askerID: herdrAsker(of: request)?.id)
+            let existing = Set(bot.pendingRoleReviews.map(\.id))
+            let reviews = waiting.filter { $0.request.reviewReason != nil && !existing.contains($0.id) }
+            if !reviews.isEmpty { bot.pendingRoleReviews += reviews; save() }
             herdrSettling.formUnion(waiting.map(\.id))
             Task { await settleHerdrReply(text, main: bot, waiting: waiting, request: request) }
         } else if !managed, finished, triggers.allSatisfy({ HerdrBotRelay.mayAsk(replyingTo: $0.metadata) }) {
@@ -262,6 +287,16 @@ extension AppStore {
         request?.metadata[HerdrBotRelay.Key.asker].flatMap(UUID.init(uuidString:)).flatMap { id in bots.first { $0.id == id && $0.backend == .herdr } }
     }
 
+    private func hasRoleReview(for pending: PendingHerdrBot, manager: Bot) -> Bool {
+        manager.pendingRoleReviews.contains { $0.request.name.caseInsensitiveCompare(pending.request.name) == .orderedSame }
+    }
+
+    private func mayCreateWithoutReview(_ pending: PendingHerdrBot, manager: Bot) -> Bool {
+        pending.request.decided && pending.request.reviewReason == nil && !herdrAsksFirst(manager) &&
+            !hasRoleReview(for: pending, manager: manager) &&
+            herdrAllowed(Self.herdrCreateTimesKey(manager.id), limit: HerdrBotRelay.createLimit)
+    }
+
     /// The main bot's finished reply: each bot it decided is created now (unless its person confirms every bot, or it
     /// has created `HerdrBotRelay.createLimit` already within the window); the rest wait for the person. When the
     /// reply answers another bot's request, that bot is told what came of it.
@@ -269,8 +304,8 @@ extension AppStore {
         defer { herdrSettling.subtract(waiting.map(\.id)); objectWillChange.send() }
         var outcomes: [HerdrBotRelay.Outcome] = []
         for pending in waiting {
-            if pending.taken { dismissHerdrBot(pending); outcomes.append(.taken(pending.request.name)); continue }
-            guard pending.request.decided, !herdrAsksFirst(main), herdrAllowed(Self.herdrCreateTimesKey(main.id), limit: HerdrBotRelay.createLimit) else {
+            if pending.taken { dismissHerdrBot(pending, manager: main); outcomes.append(.taken(pending.request.name)); continue }
+            guard mayCreateWithoutReview(pending, manager: main) else {
                 outcomes.append(.waiting(pending.request.name)); continue
             }
             if let bot = await acceptHerdrBot(pending, manager: main, byPerson: false) {
