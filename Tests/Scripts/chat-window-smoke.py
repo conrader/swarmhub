@@ -1581,6 +1581,9 @@ def team_inspector(source_app, appearance):
 
                 wait_for("Patch sidebar row", lambda: any(label(b).startswith("Patch,") for b in buttons(w)))
                 press(w, "Patch", sidebar=True)
+                import Quartz
+                size = ax.AXValueCreate(ax.kAXValueCGSizeType, Quartz.CGSizeMake(980, 620))
+                assert ax.AXUIElementSetAttributeValue(w, "AXSize", size) == 0
                 open_detail_section(w, "Overview")
                 primary = [element(title) for title in ("Overview", "Approvals", "Routines")]
                 positions = [ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1] for e in primary]
@@ -1588,9 +1591,6 @@ def team_inspector(source_app, appearance):
                 assert positions[0].x < positions[1].x < positions[2].x
                 for name in ("Approvals", "Routines", "Model", "Skills", "Media", "Team"):
                     open_detail_section(w, name)
-                import Quartz
-                size = ax.AXValueCreate(ax.kAXValueCGSizeType, Quartz.CGSizeMake(980, 620))
-                assert ax.AXUIElementSetAttributeValue(w, "AXSize", size) == 0
                 wait_for("Patch’s scheduled CI watch", lambda: element(watch))
                 def right_edge(e):
                     x = ax.AXValueGetValue(attribute(e, "AXPosition"), ax.kAXValueCGPointType, None)[1].x
@@ -1612,7 +1612,7 @@ def team_inspector(source_app, appearance):
                 wait_for("restored Team panel", lambda: element("No open handoffs, check-ins or promises."))
                 press(w, "Patch", sidebar=True)
                 wait_for("restored CI watch", lambda: element(watch))
-                print("Verified the Team tab, completed exchanges, CI watches, bot switching and reopening Details.")
+                print(f"Verified the three primary sections on one row, all four More destinations, completed exchanges, CI watches and reopening Details in {appearance}.")
         finally:
             server.shutdown()
 
