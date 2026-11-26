@@ -1760,7 +1760,9 @@ def smoke(hc, bridge, chrome=None):
                     group = parent("group-legacy")
                     second = parent("other", other)
                     url = "/api/bot-agent-settings/" + owner
-                    assert request(url) == {"choice": None, "auto_mode": False, "review_every_tool": False, "auto_changed_ms": None, "command_reviewer": "off"}
+                    assert request(url) == {"choice": None, "auto_mode": False, "review_every_tool": False,
+                                            "auto_changed_ms": None, "command_reviewer": "off",
+                                            "reviewer_bot_id": None, "reviewer_bots": []}
                     assert request(url, {"choice": chosen, "existing_agents": ["group-legacy"]})["choice"] == chosen
                     request(url, {"choice": {"template": "missing", "model": "x"}}, status=422)
                     assert request(url)["choice"] == chosen
