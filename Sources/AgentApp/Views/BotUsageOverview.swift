@@ -41,6 +41,9 @@ struct BotUsageOverview: View {
                     VStack(alignment: .leading, spacing: 3) { cost(usage); total(usage) }
                 }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
+            if let budget = bot.goal?.spendProgress {
+                Text(verbatim: budget).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
             if store.helperRosters[server.id] == .unavailable {
                 Text(usage == nil ? "Workspace unavailable" : "Last reported before the workspace disconnected")
                     .font(.caption).foregroundStyle(.secondary)

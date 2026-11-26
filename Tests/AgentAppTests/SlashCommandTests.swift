@@ -2,6 +2,14 @@ import Testing
 @testable import AgentApp
 
 struct SlashCommandTests {
+    @Test func budgetEditorPreservesTheObjectiveAndReplacesTheChosenScope() {
+        let command = SlashCommand.editableGoal(in: "/goal --steps 3 --budget 1.50  review the documents")
+        #expect(command?.settingBudget("0.20", perGoal: true) == "/goal --steps 3 --goal-budget 0.20 review the documents")
+        #expect(SlashCommand.editableGoal(in: "/goal --goal-budget 0.20 ")?.settingBudget("2", perGoal: false) == "/goal --budget 2 ")
+        #expect(SlashCommand.editableGoal(in: "/goal status") == nil)
+        #expect(command?.settingBudget("2 invalid", perGoal: true) == nil)
+    }
+
     @Test func slashParserPreservesChatTextAndOnlyAcceptsCompleteCommands() {
         for draft in ["please /goal work", "/go", "/goalkeeper", "/goal/file", "/tmp", " /goal work",
                       "@Ada /goal work", "/commands later", "/goal one\ntwo", "/goal status\r\n", "make this a goal"] {

@@ -115,6 +115,7 @@ struct ComposerView: View {
                         if !text.hasPrefix("/goal ") { text = "/goal " + text }
                         focused = true
                     }.help("Start a goal with this draft")
+                    GoalBudgetButton(draft: $text) { focused = true }
                 }
                 Spacer()
                 Text("⌘↵ send").font(.caption.monospaced()).foregroundStyle(.secondary)

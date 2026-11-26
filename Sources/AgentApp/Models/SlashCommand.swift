@@ -22,6 +22,23 @@ enum SlashCommand: Equatable {
         var insertion: String { rawValue + " " }
     }
 
+    /// Also allow editing a limit or step count before the objective is typed.
+    static func editableGoal(in draft: String) -> Self? {
+        guard draft.hasPrefix("/goal "), parse(draft) != .status, parse(draft) != .stop,
+              case .start(let marked, let steps, let budget, let perGoal) = parse(draft + " x") else { return nil }
+        return .start(String(marked.dropLast()).trimmingCharacters(in: .whitespaces), stepLimit: steps, budgetUSD: budget, perGoal: perGoal)
+    }
+
+    func settingBudget(_ input: String, perGoal: Bool) -> String? {
+        guard case .start(let objective, let steps, _, _) = self else { return nil }
+        let amount = input.trimmingCharacters(in: .whitespaces)
+        let flag = perGoal ? "--goal-budget" : "--budget"
+        guard case .start(_, _, .some, _) = Self.parse("/goal " + flag + " " + amount + " check"),
+              !amount.contains(where: \.isWhitespace) else { return nil }
+        let stepOption = steps.map { "--steps \($0) " } ?? ""
+        return "/goal " + stepOption + flag + " " + amount + " " + objective
+    }
+
     static func parse(_ draft: String) -> Self? {
         guard draft.hasPrefix("/"), !draft.contains(where: \.isNewline) else { return nil }
         let parts = draft.split(maxSplits: 1, whereSeparator: \.isWhitespace)
