@@ -4,7 +4,7 @@ import SwiftUI
 /// A private sample workspace driven over standard input. Each request finishes before the next is read.
 @MainActor final class AgentQA {
     typealias Command = [String: String]
-    static let commands = ["inspect", "unfold", "fold", "child", "terminal", "readTerminal", "steer", "cancelGuidance", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
+    static let commands = ["inspect", "sidebarButtons", "pressSidebar", "unfold", "fold", "child", "terminal", "readTerminal", "steer", "cancelGuidance", "parent", "open", "draft", "send", "details", "screen", "pin", "unpin", "appearance", "viewport", "capture", "expect", "finding"]
     let store: AppStore
     let directory: URL
     var screen = "workspace"
@@ -149,6 +149,8 @@ import SwiftUI
         }
         switch try field("action") {
         case "inspect": break
+        case "sidebarButtons": return ["buttons": try await sidebarButtons(press: nil)]
+        case "pressSidebar": _ = try await sidebarButtons(press: field("label"))
         case "cancelGuidance":
             let bot = try requireBot()
             guard store.helperSteeringDrafts.removeValue(forKey: bot.id) != nil else { throw QAError("No instruction is open.") }

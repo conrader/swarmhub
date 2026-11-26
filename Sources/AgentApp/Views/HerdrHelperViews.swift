@@ -124,8 +124,10 @@ struct SidebarTerminalButton: View {
     var avatarSize: CGFloat? = nil
 
     var body: some View {
+        let server = store.herdrServer(for: bot)
+        let selected = store.showInfo && store.inspectorTerminal?.target?.id == target.id && store.inspectorTerminal?.server == server
         Button {
-            store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target), fallbackBot: bot)
+            store.previewInInspector(.init(server: server, target: target), fallbackBot: bot)
         } label: {
             Group {
                 if let avatarSize {
@@ -133,9 +135,12 @@ struct SidebarTerminalButton: View {
                 } else {
                     Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
                 }
-            }.frame(width: 24, height: 24).contentShape(Rectangle())
+            }.frame(width: 24, height: 24)
+                .background(selected ? AppColor.selection : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .help("Preview terminal for " + target.title)
         .accessibilityLabel("Preview terminal for " + target.title)
     }
@@ -289,22 +294,13 @@ private struct SidebarNativeThreads: View {
     }
 
     private func button(_ thread: HerdrClient.NativeThread) -> some View {
-        let target = LiveTerminal(thread: thread, owner: owner, core: core)
         let server = store.herdrServer(for: bot)
         let selection = HerdrHelperSelection(botID: bot.id, helperID: thread.id, groupRuntime: parent.groupRuntime,
                                              source: parent.source, archive: parent.archive,
                                              native: .init(thread: thread, core: core, owner: owner, server: server))
         let current = store.openHerdrHelper?.native
-        let selected = (current?.owner == owner && current?.core == core && current?.server == server
-                        && current?.thread.id == thread.id && current?.thread.provider == thread.provider)
-            || (store.inspectorTerminal?.target?.id == target.id && store.inspectorTerminal?.server == server)
-        let ownsChat: Bool
-        if let group = store.selectedGroup {
-            ownsChat = store.groupOwningHelper(selection, of: bot)?.id == group.id
-        } else {
-            ownsChat = store.selectedBot?.id == bot.id
-        }
-        let openInCenter = !store.showOnlyAttention && ownsChat
+        let selected = !store.showOnlyAttention && current?.owner == owner && current?.core == core && current?.server == server
+            && current?.thread.id == thread.id && current?.thread.provider == thread.provider
         let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : thread.task
         let icon: String
         let color: Color
@@ -316,8 +312,7 @@ private struct SidebarNativeThreads: View {
         }
         let subtitle = [thread.statusLine, detail].filter { !$0.isEmpty }.joined(separator: " · ")
         return Button {
-            if openInCenter { store.open(bot, helper: selection) }
-            else { store.previewInInspector(.init(server: server, target: target), fallbackBot: bot) }
+            store.open(bot, helper: selection)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon)
@@ -332,7 +327,7 @@ private struct SidebarNativeThreads: View {
         }.buttonStyle(.plain)
             .accessibilityLabel(thread.provider.label + " agent " + thread.name + ", " + thread.statusLine)
             .accessibilityValue(detail).accessibilityAddTraits(selected ? .isSelected : [])
-            .help((openInCenter ? "Open session for " : "Preview session for ") + thread.name)
+            .help("Open session for " + thread.name)
 
     }
 }
