@@ -75,7 +75,8 @@ extension AppStore {
     }
 
     private func deliverHelperGuidance(_ words: String, target: HelperSteeringTarget, of bot: Bot) -> Bool {
-        let text = "Please steer your helper “\(target.name)” (\(target.reference)) with this instruction:\n\(words)"
+        let owner = delegatingSession(for: target.selection).map { "the helper delegated by “\($0.helper.name)” named" } ?? "your helper"
+        let text = "Please steer \(owner) “\(target.name)” (\(target.reference)) with this instruction:\n\(words)"
         if let runtime = target.selection.groupRuntime {
             guard let group = groupOwningHelper(target.selection, of: bot),
                   HerdrBackend.groupRuntimeName(sessionID: turnSessionID(in: group, bot: bot), botID: bot.id) == runtime

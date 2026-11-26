@@ -444,3 +444,36 @@ private let listingJSON = """
     #expect(!handoff.note(bytes:1600,withFiles:true).contains("B finished"))
     #expect(first.messages.last === user && store.herdrCarryLines(of:first).contains { $0.text == "A finished" })
 }
+
+@MainActor @Test func nativeHelperSteeringIdentifiesSameNameSiblingsAndRejectsReplacedParent() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    try await startSteerableTurn(store, backend, running: true)
+    store.drafts.set("A separate question", for: bot.id)
+    let server = store.herdrServer(for: bot)
+    let owner = HerdrClient.AgentRef(address: "t7", createdMs: 10)
+    let threads = ["left", "right"].map {
+        HerdrClient.NativeThread(id: $0, parent: "root", name: "Review", model: "Sol", createdMs: 2,
+                                 state: "working", task: "Read the diff", reply: "")
+    }
+    let list = HerdrClient.Helpers(core: "test-core", parent: owner, helpers: [], codexThreads: threads)
+    store.herdrHelpers[bot.id] = list
+    let target = HerdrHelperSelection(botID: bot.id, helperID: "right",
+        native: .init(thread: threads[1], core: list.core, owner: owner, server: server))
+    store.open(bot, helper: target)
+    #expect(store.beginHelperSteering(target, of: bot))
+    #expect(store.openHerdrHelper == nil)
+    let draft = try #require(store.helperSteeringDrafts[bot.id])
+    draft.text = "Check malformed rows first"
+    store.herdrHelpers[bot.id] = .init(core: list.core, parent: .init(address: "t7", createdMs: 11), helpers: [], codexThreads: threads)
+    #expect(!store.submitHelperSteering(in: bot.id))
+    #expect(store.helperSteeringDrafts[bot.id]?.text == draft.text)
+    store.herdrHelpers[bot.id] = list
+    #expect(store.submitHelperSteering(in: bot.id))
+    try await backend.calls.wait { calls in calls.contains {
+        $0.hasPrefix("steer:") && $0.contains("Codex thread right, owner t7/10, core test-core")
+            && !$0.contains("thread left") && $0.contains("Check malformed rows first")
+    } }
+    #expect(store.helperSteeringDrafts[bot.id] == nil && store.drafts.text(for: bot.id) == "A separate question")
+    await backend.end()
+}
