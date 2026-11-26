@@ -301,6 +301,10 @@ extension AppStore {
         for receipt in Array(slot.guidanceReceipts.values) { await receipt.value }
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
+        if conversation === bot, isCurrent(token), let attempt = slot.goalAttempt,
+           let goal = bot.goal, goal.stepSpending?.attempt == attempt {
+            await recordGoalStepCost(in: bot, goalID: goal.id, iteration: goal.iteration)
+        }
         let waitingForPerson = slot.goalAttempt != nil && herdrWaits(bot).waits
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation)
         if conversation === bot, isCurrent(token), let attempt = slot.goalAttempt {

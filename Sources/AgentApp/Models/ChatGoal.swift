@@ -44,15 +44,43 @@ struct ChatGoal: Codable, Equatable {
         let agent: HerdrClient.AgentRef
         let tokens: Int64
         let usd: Double
+
+        // OpenCode accumulates dollars as a Double. Discard sub-picodollar noise
+        // before subtracting two readings so a cent-exact cap stops on its boundary.
+        var reportedDollars: Decimal? {
+            guard usd.isFinite, usd >= 0, var raw = Decimal(string: String(usd)) else { return nil }
+            var rounded = Decimal()
+            NSDecimalRound(&rounded, &raw, 12, .plain)
+            return rounded
+        }
     }
 
     var budgetUSD: Double?
+    /// Absent on legacy session ceilings, including goals restored from earlier versions.
+    struct StepSpending: Codable, Equatable {
+        var chargedUSD: Decimal = 0
+        var pending: SpendReading?
+        var attempt: UUID?
+    }
+    var stepSpending: StepSpending?
     var lastSpend: SpendReading?
     var spendProgress: String? {
         guard let budgetUSD else { return nil }
         let ceiling = budgetUSD.formatted(.currency(code: "USD"))
+        if let stepSpending {
+            let charged = stepSpending.chargedUSD.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))
+            return "Goal spend: \(charged) / \(ceiling)" + (stepSpending.pending == nil ? "" : " · step cost pending")
+        }
         if let lastSpend { return "Session spend: \(lastSpend.usd.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))) / \(ceiling)" }
         return "Session budget: \(ceiling) · checked before each step"
+    }
+
+    mutating func stopAtGoalSpendingLimit() -> Bool {
+        guard let charged = stepSpending?.chargedUSD, let budgetUSD,
+              let limit = Decimal(string: String(budgetUSD)), charged >= limit else { return false }
+        stop()
+        detail = "This goal reached its spending limit."
+        return true
     }
 
     mutating func permitsNextStep(spend: SpendReading?) -> Bool {
@@ -62,10 +90,20 @@ struct ChatGoal: Codable, Equatable {
             return false
         }
         if let previous = lastSpend {
-            guard previous.core == spend.core, previous.agent == spend.agent, spend.usd >= previous.usd else {
+            guard previous.core == spend.core, previous.agent == spend.agent, spend.tokens >= previous.tokens, spend.usd >= previous.usd else {
                 wait("The priced session changed. Start a new goal to use its budget.")
                 return false
             }
+        }
+        if stepSpending != nil {
+            if stepSpending?.pending != nil, !recordStepCost(spend) {
+                wait("Waiting for the cost of the preceding goal step. Resume when updated usage is available.")
+                return false
+            }
+            if stopAtGoalSpendingLimit() { return false }
+            stepSpending?.pending = spend
+            lastSpend = spend
+            return true
         }
         if spend.usd >= budgetUSD {
             lastSpend = spend
@@ -78,6 +116,22 @@ struct ChatGoal: Codable, Equatable {
             return false
         }
         lastSpend = spend
+        return true
+    }
+
+    /// A provider reports a cumulative meter. Charge the increase across this step once.
+    /// A pending reading survives a crash and prevents a further step until it is accounted for.
+    @discardableResult mutating func recordStepCost(_ end: SpendReading?) -> Bool {
+        guard var spending = stepSpending, let start = spending.pending, let end,
+              start.core == end.core, start.agent == end.agent, end.tokens > start.tokens,
+              end.usd.isFinite, end.usd >= start.usd,
+              let endUSD = end.reportedDollars, let startUSD = start.reportedDollars
+        else { return false }
+        spending.chargedUSD += endUSD - startUSD
+        spending.pending = nil
+        spending.attempt = nil
+        stepSpending = spending
+        lastSpend = end
         return true
     }
 
@@ -108,6 +162,7 @@ struct ChatGoal: Codable, Equatable {
     mutating func begin() -> UUID {
         let token = UUID()
         attempt = token
+        if stepSpending?.pending != nil { stepSpending?.attempt = token }
         iteration += 1
         state = .running
         return token

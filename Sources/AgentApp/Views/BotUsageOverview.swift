@@ -41,6 +41,9 @@ struct BotUsageOverview: View {
                     VStack(alignment: .leading, spacing: 3) { cost(usage); total(usage) }
                 }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
+            if let budget = bot.goal?.spendProgress {
+                Text(verbatim: budget).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
             if store.helperRosters[server.id] == .unavailable {
                 Text(usage == nil ? "Workspace unavailable" : "Last reported before the workspace disconnected")
                     .font(.caption).foregroundStyle(.secondary)
@@ -48,9 +51,6 @@ struct BotUsageOverview: View {
                 Text(presence == nil ? "Waiting for session usage" :
                     presence?.session == nil ? "No active session" : "Usage has not been reported for this session")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            if let goal = bot.goal, goal.state.active, let spend = goal.spendProgress {
-                Text(spend).font(.caption.monospacedDigit())
             }
             SummarizeBotButton(bot: bot) { note = $0 }
             if !note.isEmpty { Text(note).font(.caption).textSelection(.enabled) }

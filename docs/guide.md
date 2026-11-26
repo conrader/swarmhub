@@ -151,6 +151,8 @@ Opening a chat starts that bot if it is not running, so the first reply does not
 - When the composer says **Add to this answer…**, send a follow-up to steer the current turn. Its receipt changes to **Delivered** when the workspace confirms delivery. **Queue the next message…** means the active turn cannot accept guidance and the follow-up will run after it finishes.
 - A row marked as not sent offers **Retry**.
 
+For a priced OpenCode session, click **/goal** and **Budget…**, enter a USD amount, and choose whether it applies to this goal’s steps or the entire session. **Apply** edits the draft. Sending it starts the goal. You can also type `/goal --goal-budget 2.00 review the changes` or use `--budget 2.00` for the session ceiling. SwarmHub checks the reported estimate between steps. The current step can exceed a limit. A missing cost reading can pause the next step.
+
 <a id="change-a-model"></a>
 
 ### Change what a bot runs on
