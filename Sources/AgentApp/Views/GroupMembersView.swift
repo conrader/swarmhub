@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct GroupInfoPanel: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
     @State private var name = ""
+    @State private var workflowBot: Bot?
     @State private var exportError: String?
 
     var body: some View {
@@ -45,7 +46,11 @@ struct GroupInfoPanel: View {
             ForEach(members) { bot in
                 HStack(spacing: 10) {
                     BotAvatar(bot: bot, size: 30, motion: .list, isWorking: store.isWorking(bot, in: group), facing: .left)
-                    Text(bot.name)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(bot.name)
+                        Button("Skills & handoffs…") { workflowBot = bot }
+                            .buttonStyle(.link).font(.caption).accessibilityLabel("Skills and handoffs for " + bot.name)
+                    }
                     Spacer()
                     Button(InspectorCopy.remove) { store.removeMember(bot.id, from: group) }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
                         .help(InspectorCopy.removeHelp(bot.name)).disabled(!store.isIdle(group))
@@ -58,7 +63,7 @@ struct GroupInfoPanel: View {
             Button("Export Team Pack…", action: exportTeamPack).disabled(members.count < 2)
             if let exportError { Text(exportError).font(.callout).foregroundStyle(.secondary) }
             AdvancedFold { GroupRoutingDetails(members: members) }
-        }
+        }.sheet(item: $workflowBot) { bot in TeamWorkflowEditor(group: group, bot: bot) }
     }
 
     private func exportTeamPack() {
@@ -68,7 +73,7 @@ struct GroupInfoPanel: View {
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.json]
             panel.nameFieldStringValue = "SwarmHub Team Pack.json"
-            panel.message = "Share this group’s bot names, roles, instructions, avatars and model choices."
+            panel.message = "Share this group’s bot names, roles, instructions, skills, handoff rules, avatars and model choices."
             panel.begin { answer in
                 guard answer == .OK, let url = panel.url else { return }
                 do { try data.write(to: url, options: .atomic) }

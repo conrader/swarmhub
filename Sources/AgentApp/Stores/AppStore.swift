@@ -326,7 +326,7 @@ import UserNotifications
         }
         let duplicateMains = duplicateHerdrMainBots(of: bot)
         for other in duplicateMains { other.canManageBots = false }
-        bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }
+        bots.removeAll { $0.id == bot.id }; groups.forEach { $0.removeWorkflowMember(bot.id) }
         if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }
         if persistenceEnabled {
             save()
