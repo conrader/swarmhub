@@ -128,7 +128,7 @@ struct NativeThreadOutput: View {
             HStack(spacing: 8) { controls }.fixedSize(horizontal: true, vertical: false)
             VStack(alignment: .leading, spacing: 6) { controls }
         }
-        .controlSize(session == nil ? .small : .regular)
+        .controlSize(session == nil ? .small : .large)
     }
 
     @ViewBuilder private var controls: some View {
@@ -191,7 +191,7 @@ struct NativeThreadOutput: View {
                     Image(systemName: "arrow.right").accessibilityHidden(true)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.appleProminent)
             .accessibilityLabel(title)
             .accessibilityIdentifier(runtime.rawValue + "Child.openParent")
             if session != nil {

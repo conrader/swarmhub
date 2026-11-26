@@ -598,7 +598,7 @@ struct HerdrHelperView: View {
                     Button(selection.archive == nil ? "Steer via " + bot.name : "Open " + (group?.name ?? bot.name), systemImage: "arrow.right") {
                         if store.beginHelperSteering(selection, of: bot) { closeOverviewDetails?() }
                         else { controlError = "The group session that started this helper is no longer available." }
-                    }.buttonStyle(.borderedProminent).accessibilityIdentifier("helper.steerViaParent")
+                    }.buttonStyle(.appleProminent).controlSize(.large).accessibilityIdentifier("helper.steerViaParent")
                     if let shown, listed?.isLive == true && !unavailable && !stopped {
                         VStack(alignment: .leading, spacing: 8) {
                             if selection.archive == nil {
@@ -621,7 +621,7 @@ struct HerdrHelperView: View {
                                         await store.refreshHerdrHelpers(on: store.herdrServer(for: bot).id)
                                     } catch { controlError = error.localizedDescription }
                                 }
-                            }.buttonStyle(.link).accessibilityIdentifier("helper.stop")
+                            }.buttonStyle(.bordered).controlSize(.large).accessibilityIdentifier("helper.stop")
                         }.disabled(stopping)
                     }
                     if let shown, let core {
