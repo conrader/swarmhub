@@ -326,6 +326,28 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         #expect(store.herdrHelpers[streaming.id] == nil)
     }
 
+    @Test func sidebarTreeRespectsCoreGroupLaunchAndCollapseEvenWithACycle() {
+        let store = makeStore()
+        let root = HerdrHelperParent(botID: UUID(), groupRuntime: "team")
+        let owner = HerdrClient.AgentRef(address: "parent", createdMs: 2)
+        let child = HerdrClient.Helper(address: "a", createdMs: 4, name: "Child", state: "live")
+        let nested = HerdrClient.Helper(address: "a", createdMs: 7, name: "Grandchild", state: "live")
+        store.herdrHelpers[root] = .init(core: "one", parent: owner, helpers: [child])
+        let branch = root.children(of: child.ref, core: "one")
+        store.herdrHelpers[branch] = .init(core: "one", parent: child.ref, helpers: [nested])
+        store.herdrHelpers[root.children(of: nested.ref, core: "one")] = .init(core: "one", parent: nested.ref, helpers: [child])
+        let rows = store.sidebarSessions(under: root, collapsed: [])
+        #expect(rows.map(\.depth) == [0, 1])
+        #expect(rows.map(\.id) == [root.selection(for: child), branch.selection(for: nested)])
+        #expect(store.delegatingHelper(for: rows[1].id) == child)
+        #expect(store.sidebarSessions(under: root, collapsed: [rows[0].id]).count == 1)
+        store.herdrHelpers[root] = .init(core: "other", parent: owner, helpers: [child])
+        #expect(store.sidebarSessions(under: root, collapsed: []).map(\.id) == [root.selection(for: child)])
+        let direct = HerdrHelperParent(botID: root.botID)
+        store.herdrHelpers[direct] = .init(core: "one", parent: owner, helpers: [child])
+        #expect(store.sidebarSessions(under: direct, collapsed: []).count == 1)
+    }
+
     @Test func unmatchedRosterChildrenPreventAnEmptyOverview() async throws {
         let store = makeStore()
         let bot = Bot(name: "Direct", backend: .herdr)

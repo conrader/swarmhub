@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage private var expanded: Bool
+    @State private var collapsed: Set<HerdrHelperSelection> = []
     let bot: Bot
     let parents: [HerdrHelperParent]
     let workers: [HerdrCodejobRow]
@@ -41,16 +42,25 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
-                        ForEach(store.herdrHelpers[parent]?.sidebarSessions ?? []) { helper in
-                            let selection = HerdrHelperSelection(botID: bot.id, helperID: helper.id, groupRuntime: parent.groupRuntime)
+                        ForEach(store.sidebarSessions(under: parent, collapsed: collapsed)) { row in
                             HStack(spacing: 0) {
-                                HerdrHelperRow(helper: helper, selected: !store.showOnlyAttention && store.openHerdrHelper == selection) {
-                                    store.open(helper, of: bot, groupRuntime: parent.groupRuntime)
+                                HerdrHelperRow(helper: row.helper, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
+                                    store.open(bot, helper: row.id)
                                 }
-                                if helper.isLive {
-                                    previewButton(helper.ref, name: helper.name, core: store.herdrHelpers[parent]?.core)
+                                if row.hasChildren {
+                                    let folded = collapsed.contains(row.id)
+                                    Button {
+                                        if folded { collapsed.remove(row.id) } else { collapsed.insert(row.id) }
+                                    } label: {
+                                        Image(systemName: folded ? "chevron.right" : "chevron.down")
+                                            .font(.caption).frame(width: 24, height: 30).contentShape(Rectangle())
+                                    }.buttonStyle(.plain).accessibilityLabel("Sessions for " + row.helper.name)
+                                        .accessibilityValue(folded ? "Collapsed" : "Expanded")
                                 }
-                            }
+                                if row.helper.isLive {
+                                    previewButton(row.helper.ref, name: row.helper.name, core: row.core)
+                                }
+                            }.padding(.leading, CGFloat(min(row.depth, 5)) * 10)
                         }
                     }
                     ForEach(workers) { row in
@@ -298,6 +308,7 @@ struct HerdrHelperView: View {
 
     var body: some View {
         let shown = listed ?? helper
+        let owner = store.delegatingHelper(for: selection)?.name ?? bot.name
         let unavailable = store.herdrHelperReads[selection.parent] == .unavailable
         VStack(spacing: 0) {
             HStack(spacing: 11) {
@@ -310,8 +321,8 @@ struct HerdrHelperView: View {
                 }
                 BotAvatar(bot: bot, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text([shown?.name ?? "Helper", "Helper of " + bot.name].joined(separator: " · ")).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                    Text([stopped ? "Stopped" : unavailable ? "Status unavailable" : shown?.statusLine, groupName ?? selection.groupRuntime].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text([shown?.name ?? "Helper", "Helper of " + owner].joined(separator: " · ")).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text([stopped ? "Stopped" : unavailable ? "Status unavailable" : shown?.statusLine, groupName ?? store.helperGroupNames[selection.parent] ?? selection.groupRuntime].compactMap { $0 }.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if let shown {
