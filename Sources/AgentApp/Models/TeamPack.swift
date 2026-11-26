@@ -76,7 +76,7 @@ struct TeamPack: Codable {
                 fields += workflow.handoffs.map(\.condition)
             }
         }
-        guard !fields.contains(where: { !SecretFilter.redact($0).isEmpty }) else {
+        guard !fields.contains(where: { SecretFilter.redact($0).count > 0 }) else {
             throw BackendError.unavailable("A Team Pack field contains a possible credential. Remove it before sharing.")
         }
         return pack
