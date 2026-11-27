@@ -15,9 +15,9 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=args.chromium)
         page = browser.new_page(viewport={"width": 1440, "height": 1100}, device_scale_factor=1)
-        page.goto("https://swarmhub.org/", wait_until="domcontentloaded")
         shell = page.locator("#workspace-shell")
         for theme in ("dark", "light"):
+            page.goto("https://swarmhub.org/", wait_until="domcontentloaded")
             page.locator(f'[data-workspace-theme="{theme}"]').click()
             expect(shell).to_have_attribute("data-theme", theme)
             for story in ("release", "inbox", "checks", "brief", "team"):
@@ -32,6 +32,20 @@ def main():
                 expect(shell.locator("#chat-active-name")).to_contain_text(helper)
                 expect(shell.locator(".terminal-pre")).to_be_visible()
                 shell.screenshot(path=args.directory / f"{theme}-{helper}.png")
+            shell.get_by_role("button", name="Steer via Jarvis").click()
+            expect(shell.locator("#chat-active-name")).to_contain_text("Jarvis")
+            expect(shell.locator("#mac-feed")).to_contain_text("Opened Jarvis to steer helper “rename”")
+            expect(shell.locator("#mac-composer-input")).to_be_focused()
+            shell.screenshot(path=args.directory / f"{theme}-steer-rename.png")
+            shell.locator("#select-inbox").click()
+            expect(shell.locator("#inbox-badge")).to_have_text("2")
+            shell.get_by_role("button", name="Always allow in /srv/shop").click()
+            shell.get_by_role("button", name="Create bot").click()
+            expect(shell.locator("#inbox-badge")).to_have_text("0")
+            expect(shell.locator(".action-resolved")).to_have_text([
+                "✓ Saved scoped rule · Allowed in /srv/shop", "✓ Payments created · Ask everything enabled"
+            ])
+            shell.screenshot(path=args.directory / f"{theme}-inbox-resolved.png")
         browser.close()
 
 
