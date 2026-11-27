@@ -1555,8 +1555,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 press(window, label(nested_button()))
                 wait_for("nested helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA"
                                                                 for n in descendants(window)))
-                press(window, "Preview NestedQA in Details")
-                wait_for("embedded preview", lambda: any(attribute(n, "AXIdentifier") == "inspector.terminal" for n in descendants(window)))
+                press_transition(window, "Preview NestedQA in Details", "embedded preview",
+                                 lambda: any(attribute(n, "AXIdentifier") == "inspector.terminal" for n in descendants(window)))
                 output("/api/agents/terminal4/104/output", updates=2)
                 choose("Back to Details")
                 wait_for("helper assignment still open", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA" for n in descendants(window)))
@@ -1566,8 +1566,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 press(window, "Back to GroupHelperQA")
                 wait_for("delegating helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to GroupHelperQA"
                                                                      for n in descendants(window)))
-                press(window, "Back to ReleaseQA")
-                wait_for("restored group reading position", lambda: 77 in visible_messages(window))
+                press_transition(window, "Back to ReleaseQA", "restored group reading position",
+                                 lambda: 77 in visible_messages(window))
                 wait_for("restored group draft", lambda: group_composer() and
                          attribute(group_composer(), "AXValue") == "Group draft before opening a helper")
                 press(window, "Group terminals")
@@ -1613,7 +1613,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 wait_for("answered helper in the same tree", answered_button)
                 press(window, label(answered_button()))
                 wait_for("saved helper reply", lambda: any(attribute(n, "AXValue") == "The import passed." for n in descendants(window)))
-                press(window, "Steer via Patch")
+                press_transition(window, "Steer via Patch", "parent guidance composer",
+                                 lambda: any(label(b) == "Send helper guidance" for b in buttons(window)))
                 press(window, "ReaderQA", sidebar=True)
                 press(window, label(owner_row()))
                 def earlier():
