@@ -499,7 +499,6 @@ struct HerdrHelperView: View {
                     } else if listed == nil, shown != nil {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
-                    HelperGuidanceCard(selection: selection, bot: bot)
                     helperPart("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
                         if let task = shown?.task ?? log?.tasks.first?.text, !task.isEmpty {
                             Text(Self.assignment(task)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -513,6 +512,7 @@ struct HerdrHelperView: View {
                             }
                         }
                     }
+                    HelperGuidanceCard(selection: selection, bot: bot)
                     helperPart(log.map { "Steps (\($0.tools.count))" } ?? "Steps", detail: shown?.runLine) {
                         if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
                         else if log == nil { quiet(problem.isEmpty ? "Loading…" : "Steps unavailable.") }

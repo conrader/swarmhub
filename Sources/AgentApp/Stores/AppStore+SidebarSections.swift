@@ -6,7 +6,7 @@ extension AppStore {
     var showsSampleTeam: Bool {
         let visible = unhiddenChats
         return !visible.isEmpty && visible.allSatisfy { chat in
-            if case .bot(let bot) = chat { return bot.sampleProfile != nil }
+            if case .bot(let bot) = chat { return bot.isDemo && bot.backend == .mock && bot.sampleRole != nil }
             return false
         }
     }

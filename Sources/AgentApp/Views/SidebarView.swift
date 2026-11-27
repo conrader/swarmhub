@@ -99,7 +99,7 @@ struct SidebarView: View {
                         let count = sampleHosts ? SampleWorkspace.hosts.count : endpoints.count
                         Text(count == 1 ? "1 SSH host" : "\(count) SSH hosts")
                             .help(sampleHosts ? "Sample SSH hosts: " + SampleWorkspace.hosts.joined(separator: ", ") : "Configured SSH hosts")
-                            .accessibilityLabel(sampleHosts ? "2 sample SSH hosts" : "\(count) SSH hosts")
+                            .accessibilityLabel(sampleHosts ? "\(count) sample SSH hosts" : "\(count) SSH hosts")
                         Spacer()
                         Text(AppStore.botCount(store.bots.filter { !$0.isReadOnlyArchive }.count))
                             .help("Bots in this workspace, including hidden bots")
