@@ -131,7 +131,7 @@ struct WorkspaceTerminals: View {
                 Picker("Terminal text size", selection: $fitPanel) {
                     Text("Readable").tag(false)
                     Text("Fit terminal").tag(true)
-                }.pickerStyle(.segmented)
+                }.pickerStyle(.segmented).labelsHidden().accessibilityLabel("Terminal text size")
             }
             if let selected {
                 if let child = selected.id.child {
