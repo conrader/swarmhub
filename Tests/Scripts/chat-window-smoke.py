@@ -49,7 +49,7 @@ def press(window, title, sidebar=False):
     for button in buttons(window):
         name = label(button)
         if sidebar:
-            name = name.removeprefix("Needs attention, ")
+            name = name.removeprefix("Needs attention, ").removeprefix("Coding agent active, ")
         if (name.startswith(title + ",") if sidebar else name == title):
             if ax.AXUIElementPerformAction(button, "AXPress") == 0:
                 return
