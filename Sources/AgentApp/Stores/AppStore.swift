@@ -419,11 +419,13 @@ import UserNotifications
         }
         // An approval is a one-time instruction. Repeating it in later goal steps could send the draft again.
         var revised = bot.sampleProfile == nil && !user.isDraftApproval && metadata[GoalKey.attempt] == nil ? bot.goal : nil
+        var stepGuidance = ""
         if revised?.state.active == true {
             guard goalDestinationMatches(bot) else { return false }
             let guidance = user.modelText + attachments.map { "\nAttached file: " + $0.name }.joined()
-            revised?.objective += "\nFollow-up: " + guidance
-            guard let revised, validateHerdrDraft(revised.request(for: UUID()), attachments: attachments, bot: bot) else { return false }
+            if user.metadata[GoalKey.amendment] == revised?.id.uuidString { revised?.objective += "\nFollow-up: " + guidance }
+            else { stepGuidance = guidance }
+            guard let revised, validateHerdrDraft(revised.request(for: UUID(), guidance: stepGuidance), attachments: attachments, bot: bot) else { return false }
         } else { revised = nil }
         if let turn = turn(in: conversation) {
             return steer(user, bot: bot, turn: turn)
@@ -436,7 +438,7 @@ import UserNotifications
         if let full, !waitWhenFull { presentError(full, reason: .capacity, bot: bot); return false }
         if let initial = revised?.initialAttachments, !initial.isEmpty, revised?.attempt == nil {
             user.attachments = initial + attachments
-            guard let goal = revised, validateHerdrDraft(goal.request(for: UUID()), attachments: user.attachments, bot: bot) else { return false }
+            guard let goal = revised, validateHerdrDraft(goal.request(for: UUID(), guidance: stepGuidance), attachments: user.attachments, bot: bot) else { return false }
             revised?.initialAttachments = nil
         }
         let activeBackend: any AgentBackend; let images: [String]
@@ -450,9 +452,11 @@ import UserNotifications
         if let goal = revised, let attempt = goal.attempt,
            let waiting = turns.nextMessages.first(where: { $0.conversation === bot && $0.bubble.metadata[GoalKey.attempt] == attempt.uuidString }) {
             let files = waiting.bubble.attachments + attachments
-            let request = goal.request(for: attempt)
+            let combined = [waiting.bubble.metadata[GoalKey.guidance] ?? "", stepGuidance].filter { !$0.isEmpty }.joined(separator: "\n")
+            let request = goal.request(for: attempt, guidance: combined)
             guard validateHerdrDraft(request, attachments: files, bot: bot) else { return false }
             waiting.bubble.attachments = files
+            waiting.bubble.metadata[GoalKey.guidance] = combined
             waiting.bubble.metadata[GoalKey.request] = request
             user.metadata[SteerKey.steer] = "goalContext"
             bot.goal = goal
@@ -463,7 +467,8 @@ import UserNotifications
         let previousGoal = bot.goal
         if var goal = revised {
             let attempt = goal.begin()
-            user.metadata[GoalKey.request] = goal.request(for: attempt)
+            user.metadata[GoalKey.request] = goal.request(for: attempt, guidance: stepGuidance)
+            if !stepGuidance.isEmpty { user.metadata[GoalKey.guidance] = stepGuidance }
             user.metadata[GoalKey.attempt] = attempt.uuidString
             turns.scheduledGoals.remove(goal.id)
             bot.goal = goal

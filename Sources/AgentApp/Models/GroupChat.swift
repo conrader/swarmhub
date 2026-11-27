@@ -87,6 +87,7 @@ struct StoreFile: Codable {
         for bot in bots {
             TurnReplyText.repairSavedSteerCuts(bot.messages)
             for row in bot.messages where row.role == .assistant { bot.recoverGoalResult(in: row) }
+            bot.retireSavedGoalApprovals()
         }
         for group in groups { TurnReplyText.repairSavedSteerCuts(group.messages) }
         scrollPositions = (try? c.decodeIfPresent([String: String].self, forKey: .scrollPositions)) ?? nil

@@ -275,6 +275,7 @@ enum HerdrHelperNote {
         Choose easy for small mechanical edits, medium for normal features and fixes, hard for design-heavy or risky work. \
         The server uses the person's helper model choice for this bot or its default for the difficulty. It limits concurrent helpers \
         and stops a helper a short while after it has answered. Check the saved answer before relying on it.
+        If an optional helper is unavailable, continue authorized work directly. Ask for a decision only when it blocks the user’s objective.
         """
 }
 
