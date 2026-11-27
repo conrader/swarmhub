@@ -113,6 +113,15 @@ struct ShowSidebarItem: View {
     }
 }
 
+struct CloseDetailsItem: View {
+    @EnvironmentObject private var store: AppStore
+    var body: some View {
+        Button(InspectorCopy.close, systemImage: "xmark") { store.showInfo = false }
+            .labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
+            .help(InspectorCopy.close).accessibilityIdentifier("details.close")
+    }
+}
+
 /// Keep the way back to the inspector visible after its close button is clicked.
 struct ShowDetailsItem: View {
     @EnvironmentObject private var store: AppStore
