@@ -473,8 +473,8 @@ extension ChatGoalTests {
             TurnKey.forUser: request.id.uuidString, GoalKey.attempt: token.uuidString
         ], turnState: .incomplete)
         let exchange = ChatMessage(role: .system, content: "Team handoff")
-        let result = ChatMessage(role: .assistant, content: "", metadata: ["herdrTeamEntry": "fixture:2"])
         let unrelated = ChatMessage(role: .assistant, content: "Another turn", turnState: .incomplete)
+        let result = ChatMessage(role: .assistant, content: "", metadata: ["herdrTeamEntry": "fixture:2"])
         bot.messages = [request, earlier, exchange, unrelated, result]
         goal.wait(ChatGoal.interruptedDetail)
         bot.goal = goal
