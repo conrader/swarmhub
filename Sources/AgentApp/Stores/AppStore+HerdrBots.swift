@@ -130,6 +130,7 @@ extension AppStore {
         guard pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id }) else { return }
         dismissHerdrBot(pending, manager: manager)
         save()
+        recordInboxDecision(for: manager, server: herdrServer(for: manager), subject: pending.request.name, outcome: "Proposal dismissed")
         tellHerdrAsker(of: pending, HerdrBotRelay.decision(pending.taken ? .taken(pending.request.name) : .dismissed(pending.request.name), main: manager.name))
     }
 
@@ -254,7 +255,10 @@ extension AppStore {
         }
         guard server == herdrServer(for: manager) else { return nil }
         let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered, byPerson: byPerson, reviewedLaunch: reviewedLaunch, confirmedRoleID: confirmedRoleID)
-        if byPerson, let bot { tellHerdrAsker(of: pending, HerdrBotRelay.decision(.created(bot.name), main: manager.name)) }
+        if byPerson, let bot {
+            tellHerdrAsker(of: pending, HerdrBotRelay.decision(.created(bot.name), main: manager.name))
+            recordInboxDecision(for: manager, server: server, subject: bot.name, outcome: "Bot created")
+        }
         return bot
     }
 

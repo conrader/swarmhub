@@ -11,6 +11,7 @@ import UserNotifications
     /// The running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`).
     @Published var runningTurns: [UUID: ConversationTurn] = [:]
     var turnLimits: TurnLimits
+    @Published var recentInboxDecisions: [InboxDecisionReceipt] = []
     @Published var showOnlyAttention = false
     @Published var showingActivity = false
     @Published var inspectorTerminal: TerminalBrowserRequest?

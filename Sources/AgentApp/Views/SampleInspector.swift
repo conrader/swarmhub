@@ -105,15 +105,32 @@ struct SampleReviewCard: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     let review: SampleReview
+    var openChat: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
+            if let openChat {
+                Button(action: openChat) {
+                    HStack {
+                        BotAvatar(bot: bot, size: 20)
+                        Text(verbatim: bot.name).font(.headline)
+                        Spacer()
+                        Text(review == .testCommand ? "Scoped permission · Reviewed by Scout" : "New bot proposal · Sensitive role")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("Open " + bot.name + " chat")
+            }
             Text(verbatim: review.title).font(.callout.weight(.semibold))
             Text(verbatim: review.detail).font(.caption).foregroundStyle(.secondary)
             LibraryFlow(spacing: 6) {
-                ForEach(review.choices, id: \.self) { decision in
-                    Button(decision.title) { store.resolveSampleReview(decision, for: bot) }
-                        .controlSize(.small)
+                ForEach(openChat == nil ? review.choices : Array(review.choices.reversed()), id: \.self) { decision in
+                    let button = Button(decision.title) { store.resolveSampleReview(decision, for: bot) }.controlSize(.small)
+                    if openChat != nil && decision == review.choices.first {
+                        button.buttonStyle(.borderedProminent)
+                    } else {
+                        button
+                    }
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)

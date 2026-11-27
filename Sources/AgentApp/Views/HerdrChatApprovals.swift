@@ -14,7 +14,7 @@ struct HerdrChatApprovals: View {
         let pending = store.approvals(for: bot, in: group, inboxes: inboxes)
         VStack(alignment: .leading, spacing: 6) {
             if let request = pending.first(where: { !decided.contains($0.id) }) {
-                HerdrApprovalReview(request: request, server: server) {
+                HerdrApprovalReview(request: request, server: server, bot: bot) {
                     decided.insert(request.id)
                 }.id(request.id).chatCard(tint: bot.colours)
             } else { HerdrPromptCard(bot: bot, group: group) }
@@ -35,7 +35,9 @@ struct HerdrApprovalReview: View {
     @EnvironmentObject private var store: AppStore
     let request: HerdrClient.Approval
     let server: HerdrServer
-    var inboxBot: Bot?
+    let bot: Bot
+    var openInboxChat: (() -> Void)?
+    var inboxChatName: String?
     var inspect: (() -> Void)?
     var keyboardDecisions = false
     let didDecide: () -> Void
@@ -46,13 +48,17 @@ struct HerdrApprovalReview: View {
         VStack(alignment: .leading, spacing: 8) {
             let tool = HerdrClient.Approval.visible(request.tool)
             let folder = HerdrClient.Approval.visible(request.cwd)
-            if let inboxBot {
-                HStack {
-                    BotAvatar(bot: inboxBot, size: 20)
-                    Text(inboxBot.name).font(.headline)
-                    Spacer()
-                    Text("\(request.provider) · \(tool)").font(.caption).foregroundStyle(.secondary)
-                }
+            if let openInboxChat {
+                Button(action: openInboxChat) {
+                    HStack {
+                        BotAvatar(bot: bot, size: 20)
+                        Text(verbatim: bot.name).font(.headline)
+                        if let inboxChatName, inboxChatName != bot.name { Text(verbatim: inboxChatName).font(.caption) }
+                        Spacer()
+                        Text("\(request.provider) · \(tool)").font(.caption).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("Open " + (inboxChatName ?? bot.name) + " chat")
             } else {
                 Text("\(request.provider) requests \(tool)").font(.headline)
             }
@@ -80,19 +86,19 @@ struct HerdrApprovalReview: View {
                 }.accessibilityIdentifier("approval.commandReview")
             }
             LibraryFlow {
-                if inboxBot == nil { allowOnce } else { deny }
+                if openInboxChat == nil { allowOnce } else { deny }
                 if request.canRememberCommandHour == true {
                     Button("Allow here for 1 hour") { respond(.rememberCommandHour) }
                         .help("Allow this exact command for this bot and folder for one hour.")
                 }
                 if request.canRememberCommand == true {
-                    let label = inboxBot != nil && !folder.isEmpty ? "Always allow in " + folder : "Always allow here"
+                    let label = openInboxChat != nil && !folder.isEmpty ? "Always allow in " + folder : "Always allow here"
                     Button { respond(.rememberCommand) } label: {
                         Text(verbatim: label).lineLimit(2).truncationMode(.middle)
                     }
                         .help("Save this exact command for this bot and folder. Revoke it in Details → Approvals.")
                 }
-                if inboxBot != nil {
+                if openInboxChat != nil {
                     allowOnce.buttonStyle(.borderedProminent)
                 } else {
                     deny
@@ -120,6 +126,15 @@ struct HerdrApprovalReview: View {
             defer { busy = false }
             do {
                 try await store.herdrClient(for: server).decide(request, decision)
+                let folder = HerdrClient.Approval.visible(request.cwd)
+                let outcome: String
+                switch decision {
+                case .approve: outcome = "Allowed once"
+                case .deny: outcome = "Denied"
+                case .rememberCommand: outcome = "Rule saved for " + folder
+                case .rememberCommandHour: outcome = "Allowed for 1 hour in " + folder
+                }
+                store.recordInboxDecision(for: bot, server: server, subject: request.commandPreview ?? HerdrClient.Approval.visible(request.tool), outcome: outcome)
                 didDecide()
             } catch { self.error = error.localizedDescription }
         }
