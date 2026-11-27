@@ -26,7 +26,8 @@ struct SidebarBotSessions<ParentRow: View>: View {
         let count = groups.reduce(workers.count) { $0 + $1.rows.count }
         let working = expanded ? 0 : groups.reduce(workers.filter { $0.job.isWorking }.count) { $0 + $1.rows.filter(\.isWorking).count }
         let summary = (count == 1 ? "1 session" : "\(count) sessions") + (working > 0 ? ", \(working) working" : "")
-        let disclosureWidth: CGFloat = expanded ? 28 : (working > 0 ? 62 : 48)
+        let countWidth: CGFloat = count < 10 ? 17 : (count < 100 ? 23 : 29)
+        let disclosureWidth: CGFloat = expanded ? 28 : countWidth + 11
         let controlsWidth: CGFloat = (terminal == nil ? 0 : 24) + (hasSessions ? disclosureWidth : 0)
         parentRow(controlsWidth)
             .overlay(alignment: .topTrailing) {
@@ -40,10 +41,14 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         } label: {
                             HStack(spacing: 3) {
                                 if !expanded {
-                                    if working > 0 {
-                                        Image(systemName: "circle.dotted").foregroundStyle(.tint)
-                                    }
-                                    Text(count > 99 ? "99+" : String(count)).monospacedDigit()
+                                    Text(count > 99 ? "99+" : String(count))
+                                        .font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                                        .frame(width: countWidth, height: 17)
+                                        .overlay {
+                                            if working > 0 {
+                                                Capsule().strokeBorder(.tint, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, dash: [0.5, 2.3]))
+                                            }
+                                        }
                                 }
                                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
                             }.font(.caption.weight(.semibold)).foregroundStyle(.secondary)
