@@ -21,7 +21,8 @@ struct GroupChatView: View {
     }
 
     var body: some View {
-        let members = store.members(of: group), shown = group.messages.filter { !$0.isSilent }
+        let queue = ChatQueuePresentation(group.messages)
+        let members = store.members(of: group), shown = queue.transcript
         let _ = viewport.show(group.id, order: shown.map(\.id), model: store.chatScroll)
         let appStore = store, groupName = group.name
         let _ = selection.show(rows: shown, conversation: group.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: groupName) }
@@ -79,6 +80,7 @@ struct GroupChatView: View {
                             }.buttonStyle(.link).font(.caption)
                         }
                     }
+                    ChatQueueSummary(queue: queue).id(group.id)
                     if let guidance = store.helperSteeringDrafts[group.id] {
                         HelperSteeringComposer(draft: guidance, chatID: group.id, jump: jumpToLatest).id(ObjectIdentifier(guidance))
                     } else {

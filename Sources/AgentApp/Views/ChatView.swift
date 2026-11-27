@@ -22,7 +22,8 @@ struct ChatView: View {
     }
 
     var body: some View {
-        let shown = bot.messages.filter { !$0.isSilent }
+        let queue = ChatQueuePresentation(bot.messages)
+        let shown = queue.transcript
         let _ = viewport.show(bot.id, order: shown.map(\.id), model: store.chatScroll)
         let appStore = store, botName = bot.name
         let _ = selection.show(rows: shown, conversation: bot.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: botName) }
@@ -99,14 +100,14 @@ struct ChatView: View {
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
                 // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
                 .floatingBar(edge: .bottom, backing: AppColor.chat) {
-                    if !hasStatusPanel { bottomBar }
+                    if !hasStatusPanel { bottomBar(queue: queue) }
                 }
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
                 .task(id: store.scrollTarget) { await viewport.reveal(store.scrollTarget, in: store) }
             }
-            if hasStatusPanel { bottomBar }
+            if hasStatusPanel { bottomBar(queue: queue) }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .onChange(of: bot.id) { _, _ in terminal = nil }
@@ -148,8 +149,9 @@ struct ChatView: View {
 
     /// Under the transcript: whom a reply answers, what waits for the person, and the message box. One group, so
     /// that glass surfaces standing close together are drawn together.
-    private var bottomBar: some View {
+    private func bottomBar(queue: ChatQueuePresentation) -> some View {
         VStack(spacing: 0) {
+            ChatQueueSummary(queue: queue).id(bot.id)
             if store.helperSteeringDrafts[bot.id] == nil, let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
                 jumpToLatest

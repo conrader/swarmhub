@@ -59,6 +59,21 @@ struct MessageView: View {
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
                 if let title = message.metadata["herdrExchangeTitle"] {
                     DisclosureGroup(title) { Text(message.content).textSelection(.enabled) }.font(.callout)
+                } else if message.isQueuedUserMessage {
+                    HStack(alignment: .center, spacing: 6) {
+                        Image(systemName: "clock").font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityLabel("Queued")
+                        content
+                    }
+                    .contextMenu {
+                        if let claim = store.waitingDirectClaim(for: message) {
+                            Button("Cancel queued send") { store.cancelQueuedSend(claim) }
+                        }
+                        Button("Reply", action: reply)
+                        ForEach(Self.tapbacks, id: \.self) { emoji in
+                            Button(emoji) { store.toggleReaction(emoji, on: message) }
+                        }
+                    }
                 } else { content }
                 if let outcome = message.metadata[GoalKey.outcome] {
                     Text("Goal step · " + outcome.replacingOccurrences(of: "_", with: " ").capitalized)
@@ -70,10 +85,7 @@ struct MessageView: View {
                     Text(summary.line).font(.caption).foregroundStyle(.secondary)
                         .help("Elapsed time and tool calls reported to SwarmHub. The model label comes from this reply’s session.")
                 }
-                if let claim = store.waitingDirectClaim(for: message) {
-                    Button("Cancel queued send") { store.cancelQueuedSend(claim) }
-                        .controlSize(.small)
-                } else if store.canSendAsNextMessage(message) {
+                if store.canSendAsNextMessage(message) {
                     Button(SteerCopy.sendAsNext) { store.sendAsNextMessage(message) }
                         .controlSize(.small).help("Sends this text as a normal message once the current answer ends")
                 }
@@ -81,10 +93,10 @@ struct MessageView: View {
                     HStack(spacing: 3) { ForEach(message.reactions, id: \.self) { emoji in Button { store.toggleReaction(emoji, on: message) } label: { Text(emoji).font(.caption).padding(4).background(AppColor.card, in: Capsule()).overlay(Capsule().stroke(AppColor.separator)) }.buttonStyle(.plain).help("Remove tapback") } }
                 }
                 if TurnStateFooter.isShown(for: message) { TurnStateFooter(message: message) }
-                if !showsHeading && offersActions { actions }
+                if !showsHeading && offersActions && !message.isQueuedUserMessage { actions }
             }
             if !mine { Spacer(minLength: 80) }
-        }.padding(.horizontal, 28).padding(.vertical, 10)
+        }.padding(.horizontal, 28).padding(.vertical, message.isQueuedUserMessage ? 3 : 10)
     }
 
     private var showsHeading: Bool { message.role == .assistant && (author != nil || showsRemovedAuthor) }
