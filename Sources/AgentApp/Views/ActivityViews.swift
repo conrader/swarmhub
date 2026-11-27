@@ -40,19 +40,26 @@ struct ActivityRow: View {
 
     var body: some View {
         if headerOnly ? message.isStreaming : range != nil || ActivityCopy.isRowShown(message.activity, streaming: message.isStreaming) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
                 if streaming {
                     TimelineView(.periodic(from: .now, by: 1)) { context in header(now: fixedNow ?? context.date) }
                 } else {
                     header(now: fixedNow ?? .now)
                 }
                 if expanded, let activity = message.activity, let shown, ActivityCopy.canUnfold(shown) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 5) {
                         if (range?.lowerBound ?? 0) == 0, activity.total > activity.steps.count { Text("Earlier \(activity.total - activity.steps.count) steps not kept").font(.caption2).foregroundStyle(.tertiary) }
                         ForEach(Array(shown.steps.enumerated()), id: \.offset) { _, step in
                             StepLine(step: step, number: activity.number(of: step), running: ActivityCopy.isRunning(step, streaming: message.isStreaming))
                         }
-                    }.padding(.leading, 14)
+                    }.padding(.horizontal, 10).padding(.vertical, 7)
+                }
+            }
+            .background {
+                if ActivityCopy.canUnfold(shown) {
+                    let card = RoundedRectangle(cornerRadius: 7)
+                    card.fill(AppColor.card).overlay { card.strokeBorder(AppColor.separator) }
                 }
             }
         }
@@ -64,8 +71,14 @@ struct ActivityRow: View {
                 HStack(spacing: 5) {
                     Image(systemName: "chevron.right").rotationEffect(.degrees(expanded ? 90 : 0)).font(.system(size: 9, weight: .semibold))
                     status(now: now)
-                }.font(.caption).foregroundStyle(.secondary).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(ActivityCopy.toggleHelp(expanded: expanded, total: shown?.total ?? 0, streaming: streaming))
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                .contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            .help(ActivityCopy.toggleHelp(expanded: expanded, total: shown?.total ?? 0, streaming: streaming))
         } else {
             HStack(spacing: 5) { status(now: now) }.font(.caption).foregroundStyle(.secondary)
         }
@@ -112,7 +125,10 @@ private struct StepLine: View {
                 Image(systemName: step.failed ? "xmark.circle.fill" : "checkmark.circle").font(.caption2).foregroundStyle(step.failed ? Color.red : Color.secondary)
             }
             Text(ActivityCopy.label(step.name)).font(.caption).help(step.name)
-            if let preview = step.preview { Text(preview).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+            if let preview = step.preview {
+                Text(verbatim: preview).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            }
             if !running, let end = step.finishedAt { Text(ActivityCopy.duration(end.timeIntervalSince(step.startedAt))).font(.caption2).foregroundStyle(.tertiary).monospacedDigit() }
         }
     }
