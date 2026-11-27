@@ -26,6 +26,7 @@ def evaluate(rows):
         "archive_twins": ("protected_intact",),
         "partial_resume": ("no_early_change", "protected_intact"),
         "discover_capacity": ("no_early_change", "protected_intact"),
+        "external_recovery": ("no_early_change", "protected_intact"),
         "linked_capacity": ("no_early_change", "protected_intact"),
         "one_plan": ("no_early_change", "protected_intact"),
         "busy_after_plan": ("no_early_change", "protected_intact"),

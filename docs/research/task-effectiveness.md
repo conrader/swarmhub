@@ -68,6 +68,20 @@ W każdej z ośmiu sesji bot przedstawił plan i po jednej zgodzie osiągnął p
 
 Aby powtórzyć, użyj poniższego polecenia z `--cases linked_capacity --screen-seeds 7100 7101 --holdout-seeds 7150 7151`, plikiem `docs/research/candidates/size-the-plan.txt` i osobnym nowym katalogiem wyników dla każdego modelu.
 
+## Czy bot potrafi rozliczyć wynik wspólnej pracy?
+
+W `external_recovery` bot zaczyna z 2 wolnymi jednostkami i przedstawia plan na kolejne 19. Po sprawdzeniu planu i sum kontrolnych program usuwa jeden z dwóch wskazanych plików. Następnie użytkownik zatwierdza pozostałą pracę. Przy zamianie zestawu danych drugi operator odzyskuje 12 jednostek zamiast 7. Bot ma dokończyć plan i zapisać osobno własny wkład, przyrost z pozostałych działań i stan końcowy. Ocena sprawdza te trzy liczby, końcowy rozmiar plików na woluminie, zachowanie danych i doręczenie obu odpowiedzi. Nie ocenia stylu odpowiedzi.
+
+W czterech próbach Astra osiągnęła 21 wolnych jednostek, prawidłowo rozliczając własne 12 lub 7 i pozostałe 7 lub 12. Zwykłe polecenie dało 2/2 (mediana 40 s), dodatkowe przypomnienie o ponownym sprawdzeniu warunków również 2/2 (41 s). To wynik dwóch krótkich rozmów na wariant. Wcześniejsza kalibracja na dwóch innych zestawach miała luźniejszy warunek pomiaru miejsca i jest wyłączona z powyższych liczb. [Przebiegi](external-recovery-study/screen.jsonl) · [Decyzja](external-recovery-study/decision.json)
+
+Aby powtórzyć, wybierz `--cases external_recovery --model gpt-6.2-astra --screen-seeds 8200 8201 --holdout-seeds 8250 8251` i `docs/research/candidates/recheck-before-execution.txt`.
+
+## Czy dodatkowe polecenie testowania poprawia raport SQL?
+
+Sol przygotował zapytanie o salda projektów. Program wykonał je na przykładowej bazie, na bazie z innymi danymi i dla zmienionego okresu. Sprawdził wyniki per projekt, również dla projektów bez operacji, oraz sumę kontrolną oryginalnej bazy. Podstawowe polecenie dało 2/2, wskazówka o samodzielnym teście też 2/2. Mediany czasu wyniosły 34,1 i 49,8 sekundy. Dwie pary dają za mało danych do oszacowania typowego kosztu wskazówki. [Wyniki](report-sql-study/screen.jsonl) · [Decyzja](report-sql-study/decision.json)
+
+Do powtórzenia użyj `--cases sql --model gpt-6.2-sol --screen-seeds 9100 9101 --holdout-seeds 9150 9151` oraz `docs/research/candidates/check-the-result.txt`.
+
 ## Powtórzenie badania
 
 Polecenie uruchom z głównego katalogu repozytorium. Podaj ścieżki do uruchamialnych plików Workspace, Herdr Core i natywnego Codex CLI dla Linuksa oraz pliku uwierzytelnienia Codex. Badanie korzysta z modelu na tym koncie. Poniższe wyniki uzyskano z Workspace 0.2.44. Przy innej wersji podaj jej numer przez `--bridge-version`.

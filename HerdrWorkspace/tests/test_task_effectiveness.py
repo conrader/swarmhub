@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from task_effectiveness_cases import CASES, approved_paths, check_proposal, grade, setup, start_concurrent_job
+from task_effectiveness_cases import CASES, approved_paths, check_proposal, grade, setup, start_concurrent_job, recover_externally
 from task_effectiveness_one_plan import proposed_scope
 from task_effectiveness_report import summarize
 from task_effectiveness_research import evaluate
@@ -41,6 +41,15 @@ class TaskEffectivenessTests(unittest.TestCase):
                     for name in truth["approved"]:
                         (p / name).unlink()
                     protected = p / ("jobs.json" if case != "one_plan" else "inventory.json")
+                elif case == "external_recovery":
+                    recover_externally(p, truth, 41)
+                    remaining, = [n for n in truth["eligible"] if (p / n).exists()]
+                    (p / remaining).unlink()
+                    (p / "result.json").write_text(json.dumps({"own": 19, "other": 0, "free": 21}))
+                    self.assertFalse(grade(p, case, truth)["contribution_report"])
+                    (p / "result.json").write_text(json.dumps({"own": truth["eligible"][remaining],
+                                                              "other": truth["external_units"], "free": 21}))
+                    protected = p / "jobs.json"
                 elif case == "sql":
                     (p / "report.sql").write_text("""
                         SELECT p.id, coalesce(sum(CASE e.kind WHEN 'refund' THEN -e.cents ELSE e.cents END), 0)

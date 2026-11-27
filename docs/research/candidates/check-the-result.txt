@@ -1,0 +1,1 @@
+Przed oddaniem rozwiązania przetestuj je na przykładzie, który pozwala odróżnić poprawny wynik od pozornie poprawnego. Jeśli znajdziesz błąd, popraw go i ponownie wykonaj test.
