@@ -1,25 +1,38 @@
 import SwiftUI
 
 struct PublishedBriefCard: View {
+    @Environment(\.timeZone) private var timeZone
     let title: String
     let excerpt: String
+    let revision: Int?
+    let routineAt: Date?
     let open: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: title).font(.headline)
+                Text(verbatim: title + " · Published Page").font(.headline)
                 Spacer(minLength: 4)
-                Text("Published Page").font(.caption).foregroundStyle(.secondary)
+                if let routineAt {
+                    let time = routineAt.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: timeZone))
+                    Text("Routine · \(time)").font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
             }
-            let lines = excerpt.split(whereSeparator: \.isNewline).prefix(5).map { SidebarFragment.plain(String($0)) }
-            let summary = lines.first == title ? lines.dropFirst() : lines[...]
-            Text(verbatim: summary.prefix(3).joined(separator: "\n")).font(.callout).lineLimit(4)
-            Button("Open Page", action: open).accessibilityLabel("Open " + title)
+            let lines = excerpt.split(whereSeparator: \.isNewline).filter { !$0.allSatisfy(\.isWhitespace) }
+            let summary = lines.first.map { SidebarFragment.plain(String($0)) == title } == true ? lines.dropFirst() : lines[...]
+            if !summary.isEmpty {
+                ProseBlock(text: summary.prefix(3).joined(separator: "\n"))
+                    .environment(\.transcriptRow, nil)
+            }
+            HStack {
+                Button("Open Page", action: open).accessibilityLabel("Open " + title)
+                if let revision { Text("Revision \(revision)").font(.caption).foregroundStyle(.secondary) }
+            }
         }
-        .padding(10).frame(maxWidth: 500, alignment: .leading)
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColor.card, in: RoundedRectangle(cornerRadius: 8))
         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(AppColor.separator) }
+        .accessibilityElement(children: .contain).accessibilityIdentifier("page.preview")
     }
 }
 
@@ -92,7 +105,7 @@ struct WorkspacePageLibrary: View {
             TextField("Search Pages in this workspace", text: $query)
             if serverID == SampleWorkspace.server.id {
                 if let brief = store.sampleBriefs.first, let id = brief.pageID,
-                   query.isEmpty || brief.title.localizedStandardContains(query) {
+                   brief.matchesPage(query.trimmingCharacters(in: .whitespacesAndNewlines)) {
                     Button(brief.title) { page = .init(serverID: serverID, pageID: id, revision: brief.revision, title: brief.title) }
                 } else { Text("No matching Pages.") }
             } else if let server = store.herdrServer(id: serverID) {

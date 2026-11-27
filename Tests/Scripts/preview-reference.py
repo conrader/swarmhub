@@ -46,6 +46,10 @@ def main():
                     for step in (2, 3):
                         shell.locator("#demo-next").click()
                         expect(progress).to_have_text(f"Step {step} of 3")
+                        if story == "brief" and step == 3:
+                            card = shell.locator(".artifact-card").filter(has_text="Morning brief")
+                            for text in ("v0.8.16", "rename", "tests", "2 items"):
+                                expect(card).to_contain_text(text)
                         shell.screenshot(path=args.directory / f"{theme}-{story}-step{step}.png")
             for helper, expected in helpers.items():
                 button = page.locator(f'[data-select-helper="{helper}"]')

@@ -37,8 +37,8 @@ struct CommandPaletteView: View {
                     .onKeyPress(.downArrow) { move(1, proxy: proxy); return .handled }
                     .onKeyPress(.upArrow) { move(-1, proxy: proxy); return .handled }
                     .onSubmit { if let item = model.selection { perform(item) } }
-                if store.herdrConfigured {
-                    Button("Pages") { openLibrary(query: "") }.help("Browse published Pages by workspace")
+                if let pageServer {
+                    Button("Pages") { openLibrary(pageServer, query: "") }.help("Browse published Pages by workspace")
                 }
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }.padding(16)
@@ -75,7 +75,7 @@ struct CommandPaletteView: View {
             guard !Task.isCancelled else { return }
             var destinations = navigation
             let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !term.isEmpty, store.herdrConfigured {
+            if !term.isEmpty, let pageServer {
                 destinations.append(.init(id: "workspace-page-search", title: "Search Pages in " + pageServer.name,
                                           icon: "doc.text.magnifyingglass", detail: term, target: .findPages))
             }
@@ -90,12 +90,16 @@ struct CommandPaletteView: View {
         if let selected { model.highlight(selected) }
     }
 
-    private var pageServer: HerdrServer {
-        store.selectedBot.map { store.herdrServer(for: $0) } ?? store.herdrServers[0]
+    private var pageServer: HerdrServer? {
+        if store.selectedBot?.sampleProfile != nil { return SampleWorkspace.server }
+        if store.herdrConfigured {
+            return store.selectedBot.map { store.herdrServer(for: $0) } ?? store.herdrServers.first
+        }
+        return store.bots.contains { $0.sampleProfile != nil && !$0.isHidden } ? SampleWorkspace.server : nil
     }
 
-    private func openLibrary(query: String) {
-        library = LibraryRequest(serverID: pageServer.id, query: query)
+    private func openLibrary(_ server: HerdrServer, query: String) {
+        library = LibraryRequest(serverID: server.id, query: query)
     }
 
     private func move(_ offset: Int, proxy: ScrollViewProxy) {
@@ -149,7 +153,9 @@ struct CommandPaletteView: View {
             if let group = store.groups.first(where: { $0.id == location.conversation }) { store.open(group) }
             else if let bot = store.bots.first(where: { $0.id == location.conversation }) { store.open(bot) }
             store.scrollTarget = location
-        case .findPages: openLibrary(query: query); return
+        case .findPages:
+            if let pageServer { openLibrary(pageServer, query: query) }
+            return
         case .page(let link):
             page = link
             return

@@ -94,6 +94,7 @@ private func item(_ id: String, enabled: Bool = true) -> QuickSwitcherModel.Item
         let row = ChatMessage(role: .assistant, content: "Read the attached Page.")
         let data = Data(#"{"serverID":"\#(server)","items":[{"id":94,"kind":"page","title":"Résumé","pageID":7,"revision":\#(revision)}]}"#.utf8)
         row.publishedResults = try JSONDecoder().decode(HerdrReplyResults.self, from: data)
+        if revision == 3 { row.publishedResults?.items[0].excerpt = "Un déploiement validé." }
         return row
     }
     bot.messages = try [message(server: "mac", revision: 2), message(server: "mac", revision: 2),
@@ -104,6 +105,8 @@ private func item(_ id: String, enabled: Bool = true) -> QuickSwitcherModel.Item
         if case .page(let link) = item.target { return link }
         return nil
     }
+    let fromExcerpt = await QuickSwitcherModel.messages(in: store, query: "deploiement")
+    #expect(fromExcerpt.map(\.target) == [.page(.init(serverID: "mac", pageID: 7, revision: 3, title: "Résumé"))])
     #expect(pages.count == 3)
     #expect(Set(pages) == [.init(serverID: "mac", pageID: 7, revision: 2, title: "Résumé"),
                            .init(serverID: "mac", pageID: 7, revision: 3, title: "Résumé"),

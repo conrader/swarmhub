@@ -110,7 +110,7 @@ struct QuickSwitcherModel: Equatable {
         var foundPages = Set<String>()
         func match(_ row: MessageRow, imported: Bool = false) {
             if let publications = row.publications {
-                for page in publications.items where page.kind == .page && page.title.localizedStandardContains(term) {
+                for page in publications.items where page.matchesPage(term) {
                     guard let pageID = page.pageID else { continue }
                     let link = WorkspacePageLink(serverID: publications.serverID, pageID: pageID, revision: page.revision, title: page.title)
                     if foundPages.insert(link.id).inserted {
