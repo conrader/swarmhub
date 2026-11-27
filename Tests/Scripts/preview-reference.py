@@ -6,6 +6,8 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
+from preview_sidebar import check_jarvis_branch
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -18,6 +20,17 @@ def main():
         browser = playwright.chromium.launch(executable_path=args.chromium)
         page = browser.new_page(viewport={"width": 1440, "height": 1100}, device_scale_factor=1)
         shell = page.locator("#workspace-shell")
+        def sidebar_selection(selected):
+            rows = {}
+            for name in ("jarvis", "tests", "rename", "patch"):
+                kind = "helper" if name in helpers else "bot"
+                row = shell.locator(f'[data-select-{kind}="{name}"]')
+                expect(row).to_be_in_viewport()
+                box = row.bounding_box()
+                rows[name] = (tuple(box[k] for k in ("x", "y", "width", "height")),
+                              row.get_attribute("aria-selected") == "true")
+            check_jarvis_branch(rows, selected)
+
         for theme in ("dark", "light"):
             page.goto("https://swarmhub.org/", wait_until="domcontentloaded")
             page.locator(f'[data-workspace-theme="{theme}"]').click()
@@ -44,11 +57,13 @@ def main():
                     expect(feed).to_contain_text(text)
                 expect(feed.locator(".terminal-pre")).to_contain_text(expected["terminal"])
                 expect(feed.get_by_role("button", name="Stop helper")).to_have_count(int(expected["canStop"]))
+                sidebar_selection(helper)
                 shell.screenshot(path=args.directory / f"{theme}-{helper}.png")
             shell.get_by_role("button", name="Steer via Jarvis").click()
             expect(shell.locator("#chat-active-name")).to_contain_text("Jarvis")
             expect(shell.locator("#mac-feed")).to_contain_text("Opened Jarvis to steer helper “rename”")
             expect(shell.locator("#mac-composer-input")).to_be_focused()
+            sidebar_selection("jarvis")
             shell.screenshot(path=args.directory / f"{theme}-steer-rename.png")
             shell.locator("#select-inbox").click()
             expect(shell.locator("#inbox-badge")).to_have_text("2")

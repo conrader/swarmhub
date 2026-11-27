@@ -62,7 +62,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                 }.padding(.top, 3)
             }
         if hasSessions && expanded {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
                 ForEach(groups) { group in
                     let parent = group.id
                     if let archive = parent.archive, groups.count > 1 {
@@ -109,8 +109,12 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         .accessibilityLabel(row.job.description + " for " + bot.name + " · " + target.detail)
                 }
             }
+            .padding(.leading, 8)
+            .padding(.trailing, 4)
             .overlay(alignment: .leading) { Rectangle().fill(AppColor.separator).frame(width: 1).accessibilityHidden(true) }
             .padding(.leading, SidebarMetrics.rowPadding + SidebarMetrics.mark / 2)
+            .padding(.top, 1)
+            .padding(.bottom, 5)
         }
     }
 }
@@ -223,7 +227,7 @@ struct HerdrHelperRow: View {
     let selected: Bool
     let open: () -> Void
     private var helper: HerdrClient.Helper { row.helper }
-    static let height: CGFloat = 44
+    static let height: CGFloat = 50
 
     var body: some View {
         SidebarSessionRow(bot: bot, name: helper.name, detail: Self.fragment(helper), selected: selected,

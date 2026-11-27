@@ -617,6 +617,21 @@ def sample_preview(source_app, destination, appearance, library):
                     press_transition(window, second, story + " result", lambda: has_button("Replay walkthrough"))
                     snapshots.capture(story + "-step3")
             helpers = json.loads((Path(__file__).resolve().parents[1] / "Fixtures/preview-helpers.json").read_text())
+            from preview_sidebar import check_jarvis_branch
+
+            def sidebar_selection(selected):
+                rows = {}
+                for button in buttons(window):
+                    title = label(button)
+                    for key in ("jarvis", "tests", "rename", "patch"):
+                        match = (title == helpers[key]["sidebarLabel"] if key in helpers
+                                 else title.startswith(key.capitalize() + ","))
+                        if match:
+                            point = ax.AXValueGetValue(attribute(button, "AXPosition"), ax.kAXValueCGPointType, None)[1]
+                            size = ax.AXValueGetValue(attribute(button, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+                            rows[key] = ((point.x, point.y, size.width, size.height), bool(attribute(button, "AXSelected")))
+                check_jarvis_branch(rows, selected)
+
             for name, expected in helpers.items():
                 def shows_conversation():
                     elements = list(descendants(window))
@@ -633,11 +648,13 @@ def sample_preview(source_app, destination, appearance, library):
                             and any(expected["terminal"] in text for text in static_text(descendants(terminal)))
                             and has_button("Stop helper") == expected["canStop"])
                 press_transition(window, expected["sidebarLabel"], name + " conversation", shows_conversation)
+                sidebar_selection(name)
                 snapshots.capture(name)
             def instruction_focused():
                 return any(attribute(e, "AXRole") == "AXTextField" and attribute(e, "AXFocused") and
                            "Instruction for rename" in (label(e), attribute(e, "AXPlaceholderValue")) for e in descendants(window))
             press_transition(window, "Steer via Jarvis", "focused guidance for rename", instruction_focused)
+            sidebar_selection("jarvis")
             snapshots.capture("steer-rename")
 
             def action(title):
