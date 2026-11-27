@@ -84,6 +84,7 @@ extension AppStore {
         if inspectorTerminal != nil { inspectorTerminal = nil }
         if showOnlyAttention { showOnlyAttention = false }
         selectedBot = bot; selectedGroup = nil; openHerdrHelper = helper
+        if let helper { revealSession(helper, for: bot) }
         if remember { rememberSelection(bot: bot) }
         if helper == nil, bot.isUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }
     }

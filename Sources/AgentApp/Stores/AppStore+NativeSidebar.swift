@@ -34,7 +34,7 @@ extension AppStore {
         objectWillChange.send()
     }
 
-    func nativeSidebarRows(_ list: HerdrClient.Helpers, for bot: Bot) -> [NativeSidebarRow] {
+    func nativeSidebarRows(_ list: HerdrClient.Helpers, for bot: Bot, includingFolded: Bool = false) -> [NativeSidebarRow] {
         let threads = list.nativeThreads
         let folded = nativeFolds(for: bot)
         let ids = Set(threads.map { ThreadKey(provider: $0.provider, id: $0.id) })
@@ -50,7 +50,7 @@ extension AppStore {
             let target = LiveTerminal(thread: thread, owner: list.parent, core: list.core)
             let closed = folded.contains(target.id)
             result.append(.init(thread: thread, target: target, depth: depth, hasChildren: !nested.isEmpty, folded: closed))
-            if !closed {
+            if includingFolded || !closed {
                 pending += nested.reversed().map { ($0, depth + 1) }
             }
         }
@@ -112,11 +112,42 @@ extension AppStore {
         }
     }
 
-    func sessionRows(under parent: HerdrHelperParent, for bot: Bot) -> [SidebarSessionItem] {
+    /// The inspector and Back can navigate to a session even while its branch is folded.
+    func revealSession(_ selection: HerdrHelperSelection, for bot: Bot) {
+        guard selection.botID == bot.id else { return }
+        let root = HerdrHelperParent(botID: bot.id, groupRuntime: selection.groupRuntime, archive: selection.archive)
+        let rows = sessionRows(under: root, for: bot, includingFolded: true)
+        let index = rows.firstIndex { row in
+            let candidate = row.selection
+            guard candidate.parent == selection.parent, candidate.helperID == selection.helperID else { return false }
+            if let native = selection.native {
+                return candidate.native?.server == native.server && candidate.native?.core == native.core
+                    && candidate.native?.owner == native.owner && candidate.native?.thread.provider == native.thread.provider
+            }
+            return candidate.native == nil
+        }
+        guard let index else { return }
+        var depth = rows[index].depth
+        for row in rows[..<index].reversed() where row.depth < depth {
+            switch row {
+            case .native(let ancestor, _, _): setNativeSessionFolded(false, target: ancestor.id, for: bot)
+            case .workspace(let ancestor): setHelperBranchFolded(false, branch: ancestor.branch, for: bot)
+            }
+            depth = row.depth
+            if depth == 0 { break }
+        }
+        if !sessionsExpanded(for: bot) { setSessionsExpanded(true, for: bot) }
+        if let bucket = sidebarLayout.sections.first(where: { $0.isCollapsed && $0.chats.contains { $0.id == bot.id } }) {
+            setSidebarSectionCollapsed(bucket.id, false)
+        }
+        if bot.isHidden && !showingHiddenBots { showingHiddenBots = true }
+    }
+
+    func sessionRows(under parent: HerdrHelperParent, for bot: Bot, includingFolded: Bool = false) -> [SidebarSessionItem] {
         func native(under parent: HerdrHelperParent, depth: Int) -> [SidebarSessionItem] {
             guard let list = herdrHelpers[parent], !list.nativeThreads.isEmpty else { return [] }
             let server = herdrServer(for: bot)
-            return nativeSidebarRows(list, for: bot).map { row in
+            return nativeSidebarRows(list, for: bot, includingFolded: includingFolded).map { row in
                 let selection = HerdrHelperSelection(botID: bot.id, helperID: row.thread.id, groupRuntime: parent.groupRuntime,
                                                      source: parent.source, archive: parent.archive,
                                                      native: .init(thread: row.thread, core: list.core, owner: list.parent, server: server))
@@ -124,7 +155,8 @@ extension AppStore {
             }
         }
         var entries = native(under: parent, depth: 0)
-        for helper in visibleHelperSessions(under: parent, for: bot) {
+        let helpers = includingFolded ? sidebarSessions(under: parent) : visibleHelperSessions(under: parent, for: bot)
+        for helper in helpers {
             entries.append(.workspace(helper))
             if !helper.folded {
                 let owner = helper.id.parent.children(of: helper.helper.ref, core: helper.core)

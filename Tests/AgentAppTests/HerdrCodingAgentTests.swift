@@ -445,6 +445,34 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         #expect(store.openHerdrHelper == nil && store.selectedBot?.id == bot.id)
     }
 
+    @Test func openingSessionRevealsOnlyItsSectionAndAncestors() throws {
+        let store = makeStore(), bot = Bot(name: "Patch", backend: .herdr)
+        store.bots = [bot]
+        #expect(store.createSidebarSection(named: "Release", adding: bot.id))
+        let section = try #require(store.sidebar.sections.first?.id)
+        let root = HerdrHelperParent(botID: bot.id)
+        let branch = root.children(of: helper.ref, core: "core")
+        let review = HerdrClient.NativeThread(id: "review", parent: "root", name: "Review", model: nil,
+                                              createdMs: 3, state: "working", task: "", reply: "")
+        let child = HerdrClient.NativeThread(id: "item", parent: "review", name: "Item", model: nil,
+                                             createdMs: 4, state: "working", task: "", reply: "")
+        var otherReview = review, otherChild = child
+        otherReview.runtime = .claude; otherChild.runtime = .claude
+        store.herdrHelpers[root] = .init(core: "core", parent: parent, helpers: [helper])
+        store.herdrHelpers[branch] = .init(core: "core", parent: helper.ref, helpers: [],
+                                            codexThreads: [review, child], claudeThreads: [otherReview, otherChild])
+        let rows = store.sessionRows(under: root, for: bot)
+        let target = try #require(rows.first { $0.selection.native?.thread == child }).selection
+        for row in rows where row.selection.helperID == review.id { store.setNativeSessionFolded(true, target: row.id, for: bot) }
+        let ancestor = try #require(store.sidebarSessions(under: root).first)
+        store.setHelperBranchFolded(true, branch: ancestor.branch, for: bot)
+        store.setSessionsExpanded(false, for: bot)
+        store.setSidebarSectionCollapsed(section, true)
+        store.open(bot, helper: target)
+        #expect(store.sessionsExpanded(for: bot) && store.sidebar.section(section)?.collapsed == false)
+        #expect(store.sessionRows(under: root, for: bot).map(\.selection.native?.thread) == [nil, review, child, otherReview])
+    }
+
     @Test func sidebarFoldsSurviveReopeningAndKeepOtherLaunchesAndProvidersVisible() throws {
         let store = makeStore()
         let bot = Bot(name: "Patch", backend: .herdr)
