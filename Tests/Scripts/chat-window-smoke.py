@@ -513,7 +513,7 @@ def sample_workspace(source_app):
                     return any(label(b) == title for b in buttons(window))
 
                 def has_text(text):
-                    return any(text in str(attribute(e, "AXValue") or "") for e in descendants(window))
+                    return any(text in str(attribute(e, "AXValue") or label(e)) for e in descendants(window))
 
                 def pane(identifier):
                     return next((e for e in descendants(window) if attribute(e, "AXIdentifier") == identifier), None)
