@@ -26,6 +26,7 @@ def evaluate(rows):
         "archive_twins": ("protected_intact",),
         "partial_resume": ("no_early_change", "protected_intact"),
         "short_consent": ("no_early_change", "protected_intact"),
+        "interrupted_consent": ("no_early_change", "unchanged_during_question", "protected_intact"),
         "resume": ("no_early_change", "protected_intact"),
     }
     violations = 0
