@@ -229,7 +229,9 @@ private let listingJSON = """
     store.herdrHelpers[selection.parent] = list
     #expect(store.guideHelper(helper, selection: selection, of: bot, instruction: "Review the lighting."))
     let message = try #require(group.messages.last(where: { $0.role == .user }))
-    #expect(message.content.contains(helper.name) && message.content.contains("Review the lighting."))
+    #expect(message.content == "Review the lighting." && message.metadata[HelperGuidanceKey.helper] == helper.name)
+    #expect(message.modelText.contains(helper.name) && message.modelText.hasSuffix("\nReview the lighting."))
+    #expect(store.latestGuidance(for: selection, of: bot) === message)
     #expect(message.metadata[TurnWaitCopy.recipients] == bot.id.uuidString && message.replyToID == nil)
     #expect(store.selectedGroup === group && store.draftReplyIDs[group.id] == quote.id)
     #expect(bot.messages.isEmpty && other.messages.isEmpty)
@@ -475,5 +477,9 @@ private let listingJSON = """
             && !$0.contains("thread left") && $0.contains("Check malformed rows first")
     } }
     #expect(store.helperSteeringDrafts[bot.id] == nil && store.drafts.text(for: bot.id) == "A separate question")
+    #expect(store.latestGuidance(for: target, of: bot)?.content == "Check malformed rows first")
+    let sibling = HerdrHelperSelection(botID: bot.id, helperID: "left",
+        native: .init(thread: threads[0], core: list.core, owner: owner, server: server))
+    #expect(store.latestGuidance(for: sibling, of: bot) == nil)
     await backend.end()
 }

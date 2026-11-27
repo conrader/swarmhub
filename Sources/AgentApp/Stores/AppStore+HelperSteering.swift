@@ -125,7 +125,6 @@ extension AppStore {
     }
 }
 
-
 enum HelperGuidanceKey {
     static let route = "helperGuidanceRoute"
     static let helper = "helperGuidanceName"
