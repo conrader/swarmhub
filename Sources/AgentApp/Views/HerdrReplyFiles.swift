@@ -59,8 +59,12 @@ private struct PublishedResultRow: View {
                     Button("Retry preview") { retry += 1 }
                 } else { ProgressView("Loading preview…").controlSize(.small) }
             }
-            Button { showing = true } label: {
-                Label("Open \(item.title)", systemImage: item.kind == .page ? "doc.richtext" : kind == .video ? "film" : kind == .image ? "photo" : "paperclip")
+            if item.kind == .page, let excerpt = item.excerpt {
+                PublishedBriefCard(title: item.title, excerpt: excerpt) { showing = true }
+            } else {
+                Button { showing = true } label: {
+                    Label("Open \(item.title)", systemImage: item.kind == .page ? "doc.richtext" : kind == .video ? "film" : kind == .image ? "photo" : "paperclip")
+                }
             }
         }
         .task(id: retry) {

@@ -120,7 +120,9 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
             println!("This program: version [--json]");
             println!("Direct threads: thread-reply TOKEN (answer on standard input)");
             println!("Groups: group-handoff TOKEN (to and task JSON on standard input)");
-            println!("Routines: routine-result TOKEN succeeded|failed (outcome on standard input)");
+            println!(
+                "Routines: routine-result TOKEN succeeded|failed [--page ID REVISION] (outcome on standard input)"
+            );
             println!(
                 "Proposals: propose-routine (name, task, and schedule JSON on standard input)"
             );
@@ -146,7 +148,8 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
 
 fn routine_result() -> Result<(), Box<dyn std::error::Error>> {
     use crate::routines::Outcome;
-    const USAGE: &str = "Usage: swarmhub-herdr routine-result TOKEN succeeded|failed";
+    const USAGE: &str =
+        "Usage: swarmhub-herdr routine-result TOKEN succeeded|failed [--page ID REVISION]";
     let (journal, launch) = session()?;
     let mut args = env::args_os().skip(2);
     let token = args
@@ -159,17 +162,33 @@ fn routine_result() -> Result<(), Box<dyn std::error::Error>> {
         Some("failed") => Outcome::Failed,
         _ => return Err(USAGE.into()),
     };
-    if args.next().is_some() {
-        return Err(USAGE.into());
-    }
+    let page = match args.next().as_deref() {
+        None => None,
+        Some(flag) if flag == "--page" => {
+            let mut positive = || {
+                args.next()
+                    .and_then(|v| v.into_string().ok()?.parse::<i64>().ok())
+                    .filter(|v| *v > 0)
+                    .ok_or(USAGE)
+            };
+            let page = (positive()?, positive()?);
+            if args.next().is_some() {
+                return Err(USAGE.into());
+            }
+            Some(page)
+        }
+        _ => return Err(USAGE.into()),
+    };
     let text = read_input(MAX_TEXT)?;
     if text.trim().is_empty() {
         return Err("Enter a routine outcome on standard input.".into());
     }
-    if !crate::routines::publish_result(&journal, &launch, &token, outcome, &text)
+    if !crate::routines::publish_result(&journal, &launch, &token, outcome, &text, page)
         .map_err(|_| "Could not save the routine outcome.")?
     {
-        return Err("This routine result link is unavailable, or has already been used.".into());
+        return Err(
+            "This run or Page revision is unavailable, or the outcome was already saved.".into(),
+        );
     }
     println!("Routine outcome saved.");
     Ok(())

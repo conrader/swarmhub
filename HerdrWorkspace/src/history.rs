@@ -867,6 +867,7 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-opencode-spend.sql"),
         include_str!("migrate-document-review.sql"),
         include_str!("migrate-ci-push.sql"),
+        include_str!("migrate-routine-pages.sql"),
     ]
 }
 

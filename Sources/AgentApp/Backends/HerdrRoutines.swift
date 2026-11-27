@@ -131,6 +131,11 @@ extension HerdrClient {
         var ownerBot: UUID? = nil
     }
 
+    struct RoutinePage: Codable, Sendable, Equatable {
+        let id, revision: Int
+        let title, excerpt: String
+    }
+
     struct RoutineRun: Codable, Identifiable, Sendable {
         struct Conversation: Codable, Sendable {
             let core: String
@@ -140,6 +145,7 @@ extension HerdrClient {
         }
 
         struct Outcome: Codable, Sendable {
+            var page: RoutinePage? = nil
             let id: Int64
             let state: String
             let summary: String

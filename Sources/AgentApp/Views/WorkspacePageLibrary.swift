@@ -1,5 +1,28 @@
 import SwiftUI
 
+struct PublishedBriefCard: View {
+    let title: String
+    let excerpt: String
+    let open: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(verbatim: title).font(.headline)
+                Spacer(minLength: 4)
+                Text("Published Page").font(.caption).foregroundStyle(.secondary)
+            }
+            let lines = excerpt.split(whereSeparator: \.isNewline).prefix(5).map { SidebarFragment.plain(String($0)) }
+            let summary = lines.first == title ? lines.dropFirst() : lines[...]
+            Text(verbatim: summary.prefix(3).joined(separator: "\n")).font(.callout).lineLimit(4)
+            Button("Open Page", action: open).accessibilityLabel("Open " + title)
+        }
+        .padding(10).frame(maxWidth: 500, alignment: .leading)
+        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(AppColor.separator) }
+    }
+}
+
 struct WorkspacePageReader: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss

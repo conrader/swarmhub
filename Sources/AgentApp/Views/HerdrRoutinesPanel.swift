@@ -218,7 +218,7 @@ struct HerdrRoutinesPanel: View {
             if case .webhook(let source, _, _) = routine.schedule {
                 webhookSettings(routine, source: source)
             }
-            HerdrRoutineActivity(routine: routine, isExpanded: Binding(
+            HerdrRoutineActivity(serverID: server.id, routine: routine, isExpanded: Binding(
                 get: { expanded.contains(routine.id) },
                 set: { if $0 { expanded.insert(routine.id) } else { expanded.remove(routine.id) } }
             ), refresh: refresh, revision: activityRevisions[routine.id, default: 0],
@@ -425,6 +425,8 @@ struct ScheduleDisclosure<Detail: View>: View {
 }
 
 private struct HerdrRoutineActivity: View {
+    let serverID: String
+    @State private var selectedPage: WorkspacePageLink?
     @Environment(\.timeZone) private var timeZone
     let routine: HerdrClient.Routine
     @Binding var isExpanded: Bool
@@ -473,6 +475,7 @@ private struct HerdrRoutineActivity: View {
             history
         }
         .font(.caption)
+        .sheet(item: $selectedPage) { WorkspacePageReader(link: $0) }
         .task(id: Load(expanded: isExpanded, refresh: refresh, revision: revision, retry: retry)) {
             if isWebhook || isExpanded { await load() }
         }
@@ -570,6 +573,11 @@ private struct HerdrRoutineActivity: View {
             if let result = run.result {
                 Text("Outcome · \(stateLabel(result.state))").fontWeight(.medium)
                 Text(result.summary).textSelection(.enabled)
+                if let page = result.page {
+                    PublishedBriefCard(title: page.title, excerpt: page.excerpt) {
+                        selectedPage = .init(serverID: serverID, pageID: page.id, revision: page.revision, title: page.title)
+                    }
+                }
             } else if run.awaitingResult == true {
                 Text("Waiting for a result").foregroundStyle(.secondary)
             }

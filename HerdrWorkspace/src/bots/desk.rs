@@ -273,6 +273,7 @@ fn read_replies(w: &Workspace) -> Result<(), crate::history::StoreError> {
             .prepare_cached(
                 "SELECT id,reply_for,text FROM journal
                  WHERE id>?1 AND kind='reply' AND reply_for IS NOT NULL AND answers_task IS NULL
+                   AND NOT EXISTS(SELECT 1 FROM bot_history h WHERE h.journal=journal.id AND h.code='routine_result')
                  ORDER BY id LIMIT 50",
             )?
             .query_map([cursor], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?

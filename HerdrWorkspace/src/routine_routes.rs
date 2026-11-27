@@ -685,7 +685,7 @@ async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>) -
         .filter(|path| path.len() <= 512 && !path.chars().any(char::is_control))
         .map(|path| format!("{} routine-result", crate::agent::shell_quote(&path)))
         .filter(|command| {
-            source.len() + item.task.len() + suffix.len() + command.len() + 300 <= 16_384
+            source.len() + item.task.len() + suffix.len() + command.len() + 450 <= 16_384
         });
     let Ok(token) = w
         .history
@@ -695,7 +695,7 @@ async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>) -
     };
     let report = match (command, token) {
         (Some(command), Some(token)) => format!(
-            "\nWhen this run finishes, pipe a short outcome report to this command: {command} {token} succeeded\nUse failed instead of succeeded when the task could not be completed, and explain why. Post once and keep the token out of your report.\n"
+            "\nWhen this run finishes, pipe a short outcome report to this command: {command} {token} succeeded\nFor a Page you published, append --page PAGE_ID REVISION using the numbers from publish-page.\nUse failed instead of succeeded when the task could not be completed, and explain why. Post once and keep the token out of your report.\n"
         ),
         _ => String::new(),
     };

@@ -353,6 +353,8 @@ pub struct RunConversation {
 
 #[derive(Serialize)]
 pub struct RunResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) page: Option<ResultPage>,
     pub id: i64,
     pub state: String,
     pub summary: String,
@@ -601,6 +603,7 @@ impl History {
                     awaiting_result: row.get(6)?,
                     result: match row.get(7)? {
                         Some(id) => Some(RunResult {
+                            page: result_page(&db, id)?,
                             id,
                             state: row.get(8)?,
                             summary: row.get(9)?,
@@ -950,12 +953,32 @@ impl History {
     }
 }
 
+/// The revision explicitly supplied by the bot when it reports this run's outcome.
+#[derive(Serialize)]
+pub(crate) struct ResultPage {
+    pub id: i64,
+    pub revision: i64,
+    pub title: String,
+    pub excerpt: String,
+}
+
+pub(crate) fn result_page(db: &Connection, result: i64) -> rusqlite::Result<Option<ResultPage>> {
+    db.query_row(
+        "SELECT v.page,v.revision,v.title,substr(v.markdown,1,480)
+         FROM routine_result_pages r JOIN workspace_page_versions v ON v.page=r.page AND v.revision=r.revision
+         WHERE r.result=?1",
+        [result],
+        |row| Ok(ResultPage { id: row.get(0)?, revision: row.get(1)?, title: row.get(2)?, excerpt: row.get(3)? }),
+    ).optional()
+}
+
 pub fn publish_result(
     path: &std::path::Path,
     launch: &str,
     token: &str,
     outcome: Outcome,
     text: &str,
+    page: Option<(i64, i64)>,
 ) -> Result<bool, StoreError> {
     let mut db = crate::history::connection(path)?;
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -974,6 +997,16 @@ pub fn publish_result(
     let Some(run) = run else {
         return Ok(false);
     };
+    if let Some((id, revision)) = page {
+        let owned: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM workspace_pages p JOIN workspace_page_versions v ON v.page=p.id
+             WHERE p.owner_launch=?1 AND p.id=?2 AND v.revision=?3)",
+            params![launch, id, revision], |row| row.get(0),
+        )?;
+        if !owned {
+            return Ok(false);
+        }
+    }
     let result: i64 = tx.query_row(
         "INSERT INTO journal (reply_for,core_id,address,created_ms,agent,kind,state,text,detail,at_ms)
          SELECT launch_key,core_id,address,created_ms,agent,'reply','received',?2,?3,?4
@@ -985,6 +1018,20 @@ pub fn publish_result(
         "UPDATE routine_runs SET result_id=?2,result_state=?3,result_token=NULL WHERE id=?1",
         params![run, result, outcome.state()],
     )?;
+    if let Some((id, revision)) = page {
+        tx.execute(
+            "INSERT INTO routine_result_pages(result,page,revision) VALUES (?1,?2,?3)",
+            params![result, id, revision],
+        )?;
+    }
+    if let crate::bots::Who::Bot(bot) = crate::bots::of_launch(&tx, launch)? {
+        tx.execute(
+            "INSERT INTO bot_history(bot,kind,text,at_ms,unread,notify,code,journal)
+             SELECT ?1,'said',text,at_ms,1,0,'routine_result',id FROM journal WHERE id=?2
+               AND NOT EXISTS(SELECT 1 FROM group_members WHERE launch_key=?3)",
+            params![bot.id, result, launch],
+        )?;
+    }
     tx.commit()?;
     Ok(true)
 }
@@ -1138,6 +1185,43 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn reported_page_is_owned_pinned_and_delivered_once() {
+        use crate::bots::testing::{journal, session};
+        let (_scratch, history) = journal(&["Scout", "Patch"]);
+        let launch = session(&history, "Scout", "1");
+        let other = session(&history, "Patch", "2");
+        let db = history.db().unwrap();
+        let routine = insert_daily(&db, 8, 55, 1);
+        let run = make_run(&db, routine, "test", 1, "sent", None).unwrap();
+        db.execute(
+            "UPDATE routine_runs SET task_id=(SELECT id FROM journal WHERE launch_key=?1),result_token='once' WHERE id=?2",
+            params![launch, run],
+        ).unwrap();
+        let create = |key: &str| db.query_row(
+            "INSERT INTO workspace_pages(owner_launch,title,markdown,updated_ms) VALUES(?1,'Morning brief','Original',1) RETURNING id",
+            [key], |r| r.get::<_, i64>(0),
+        ).unwrap();
+        let id = create(&launch);
+        let foreign = create(&other);
+        let report = |key, page| publish_result(history.file(), key, "once", Outcome::Succeeded, "Published", Some(page)).unwrap();
+        assert!(!report(&launch, (id, 2)));
+        assert!(!report(&launch, (foreign, 1)));
+        assert!(!report(&other, (foreign, 1)));
+        assert!(report(&launch, (id, 1)));
+        assert!(!report(&launch, (id, 1)));
+        let result: i64 = db.query_row("SELECT journal FROM bot_history WHERE code='routine_result' AND bot='scout-id'", [], |r| r.get(0)).unwrap();
+        assert_eq!(history.routine_runs(routine).unwrap()[0].result.as_ref().unwrap().id, result);
+        db.execute("DELETE FROM routine_runs WHERE id=?1", [run]).unwrap();
+        for revision in 2..=53 {
+            db.execute("UPDATE workspace_pages SET revision=?1,markdown='Updated' WHERE id=?2", params![revision, id]).unwrap();
+        }
+        let saved = result_page(&db, result).unwrap().unwrap();
+        assert_eq!((saved.id, saved.revision, saved.excerpt.as_str()), (id, 1, "Original"));
+        let count: i64 = db.query_row("SELECT count(*) FROM workspace_page_versions WHERE page=?1", [id], |r| r.get(0)).unwrap();
+        assert_eq!(count, 51);
     }
 
     #[test]
