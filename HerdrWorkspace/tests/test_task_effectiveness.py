@@ -17,14 +17,14 @@ class TaskEffectivenessTests(unittest.TestCase):
                 p = Path(temporary)
                 _, truth = setup(p, case, 41)
                 self.assertFalse(all(grade(p, case, truth).values()))
-                if case in ("handoff", "resume", "archive", "archive_twins"):
-                    if case == "resume":
+                if case in ("handoff", "resume", "short_consent", "archive", "archive_twins"):
+                    if case in ("resume", "short_consent"):
                         self.assertFalse(check_proposal(p, truth)["valid_plan"])
                         (p / "plan.json").write_text(json.dumps(list(truth["eligible"])))
                         self.assertTrue(all(check_proposal(p, truth).values()))
                     for name in truth["eligible"]:
                         (p / name).unlink()
-                    if case == "resume":
+                    if case in ("resume", "short_consent"):
                         self.assertFalse(check_proposal(p, truth)["no_early_change"])
                     protected = p / ("inventory.json" if case.startswith("archive") else "jobs.json")
                 elif case == "partial_resume":
@@ -54,6 +54,16 @@ class TaskEffectivenessTests(unittest.TestCase):
                 self.assertTrue(all(grade(p, case, truth).values()))
                 protected.write_text("modified")
                 self.assertFalse(all(grade(p, case, truth).values()))
+
+    def test_short_consent_requires_space_on_the_target_volume(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            p = Path(temporary)
+            _, truth = setup(p, "short_consent", 2111)
+            for name in truth["eligible"]:
+                (p / name).rename((p / name).with_suffix(".renamed"))
+            checks = grade(p, "short_consent", truth)
+            self.assertTrue(checks["eligible_removed"])
+            self.assertFalse(checks["root_target"])
 
     def test_partial_consent_requires_actual_space_and_preserves_withheld_file(self):
         with tempfile.TemporaryDirectory() as temporary:
