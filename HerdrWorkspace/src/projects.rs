@@ -34,6 +34,13 @@ use std::collections::HashMap;
 
 pub(crate) mod cli;
 
+/// Core machine aliases cannot contain spaces. Existing SSH aliases (including "local") keep their meaning.
+pub(crate) const WORKSPACE_HOST: &str = "Workspace host";
+
+fn core_target(machine: &str) -> Option<&str> {
+    (machine != WORKSPACE_HOST).then_some(machine)
+}
+
 const NAME_SHAPE: &str = "Use 1–32 lowercase letters, digits, dots, dashes or underscores for a project's name, starting with a letter or digit.";
 const FOLDER_SHAPE: &str = "Give the project's folder as a full path on its machine, such as /srv/shop, without `..` in it.";
 const NOTE_SHAPE: &str = "Keep the note to 500 characters of plain text.";
@@ -62,7 +69,7 @@ pub(crate) const WRITE_BYTES: usize = 128 * 1024;
 const MAX_EDITS: usize = 32;
 
 const NOT_AN_AGENT: &str = "This terminal is not a SwarmHub agent session, so it has no projects.";
-const NO_PROJECTS: &str = "You have no projects on other machines. The person who runs this workspace chooses them for each agent in SwarmHub; ask them if you need one.";
+const NO_PROJECTS: &str = "You have no assigned projects. The person who runs this workspace chooses them for each agent in SwarmHub; ask them if you need one.";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Project {
@@ -281,7 +288,7 @@ pub(crate) fn launch_hint(projects: &[Project]) -> Option<String> {
         .map(|project| format!("{} (on {})", project.name, project.machine))
         .collect();
     Some(format!(
-        "You may work on these projects on other machines: {}. Run `swarmhub-herdr project list` to see them and how to run commands and edit files there.",
+        "You may work on these projects: {}. Run `swarmhub-herdr project list` to see them and how to run commands and edit files there.",
         names.join(", ")
     ))
 }
@@ -348,6 +355,7 @@ async fn machine_states(w: &Workspace) -> Option<HashMap<String, String>> {
             .ok()?
             .into_iter()
             .map(|machine| (machine.name, machine.state))
+            .chain(std::iter::once((WORKSPACE_HOST.to_owned(), "connected".to_owned())))
             .collect(),
     )
 }
@@ -397,14 +405,6 @@ async fn list(State(w): State<Workspace>) -> Response {
 
 /// Whether `folder` is a folder on `machine` now, by asking that machine.
 async fn check_folder(w: &Workspace, machine: &str, folder: &str) -> Result<(), Refusal> {
-    let machines = w.core.machines().await.map_err(core_trouble)?;
-    let Some(found) = machines.iter().find(|known| known.name == machine) else {
-        return Err(refusal(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "machine_unknown",
-            &format!("Herdr has no machine named {machine}. Add the server first."),
-        ));
-    };
     let unreachable = |why: &str| {
         refusal(
             StatusCode::CONFLICT,
@@ -414,8 +414,18 @@ async fn check_folder(w: &Workspace, machine: &str, folder: &str) -> Result<(), 
             ),
         )
     };
-    if found.state != "connected" {
-        return Err(unreachable(&found.state));
+    if let Some(machine) = core_target(machine) {
+        let machines = w.core.machines().await.map_err(core_trouble)?;
+        let Some(found) = machines.iter().find(|known| known.name == machine) else {
+            return Err(refusal(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "machine_unknown",
+                &format!("Herdr has no machine named {machine}. Add the server first."),
+            ));
+        };
+        if found.state != "connected" {
+            return Err(unreachable(&found.state));
+        }
     }
     let failed = |why: &str| {
         refusal(
@@ -427,7 +437,7 @@ async fn check_folder(w: &Workspace, machine: &str, folder: &str) -> Result<(), 
     let argv = ["test".to_owned(), "-d".to_owned(), folder.to_owned()];
     match w
         .core
-        .run_on(machine, "/", Program::Argv(&argv), CHECK_SECONDS)
+        .run_on(core_target(machine), "/", Program::Argv(&argv), CHECK_SECONDS)
         .await
     {
         Ok(ran) if ran.code == Some(0) => Ok(()),
@@ -452,7 +462,7 @@ fn checked(project: &Project, shape: &'static str) -> Result<(), Refusal> {
         (valid_name(&project.name), NAME_SHAPE),
         (valid_folder(&project.folder), FOLDER_SHAPE),
         (valid_note(&project.note), NOTE_SHAPE),
-        (core::valid_name(&project.machine), shape),
+        (project.machine == WORKSPACE_HOST || core::valid_name(&project.machine), shape),
     ] {
         if !fits {
             return Err(invalid(shape));
@@ -772,7 +782,7 @@ fn list_text(projects: &[Project], states: Option<&HashMap<String, String>>) -> 
         return NO_PROJECTS.into();
     }
     let mut text = String::from(
-        "Your projects on other machines. Commands and file changes happen there, in the project's folder, not on this server:\n",
+        "Your projects. Commands and file changes run in the folder on the host shown:\n",
     );
     for project in projects {
         let state = match states.map(|states| states.get(&project.machine)) {
@@ -871,8 +881,8 @@ async fn answer_whole(
             Ask::Run { project, .. } | Ask::Read { project, .. } | Ask::Write { project, .. }
             | Ask::Edit { project, .. } => Some(find(project)?),
         };
-        if let Some(project) = project {
-            ordinary_project_account(w, &project.machine).await?;
+        if let Some(machine) = project.and_then(|p| core_target(&p.machine)) {
+            ordinary_project_account(w, machine).await?;
         }
     }
     match ask {
@@ -905,7 +915,7 @@ async fn answer_whole(
             };
             let ran = w
                 .core
-                .run_on(&project.machine, &project.folder, program, seconds)
+                .run_on(core_target(&project.machine), &project.folder, program, seconds)
                 .await
                 .map_err(|failure| match failure {
                     Failure::Rejected(kind, message) if kind == "spawn_failed" => format!(
@@ -959,7 +969,7 @@ async fn answer_whole(
             let file = w
                 .core
                 .read_on(
-                    &project.machine,
+                    core_target(&project.machine),
                     &project.folder,
                     &path,
                     offset.filter(|line| *line > 0),
@@ -1024,7 +1034,7 @@ async fn answer_whole(
             }
             let written = w
                 .core
-                .write_on(&project.machine, &project.folder, &path, &text)
+                .write_on(core_target(&project.machine), &project.folder, &path, &text)
                 .await
                 .map_err(|failure| explain(failure, &project.machine))?;
             Ok(Said::plain(format!(
@@ -1051,7 +1061,7 @@ async fn answer_whole(
             }
             let written = w
                 .core
-                .edit_on(&project.machine, &project.folder, &path, &edits)
+                .edit_on(core_target(&project.machine), &project.folder, &path, &edits)
                 .await
                 .map_err(|failure| explain(failure, &project.machine))?;
             Ok(Said::plain(format!(

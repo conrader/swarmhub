@@ -215,7 +215,7 @@ private func projectsRequestBody(_ request: URLRequest) -> [String: Any] {
 @Test func aRunningAgentIsToldItsProjectsOncePerChange() {
     let shop = HerdrBotProject(id: 1, name: "shop", machine: "box"), docs = HerdrBotProject(id: 2, name: "docs", machine: "box")
     let one = HerdrProjectNote.note([shop]), two = HerdrProjectNote.note([shop, docs]), none = HerdrProjectNote.note([])
-    #expect(one == "You may work on these projects on other machines: shop (on box). Run `swarmhub-herdr project list` to see them and how to run commands and edit files there.", "the workspace's own first-task sentence")
+    #expect(one == "You may work on these projects: shop (on box). Run `swarmhub-herdr project list` to see them and how to run commands and edit files there.", "the workspace's own first-task sentence")
     #expect([one, two, none].allSatisfy { $0.contains(HerdrProjectNote.lead) } && two.contains("shop (on box), docs (on box)"))
     func notes(_ list: [HerdrBotProject], _ tasks: [String]) -> [String] {
         HerdrClient.notes(reminder: nil, once: [], tasks: tasks, revised: [(HerdrProjectNote.lead, HerdrProjectNote.note(list), list.isEmpty)])
@@ -415,4 +415,17 @@ private func gapplanWorkerMachineResponse(_ name: String, fallback: String) thro
     #expect(model.projectsUnavailable && store.herdrProjects(for: bot) == saved)
     await store.refreshProjectAssignments(on: target, using: model)
     #expect(!model.projectsUnavailable && store.herdrProjects(for: bot).isEmpty)
+}
+
+@MainActor @Test func workspaceFoldersUseTheirOwnLocationAlongsideSSHServersNamedLocal() {
+    let remote = HerdrMachine(name: "local", target: "qa@example")
+    let old = HerdrProjectsModel(showing: HerdrMachines(machines: [remote]))
+    #expect(old.projectLocations == [remote])
+    let current = HerdrProjectsModel(showing: HerdrMachines(machines: [remote], workspaceProjectHost: "Workspace host"))
+    #expect(current.projectLocations.map(\.name) == ["Workspace host", "local"])
+    #expect(current.machines == [remote])
+    current.newProject()
+    #expect(current.draft?.machine == "Workspace host")
+    current.newProject(on: remote.name)
+    #expect(current.draft?.machine == "local")
 }

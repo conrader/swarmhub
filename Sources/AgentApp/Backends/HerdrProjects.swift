@@ -92,6 +92,7 @@ struct HerdrMachine: Decodable, Sendable, Equatable, Identifiable {
 /// The project servers of one Herdr server (`GET /api/machines`).
 struct HerdrMachines: Decodable, Sendable, Equatable {
     var machines: [HerdrMachine] = []
+    var workspaceProjectHost: String? = nil
     var canAdd: Bool? = nil
     /// Why a server cannot be added from this workspace, in its words.
     var problem: String? = nil
@@ -278,12 +279,12 @@ extension HerdrClient {
 /// an agent that was started with the list it still has is not told twice.
 enum HerdrProjectNote {
     /// Words every version of the note has, and the workspace's own first-task sentence too.
-    static let lead = "projects on other machines"
+    static let lead = "swarmhub-herdr project list"
 
     /// The list as it is now; for an empty list, that there are none any more.
     static func note(_ projects: [HerdrBotProject]) -> String {
-        guard !projects.isEmpty else { return "You have no projects on other machines any more." }
-        return "You may work on these projects on other machines: \(projects.map(\.label).joined(separator: ", ")). Run `swarmhub-herdr project list` to see them and how to run commands and edit files there."
+        guard !projects.isEmpty else { return "You have no assigned projects. Run `swarmhub-herdr project list` to check your assignments." }
+        return "You may work on these projects: \(projects.map(\.label).joined(separator: ", ")). Run `swarmhub-herdr project list` to see them and how to run commands and edit files there."
     }
 }
 
@@ -291,7 +292,7 @@ enum HerdrProjectNote {
 enum HerdrProjectsCopy {
     static let olderWorkspace = "This server needs an update before project servers can be added. Update the \(AppConstants.name) service on it (swarmhub-herdr), then try again."
     static let title = "Projects"
-    static func intro(_ server: String) -> String { "Folders on your other servers that your bots may work in." }
+    static func intro(_ server: String) -> String { "Choose folders your bots can use on this workspace or an SSH server." }
     /// Said wherever a project is given to a bot.
     static let consequence = "A bot can run commands and change files in the projects you let it use."
     static func consequence(_ bot: String) -> String { "\(bot) can run commands and change files in the projects you switch on." }

@@ -92,10 +92,12 @@ struct HerdrMachineCard: View {
     @ObservedObject var model: HerdrProjectsModel
     let machine: HerdrMachine
     /// Settings lists the server's projects inside its card and edits them there; the wizard lists them on their own.
+    var onThisMac = false
     var listsProjects = false
     var removeProject: (HerdrProject) -> Void = { _ in }
     @State private var confirmRemove = false
 
+    private var isWorkspace: Bool { machine.name == model.listing.workspaceProjectHost }
     private var projects: [HerdrProject] { model.projects.filter { $0.machine == machine.name } }
     /// The form for a project of this server is open (a new one, or one of its own being changed).
     private var editing: Bool { model.draft.map { $0.machine == machine.name } ?? false }
@@ -103,23 +105,25 @@ struct HerdrMachineCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
-                SymbolTile(symbol: "externaldrive.connected.to.line.below.fill", colour: machine.reachable ? AppColor.sage : .gray, size: 36)
+                SymbolTile(symbol: isWorkspace ? "desktopcomputer" : "externaldrive.connected.to.line.below.fill", colour: machine.reachable ? AppColor.sage : .gray, size: 36)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
-                        Text(machine.name).font(.headline)
+                        Text(isWorkspace && onThisMac ? "This Mac" : machine.name).font(.headline)
                         FactChip(text: machine.stateLine, symbol: machine.reachable ? "checkmark.circle.fill" : "exclamationmark.circle.fill", colour: machine.reachable ? AppColor.good : AppColor.caution)
                     }
-                    Text(machine.target).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                    if !machine.target.isEmpty { Text(machine.target).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(1).truncationMode(.middle) }
                 }
                 Spacer(minLength: 0)
                 if model.busy.contains(machine.name) { ProgressView().controlSize(.small) }
-                Menu {
-                    Button("Connect again") { Task { await model.reconnect(machine) } }
-                    Divider()
-                    Button("Remove \(machine.name)…", role: .destructive) { confirmRemove = true }
-                } label: { Image(systemName: "ellipsis.circle").font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle()) }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(model.busy.contains(machine.name))
-                    .help("More for \(machine.name)").accessibilityLabel("More for \(machine.name)")
+                if !isWorkspace {
+                    Menu {
+                        Button("Connect again") { Task { await model.reconnect(machine) } }
+                        Divider()
+                        Button("Remove \(machine.name)…", role: .destructive) { confirmRemove = true }
+                    } label: { Image(systemName: "ellipsis.circle").font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 28, height: 28).contentShape(Rectangle()) }
+                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(model.busy.contains(machine.name))
+                        .help("More for \(machine.name)").accessibilityLabel("More for \(machine.name)")
+                }
             }
             if let worker = machine.worker {
                 VStack(alignment: .leading, spacing: 4) {
@@ -149,7 +153,7 @@ struct HerdrMachineCard: View {
             if listsProjects {
                 Divider()
                 ForEach(projects) { project in
-                    if model.draft?.id == project.id { HerdrProjectEditor(model: model) }
+                    if model.draft?.id == project.id { HerdrProjectEditor(model: model, onThisMac: onThisMac) }
                     else {
                         HerdrProjectRow(project: project) {
                             Menu {
@@ -161,7 +165,7 @@ struct HerdrMachineCard: View {
                         }
                     }
                 }
-                if editing, model.draft?.id == nil { HerdrProjectEditor(model: model) }
+                if editing, model.draft?.id == nil { HerdrProjectEditor(model: model, onThisMac: onThisMac) }
                 else if model.draft == nil {
                     if !model.projectProblem.isEmpty { Text(model.projectProblem).font(.callout).foregroundStyle(AppColor.caution).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
                     Button { model.newProject(on: machine.name) } label: { Label(projects.isEmpty ? "Add its first project" : "Add a project", systemImage: "plus") }.buttonStyle(.borderless)
@@ -198,6 +202,7 @@ struct HerdrProjectRow<Trailing: View>: View {
 /// note for the bots, each field on its own. The workspace checks that the folder is there before it saves.
 struct HerdrProjectEditor: View {
     @ObservedObject var model: HerdrProjectsModel
+    var onThisMac = false
     /// Called with the project the workspace took.
     var saved: (HerdrProject) -> Void = { _ in }
     var canCancel = true
@@ -206,15 +211,18 @@ struct HerdrProjectEditor: View {
         if let draft = model.draft {
             VStack(alignment: .leading, spacing: 14) {
                 Text(draft.id == nil ? HerdrProjectsCopy.newProject : "Change \(draft.name)").font(.headline)
-                if model.machines.count > 1 {
+                if model.projectLocations.count > 1 {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(HerdrProjectsCopy.projectServer).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                        TileGallery(items: model.machines, minimum: 120, isSelected: { $0.name == draft.machine }, name: \.name, select: { model.draft?.machine = $0.name }) { NameTile(name: $0.name) }
+                        TileGallery(items: model.projectLocations, minimum: 120, isSelected: { $0.name == draft.machine }, name: \.name, select: { model.draft?.machine = $0.name }) { NameTile(name: $0.name) }
                     }
                 }
                 HStack(alignment: .top, spacing: 10) {
                     StandaloneField(title: HerdrProjectsCopy.projectName, text: binding(\.name), prompt: HerdrProjectsCopy.projectNamePrompt, submit: save).frame(width: 150)
                     StandaloneField(title: HerdrProjectsCopy.projectFolder, text: binding(\.folder), prompt: HerdrProjectsCopy.projectFolderPrompt, monospaced: true, submit: save)
+                }
+                if onThisMac, draft.machine == model.listing.workspaceProjectHost {
+                    Button("Choose folder…") { chooseFolder() }
                 }
                 StandaloneField(title: HerdrProjectsCopy.projectNote, text: binding(\.note), prompt: HerdrProjectsCopy.projectNotePrompt, lines: 1...3)
                 if !model.projectProblem.isEmpty {
@@ -227,6 +235,13 @@ struct HerdrProjectEditor: View {
                 }
             }.appleCard(padding: 16)
         }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        if panel.runModal() == .OK, let folder = panel.url { model.draft?.folder = folder.path }
     }
 
     private func binding(_ field: WritableKeyPath<HerdrProjectsModel.Draft, String>) -> Binding<String> {
@@ -297,9 +312,9 @@ private struct HerdrProjectsBody: View {
     /// quiet line on what letting a bot use a project means.
     @ViewBuilder private var ready: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(model.machines) { HerdrMachineCard(model: model, machine: $0, listsProjects: true, removeProject: { removing = $0 }) }
-            if model.machines.isEmpty || addingServer || model.adding != .fields {
-                if model.machines.isEmpty { EmptyNote(symbol: "folder.badge.plus", title: "No projects yet", detail: "Add the server your code or files are on, then name the folders your bots may work in.") }
+            ForEach(model.projectLocations) { HerdrMachineCard(model: model, machine: $0, onThisMac: server.kind == .local, listsProjects: true, removeProject: { removing = $0 }) }
+            if model.projectLocations.isEmpty || addingServer || model.adding != .fields {
+                if model.projectLocations.isEmpty { EmptyNote(symbol: "folder.badge.plus", title: "No projects yet", detail: "Add the server your code or files are on, then name the folders your bots may work in.") }
                 HerdrAddMachineFlow(model: model, serverName: server.name).padding(.top, 8)
             } else {
                 Button { addingServer = true } label: { Label("Add a server", systemImage: "plus") }.controlSize(.large)
@@ -314,7 +329,7 @@ private struct HerdrProjectsBody: View {
                 }
             }
         } message: { Text("No bot can use it any more. The folder itself is not touched.") }
-        if !model.machines.isEmpty {
+        if !model.projectLocations.isEmpty {
             Text("\(HerdrProjectsCopy.consequence) \(HerdrProjectsCopy.notIsolation)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }

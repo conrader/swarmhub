@@ -53,6 +53,11 @@ import Foundation
     }
 
     var machines: [HerdrMachine] { listing.machines }
+    var projectLocations: [HerdrMachine] {
+        guard let host = listing.workspaceProjectHost else { return machines }
+        let local = HerdrMachine(name: host, projects: projects.filter { $0.machine == host }.map(\.name))
+        return [local] + machines
+    }
     /// The line to paste on the project server: the first key the Herdr server would use.
     var publicKey: String? { keys?.keys.first?.publicKey }
     var canAdd: Bool { listing.canAdd != false }
@@ -135,7 +140,7 @@ import Foundation
         catch { said[machine.name] = HerdrProjectsCopy.reason(error) }
     }
 
-    func newProject(on machine: String? = nil) { projectProblem = ""; draft = Draft(machine: machine ?? machines.first?.name ?? "") }
+    func newProject(on machine: String? = nil) { projectProblem = ""; draft = Draft(machine: machine ?? projectLocations.first?.name ?? "") }
     func edit(_ project: HerdrProject) { projectProblem = ""; draft = Draft(id: project.id, name: project.name, machine: project.machine, folder: project.folder, note: project.note) }
 
     /// Saves the project being written. Returns it when the workspace took it.
