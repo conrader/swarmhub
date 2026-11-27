@@ -554,6 +554,7 @@ def sample_workspace(source_app):
 
                 wait_for("select sample Claude model", choose_claude)
                 wait_for("Patch model saved", lambda: json.loads(store.read_text())["bots"][1].get("sampleModel") == "Claude · Sonnet")
+                wait_for("Patch model change in chat", lambda: has_text("Switched Patch to Claude · Sonnet"))
                 press(window, "Scout", sidebar=True)
                 wait_for("Scout routine", lambda: has_text("Morning brief") and has_text("08:55"))
                 press(window, "Legal", sidebar=True)

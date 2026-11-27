@@ -78,8 +78,7 @@ struct SampleModelPicker: View {
             Text("\(profile.contextPercent(in: bot))% ctx").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             Menu {
                 Picker("Sample model", selection: Binding(get: { selection }, set: { model in
-                    bot.sampleModel = model
-                    store.save()
+                    store.selectSampleModel(model, for: bot)
                 })) {
                     ForEach(profile.models, id: \.self) { Text(verbatim: $0).tag($0) }
                 }.pickerStyle(.inline)
