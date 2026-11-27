@@ -101,6 +101,10 @@ extension HerdrClient {
 
         var isWorking: Bool { state == "working" }
         var sessionDetail: String { [provider.label + " session", model].compactMap { $0 }.joined(separator: " · ") }
+        var modelLine: String {
+            guard let model, !model.isEmpty else { return provider.label }
+            return provider.label + " · " + model
+        }
         var statusLine: String { Self.statusLabel(state) }
 
         static func statusLabel(_ state: String) -> String {

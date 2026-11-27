@@ -41,12 +41,12 @@ enum SampleWorkspace {
         task: "Run `CSVReaderTests` and isolate the blank-title assertion failure in `Sources/Importer/`.",
         reply: "Reproduced failure on line 84 of `CSVReader.swift`: whitespace-only titles bypass the empty check.",
         elapsed: 72000, working: true, steps: ["Read Sources/Importer/CSVReader.swift", "swift test --filter CSVReaderTests"],
-        command: "swift test --filter CSVReaderTests", output: "CSVReaderTests started\ntestEmptyTitle failed: expected throw for a whitespace-only title")
+        command: "swift test --filter CSVReaderTests", output: "Test Suite 'CSVReaderTests' started\n✖ testEmptyTitle failed — expected throw, got Title(\"   \")\n● Running follow-up check (1m 12s)…")
     static let rename = Session(id: "rename", runtime: .codex, model: "Sol", sidebarSummary: "14 call sites",
         task: "Rename `fetchAll` to `loadAll` everywhere in `Sources/`.",
         reply: "Renamed 14 call sites across 6 files (`CSVReader.swift`, `ImportQueue.swift`, and 4 tests). `swift build` passed.",
         elapsed: 41000, working: false, steps: ["Search for fetchAll", "Edit Sources/Importer/CSVReader.swift", "swift build"],
-        command: "swift build", output: "Build complete! (3.42s)\n14 call sites updated")
+        command: "swift build", output: "Build complete! (3.42s)\n* Worked for 41s · 14 call sites updated")
 
     static func stoppedTests(at finish: Int64) -> HerdrClient.NativeThread {
         let tests = tests.thread
