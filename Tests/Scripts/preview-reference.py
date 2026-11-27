@@ -25,6 +25,13 @@ def main():
                 button.click()
                 expect(button).to_have_attribute("aria-pressed", "true")
                 shell.screenshot(path=args.directory / f"{theme}-{story}.png")
+                if story != "inbox":
+                    progress = shell.locator("#demo-progress")
+                    expect(progress).to_have_text("Step 1 of 3")
+                    for step in (2, 3):
+                        shell.locator("#demo-next").click()
+                        expect(progress).to_have_text(f"Step {step} of 3")
+                        shell.screenshot(path=args.directory / f"{theme}-{story}-step{step}.png")
             for helper in ("tests", "rename"):
                 button = page.locator(f'[data-select-helper="{helper}"]')
                 button.click()

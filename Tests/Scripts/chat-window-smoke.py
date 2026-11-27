@@ -357,12 +357,21 @@ def verify_linked_media(window, chat):
         if error == 0 and hit == link:
             return point
         return None
+    from AppKit import NSRunningApplication
+    pid = ax.AXUIElementGetPid(window, None)[1]
+    running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    running.activateWithOptions_(3)
+    ax.AXUIElementPerformAction(window, "AXRaise")
+    wait_for("private media window active", running.isActive)
     wait_for("visible movie link in " + chat, movie_link_point)
     point = movie_link_point()
     for kind in (Quartz.kCGEventMouseMoved, Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
         event = Quartz.CGEventCreateMouseEvent(None, kind, point, Quartz.kCGMouseButtonLeft)
         Quartz.CGEventSetIntegerValueField(event, Quartz.kCGMouseEventClickState, 1)
+        # A real unmodified click. CGEvent otherwise inherits the desktop's held keys.
+        Quartz.CGEventSetFlags(event, 0)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+        time.sleep(0.10)
     wait_for("movie link opened in " + chat, lambda: any(label(b) == "Done" for b in buttons(window)))
     press(window, "Done")
     wait_for("movie sheet closed", lambda: all(label(b) != "Done" for b in buttons(window)))
@@ -590,16 +599,23 @@ def sample_preview(source_app, destination, appearance, library):
     with private_workspace(source_app) as (app, home, store):
         snapshots = WindowSnapshots(home, destination, appearance, library)
         with open_workspace(app, home, extra_environment=snapshots.environment, appearance=appearance) as window:
-            # Each target has a control that only exists once the new screen is ready.
-            for target, ready, filename in [
-                ("Look around with sample bots", "Hand off to Scout", "release"),
-                ("Inbox & approvals", "Allow once", "inbox"),
-                ("CI & reviewer bot", "Review the failing check", "checks"),
-                ("Routines & brief", "Gather server status", "brief"),
-                ("Team & helpers", "Review the new roles", "team"),
+            def has_button(title):
+                return any(label(b) == title for b in buttons(window))
+
+            for target, story, first, second in [
+                ("Look around with sample bots", "release", "Hand off to Scout", "Read Patch’s draft"),
+                ("Inbox & approvals", "inbox", "Allow once", None),
+                ("CI & reviewer bot", "checks", "Review the failing check", "Review the test command"),
+                ("Routines & brief", "brief", "Gather server status", "Read the morning brief"),
+                ("Team & helpers", "team", "Review the new roles", "Open the Payments proposal"),
             ]:
-                press_transition(window, target, filename, lambda: any(label(b) == ready for b in buttons(window)))
-                snapshots.capture(filename)
+                press_transition(window, target, story, lambda: has_button(first))
+                snapshots.capture(story)
+                if second:
+                    press_transition(window, first, story + " second step", lambda: has_button(second))
+                    snapshots.capture(story + "-step2")
+                    press_transition(window, second, story + " result", lambda: has_button("Replay walkthrough"))
+                    snapshots.capture(story + "-step3")
             for target, result, filename in [("Claude agent tests, Working", "expected throw", "tests"),
                                               ("Codex agent rename, Answered", "Build complete!", "rename")]:
                 def shows_output():
