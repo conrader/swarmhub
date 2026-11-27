@@ -4,13 +4,16 @@ struct ChatMessageLocation: Equatable, Sendable {
     let conversation: UUID
     enum Row: Equatable, Sendable {
         case live(UUID)
+        case walkthrough(UUID)
         case imported(String)
     }
     let row: Row
     init(conversation: UUID, message: UUID) { self.conversation = conversation; row = .live(message) }
+    init(conversation: UUID, walkthrough: UUID) { self.conversation = conversation; row = .walkthrough(walkthrough) }
     init(conversation: UUID, imported: String) { self.conversation = conversation; row = .imported(imported) }
     var id: String {
         switch row {
+        case .walkthrough(let id): "walkthrough-\(conversation)-\(id)"
         case .live(let id): "message-\(conversation)-\(id)"
         case .imported(let key): "archive-\(conversation)-\(key)"
         }

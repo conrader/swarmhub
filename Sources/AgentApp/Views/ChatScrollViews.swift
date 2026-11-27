@@ -10,6 +10,7 @@ import SwiftUI
     private(set) var destination: Destination = .latest
     private(set) var range = 0..<0
     private var conversation: UUID?
+    private var walkthroughStart: UUID?
     private var restoringArchive: String?
     private var order: [UUID] = []
     private var settled = false
@@ -20,6 +21,7 @@ import SwiftUI
     func show(_ id: UUID, order: [UUID], model: ChatScrollModel) {
         if conversation != id {
             self.order = order
+            walkthroughStart = nil
             self.model = model
             conversation = id
             restoringArchive = model.archivePositions[id]
@@ -37,7 +39,8 @@ import SwiftUI
     }
 
     private func page(around index: Int) -> Range<Int> {
-        let start = max(0, min(index - Self.pageSize / 2, order.count - Self.pageSize))
+        let first = walkthroughStart.flatMap { order.firstIndex(of: $0) } ?? 0
+        let start = max(first, min(index - Self.pageSize / 2, order.count - Self.pageSize))
         return start..<min(order.count, start + Self.pageSize)
     }
 
@@ -46,6 +49,7 @@ import SwiftUI
 
     func earlier() {
         guard hasEarlier else { return }
+        walkthroughStart = nil
         let edge = range.lowerBound
         let start = max(0, edge - Self.pageSize + 1)
         move(to: .row(order[edge], .bottom), range: start..<(edge + 1))
@@ -61,6 +65,7 @@ import SwiftUI
     func scrollPastEdge(delta: CGFloat) -> Bool {
         guard settled, visible.height > 0 else { return false }
         if delta > 0, hasEarlier, let top = visible.start, top >= -2 {
+            walkthroughStart = nil
             let edge = range.lowerBound
             let start = max(0, edge - Self.pageSize / 2)
             move(to: .row(order[edge], .top), range: start..<min(order.count, start + Self.pageSize))
@@ -80,6 +85,11 @@ import SwiftUI
               let target = request ?? restoringArchive.map({ ChatMessageLocation(conversation: conversation, imported: $0) }),
               target.conversation == conversation else { return }
         switch target.row {
+        case .walkthrough(let id):
+            if let start = order.firstIndex(of: id) {
+                walkthroughStart = id
+                move(to: .latest, range: page(around: start))
+            }
         case .live(let id): jump(to: id)
         case .imported(let key):
             let archive = store.grokHistory
@@ -97,12 +107,14 @@ import SwiftUI
 
     func showArchive(_ page: GrokHistoryPage) {
         guard let conversation else { return }
+        walkthroughStart = nil
         model?.readingArchive(conversation, key: page.key)
         move(to: .archive(page.key), range: self.page(around: 0), archive: page)
     }
 
     func jump(to message: UUID) {
         guard let i = order.firstIndex(of: message) else { return }
+        walkthroughStart = nil
         move(to: .row(message, .center), range: page(around: i))
     }
 

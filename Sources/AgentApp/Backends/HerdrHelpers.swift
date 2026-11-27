@@ -97,6 +97,7 @@ extension HerdrClient {
         let state: String
         let task: String
         let reply: String
+        var sidebarSummary: String? = nil
 
         var isWorking: Bool { state == "working" }
         var sessionDetail: String { [provider.label + " session", model].compactMap { $0 }.joined(separator: " · ") }

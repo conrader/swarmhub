@@ -24,12 +24,12 @@ enum SampleWorkspace {
         let thread: HerdrClient.NativeThread
         let activity: HerdrClient.ThreadActivity
 
-        init(id: String, runtime: HerdrClient.ChildRuntime, model: String, task: String, reply: String,
+        init(id: String, runtime: HerdrClient.ChildRuntime, model: String, sidebarSummary: String, task: String, reply: String,
              elapsed: Int64, working: Bool, steps: [String], command: String, output: String) {
             let now = Int64(Date.now.timeIntervalSince1970 * 1000)
             let state = working ? "working" : "answered"
             thread = .init(id: id, parent: "jarvis", runtime: runtime, name: id, model: model, createdMs: now - elapsed,
-                           completedMs: working ? nil : now, state: state, task: task, reply: reply)
+                           completedMs: working ? nil : now, state: state, task: task, reply: reply, sidebarSummary: sidebarSummary)
             let details = HerdrClient.ThreadActivity.Details(task: task, reply: reply,
                 steps: steps.map { .init(text: $0, state: working && $0 == command ? "inProgress" : "completed") },
                 terminal: .init(command: command, output: output))
@@ -37,12 +37,12 @@ enum SampleWorkspace {
         }
     }
 
-    static let tests = Session(id: "tests", runtime: .claude, model: "Haiku",
+    static let tests = Session(id: "tests", runtime: .claude, model: "Haiku", sidebarSummary: "CSVReaderTests",
         task: "Run CSVReaderTests and isolate the blank-title assertion failure in Sources/Importer/.",
         reply: "Whitespace-only titles bypass the empty check in `CSVReader.swift` on line 84.",
         elapsed: 72000, working: true, steps: ["Read Sources/Importer/CSVReader.swift", "swift test --filter CSVReaderTests"],
         command: "swift test --filter CSVReaderTests", output: "CSVReaderTests started\ntestEmptyTitle failed: expected throw for a whitespace-only title")
-    static let rename = Session(id: "rename", runtime: .codex, model: "Sol",
+    static let rename = Session(id: "rename", runtime: .codex, model: "Sol", sidebarSummary: "14 call sites",
         task: "Rename fetchAll to loadAll everywhere in Sources/.",
         reply: "Renamed 14 call sites across 6 files. `swift build` passed.",
         elapsed: 41000, working: false, steps: ["Search for fetchAll", "Edit Sources/Importer/CSVReader.swift", "swift build"],
@@ -51,7 +51,7 @@ enum SampleWorkspace {
     static func stoppedTests(at finish: Int64) -> HerdrClient.NativeThread {
         let tests = tests.thread
         return .init(id: tests.id, parent: tests.parent, runtime: tests.provider, name: tests.name, model: tests.model,
-                     createdMs: min(tests.createdMs, finish - 72000), completedMs: finish, state: "stopped", task: tests.task, reply: tests.reply)
+                     createdMs: min(tests.createdMs, finish - 72000), completedMs: finish, state: "stopped", task: tests.task, reply: tests.reply, sidebarSummary: tests.sidebarSummary)
     }
 
     static func activity(for thread: HerdrClient.NativeThread) -> HerdrClient.ThreadActivity? {

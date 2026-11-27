@@ -262,7 +262,7 @@ private struct SidebarNativeThread: View {
         case "error": (icon, color) = ("exclamationmark.circle", .orange)
         default: (icon, color) = ("stop.circle", .secondary)
         }
-        let subtitle = [thread.statusLine, detail].filter { !$0.isEmpty }.joined(separator: " · ")
+        let subtitle = [thread.statusLine, thread.sidebarSummary ?? detail].filter { !$0.isEmpty }.joined(separator: " · ")
         return SidebarSessionRow(bot: bot, name: thread.name, detail: subtitle, selected: selected, target: row.target,
                                  folded: row.folded, toggleBranch: row.hasChildren ? { store.setNativeSessionFolded(!row.folded, target: row.id, for: bot) } : nil,
                                  accessibilityName: thread.provider.label + " agent " + thread.name + ", " + thread.statusLine,
