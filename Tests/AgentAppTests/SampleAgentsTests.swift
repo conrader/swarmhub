@@ -128,3 +128,45 @@ import Testing
     #expect(reopen().sampleBriefs.first?.revision == 1)
     #expect(restored.herdrAgents.isEmpty)
 }
+
+@MainActor @Test func sampleGoalTracksOnlyItsChatAcrossRelaunchAndStopsAtItsLimit() throws {
+    let file = temporaryStore(), defaults = isolatedDefaults(), keys = InMemoryKeyStore()
+    func reopen() -> AppStore { AppStore(storeURL: file, autoStart: false, keyStore: keys, defaults: defaults) }
+    let store = reopen()
+    store.loadSamples()
+    let patch = try #require(store.bots.first { $0.sampleRole == .patch })
+    store.open(patch)
+    #expect(store.handleGoalCommand(.start("Review PR #142", stepLimit: 3, budget: 0.25, perGoal: true), in: patch) == nil)
+    let goalID = try #require(patch.goal?.id)
+    #expect(patch.goal?.stepSpending?.chargedUSD == 0 && patch.goal?.state == .waiting)
+    #expect(patch.sampleProfile?.contextPercent(in: patch) == 38)
+    let first = try #require(patch.sampleWalkthrough)
+    store.advanceSampleStory(in: patch, from: first)
+    store.advanceSampleStory(in: patch, from: first)
+    store.showSampleStory(.brief)
+    #expect(store.selectedBot?.goal == nil && patch.goal?.iteration == 2)
+    let restored = reopen()
+    let same = try #require(restored.bots.first { $0.id == patch.id })
+    restored.open(same)
+    #expect(same.goal?.id == goalID && same.goal?.objective == "Review PR #142")
+    #expect(restored.handleGoalCommand(.status, in: same)?.contains("Steps: 2 of 3") == true)
+    restored.advanceSampleStory(in: same, from: try #require(same.sampleWalkthrough))
+    #expect(same.goal?.state == .stopped && same.goal?.detail.contains("Step 3 of 3") == true)
+    #expect(restored.handleGoalCommand(.start("Again"), in: same) == nil)
+    #expect(restored.handleGoalCommand(.stop, in: same) == nil)
+    #expect(same.goal?.state == .stopped && restored.turns.scheduledGoals.isEmpty)
+    let legal = try #require(restored.bots.first { $0.sampleRole == .legal })
+    restored.open(legal)
+    #expect(restored.handleGoalCommand(.start("Review contracts", budget: 0.05), in: legal) == nil)
+    #expect(legal.goal?.state == .stopped && legal.goal?.iteration == 0 && legal.goal?.lastSpend?.usd == 0.06)
+}
+
+@Test func sampleScreenshotReplyMatchesTheBundledPixels() async throws {
+    let sample = try #require(SampleScreenshot.dataURL)
+    for (image, expected) in [(sample, "Keep editing"), ("data:image/png;base64,AAAA", "image is attached")] {
+        let stream = try await MockBackend(sampleName: "Patch").send(.init(sessionID: "test", systemPrompt: "", messages: [], images: [image]))
+        var text = ""
+        for try await event in stream { if case .token(let word) = event { text += word } }
+        #expect(text.contains(expected))
+    }
+}

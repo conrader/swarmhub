@@ -14,9 +14,9 @@ struct SampleInspector: View {
                 HStack {
                     Text("Context & spend").accessibilityAddTraits(.isHeader)
                     Spacer()
-                    Text("\(profile.contextPercent)% ctx").monospacedDigit()
+                    Text("\(profile.contextPercent(in: bot))% ctx").monospacedDigit()
                 }.font(.caption.weight(.semibold))
-                ContextUsageMeter(percent: profile.contextPercent)
+                ContextUsageMeter(percent: profile.contextPercent(in: bot))
                 HStack {
                     Text(verbatim: profile.spend)
                     Spacer()
@@ -75,7 +75,7 @@ struct SampleModelPicker: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text("\(profile.contextPercent)% ctx").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text("\(profile.contextPercent(in: bot))% ctx").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             Menu {
                 Picker("Sample model", selection: Binding(get: { selection }, set: { model in
                     bot.sampleModel = model

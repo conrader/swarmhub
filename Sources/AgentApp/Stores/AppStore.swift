@@ -405,7 +405,7 @@ import UserNotifications
             user.metadata[ChoiceReply.quoteKey] = String(SwarmhubBlock.visibleText(source.content).suffix(1200))
         }
         // An approval is a one-time instruction. Repeating it in later goal steps could send the draft again.
-        var revised = !user.isDraftApproval && metadata[GoalKey.attempt] == nil ? bot.goal : nil
+        var revised = bot.sampleProfile == nil && !user.isDraftApproval && metadata[GoalKey.attempt] == nil ? bot.goal : nil
         if revised?.state.active == true {
             guard goalDestinationMatches(bot) else { return false }
             let guidance = user.modelText + attachments.map { "\nAttached file: " + $0.name }.joined()
@@ -513,7 +513,7 @@ import UserNotifications
     func backend(for bot: Bot) throws -> any AgentBackend {
         if let backendFactory { return try backendFactory(bot) }
         switch bot.backend {
-        case .mock: return MockBackend()
+        case .mock: return MockBackend(sampleName: bot.sampleProfile == nil ? nil : bot.name)
         case .herdr: return try herdrBackend(for: bot)
         }
     }

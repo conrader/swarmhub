@@ -3,6 +3,7 @@ import SwiftUI
 /// Edits the command in the composer. The person can review it before sending.
 struct GoalBudgetButton: View {
     @Binding var draft: String
+    var sample = false
     let focusComposer: () -> Void
     @State private var showing = false
     @State private var amount = ""
@@ -23,7 +24,7 @@ struct GoalBudgetButton: View {
                         Text("Entire session").tag(false)
                     }
                     TextField("Amount in USD", text: $amount)
-                    Text("OpenCode checks its estimate before each step. A running step can exceed the limit.")
+                    Text(sample ? "Sample goals run locally. Only the example session balance counts toward a session limit." : "OpenCode checks its estimate before each step. A running step can exceed the limit.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Spacer()
