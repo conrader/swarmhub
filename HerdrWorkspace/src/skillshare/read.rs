@@ -544,8 +544,9 @@ pub(super) fn checked_agents(json: &str, updates: &mut Updates) -> Option<()> {
         #[serde(default)]
         status: String,
     }
-    let agents: Vec<Entry> = serde_json::from_str(json).ok()?;
-    for agent in agents {
+    // skillshare check agents writes JSON null when the library has no agents.
+    let agents: Option<Vec<Entry>> = serde_json::from_str(json).ok()?;
+    for agent in agents.unwrap_or_default() {
         if agent.status == "update_available" && printable(&agent.name, MAX_PATH) {
             updates.agents.insert(agent.name);
         }
@@ -1050,6 +1051,8 @@ mod tests {
         assert_eq!(pdf.updates_as.as_deref(), Some("pdf-tools"));
         assert_eq!(item(&items, "skills:alpha").state, State::Waiting);
         assert!(checked("[]", &mut updates).is_none());
+        assert!(checked_agents("null", &mut updates).is_some());
+        assert!(checked_agents("[]", &mut updates).is_some());
         assert!(checked_agents("{}", &mut updates).is_none());
     }
 
