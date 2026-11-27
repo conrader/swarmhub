@@ -49,11 +49,17 @@ import Testing
     let scout = try #require(store.bots.first { $0.sampleRole == .scout })
     #expect(store.infoTabs(for: patch) == [.overview, .approvals, .routines, .media])
     #expect(patch.sampleModelLabel == "Codex · Sol")
-    patch.sampleModel = "Gemini CLI · Beta"
-    store.save()
+    let original = patch.messages.map(\.id)
+    let scoutMessages = scout.messages.map(\.id)
+    store.selectSampleModel("Gemini CLI · Beta", for: patch)
+    store.selectSampleModel("Gemini CLI · Beta", for: patch)
+    store.selectSampleModel("Unknown", for: patch)
     let restored = try #require(reopen().bots.first { $0.id == patch.id })
     #expect(restored.sampleModelLabel == "Gemini CLI · Beta" && store.sidebarProgram(for: restored) == "Gemini CLI")
-    #expect(scout.sampleModelLabel == "Claude · Sonnet")
+    #expect(restored.messages.dropLast().map(\.id) == original)
+    #expect(restored.messages.last?.role == .system)
+    #expect(restored.messages.last?.content == "Switched Patch to Gemini CLI · Beta for this sample conversation.")
+    #expect(scout.sampleModelLabel == "Claude · Sonnet" && scout.messages.map(\.id) == scoutMessages)
     restored.sampleModel = "Retired example"
     #expect(restored.sampleModelLabel == "Codex · Sol")
     restored.backend = .herdr

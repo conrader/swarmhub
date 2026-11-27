@@ -98,3 +98,13 @@ extension Bot {
         return models.first
     }
 }
+
+extension AppStore {
+    func selectSampleModel(_ model: String, for bot: Bot) {
+        guard bot.sampleProfile?.models.contains(model) == true, model != bot.sampleModelLabel else { return }
+        bot.sampleModel = model
+        bot.messages.append(AppOnlyLine.line("Switched \(bot.name) to \(model) for this sample conversation."))
+        save()
+        chatScroll.toBottom(bot.id)
+    }
+}
