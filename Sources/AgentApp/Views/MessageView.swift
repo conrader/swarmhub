@@ -78,6 +78,7 @@ struct MessageView: View {
                         }
                     }
                 } else { content }
+                if message.role == .system, let reviewer = message.commandReview { CommandReviewNote(reviewer: reviewer) }
                 if let bot = reviewBot, message.role == .assistant {
                     if let review = bot.sampleReview, review.belongs(to: message) {
                         SampleChatDecisionCard(bot: bot, review: review)

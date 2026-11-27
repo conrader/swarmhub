@@ -14,7 +14,7 @@ struct HerdrChatApprovals: View {
         let pending = store.approvals(for: bot, in: group, inboxes: inboxes)
         VStack(alignment: .leading, spacing: 6) {
             if let request = pending.first(where: { !decided.contains($0.id) }) {
-                HerdrApprovalReview(request: request, server: server, bot: bot) {
+                HerdrApprovalReview(request: request, server: server, bot: bot, group: group) {
                     decided.insert(request.id)
                 }.id(request.id).chatCard(tint: bot.colours)
             } else { HerdrPromptCard(bot: bot, group: group) }
@@ -36,6 +36,7 @@ struct HerdrApprovalReview: View {
     let request: HerdrClient.Approval
     let server: HerdrServer
     let bot: Bot
+    var group: GroupChat? = nil
     var openInboxChat: (() -> Void)?
     var inboxChatName: String?
     var inspect: (() -> Void)?
@@ -134,9 +135,38 @@ struct HerdrApprovalReview: View {
                 case .rememberCommand: outcome = "Rule saved for " + folder
                 case .rememberCommandHour: outcome = "Allowed for 1 hour in " + folder
                 }
-                store.recordInboxDecision(for: bot, server: server, subject: request.commandPreview ?? HerdrClient.Approval.visible(request.tool), outcome: outcome)
+                store.recordInboxDecision(for: bot, server: server, subject: request.commandPreview ?? HerdrClient.Approval.visible(request.tool),
+                                          outcome: outcome, reviewer: request.reviewer, group: group)
                 didDecide()
             } catch { self.error = error.localizedDescription }
+        }
+    }
+}
+
+/// Reviewer advice and the person's permission decision have independent outcomes.
+struct CommandReviewNote: View {
+    let reviewer: HerdrClient.Approval.Reviewer
+    var sampleAssessment = false
+
+    private var tint: Color {
+        if reviewer.problem != nil { return AppColor.caution }
+        return sampleAssessment ? AppColor.good : .secondary
+    }
+
+    var body: some View {
+        if let result = reviewer.resultText {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: sampleAssessment ? "checkmark" : reviewer.problem == nil ? "shield" : "exclamationmark.triangle")
+                    .accessibilityHidden(true)
+                (Text(verbatim: reviewer.resultTitle).bold() + Text(" · ") + Text(verbatim: result))
+                    .textSelection(.enabled)
+            }
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 6))
+            .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(0.25)) }
+            .accessibilityIdentifier("commandReview.note")
         }
     }
 }

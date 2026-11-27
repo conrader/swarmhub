@@ -103,6 +103,7 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
             request = "Review the fix and the command for PR #142."
             response = Self.reply("I reviewed the CSV reader change. The importer test runs inside /srv/shop and only reads the project.",
                                   tools: [("read", "macos-14 / swift-test"), ("review", "swift test --filter ImporterTests")], seconds: 14)
+            response.commandReview = .init(model: "sonnet", assessment: "Safe local test command", botId: teammate?.id.uuidString, botName: teammate?.name)
         case .brief:
             request = "Report the status of your helpers for the morning brief."
             response = Self.reply("Helper `rename` finished in 41s (`swift build` passed). Three skill updates are ready to sync across Claude Code and Codex.")
@@ -111,7 +112,9 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
         }
         guard let teammate else { return [Self.reply("The teammate for this step is no longer in the sample workspace.")] }
         teammate.messages.append(AppOnlyLine.line(HerdrMessageLine.sent.render(bot.name, teammate.name, request)))
-        teammate.messages.append(.init(role: .assistant, content: response.content))
+        let ownReply = ChatMessage(role: .assistant, content: response.content)
+        ownReply.commandReview = response.commandReview
+        teammate.messages.append(ownReply)
         response.authorID = teammate.id
         return [AppOnlyLine.line(HerdrMessageLine.sent.render(bot.name, teammate.name, request)), response]
     }

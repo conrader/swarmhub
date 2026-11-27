@@ -65,6 +65,7 @@ struct InboxDecisionReceipt: Identifiable, Codable {
     let server: HerdrServer
     let subject: String
     let outcome: String
+    var reviewer: HerdrClient.Approval.Reviewer? = nil
 }
 
 struct StoreFile: Codable {

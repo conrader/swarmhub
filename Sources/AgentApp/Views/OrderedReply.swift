@@ -22,10 +22,12 @@ struct OrderedReply: View {
                 case .steps(let range): ActivityRow(message: message, expanded: stepsExpanded, range: range, live: position == segments.count - 1)
                 }
             }
+            if let reviewer = message.commandReview { CommandReviewNote(reviewer: reviewer, sampleAssessment: true) }
             // Text arrived after the last steps: the live line moves below it.
             if case .text? = segments.last, message.isStreaming { ActivityRow(message: message, headerOnly: true) }
         } else {
             MarkdownContent(message: message, actionTarget: actionTarget, renderedBlocks: projection.parts[0])
+            if let reviewer = message.commandReview { CommandReviewNote(reviewer: reviewer, sampleAssessment: true) }
             // P29: one row while streaming and after, so an open row stays open when the turn ends.
             ActivityRow(message: message, expanded: stepsExpanded)
         }

@@ -15,6 +15,7 @@ struct WorkspaceReview: Equatable, Identifiable {
     let bot: Bot
     let server: HerdrServer
     let request: HerdrClient.Approval
+    var group: GroupChat? = nil
     var id: String { "\(bot.id)-\(server.id)-\(request.id)" }
 
     /// Advice and the displayed model can arrive after the person opens the request.
@@ -31,8 +32,16 @@ struct WorkspaceReview: Equatable, Identifiable {
 }
 
 extension AppStore {
-    func recordInboxDecision(for bot: Bot, server: HerdrServer, subject: String, outcome: String) {
-        let receipt = InboxDecisionReceipt(botID: bot.id, server: server, subject: subject, outcome: outcome)
+    func recordInboxDecision(for bot: Bot, server: HerdrServer, subject: String, outcome: String,
+                             reviewer: HerdrClient.Approval.Reviewer? = nil, group: GroupChat? = nil) {
+        let result = reviewer?.resultText == nil ? nil : reviewer
+        let receipt = InboxDecisionReceipt(botID: bot.id, server: server, subject: subject, outcome: outcome, reviewer: result)
+        if let result {
+            let owner = group == nil ? "" : bot.name + " · "
+            let entry = AppOnlyLine.line(owner + outcome + " · " + subject)
+            entry.commandReview = result
+            if let group { group.messages.append(entry) } else { bot.messages.append(entry) }
+        }
         recentInboxDecisions = [receipt] + recentInboxDecisions.prefix(19)
         save()
     }
@@ -41,7 +50,7 @@ extension AppStore {
         func requests(_ bot: Bot, _ group: GroupChat?) -> [WorkspaceReview] {
             let server = herdrServer(for: bot)
             return approvals(for: bot, in: group, inboxes: inboxes).map {
-                WorkspaceReview(bot: bot, server: server, request: $0)
+                WorkspaceReview(bot: bot, server: server, request: $0, group: group)
             }
         }
         switch chat {
@@ -230,6 +239,7 @@ struct WorkspaceActivityView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: bot.name).font(.callout.weight(.semibold))
                 Text(verbatim: receipt.subject).font(.callout).lineLimit(2).textSelection(.enabled)
+                if let reviewer = receipt.reviewer { CommandReviewNote(reviewer: reviewer) }
                 Label(receipt.outcome, systemImage: "checkmark.circle").font(.callout.weight(.medium))
             }
         }.frame(maxWidth: .infinity, alignment: .leading).reviewCard(inInbox: true, tint: bot.colours)
@@ -322,7 +332,7 @@ struct WorkspaceActivityView: View {
                                         ForEach(reviews) { review in
                                             let inspecting = selectedReview?.refers(to: review) == true
                                             if attentionOnly || inspecting {
-                                                HerdrApprovalReview(request: review.request, server: review.server, bot: review.bot,
+                                                HerdrApprovalReview(request: review.request, server: review.server, bot: review.bot, group: review.group,
                                                                     openInboxChat: attentionOnly ? { store.open(row.chat) } : nil,
                                                                     inboxChatName: row.chat.displayName,
                                                                     inspect: attentionOnly && !inspecting ? { selectedReview = review } : nil,
