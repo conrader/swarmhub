@@ -53,9 +53,14 @@ def main():
                 expect(button).to_have_attribute("aria-selected", "true")
                 expect(shell.locator("#chat-active-name")).to_contain_text(helper)
                 feed = shell.locator("#mac-feed")
-                for text in (expected["task"], f'Steps ({expected["steps"]})', expected["reply"]):
-                    expect(feed).to_contain_text(text)
-                expect(feed.locator(".terminal-pre")).to_contain_text(expected["terminal"])
+                cards = feed.locator(".panel-card")
+                for index, (heading, contents) in enumerate((
+                    ("Task", expected["task"]), (f'Steps ({expected["steps"]})', expected["model"]),
+                    ("Latest reply", expected["reply"])
+                )):
+                    expect(cards.nth(index).locator(".panel-card-head strong")).to_have_text(heading)
+                    expect(cards.nth(index)).to_contain_text(contents)
+                expect(cards.nth(2).locator(".terminal-pre")).to_contain_text(expected["terminal"])
                 expect(feed.get_by_role("button", name="Stop helper")).to_have_count(int(expected["canStop"]))
                 sidebar_selection(helper)
                 shell.screenshot(path=args.directory / f"{theme}-{helper}.png")

@@ -715,14 +715,32 @@ struct HerdrHelperView: View {
         return media(for: listed, server: store.herdrAgentPresence[bot.id]?.server, entry: String(result.id))
     }
 
-    /// A task can contain shell syntax. Only paired inline code markers change how its text appears.
+    private func chatTask(_ text: String, from helper: HerdrClient.Helper?, followUp: Bool = false) -> some View {
+        helperPart(followUp ? "Follow-up" : "Task", detail: helper?.statusLine) {
+            Text(Self.assignment(text)).textSelection(.enabled)
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("helper.chatTask")
+    }
+
+    @ViewBuilder private func chatSteps(_ helper: HerdrClient.Helper?) -> some View {
+        if let tools = log?.tools {
+            HelperChatSteps(steps: tools, title: "Steps (\(tools.count))", model: helper?.runLine) { call in
+                step(call, running: helper?.isWorking == true)
+            }
+        }
+    }
+
     @ViewBuilder private func conversation(_ shown: HerdrClient.Helper?, guidance: [ChatMessage]) -> some View {
-        let name = shown?.name ?? "Helper"
         let history = HelperConversationEvent.timeline(journal: log.map { $0.tasks + $0.replies + $0.publications } ?? [],
                                                        guidance: guidance)
-        if log?.tasks.isEmpty != false, let task = shown?.task {
-            HelperChatLine(name: bot.name, text: task, unavailable: HelperAssignment.readable(task) == nil)
-        }
+        let draft = shown?.answered == true ? nil : log?.draft.flatMap { $0.isEmpty ? nil : $0 }
+        let lastReply = log?.replies.last
+        let currentTask = log?.tasks.last?.id
+        let hasCurrentReply = lastReply.map { reply in
+            guard let currentTask else { return true }
+            return reply.answerTo.map { $0.id == currentTask } ?? (reply.id > currentTask)
+        } ?? false
+        let showStepsAtReply = draft == nil && hasCurrentReply
+        if log?.tasks.isEmpty != false, let task = shown?.task { chatTask(task, from: shown) }
         ForEach(history) { event in
             switch event {
             case .guidance(let message):
@@ -730,27 +748,24 @@ struct HerdrHelperView: View {
             case .journal(let item):
                 if let result = HerdrPublishedResult(item) {
                     publicationCards([result], from: shown)
+                } else if item.kind == "reply" {
+                    let current = showStepsAtReply && item.id == lastReply?.id
+                    if current { chatSteps(shown) }
+                    HelperChatReply(title: current ? "Latest reply" : "Reply", text: item.text,
+                                    media: media(for: shown, server: logServer, entry: String(item.id),
+                                                 results: log?.results(forReply: item.id) ?? []),
+                                    output: current ? log?.screen : nil)
                 } else {
-                    let incoming = item.kind == "reply"
-                    HelperChatLine(name: incoming ? name : bot.name, text: item.text, incoming: incoming,
-                                   unavailable: !incoming && HelperAssignment.readable(item.text) == nil,
-                                   media: incoming ? media(for: shown, server: logServer, entry: String(item.id),
-                                                           results: log?.results(forReply: item.id) ?? []) : nil)
+                    chatTask(item.text, from: shown, followUp: item.id != log?.tasks.first?.id)
                 }
             }
         }
-        if shown?.answered != true, let draft = log?.draft, !draft.isEmpty {
-            HelperChatLine(name: name, text: draft, incoming: true, media: media(for: shown, server: logServer, entry: draftEntry, results: log?.results(forReply: Int.max) ?? []))
-        } else if log?.replies.isEmpty != false, let preview = shown?.resultPreview {
-            HelperChatLine(name: name, text: preview, incoming: true, media: previewMedia(shown))
-        }
-        if let tools = log?.tools {
-            HelperChatSteps(steps: tools, title: "Steps (\(tools.count))") { call in
-                step(call, running: shown?.isWorking == true)
-            }
-        }
-        if let screen = log?.screen {
-            HelperChatTerminal(output: screen)
+        if !showStepsAtReply {
+            chatSteps(shown)
+            let preview = lastReply == nil ? shown?.resultPreview : nil
+            HelperChatReply(title: draft == nil ? "Latest reply" : "Reply so far", text: draft ?? preview,
+                            placeholder: shown?.answered == true ? "No reply recorded." : "No reply yet.",
+                            media: draft == nil ? previewMedia(shown) : latestMedia(for: shown), output: log?.screen)
         }
     }
 

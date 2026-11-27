@@ -117,7 +117,12 @@ struct NativeThreadOutput: View {
     @ViewBuilder private func conversation(for child: HerdrClient.NativeThread) -> some View {
         let details = activity?.details
         let assignment = HelperAssignment.readable(details?.task ?? "") ?? HelperAssignment.readable(child.task)
-        HelperChatLine(name: parent?.bot.name ?? "Assignment", text: assignment ?? "", unavailable: assignment == nil)
+        let state = visibleState ?? child.state
+        helperPart("Task", detail: {
+            NativeThreadDuration(thread: child, stateOverride: state, showsStatus: true)
+        }) {
+            Text(HerdrHelperView.assignment(assignment ?? HelperAssignment.unavailable)).textSelection(.enabled)
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("helper.chatTask")
         if let parent {
             HelperGuidanceHistory(selection: parent.selection, bot: parent.bot) { instructions in
                 ForEach(instructions) { message in
@@ -126,16 +131,14 @@ struct NativeThreadOutput: View {
             }
         }
         if let steps = details?.steps {
-            HelperChatSteps(steps: steps, title: steps.count == 64 ? "Latest 64 steps" : "Steps (\(steps.count))") { step in
+            HelperChatSteps(steps: steps, title: steps.count == 64 ? "Latest 64 steps" : "Steps (\(steps.count))", model: child.modelLine) { step in
                 NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command)
             }
         }
         let reply = visibleState == activity?.state ? details?.reply ?? child.reply : child.reply
-        if !reply.isEmpty { HelperChatLine(name: child.name, text: reply, incoming: true, media: media(for: child, reply: reply)) }
-        else if visibleState == "working" { ProgressView("Working…").controlSize(.small) }
-        if let terminal = details?.terminal {
-            HelperChatTerminal(command: terminal.command, output: terminal.output)
-        }
+        HelperChatReply(text: reply,
+                        placeholder: state == "stopped" ? "Stopped before replying." : (state == "working" ? "No reply yet." : "No reply recorded."),
+                        media: media(for: child, reply: reply), command: details?.terminal?.command, output: details?.terminal?.output)
     }
 
     @ViewBuilder private func cards(for child: HerdrClient.NativeThread) -> some View {

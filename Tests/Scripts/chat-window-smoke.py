@@ -638,13 +638,23 @@ def sample_preview(source_app, destination, appearance, library):
                     def static_text(items):
                         return [str(attribute(e, "AXValue") or "") for e in items
                                 if attribute(e, "AXRole") == "AXStaticText"]
-                    messages = static_text(elements)
+                    def card(identifier):
+                        return next((e for e in elements if attribute(e, "AXIdentifier") == identifier
+                                     and attribute(e, "AXRole") == "AXGroup"), None)
+                    task_card = card("helper.chatTask")
+                    reply_card = card("helper.chatReply")
                     step_panel = next((e for e in elements if attribute(e, "AXIdentifier") == "helper.chatSteps"), None)
                     terminal = next((e for e in elements if attribute(e, "AXIdentifier") == "helper.chatTerminal"
                                      and attribute(e, "AXRole") == "AXScrollArea"), None)
                     step_title = f'Steps ({expected["steps"]})'
                     return (step_panel and terminal and any(label(e) == step_title for e in descendants(step_panel))
-                            and all(any(fragment in text for text in messages) for fragment in (expected["task"], expected["reply"]))
+                            and task_card and reply_card
+                            and all(any(label(e) == heading and attribute(e, "AXRole") == "AXHeading"
+                                        for e in descendants(section))
+                                    for section, heading in ((task_card, "Task"), (reply_card, "Latest reply")))
+                            and all(any(fragment in text for text in static_text(descendants(section)))
+                                    for section, fragment in ((task_card, expected["task"]), (reply_card, expected["reply"]),
+                                                              (reply_card, expected["terminal"]), (step_panel, expected["model"])))
                             and any(expected["terminal"] in text for text in static_text(descendants(terminal)))
                             and has_button("Stop helper") == expected["canStop"])
                 press_transition(window, expected["sidebarLabel"], name + " conversation", shows_conversation)

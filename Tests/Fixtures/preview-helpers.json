@@ -3,6 +3,7 @@
     "sidebarLabel": "Claude agent tests, Working",
     "task": "isolate the blank-title assertion failure",
     "steps": 2,
+    "model": "Claude · Haiku",
     "reply": "whitespace-only titles bypass the empty check",
     "terminal": "expected throw",
     "canStop": true
@@ -11,6 +12,7 @@
     "sidebarLabel": "Codex agent rename, Answered",
     "task": "loadAll everywhere",
     "steps": 3,
+    "model": "Codex · Sol",
     "reply": "14 call sites across 6 files",
     "terminal": "Build complete!",
     "canStop": false
