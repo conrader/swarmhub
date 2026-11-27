@@ -282,8 +282,10 @@ struct NativeThreadDuration: View {
     var body: some View {
         let state = stateOverride ?? thread.state
         if state == "working", thread.createdMs > 0 {
-            TimelineView(.periodic(from: .now, by: 1)) { tick in
-                caption(state, end: tick.date.timeIntervalSince1970 * 1000)
+            // The sidebar, header and task card change seconds on the same session boundary.
+            let start = Date(timeIntervalSince1970: Double(thread.createdMs) / 1000)
+            TimelineView(.periodic(from: start, by: 1)) { tick in
+                caption(state, end: (tick.date.timeIntervalSince1970 * 1000).rounded())
             }
         } else {
             caption(state, end: thread.completedMs.map { Double($0) })
