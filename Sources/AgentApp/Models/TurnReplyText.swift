@@ -24,6 +24,42 @@ enum TurnReplyText {
         parts.map { ($0.metadata[separator] ?? "") + $0.content }.joined()
     }
 
+    /// A receipt records delivery time, which can fall mid-word or mid-sentence.
+    /// Move the open paragraph into the continuation without changing the complete text or message IDs.
+    static func keepProseTogether(_ first: ChatMessage, _ next: ChatMessage) {
+        guard next.metadata[separator] == nil, let end = first.content.last, end.isLetter || end.isNumber,
+              let start = next.content.first, !start.isNewline else { return }
+        let following = next.content.drop(while: { $0 == " " || $0 == "\t" }).first
+        guard let following, following.isLowercase || (!start.isWhitespace && following.isNumber) else { return }
+        let cut = first.content.range(of: "\n\n", options: .backwards)?.upperBound ?? first.content.startIndex
+        let tail = first.content[cut...]
+        guard !tail.contains("`"), !tail.contains("~"), !first.content.contains("```"), !first.content.contains("~~~") else { return }
+        let length = tail.utf16.count
+        next.content = String(tail) + next.content
+        first.content.removeSubrange(cut...)
+        if var activity = next.activity {
+            for i in activity.steps.indices {
+                if let offset = activity.steps[i].textOffset { activity.steps[i].textOffset = offset + length }
+            }
+            next.activity = activity
+        }
+    }
+
+    /// Old snapshots sometimes put a short piece of the new answer on a much longer
+    /// previous tool draft. Only repair an explicitly linked continuation with that evidence.
+    static func repairSavedSteerCuts(_ rows: [ChatMessage]) {
+        var previous: [String: ChatMessage] = [:]
+        for row in rows where row.role == .assistant {
+            guard let id = row.metadata[origin], let number = row.metadata[TurnKey.part].flatMap(Int.init) else { continue }
+            if let first = previous[id], first.authorID == row.authorID,
+               first.metadata[TurnKey.part] == String(number - 1),
+               first.activity?.steps.contains(where: { ($0.textOffset ?? 0) > first.content.utf16.count }) == true {
+                keepProseTogether(first, row)
+            }
+            previous[id] = row
+        }
+    }
+
     /// Apply revisions to the rows that displayed the draft. Return only new trailing
     /// output, so the caller can place it on either side of a pending steer receipt.
     static func replace(_ snapshot: String, parts: [ChatMessage], cumulative: Bool, saved: Bool, pending: Bool) -> String {
@@ -86,7 +122,7 @@ enum TurnReplyText {
     }
 
     /// Keep cuts in the unchanged prefix and suffix anchored to the same characters.
-    /// Cuts inside replaced text keep as much of their old span as the revision allows.
+    /// A rewritten passage belongs together unless its journal gives us a paragraph boundary.
     private static func revise(_ parts: [ChatMessage], from old: String, to text: String) {
         guard parts.count > 1 else { parts.first?.content = text; return }
         let prefix = old.commonPrefix(with: text, options: .literal).count
@@ -109,7 +145,7 @@ enum TurnReplyText {
             else if parts[index + 1].metadata[separator] == "\n\n", paragraph + 1 < paragraphs.count {
                 let boundary = paragraphs.prefix(paragraph + 1).joined(separator: "\n\n").count
                 endOffset = max(prefix, min(boundary, newEnd))
-            } else { endOffset = min(oldOffset, newEnd) }
+            } else { endOffset = text.prefix(prefix).range(of: "\n\n", options: .backwards).map { text.distance(from: text.startIndex, to: $0.upperBound) } ?? 0 }
             let offset = min(text.count, max(newOffset, endOffset))
             let end = text.index(start, offsetBy: offset - newOffset)
             let slice = text[start..<end]

@@ -148,6 +148,9 @@ extension AppStore {
                     addition.removeFirst(2)
                 }
                 if !addition.isEmpty { row.content += addition }
+                if cumulativeReplacements, let previous = earlierParts.last {
+                    TurnReplyText.keepProseTogether(previous, row)
+                }
                 row.lastTextAt = row.content.isEmpty ? nil : now()
                 objectWillChange.send(); autosaveIfDue()
             case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()

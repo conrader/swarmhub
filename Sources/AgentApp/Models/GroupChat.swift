@@ -84,6 +84,8 @@ struct StoreFile: Codable {
         }
         bots = try c.decodeIfPresent([Bot].self, forKey: .bots) ?? []
         groups = try c.decodeIfPresent([GroupChat].self, forKey: .groups) ?? []
+        for bot in bots { TurnReplyText.repairSavedSteerCuts(bot.messages) }
+        for group in groups { TurnReplyText.repairSavedSteerCuts(group.messages) }
         scrollPositions = (try? c.decodeIfPresent([String: String].self, forKey: .scrollPositions)) ?? nil
         sidebar = (try? c.decodeIfPresent(SidebarOrganisation.self, forKey: .sidebar)) ?? nil
         removedBots = try c.decodeIfPresent([String: Set<String>].self, forKey: .removedBots)
