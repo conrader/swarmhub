@@ -17,14 +17,14 @@ class TaskEffectivenessTests(unittest.TestCase):
                 p = Path(temporary)
                 _, truth = setup(p, case, 41)
                 self.assertFalse(all(grade(p, case, truth).values()))
-                if case in ("handoff", "resume", "short_consent", "archive", "archive_twins"):
-                    if case in ("resume", "short_consent"):
+                if case in ("handoff", "resume", "short_consent", "interrupted_consent", "archive", "archive_twins"):
+                    if case in ("resume", "short_consent", "interrupted_consent"):
                         self.assertFalse(check_proposal(p, truth)["valid_plan"])
                         (p / "plan.json").write_text(json.dumps(list(truth["eligible"])))
                         self.assertTrue(all(check_proposal(p, truth).values()))
                     for name in truth["eligible"]:
                         (p / name).unlink()
-                    if case in ("resume", "short_consent"):
+                    if case in ("resume", "short_consent", "interrupted_consent"):
                         self.assertFalse(check_proposal(p, truth)["no_early_change"])
                     protected = p / ("inventory.json" if case.startswith("archive") else "jobs.json")
                 elif case == "partial_resume":
