@@ -76,18 +76,25 @@ struct ChatModelButton: View {
             let title = labels[template.name] ?? template.pickerLabel
             if template.takesModel {
                 Menu(title) {
-                    Button("Recommended") { choose(template, model: HerdrModelChoice.recommended) }
+                    modelChoice("Recommended", template: template, model: HerdrModelChoice.recommended)
                     let models = template.name == reading?.runtime?.name ? reading?.offeredModels ?? [] : template.models ?? []
                     ForEach(models, id: \.id) { model in
-                        Button(HerdrAgentReading.name(model)) { choose(template, model: model.id) }
+                        modelChoice(HerdrAgentReading.name(model), template: template, model: model.id)
                     }
                 }
             } else {
-                Button(title) { choose(template, model: HerdrModelChoice.recommended) }
+                modelChoice(title, template: template, model: HerdrModelChoice.recommended)
             }
         }
         Divider()
         Button("Model settings…") { store.openInfoTab(.model) }
+    }
+
+    private func modelChoice(_ title: String, template: HerdrClient.Template, model: String) -> some View {
+        let selected = reading?.runtime?.name == template.name && (template.takesModel ? store.herdrModel(for: bot) == model : true)
+        return Button { choose(template, model: model) } label: {
+            if selected { Label(title, systemImage: "checkmark") } else { Text(title) }
+        }
     }
 
     private func choose(_ template: HerdrClient.Template, model: String) {
@@ -99,13 +106,22 @@ struct ChatModelButton: View {
             defer { applying = false }
             do {
                 let catalog = try await store.herdrTemplates(on: server)
-                guard store.selectedBot === bot, store.selectedGroup == nil, !bot.isReadOnlyArchive, store.herdrServer(for: bot) == server,
-                      previousTemplate == store.herdrTemplate(for: bot), previousModel == store.herdrModel(for: bot) else { return }
                 guard let available = catalog.first(where: { $0.name == template.name }), isAvailable(available) else {
                     failure = "This AI is no longer available for this bot."
                     await store.refreshHerdrAgentReading(for: bot)
                     return
                 }
+                if model != HerdrModelChoice.recommended {
+                    let offered = try await store.herdrClient(for: server).models(for: available)
+                    guard offered.contains(where: { $0.id == model }) else {
+                        failure = "This AI no longer offers that model."
+                        await store.refreshHerdrAgentReading(for: bot)
+                        return
+                    }
+                }
+                guard store.selectedBot === bot, store.selectedGroup == nil, !bot.isReadOnlyArchive,
+                      store.herdrServer(for: bot) == server, isAvailable(available),
+                      previousTemplate == store.herdrTemplate(for: bot), previousModel == store.herdrModel(for: bot) else { return }
                 store.setHerdrTemplate(available.name, for: bot)
                 store.setHerdrModel(model, for: bot)
                 await store.refreshHerdrAgentReading(for: bot)
