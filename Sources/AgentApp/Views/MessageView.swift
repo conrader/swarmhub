@@ -14,8 +14,10 @@ struct MessageView: View {
     static let tapbacks = ["👍", "❤️", "😂", "‼️", "?"]
     /// Set on the reply that opens a run of the bot's rows: its face and name go above it, in its colour.
     var author: Bot? = nil
-    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, author: Bot? = nil) {
+    var showsRemovedAuthor = false
+    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, author: Bot? = nil, showsRemovedAuthor: Bool = false) {
         self.actionTarget = actionTarget; self.message = message; self.repliedMessage = repliedMessage; self.reply = reply; self.author = author
+        self.showsRemovedAuthor = showsRemovedAuthor
     }
     private var userBubbleFill: AnyShapeStyle {
         accent == "Blue" ? AnyShapeStyle(AppColor.adaptive(Palette.userBubble)) : AnyShapeStyle(TintShapeStyle().opacity(0.16))
@@ -36,11 +38,23 @@ struct MessageView: View {
                 if let caption = SteerCopy.caption(message) {
                     Label(caption, systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
                 }
-                if let author, message.role == .assistant {
+                if showsHeading {
                     HStack(spacing: 6) {
-                        BotAvatar(bot: author, size: 18)
-                        Text(author.name).font(.caption.weight(.semibold)).foregroundStyle(author.tintInk)
-                    }.accessibilityElement(children: .combine).accessibilityLabel(author.name)
+                        HStack(spacing: 6) {
+                            if let author {
+                                BotAvatar(bot: author, size: 18)
+                            } else {
+                                Image(systemName: "person.crop.circle.badge.questionmark")
+                            }
+                            Text(author?.name ?? "Removed bot").font(.caption.weight(.semibold))
+                                .foregroundStyle(author?.tintInk ?? .primary).lineLimit(1)
+                            Text(message.createdAt, format: timestampFormat)
+                                .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                .fixedSize().help(message.createdAt.formatted(date: .complete, time: .standard))
+                        }.accessibilityElement(children: .combine)
+                        Spacer(minLength: 4)
+                        if offersActions { actions }
+                    }
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
                 if let title = message.metadata["herdrExchangeTitle"] {
@@ -67,10 +81,20 @@ struct MessageView: View {
                     HStack(spacing: 3) { ForEach(message.reactions, id: \.self) { emoji in Button { store.toggleReaction(emoji, on: message) } label: { Text(emoji).font(.caption).padding(4).background(AppColor.card, in: Capsule()).overlay(Capsule().stroke(AppColor.separator)) }.buttonStyle(.plain).help("Remove tapback") } }
                 }
                 if TurnStateFooter.isShown(for: message) { TurnStateFooter(message: message) }
-                if message.role != .system && !message.isStreaming && !isEmptyReply && !store.isAppWritten(message) { actions }
+                if !showsHeading && offersActions { actions }
             }
             if !mine { Spacer(minLength: 80) }
         }.padding(.horizontal, 28).padding(.vertical, 10)
+    }
+
+    private var showsHeading: Bool { message.role == .assistant && (author != nil || showsRemovedAuthor) }
+
+    private var timestampFormat: Date.FormatStyle {
+        Calendar.current.isDateInToday(message.createdAt) ? .dateTime.hour().minute() : .dateTime.month(.abbreviated).day().hour().minute()
+    }
+
+    private var offersActions: Bool {
+        message.role != .system && !message.isStreaming && !isEmptyReply && !store.isAppWritten(message)
     }
 
     /// The person's own message sits on the right; what the app wrote for the agent does not.
@@ -83,7 +107,7 @@ struct MessageView: View {
 
     private var actions: some View {
         HStack(spacing: 4) {
-            Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }.help("Tapback")
+            Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }.accessibilityLabel("Add reaction").help("Tapback")
             Button(action: reply) { Image(systemName: "arrowshape.turn.up.left") }.help("Reply")
             if message.role == .assistant && message.presentation == .text { Button { copyToPasteboard(SwarmhubBlock.visibleText(message.finalText)) } label: { Image(systemName: "doc.on.doc") }.help("Copy reply") }
         }.buttonStyle(MessageActionStyle())

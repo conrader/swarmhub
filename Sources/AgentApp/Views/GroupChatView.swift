@@ -135,15 +135,8 @@ private struct GroupMessageRow: View {
     @EnvironmentObject private var store: AppStore
     let message: ChatMessage; let author: Bot?; let repliedMessage: ChatMessage?; let groupID: UUID
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if message.role == .assistant {
-                HStack(spacing: 7) {
-                    if let author { BotAvatar(bot: author, size: 22) } else { Image(systemName: "person.crop.circle.badge.questionmark").frame(width: 22, height: 22) }
-                    Text(author?.name ?? "Removed bot").font(.system(size: 12, weight: .semibold))
-                }.padding(.horizontal, 28).padding(.top, 8)
-            }
-            MessageView(message: message, repliedMessage: repliedMessage,
-                        actionTarget: message.authorID.map { .group(groupID: groupID, botID: $0) }, reply: { store.replyTo = message })
-        }
+        MessageView(message: message, repliedMessage: repliedMessage,
+                    actionTarget: message.authorID.map { .group(groupID: groupID, botID: $0) },
+                    reply: { store.replyTo = message }, author: author, showsRemovedAuthor: author == nil)
     }
 }

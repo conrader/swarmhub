@@ -131,11 +131,15 @@ struct ChatView: View {
     }
 
     static func openers(_ shown: [ChatMessage]) -> Set<UUID> {
-        var found: Set<UUID> = [], previous: MessageRole?, previousAuthor: UUID?
+        var found: Set<UUID> = [], previous: ChatMessage?
         for message in shown where message.role != .system {
-            if message.role == .assistant, previous != .assistant || previousAuthor != message.authorID { found.insert(message.id) }
-            previousAuthor = message.authorID
-            previous = message.role
+            let trigger = message.metadata[TurnKey.forUser]
+            if message.role == .assistant,
+               previous?.role != .assistant || previous?.authorID != message.authorID ||
+               message.metadata["herdrTeamEntry"] != nil || (trigger != nil && trigger != previous?.metadata[TurnKey.forUser]) {
+                found.insert(message.id)
+            }
+            previous = message
         }
         return found
     }
