@@ -77,6 +77,51 @@ import Testing
         #expect(disk.messages.map(\.id) == mergedIDs && disk.messages.map(\.content) == expected)
     }
 
+    @Test func steeringDuringAPolishSentenceKeepsTheAnswerTogether() async throws {
+        let (store, bot) = steerStore(ScriptedTurnBackend())
+        let draft = ChatMessage(role: .assistant, content: "Tak. Jeśli M1", isStreaming: true)
+        let exchange = ChatMessage(role: .system, content: "Team exchange")
+        let steer = ChatMessage(role: .user, content: "Sprawdź M1", metadata: [SteerKey.steer: "delivered"])
+        bot.messages = [draft, exchange, steer]
+        store.turns.steers[draft.id] = PendingSteer(conversation: bot, bubbles: [steer])
+        let pair = AsyncThrowingStream<AgentEvent, Error>.makeStream()
+        let answer = "Tak. Jeśli M1 działa w chwili zaniku prądu, powinien się włączyć."
+        pair.continuation.yield(.replace(answer))
+        pair.continuation.yield(.journal("qa", [22]))
+        pair.continuation.yield(.replace(answer))
+        pair.continuation.yield(.completed)
+        pair.continuation.finish()
+        _ = try await store.consumeTurn(pair.stream, assistant: draft, bot: bot, cumulativeReplacements: true)
+        #expect(bot.messages.map(\.content) == ["Team exchange", "Sprawdź M1", answer])
+        #expect(bot.messages.filter { $0.role == .assistant }.map(\.content).joined() == answer)
+        #expect(bot.messages.contains { $0 === exchange })
+    }
+
+    @Test func reopeningALegacySplitPreservesTextAndToolOwnership() throws {
+        let (store, bot) = steerStore(ScriptedTurnBackend())
+        let prefix = "Tak. Jeśli M1", suffix = " działa po przerwie."
+        let first = ChatMessage(role: .assistant, content: prefix)
+        let id = first.id.uuidString
+        first.metadata = [TurnReplyText.origin: id, TurnKey.part: "1"]
+        var steps = ToolActivity()
+        steps.apply(.init(phase: .started, name: "Command"), at: .now, textOffset: 201)
+        first.activity = steps
+        let next = ChatMessage(role: .assistant, content: suffix, metadata: [TurnReplyText.origin: id, TurnKey.part: "2"])
+        var later = ToolActivity()
+        later.apply(.init(phase: .started, name: "Read"), at: .now, textOffset: 5)
+        next.activity = later
+        bot.messages = [first, ChatMessage(role: .system, content: "Exchange"), ChatMessage(role: .user, content: "Steer"), next]
+        let bytes = try JSONEncoder().encode(StoreFile(bots: [bot], groups: []))
+        let rows = try #require(StoreFile.decode(bytes).bots.first?.messages)
+        #expect(rows.map(\.id) == bot.messages.map(\.id))
+        #expect(rows.map(\.content) == ["", "Exchange", "Steer", prefix + suffix])
+        #expect(rows.first?.activity?.total == 1)
+        #expect(rows.last?.activity?.steps.first?.textOffset == prefix.utf16.count + 5)
+        TurnReplyText.repairSavedSteerCuts(rows)
+        #expect(rows.last?.content == prefix + suffix)
+        _ = store
+    }
+
     @Test func lateFollowupPrecedesTheNextQuestionAndAnswer() {
         let question = ChatMessage(role: .user, content: "Next question")
         let answer = ChatMessage(role: .assistant, content: "Next answer",

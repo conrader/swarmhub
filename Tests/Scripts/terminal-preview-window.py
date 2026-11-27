@@ -27,11 +27,11 @@ def run(app, bridge, core):
             "import os, time\n"
             "for frame in range(240):\n"
             "    rows = os.get_terminal_size().lines\n"
-            "    print(f'\\033[1;1HPreview fixture\\033[{rows};1HLAST-ROW-{frame}', end='', flush=True)\n"
+            "    print(f'\\033[1;1HPreview fixture with a long line that wraps across several rows in a narrow panel.\\033[{rows};1HLAST-ROW-{frame}', end='', flush=True)\n"
             "    time.sleep(0.5)\n")
         (root / "cfg/herdr-core/templates/fixture.md").write_text(
             f"---\ndescription: Terminal preview fixture\ncommand: /usr/bin/python3 {root / 'screen.py'}\n---\n")
-        env = dict(HOME=tmp, PATH="/usr/bin:/bin", HC_SESSION=root.name, HC_SOCKET=str(root / "core.sock"),
+        env = dict(HOME=tmp, PATH=str(core.parent) + ":/usr/bin:/bin", HC_SESSION=root.name, HC_SOCKET=str(root / "core.sock"),
                    XDG_CONFIG_HOME=str(root / "cfg"), XDG_STATE_HOME=str(root / "state"), XDG_RUNTIME_DIR=str(root / "run"))
         token = secrets.token_hex(32)
         subprocess.run([core, "server", "start"], env=env, cwd=root, check=True)
@@ -79,25 +79,33 @@ def run(app, bridge, core):
                             return int(match[1])
                     return -1
 
-                def width():
-                    area = next(n for n in walk(window) if attr(n, "AXRole") == "AXWebArea")
-                    ok, size = ax.AXValueGetValue(attr(area, "AXSize"), ax.kAXValueCGSizeType, None)
+                def text_size():
+                    element = next(n for n in walk(window) if attr(n, "AXRole") == "AXStaticText" and
+                                   "Preview fixture" in str(attr(n, "AXValue") or ""))
+                    ok, size = ax.AXValueGetValue(attr(element, "AXSize"), ax.kAXValueCGSizeType, None)
                     assert ok
-                    return size.width
+                    return size
 
                 wait("last terminal row", lambda: last_row() >= 0, seconds=20)
                 divider = [n for n in walk(window) if attr(n, "AXRole") == "AXSplitter"][-1]
-                original_width, position, frame = width(), attr(divider, "AXValue"), last_row()
-                assert ax.AXUIElementSetAttributeValue(divider, "AXValue", position + 80) == 0
-                wait("narrower terminal", lambda: width() < original_width - 20)
-                narrowed = width()
+                narrow, position, frame = text_size(), attr(divider, "AXValue"), last_row()
+                assert ax.AXUIElementSetAttributeValue(divider, "AXValue", position - 96) == 0
+                wait("wider text with fewer wrapped lines", lambda: text_size().width > narrow.width + 20 and text_size().height < narrow.height)
+                wide = text_size()
                 wait("new output on the last row", lambda: last_row() > frame)
                 assert api(route) == geometry
                 assert ax.AXUIElementSetAttributeValue(divider, "AXValue", position) == 0
-                wait("restored width", lambda: abs(width() - original_width) < 3)
+                wait("restored width", lambda: abs(text_size().width - narrow.width) < 3)
+                def mode(name):
+                    option = next(n for n in walk(window) if label(n) == name and attr(n, "AXRole") in ("AXButton", "AXRadioButton"))
+                    assert ax.AXUIElementPerformAction(option, "AXPress") == 0
+                mode("Fit terminal")
+                wait("original grid", lambda: any(attr(n, "AXRole") == "AXWebArea" for n in walk(window)))
+                mode("Readable")
+                wait("resumed text preview", lambda: last_row() > frame)
                 assert api(route) == geometry
                 press(window, "Back to Details")
-                print(f"Verified live output at {original_width:.0f} and {narrowed:.0f} points. "
+                print(f"Verified live output at {narrow.width:.0f} and {wide.width:.0f} points. "
                       f"The terminal kept {geometry['cols']} columns and {geometry['rows']} rows.")
         finally:
             if service is not None:

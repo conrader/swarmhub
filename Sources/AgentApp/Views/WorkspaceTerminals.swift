@@ -253,12 +253,14 @@ private struct TerminalOutput: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let problem { Text(problem).font(.callout).foregroundStyle(.secondary) }
-            if let mirror {
-                TerminalMirror(url: mirror.url, token: mirror.token, agent: mirror.ref, core: mirror.core, readable: readable) { problem = $0 }
+            if !readable, let mirror {
+                TerminalMirror(url: mirror.url, token: mirror.token, agent: mirror.ref, core: mirror.core) { problem = $0 }
             } else if let output {
                 TerminalTextGrid(output: output, readable: readable)
             } else if problem == nil { ProgressView("Connecting…") }
-        }.task {
+        }.task(id: readable) {
+            mirror = nil
+            problem = nil
             while !Task.isCancelled {
                 do {
                     guard store.herdrServer(id: server.id) == server else {
@@ -275,7 +277,7 @@ private struct TerminalOutput: View {
                             problem = "This terminal session has ended."
                             return
                         }
-                        if roster.terminalPreview == true {
+                        if !readable, roster.terminalPreview == true {
                             let url = try await client.connectedBaseURL().appendingPathComponent("terminal-preview")
                             try Task.checkCancellation()
                             mirror = Mirror(url: url, token: client.token, ref: ref, core: roster.core)

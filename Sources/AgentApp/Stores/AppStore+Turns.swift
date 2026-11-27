@@ -130,6 +130,9 @@ extension AppStore {
                 if hasNewOutput, addition.isEmpty, ChatCardParser.steerBoundary(in: row.content, after: row.content) == nil {
                     hasNewOutput = false
                 }
+                if hasNewOutput, cumulativeReplacements, !addition.isEmpty {
+                    TurnReplyText.carryOpenParagraph(from: row, into: &addition)
+                }
                 if hasNewOutput, let next = continueAfterSteer(origin: assistant, row: row) {
                     if next !== row {
                         earlierParts.append(row)
@@ -148,6 +151,9 @@ extension AppStore {
                     addition.removeFirst(2)
                 }
                 if !addition.isEmpty { row.content += addition }
+                if cumulativeReplacements, let previous = earlierParts.last {
+                    TurnReplyText.keepProseTogether(previous, row)
+                }
                 row.lastTextAt = row.content.isEmpty ? nil : now()
                 objectWillChange.send(); autosaveIfDue()
             case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
