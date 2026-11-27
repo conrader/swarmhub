@@ -60,6 +60,7 @@ enum StoreRestore {
         if hideSamples { file.bots.filter(\.isDemo).forEach { $0.isHidden = true } }
         // A backup's deletion intents are historical and must not replay on a host.
         file.removedBots = nil
+        file.pendingHerdrEndings = nil
         return file
     }
 

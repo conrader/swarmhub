@@ -35,6 +35,9 @@ private final class RemovalBridge: @unchecked Sendable {
                 reads += 1
                 return (200, ["core": "c", "version": "1", "agents": agents, "templates": [Any]()])
             }
+            if request.httpMethod == "POST", path == "/api/bots" || path.hasSuffix("/remove") {
+                return (200, [String: Any]())
+            }
             if request.httpMethod == "POST", path.hasSuffix("/end") {
                 endedPaths.append(path)
                 let parts = path.split(separator: "/")
@@ -59,6 +62,66 @@ private final class RemovalBridge: @unchecked Sendable {
     }
 
     private func name(_ bot: Bot) -> String { HerdrBackend.agentName(botName: bot.name, botID: bot.id) }
+
+    @Test func restoreDiscardsHistoricalRemovalsAndRelaunchRetriesOnlyAFreshDeletion() async throws {
+        let bridge = RemovalBridge(), writer = makeStore(bridge)
+        let bot = Bot(name: "Infra", backend: .herdr), former = Bot(name: "Former", backend: .herdr)
+        let server = writer.herdrServer(for: bot)
+        let host = try #require(URL(string: server.address)?.host)
+        func removalPaths() -> [String] {
+            MockHTTPProtocol.recorded(host).compactMap { $0.url?.path }.filter { $0.hasSuffix("/remove") }
+        }
+        writer.bots = [bot, former]
+        try #require(try await writer.ensureTeam(server))
+        bridge.run(name(bot), address: "t2", created: 2)
+
+        writer.bots = [bot]
+        writer.removedBots[server.id] = [former.id.uuidString.lowercased()]
+        let ending = try #require(writer.herdrEnding(for: bot))
+        writer.pendingHerdrEndings = [ending]
+        try writer.writeStore()
+        let url = writer.fileURL, backup = url.appendingPathExtension("backup")
+        try FileManager.default.moveItem(at: url, to: backup)
+        let original = try Data(contentsOf: backup)
+
+        func reopen() -> AppStore {
+            let store = AppStore(storeURL: url, autoStart: true, keyStore: writer.keyStore, defaults: writer.defaults)
+            store.herdrClientSetup = writer.herdrClientSetup
+            return store
+        }
+        func checkRestoredLaunch(_ store: AppStore) async throws {
+            #expect(store.herdrEndings.isEmpty && store.removedBots.isEmpty)
+            store.startLaunchWork(makeConnectivity: { nil })
+            try #require(try await store.ensureTeam(server))
+            #expect(bridge.ended.isEmpty && removalPaths().isEmpty)
+        }
+        let restoring = reopen()
+        try #require(restoring.restoreSetAsideStore())
+        let published = try StoreFile.decode(Data(contentsOf: url))
+        #expect(published.pendingHerdrEndings == nil && published.removedBots == nil)
+        try await checkRestoredLaunch(restoring)
+        let firstRelaunch = reopen()
+        try await checkRestoredLaunch(firstRelaunch)
+
+        // The same agent now has a fresh deletion. Keep it outstanding across a normal launch.
+        bridge.goDown()
+        let target = try #require(firstRelaunch.bots.first { $0.id == bot.id })
+        firstRelaunch.delete(target)
+        try await waitUntil { firstRelaunch.busyHerdrEndings.isEmpty }
+        #expect(firstRelaunch.pendingHerdrEndings == [ending])
+        bridge.goDown(false)
+        let secondRelaunch = reopen()
+        #expect(secondRelaunch.pendingHerdrEndings == [ending])
+        secondRelaunch.startLaunchWork(makeConnectivity: { nil })
+        try await waitUntil { secondRelaunch.herdrEndings.isEmpty }
+        try #require(try await secondRelaunch.ensureTeam(server))
+        await secondRelaunch.settleHerdrEndings()
+        _ = try await secondRelaunch.ensureTeam(server)
+        #expect(bridge.ended == ["/api/agents/t2/2/end"])
+        #expect(removalPaths() == ["/api/bots/\(bot.id.uuidString.lowercased())/remove"])
+        #expect(try StoreFile.decode(Data(contentsOf: url)).pendingHerdrEndings == nil)
+        #expect(try Data(contentsOf: backup) == original)
+    }
 
     @Test func removingABotEndsItsAgentAndNoOther() async throws {
         let bridge = RemovalBridge(), store = makeStore(bridge)
