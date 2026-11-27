@@ -42,7 +42,7 @@ struct MarkdownContent: View {
                 case .pageDraft(let draft):
                     let key = "pageReview.\(index)"
                     let status = actionTarget.map { store.choiceStatus(message, target: $0, key: key, binary: false) }
-                    PageDraftCard(draft: draft, title: rendered.run, prose: rendered.prose, picked: status?.picked ?? message.metadata[key],
+                    PageDraftCard(draft: draft, title: rendered.run, prose: rendered.prose, canShorten: message.metadata[SampleWalkthrough.draftMarker] != "short", picked: status?.picked ?? message.metadata[key],
                                   enabled: index >= 0 && !message.isStreaming && status?.enabled == true) { decision in
                         guard let actionTarget else { return }
                         store.performCardAction(target: actionTarget, sourceID: message.id, index: index,
@@ -342,6 +342,7 @@ private struct PageDraftCard: View {
     let draft: PageDraft
     let title: TranscriptText.Run?
     let prose: [TranscriptText.Prose]
+    let canShorten: Bool
     let picked: String?
     let enabled: Bool
     let decide: (PageDraft.Decision) -> Void
@@ -393,7 +394,7 @@ private struct PageDraftCard: View {
 
     private var actions: some View {
         HStack {
-            Button("Make shorter") { decide(.shorten) }.help("Ask the author to shorten “\(draft.title)”.")
+            if canShorten { Button("Make shorter") { decide(.shorten) }.help("Ask the author to shorten “\(draft.title)”.") }
             Button("Approve") { decide(.approve) }
                 .buttonStyle(.borderedProminent).tint(AppTheme.accentColor(for: accent))
                 .help("Approve the wording of “\(draft.title)”.")

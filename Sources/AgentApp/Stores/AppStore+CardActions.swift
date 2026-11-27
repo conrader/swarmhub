@@ -108,6 +108,7 @@ extension AppStore {
                   let json = try? JSONEncoder().encode(draft) else { return false }
             if conversation === bot, bot.sampleRole == .patch, bot.sampleProfile != nil,
                source.metadata[SampleWalkthrough.draftMarker] != nil {
+                guard pageDecision == .approve || source.metadata[SampleWalkthrough.draftMarker] != "short" else { return false }
                 source.metadata[key] = pageDecision.rawValue
                 bot.messages.append(ChatMessage(role: .user, content: pageDecision.reply, replyToID: source.id))
                 let reply = pageDecision == .approve ? ChatMessage(role: .assistant, content: "Release notes approved in this sample.") : SampleWalkthrough.draft(short: true)

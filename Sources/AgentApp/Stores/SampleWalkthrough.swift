@@ -52,7 +52,7 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
             ? "- Paste screenshots into bot chats.\n- Review approvals in one inbox.\n- Schedule routines with a spending limit."
             : "- Paste screenshots into Claude Code, Codex, Gemini CLI or OpenCode chats.\n- Review pending commands and bot proposals in Needs Attention.\n- Schedule recurring routines and keep goal runs within their spending limits."
         let page = PageDraft(title: "Release notes", markdown: notes)
-        let data = try! JSONEncoder().encode(page)
+        guard let data = try? JSONEncoder().encode(page) else { return .init(role: .assistant, content: notes) }
         return ChatMessage(role: .assistant, content: "Here is the release note draft for your review.\n\n```page-draft\n" + String(decoding: data, as: UTF8.self) + "\n```",
                            metadata: [draftMarker: short ? "short" : "full"])
     }

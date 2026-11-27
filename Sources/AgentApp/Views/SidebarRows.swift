@@ -84,7 +84,7 @@ struct BotRow: View {
                 }
                 return HerdrBotRequest.capLabel(cap)
             }
-            if bot.isDemo, bot.sampleRole != nil { return SimpleCopy.sampleLabel + " · " + bot.title }
+            if let summary = bot.sampleSidebarDetail, (drafts.texts[bot.id] ?? "").isEmpty { return summary }
             return bot.isDemo ? SimpleCopy.sampleLabel : !answering && store.herdrPrompts[bot.id] != nil ? HerdrPrompt.sidebar : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: answering,
                                                                        archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
         }

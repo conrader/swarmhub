@@ -31,7 +31,7 @@ struct BotAvatar: View {
             switch look {
             case .mark(let shape, let colour):
                 AvatarMarkView(shape: shape, colour: colour, size: size, mode: mode, seed: bot.avatarSeed,
-                               facing: facing, context: motion, calm: settings.effective == .calm, isSelected: isSelected)
+                               facing: facing, context: motion, calm: settings.effective == .calm, isSelected: isSelected, fillHex: bot.sampleAvatarHex(for: colour))
             case .classic(let name):
                 AvatarImage(name: name)
                     .scaledToFill().frame(width: size, height: size).clipShape(Circle())

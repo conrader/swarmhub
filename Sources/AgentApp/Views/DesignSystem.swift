@@ -129,7 +129,9 @@ extension Bot {
     /// The avatar's colour in each scheme: its mark's; a classic avatar's own accent, else the app's.
     func avatarRGB(accent: String) -> (light: RGB, dark: RGB) {
         switch avatarLook {
-        case .mark(_, let colour): (colour.swatch(dark: false), colour.swatch(dark: true))
+        case .mark(_, let colour):
+            if let hex = sampleAvatarHex(for: colour), let sample = RGB(hex: hex) { (sample, sample) }
+            else { (colour.swatch(dark: false), colour.swatch(dark: true)) }
         case .classic:
             if let own = accentColor.flatMap(RGB.init(hex:)) { (own, own) } else { (Palette.accent(accent, dark: false), Palette.accent(accent, dark: true)) }
         }

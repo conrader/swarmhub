@@ -64,6 +64,29 @@ extension SampleWorkspace.Role {
 }
 
 extension Bot {
+    func sampleAvatarHex(for colour: AvatarColour) -> String? {
+        guard isDemo, backend == .mock else { return nil }
+        switch (sampleRole, colour) {
+        case (.jarvis, .green): return "#34D399"
+        case (.patch, .blue): return "#60A5FA"
+        case (.scout, .violet): return "#A78BFA"
+        case (.legal, .cyan): return "#2DD4BF"
+        default: return nil
+        }
+    }
+
+    var sampleSidebarDetail: String? {
+        guard isDemo, backend == .mock else { return nil }
+        switch sampleRole {
+        case .jarvis: return sampleDecision?.receipt ?? "Proposed Payments · Inbox"
+        case .patch: return sampleWalkthrough?.story == .checks ? "CI review · PR #142" : "Release notes · PR #142"
+        case .scout: return "Reviewer · Routine 08:55"
+        case .legal: return "Idle · $0.06 / $2.00 cap"
+        case .payments: return "Supplier invoices · Ask everything"
+        case nil: return nil
+        }
+    }
+
     var sampleProfile: SampleBotProfile? {
         guard isDemo, backend == .mock else { return nil }
         return sampleRole?.profile
