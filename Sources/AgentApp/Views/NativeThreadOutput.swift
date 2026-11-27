@@ -81,7 +81,7 @@ struct NativeThreadOutput: View {
         let reply = details?.reply ?? child.reply
         let state = activity?.state ?? child.state
         helperPart("Task", detail: HerdrClient.NativeThread.statusLabel(state)) {
-            Text(verbatim: task.isEmpty ? "No task recorded." : task).textSelection(.enabled)
+            Text(HerdrHelperView.assignment(task.isEmpty ? "No task recorded." : task)).textSelection(.enabled)
         }
         helperPart(details.map { $0.steps.count == 64 ? "Steps (latest 64)" : "Steps (\($0.steps.count))" } ?? "Steps", detail: child.model) {
             if let steps = details?.steps {
