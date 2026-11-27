@@ -115,3 +115,28 @@ import Testing
     #expect(try await read(1).count == 4)
     #expect(MockHTTPProtocol.recorded(http.host).compactMap { $0.url?.path } == [1, 2, 3, 1].map { "/api/library/files/\($0)/download" })
 }
+
+@MainActor @Test func localReplyMediaUsesTheRecordedHostAndKeepsTheTemporaryFile() async throws {
+    let storeURL = temporaryStore(), folder = storeURL.deletingLastPathComponent()
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let store = AppStore(storeURL: storeURL, autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let local = HerdrServer(id: "mac", name: "Mac", kind: .local, address: HerdrServer.loopback(port: 8787))
+    let remote = HerdrServer(id: "dmt", name: "DMT", kind: .ssh, address: HerdrServer.loopback(port: 8788))
+    store.saveHerdrServers([local, remote])
+    let reply = ChatMessage(role: .assistant, content: "[formularz](/private/tmp/form.png) i ![film](file:///tmp/film%20PL.mp4). `[code](/tmp/no.jpg)`")
+    let items = MediaExtractor.items(in: [reply])
+    #expect(items.map(\.title) == ["formularz", "film"] && items.map(\.kind) == [.image, .video])
+    reply.metadata["herdrJournal"] = "mac:3262"
+    #expect(store.replyMediaIsOnThisMac(reply, target: nil))
+    reply.metadata["herdrJournal"] = "dmt:3262"
+    #expect(!store.replyMediaIsOnThisMac(reply, target: nil))
+    #expect(ReplyMediaLink.fileURL(URL(string: "file://remote/tmp/form.png")!) == nil)
+    let cache = PublishedMediaCache(directory: folder.appending(path: "cache"))
+    let source = folder.appending(path: "form.png"), bytes = Data("original bytes".utf8)
+    try bytes.write(to: source)
+    let saved = try await cache.localFile(source, message: reply.id, storeURL: storeURL)
+    try FileManager.default.removeItem(at: source)
+    #expect(try Data(contentsOf: saved) == bytes)
+    #expect(try await cache.localFile(source, message: reply.id, storeURL: storeURL) == saved)
+    await #expect(throws: (any Error).self) { try await cache.localFile(source, message: UUID(), storeURL: storeURL) }
+}
