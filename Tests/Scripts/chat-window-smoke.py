@@ -536,7 +536,8 @@ def steer_reopen(source_app):
                         wait_for("coding helper details", lambda: any(label(b) == back for b in buttons(window)))
                         if not unread_badge(window, owner["name"]) or unread_counts() != [1, 1]:
                             raise RuntimeError("Opening a helper cleared its parent chat’s unread answer")
-                        press(window, back)
+                        press_transition(window, back, "recovered answer in the parent chat",
+                                         lambda: "Updated " + owner["name"] in text_positions(window))
                     else:
                         if unread_counts() != [0, 1]:
                             raise RuntimeError(f"Unread state changed on restart: {unread_counts()}")
