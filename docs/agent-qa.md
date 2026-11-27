@@ -120,6 +120,12 @@ To measure switching through a larger roster, use an app built in Release config
 
 The driver opens a disposable workspace with 50 idle bots and 96 messages per bot. It uses the Next Chat shortcut to visit the entire roster four times. Each timer stops when the last message of the destination chat is exposed by Accessibility and intersects the scroll viewport. During each pass the driver edits one chat’s draft, checks the adjacent composer is empty, and on the next visit verifies the original draft. The JSON includes all 200 timings and 12 stationary observations of the same row. Run both builds on the same Mac in alternating order. These numbers measure native Accessibility response. Use the streaming benchmark above for captured frame timings.
 
+To check for a visibly blank transcript, use the frame check on a logged-in, unlocked Mac with macOS 14.4 or later, Xcode command-line tools and PyObjC Vision. Each chat has a unique number in its final message. ScreenCaptureKit captures the private app window and Vision reads the number within the transcript bounds. The JSON records the first matching capture after each switch, including its attempt number. Capture time includes the observation delay. If three consecutive captures miss the message, the driver saves the last image beside the report.
+
+```sh
+/usr/bin/python3 Tests/Scripts/chat-switch-latency.py /Applications/SwarmHub.app /tmp/chat-frames.json --verify-frames --passes 1 --appearance Dark
+```
+
 To check whether a long group chat survives a restart, run the same driver with a packaged app.
 
 ```sh

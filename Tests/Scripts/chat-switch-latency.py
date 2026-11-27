@@ -5,6 +5,8 @@ import json
 import math
 from pathlib import Path
 import runpy
+import shutil
+import subprocess
 import time
 from types import SimpleNamespace
 import uuid
@@ -18,7 +20,11 @@ ROSTER = 50
 HISTORY = 96
 
 
-def seed(store):
+def frame_code(index):
+    return str(715100 + index)
+
+
+def seed(store, *, verify_frames=False):
     def identifier(name):
         return str(uuid.uuid5(uuid.NAMESPACE_URL, "urn:swarmhub:chat-switch:" + name))
 
@@ -29,6 +35,8 @@ def seed(store):
             "id": identifier(f"{name}/{row}"), "role": "user", "createdAt": 799000000 + row,
             "content": f"{name} row {row}. " + "Earlier conversation. " * 3,
         } for row in range(HISTORY)]
+        if verify_frames:
+            messages[-1]["content"] = latest(index) + " Frame " + frame_code(index)
         bots.append({"id": identifier(name), "name": name, "backend": "Mock", "messages": messages})
     store.write_text(json.dumps({"version": 2, "bots": bots, "groups": []}))
 
@@ -87,7 +95,58 @@ def summary(samples):
             for name, fraction in (("p50", .5), ("p95", .95), ("maximum", 1))}
 
 
-def measure(window, passes):
+class FrameVerifier:
+    def __init__(self, directory, report):
+        self.snapshot = directory / "chat-window.png"
+        self.trigger = directory / "chat-window.png.request"
+        self.failure = report.with_suffix(".failed-frame.png")
+        self.observations = []
+        library = directory / "capture.dylib"
+        subprocess.run(["xcrun", "clang", "-dynamiclib", "-fobjc-arc",
+                        str(Path(__file__).with_name("qa-window-capture.m")), "-framework", "Cocoa",
+                        "-framework", "ScreenCaptureKit", "-o", library], check=True)
+        subprocess.run(["codesign", "--force", "--sign", "-", library], check=True)
+        self.environment = {"DYLD_INSERT_LIBRARIES": str(library), "SWARMHUB_QA_SNAPSHOT_PATH": str(self.snapshot)}
+
+    @staticmethod
+    def rectangle(element):
+        position = ax.AXValueGetValue(attribute(element, "AXPosition"), ax.kAXValueCGPointType, None)[1]
+        extent = ax.AXValueGetValue(attribute(element, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+        return position.x, position.y, extent.width, extent.height
+
+    def check(self, window, area, index, start):
+        from Foundation import NSURL
+        import Vision
+
+        # Exclude the sidebar, which also previews the last message. Vision measures y from the bottom.
+        wx, wy, ww, wh = self.rectangle(window)
+        x, y, w, h = self.rectangle(area)
+        left, right = max(0, (x - wx + 3) / ww), min(1, (x + w - wx - 3) / ww)
+        top, bottom = max(0, (y - wy + 4) / wh), min(1, (y + h - wy - 4) / wh)
+        for attempt in range(1, 4):
+            self.trigger.touch()
+            window_qa.wait_for("image of the private Mac window",
+                               lambda: self.snapshot.exists() and not self.trigger.exists(), seconds=12)
+            captured_ms = round((time.monotonic() - start) * 1000, 1)
+            request = Vision.VNRecognizeTextRequest.alloc().init()
+            request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+            request.setUsesLanguageCorrection_(False)
+            request.setRegionOfInterest_(((left, 1 - bottom), (right - left, bottom - top)))
+            handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(
+                NSURL.fileURLWithPath_(str(self.snapshot)), {})
+            ok, error = handler.performRequests_error_([request], None)
+            if not ok:
+                raise RuntimeError(f"Could not read the captured chat: {error}")
+            for observation in request.results():
+                candidates = observation.topCandidates_(1)
+                if candidates and frame_code(index) in candidates[0].string():
+                    self.observations.append({"bot": index, "captured_ms": captured_ms, "attempt": attempt})
+                    return
+        shutil.copyfile(self.snapshot, self.failure)
+        raise RuntimeError(f"Missing rendered message for {latest(index)} See {self.failure}")
+
+
+def measure(window, passes, frames=None):
     pid = ax.AXUIElementGetPid(window, None)[1]
     window_qa.wait_for("fleet sidebar", lambda: any(window_qa.label(b).startswith("Bench00,")
                                                     for b in window_qa.buttons(window)))
@@ -121,6 +180,8 @@ def measure(window, passes):
                 raise RuntimeError(f"Switch {step + 1} never showed {latest(index)}")
             time.sleep(.004)
         timings.append(round((time.monotonic() - start) * 1000, 2))
+        if frames is not None:
+            frames.check(window, follow(window, area_path), index, start)
         if index == 1:
             replacement = f"Bench01 draft, pass {step // ROSTER + 1}"
             verify_draft(window, draft, replacement)
@@ -136,12 +197,19 @@ if __name__ == "__main__":
     parser.add_argument("app", type=Path)
     parser.add_argument("report", type=Path)
     parser.add_argument("--passes", type=int, default=4)
+    parser.add_argument("--verify-frames", action="store_true", help="Check the last message in captured window pixels")
+    parser.add_argument("--appearance", choices=("Dark", "Light"))
     args = parser.parse_args()
     if args.passes < 1:
         parser.error("--passes must be positive")
     with window_qa.private_workspace(args.app) as (app, home, store):
-        seed(store)
-        with window_qa.open_workspace(app, home) as window:
-            result = measure(window, args.passes)
+        seed(store, verify_frames=args.verify_frames)
+        frames = FrameVerifier(home, args.report) if args.verify_frames else None
+        environment = frames.environment if frames else None
+        with window_qa.open_workspace(app, home, extra_environment=environment, appearance=args.appearance) as window:
+            result = measure(window, args.passes, frames)
+        if frames:
+            result["rendered_frames"] = frames.observations
+            result["capture_summary_ms"] = summary([item["captured_ms"] for item in frames.observations])
     args.report.write_text(json.dumps(result, indent=2) + "\n")
     print(result["summary_ms"])
