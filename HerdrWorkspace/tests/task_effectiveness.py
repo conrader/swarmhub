@@ -156,7 +156,7 @@ def trial(args, case, seed, arm):
                                    "obiekt z polami missing (brakujące jednostki) i file (ścieżka do zatwierdzenia).")
                     reply = follow_up(conn, reply, consent)
                     turns += int(reply is not None)
-            if case in ("one_plan", "discover_capacity") and reply:
+            if case in ("one_plan", "discover_capacity", "linked_capacity") and reply:
                 message, = conn.execute("SELECT text FROM journal WHERE id=?", (reply,)).fetchone()
                 scope, stage_checks = proposed_scope(workspace, truth, message or "")
                 plan_path = workspace / "plan.json"
@@ -172,7 +172,7 @@ def trial(args, case, seed, arm):
         checks = {**stage_checks, **grade(workspace, case, truth)}
         if case == "interrupted_consent":
             checks["three_replies"] = turns == 3
-        elif case in ("resume", "partial_resume", "short_consent", "busy_after_plan", "one_plan", "discover_capacity"):
+        elif case in ("resume", "partial_resume", "short_consent", "busy_after_plan", "one_plan", "discover_capacity", "linked_capacity"):
             checks["two_replies"] = turns == 2
         return dict(case=case, seed=seed, arm=arm, model=args.model, observed_models=models, **evidence,
                     guidance_sha256=hashlib.sha256(args.guidance.encode()).hexdigest() if arm == "guided" else None,

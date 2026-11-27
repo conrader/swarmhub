@@ -55,6 +55,19 @@ W ośmiu oddzielnych sesjach model doszedł do progu po jednej zgodzie i zachowa
 
 Założenie dotyczy plików w ćwiczeniu. Każde 1024 bajty treści stanowią jednostkę. Nie symulujemy rozliczania bloków, twardych dowiązań ani otwartych deskryptorów na serwerze. Rejestr `jobs.json` podaje aktywne pliki.
 
+## Czy usunięcie zaproponowanych plików rzeczywiście zwolni miejsce?
+
+W scenariuszu `linked_capacity` największy odtwarzalny plik ma również drugą nazwę w chronionych źródłach. Usunięcie jego nazwy w katalogu kompilacji zwalnia zero jednostek. Program tworzy rzeczywiste twarde dowiązanie, a po wykonaniu planu liczy bajty każdego unikalnego pliku na docelowym woluminie. Sprawdza też treść wszystkich oryginałów spoza zatwierdzonego zakresu. Dwa różne układy zawierają wystarczająco dużo mniejszych bezpiecznych kandydatów.
+
+| Model | Zwykłe polecenie | Ze wskazówką o wielkości planu | Mediana sekund (zwykłe / ze wskazówką) |
+| --- | ---: | ---: | ---: |
+| Astra | 2/2 | 2/2 | 44,0 / 42,0 |
+| Sol | 2/2 | 2/2 | 38,5 / 42,2 |
+
+W każdej z ośmiu sesji bot przedstawił plan i po jednej zgodzie osiągnął próg 20 wolnych jednostek. Dane chronione przeszły weryfikację. Wszystkie cztery pary dały remis. Zgodnie z regułą badania dalszy etap na odłożonych zestawach danych wymaga poprawy skuteczności, więc zakończyliśmy badanie na tym etapie. To krótkie zadania lokalne z jawnie podaną zasadą liczenia dowiązań. Wyniki nie rozstrzygają, jaką część opóźnienia na OVH spowodowały zgody, pomocnik i wielogodzinna historia. [Przebiegi Astra](linked-capacity-astra-study/screen.jsonl) · [Przebiegi Sol](linked-capacity-sol-study/screen.jsonl)
+
+Aby powtórzyć, użyj poniższego polecenia z `--cases linked_capacity --screen-seeds 7100 7101 --holdout-seeds 7150 7151`, plikiem `docs/research/candidates/size-the-plan.txt` i osobnym nowym katalogiem wyników dla każdego modelu.
+
 ## Powtórzenie badania
 
 Polecenie uruchom z głównego katalogu repozytorium. Podaj ścieżki do uruchamialnych plików Workspace, Herdr Core i natywnego Codex CLI dla Linuksa oraz pliku uwierzytelnienia Codex. Badanie korzysta z modelu na tym koncie. Poniższe wyniki uzyskano z Workspace 0.2.44. Przy innej wersji podaj jej numer przez `--bridge-version`.
