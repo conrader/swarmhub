@@ -466,3 +466,9 @@ In 0.8.119, opening the working tests helper showed its answer and terminal outp
 The [paired capture drivers](agent-qa.md) now cover nine views per appearance, including the return from rename to its focused parent composer and the Inbox with both decisions confirmed. In the inbox, the Mac orders recent decisions by completion time. The website keeps the decision cards in their original order.
 
 During recovery testing, the Mac accessibility API returned an error when the Back button disappeared during activation. The driver now sends one press and checks that the parent’s recovered answer appears. The signed build also passed the offline relaunch, unread counts and reply-order checks. Separate window runs exercised the four sample stories, screenshot and goal controls, session usage, and a two-bot Team Pack round trip through native file dialogs.
+
+### Steering a helper and following the release handoff in 0.8.121
+
+Two instructions to the same helper were saved, but only the first appeared in its open window. The regression test now types the second message and checks both are visible before navigating away. In a private Mac run with a Linux workspace, both instructions also remained in the finished helper’s chat after relaunch. The headless driver checks that the parent and two siblings keep separate drafts.
+
+The website and Mac capture drivers now visit all three steps of Release notes, CI & reviewer bot, Routines & brief, and Team & helpers. Together with both helper conversations, steering back to Jarvis, and the open and resolved Inbox, they captured 17 states in each appearance on each platform. During the release handoff, both interfaces show Patch asking Scout to verify the release notes and Scout answering with the test result. The Mac shows the sent message as a card that opens the exchange. The website shows a centered handoff notice. [Mac handoff screenshot](screenshots/dark/release-handoff.png)
