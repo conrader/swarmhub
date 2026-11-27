@@ -9,36 +9,57 @@ struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.openWindow) private var openWindow
     @Binding var selection: Bot?
+    var belowWorkflowBar = false
     @State private var botToDelete: Bot?; @State private var groupToDelete: GroupChat?
     @State private var sectionPrompt: SidebarSectionPrompt?; @State private var sectionToDelete: UUID?
     @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
 
+    private var newMenu: some View {
+        Menu {
+            Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
+            Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }
+            Button("New Section…", systemImage: "folder.badge.plus") { sectionPrompt = .new(nil) }
+            if store.grokBotPresent {
+                Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.openSetup(openWindow: openWindow, forGrok: true) }
+            }
+        } label: { RoundSidebarLabel(symbol: "plus") }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
+    }
+
+    private var search: some View {
+        Button { store.showingCommandPalette = true } label: {
+            HStack {
+                ViewThatFits(in: .horizontal) {
+                    Text("Jump to bot or Page…").fixedSize()
+                    Text("Jump to…").fixedSize()
+                }
+                Spacer()
+                Text(AppCommand.quickSwitcher.shortcutText).font(.caption.monospaced())
+            }.font(.callout).foregroundStyle(.secondary).padding(.horizontal, 9).frame(height: 28)
+                .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator) }
+        }.buttonStyle(.plain).accessibilityLabel("Search").chromeProbe("search")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Spacer(minLength: ChromeMetrics.lightsClearance)
-                HideSidebarButton()
-                Menu {
-                    Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
-                    Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }
-                    Button("New Section…", systemImage: "folder.badge.plus") { sectionPrompt = .new(nil) }
-                    if store.grokBotPresent {
-                        Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.openSetup(openWindow: openWindow, forGrok: true) }
-                    }
-                } label: { RoundSidebarLabel(symbol: "plus") }
-                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                    .help("New bot or group (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
-            }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
+            if !belowWorkflowBar {
+                HStack(spacing: 8) {
+                    Spacer(minLength: ChromeMetrics.lightsClearance)
+                    HideSidebarButton()
+                    newMenu
+                }.padding(.trailing, SidebarMetrics.listInset)
+                    .frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
+            }
             VStack(spacing: 6) {
-                Button { store.showingCommandPalette = true } label: {
-                    HStack {
-                        Text("Jump to bot or Page…").lineLimit(1)
-                        Spacer()
-                        Text(AppCommand.quickSwitcher.shortcutText).font(.caption.monospaced())
-                    }.font(.callout).foregroundStyle(.secondary).padding(.horizontal, 9).frame(height: 28)
-                        .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator) }
-                }.buttonStyle(.plain).accessibilityLabel("Search").chromeProbe("search")
+                if belowWorkflowBar {
+                    HStack(spacing: 4) {
+                        search
+                        HideSidebarButton()
+                        newMenu
+                    }
+                } else { search }
                 SidebarAttentionButton()
             }.padding(.horizontal, SidebarMetrics.listInset).padding(.vertical, 4)
             ReviewUpdatesButton()

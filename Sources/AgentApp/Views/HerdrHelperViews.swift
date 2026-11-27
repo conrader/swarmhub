@@ -453,6 +453,7 @@ struct HerdrHelperCard: View {
 /// while the helper runs, and reads it once more when it has ended. A helper the
 /// server no longer lists stays on screen as it was last read until the person leaves it.
 struct HerdrHelperView: View {
+    @Environment(\.compactWorkspaceHeight) private var compactHeight
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     let selection: HerdrHelperSelection
@@ -488,7 +489,7 @@ struct HerdrHelperView: View {
     var body: some View {
         let shown = listed ?? helper
         let back = store.backDestination(for: selection, of: bot)
-        let group = store.groupOwningHelper(selection, of: bot)
+        let pinActions = compactHeight && closeOverviewDetails == nil && !showDetails
         let backTitle = "Back to " + back.name
         let unavailable = store.herdrHelperReads[selection.parent] == .unavailable
         VStack(spacing: 0) {
@@ -594,10 +595,7 @@ struct HerdrHelperView: View {
                         Button(showDetails ? "Show conversation" : "Session details") { showDetails.toggle() }
                         if showDetails { RemoveFinishedHelperButton(selection: selection, bot: bot) }
                     }
-                    Button(selection.archive == nil ? "Steer via " + bot.name : "Open " + (group?.name ?? bot.name), systemImage: "arrow.right") {
-                        if store.beginHelperSteering(selection, of: bot) { closeOverviewDetails?() }
-                        else { controlError = "The group session that started this helper is no longer available." }
-                    }.buttonStyle(.appleProminent).controlSize(.large).accessibilityIdentifier("helper.steerViaParent")
+                    if !pinActions { steerButton }
                     if let shown, listed?.isLive == true && !unavailable && !stopped {
                         VStack(alignment: .leading, spacing: 8) {
                             if selection.archive == nil && (showDetails || closeOverviewDetails != nil) {
@@ -609,18 +607,7 @@ struct HerdrHelperView: View {
                                         .disabled(guidance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                 }
                             }
-                            Button("Stop helper", systemImage: "stop.circle") {
-                                stopping = true
-                                controlError = ""
-                                Task {
-                                    defer { stopping = false }
-                                    do {
-                                        try await store.stopHelper(shown, selection: selection, of: bot)
-                                        stopped = true
-                                        await store.refreshHerdrHelpers(on: store.herdrServer(for: bot).id)
-                                    } catch { controlError = error.localizedDescription }
-                                }
-                            }.buttonStyle(.bordered).controlSize(.large).accessibilityIdentifier("helper.stop")
+                            if !pinActions { stopButton(shown) }
                         }.disabled(stopping)
                     }
                     if let shown, let core {
@@ -650,9 +637,16 @@ struct HerdrHelperView: View {
                     }
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !showDetails, closeOverviewDetails == nil, let target = store.steeringTarget(selection, of: bot) {
-                HelperChatComposer(target: target, bot: bot, draft: store.helperChatDrafts[target.id] ?? "").id(target.id)
-            }
+            if pinActions {
+                CompactHelperFooter {
+                    HStack {
+                        if let shown, listed?.isLive == true && !unavailable && !stopped {
+                            stopButton(shown).disabled(stopping)
+                        }
+                        steerButton
+                    }
+                } composer: { composer }
+            } else { composer }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .task(id: ReadKey(selection: selection, core: store.herdrHelpers[selection.parent]?.core ?? core,
@@ -663,6 +657,34 @@ struct HerdrHelperView: View {
             .onDisappear { promotion?.cancel() }
             .onChange(of: listed) { _, now in if let now { helper = now } }
             .onChange(of: store.herdrHelpers[selection.parent]?.core) { _, now in if let now { core = now } }
+    }
+
+    @ViewBuilder private var composer: some View {
+        if !showDetails, closeOverviewDetails == nil, let target = store.steeringTarget(selection, of: bot) {
+            HelperChatComposer(target: target, bot: bot, draft: store.helperChatDrafts[target.id] ?? "").id(target.id)
+        }
+    }
+
+    private var steerButton: some View {
+        Button(selection.archive == nil ? "Steer via " + bot.name : "Open " + (store.groupOwningHelper(selection, of: bot)?.name ?? bot.name), systemImage: "arrow.right") {
+            if store.beginHelperSteering(selection, of: bot) { closeOverviewDetails?() }
+            else { controlError = "The group session that started this helper is no longer available." }
+        }.buttonStyle(.appleProminent).controlSize(.large).accessibilityIdentifier("helper.steerViaParent")
+    }
+
+    private func stopButton(_ shown: HerdrClient.Helper) -> some View {
+        Button("Stop helper", systemImage: "stop.circle") {
+            stopping = true
+            controlError = ""
+            Task {
+                defer { stopping = false }
+                do {
+                    try await store.stopHelper(shown, selection: selection, of: bot)
+                    stopped = true
+                    await store.refreshHerdrHelpers(on: store.herdrServer(for: bot).id)
+                } catch { controlError = error.localizedDescription }
+            }
+        }.buttonStyle(.bordered).controlSize(.large).accessibilityIdentifier("helper.stop")
     }
 
     private func guide(_ helper: HerdrClient.Helper) {

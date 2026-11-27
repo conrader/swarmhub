@@ -37,7 +37,7 @@ struct ContentView: View {
 
     private func workspace(detailsVisible: Bool) -> some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
-            SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
+            SidebarView(selection: $store.selectedBot, belowWorkflowBar: sampleBot != nil).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
                 .background(SidebarWidthClamp())
                 .disabled(store.storeRestoreOffer != nil)
                 .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
@@ -107,6 +107,7 @@ struct ContentView: View {
                 let visible = store.showsInfo(at: geometry.size.width)
                 workspace(detailsVisible: visible)
                     .environment(\.visibleWorkspaceDetails, visible)
+                    .environment(\.compactWorkspaceHeight, geometry.size.height < 580)
                     .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in
                         if windowActivity == .key { store.showInfo = !visible }
                     }

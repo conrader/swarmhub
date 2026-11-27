@@ -602,6 +602,14 @@ def sample_preview(source_app, destination, appearance, library):
             def has_button(title):
                 return any(label(b) == title for b in buttons(window))
 
+            # The public preview has a 1220 x 540 shell (one extra raster pixel on some screens).
+            size = ax.AXValueCreate(ax.kAXValueCGSizeType, (1220, 540))
+            assert ax.AXUIElementSetAttributeValue(window, "AXSize", size) == 0
+            def reference_size():
+                current = ax.AXValueGetValue(attribute(window, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+                return current.width == 1220 and current.height == 540
+            wait_for("workspace at the public preview dimensions", reference_size)
+
             for target, story, first, second in [
                 ("Look around with sample bots", "release", "Hand off to Scout", "Read Patch’s draft"),
                 ("Inbox & approvals", "inbox", "Allow once", None),
@@ -681,6 +689,16 @@ def sample_preview(source_app, destination, appearance, library):
                     wait_for("running command time to advance", lambda: timed_command() != first_command and "Running command" in timed_command())
                 else:
                     assert "· 3s" in first_command, first_command
+                actions = ["Steer via Jarvis"] + (["Stop helper"] if expected["canStop"] else [])
+                composer = next(e for e in descendants(window) if label(e) == "Message " + name and attribute(e, "AXRole") == "AXTextArea")
+                assert bounds(window)[0] < bounds(composer)[0] < bounds(composer)[1] <= bounds(window)[1]
+                for title in actions:
+                    button = next(b for b in buttons(window) if label(b) == title)
+                    assert bounds(window)[0] < bounds(button)[0] < bounds(button)[1] <= bounds(window)[1], title
+                    ancestor = attribute(button, "AXParent")
+                    while ancestor and attribute(ancestor, "AXRole") != "AXWindow":
+                        assert attribute(ancestor, "AXRole") != "AXScrollArea", title
+                        ancestor = attribute(ancestor, "AXParent")
                 snapshots.capture(name)
             def instruction_focused():
                 return any(attribute(e, "AXRole") == "AXTextField" and attribute(e, "AXFocused") and

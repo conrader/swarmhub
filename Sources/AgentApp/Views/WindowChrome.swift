@@ -131,6 +131,8 @@ private struct WorkspaceDetailsVisibilityKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    @Entry var compactWorkspaceHeight = false
+
     var visibleWorkspaceDetails: Bool? {
         get { self[WorkspaceDetailsVisibilityKey.self] }
         set { self[WorkspaceDetailsVisibilityKey.self] = newValue }
