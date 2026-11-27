@@ -96,6 +96,13 @@ enum SidebarSessionItem: Identifiable {
         }
     }
 
+    var isWorking: Bool {
+        switch self {
+        case .workspace(let row): row.helper.isWorking
+        case .native(let row, _, _): row.thread.isWorking
+        }
+    }
+
     var finished: Bool {
         switch self {
         case .native(let row, _, _): ["answered", "stopped", "finished"].contains(row.thread.state)
@@ -142,7 +149,7 @@ extension AppStore {
     /// A pin only needs a full-width parent row if there is something to unfold.
     func sidebarSessionGroups(for bot: Bot, roots: [HerdrHelperParent]) -> [SidebarSessionGroup] {
         Self.sortedSidebarRoots(roots).compactMap { root in
-            let rows = sessionRows(under: root, for: bot)
+            let rows = sidebarRows(under: root, for: bot, includeNestedFolds: !sessionsExpanded(for: bot))
             return rows.isEmpty ? nil : SidebarSessionGroup(id: root, rows: rows)
         }
     }
@@ -187,12 +194,16 @@ extension AppStore {
     }
 
     func sessionRows(under parent: HerdrHelperParent, for bot: Bot, includingFolded: Bool = false) -> [SidebarSessionItem] {
-        let visible = listedSessionRows(under: parent, for: bot, includingFolded: includingFolded)
-        guard !includingFolded else { return visible }
+        if includingFolded { return listedSessionRows(under: parent, for: bot, includingFolded: true) }
+        return sidebarRows(under: parent, for: bot, includeNestedFolds: false)
+    }
+
+    private func sidebarRows(under parent: HerdrHelperParent, for bot: Bot, includeNestedFolds: Bool) -> [SidebarSessionItem] {
+        let visible = listedSessionRows(under: parent, for: bot, includingFolded: includeNestedFolds)
         let removed = removedHelpers(for: bot)
         guard autoHideFinishedHelpers || !removed.isEmpty else { return visible }
         // A finished parent can still own a working child, including inside a folded branch.
-        let full = listedSessionRows(under: parent, for: bot, includingFolded: true)
+        let full = includeNestedFolds ? visible : listedSessionRows(under: parent, for: bot, includingFolded: true)
         var keep = Set<SidebarSessionID>()
         var parentsWithChildren = Set<SidebarSessionID>()
         var ancestors: [SidebarSessionItem] = []
