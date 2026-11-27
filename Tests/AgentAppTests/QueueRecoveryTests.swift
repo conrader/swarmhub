@@ -7,6 +7,24 @@ import Testing
 // Scripted backends; no network.
 
 @MainActor struct QueueRecoveryTests {
+    @Test func queuePresentationKeepsMessagesAndShowsOnlyTheFirstWaitReason() {
+        let first = ChatMessage(role: .user, content: "First", metadata: [TurnWaitCopy.key: "waiting"])
+        let second = ChatMessage(role: .user, content: "Second", metadata: [TurnWaitCopy.key: "waiting"])
+        let busy = ChatMessage(role: .system, content: TurnWaitCopy.busy, metadata: [TurnWaitCopy.key: "line"])
+        let behind = ChatMessage(role: .system, content: TurnWaitCopy.behind, metadata: [TurnWaitCopy.key: "line"])
+        let warning = ChatMessage(role: .system, content: TurnWaitCopy.notSent)
+        let sent = ChatMessage(role: .user, content: TurnWaitCopy.behind)
+        let queue = ChatQueuePresentation([sent, first, busy, second, behind, warning])
+        #expect(queue.waiting.map(\.id) == [first.id, second.id])
+        #expect(queue.transcript.map(\.id) == [sent.id, first.id, second.id, warning.id])
+        #expect(queue.reason == TurnWaitCopy.busy)
+        first.metadata[TurnWaitCopy.key] = nil
+        let remaining = ChatQueuePresentation([first, second, behind, warning])
+        #expect(remaining.waiting.map(\.id) == [second.id])
+        #expect(remaining.reason == nil)
+        #expect(ChatQueuePresentation([sent, warning]).waiting.isEmpty)
+    }
+
     /// A running turn with two failed steers queued behind it, saved; then the app "quits" (the store is dropped).
     func queuedBehindARunningTurn(url: URL) async throws -> (AppStore, ScriptedTurnBackend, [ChatMessage]) {
         let backend = ScriptedTurnBackend()
