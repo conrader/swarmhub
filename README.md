@@ -11,7 +11,7 @@
 
 ### Try the sample
 
-On a fresh launch of this checkout, choose **Try a sample**. Patch opens with three changes and a finished release-note draft. The example is stored locally and uses no model quota. On builds with the previous setup window, close it and choose **Look around with sample bots** to explore the samples bundled with that build. In a new real bot’s chat, choose **Draft release notes** for the same editable input. Compare the answer with [the sample output](docs/guide.md#release-notes-example).
+On a fresh install, close the setup window and choose **Look around with sample bots** in the main window. Click **Patch** in the sidebar to see three changes and a finished release-note draft. The example is stored locally and uses no model quota. In a new real bot’s chat, choose **Draft release notes** for the same editable input. Compare the answer with [the sample output](docs/guide.md#release-notes-example).
 
 ### Switching from Grok Bot
 
