@@ -24,6 +24,35 @@ enum HelperAssignment {
     }
 }
 
+/// Show enough activity to follow a helper without pushing its answer offscreen.
+struct HelperChatSteps<Step, Row: View>: View {
+    let steps: [Step]
+    let title: String
+    @ViewBuilder let row: (Step) -> Row
+    @State private var expanded = true
+    @State private var showEarlier = false
+
+    var body: some View {
+        if !steps.isEmpty {
+            DisclosureGroup(isExpanded: $expanded) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if steps.count > 3 {
+                        Button(showEarlier ? "Show latest 3" : "Show earlier steps (\(steps.count - 3))") {
+                            showEarlier.toggle()
+                        }.buttonStyle(.borderless).font(.caption)
+                    }
+                    ForEach(steps.indices.suffix(showEarlier ? steps.count : 3), id: \.self) { index in
+                        row(steps[index]).lineLimit(2)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+            } label: {
+                Text(title).font(.callout.weight(.semibold))
+            }
+            .inspectorCard().accessibilityElement(children: .contain).accessibilityIdentifier("helper.chatSteps")
+        }
+    }
+}
+
 /// The conversation shows the most recent terminal lines. The full output stays available in Details.
 struct HelperChatTerminal: View {
     var command: String? = nil

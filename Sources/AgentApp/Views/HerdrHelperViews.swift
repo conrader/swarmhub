@@ -448,7 +448,6 @@ struct HerdrHelperView: View {
         let attempt: Int
     }
     @State private var showDetails = false
-    @State private var expandedSteps = false
     @State private var readAttempt = 0
     @State private var logServer: HerdrServer?
     @State private var guidance = ""
@@ -718,9 +717,9 @@ struct HerdrHelperView: View {
             HelperChatLine(name: name, text: preview, incoming: true, media: previewMedia(shown))
         }
         HelperGuidanceCard(selection: selection, bot: bot)
-        if let tools = log?.tools, !tools.isEmpty {
-            DisclosureGroup("Steps (\(tools.count))", isExpanded: $expandedSteps) {
-                ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) }
+        if let tools = log?.tools {
+            HelperChatSteps(steps: tools, title: "Steps (\(tools.count))") { call in
+                step(call, running: shown?.isWorking == true)
             }
         }
         if let screen = log?.screen {

@@ -13,7 +13,6 @@ struct NativeThreadOutput: View {
     var readable = false
     let openedParent: () -> Void
     @State private var showDetails = false
-    @State private var expandSteps = false
     @State private var activity: HerdrClient.ThreadActivity?
     @State private var listingStateAtRead: String?
     @State private var requestedTurn: String?
@@ -125,16 +124,14 @@ struct NativeThreadOutput: View {
                 HelperChatLine(name: "You", text: row.content)
             }
         }
+        if let steps = details?.steps {
+            HelperChatSteps(steps: steps, title: steps.count == 64 ? "Latest 64 steps" : "Steps (\(steps.count))") { step in
+                NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command)
+            }
+        }
         let reply = visibleState == activity?.state ? details?.reply ?? child.reply : child.reply
         if !reply.isEmpty { HelperChatLine(name: child.name, text: reply, incoming: true, media: media(for: child, reply: reply)) }
         else if visibleState == "working" { ProgressView("Working…").controlSize(.small) }
-        if let steps = details?.steps, !steps.isEmpty {
-            DisclosureGroup(steps.count == 64 ? "Latest 64 steps" : "Steps (\(steps.count))", isExpanded: $expandSteps) {
-                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                    NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command)
-                }
-            }.font(.callout)
-        }
         if let terminal = details?.terminal {
             HelperChatTerminal(command: terminal.command, output: terminal.output)
         }
