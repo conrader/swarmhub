@@ -496,6 +496,13 @@ extension ChatGoalTests {
         #expect(reopened.goal?.state == .waiting && reopened.goal?.detail.contains("10 GB") == true)
     }
 
+    @Test func helperChatTerminalShowsRecentLinesAndMasksProtectedAssignments() {
+        let protected = "gAAAAA" + String(repeating: "A1_-", count: 22) + "=="
+        let screen = "older\r\nfirst\r\n\r\n  indented\r\nTask " + protected + "\nlast\n   \n"
+        #expect(HelperChatTerminal.excerpt(screen) == "first\n\n  indented\nTask " + HelperAssignment.unavailable + "\nlast")
+        #expect(HelperChatTerminal.excerpt("\r\n   \n") == "")
+    }
+
     @Test func helperAssignmentPreservesHumanTextAndOnlyHidesProtectedTaskStrings() {
         let protected = "gAAAAA" + String(repeating: "A1_-", count: 22) + "=="
         let ordinary = "Inspect this string in the fixture: " + protected
