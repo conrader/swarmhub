@@ -236,10 +236,14 @@ struct WorkspaceActivityView: View {
                                             HerdrBotRequestCard(manager: manager, showsCreatedBots: false)
                                         }
                                         ForEach(store.workspaceReviews(in: row.chat, inboxes: inboxes).filter { current in !completed.contains(where: { $0.refers(to: current) }) }) { review in
-                                            if selectedReview?.refers(to: review) == true {
-                                                HerdrApprovalReview(request: review.request, server: review.server, keyboardDecisions: true) {
+                                            let inspecting = selectedReview?.refers(to: review) == true
+                                            if attentionOnly || inspecting {
+                                                HerdrApprovalReview(request: review.request, server: review.server,
+                                                                    inboxBotName: attentionOnly ? review.bot.name : nil,
+                                                                    inspect: attentionOnly && !inspecting ? { selectedReview = review } : nil,
+                                                                    keyboardDecisions: inspecting) {
                                                     completed.append(review)
-                                                    selectedReview = nil
+                                                    if selectedReview?.refers(to: review) == true { selectedReview = nil }
                                                 }.id(review.id).chatCard(tint: review.bot.colours)
                                             } else {
                                                 VStack(alignment: .leading, spacing: 3) {
