@@ -67,6 +67,14 @@ extension HerdrClient {
             return Self.visible(command)
         }
 
+        var inboxArguments: String {
+            if tool == "Bash", let object = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: String],
+               object.count == 1, let command = object["command"], !command.isEmpty {
+                return Self.visible(command)
+            }
+            return Self.visible(arguments)
+        }
+
         static func visible(_ value: String) -> String {
             value.unicodeScalars.map { scalar in
                 switch scalar.properties.generalCategory {

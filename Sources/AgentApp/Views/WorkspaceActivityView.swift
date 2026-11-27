@@ -19,10 +19,14 @@ struct WorkspaceReview: Equatable, Identifiable {
 
     /// Advice and the displayed model can arrive after the person opens the request.
     func refers(to other: Self) -> Bool {
-        bot.id == other.bot.id && server == other.server && request.id == other.request.id
-            && request.core == other.request.core && request.address == other.request.address
-            && request.createdMs == other.request.createdMs && request.tool == other.request.tool
-            && request.cwd == other.request.cwd && request.arguments == other.request.arguments
+        bot.id == other.bot.id && refers(to: other.request, on: other.server)
+    }
+
+    func refers(to candidate: HerdrClient.Approval, on server: HerdrServer) -> Bool {
+        self.server == server && request.id == candidate.id && request.agent == candidate.agent
+            && request.core == candidate.core && request.address == candidate.address && request.provider == candidate.provider
+            && request.createdMs == candidate.createdMs && request.tool == candidate.tool
+            && request.cwd == candidate.cwd && request.arguments == candidate.arguments
     }
 }
 
@@ -118,6 +122,16 @@ struct WorkspaceActivityView: View {
 
     @State private var reviewedCI: [String: Set<Int64>] = [:]
 
+    private var remainingInboxes: [String: WorkspaceApprovalInbox] {
+        guard !completed.isEmpty else { return inboxes }
+        return inboxes.mapValues { inbox in
+            let requests = inbox.requests.mapValues { rows in
+                rows.filter { request in !completed.contains { $0.refers(to: request, on: inbox.server) } }
+            }
+            return WorkspaceApprovalInbox(server: inbox.server, requests: requests, unavailable: inbox.unavailable)
+        }
+    }
+
     private func ciFailures(on server: HerdrServer) -> [HerdrClient.CIFailure] {
         guard let reading = serverReadings[server.id], reading.server == server else { return [] }
         return reading.failures.filter { reviewedCI[server.id]?.contains($0.id) != true }
@@ -165,6 +179,7 @@ struct WorkspaceActivityView: View {
     }
 
     var body: some View {
+        let pending = remainingInboxes
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 if attentionOnly && store.sidebarHidden { ShowSidebarItem() }
@@ -235,11 +250,16 @@ struct WorkspaceActivityView: View {
                                         if attentionOnly, case .bot(let manager) = row.chat, store.createsHerdrBots(manager) {
                                             HerdrBotRequestCard(manager: manager, showsCreatedBots: false)
                                         }
-                                        ForEach(store.workspaceReviews(in: row.chat, inboxes: inboxes).filter { current in !completed.contains(where: { $0.refers(to: current) }) }) { review in
-                                            if selectedReview?.refers(to: review) == true {
-                                                HerdrApprovalReview(request: review.request, server: review.server, keyboardDecisions: true) {
+                                        ForEach(store.workspaceReviews(in: row.chat, inboxes: pending)) { review in
+                                            let inspecting = selectedReview?.refers(to: review) == true
+                                            if attentionOnly || inspecting {
+                                                HerdrApprovalReview(request: review.request, server: review.server,
+                                                                    inboxBotName: attentionOnly ? review.bot.name : nil,
+                                                                    inspect: attentionOnly && !inspecting ? { selectedReview = review } : nil,
+                                                                    keyboardDecisions: inspecting) {
                                                     completed.append(review)
-                                                    selectedReview = nil
+                                                    items = store.workspaceActivity(inboxes: remainingInboxes, attentionOnly: attentionOnly)
+                                                    if selectedReview?.refers(to: review) == true { selectedReview = nil }
                                                 }.id(review.id).chatCard(tint: review.bot.colours)
                                             } else {
                                                 VStack(alignment: .leading, spacing: 3) {
@@ -269,10 +289,10 @@ struct WorkspaceActivityView: View {
         .background(AppColor.chat)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(attentionOnly ? "workspace.attention" : "workspace.activity")
-        .task(id: inboxes) {
+        .task(id: pending) {
             // Messages and remote helper snapshots can change independently of the store's published lists.
             while !Task.isCancelled {
-                items = store.workspaceActivity(inboxes: inboxes, attentionOnly: attentionOnly)
+                items = store.workspaceActivity(inboxes: pending, attentionOnly: attentionOnly)
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }

@@ -35,6 +35,8 @@ struct HerdrApprovalReview: View {
     @EnvironmentObject private var store: AppStore
     let request: HerdrClient.Approval
     let server: HerdrServer
+    var inboxBotName: String?
+    var inspect: (() -> Void)?
     var keyboardDecisions = false
     let didDecide: () -> Void
     @State private var busy = false
@@ -42,18 +44,32 @@ struct HerdrApprovalReview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("\(request.provider) requests \(HerdrClient.Approval.visible(request.tool))").font(.headline)
+            let tool = HerdrClient.Approval.visible(request.tool)
+            let folder = HerdrClient.Approval.visible(request.cwd)
+            if let inboxBotName {
+                Text("\(inboxBotName) · \(request.provider) requests \(tool)").font(.headline)
+            } else {
+                Text("\(request.provider) requests \(tool)").font(.headline)
+            }
             if let address = request.address, let created = request.createdMs {
                 Text("\(request.launchModel ?? "Model unreported") · \(address)/\(String(created))").font(.caption)
             }
-            Text(HerdrClient.Approval.visible(request.cwd)).font(.caption).textSelection(.enabled)
+            Text(folder).font(.caption).textSelection(.enabled)
             ScrollView {
-                Text(HerdrClient.Approval.visible(request.arguments)).font(.body.monospaced()).textSelection(.enabled)
+                Text(inspect == nil ? HerdrClient.Approval.visible(request.arguments) : request.inboxArguments).font(.body.monospaced()).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.frame(maxHeight: 140).fixedSize(horizontal: false, vertical: true)
+            if let inspect {
+                Button("Inspect \(tool) request", action: inspect).controlSize(.small)
+                    .help("Show full arguments and enable decision shortcuts for this request.")
+            }
             if let reviewer = request.reviewer {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(reviewer.title).font(.subheadline.bold())
+                    if inspect != nil, let name = reviewer.botName, reviewer.assessment != nil, reviewer.problem == nil {
+                        Text("Reviewed by " + HerdrClient.Approval.visible(name)).font(.subheadline.bold())
+                    } else {
+                        Text(reviewer.title).font(.subheadline.bold())
+                    }
                     Text((reviewer.problem ?? reviewer.assessment).map(HerdrClient.Approval.visible) ?? "Reviewing command…")
                         .font(.callout).textSelection(.enabled)
                 }.accessibilityIdentifier("approval.commandReview")
@@ -66,7 +82,10 @@ struct HerdrApprovalReview: View {
                         .help("Allow this exact command for this bot and folder for one hour.")
                 }
                 if request.canRememberCommand == true {
-                    Button("Always allow here") { respond(.rememberCommand) }
+                    let label = inboxBotName != nil && !folder.isEmpty ? "Always allow in " + folder : "Always allow here"
+                    Button { respond(.rememberCommand) } label: {
+                        Text(verbatim: label).lineLimit(2).truncationMode(.middle)
+                    }
                         .help("Save this exact command for this bot and folder. Revoke it in Details → Approvals.")
                 }
                 Button("Deny") { respond(.deny) }
