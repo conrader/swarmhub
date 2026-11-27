@@ -122,7 +122,7 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
         case .checks, .team:
             return Self.reply(bot.sampleDecision?.receipt ?? (self == .team ? "Review the Payments proposal here or in Needs Attention." : "Scout has reviewed the importer tests. You can now decide whether Patch runs them."))
         case .brief:
-            let body = "The sample build passed verification.\n\nThe rename finished in 41 seconds. The tests helper is " + (testsRunning ? "working." : "stopped.") + "\n\nNeeds Attention has \(pending) pending \(pending == 1 ? "item" : "items")."
+            let body = "Sample hosts: " + SampleWorkspace.hosts.joined(separator: ", ") + ".\n\nThe sample build passed verification.\n\nThe rename finished in 41 seconds. The tests helper is " + (testsRunning ? "working." : "stopped.") + "\n\nNeeds Attention has \(pending) pending \(pending == 1 ? "item" : "items")."
             let row = Self.reply("I saved the morning brief in the sample workspace’s Pages.")
             let page = HerdrClient.RoutinePage(id: 1, revision: bot.messages.compactMap { $0.publishedResults?.items.first?.revision }.max().map { $0 + 1 } ?? 1,
                                                title: Self.briefTitle, excerpt: body)

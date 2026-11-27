@@ -512,6 +512,7 @@ struct HerdrHelperView: View {
                             }
                         }
                     }
+                    HelperGuidanceCard(selection: selection, bot: bot)
                     helperPart(log.map { "Steps (\($0.tools.count))" } ?? "Steps", detail: shown?.runLine) {
                         if let tools = log?.tools, !tools.isEmpty { ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) } }
                         else if log == nil { quiet(problem.isEmpty ? "Loading…" : "Steps unavailable.") }

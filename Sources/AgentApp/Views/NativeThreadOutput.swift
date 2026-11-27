@@ -24,7 +24,7 @@ struct NativeThreadOutput: View {
             if let child = list.nativeThreads.first(where: { $0.provider == runtime && $0.id == thread }),
                let bot = store.bots.first(where: { $0.id == key.botID }), store.herdrServer(for: bot) == server {
                 let selection = HerdrHelperSelection(botID: key.botID, helperID: thread, groupRuntime: key.groupRuntime,
-                                                     source: key.source, archive: key.archive)
+                                                     source: key.source, archive: key.archive, native: .init(thread: child, core: core, owner: owner, server: server))
                 if key.groupRuntime == nil || store.groupOwningHelper(selection, of: bot) != nil { return (selection, bot, child) }
             }
         }
@@ -88,6 +88,7 @@ struct NativeThreadOutput: View {
         helperPart("Task", detail: HerdrClient.NativeThread.statusLabel(state)) {
             Text(HerdrHelperView.assignment(task.isEmpty ? "No task recorded." : task)).textSelection(.enabled)
         }
+        if let parent { HelperGuidanceCard(selection: parent.selection, bot: parent.bot) }
         helperPart(details.map { $0.steps.count == 64 ? "Steps (latest 64)" : "Steps (\($0.steps.count))" } ?? "Steps", detail: child.model) {
             if let steps = details?.steps {
                 if steps.isEmpty { Text("No steps recorded.").foregroundStyle(.secondary) }
@@ -146,9 +147,7 @@ struct NativeThreadOutput: View {
                 $0.server == server && $0.core == core && $0.owner == owner && $0.thread.provider == runtime && $0.thread.id == thread
             }) != true {
                 Button("Open session") {
-                    var selection = parent.selection
-                    selection.native = .init(thread: parent.child, core: core, owner: owner, server: server)
-                    store.open(parent.bot, helper: selection)
+                    store.open(parent.bot, helper: parent.selection)
                     openedParent()
                 }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openSession")
             }
@@ -189,9 +188,7 @@ struct NativeThreadOutput: View {
         if let parent {
             let title = parent.selection.archive == nil ? "Steer via " + parent.bot.name : "Open chat with " + parent.bot.name
             Button {
-                var selection = parent.selection
-                selection.native = .init(thread: parent.child, core: core, owner: owner, server: server)
-                if store.beginHelperSteering(selection, of: parent.bot) { openedParent() }
+                if store.beginHelperSteering(parent.selection, of: parent.bot) { openedParent() }
                 else { actionError = "The session that started this helper is no longer available." }
             } label: {
                 HStack(spacing: 5) {

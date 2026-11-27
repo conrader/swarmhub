@@ -3,15 +3,16 @@ import Foundation
 /// Pins, named sections and folds for the sidebar. The rules live in `SidebarOrganisation`; these only guard against
 /// an offered restore, change it, and save. `sidebarChats` itself stays the plain recency order.
 extension AppStore {
-    /// What the sidebar draws; call once per body pass.
-    var sidebarLayout: SidebarLayout {
-        // Keep the example team and its expanded helpers in place while trying different chats.
+    var showsSampleTeam: Bool {
         let visible = unhiddenChats
-        let sampleTeam = !visible.isEmpty && visible.allSatisfy { chat in
-            if case .bot(let bot) = chat { return bot.sampleProfile != nil }
+        return !visible.isEmpty && visible.allSatisfy { chat in
+            if case .bot(let bot) = chat { return bot.isDemo && bot.backend == .mock && bot.sampleRole != nil }
             return false
         }
-        return SidebarLayout.make(chats: sampleTeam ? visible : sidebarChats, organisation: sidebar)
+    }
+
+    var sidebarLayout: SidebarLayout {
+        SidebarLayout.make(chats: showsSampleTeam ? unhiddenChats : sidebarChats, organisation: sidebar)
     }
 
     func isPinned(_ chat: UUID) -> Bool { sidebar.pinned.contains(chat) }
