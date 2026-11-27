@@ -1533,7 +1533,9 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 self.send_error(403)
                 return
             if route == "/api/workspace":
-                reply = dict(core="qa", agents=agents, templates=templates, helper_results=True, archived_helper_parents=list(archives), helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
+                # Core scopes the terminal name while the helpers endpoint returns the display name.
+                roster = [dict(a, name=a["name"] + "-" + a["parent"]["address"]) if a.get("parent") else a for a in agents]
+                reply = dict(core="qa", agents=roster, templates=templates, helper_results=True, archived_helper_parents=list(archives), helper_session_parents=[dict(address="terminal0", created_ms=100)], codejob_activity=workers)
             elif route == "/api/approvals":
                 reply = dict(pending=[])
             elif route == "/api/attention":
