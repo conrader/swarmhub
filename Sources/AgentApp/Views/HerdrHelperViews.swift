@@ -10,94 +10,92 @@ struct SidebarBotSessions<ParentRow: View>: View {
     let bot: Bot
     let groups: [SidebarSessionGroup]
     let workers: [HerdrCodejobRow]
-    let parentRow: ParentRow
+    let parentRow: (CGFloat) -> ParentRow
 
-    init(bot: Bot, groups: [SidebarSessionGroup], workers: [HerdrCodejobRow], @ViewBuilder row: () -> ParentRow) {
+    init(bot: Bot, groups: [SidebarSessionGroup], workers: [HerdrCodejobRow], @ViewBuilder row: @escaping (CGFloat) -> ParentRow) {
         self.bot = bot
         self.groups = groups
         self.workers = workers
-        parentRow = row()
+        parentRow = row
     }
 
     var body: some View {
         let expanded = store.sessionsExpanded(for: bot)
-        if groups.isEmpty && workers.isEmpty {
-            botControls
-        } else {
-            HStack(spacing: 0) {
-                botControls
-                Button {
-                    store.setSessionsExpanded(!expanded, for: bot)
-                } label: {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        .frame(width: 28, height: 32).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Sessions for " + bot.name)
-                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                .help(expanded ? "Hide sessions" : "Show sessions")
-            }
-            if expanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(groups) { group in
-                        let parent = group.id
-                        if let archive = parent.archive, groups.count > 1 {
-                            let started = Date(timeIntervalSince1970: Double(archive.session.createdMs) / 1000)
-                            let when = started.formatted(date: .abbreviated, time: .shortened)
-                            Text([store.helperGroupNames[parent], when].compactMap { $0 }.joined(separator: " · "))
-                                .font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
-                        } else if let group = store.helperGroupNames[parent] {
-                            Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
-                        }
-                        ForEach(group.rows) { item in
-                            Group {
-                                switch item {
-                                case .workspace(let row):
-                                    HerdrHelperRow(bot: bot, row: row, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
-                                        store.open(bot, helper: row.id, revealInSidebar: false)
-                                    }
-                                case .native(let row, let selection, _):
-                                    SidebarNativeThread(bot: bot, row: row, selection: selection)
-                                }
-                            }.padding(.leading, CGFloat(min(item.depth, 5)) * 10)
-                                .contextMenu {
-                                    if item.finished {
-                                        Button("Remove from sidebar", systemImage: "sidebar.left") { store.removeSidebarHelper(item, for: bot) }
-                                    }
-                                }
-                                .id(item.sidebarID)
-                        }
+        let hasSessions = !groups.isEmpty || !workers.isEmpty
+        let terminal = store.herdrTerminalSession(for: bot)
+        let controlsWidth: CGFloat = (terminal == nil ? 0 : 24) + (hasSessions ? 28 : 0)
+        parentRow(controlsWidth)
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: 0) {
+                    if let terminal {
+                        SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: terminal, title: bot.name))
                     }
-                    ForEach(workers) { row in
-                        let target = LiveTerminal(host: row.id.host, job: row.job, botName: bot.name)
+                    if hasSessions {
                         Button {
-                            store.previewInInspector(TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target), fallbackBot: bot)
+                            store.setSessionsExpanded(!expanded, for: bot)
                         } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: row.job.isWorking ? "terminal" : "clock").foregroundStyle(.secondary)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(row.job.description).font(.system(size: 13, weight: .medium))
-                                    Text(target.detail).font(.caption).foregroundStyle(.secondary)
-                                }.lineLimit(1)
-                                Spacer(minLength: 0)
-                            }.padding(.leading, 10).frame(height: HerdrHelperRow.height).contentShape(Rectangle())
-                        }.buttonStyle(.plain).disabled(!row.job.isWorking)
-                            .accessibilityLabel(row.job.description + " for " + bot.name + " · " + target.detail)
+                            Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                .frame(width: 28, height: 24).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Sessions for " + bot.name)
+                        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                        .help(expanded ? "Hide sessions" : "Show sessions")
+                    }
+                }.padding(.top, 3)
+            }
+        if hasSessions && expanded {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(groups) { group in
+                    let parent = group.id
+                    if let archive = parent.archive, groups.count > 1 {
+                        let started = Date(timeIntervalSince1970: Double(archive.session.createdMs) / 1000)
+                        let when = started.formatted(date: .abbreviated, time: .shortened)
+                        Text([store.helperGroupNames[parent], when].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
+                    } else if let group = store.helperGroupNames[parent] {
+                        Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
+                    }
+                    ForEach(group.rows) { item in
+                        Group {
+                            switch item {
+                            case .workspace(let row):
+                                HerdrHelperRow(bot: bot, row: row, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
+                                    store.open(bot, helper: row.id, revealInSidebar: false)
+                                }
+                            case .native(let row, let selection, _):
+                                SidebarNativeThread(bot: bot, row: row, selection: selection)
+                            }
+                        }.padding(.leading, CGFloat(min(item.depth, 5)) * 10)
+                            .contextMenu {
+                                if item.finished {
+                                    Button("Remove from sidebar", systemImage: "sidebar.left") { store.removeSidebarHelper(item, for: bot) }
+                                }
+                            }
+                            .id(item.sidebarID)
                     }
                 }
-                .overlay(alignment: .leading) { Rectangle().fill(AppColor.separator).frame(width: 1).accessibilityHidden(true) }
-                .padding(.leading, SidebarMetrics.rowPadding + SidebarMetrics.mark / 2)
+                ForEach(workers) { row in
+                    let target = LiveTerminal(host: row.id.host, job: row.job, botName: bot.name)
+                    Button {
+                        store.previewInInspector(TerminalBrowserRequest(server: store.herdrServer(for: bot), target: target), fallbackBot: bot)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: row.job.isWorking ? "terminal" : "clock").foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(row.job.description).font(.system(size: 13, weight: .medium))
+                                Text(target.detail).font(.caption).foregroundStyle(.secondary)
+                            }.lineLimit(1)
+                            Spacer(minLength: 0)
+                        }.padding(.leading, 10).frame(height: HerdrHelperRow.height).contentShape(Rectangle())
+                    }.buttonStyle(.plain).disabled(!row.job.isWorking)
+                        .accessibilityLabel(row.job.description + " for " + bot.name + " · " + target.detail)
+                }
             }
+            .overlay(alignment: .leading) { Rectangle().fill(AppColor.separator).frame(width: 1).accessibilityHidden(true) }
+            .padding(.leading, SidebarMetrics.rowPadding + SidebarMetrics.mark / 2)
         }
-    }
-    @ViewBuilder private var botControls: some View {
-        if let ref = store.herdrTerminalSession(for: bot) {
-            HStack(spacing: 0) {
-                parentRow
-                SidebarTerminalButton(bot: bot, target: LiveTerminal(agent: ref, title: bot.name))
-            }
-        } else { parentRow }
     }
 }
 

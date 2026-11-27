@@ -89,6 +89,41 @@ func pinnedRowsCenterTheirOccupiedTiles(sidebarWidth: Int) throws {
     #expect(cleared.isEmpty)
 }
 
+/// At the Interactive Preview's 236 pt column width, opening a parent's branch keeps its
+/// entire second line available. Compare the same row with and without its disclosure.
+@MainActor @Test func parentSessionControlPreservesTheFullBotSummary() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    store.loadSamples()
+    let bot = try #require(store.bots.first(where: SampleWorkspace.isCoordinator))
+    let roots = store.sidebarRoots(for: bot)
+    let groups = store.sidebarSessionGroups(for: bot, roots: roots)
+    try #require(!groups.isEmpty)
+    store.setSessionsExpanded(false, for: bot)
+    let size = CGSize(width: SidebarMetrics.width.ideal - 2 * SidebarMetrics.listInset, height: SidebarMetrics.rowHeight)
+    func fragmentInk(_ groups: [SidebarSessionGroup]) async throws -> IndexSet {
+        let view = SidebarBotSessions(bot: bot, groups: groups, workers: []) { inset in
+            BotRow(bot: bot, drafts: store.drafts, selected: false, botToDelete: .constant(nil), headerInset: inset)
+        }.environmentObject(store).frame(width: size.width, height: size.height).background(AppColor.sidebar)
+        let data = try #require(await SnapshotRenderer.png(view, size: size, scale: 1, scheme: .dark))
+        let image = try #require(NSBitmapImageRep(data: data))
+        var ink = IndexSet()
+        // Right-hand end of the summary, below the title and above the next row.
+        for x in 140..<image.pixelsWide {
+            for y in 29..<43 {
+                if let color = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.greenComponent > 0.35 {
+                    ink.insert(x)
+                    break
+                }
+            }
+        }
+        return ink
+    }
+    let whole = try await fragmentInk([])
+    try #require(whole.count > 12)
+    let withDisclosure = try await fragmentInk(groups)
+    #expect(withDisclosure == whole)
+}
+
 /// The sidebar with nothing organised, then with pins, two sections and a fold, rendered offscreen for review and
 /// written to `$TMPDIR/AgentAppSnapshots-sidebar/`. Synthetic bots only.
 @MainActor @Test func theOrganisedSidebarRenders() async throws {
