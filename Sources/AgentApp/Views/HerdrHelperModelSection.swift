@@ -112,7 +112,7 @@ struct HerdrHelperModelSection: View {
                 }
                 .toggleStyle(.switch).accessibilityLabel("Auto mode").accessibilityIdentifier("bot.autoMode")
                 .disabled(saving || saved.reviewEveryTool == true)
-                Text("Codex can review requests automatically on this conversation’s next turn. Claude and Antigravity use the saved mode on their next launch.")
+                Text("Workspace 0.2.40 or later can apply automatic review to the next Codex turn. Claude and Antigravity use this setting on their next launch.")
                     .foregroundStyle(.secondary)
                 if let reviewing = saved.reviewEveryTool {
                     let selected = HerdrAgentReading.template(own: store.herdrTemplate(for: bot), shared: nil, in: approvalsOnly ? approvalTemplates : templates).template
