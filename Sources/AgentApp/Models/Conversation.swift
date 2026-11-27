@@ -63,6 +63,13 @@ extension ChatMessage {
         return key.hasPrefix("draftSent.") || key.hasPrefix("pageReview.")
     }
 
+    var displayedChoiceQuote: String? {
+        guard let quote = metadata[ChoiceReply.quoteKey] else { return nil }
+        guard metadata[ChoiceReply.cardKey]?.hasPrefix("pageReview.") == true,
+              let draft = try? JSONDecoder().decode(PageDraft.self, from: Data(quote.utf8)) else { return quote }
+        return draft.quotedText
+    }
+
     /// A historical card keeps its quote on the user row so queue recovery and retries
     /// send the same question even if the agent has since moved on.
     var modelText: String {

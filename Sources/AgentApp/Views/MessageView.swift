@@ -27,7 +27,7 @@ struct MessageView: View {
         HStack(alignment: .top, spacing: 0) {
             if mine { Spacer(minLength: 110) }
             VStack(alignment: mine ? .trailing : .leading, spacing: 7) {
-                if let quote = message.metadata[ChoiceReply.quoteKey] ?? repliedMessage.map({ store.displayLine($0) }) {
+                if let quote = message.displayedChoiceQuote ?? repliedMessage.map(SidebarFragment.preview) {
                     HStack(spacing: 5) {
                         Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24)
                         Text(quote).lineLimit(2)

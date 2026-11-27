@@ -385,7 +385,10 @@ private struct PageDraftCard: View {
     }
 
     private var prompt: some View {
-        Text("Approve this draft?").font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Approve this draft?").font(.callout.weight(.semibold))
+            Text("Sends your wording decision to the author.").font(.caption).foregroundStyle(.secondary)
+        }.fixedSize(horizontal: false, vertical: true)
     }
 
     private var actions: some View {
