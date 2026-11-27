@@ -23,7 +23,7 @@ struct MarkdownContent: View {
                 let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset
                 switch block {
                 case .markdown(let text):
-                    ProseBlock(text: text, rendered: rendered.prose, replyID: message.id, helperMedia: helperMedia, published: message.publishedResults,
+                    ProseBlock(text: text, rendered: rendered.prose, replyID: message.id, helperMedia: helperMedia, published: helperMedia?.published ?? message.publishedResults,
                                localMedia: helperMedia.map { $0.server.kind == .local } ?? store.replyMediaIsOnThisMac(message, target: actionTarget))
                 case .code(_, let body):
                     if let run = rendered.run { CodeBlock(code: body, run: run) }
@@ -74,7 +74,8 @@ struct ProseBlock: View {
     var localMedia = false
     @State private var selectedMedia: ReplyMediaLink?
     private func publishedFile(_ link: ReplyMediaLink) -> HerdrPublishedResult? {
-        published?.items.first { $0.kind == .file && $0.title == link.url.lastPathComponent }
+        let matches = published?.items.filter { $0.kind == .file && $0.title == link.url.lastPathComponent }
+        return matches?.count == 1 ? matches?.first : nil
     }
     private var blocks: [TranscriptText.Prose] {
         if let rendered { return rendered }
@@ -118,7 +119,7 @@ struct ProseBlock: View {
         }
         .sheet(item: $selectedMedia) { link in
             if let replyID, let published, let item = publishedFile(link) {
-                HerdrResultSheet(messageID: replyID, serverID: published.serverID, item: item, preview: nil)
+                HerdrResultSheet(messageID: helperMedia?.publicationID ?? replyID, serverID: published.serverID, item: item, preview: nil)
             } else if let replyID = mediaID {
                 ImagePreviewSheet(title: link.title) {
                     ReplyMediaPreview(link: link, messageID: replyID, isLocal: localMedia, expanded: true) {}

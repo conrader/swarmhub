@@ -8,7 +8,13 @@ struct HelperReplyMedia {
     let agent: HerdrClient.AgentRef
     let entry: [String]
 
-    var replyID: UUID {
+    var published: HerdrReplyResults?
+
+    var replyID: UUID { cacheID(entry) }
+    // Downloaded results are also keyed by their immutable workspace journal ID.
+    var publicationID: UUID { cacheID(["publications"]) }
+
+    private func cacheID(_ entry: [String]) -> UUID {
         let fields = ["helper-reply", server.id, server.kind.rawValue, server.address,
                       core, agent.address, String(agent.createdMs)] + entry
         // Length prefixes keep paths, thread identifiers and arbitrary text unambiguous.

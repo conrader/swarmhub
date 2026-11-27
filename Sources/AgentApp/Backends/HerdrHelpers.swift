@@ -153,6 +153,19 @@ extension HerdrClient {
     /// the tool calls of its launch, the reply it is writing, and its terminal's screen (nil when Core has none).
     struct HelperLog: Sendable, Equatable {
         var tasks: [Item] = []; var replies: [Item] = []; var tools: [ToolCall] = []; var draft: String? = nil; var screen: String? = nil
+        /// Workspace publications keep their journal IDs and position even when a helper never sends text.
+        var publications: [Item] = []
+
+        func results(forReply id: Int) -> [HerdrPublishedResult] {
+            guard !publications.isEmpty else { return [] }
+            let after = tasks.last(where: { $0.id < id })?.id ?? 0
+            // A steer can arrive before the previous task answers. Keep the file cards in the
+            // transcript, but do not resolve its links against the steer's publications.
+            if let task = replies.first(where: { $0.id == id })?.answerTo?.id, task != after { return [] }
+            let before = tasks.first(where: { $0.id > id })?.id ?? Int.max
+            return publications.filter { $0.id > after && $0.id < before }.compactMap(HerdrPublishedResult.init)
+        }
+
         /// The latest reply in full; while the helper writes the next one (`answered` is false), that text so far.
         func latestReply(answered: Bool) -> String? {
             let writing = draft.flatMap { $0.isEmpty ? nil : $0 }
@@ -221,7 +234,8 @@ extension HerdrClient {
         let items = try await history(core: core, address: helper.address, createdMs: helper.createdMs)
         let seen = try? await preview(core: core, address: helper.address, createdMs: helper.createdMs)
         return HelperLog(tasks: items.filter { $0.kind == "task" }, replies: items.filter { $0.kind == "reply" }, tools: seen?.tools ?? [], draft: seen?.draft,
-                         screen: includeScreen ? try? await screen(of: helper) : nil)
+                         screen: includeScreen ? try? await screen(of: helper) : nil,
+                         publications: items.filter { HerdrPublishedResult($0) != nil })
     }
 
     /// The agent's helpers when the workspace shows it has any; an agent without one costs no second request.

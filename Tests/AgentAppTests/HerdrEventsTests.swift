@@ -404,3 +404,18 @@ private let turn = HerdrClient.Turn(core: "c", address: "t1", createdMs: 5, afte
     next.take(rows: rows)
     #expect(next.replyModel?.1 == .rerouted)
 }
+
+@Test func helperPublicationsStayWithTheirTaskAcrossSnapshotAndStreamUpdates() {
+    let image = HerdrClient.Item(id: 12, kind: "artifact", text: "", detail: "form.png")
+    let movie = HerdrClient.Item(id: 14, kind: "artifact", text: "", detail: "walkthrough.mp4")
+    let replacement = HerdrClient.Item(id: 21, kind: "artifact", text: "", detail: "form.png")
+    var log = HerdrClient.HelperLog(), draftID: String?
+    let existing = [row(11, "task", "First"), image, row(13, "reply", "First result")]
+    #expect(log.apply(.snapshot(.init(rows: existing)), draftID: &draftID))
+    for item in [movie, image, row(20, "task", "Second"), replacement] {
+        #expect(log.apply(.history(item), draftID: &draftID))
+    }
+    #expect(log.publications.map(\.id) == [12, 14, 21])
+    #expect(log.results(forReply: 13).map(\.id) == [12, 14])
+    #expect(log.results(forReply: Int.max).map(\.id) == [21])
+}

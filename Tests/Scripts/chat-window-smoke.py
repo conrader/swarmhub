@@ -332,8 +332,9 @@ def verify_media(window):
 
     wait_for("image preview and video controls", video_control)
     play = video_control()
-    if ax.AXUIElementPerformAction(play, "AXPress") != 0:
-        raise RuntimeError("Could not play the video")
+    result = ax.AXUIElementPerformAction(play, "AXPress")
+    if result not in (0, ax.kAXErrorFailure):
+        raise RuntimeError(f"Could not play the video ({result})")
     wait_for("video playing", lambda: int(attribute(play, "AXValue") or 0) == 1)
     press(window, "render.png")
     wait_for("image preview sheet", lambda: any(label(b) == "Done" for b in buttons(window)))
@@ -1354,6 +1355,10 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
     child_finished = Event()
     child_started_ms = int(time.time() * 1000) - 72000
     history_reads = []
+    published_files = {16: "render.png", 17: "clip.mp4"}
+    published = False
+    downloads = []
+    download_online = True
     workers = [dict(host="test-host", complete=True, jobs=[
         dict(job=job, owner=owner["id"], state="working", provider="codex")])]
 
@@ -1373,7 +1378,20 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 screens.append(route)
                 reply = dict(text=route + " line " + str(screens.count(route)))
             elif media and route == "/api/history/qa/finished/99":
-                reply = dict(items=[dict(id=18, kind="reply", text=media_text)])
+                files = [dict(id=i, kind="artifact", detail=name) for i, name in published_files.items()] if published else []
+                reply = dict(items=[*files, dict(id=18, kind="reply", text=media_text)])
+            elif media and published and route.startswith("/api/library/files/") and route.endswith("/download"):
+                name = published_files[int(route.split("/")[4])]
+                downloads.append(name)
+                if not download_online:
+                    self.send_error(503)
+                    return
+                data = (Path(__file__).resolve().parents[1] / "Fixtures/chat-media" / name).read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             elif route == "/api/agents/terminal0/100/opencode-threads/ses_layout":
                 reply = dict(state="answered" if child_finished.is_set() else "working",
                              details=dict(task="Check the full header assignment.",
@@ -1465,6 +1483,20 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                         if launch == 0:
                             for path in paths:
                                 path.unlink()
+                published = True
+                for download_online in (True, False):
+                    with open_workspace(app, home, address, token, server_kind="address") as window:
+                        def answered():
+                            return next((b for b in buttons(window) if label(b).startswith("Helper AnsweredQA,")), None)
+                        wait_for("remote helper", answered)
+                        press(window, label(answered()))
+                        verify_media(window)
+                        assert not any("publish this file" in str(attribute(e, "AXValue") or "")
+                                       for e in descendants(window))
+                        press(window, "Session details")
+                        verify_media(window)
+                assert sorted(downloads) == ["clip.mp4", "render.png"], downloads
+                print("Remote helper publications opened in chat and details, including after relaunch with downloads offline.")
                 print("Opened linked images and played videos in the bot and both helper chats, "
                       "reopened them after relaunch without source files, and verified remote paths stayed remote.")
                 return
