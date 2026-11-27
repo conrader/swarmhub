@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ChatView: View {
-    @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
+    @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft: String
     private var intake: AttachmentIntake { store.attachmentIntake(for: bot.id) }
     @State private var verifyingAttachmentSupport = false
     @StateObject private var viewport = ChatViewport()
@@ -11,7 +11,11 @@ struct ChatView: View {
     @StateObject private var folds: ChatFolds
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     /// `unfolded`: cards that start unfolded (renders); the app starts every card folded.
-    init(bot: Bot, unfolded: Set<UUID> = []) { self.bot = bot; _folds = StateObject(wrappedValue: ChatFolds(open: unfolded)) }
+    init(bot: Bot, initialDraft: String = "", unfolded: Set<UUID> = []) {
+        self.bot = bot
+        _draft = State(initialValue: initialDraft)
+        _folds = StateObject(wrappedValue: ChatFolds(open: unfolded))
+    }
     private var jumpToLatest: JumpToLatestButton {
         JumpToLatestButton(scroll: store.chatScroll, conversationID: bot.id, action: viewport.latest)
     }
@@ -109,7 +113,7 @@ struct ChatView: View {
                 guard !files.isEmpty, !bot.isReadOnlyArchive else { return false }
                 attach(files); return true
             }
-            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id)
+            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id)
                 // The chat is on screen: its agent is started ahead of the first message when it has none.
                 if bot.backend == .herdr, store.launchWorkEnabled { Task { await store.refreshHerdrAgentReading(for: bot) }; await store.herdrChatShown(bot) } }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

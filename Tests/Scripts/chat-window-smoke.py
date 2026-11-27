@@ -716,12 +716,13 @@ def sidebar_focus(source_app):
                     Quartz.CGEventPostToPid(pid, key)
 
             for name, before, typed in [("WriterQA", "", "alpha"), ("PinnedQA", "", "beta"),
-                                        ("WriterQA", "alpha", ""), ("WriterQA", "alpha", "")]:
+                                        ("WriterQA", "alpha", "1"), ("WriterQA", "alpha1", "2"),
+                                        ("PinnedQA", "beta", "3")]:
                 press(window, name, sidebar=True)
-                wait_for(name + " composer automatically focused", lambda: any(label(b) == name for b in buttons(window)) and focused_draft() == before)
-                if typed:
-                    type_text(typed)
-                    wait_for(name + " received keystrokes", lambda: focused_draft() == typed)
+                # Send the keys as soon as the sidebar action returns, just as a person can.
+                type_text(typed)
+                wait_for(name + " received keystrokes", lambda: focused_draft() == before + typed
+                         and any(label(b) == name for b in buttons(window)))
             print("Verified typing directly after selecting ordinary and pinned bots, reselecting a bot, and restoring its draft.")
 
 
