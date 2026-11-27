@@ -12,7 +12,7 @@ struct InfoPanel: View {
             HStack(spacing: 6) {
                 Text("Details").font(.headline).fixedSize().accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                if bot.backend == .herdr {
+                if bot.backend == .herdr || (bot.sampleProfile != nil && store.openHerdrHelper?.native != nil) {
                     Button {
                         let target: LiveTerminal?
                         if let native = store.openHerdrHelper?.native {

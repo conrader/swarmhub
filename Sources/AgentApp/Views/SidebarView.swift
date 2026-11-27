@@ -196,7 +196,8 @@ private struct SidebarAttentionButton: View {
         let failures = store.herdrServers.reduce(0) { count, server in
             count + (readings[server.id].flatMap { $0.server == server ? $0.failures.count : nil } ?? 0)
         }
-        let count = chatCount + failures
+        let sampleRequests = store.bots.filter { !$0.isHidden && $0.pendingSampleReview != nil }.count
+        let count = chatCount + failures + sampleRequests
         Button {
             store.showOnlyAttention = true
         } label: {
@@ -217,6 +218,7 @@ private struct SidebarAttentionButton: View {
             .task(id: inboxes) {
                 while !Task.isCancelled {
                     chatCount = store.workspaceActivity(inboxes: inboxes, attentionOnly: true).reduce(0) { count, row in
+                        if case .bot(let bot) = row.chat, bot.pendingSampleReview != nil { return count }
                         var requests = store.workspaceReviews(in: row.chat, inboxes: inboxes).count
                         if case .bot(let bot) = row.chat { requests += store.pendingHerdrBots(for: bot).count }
                         return count + max(1, requests)

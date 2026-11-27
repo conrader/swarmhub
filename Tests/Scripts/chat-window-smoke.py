@@ -578,7 +578,7 @@ def sample_workspace(source_app):
                 wait_for("expanded samples", lambda: button(tests))
                 press(window, tests)
                 wait_for("sample command, steps and failure", lambda: button("Stop helper") and has_text("Steps (2)") and has_text("testEmptyTitle failed"))
-                press(window, "Preview tests in Details")
+                press(window, "Show terminal in Details")
                 wait_for("docked sample output", lambda: pane("inspector.terminal") and has_text("expected throw"))
                 press(window, "Back to Details")
                 press(window, "Stop helper")

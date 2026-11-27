@@ -65,6 +65,7 @@ extension Bot {
 extension AppStore {
     func resolveSampleReview(_ decision: SampleReview.Decision, for bot: Bot) {
         guard bots.contains(bot), let review = bot.pendingSampleReview, review.choices.contains(decision) else { return }
+        objectWillChange.send()
         bot.sampleDecision = decision
         if decision == .createBot {
             let payments = Bot(name: "Payments", title: "Supplier invoices", isDemo: true)

@@ -74,23 +74,24 @@ struct SampleModelPicker: View {
     let selection: String
 
     var body: some View {
-        Menu {
-            Picker("Sample model", selection: Binding(get: { selection }, set: { model in
-                bot.sampleModel = model
-                store.save()
-            })) {
-                ForEach(profile.models, id: \.self) { Text(verbatim: $0).tag($0) }
-            }.pickerStyle(.inline)
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: selection)
-                Text("\(profile.contextPercent)% ctx").foregroundStyle(.secondary)
-            }.font(.caption).lineLimit(1)
-        }.fixedSize().controlSize(.small)
+        HStack(spacing: 6) {
+            Text("\(profile.contextPercent)% ctx").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Menu {
+                Picker("Sample model", selection: Binding(get: { selection }, set: { model in
+                    bot.sampleModel = model
+                    store.save()
+                })) {
+                    ForEach(profile.models, id: \.self) { Text(verbatim: $0).tag($0) }
+                }.pickerStyle(.inline)
+            } label: {
+                Text(verbatim: selection).font(.caption)
+            }
+            .controlSize(.small)
             .accessibilityLabel("Choose sample model for " + bot.name)
             .accessibilityValue(selection)
             .accessibilityIdentifier("chat.sample.model")
             .help("Choose sample model for " + bot.name)
+        }.fixedSize()
     }
 }
 
