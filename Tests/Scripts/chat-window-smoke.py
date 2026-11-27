@@ -677,9 +677,9 @@ def sample_workspace(source_app):
                 press(window, "Needs Attention")
                 wait_for("both decisions", lambda: button("Always allow in /srv/shop") and button("Create bot"))
                 press(window, "Always allow in /srv/shop")
-                wait_for("command resolved", lambda: not button("Always allow in /srv/shop") and button("Create bot"))
+                wait_for("command resolved", lambda: not button("Always allow in /srv/shop") and button("Create bot") and has_text("Saved the project rule for /srv/shop."))
                 press(window, "Create bot")
-                wait_for("empty inbox", lambda: has_text("No pending items"))
+                wait_for("empty inbox with both confirmed choices", lambda: has_text("No pending items") and has_text("Payments joined the sample team.") and has_text("Recent decisions"))
                 press(window, "Patch", sidebar=True)
                 open_detail_section(window, "Approvals")
                 wait_for("saved project rule", lambda: has_text("Allow swift test --filter ImporterTests in /srv/shop"))
@@ -1934,7 +1934,7 @@ def session_usage_overview(source_app):
             server.shutdown()
 
 
-def qa_inbox_proposals(window, store, command, decisions):
+def qa_inbox_proposals(window, store, command, decisions, declined_attempts):
     press(window, "ReaderQA", sidebar=True)
     def count(n):
         return any(label(b) == "Needs Attention" and str(attribute(b, "AXValue")) == str(n) for b in buttons(window))
@@ -1955,14 +1955,16 @@ def qa_inbox_proposals(window, store, command, decisions):
     press(window, "Inspect Bash request")
     wait_for("review remains available", lambda: shown("Runs only the named tests."))
     press(window, "Deny")
-    wait_for("exact command denied", lambda: decisions == [(2, "deny")])
+    wait_for("server declined the first submission", lambda: declined_attempts and shown("Deny") and not shown("Recent decisions"))
+    assert not decisions
+    press_transition(window, "Deny", "confirmed denial in the inbox", lambda: decisions == [(2, "deny")] and shown("Denied"))
     press(window, "Dismiss proposal for Legal")
     wait_for("dismissed proposal", lambda: not shown("Create Legal") and count(1))
     press(window, "Create Payments with Claude")
     def saved():
         return [b for b in json.loads(store.read_text())["bots"] if b["name"] in ("Payments", "Legal")]
     wait_for("approved bot persisted", lambda: len(saved()) == 1 and saved()[0]["name"] == "Payments" and count(0), seconds=12)
-    assert saved()[0]["persona"] == "Prepare supplier invoices." and shown("No pending items")
+    assert saved()[0]["persona"] == "Prepare supplier invoices." and shown("No pending items") and shown("Bot created") and shown("Proposal dismissed")
     press(window, "Done")
     print("Handled both bot proposals and the live named command review in Needs Attention while ReaderQA stayed open.")
 
@@ -1971,6 +1973,7 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
     import Quartz
     from threading import Thread
 
+    declined_attempts = []
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
     reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
     agent = dict(name="patch-" + owner["id"][:6], address="session", created_ms=80, state="live")
@@ -2034,6 +2037,10 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
             elif self.path.startswith("/api/approvals/") and self.headers.get("Authorization") == "Bearer " + token:
                 request_id = int(self.path.split("/")[-1])
                 decision = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if proposals_only and decision == "deny" and not declined_attempts:
+                    declined_attempts.append(request_id)
+                    self.send_error(503, "Temporary workspace failure")
+                    return
                 if decision in ("remember_command", "remember_command_hour"):
                     rule = dict(id=8, bot=owner["id"], agent=agent["name"], provider="Codex",
                                       cwd="/qa", command="swift test --filter ImporterTests")
@@ -2059,7 +2066,7 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
         try:
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
                 if proposals_only:
-                    qa_inbox_proposals(window, store, pending[0], decisions)
+                    qa_inbox_proposals(window, store, pending[0], decisions, declined_attempts)
                     payment = next(b for b in json.loads(store.read_text())["bots"] if b["name"] == "Payments")
                     assert payment["requiresToolReview"] and payment["id"].lower() in tool_reviews
                     return
