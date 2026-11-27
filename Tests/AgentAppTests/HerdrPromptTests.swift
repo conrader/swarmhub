@@ -8,12 +8,14 @@ private final class PromptBridge: @unchecked Sendable {
     let workspaceReads = AwaitableLog<String>()
     private var screen = "", state = "blocked"
     private var kind = "permission"
+    private var childAnswered: Bool?
     let agentName: String
     init(agentName: String) { self.agentName = agentName }
 
     func show(_ text: String) { lock.withLock { screen = text } }
     func statusKind(_ value: String) { lock.withLock { kind = value } }
     func ready() { lock.withLock { state = "idle" } }
+    func helper(answered: Bool) { lock.withLock { state = "idle"; childAnswered = answered } }
     func move() { lock.withLock { state = "working" } }
 
     func session() -> (address: String, session: URLSession) {
@@ -28,7 +30,18 @@ private final class PromptBridge: @unchecked Sendable {
                 workspaceReads.append(state)
                 let agent: [String: Any] = ["address": "t7", "created_ms": 9, "name": agentName, "state": "live", "template": "tpl-one", "status": ["state": state, "kind": kind], "first_message": NSNull(), "ready": true]
                 let template: [String: Any] = ["name": "tpl-one", "description": "", "error": NSNull(), "runtime": ["harness": "Agent One", "provider": NSNull(), "model": NSNull()]]
-                return (200, ["core": "c", "version": "1", "agents": [agent], "templates": [template]])
+                var agents = [agent]
+                if childAnswered != nil {
+                    agents.append(["address": "t8", "created_ms": 10, "name": "Helper", "state": "live",
+                                   "status": ["state": "done"], "parent": ["address": "t7", "created_ms": 9]])
+                }
+                return (200, ["core": "c", "version": "1", "agents": agents, "end_if_idle": true, "templates": [template]])
+            case "GET /api/agents/t7/9/helpers":
+                workspaceReads.append(childAnswered == true ? "helper answered" : "waiting for helper")
+                return (200, ["core": "c", "parent": ["address": "t7", "created_ms": 9],
+                              "helpers": [["address": "t8", "created_ms": 10, "name": "Helper", "state": "live",
+                                           "answered": childAnswered == true]]])
+            case "GET /api/approvals": return (200, ["pending": []])
             case "GET /api/agents/t7/9/output": return (200, ["text": screen])
             default: return (404, ["error": "no route"])
             }
@@ -56,8 +69,10 @@ private final class PromptBridge: @unchecked Sendable {
 
     private let blocked = HerdrTurnStatus.blocked(program: "Agent One")
 
-    @Test(arguments: [false, true], [false, true])
-    func promptRetainsBothMessagesInOrderThroughReopen(retryFirst: Bool, busy: Bool) async throws {
+    enum QueueCause: CaseIterable { case prompt, busy, helper }
+
+    @Test(arguments: [false, true], QueueCause.allCases)
+    func promptRetainsBothMessagesInOrderThroughReopen(retryFirst: Bool, cause: QueueCause) async throws {
         let source = temporaryStore(), first = ScriptedTurnBackend(steerless: true)
         let (original, bot) = steerStore(first, url: source)
         let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
@@ -69,7 +84,10 @@ private final class PromptBridge: @unchecked Sendable {
         #expect(original.send(text: "First"))
         try await first.calls.wait { $0.contains("send:First") }
         #expect(original.send(text: "Second"))
-        if busy {
+        if cause == .helper {
+            bridge.helper(answered: false)
+            await first.fail(HerdrClient.BusySession(core: "c", ref: .init(address: "t7", createdMs: 9), waitingForModelSwitch: true))
+        } else if cause == .busy {
             bridge.move()
             await first.fail(HerdrClient.BusySession(core: "c", ref: .init(address: "t7", createdMs: 9)))
         } else { await first.fail(HerdrClient.Failure.waitingAtPrompt) }
@@ -87,9 +105,10 @@ private final class PromptBridge: @unchecked Sendable {
         }
         var restored = reopen()
         restored.resumeRestoredNextMessages()
-        try await bridge.workspaceReads.wait { $0.contains(busy ? "working" : "blocked") }
+        let waitingFor = switch cause { case .helper: "waiting for helper"; case .busy: "working"; case .prompt: "blocked" }
+        try await bridge.workspaceReads.wait { $0.contains(waitingFor) }
         #expect(next.calls.all.isEmpty && restored.turns.nextMessages.count == 2)
-        bridge.ready()
+        if cause == .helper { bridge.helper(answered: true) } else { bridge.ready() }
         try await next.calls.wait { $0.contains("send:First") }
         restored.resumeRestoredNextMessages()
         restored.sendQueuedNextMessage()

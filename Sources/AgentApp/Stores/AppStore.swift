@@ -282,6 +282,7 @@ import UserNotifications
     func adoptStoreFile(_ file: StoreFile) {
         turns.scheduledGoals.removeAll()
         bots = file.bots
+        recentInboxDecisions = Array((file.recentInboxDecisions ?? []).prefix(20))
         restoreSampleSessions()
         groups = file.groups; removedBots = file.removedBots ?? [:]; deletedGroupIDs = file.deletedGroupIDs ?? []
         pendingHerdrEndings = file.pendingHerdrEndings ?? []
@@ -366,6 +367,9 @@ import UserNotifications
         file.removedBots = removedBots.isEmpty ? nil : removedBots
         file.deletedGroupIDs = deletedGroupIDs.isEmpty ? nil : deletedGroupIDs
         file.pendingHerdrEndings = pendingHerdrEndings.isEmpty ? nil : pendingHerdrEndings
+        let botIDs = Set(bots.map(\.id))
+        let receipts = recentInboxDecisions.filter { botIDs.contains($0.botID) }
+        file.recentInboxDecisions = receipts.isEmpty ? nil : receipts
         return file
     }
 

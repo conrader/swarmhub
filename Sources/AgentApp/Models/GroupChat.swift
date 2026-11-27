@@ -59,6 +59,14 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
 /// store.json. Version 1 was a bare array of bots; version 2 is `{"version": 2, "bots": […], "groups": […]}`.
 /// Both decode; saving always writes the current version. A key this build does not know (the settings of features
 /// older builds had) is ignored, never an error.
+struct InboxDecisionReceipt: Identifiable, Codable {
+    var id = UUID()
+    let botID: UUID
+    let server: HerdrServer
+    let subject: String
+    let outcome: String
+}
+
 struct StoreFile: Codable {
     static let currentVersion = 2
     var version = StoreFile.currentVersion; var bots: [Bot]; var groups: [GroupChat]
@@ -69,13 +77,14 @@ struct StoreFile: Codable {
     var removedBots: [String: Set<String>]?
     /// Group IDs still needed to identify running agents after the group is deleted.
     var deletedGroupIDs: [UUID]?
+    var recentInboxDecisions: [InboxDecisionReceipt]?
     var pendingHerdrEndings: [HerdrAgentEnding]?
 
     init(bots: [Bot], groups: [GroupChat], scrollPositions: [String: String]? = nil) {
         self.bots = bots; self.groups = groups; self.scrollPositions = scrollPositions
     }
 
-    enum CodingKeys: CodingKey { case version, bots, groups, scrollPositions, sidebar, removedBots, deletedGroupIDs, pendingHerdrEndings }
+    enum CodingKeys: CodingKey { case version, bots, groups, scrollPositions, sidebar, removedBots, deletedGroupIDs, pendingHerdrEndings, recentInboxDecisions }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -94,6 +103,7 @@ struct StoreFile: Codable {
         sidebar = (try? c.decodeIfPresent(SidebarOrganisation.self, forKey: .sidebar)) ?? nil
         removedBots = try c.decodeIfPresent([String: Set<String>].self, forKey: .removedBots)
         deletedGroupIDs = try c.decodeIfPresent([UUID].self, forKey: .deletedGroupIDs)
+        recentInboxDecisions = try? c.decodeIfPresent([InboxDecisionReceipt].self, forKey: .recentInboxDecisions)
         pendingHerdrEndings = try c.decodeIfPresent([HerdrAgentEnding].self, forKey: .pendingHerdrEndings)
     }
 

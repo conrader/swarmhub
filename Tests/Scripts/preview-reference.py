@@ -77,6 +77,10 @@ def main():
             shell.locator("#select-inbox").click()
             expect(shell.locator("#inbox-badge")).to_have_text("2")
             shell.get_by_role("button", name="Always allow in /srv/shop").click()
+            cards = shell.locator("#mac-feed .inbox-card")
+            expect(cards.nth(0)).to_contain_text("Saved scoped rule")
+            expect(cards.nth(1).get_by_role("button", name="Create bot")).to_be_visible()
+            shell.screenshot(path=args.directory / f"{theme}-inbox-scoped.png")
             shell.get_by_role("button", name="Create bot").click()
             expect(shell.locator("#inbox-badge")).to_have_text("0")
             expect(shell.locator(".action-resolved")).to_have_text([

@@ -319,6 +319,15 @@ private final class ModelBridge: @unchecked Sendable {
             await #expect(throws: HerdrClient.Failure.notDelivered("The existing session is busy. The saved choice will apply at a safe launch.")) {
                 _ = try await store.prepareDirectModel(bot: bot, server: server, template: codex.name, model: "gpt-6.2-sol", in: client.workspace())
             }
+            do {
+                _ = try await HerdrClient.$queueWhenBusy.withValue(true) {
+                    try await store.prepareDirectModel(bot: bot, server: server, template: codex.name, model: "gpt-6.2-sol", in: client.workspace())
+                }
+                Issue.record("A direct message must wait for the helper before switching models")
+            } catch let busy as HerdrClient.BusySession {
+                #expect(busy.waitingForModelSwitch && busy.core == "c")
+                #expect(busy.ref == (bot === jarvis ? parent : legalParent))
+            }
             #expect(store.modelSwitchPending(bot) && store.herdrCarryOver(for: bot)?.old != nil)
         }
         #expect(bridge.ended == [infraName])

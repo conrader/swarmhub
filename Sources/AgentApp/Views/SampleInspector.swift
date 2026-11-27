@@ -121,15 +121,25 @@ struct SampleReviewCard: View {
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("Open " + bot.name + " chat")
             }
-            Text(verbatim: review.title).font(.callout.weight(.semibold))
+            Group {
+                switch review {
+                case .testCommand: Text("Run `swift test --filter ImporterTests` in `/srv/shop`")
+                case .paymentsBot: Text("Create `Payments` to prepare supplier invoices")
+                }
+            }.font(.callout.weight(.semibold)).accessibilityLabel(review.title)
             Text(verbatim: review.detail).font(.caption).foregroundStyle(.secondary)
-            LibraryFlow(spacing: 6) {
-                ForEach(openChat == nil ? review.choices : Array(review.choices.reversed()), id: \.self) { decision in
-                    let button = Button(decision.title) { store.resolveSampleReview(decision, for: bot) }.controlSize(.small)
-                    if openChat != nil && decision == review.choices.first {
-                        button.buttonStyle(.borderedProminent)
-                    } else {
-                        button
+            if let decision = bot.sampleDecision {
+                Label(decision.receipt, systemImage: "checkmark.circle.fill")
+                    .font(.callout.weight(.medium)).foregroundStyle(.green)
+            } else {
+                LibraryFlow(spacing: 6) {
+                    ForEach(openChat == nil ? review.choices : Array(review.choices.reversed()), id: \.self) { decision in
+                        let button = Button(decision.title) { store.resolveSampleReview(decision, for: bot) }.controlSize(.small)
+                        if openChat != nil && decision == review.choices.first {
+                            button.buttonStyle(.borderedProminent)
+                        } else {
+                            button
+                        }
                     }
                 }
             }

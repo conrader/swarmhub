@@ -328,6 +328,7 @@ extension AppStore {
            let assistantIndex = bot.messages.firstIndex(where: { $0 === assistant }) {
             bot.messages.remove(at: assistantIndex)
             if case .error(let busy as HerdrClient.BusySession) = end {
+                user.metadata[TurnWaitCopy.modelSwitch] = busy.waitingForModelSwitch ? "1" : nil
                 user.metadata[TurnWaitCopy.busyCore] = busy.core
                 user.metadata[TurnWaitCopy.busyAddress] = busy.ref.address
                 user.metadata[TurnWaitCopy.busyCreated] = String(busy.ref.createdMs)

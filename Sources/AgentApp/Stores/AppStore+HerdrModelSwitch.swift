@@ -54,6 +54,25 @@ extension AppStore {
         }
     }
 
+    func readyForModelSwitch(_ bot: Bot, agent: HerdrClient.Agent, workspace: HerdrClient.Workspace,
+                             client: HerdrClient) async throws -> Bool {
+        guard agent.isIdleForRollover else { return false }
+        let children = workspace.agents.filter { $0.isLive && $0.parent == agent.ref }
+        let cachedUnanswered = herdrHasUnansweredHelpers(bot, parent: agent.ref)
+        // Legacy bridges end the session unconditionally, so wait until all child terminals close.
+        guard workspace.endIfIdle == true else { return children.isEmpty && !cachedUnanswered }
+        guard children.allSatisfy({ ["idle", "done"].contains($0.status?.state ?? "") }) else { return false }
+        guard cachedUnanswered || !children.isEmpty || workspace.helperSessionParents?.contains(agent.ref) == true else { return true }
+        let list: HerdrClient.Helpers
+        do { list = try await client.helpers(of: agent.ref, core: workspace.core) }
+        catch HerdrClient.Failure.http(404, _) { return false }
+        guard list.parent == agent.ref, list.core == workspace.core, !list.nativeThreads.contains(where: \.isWorking),
+              !list.helpers.contains(where: { $0.isLive && $0.answered != true }) else { return false }
+        return children.allSatisfy { child in
+            list.helpers.contains { $0.address == child.address && $0.createdMs == child.createdMs && $0.answered == true }
+        }
+    }
+
     /// Called inside the direct turn, after an outstanding warm start and before either history or user input.
     /// Reconcile the live session as well as newly changed choices: older app versions only saved the preference.
     func prepareDirectModel(bot: Bot, server: HerdrServer, template: String?, model: String, in current: HerdrClient.Workspace,
@@ -106,14 +125,20 @@ extension AppStore {
                     let active = client.liveAgent(named: name, in: live)
                     if let active {
                         guard active.ref == agent.ref else { throw BackendError.unavailable("Another session started during the model switch. Retry the message.") }
-                        guard active.isIdleForRollover, !herdrAgentIsBusy(active, in: live.agents),
-                              !herdrHasUnansweredHelpers(bot, parent: active.ref) else {
-                            throw HerdrClient.Failure.notDelivered("The existing session is busy. The saved choice will apply at a safe launch.")
+                        func deferred(_ reason: String) -> any Error {
+                            if HerdrClient.queueWhenBusy, let core = live.core {
+                                return HerdrClient.BusySession(core: core, ref: active.ref, waitingForModelSwitch: true)
+                            }
+                            return HerdrClient.Failure.notDelivered(reason)
+                        }
+                        guard try await readyForModelSwitch(bot, agent: active, workspace: live, client: client) else {
+                            throw deferred("The existing session is busy. The saved choice will apply at a safe launch.")
                         }
                         guard try await client.approvals(for: name).isEmpty else {
-                            throw HerdrClient.Failure.notDelivered("Review the existing session’s approval before switching.")
+                            throw deferred("Review the existing session’s approval before switching.")
                         }
                     }
+                    try checkChoice()
                     // Auto mode is set in the process environment at launch, so OpenCode cannot apply it in place.
                     if !autoPending, active != nil, target.name == agent.template, target.modelAgent == "OpenCode", let core = current.core, let liveModel {
                         _ = try await client.selectModel(liveModel.id, for: agent.ref, core: core)
@@ -136,7 +161,13 @@ extension AppStore {
                         do { try await client.endIfIdle(agent, core: core, workspace: live) }
                         catch {
                             let latest = try await client.workspace()
-                            guard latest.core == current.core, client.liveAgent(named: name, in: latest) == nil else { throw error }
+                            let remaining = client.liveAgent(named: name, in: latest)
+                            if HerdrClient.queueWhenBusy, latest.core == core, remaining?.ref == agent.ref,
+                               case HerdrClient.Failure.http(409, let detail) = error,
+                               ["The existing session is busy or waiting for a decision.", "The existing session has a pending delivery."].contains(detail) {
+                                throw HerdrClient.BusySession(core: core, ref: agent.ref, waitingForModelSwitch: true)
+                            }
+                            guard latest.core == current.core, remaining == nil else { throw error }
                         }
                     }
                     try checkChoice()

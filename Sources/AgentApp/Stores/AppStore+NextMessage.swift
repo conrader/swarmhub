@@ -186,7 +186,11 @@ extension AppStore {
                 save()
                 return
             }
-            if let agent {
+            if let agent, next.bubble.metadata[TurnWaitCopy.modelSwitch] == "1" {
+                guard (try? await readyForModelSwitch(bot, agent: agent, workspace: workspace, client: client)) == true,
+                      (try? await client.approvals(for: name).isEmpty) == true,
+                      herdrServer(for: bot) == server, turns.nextMessages.contains(where: { $0.id == next.id }) else { return }
+            } else if let agent {
                 guard agent.status?.state == "idle" || agent.status?.state == "done" else { return }
             }
             TurnWaitCopy.clearDestination(of: next.bubble)
@@ -297,11 +301,12 @@ enum TurnWaitCopy {
     static let key = "turnWait"
     static let promptServer = "waitingAtPromptServer"
     static let busy = "Queued until the bot finishes its current task."
+    static let modelSwitch = "waitingForModelSwitch"
     static let busyCore = "waitingForCore"
     static let busyAddress = "waitingForAgent"
     static let busyCreated = "waitingForLaunch"
     static func clearDestination(of bubble: ChatMessage) {
-        for key in [promptServer, busyCore, busyAddress, busyCreated] { bubble.metadata[key] = nil }
+        for key in [promptServer, busyCore, busyAddress, busyCreated, modelSwitch] { bubble.metadata[key] = nil }
     }
     static let atPrompt = "Queued until the terminal is ready."
     static let afterAnswer = "Queued as the next message after this answer."

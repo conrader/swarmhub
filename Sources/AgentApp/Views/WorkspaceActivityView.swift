@@ -11,14 +11,6 @@ struct WorkspaceActivityItem: Identifiable {
     var id: UUID { chat.id }
 }
 
-struct InboxDecisionReceipt: Identifiable {
-    let id = UUID()
-    let botID: UUID
-    let server: HerdrServer?
-    let subject: String
-    let outcome: String
-}
-
 struct WorkspaceReview: Equatable, Identifiable {
     let bot: Bot
     let server: HerdrServer
@@ -39,9 +31,10 @@ struct WorkspaceReview: Equatable, Identifiable {
 }
 
 extension AppStore {
-    func recordInboxDecision(for bot: Bot, server: HerdrServer? = nil, subject: String, outcome: String) {
+    func recordInboxDecision(for bot: Bot, server: HerdrServer, subject: String, outcome: String) {
         let receipt = InboxDecisionReceipt(botID: bot.id, server: server, subject: subject, outcome: outcome)
         recentInboxDecisions = [receipt] + recentInboxDecisions.prefix(19)
+        save()
     }
 
     func workspaceReviews(in chat: SidebarChat, inboxes: [String: WorkspaceApprovalInbox]) -> [WorkspaceReview] {
@@ -185,9 +178,19 @@ struct WorkspaceActivityView: View {
         let rows: [WorkspaceActivityItem]
     }
 
+    private var sampleBots: [Bot] {
+        guard attentionOnly else { return [] }
+        return SampleReview.allCases.flatMap { review in
+            store.bots.filter { !$0.isHidden && $0.sampleReview == review }
+        }
+    }
+
     private var sections: [ActivitySection] {
         WorkspaceActivityItem.Section.allCases.compactMap { section in
-            let rows = items.filter { $0.section == section }
+            let rows = items.filter { row in
+                if attentionOnly, section == .attention, case .bot(let bot) = row.chat, bot.pendingSampleReview != nil { return false }
+                return row.section == section
+            }
             return rows.isEmpty ? nil : ActivitySection(id: section, rows: rows)
         }
     }
@@ -216,7 +219,7 @@ struct WorkspaceActivityView: View {
         guard attentionOnly else { return [] }
         return store.recentInboxDecisions.compactMap { receipt in
             guard let bot = store.bots.first(where: { $0.id == receipt.botID }), !bot.isHidden,
-                  receipt.server == nil || store.herdrServer(for: bot) == receipt.server else { return nil }
+                  store.herdrServer(for: bot) == receipt.server else { return nil }
             return (receipt, bot)
         }
     }
@@ -235,11 +238,16 @@ struct WorkspaceActivityView: View {
     var body: some View {
         let pending = remainingInboxes
         let receipts = visibleDecisions
+        let samples = sampleBots
         let cleared = items.isEmpty && servers.allSatisfy { ciFailures(on: $0).isEmpty && completions(on: $0).isEmpty }
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 if attentionOnly && store.sidebarHidden { ShowSidebarItem() }
-                Text(attentionOnly ? "Needs Attention" : "Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                if attentionOnly {
+                    Label("Inbox", systemImage: "tray").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                } else {
+                    Text("Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                }
                 Spacer()
                 if attentionOnly && (store.selectedGroup != nil || store.selectedBot != nil || store.inspectorTerminal != nil) {
                     ShowDetailsItem()
@@ -256,12 +264,12 @@ struct WorkspaceActivityView: View {
                     .font(.callout).foregroundStyle(.secondary).padding(.horizontal).padding(.top, 6)
             }
             Group {
-                if cleared && receipts.isEmpty {
+                if cleared && receipts.isEmpty && samples.isEmpty {
                     ContentUnavailableView(attentionOnly ? "No pending items" : "No chat activity", systemImage: AppCommand.activity.icon,
                                            description: Text(attentionOnly ? "Requests, interrupted replies and failed checks appear here." : "Chats with pending work or unread messages appear here."))
                 } else {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: attentionOnly ? 10 : 3) {
                             if cleared {
                                 Label("No pending items", systemImage: "checkmark.circle").padding(.vertical, 8)
                             }
@@ -295,16 +303,11 @@ struct WorkspaceActivityView: View {
                                 ForEach(section.rows) { row in
                                     let reviews = row.section == .attention ? store.workspaceReviews(in: row.chat, inboxes: pending) : []
 
-                                    if attentionOnly, case .bot(let bot) = row.chat, let review = bot.pendingSampleReview {
-                                        SampleReviewCard(bot: bot, review: review, openChat: { store.open(row.chat) })
-                                            .reviewCard(inInbox: true, tint: bot.colours)
-                                    } else {
-                                        if !attentionOnly || reviews.isEmpty {
-                                            activityLink(row)
-                                        }
-                                        if !attentionOnly, case .bot(let bot) = row.chat, let review = bot.pendingSampleReview {
-                                            SampleReviewCard(bot: bot, review: review)
-                                        }
+                                    if !attentionOnly || reviews.isEmpty {
+                                        activityLink(row)
+                                    }
+                                    if !attentionOnly, case .bot(let bot) = row.chat, let review = bot.pendingSampleReview {
+                                        SampleReviewCard(bot: bot, review: review)
                                     }
                                     if row.section == .attention {
                                         if attentionOnly, case .bot(let manager) = row.chat, store.createsHerdrBots(manager) {
@@ -339,6 +342,15 @@ struct WorkspaceActivityView: View {
                                             }
                                         }
                                     }
+                                }
+                            }
+                            if cleared && receipts.isEmpty && !samples.isEmpty {
+                                Text("Recent decisions").font(.headline).accessibilityAddTraits(.isHeader)
+                            }
+                            ForEach(samples) { bot in
+                                if let review = bot.sampleReview {
+                                    SampleReviewCard(bot: bot, review: review, openChat: { store.open(.bot(bot)) })
+                                        .reviewCard(inInbox: true, tint: bot.colours)
                                 }
                             }
                             if !receipts.isEmpty {
