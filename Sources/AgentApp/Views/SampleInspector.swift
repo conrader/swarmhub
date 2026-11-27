@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SampleInspector: View {
+    @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     let profile: SampleBotProfile
     let tab: AgentInfoTab
@@ -8,7 +9,7 @@ struct SampleInspector: View {
     @ViewBuilder var body: some View {
         switch tab {
         case .overview:
-            BotInstructions(text: bot.persona == Bot.defaultPersona ? profile.instructions : bot.outboundPersona)
+            BotInstructions(text: bot.persona == Bot.defaultPersona ? profile.instructions : bot.outboundPersona, collapsedLines: 6)
             Divider()
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -25,6 +26,12 @@ struct SampleInspector: View {
             }.foregroundStyle(.secondary)
             Divider()
             tags("Projects", profile.projects)
+        case .model:
+            if let model = bot.sampleModelLabel {
+                Picker("Model for " + bot.name, selection: Binding(get: { model }, set: { store.selectSampleModel($0, for: bot) })) {
+                    ForEach(profile.models, id: \.self) { Text(verbatim: $0).tag($0) }
+                }.pickerStyle(.radioGroup)
+            }
         case .approvals:
             tags("Control level", [profile.controlLevel, "Reviewer: " + profile.reviewer])
             Divider()

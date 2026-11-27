@@ -170,6 +170,7 @@ struct InfoPanel: View {
 
 struct BotInstructions: View {
     let text: String
+    var collapsedLines = 3
     @State private var expanded = false
     @State private var overflows = false
 
@@ -185,7 +186,7 @@ struct BotInstructions: View {
             if expanded {
                 words.textSelection(.enabled)
             } else {
-                words.lineLimit(3)
+                words.lineLimit(collapsedLines)
                     .background {
                         GeometryReader { preview in
                             words.frame(width: preview.size.width)
