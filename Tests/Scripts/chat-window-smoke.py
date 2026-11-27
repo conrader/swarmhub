@@ -56,6 +56,21 @@ def press(window, title, sidebar=False):
     raise RuntimeError(f"Button unavailable: {title}")
 
 
+def press_transition(window, title, description, completed):
+    # SwiftUI can retire a button during AXPress and return kAXErrorFailure after acting.
+    # Submit once, then check the resulting UI or persisted state.
+    def submit():
+        button = next((b for b in buttons(window) if label(b) == title), None)
+        if button is None:
+            return False
+        result = ax.AXUIElementPerformAction(button, "AXPress")
+        if result not in (0, ax.kAXErrorFailure):
+            raise RuntimeError(f"Could not press {title}: {result}")
+        return True
+    wait_for("button " + title, submit)
+    wait_for(description, completed)
+
+
 def press_link(window, title):
     def activate():
         for item in descendants(window):
@@ -628,12 +643,10 @@ def sample_stories(source_app):
 
                 if not reopened:
                     wait_for("sample entry", lambda: has_button("Look around with sample bots"))
-                    press(window, "Look around with sample bots")
-                    wait_for("release opening", lambda: has_button("Hand off to Scout") and present("Step 1 of 3"))
+                    press_transition(window, "Look around with sample bots", "release opening", lambda: has_button("Hand off to Scout") and present("Step 1 of 3"))
                     workflows = ["Release notes", "Inbox & approvals", "CI & reviewer bot", "Routines & brief", "Team & helpers"]
                     assert [label(b) for b in buttons(window) if label(b) in workflows] == workflows
-                    press(window, "Inbox & approvals")
-                    wait_for("review inbox", lambda: has_button("Allow once"))
+                    press_transition(window, "Inbox & approvals", "review inbox", lambda: has_button("Allow once"))
                     press(window, "Release notes")
                     press(window, "Hand off to Scout")
                     def received_handoff():
@@ -645,40 +658,28 @@ def sample_stories(source_app):
 
                 press(window, "Patch", sidebar=True)
                 wait_for("persisted handoff", lambda: has_button("Read Patch’s draft") and present("Step 2 of 3"))
-                press(window, "Read Patch’s draft")
-                wait_for("release draft", lambda: has_button("Make shorter") and has_button("Approve"))
-                press(window, "Make shorter")
-                wait_for("shortened draft", lambda: present("Paste screenshots into bot chats."))
-                press(window, "Approve")
-                wait_for("local approval receipt", lambda: present("Release notes approved in this sample."))
-                press(window, "Replay walkthrough")
-                wait_for("replay", lambda: has_button("Hand off to Scout"))
-                press(window, "CI & reviewer bot")
-                wait_for("CI opening", lambda: has_button("Review the failing check"))
-                press(window, "Review the failing check")
-                press(window, "Review the test command")
-                wait_for("local command approval", lambda: has_button("Allow once"))
-                press(window, "Allow once")
-                wait_for("command receipt", lambda: present("28 tests passed"))
-                press(window, "Team & helpers")
-                wait_for("Jarvis story", lambda: has_button("Review the new roles"))
-                press(window, "Review the new roles")
-                press(window, "Open the Payments proposal")
-                press(window, "Not now")
-                wait_for("proposal dismissed", lambda: present("Payments proposal dismissed"))
-                press(window, "Routines & brief")
-                wait_for("brief opening", lambda: has_button("Gather server status"))
-                press(window, "Gather server status")
-                press(window, "Read the morning brief")
-                wait_for("published sample brief", lambda: has_button("Open Morning brief"))
-                press(window, "Open Morning brief")
-                wait_for("reader revision and current inbox count", lambda: present("Revision 1") and present("0 pending items"))
+                press_transition(window, "Read Patch’s draft", "release draft", lambda: has_button("Make shorter") and has_button("Approve"))
+                press_transition(window, "Make shorter", "shortened draft", lambda: present("Paste screenshots into bot chats."))
+                press_transition(window, "Approve", "local approval receipt", lambda: present("Release notes approved in this sample."))
+                press_transition(window, "Replay walkthrough", "replay", lambda: has_button("Hand off to Scout"))
+                press_transition(window, "CI & reviewer bot", "CI opening", lambda: has_button("Review the failing check"))
+                press_transition(window, "Review the failing check", "cross-model review", lambda: has_button("Review the test command"))
+                press_transition(window, "Review the test command", "local command approval", lambda: has_button("Allow once"))
+                press_transition(window, "Allow once", "command receipt", lambda: present("28 tests passed"))
+                press_transition(window, "Team & helpers", "Jarvis story", lambda: has_button("Review the new roles"))
+                press_transition(window, "Review the new roles", "reviewed roles", lambda: has_button("Open the Payments proposal"))
+                press_transition(window, "Open the Payments proposal", "pending role approval", lambda: has_button("Not now"))
+                press_transition(window, "Not now", "proposal dismissed", lambda: present("Payments proposal dismissed"))
+                press_transition(window, "Routines & brief", "brief opening", lambda: has_button("Gather server status"))
+                press_transition(window, "Gather server status", "collected status", lambda: has_button("Read the morning brief"))
+                press_transition(window, "Read the morning brief", "published sample brief", lambda: has_button("Open Morning brief"))
+                press_transition(window, "Open Morning brief", "reader revision and current inbox count", lambda: present("Revision 1") and present("0 pending items"))
                 press(window, "Done")
                 open_detail_section(window, "Media")
-                press(window, "Browse published Pages…")
-                wait_for("library lists the brief", lambda: has_button("Morning brief"))
-                press(window, "Morning brief")
-                wait_for("library opens the saved brief", lambda: present("Revision 1") and present("0 pending items"))
+                press_transition(window, "Browse published Pages…", "library lists the brief", lambda: has_button("Morning brief"))
+                press_transition(window, "Morning brief", "library opens the saved brief", lambda: present("Revision 1") and present("0 pending items"))
+                press(window, "Done")
+                wait_for("library dismissed", lambda: not has_button("Done"))
         print("Verified all four native sample walkthroughs, Scout’s handoff after relaunch, draft revision and approval, replay, shared Inbox decisions, and the published brief in the Pages library.")
 
 
@@ -693,19 +694,14 @@ def sample_composer(source_app):
                 return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message"), None)
             wait_for("message editor", editor)
             enter_draft(editor(), "Review this release")
-            press(window, "/goal")
-            wait_for("prefixed objective", lambda: attribute(editor(), "AXValue") == "/goal Review this release")
-            press(window, "Send message")
-            wait_for("sample goal", lambda: patch().get("goal", {}).get("state") == "waiting")
-            press(window, "Hand off to Scout")
-            wait_for("goal follows handoff", lambda: patch()["goal"]["iteration"] == 2)
+            press_transition(window, "/goal", "prefixed objective", lambda: attribute(editor(), "AXValue") == "/goal Review this release")
+            press_transition(window, "Send message", "sample goal", lambda: patch().get("goal", {}).get("state") == "waiting")
+            press_transition(window, "Hand off to Scout", "goal follows handoff", lambda: patch()["goal"]["iteration"] == 2)
 
         with open_workspace(app, home) as window:
-            press(window, "Stop goal")
-            wait_for("sample goal stopped", lambda: patch()["goal"]["state"] == "stopped")
+            press_transition(window, "Stop goal", "sample goal stopped", lambda: patch()["goal"]["state"] == "stopped")
             press(window, "+ Screenshot")
-            press(window, "Send message")
-            wait_for("contrast in chat", lambda: any("2.10:1" in m["content"] for m in patch()["messages"]))
+            press_transition(window, "Send message", "contrast in chat", lambda: any("2.10:1" in m["content"] for m in patch()["messages"]))
             assert any(a["name"] == "ui-bug.png" for m in patch()["messages"] for a in m.get("attachments", []))
     print("Verified native sample goals and screenshot review in the composer.")
 
