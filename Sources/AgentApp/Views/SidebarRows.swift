@@ -27,6 +27,7 @@ private struct RowText: View {
     let name: String; let fragment: String; let unread: Bool
     var program: String? = nil
     var mainBotLabel: String? = nil
+    var headerInset: CGFloat = 0
     private var title: some View {
         HStack(spacing: 5) {
             Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium))
@@ -37,23 +38,25 @@ private struct RowText: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            if let program {
-                let runtime = Text(verbatim: program).font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary).lineLimit(1).help(program)
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 5) {
-                        title.fixedSize()
-                        Spacer(minLength: 4)
-                        runtime.fixedSize()
+            Group {
+                if let program {
+                    let runtime = Text(verbatim: program).font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary).lineLimit(1).help(program)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 5) {
+                            title.fixedSize()
+                            Spacer(minLength: 4)
+                            runtime.fixedSize()
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            title
+                            runtime
+                        }
                     }
-                    VStack(alignment: .leading, spacing: 1) {
-                        title
-                        runtime
-                    }
+                } else {
+                    title
                 }
-            } else {
-                title
-            }
+            }.padding(.trailing, headerInset)
             // A blank fragment still takes its line, so every row is the same height.
             Text(fragment.isEmpty ? " " : fragment).font(.system(size: SidebarMetrics.fragmentSize)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.tail)
@@ -84,6 +87,7 @@ struct BotRow: View {
     @ObservedObject var bot: Bot; @ObservedObject var drafts: ComposerDrafts
     let selected: Bool; @Binding var botToDelete: Bot?
     var askNewSection: (UUID?) -> Void = { _ in }
+    var headerInset: CGFloat = 0
     @State private var hovering = false
     var body: some View {
         let answering = store.isAnswering(bot), coding = store.hasActiveCodingAgent(bot), attention = store.needsAttention(bot)
@@ -116,11 +120,11 @@ struct BotRow: View {
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
                 if answering {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main, headerInset: headerInset) }
                 } else {
-                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main)
+                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, program: store.sidebarProgram(for: bot), mainBotLabel: main, headerInset: headerInset)
                 }
-                if bot.isUnread { UnreadDot() }
+                if bot.isUnread { UnreadDot().offset(y: headerInset > 0 ? 9 : 0) }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         }.buttonStyle(.plain).accessibilityValue(bot.isUnread ? "Unread" : "").contextMenu {
             SidebarChatMenu(chat: .bot(bot), askNewSection: askNewSection) { botToDelete = bot }
