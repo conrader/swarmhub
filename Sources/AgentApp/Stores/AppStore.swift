@@ -245,7 +245,7 @@ import UserNotifications
                     if unreadableStoreSetAside { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent)." }
                 }
             }
-            if herdrConfigured && hasRealBots { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+            if herdrConfigured { SampleWorkspace.hideConfiguredSamples(in: bots) }
         }
         if !demoMode, !readOnly {
             if !liveStoreIsHealthy {
@@ -281,7 +281,7 @@ import UserNotifications
     func adoptRestoredStore(_ file: StoreFile) {
         persistenceEnabled = true; unreadableStoreSetAside = false
         adoptStoreFile(file)
-        if herdrConfigured && hasRealBots { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+        if herdrConfigured { SampleWorkspace.hideConfiguredSamples(in: bots) }
     }
     /// A recovery choice can conflict with another launch that has already saved a store.
     var writerLeaseAvailable: Bool { writerLease != nil }

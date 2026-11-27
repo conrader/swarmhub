@@ -17,6 +17,12 @@ enum SampleWorkspace {
     static let server = HerdrServer(id: "sample-preview", name: "Sample workspace", kind: .address, address: "")
     static let core = "sample-preview"
 
+    /// Older samples retire once a workspace is configured. The offline preview stays until a real bot is added.
+    static func hideConfiguredSamples(in bots: [Bot]) {
+        let hasRealBots = FirstRun.hasRealAgents(bots)
+        for bot in bots where bot.isDemo && (bot.sampleRole == nil || hasRealBots) { bot.isHidden = true }
+    }
+
     @MainActor static func isCoordinator(_ bot: Bot) -> Bool {
         bot.isDemo && bot.backend == .mock && bot.sampleRole == .jarvis
     }
