@@ -14,6 +14,13 @@ private struct ThreadKey: Hashable {
     let id: String
 }
 
+/// Stable across snapshots, including when a running session receives its reply.
+struct SidebarSessionID: Hashable {
+    let parent: HerdrHelperParent
+    let session: LiveTerminal.Source
+    let serverID: String?
+}
+
 extension AppStore {
     private func nativeFoldsKey(for bot: Bot) -> String {
         "sidebar.foldedNativeSessions." + bot.id.uuidString + "." + herdrServer(for: bot).id
@@ -69,6 +76,10 @@ enum SidebarSessionItem: Identifiable {
         case .workspace(let row): .agent(row.helper.ref)
         case .native(let row, _, _): row.id
         }
+    }
+
+    var sidebarID: SidebarSessionID {
+        .init(parent: selection.parent, session: id, serverID: selection.native?.server.id)
     }
 
     var depth: Int {
@@ -141,6 +152,7 @@ extension AppStore {
             setSidebarSectionCollapsed(bucket.id, false)
         }
         if bot.isHidden && !showingHiddenBots { showingHiddenBots = true }
+        sidebarReveal = (UUID(), rows[index].sidebarID)
     }
 
     func sessionRows(under parent: HerdrHelperParent, for bot: Bot, includingFolded: Bool = false) -> [SidebarSessionItem] {
