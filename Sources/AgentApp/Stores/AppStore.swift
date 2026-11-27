@@ -16,8 +16,7 @@ import UserNotifications
     @Published var inspectorTerminal: TerminalBrowserRequest?
 
     func previewInInspector(_ request: TerminalBrowserRequest, fallbackBot: Bot? = nil) {
-        if selectedGroup == nil, selectedBot == nil, let fallbackBot { open(fallbackBot) }
-        showOnlyAttention = false
+        if !showOnlyAttention, selectedGroup == nil, selectedBot == nil, let fallbackBot { open(fallbackBot) }
         inspectorTerminal = request
         showInfo = true
     }

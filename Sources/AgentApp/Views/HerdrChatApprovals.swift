@@ -35,7 +35,7 @@ struct HerdrApprovalReview: View {
     @EnvironmentObject private var store: AppStore
     let request: HerdrClient.Approval
     let server: HerdrServer
-    var inboxBotName: String?
+    var inboxBot: Bot?
     var inspect: (() -> Void)?
     var keyboardDecisions = false
     let didDecide: () -> Void
@@ -46,12 +46,17 @@ struct HerdrApprovalReview: View {
         VStack(alignment: .leading, spacing: 8) {
             let tool = HerdrClient.Approval.visible(request.tool)
             let folder = HerdrClient.Approval.visible(request.cwd)
-            if let inboxBotName {
-                Text("\(inboxBotName) · \(request.provider) requests \(tool)").font(.headline)
+            if let inboxBot {
+                HStack {
+                    BotAvatar(bot: inboxBot, size: 20)
+                    Text(inboxBot.name).font(.headline)
+                    Spacer()
+                    Text("\(request.provider) · \(tool)").font(.caption).foregroundStyle(.secondary)
+                }
             } else {
                 Text("\(request.provider) requests \(tool)").font(.headline)
             }
-            if let address = request.address, let created = request.createdMs {
+            if inspect == nil, let address = request.address, let created = request.createdMs {
                 Text("\(request.launchModel ?? "Model unreported") · \(address)/\(String(created))").font(.caption)
             }
             Text(folder).font(.caption).textSelection(.enabled)
@@ -75,24 +80,36 @@ struct HerdrApprovalReview: View {
                 }.accessibilityIdentifier("approval.commandReview")
             }
             LibraryFlow {
-                Button("Allow once") { respond(.approve) }
-                    .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.return, modifiers: .command) : nil)
+                if inboxBot == nil { allowOnce } else { deny }
                 if request.canRememberCommandHour == true {
                     Button("Allow here for 1 hour") { respond(.rememberCommandHour) }
                         .help("Allow this exact command for this bot and folder for one hour.")
                 }
                 if request.canRememberCommand == true {
-                    let label = inboxBotName != nil && !folder.isEmpty ? "Always allow in " + folder : "Always allow here"
+                    let label = inboxBot != nil && !folder.isEmpty ? "Always allow in " + folder : "Always allow here"
                     Button { respond(.rememberCommand) } label: {
                         Text(verbatim: label).lineLimit(2).truncationMode(.middle)
                     }
                         .help("Save this exact command for this bot and folder. Revoke it in Details → Approvals.")
                 }
-                Button("Deny") { respond(.deny) }
-                    .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.delete, modifiers: .command) : nil)
+                if inboxBot != nil {
+                    allowOnce.buttonStyle(.borderedProminent)
+                } else {
+                    deny
+                }
             }.disabled(busy)
             if let error { Text(error).font(.caption).foregroundStyle(AppColor.caution) }
         }
+    }
+
+    private var allowOnce: some View {
+        Button("Allow once") { respond(.approve) }
+            .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.return, modifiers: .command) : nil)
+    }
+
+    private var deny: some View {
+        Button("Deny") { respond(.deny) }
+            .keyboardShortcut(keyboardDecisions ? KeyboardShortcut(.delete, modifiers: .command) : nil)
     }
 
     private func respond(_ decision: HerdrClient.Decision) {

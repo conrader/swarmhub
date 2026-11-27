@@ -19,7 +19,7 @@ struct GroupInfoPanel: View {
                         store.previewInInspector(.init(server: store.herdrServer(for: bot), groupID: group.id))
                     }.controlSize(.small).accessibilityLabel("Show group terminals in Details")
                 }
-                Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(InspectorCopy.close).accessibilityLabel(InspectorCopy.close)
+                CloseDetailsItem()
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView { content.padding(14).frame(maxWidth: .infinity, alignment: .leading) }

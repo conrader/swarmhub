@@ -16,6 +16,7 @@ struct HerdrMainBotStar: View {
 struct HerdrBotRequestCard: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var manager: Bot
     var showsCreatedBots = true
+    var inInbox = false
     @State private var creating: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -86,7 +87,7 @@ struct HerdrBotRequestCard: View {
                         }
                     }
                 }
-            }.chatCard(tint: manager.colours).transition(.opacity.combined(with: .move(edge: .bottom)))
+            }.reviewCard(inInbox: inInbox, tint: manager.colours).transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
 
