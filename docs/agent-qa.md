@@ -120,7 +120,7 @@ To compare the same sample data as the [Interactive preview](https://swarmhub.or
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --sample-screenshots /Applications/SwarmHub.app ./sample-screenshots
 ```
 
-To capture the matching website views, run the browser driver with Python Playwright and its Chromium browser installed. You can also pass `--chromium /path/to/chrome`. Match each image to the file of the same name from the Mac driver.
+To capture the matching website views, run the browser driver with Python Playwright and its Chromium browser installed. You can also pass `--chromium /path/to/chrome`. Both drivers check the assignment, step count, reply, terminal result and availability of Stop helper before capturing each helper. They read the same expected results from [the two helper examples](../Tests/Fixtures/preview-helpers.json). Match each image to the file of the same name from the Mac driver.
 
 ```sh
 python3 Tests/Scripts/preview-reference.py ./website-screenshots

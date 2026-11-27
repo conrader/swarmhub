@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Capture the live Interactive preview in the same states as --sample-screenshots."""
 import argparse
+import json
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -12,6 +13,7 @@ def main():
     parser.add_argument("--chromium", help="Path to an installed Chromium or Chrome executable")
     args = parser.parse_args()
     args.directory.mkdir(parents=True, exist_ok=True)
+    helpers = json.loads((Path(__file__).resolve().parents[1] / "Fixtures/preview-helpers.json").read_text())
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=args.chromium)
         page = browser.new_page(viewport={"width": 1440, "height": 1100}, device_scale_factor=1)
@@ -32,12 +34,16 @@ def main():
                         shell.locator("#demo-next").click()
                         expect(progress).to_have_text(f"Step {step} of 3")
                         shell.screenshot(path=args.directory / f"{theme}-{story}-step{step}.png")
-            for helper in ("tests", "rename"):
+            for helper, expected in helpers.items():
                 button = page.locator(f'[data-select-helper="{helper}"]')
                 button.click()
                 expect(button).to_have_attribute("aria-selected", "true")
                 expect(shell.locator("#chat-active-name")).to_contain_text(helper)
-                expect(shell.locator(".terminal-pre")).to_be_visible()
+                feed = shell.locator("#mac-feed")
+                for text in (expected["task"], f'Steps ({expected["steps"]})', expected["reply"]):
+                    expect(feed).to_contain_text(text)
+                expect(feed.locator(".terminal-pre")).to_contain_text(expected["terminal"])
+                expect(feed.get_by_role("button", name="Stop helper")).to_have_count(int(expected["canStop"]))
                 shell.screenshot(path=args.directory / f"{theme}-{helper}.png")
             shell.get_by_role("button", name="Steer via Jarvis").click()
             expect(shell.locator("#chat-active-name")).to_contain_text("Jarvis")

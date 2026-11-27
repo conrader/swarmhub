@@ -1,0 +1,18 @@
+{
+  "tests": {
+    "sidebarLabel": "Claude agent tests, Working",
+    "task": "isolate the blank-title assertion failure",
+    "steps": 2,
+    "reply": "whitespace-only titles bypass the empty check",
+    "terminal": "expected throw",
+    "canStop": true
+  },
+  "rename": {
+    "sidebarLabel": "Codex agent rename, Answered",
+    "task": "loadAll everywhere",
+    "steps": 3,
+    "reply": "14 call sites across 6 files",
+    "terminal": "Build complete!",
+    "canStop": false
+  }
+}
