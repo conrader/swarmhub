@@ -70,9 +70,12 @@ More detail on the ways to connect: [Use the Mac app](../HerdrWorkspace/README.m
 | Claude Code | Sonnet when offered, then the first listed model. Sign in to Claude Code with the account whose plan you want to use. |
 | Both | Start with a single main bot. Choose Codex or Claude Code for it and for each additional bot you need. |
 | API provider | OpenCode’s configured default. Pick an explicit provider/model entry to use another model, such as DeepSeek or Qwen. |
-| Gemini (beta) | Auto, Gemini CLI's own choice. Sign in by running `gemini` in Terminal first. |
+| Personal Google account (including Google AI Pro or Ultra) | Antigravity CLI. Sign in with `agy` on the machine that runs the bot. |
+| Gemini CLI (beta) | Auto uses the CLI’s model choice. Use this client with an account or API configuration supported by Google for Gemini CLI. |
 
-**Gemini (beta)** is Google's Gemini CLI. It is listed last and is never chosen for you while another AI is installed. Where you choose it, the app says what it cannot do yet: its reply arrives all at once, it asks for permission in its terminal (**Open terminal**) and not in the chat, and a model change applies the next time it starts. If you refuse a step there, press **Stop** in the chat before the next message. More in [Run Gemini CLI (beta)](../HerdrWorkspace/README.md#run-gemini-cli-beta).
+If you installed Antigravity CLI after setting up SwarmHub, open **Settings → AIs on this Mac**, choose **Scan again**, then **Add AI** beside Antigravity CLI. Choose the new runtime in the bot’s Model panel. Google moved personal Gemini CLI sign-in to Antigravity. [Google’s account and migration guide](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals)
+
+**Gemini (beta)** is the standalone Gemini CLI. It is listed last and is never chosen for you while another AI is installed. Where you choose it, the app says what it cannot do yet: its reply arrives all at once, it asks for permission in its terminal (**Open terminal**) and not in the chat, and a model change applies the next time it starts. If you refuse a step there, press **Stop** in the chat before the next message. More in [Run Gemini CLI (beta)](../HerdrWorkspace/README.md#run-gemini-cli-beta).
 
 For subscription billing, check the account in Claude Code. An `ANTHROPIC_API_KEY` in its environment can take precedence over the subscription. [Claude Code subscription sign-in](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-max-or-ultra-plan)
 
@@ -111,7 +114,7 @@ Choose **This Mac** in the setup window and your bots work on the Mac you are si
 1. **Fetches the SwarmHub service** for this Mac's processor (Apple silicon or Intel) from the SwarmHub release, and checks it against the release key the app carries before it is used. A download that is not the signed release is thrown away. The program goes to `~/.local/bin/swarmhub-herdr`.
 2. **Installs Herdr Core** when it is not on the Mac yet: from Herdr's own releases, and only a build that Herdr signed with its Apple developer identity. A Herdr Core that is already there is used as it is.
 3. **Makes an access key** for the app (`~/.config/swarmhub-herdr/token`, readable by you only) and a folder for your bots' work, `swarmhub-agents` in your home folder.
-4. **Writes a starter template** for each supported AI program it finds on the Mac (Claude Code, Codex, OpenCode or Gemini CLI), in Herdr Core's templates folder (`~/.config/herdr-core/templates/swarmhub-claude.md`, `swarmhub-codex.md`, `swarmhub-opencode.md`, `swarmhub-gemini.md`), and a starter list of models. It installs no AI program and signs in to none.
+4. **Writes a starter template** for each supported AI program it finds on the Mac (Claude Code, Codex, OpenCode, Gemini CLI or Antigravity CLI), in Herdr Core's templates folder (`~/.config/herdr-core/templates/swarmhub-claude.md`, `swarmhub-codex.md`, `swarmhub-opencode.md`, `swarmhub-gemini.md`, `swarmhub-antigravity.md`), and a starter list of models. It installs no AI program and signs in to none.
 5. **Starts the service and keeps it running**: a background item of your account (`~/Library/LaunchAgents/com.konrad.agentapp.service.plist`) starts it now, at every login, and again if it stops. macOS shows a "Background Items Added" notice. Your bots keep working while the app is closed.
 
 **Answer my AIs' first questions for me** is a switch in the same window, on unless you turn it off. An AI program asks a person two things the first time, in a window no chat shows, so a bot's first message would wait forever:

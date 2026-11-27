@@ -17,7 +17,7 @@ Platform requirements, supported workflows and remaining limits in the macOS app
 
 ## Chat
 
-- Pasted screenshots appear in the chat and are sent to supported providers. Live image recognition has been exercised with Codex, Claude Code and Antigravity. Gemini CLI and OpenCode image transport was verified with local test endpoints. [Mac window trials](chat-window-audit-2026-11-25.md#pasting-a-screenshot-with-a-text-caption)
+- Pasted screenshots appear in the chat and are sent to supported providers. Codex, Claude Code, Antigravity and OpenCode have each returned a code visible only in a pasted image. The OpenCode trial used MiMo-V2.6-Flash Free. Standalone Gemini CLI image transport was verified with a local endpoint. [Mac window trials](chat-window-audit-2026-11-25.md#pasting-a-screenshot-with-a-text-caption)
 - A running agent keeps its conversation. Switching providers carries a handoff into the new session. **Summarize & start fresh** creates a summary before opening the next session. Earlier messages remain visible.
 - A first task, with the bot's instructions, is cut to what the bridge accepts (16 KB).
 - A reply is saved by the agent's own hook when its turn ends. An agent that stops at a prompt in its terminal saves none; the app stops waiting after the agent has been quiet for a while. Choose **Answer here** in chat. Older bridges also support the external terminal option.

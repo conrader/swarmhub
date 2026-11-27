@@ -1380,7 +1380,9 @@ Plain `run-opencode mini` keeps the existing Herdr template behavior. The Mini c
 
 ## Run Gemini CLI (beta)
 
-Gemini CLI is the third agent program the workspace has a wrapper for. It appears as **Gemini**, with a separate beta note. Beta programs are listed after other programs and are chosen by default only when no other program is installed. This was checked against Gemini CLI 0.70.0; the workspace does not check the version.
+For personal Google accounts, including Google AI Pro and Ultra, use Antigravity CLI (`agy`). On a Mac, SwarmHub can register it from **Settings → AIs on this Mac**. [Google’s account and migration guide](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals)
+
+The workspace also supports standalone Gemini CLI. It appears as **Gemini**, with a separate beta note. Beta programs are listed after other programs and are chosen by default only when no other program is installed. This was checked against Gemini CLI 0.70.0; the workspace does not check the version.
 
 Install [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`npm install -g @google/gemini-cli`, Node 20 or later) under the account running Herdr, run `gemini` once in a terminal and sign in. Then add a Herdr template such as `gemini-cli.md` (not `gemini.md`: Herdr resolves a template name before a program):
 
