@@ -47,6 +47,7 @@ fn reconcile(journal: &Path, index: &Path, root: &Path) -> Result<(), Failure> {
             .collect::<Result<_, _>>()?
     };
     let mut server = None;
+    let mut startup_error = None;
     for (id, cwd) in candidates {
         let folder = Path::new(&cwd);
         let Some(bot) = folder.file_name().and_then(|name| name.to_str()) else {
@@ -56,7 +57,13 @@ fn reconcile(journal: &Path, index: &Path, root: &Path) -> Result<(), Failure> {
             continue;
         }
         if server.is_none() {
-            server = Some(super::models::initialized(super::executable())?);
+            match super::models::initialized(super::executable()) {
+                Ok(connected) => server = Some(connected),
+                Err(error) => {
+                    startup_error = Some(error);
+                    break;
+                }
+            }
         }
         match server.as_mut().unwrap().saved_thread(&id) {
             Ok(thread) => {
@@ -67,6 +74,12 @@ fn reconcile(journal: &Path, index: &Path, root: &Path) -> Result<(), Failure> {
                 server = None;
             }
         }
+    }
+    if let Some(home) = super::assignments::home() {
+        super::assignments::fill_saved(&db, &saved, &home)?;
+    }
+    if let Some(error) = startup_error {
+        return Err(error.into());
     }
     Ok(())
 }

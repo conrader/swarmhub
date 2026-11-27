@@ -1,7 +1,8 @@
 //! Codex child threads belong to a private app-server launch. They have their own transcript,
 //! but no Core terminal. Keep their content out of the main conversation's reply stream.
 use super::{Follower, Value, json};
-use rusqlite::params;
+use crate::codex_agent::assignments;
+use rusqlite::{OptionalExtension, params};
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -44,9 +45,34 @@ impl Writer {
             std::sync::Arc::new(std::sync::Mutex::new(HashMap::<String, Snapshot>::new()));
         let queue = pending.clone();
         tokio::task::spawn_blocking(move || {
+            let mut cache = assignments::Assignments::default();
+            let home = assignments::home();
+            let mut confirmed = HashMap::<String, String>::new();
+            let mut last_attempt = HashMap::new();
+            let mut index = None;
             while work.blocking_recv().is_some() {
                 let updates = std::mem::take(&mut *queue.lock().unwrap());
-                for snapshot in updates.into_values() {
+                for mut snapshot in updates.into_values() {
+                    if snapshot.summary["details"]["task"] == "" {
+                        if let Some(task) = confirmed.get(&snapshot.id) {
+                            snapshot.set_task(task);
+                        } else if let Some(home) = &home
+                            && last_attempt.get(&snapshot.id).is_none_or(|at: &std::time::Instant| at.elapsed().as_secs() >= 3)
+                        {
+                            last_attempt.insert(snapshot.id.clone(), std::time::Instant::now());
+                            if index.is_none() {
+                                index = assignments::index();
+                            }
+                            if let Some(index) = &index
+                                && let Some(parent) = snapshot.summary["parent"].as_str()
+                                && let Some(task) = cache.find(index, home, &snapshot.id, parent)
+                            {
+                                snapshot.set_task(&task);
+                                confirmed.insert(snapshot.id.clone(), task);
+                                last_attempt.remove(&snapshot.id);
+                            }
+                        }
+                    }
                     if snapshot.save(&journal, &key).is_err() {
                         super::note("Could not save a Codex child session.");
                     }
@@ -65,7 +91,7 @@ impl Writer {
     }
 }
 
-fn valid(id: &str) -> bool {
+pub(in crate::codex_agent) fn valid(id: &str) -> bool {
     id.len() == 36
         && id.bytes().enumerate().all(|(i, c)| {
             if matches!(i, 8 | 13 | 18 | 23) {
@@ -243,7 +269,7 @@ impl Follower {
     }
 }
 
-fn clipped(text: &str, limit: usize) -> &str {
+pub(in crate::codex_agent) fn clipped(text: &str, limit: usize) -> &str {
     let end = text.floor_char_boundary(limit.min(text.len()));
     &text[..end]
 }
@@ -388,14 +414,28 @@ impl Snapshot {
             params![launch,self.id,self.summary.to_string(),self.transcript])
     }
 
-    pub(super) fn save(self, journal: &Path, key: &str) -> rusqlite::Result<()> {
-        let db = crate::history::connection(journal)?;
+    fn set_task(&mut self, task: &str) {
+        self.summary["task"] = clipped(task,300).into();
+        self.summary["details"]["task"] = task.into();
+    }
+
+    pub(super) fn save(mut self, journal: &Path, key: &str) -> rusqlite::Result<()> {
+        let mut db = crate::history::connection(journal)?;
+        let db = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // Recovery and the live follower may overlap at startup.
+        if self.summary["details"]["task"] == ""
+            && let Some(task) = db.query_row("SELECT json_extract(c.summary,'$.details.task')
+                FROM codex_children c JOIN journal j ON j.id=c.launch WHERE j.launch_key=?1
+                AND c.thread=?2 AND length(json_extract(c.summary,'$.details.task'))>0",
+                params![key,self.id], |r|r.get::<_,String>(0)).optional()? {
+            self.set_task(&task);
+        }
         db.execute("INSERT INTO codex_children(launch,thread,summary,transcript)
             SELECT id,?2,?3,?4 FROM journal WHERE launch_key=?1
             ON CONFLICT(launch,thread) DO UPDATE SET summary=excluded.summary,transcript=excluded.transcript,revision=revision+1
             WHERE summary!=excluded.summary OR transcript!=excluded.transcript",
             params![key,self.id,self.summary.to_string(),self.transcript])?;
-        Ok(())
+        db.commit()
     }
 }
 
