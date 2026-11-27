@@ -4,6 +4,7 @@ struct ReplyMediaPreview: View {
     let link: ReplyMediaLink
     let messageID: UUID
     let isLocal: Bool
+    var inGallery = false
     var expanded = false
     let open: () -> Void
     @EnvironmentObject private var store: AppStore
@@ -18,7 +19,7 @@ struct ReplyMediaPreview: View {
                         .accessibilityLabel(link.title)
                 } else if let image = ThumbnailCache.image(at: file) {
                     let picture = Image(nsImage: image).resizable().scaledToFit()
-                        .frame(maxWidth: expanded ? 1000 : 420, maxHeight: expanded ? 760 : 300, alignment: .leading)
+                        .frame(maxWidth: expanded ? 1000 : inGallery ? 190 : 420, maxHeight: expanded ? 760 : inGallery ? 165 : 300, alignment: .leading)
                     if expanded { picture }
                     else { Button(action: open) { picture }.buttonStyle(.plain).accessibilityLabel("Preview " + link.title) }
                 } else { Text("Image preview unavailable.") }

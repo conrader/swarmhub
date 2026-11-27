@@ -92,8 +92,13 @@ struct ProseBlock: View {
                     return false
                 }
             if let replyID {
-                ForEach(media.filter { publishedFile($0) == nil }) { link in
-                    ReplyMediaPreview(link: link, messageID: replyID, isLocal: localMedia) { selectedMedia = link }
+                let previews = media.filter { publishedFile($0) == nil }
+                let gallery = previews.count > 1 && previews.allSatisfy { ChatMediaKind(filename: $0.url.lastPathComponent) == .image }
+                let layout = gallery ? AnyLayout(LibraryFlow(spacing: 8)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                layout {
+                    ForEach(previews) { link in
+                        ReplyMediaPreview(link: link, messageID: replyID, isLocal: localMedia, inGallery: gallery) { selectedMedia = link }
+                    }
                 }
             }
             let urls = ChatCardParser.bareURLs(in: text)
