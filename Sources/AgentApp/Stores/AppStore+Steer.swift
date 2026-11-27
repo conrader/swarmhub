@@ -65,7 +65,8 @@ extension AppStore {
         guard turn.steerAvailable, !turn.stopping, let backend = turn.backend, turn.assistant != nil else {
             conversation.messages.append(message)
             let target = turn.awaitingSteerCapability && !turn.stopping ? turn.startupTarget : nil
-            if !waitForTurn(message, in: conversation, reason: target == nil ? TurnWaitCopy.afterAnswer : SteerCopy.startupWait, startupTarget: target) {
+            if !waitForTurn(message, in: conversation, reason: target == nil ? TurnWaitCopy.afterAnswer : SteerCopy.startupWait,
+                            startupTarget: target, predecessor: predecessorForSend(message, in: conversation)) {
                 // Other recipients in a group send may already have accepted their copies.
                 guard conversation is GroupChat else { return false }
                 message.metadata[SteerKey.steer] = "failed"
@@ -101,6 +102,13 @@ extension AppStore {
         guard !turn.stopping, let backend = turn.backend, let reply = turn.assistant, let target = turn.startupTarget else { return }
         let conversation = turn.conversation
         for next in turns.nextMessages where next.startupTarget == target && next.conversation === conversation {
+            // A chained startup steer may join this answer only after its predecessor actually did.
+            if case .message(let id) = next.predecessor, reply.metadata[TurnKey.forUser] != id.uuidString {
+                guard let previous = conversation.messages.first(where: { $0.id == id }),
+                      previous.metadata[SteerKey.steer] == "delivered",
+                      previous.metadata[TurnReplyText.origin] == steerOrigin(turn)?.uuidString else { continue }
+            }
+            if next.predecessor == .unknown { continue }
             let message = next.bubble
             guard let index = conversation.messages.firstIndex(where: { $0 === message }),
                   recordNextMessage(next, .submitting) else { return }
@@ -158,7 +166,14 @@ extension AppStore {
             defer {
                 turns.inFlightSteers.remove(message.id)
                 slot?.guidanceReceipts[message.id] = nil
+                if let queued {
+                    if let slot, isCurrent(slot.token), slot.steerAvailable, let bot = conversation as? Bot {
+                        deliverStartupFollowUps(to: bot, turn: slot)
+                    }
+                    if hasWaitingTurn(in: queued.conversation) { sendQueuedNextMessage() }
+                }
             }
+            let state: NextMessageRecord.State
             do {
                 guard steerHeldByTurn(message), let slot, isCurrent(slot.token), !slot.stopping, slot.botID == recipient else {
                     throw BackendError.unavailable(SteerCopy.endedFirst)
@@ -171,6 +186,7 @@ extension AppStore {
                 }
                 try validateArtifactAccess(message, botID: recipient)
                 try await activeBackend.steer(sessionID: sessionID, text: value, files: files)
+                state = .sent
                 message.metadata[SteerKey.steer] = "delivered"
                 if let bot = conversation as? Bot, let goalID, bot.goal?.id == goalID, bot.goal?.state.active == true {
                     bot.goal?.objective += "\nFollow-up: " + value + files.map { "\nAttached file: " + $0.name }.joined()
@@ -184,12 +200,13 @@ extension AppStore {
                 case is DecodingError, HerdrClient.Failure.unconfirmedDelivery: uncertain = true
                 default: uncertain = false
                 }
+                state = uncertain ? .uncertain : .removed
                 message.metadata[SteerKey.steer] = uncertain ? "uncertain" : "failed"
                 for key in turns.steers.keys { turns.steers[key]?.bubbles.removeAll { $0 === message } }
                 addWarning(error.localizedDescription, in: conversation, after: message)
             }
             objectWillChange.send(); save()
-            if let queued, !turns.saveFailing { recordNextMessage(queued, .sent) }
+            if let queued, !turns.saveFailing { recordNextMessage(queued, state) }
         }
         slot?.lastSteerDelivery = delivery
         if slot?.goalAttempt != nil { slot?.guidanceReceipts[message.id] = delivery }

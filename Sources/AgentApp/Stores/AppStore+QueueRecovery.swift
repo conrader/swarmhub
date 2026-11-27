@@ -1,5 +1,14 @@
 import Foundation
 
+/// A user ID survives a Retry, a split reply, and a prompt refusal that replaces the reply placeholder.
+enum QueuePredecessor: Codable, Equatable, Sendable {
+    case message(UUID), independent, unknown
+    /// Existing recovery rules for explicit steers, group rounds and other queue clients.
+    case conversation
+}
+
+enum QueuePredecessorResolution { case ready, waiting, giveBack }
+
 /// P38 E: one queued next message in the run ledger (kind `nextMessage`), written before it joins the queue and again
 /// before it is sent, so interrupted dispatch can be surfaced without blind replay. `anchorID` is the row that offered it: the failed steer
 /// bubble, or the review card whose notes go out.
@@ -13,12 +22,14 @@ struct NextMessageRecord: Codable, Equatable, Sendable {
     var kind: Kind
     var text: String
     var state: State
+    var predecessor: QueuePredecessor?
+    /// Reapply the local give-back if the app quit between the journal commit and the chat save.
+    var returnWarning: String?
 }
 
 /// P38 E (Codex's queued turns that survive a restart, on main's design): what waited as the next message resumes in
-/// order on reopen. It waits for the launch reconcile (`resumeRestoredNextMessages`); one whose chat still has an
-/// unconfirmed reply, or whose text changed, goes back to the user (its button returns) instead of being sent. Rounds,
-/// Retry and Refresh stay P16's: a group's finished member replies are kept and the members a quit skipped offer Retry.
+/// order on reopen. Direct turns wait for their own predecessor after launch reconciliation. An explicit steer
+/// still goes back to the user if its chat has an unconfirmed reply.
 extension AppStore {
     static let nextMessageKind = "nextMessage"
 
@@ -27,7 +38,7 @@ extension AppStore {
     @discardableResult func recordNextMessage(_ next: QueuedNextMessage, _ state: NextMessageRecord.State) -> Bool {
         guard persistenceEnabled else { return true }
         do {
-            try journal().put(NextMessageRecord(id: next.id, anchorID: next.anchorID, kind: next.kind, text: next.bubble.content, state: state),
+            try journal().put(NextMessageRecord(id: next.id, anchorID: next.anchorID, kind: next.kind, text: next.bubble.content, state: state, predecessor: next.predecessor),
                               kind: Self.nextMessageKind, id: next.id.uuidString)
             return true
         } catch { errorMessage = "Could not save the message queue: \(error.localizedDescription)"; return false }
@@ -55,23 +66,43 @@ extension AppStore {
     func restoreNextMessages() {
         guard persistenceEnabled, hasLedger else { return }
         do {
-            for record in try journal().records(NextMessageRecord.self, kind: Self.nextMessageKind) where record.state == .waiting || record.state == .submitting || record.state == .uncertain {
+            let records = try journal().records(NextMessageRecord.self, kind: Self.nextMessageKind)
+            if records.contains(where: { $0.returnWarning != nil }) {
+                let latest = Dictionary(records.map { ($0.anchorID, $0) }, uniquingKeysWith: { _, newer in newer })
+                for bot in bots {
+                    for bubble in bot.messages where bubble.metadata[TurnWaitCopy.key] == "waiting" {
+                        guard let record = latest[bubble.id], record.state == .removed, let warning = record.returnWarning,
+                              !bot.messages.contains(where: { $0.role == .assistant && $0.metadata[TurnKey.forUser] == bubble.id.uuidString })
+                        else { continue }
+                        giveBackBubble(QueuedNextMessage(id: record.id, conversation: bot, bubble: bubble, kind: .turn,
+                                                         predecessor: record.predecessor ?? .unknown), warning: warning)
+                        save()
+                    }
+                }
+            }
+            for record in records where record.state == .waiting || record.state == .submitting || record.state == .uncertain {
                 guard !turns.nextMessages.contains(where: { $0.id == record.id }) else { continue }
                 guard let conversation = conversation(containing: record.anchorID), let anchor = conversation.messages.first(where: { $0.id == record.anchorID }) else {
                     try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
                 }
                 if record.state == .submitting || record.state == .uncertain {
-                    if record.kind == .steer || anchor.metadata[TurnWaitCopy.key] == "waiting" {
-                        endWait(anchor, in: conversation)
+                    let ownsReply = conversation.messages.contains { $0.role == .assistant && $0.metadata[TurnKey.forUser] == anchor.id.uuidString }
+                    var changed = anchor.metadata[TurnWaitCopy.key] == "waiting"
+                    if changed { endWait(anchor, in: conversation) }
+                    // A saved reply owns its Retry or receipt. A submitted queue record alone proves neither outcome.
+                    if !ownsReply, !["delivered", "failed", "uncertain"].contains(anchor.metadata[SteerKey.steer] ?? "") {
                         anchor.metadata[SteerKey.steer] = "uncertain"
-                        save()
+                        changed = true
                     }
                     let warning = ReconcileNote.uncertainQueuePrefix + record.text
-                    if !conversation.messages.contains(where: { $0.content == warning }) {
+                    if !conversation.messages.contains(where: { $0.role == .system && $0.content == warning }) {
                         conversation.messages.append(ReconcileNote.line(warning))
+                        changed = true
                     }
-                    // Retain the text and operation ID durably; never silently replay an uncertain send.
-                    try journal().put(with(record, state: .uncertain), kind: Self.nextMessageKind, id: record.id.uuidString)
+                    if changed { save() }
+                    if record.state == .submitting {
+                        try journal().put(with(record, state: .uncertain), kind: Self.nextMessageKind, id: record.id.uuidString)
+                    }
                     continue
                 }
                 let index = conversation.messages.firstIndex { $0 === anchor }
@@ -105,7 +136,11 @@ extension AppStore {
                     }
                     bubble = anchor
                 }
-                insertNextMessage(QueuedNextMessage(id: record.id, conversation: conversation, bubble: bubble, kind: record.kind, anchorID: anchor.id, restored: true))
+                // Older direct sends lack the link. A nearby finished reply cannot identify their predecessor.
+                let directSend = record.kind == .turn && tracksPredecessor(of: bubble, in: conversation)
+                let predecessor = record.predecessor ?? (directSend ? .unknown : .conversation)
+                insertNextMessage(QueuedNextMessage(id: record.id, conversation: conversation, bubble: bubble, kind: record.kind,
+                                                    anchorID: anchor.id, predecessor: predecessor, restored: true))
             }
         } catch { errorMessage = "Could not restore the message queue: \(error.localizedDescription)" }
     }
@@ -133,13 +168,12 @@ extension AppStore {
         if preserveRestoreUndo, !turns.saveFailing, let storeRevision { rememberRestoreUndo(storeRevision) }
     }
 
-    /// After the launch reconcile: restored entries whose chat has no unconfirmed reply are released in order; the others
-    /// go back to the user with a line saying why. Then the queue is sent.
+    /// Drop the launch barrier. The drain checks each direct predecessor again at dispatch time.
     func resumeRestoredNextMessages() {
         var kept: [QueuedNextMessage] = []
         for var next in turns.nextMessages {
             guard next.restored else { kept.append(next); continue }
-            if let reply = unconfirmedReply(in: next.conversation) {
+            if next.predecessor == .conversation, let reply = unconfirmedReply(in: next.conversation) {
                 giveBack(next)
                 addWarning("A queued message was not sent after the restart: the reply before it did not finish. Send the message again.",
                            in: next.conversation, after: reply)
@@ -150,6 +184,52 @@ extension AppStore {
         turns.nextMessages = kept
         objectWillChange.send(); save()
         sendQueuedNextMessage()
+    }
+
+    func tracksPredecessor(of user: ChatMessage, in conversation: any Conversation) -> Bool {
+        conversation is Bot && user.metadata[HerdrBotRelay.Key.kind] == nil && user.metadata[GoalKey.attempt] == nil
+    }
+
+    /// Called when appending an ordinary direct send. A capacity wait in an idle chat has no local predecessor.
+    func predecessorForSend(_ user: ChatMessage, in conversation: any Conversation) -> QueuePredecessor {
+        guard tracksPredecessor(of: user, in: conversation) else { return .conversation }
+        if let previous = turns.nextMessages.last(where: { $0.conversation === conversation }) {
+            return .message(previous.bubble.id)
+        }
+        guard let active = turn(in: conversation) else { return .independent }
+        guard let id = active.assistant?.metadata[TurnKey.forUser].flatMap(UUID.init(uuidString:)) else { return .unknown }
+        return .message(id)
+    }
+
+    func resolvePredecessor(for next: QueuedNextMessage, removing removed: Set<UUID> = []) -> QueuePredecessorResolution {
+        switch next.predecessor {
+        case .independent, .conversation: return .ready
+        case .unknown: return .giveBack
+        case .message(let id):
+            let rows = next.conversation.messages
+            guard let user = rows.first(where: { $0.id == id && $0.role == .user }) else { return .giveBack }
+            // Only an earlier queue entry can still run before this one.
+            if turns.nextMessages.prefix(while: { $0.id != next.id }).contains(where: { $0.bubble === user && !removed.contains($0.id) }) ||
+                turns.inFlightSteers.contains(id) { return .waiting }
+            let replies: [ChatMessage]
+            if user.isSteer {
+                guard user.metadata[SteerKey.steer] == "delivered", let origin = user.metadata[TurnReplyText.origin] else { return .giveBack }
+                replies = rows.filter { $0.role == .assistant && ($0.id.uuidString == origin || $0.metadata[TurnReplyText.origin] == origin) }
+            } else {
+                replies = rows.filter { $0.role == .assistant && $0.metadata[TurnKey.forUser] == id.uuidString }
+            }
+            guard let last = replies.last else { return .giveBack }
+            let origin = last.metadata[TurnReplyText.origin] ?? last.id.uuidString
+            guard replies.dropLast().allSatisfy({ ($0.metadata[TurnReplyText.origin] ?? $0.id.uuidString) == origin &&
+                !$0.isStreaming && $0.turnState == .finished }) else { return .giveBack }
+            if turn(in: next.conversation)?.assistant === last { return .waiting }
+            if !last.isStreaming, last.turnState == .finished || (last.turnState == .stopped && last.metadata[TurnKey.why] == "stopped") {
+                return .ready
+            }
+            if canRetry(last) { return .waiting }
+            if let bot = next.conversation as? Bot, canRecoverSavedReply(last, in: bot) { return .waiting }
+            return .giveBack
+        }
     }
 
     /// An `incomplete` reply, or a not-sent one the server may have.
@@ -165,13 +245,16 @@ extension AppStore {
 
     /// What a removed entry leaves behind: the steer's button returns, and a message that waited for a turn says it
     /// was not sent.
-    func giveBackBubble(_ next: QueuedNextMessage) {
+    func giveBackBubble(_ next: QueuedNextMessage, warning: String = TurnWaitCopy.notSent) {
         switch next.kind {
         case .steer: next.bubble.metadata[SteerKey.steer] = "failed"
         case .reviewNotes: break
         case .turn:
+            // The explicit resend action keeps this text available and out of subsequent model history.
+            if next.predecessor != .conversation { next.bubble.metadata[SteerKey.steer] = "failed" }
+            next.bubble.metadata[TurnWaitCopy.promptServer] = nil
             endWait(next.bubble, in: next.conversation)
-            addWarning(TurnWaitCopy.notSent, in: next.conversation, after: next.bubble)
+            addWarning(warning, in: next.conversation, after: next.bubble)
         }
     }
 }

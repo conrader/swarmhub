@@ -341,34 +341,44 @@ fn work_for(ctx: &Ctx<'_>, sender: &Bot, task: Option<i64>) -> rusqlite::Result<
     work(ctx.db, id)
 }
 
-/// A line about a limit, once per piece of work for each bot it is written to.
-fn limit_line(ctx: &Ctx<'_>, bot: &str, code: &str, work: i64, text: &str) -> rusqlite::Result<()> {
-    let said: bool = ctx.db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM bot_history h WHERE h.bot=?1 AND h.code=?2 AND h.at_ms>?4
-                         AND (h.message IS NULL OR h.message IN (SELECT id FROM bot_messages WHERE work=?3)))",
-        params![bot, code, work, ctx.now - seconds(ctx.set.window_seconds)],
-        |row| row.get(0),
+enum Limit {
+    Pair { first_message: i64 },
+    Rate { work: i64 },
+}
+
+/// A pair notice belongs to one exchange. Rate notices expire with the sender's window.
+fn limit_line(ctx: &Ctx<'_>, bot: &str, limit: Limit, text: &str) -> rusqlite::Result<()> {
+    let (code, message) = match limit {
+        Limit::Pair { first_message } => {
+            let said: bool = ctx.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM bot_history WHERE bot=?1 AND code='limit_pair' AND message=?2)",
+                params![bot, first_message], |row| row.get(0),
+            )?;
+            if said {
+                return Ok(());
+            }
+            ("limit_pair", Some(first_message))
+        }
+        Limit::Rate { work } => {
+            let said: bool = ctx.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM bot_history WHERE bot=?1 AND code='limit_rate' AND at_ms>?3
+                   AND (message IS NULL OR message IN (SELECT id FROM bot_messages WHERE work=?2)))",
+                params![bot, work, ctx.now - seconds(ctx.set.window_seconds)], |row| row.get(0),
+            )?;
+            if said {
+                return Ok(());
+            }
+            let last = ctx.db.query_row(
+                "SELECT max(id) FROM bot_messages WHERE work=?1", [work], |row| row.get(0),
+            )?;
+            ("limit_rate", last)
+        }
+    };
+    entry(
+        ctx, bot, "notice", text,
+        About { code: Some(code), message, ..About::default() },
+        true, true,
     )?;
-    if !said {
-        let last: Option<i64> = ctx.db.query_row(
-            "SELECT max(id) FROM bot_messages WHERE work=?1",
-            [work],
-            |row| row.get(0),
-        )?;
-        entry(
-            ctx,
-            bot,
-            "notice",
-            text,
-            About {
-                code: Some(code),
-                message: last,
-                ..About::default()
-            },
-            true,
-            true,
-        )?;
-    }
     Ok(())
 }
 
@@ -379,6 +389,30 @@ pub(crate) struct Sent {
     pub id: i64,
     /// What the sending agent reads.
     pub text: String,
+}
+
+#[derive(Debug)]
+pub(crate) enum SendRefusal {
+    PairLimit { reason: String, work: i64, peer: String },
+    Other(String),
+}
+
+impl SendRefusal {
+    pub(crate) fn text(self) -> String {
+        match self {
+            Self::PairLimit { reason, .. } | Self::Other(reason) => reason,
+        }
+    }
+}
+
+/// Count both directions on just this work. The first message is a stable reference for the pair.
+fn pair_traffic(db: &Connection, work: i64, a: &str, b: &str) -> rusqlite::Result<(u32, i64)> {
+    db.query_row(
+        "SELECT count(*),coalesce(min(id),0) FROM bot_messages WHERE work=?1
+           AND ((sender=?2 AND receiver=?3) OR (sender=?3 AND receiver=?2))",
+        params![work, a, b],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
 }
 
 /// Sends an ask, a tell or a hand-off from `sender` to the bot named `to`. `task` is the newest task of the
@@ -392,34 +426,34 @@ pub(crate) fn send(
     to: &str,
     text: &str,
     via: &str,
-) -> rusqlite::Result<Result<Sent, String>> {
+) -> rusqlite::Result<Result<Sent, SendRefusal>> {
     if !sender.may_message {
-        return Ok(Err("The person turned off messages to other bots for you, so nothing was sent. Ask the person instead.".into()));
+        return Ok(Err(SendRefusal::Other("The person turned off messages to other bots for you, so nothing was sent. Ask the person instead.".into())));
     }
     let Some(text) = clean(text, blocks::MESSAGE_CHARS) else {
-        return Ok(Err(
+        return Ok(Err(SendRefusal::Other(
             "Write what to send: plain text, up to 4000 characters.".into(),
-        ));
+        )));
     };
     let receiver = match named(ctx.db, sender, to)? {
         Ok(receiver) => receiver,
-        Err(refusal) => return Ok(Err(refusal)),
+        Err(refusal) => return Ok(Err(SendRefusal::Other(refusal))),
     };
     let work = work_for(ctx, sender, task)?;
     let (from, name) = (notes::line(&sender.name), notes::line(&receiver.name));
     if work.state != "open" {
-        return Ok(Err(format!(
+        return Ok(Err(SendRefusal::Other(format!(
             "This exchange was ended ({}), so nothing was sent. Tell the person where things stand; only they can start it again.",
             work.ended_why.as_deref().unwrap_or("it was stopped")
-        )));
+        ))));
     }
     if kind == Kind::Handoff {
         if work.owner != sender.id {
-            return Ok(Err(format!(
+            return Ok(Err(SendRefusal::Other(format!(
                 "This piece of work is not yours to hand off: {} owns it. Ask \"{name}\" for what you need with `{} bot ask`, or leave the hand-off to its owner.",
                 super::name_of(ctx.db, &work.owner),
                 ctx.cmd
-            )));
+            ))));
         }
         let pending: Option<(i64, String)> = ctx
             .db
@@ -430,27 +464,31 @@ pub(crate) fn send(
             )
             .optional()?;
         if let Some((id, other)) = pending {
-            return Ok(Err(format!(
+            return Ok(Err(SendRefusal::Other(format!(
                 "You already handed this work to {} (hand-off #{id}), which has not accepted or declined yet. A piece of work goes to one bot at a time: wait for it.",
                 super::name_of(ctx.db, &other)
-            )));
+            ))));
         }
     }
-    let between: u32 = ctx.db.query_row(
-        "SELECT count(*) FROM bot_messages WHERE work=?1
-           AND ((sender=?2 AND receiver=?3) OR (sender=?3 AND receiver=?2))",
-        params![work.id, sender.id, receiver.id],
-        |row| row.get(0),
-    )?;
+    let (between, first_message) = pair_traffic(ctx.db, work.id, &sender.id, &receiver.id)?;
     if between >= ctx.set.pair_messages {
+        let guidance = match saved_final_status(ctx.db, work.id)? {
+            Some(entry) => format!("The final status for work #{} is in history entry #{entry}.", work.id),
+            None => format!(
+                "An authorized launch of either bot can record the outcome and anything still open with `{} bot final-status {first_message} \"SUMMARY\"`. Bring the matter to the person if this launch cannot file.",
+                ctx.cmd
+            ),
+        };
         let line = format!(
-            "{from} and {name} have exchanged {between} messages about this, which is the limit. {from} was told to bring the matter to you."
+            "{from}'s message to {name} was not sent. {from} and {name} have exchanged {between} messages about this, which is the limit. {guidance} An open ask still takes `bot reply ID TEXT`."
         );
-        limit_line(ctx, &sender.id, "limit_pair", work.id, &line)?;
-        limit_line(ctx, &receiver.id, "limit_pair", work.id, &line)?;
-        return Ok(Err(format!(
-            "You and \"{name}\" have exchanged {between} messages about this piece of work, which is the limit, so nothing was sent. Do not write to \"{name}\" about it again. Bring the matter to the person: tell them what is still open."
-        )));
+        limit_line(ctx, &sender.id, Limit::Pair { first_message }, &line)?;
+        limit_line(ctx, &receiver.id, Limit::Pair { first_message }, &line)?;
+        return Ok(Err(SendRefusal::PairLimit {
+            reason: line,
+            work: work.id,
+            peer: receiver.id,
+        }));
     }
     let recent: u32 = ctx.db.query_row(
         "SELECT count(*) FROM bot_messages WHERE sender=?1 AND kind IN ('ask','tell','handoff') AND sent_ms>?2",
@@ -462,15 +500,14 @@ pub(crate) fn send(
         limit_line(
             ctx,
             &sender.id,
-            "limit_rate",
-            work.id,
+            Limit::Rate { work: work.id },
             &format!(
                 "{from}'s message to {name} was not sent: it has written to other bots {recent} times in the last {window}, which is the limit. {from} was told to bring it to you."
             ),
         )?;
-        return Ok(Err(format!(
+        return Ok(Err(SendRefusal::Other(format!(
             "You have sent {recent} messages to other bots in the last {window}, which is the limit, so nothing was sent. Tell the person what you wanted to send."
-        )));
+        ))));
     }
 
     let state = if kind == Kind::Tell { "sent" } else { "open" };
@@ -523,6 +560,68 @@ pub(crate) fn send(
         ),
     };
     Ok(Ok(Sent { id, text }))
+}
+
+fn saved_final_status(db: &Connection, work: i64) -> rusqlite::Result<Option<i64>> {
+    db.query_row("SELECT id FROM bot_history WHERE final_status_work=?1", [work], |row| row.get(0))
+        .optional()
+}
+
+/// The message fixes both the work and the pair, even if a new task arrives before a retry.
+pub(crate) fn final_status(
+    ctx: &Ctx<'_>,
+    core: &str,
+    key: &str,
+    id: i64,
+    summary: &str,
+) -> rusqlite::Result<Result<String, String>> {
+    // Older launches without a pinned owner need an exact registration receipt in
+    // addition to the ordinary bot/helper check.
+    let super::Who::Bot(bot) = super::of_launch(ctx.db, key)? else {
+        return Ok(Err("Only a registered bot in the exchange can file its final status.".into()));
+    };
+    let authorized: bool = ctx.db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM journal j WHERE launch_key=?1 AND core_id=?2
+           AND document_read_only=0
+           AND (parent_bot_id=?3 OR (parent_bot_id IS NULL AND agent=?4 AND ?5=launch_key)))",
+        params![key, core, bot.id, bot.agent_name, bot.noted_launch],
+        |row| row.get(0),
+    )?;
+    if !authorized || !bot.may_message {
+        return Ok(Err("This launch cannot file a final status. Report where things stand to the person.".into()));
+    }
+    let Some(anchor) = message(ctx.db, id)?.filter(|m| m.sender == bot.id || m.receiver == bot.id)
+    else {
+        return Ok(Err("Use a message number from your own capped exchange.".into()));
+    };
+    let work = work(ctx.db, anchor.work)?;
+    if work.state != "open" {
+        return Ok(Err("This work was stopped. Report where things stand to the person.".into()));
+    }
+    let (between, _) = pair_traffic(ctx.db, work.id, &anchor.sender, &anchor.receiver)?;
+    if between < ctx.set.pair_messages {
+        return Ok(Err("This pair is below the message limit for this work. Use the normal exchange commands.".into()));
+    }
+    if let Some(saved) = saved_final_status(ctx.db, work.id)? {
+        return Ok(Ok(format!(
+            "Work #{} already has a final status in history entry #{saved}. The first summary was kept.",
+            work.id
+        )));
+    }
+    let Some(summary) = clean(summary, blocks::MESSAGE_CHARS)
+        .filter(|_| summary.trim().chars().count() <= blocks::MESSAGE_CHARS)
+    else {
+        return Ok(Err("Summarize the outcome and anything still open in 1 to 4000 characters.".into()));
+    };
+    let history_bot = super::main_bot(ctx.db)?.map_or_else(|| bot.id.clone(), |main| main.id);
+    let line = format!("Final status for work #{} from {}: {summary}", work.id, notes::line(&bot.name));
+    let saved: i64 = ctx.db.query_row(
+        "INSERT INTO bot_history (bot,kind,code,text,at_ms,unread,final_status_work,final_status_by)
+         VALUES (?1,'notice','final_status',?2,?3,1,?4,?5) RETURNING id",
+        params![history_bot, line, ctx.now, work.id, bot.id],
+        |row| row.get(0),
+    )?;
+    Ok(Ok(format!("Recorded the final status for work #{} in history entry #{saved}.", work.id)))
 }
 
 fn close_message(ctx: &Ctx<'_>, id: i64, state: &str) -> rusqlite::Result<()> {
@@ -1121,6 +1220,7 @@ pub(crate) fn on_reply(
         "SELECT document_read_only FROM journal WHERE launch_key=?1", [key], |r| r.get(0),
     )?;
     let commands = if read_only { Vec::new() } else { blocks::blocks(text) };
+    let mut capped_pairs = Vec::new();
     for block in commands {
         let (to, sent) = match block {
             blocks::Block::Message { to, kind, text } => {
@@ -1139,33 +1239,41 @@ pub(crate) fn on_reply(
                         );
                         send(ctx, bot, tasks.last().copied(), Kind::Ask, &main.name, &ask, "block")?
                     }
-                    None => Err("This server has no main bot that could create it. Tell the person: they can make one bot the main bot in its settings.".into()),
+                    None => Err(SendRefusal::Other("This server has no main bot that could create it. Tell the person: they can make one bot the main bot in its settings.".into())),
                 };
                 (name, sent)
             }
         };
-        if let Err(why) = sent {
-            let line = format!(
-                "{}'s message to {} was not sent. {why}",
-                notes::line(&bot.name),
-                notes::line(&to)
-            );
-            let about = About {
-                code: Some("not_sent"),
-                ..About::default()
-            };
-            entry(ctx, &bot.id, "notice", &line, about, false, false)?;
-            // Told once. A bot that answers that with another message that cannot be sent is not told again.
-            if newest.is_none_or(|typed| typed.cause != "notice") {
-                post(
-                    ctx,
-                    Post {
-                        bot: &bot.id,
-                        text: &notes::not_sent(&to, &why),
-                        cause: "notice",
-                        ..Post::default()
-                    },
-                )?;
+        match sent {
+            Ok(_) => {}
+            Err(SendRefusal::PairLimit { reason, work, peer }) => {
+                let about = About { code: Some("not_sent"), ..About::default() };
+                entry(ctx, &bot.id, "notice", &reason, about, false, false)?;
+                capped_pairs.push((work, peer));
+            }
+            Err(SendRefusal::Other(why)) => {
+                let line = format!(
+                    "{}'s message to {} was not sent. {why}",
+                    notes::line(&bot.name),
+                    notes::line(&to)
+                );
+                let about = About {
+                    code: Some("not_sent"),
+                    ..About::default()
+                };
+                entry(ctx, &bot.id, "notice", &line, about, false, false)?;
+                // Told once. A bot that answers that with another message that cannot be sent is not told again.
+                if newest.is_none_or(|typed| typed.cause != "notice") {
+                    post(
+                        ctx,
+                        Post {
+                            bot: &bot.id,
+                            text: &notes::not_sent(&to, &why),
+                            cause: "notice",
+                            ..Post::default()
+                        },
+                    )?;
+                }
             }
         }
     }
@@ -1197,6 +1305,9 @@ pub(crate) fn on_reply(
                     }
                 }
             }
+            continue;
+        }
+        if capped_pairs.iter().any(|(work, peer)| *work == about.work && peer == &about.sender) {
             continue;
         }
         let wrote: bool = db.query_row(
@@ -1344,6 +1455,10 @@ pub(crate) struct Entry {
     pub notify: bool,
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_status_work: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_status_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub journal: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<crate::routines::ResultPage>,
@@ -1375,7 +1490,7 @@ pub(crate) fn entries(db: &Connection, lines: &Lines<'_>) -> rusqlite::Result<Ve
     let newest_first = lines.after.is_none() || lines.before.is_some();
     let mut rows: Vec<Entry> = db
         .prepare_cached(&format!(
-            "SELECT id,bot,kind,text,at_ms,unread,notify,code,journal,checkin,promise,message FROM bot_history
+            "SELECT id,bot,kind,text,at_ms,unread,notify,code,journal,checkin,promise,message,final_status_work,final_status_by FROM bot_history
              WHERE id>?1 AND id<?2 AND (?3 IS NULL OR bot=?3) AND (?4 IS NULL OR kind=?4)
              ORDER BY id {} LIMIT ?5",
             if newest_first { "DESC" } else { "ASC" }
@@ -1401,6 +1516,8 @@ pub(crate) fn entries(db: &Connection, lines: &Lines<'_>) -> rusqlite::Result<Ve
                         code: row.get(7)?,
                         journal: row.get(8)?,
                         page: None,
+                        final_status_work: row.get(12)?,
+                        final_status_by: row.get(13)?,
                         checkin: row.get(9)?,
                         promise: row.get(10)?,
                         direction: None,
@@ -1600,6 +1717,7 @@ mod tests {
             send(ctx, &sender, None, kind, to, text, "command")
         })
         .map(|sent| sent.id)
+        .map_err(SendRefusal::text)
     }
 
     fn closed(
@@ -2299,6 +2417,159 @@ mod tests {
     }
 
     #[test]
+    fn final_status_racing_capped_pairs_keep_one_history_entry_after_reopen() {
+        let (scratch, history) = testing::journal(&["Main", "A", "B", "C"]);
+        let set = Settings { pair_messages: 2, ..Settings::default() };
+        let mut attempts = Vec::new();
+        for (name, address) in [("B", "t1"), ("C", "t2")] {
+            let key = testing::session(&history, name, address);
+            let bot = testing::id_of(name);
+            super::super::noted(&history, &bot, &key).unwrap();
+            let id = sent(&history, T0, &set, "A", Kind::Tell, name, "One").unwrap();
+            sent(&history, T0, &set, "A", Kind::Tell, name, "Two").unwrap();
+            attempts.push((key, id, name));
+        }
+        let start = std::sync::Barrier::new(attempts.len());
+        std::thread::scope(|scope| {
+            let mut writers = Vec::new();
+            for (key, id, name) in attempts {
+                let mut db = crate::history::connection(history.file()).unwrap();
+                let (set, start) = (&set, &start);
+                writers.push(scope.spawn(move || {
+                    start.wait();
+                    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+                    let ctx = Ctx { db: &tx, set, now: T0, zone: chrono_tz::UTC, cmd: "swarmhub-herdr" };
+                    let receipt = final_status(&ctx, "core", &key, id, name).unwrap().unwrap();
+                    tx.commit().unwrap();
+                    receipt
+                }));
+            }
+            let receipts: Vec<_> = writers.into_iter().map(|w| w.join().unwrap()).collect();
+            assert_eq!(receipts.iter().filter(|r| r.starts_with("Recorded")).count(), 1);
+            assert_eq!(receipts.iter().filter(|r| r.contains("already has a final status")).count(), 1);
+        });
+        drop(history);
+        let reopened = History::open_at(&scratch.path().join("workspace")).unwrap();
+        assert_eq!(count(&reopened, "SELECT count(*) FROM bot_work"), 1);
+        assert_eq!(count(&reopened, "SELECT count(*) FROM bot_messages"), 4);
+        assert_eq!(count(&reopened, "SELECT count(*) FROM bot_outbox"), 4);
+        let db = reopened.db().unwrap();
+        let statuses = entries(&db, &Lines { bot: Some("main-id"), limit: 10, ..Lines::default() }).unwrap();
+        assert_eq!(statuses.len(), 1);
+        let row = &statuses[0];
+        assert_eq!(row.final_status_work, Some(1));
+        let author = row.final_status_by.as_deref().unwrap();
+        assert!(matches!(author, "b-id" | "c-id"));
+        let name = super::super::name_of(&db, author);
+        assert_eq!(row.text, format!("Final status for work #1 from {name}: {name}"));
+    }
+
+    #[test]
+    fn final_status_checks_launch_authority_pair_scope_and_stop_before_writing() {
+        let (_dir, history) = testing::journal(&["A", "B", "C"]);
+        let set = Settings { pair_messages: 2, ..Settings::default() };
+        let a = testing::session(&history, "A", "t1");
+        let c = testing::session(&history, "C", "t2");
+        super::super::noted(&history, "a-id", &a).unwrap();
+        super::super::noted(&history, "c-id", &c).unwrap();
+        let id = sent(&history, T0, &set, "A", Kind::Ask, "B", "One").unwrap();
+        let file = |key: &str, id, text: &str| testing::at(&history, T0, &set, |ctx| {
+            final_status(ctx, "core", key, id, text)
+        });
+        assert!(file(&a, id, "Early").unwrap_err().contains("below the message limit"));
+        sent(&history, T0, &set, "A", Kind::Tell, "B", "Two").unwrap();
+        let other_pair = sent(&history, T0, &set, "A", Kind::Tell, "C", "Same work").unwrap();
+        assert!(file(&a, other_pair, "Wrong pair").is_err());
+        assert!(file(&c, id, "Another pair's work").is_err());
+        assert!(file(&a, 99, "Missing").is_err());
+        assert!(file(&a, id, "   ").is_err());
+        assert!(file(&a, id, &"x".repeat(4001)).is_err());
+        let change_launch = |sql: &str| history.db().unwrap().execute(sql, [&a]).unwrap();
+        change_launch("UPDATE journal SET parent_bot_id='c-id' WHERE launch_key=?1");
+        assert!(file(&a, id, "Mismatched owner despite matching name and receipt").is_err());
+        change_launch("UPDATE journal SET parent_bot_id='a-id', document_read_only=1 WHERE launch_key=?1");
+        assert!(file(&a, id, "Read-only").is_err());
+        change_launch("UPDATE journal SET document_read_only=0 WHERE launch_key=?1");
+        let helper = testing::session(&history, "A", "helper");
+        history.db().unwrap().execute(
+            "INSERT INTO helpers (launch,parent_key,name,difficulty,template,model)
+             SELECT id,?1,'helper','easy','fixture','small' FROM journal WHERE launch_key=?2",
+            params![a, helper],
+        ).unwrap();
+        super::super::noted(&history, "a-id", &helper).unwrap();
+        assert!(file(&helper, id, "Helper").is_err());
+        assert!(testing::at(&history, T0, &set, |ctx| final_status(ctx, "other-core", &a, id, "Wrong core")).is_err());
+        let b = testing::bot(&history, "B");
+        testing::at(&history, T0, &set, |ctx| stop(ctx, &b, Why::Person));
+        assert!(file(&a, id, "After stop").is_err());
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_history WHERE code='final_status'"), 0);
+    }
+
+    #[test]
+    fn final_status_cap_block_records_refusal_without_a_ninth_message_or_wake() {
+        let (_dir, history) = testing::journal(&["A", "B"]);
+        history.db().unwrap().execute("UPDATE bots SET main=0 WHERE main=1", []).unwrap();
+        let set = Settings { messages_per_window: 8, ..Settings::default() };
+        let b = testing::session(&history, "B", "t1");
+        super::super::noted(&history, "b-id", &b).unwrap();
+        replied(&history, "B", &b, "Ready.", T0, &set);
+        for _ in 0..7 {
+            sent(&history, T0, &set, "A", Kind::Tell, "B", "Context").unwrap();
+        }
+        deliver(&history, T0, &set);
+        let ask = sent(&history, T0, &set, "A", Kind::Ask, "B", "Which version?").unwrap();
+        type_into(&history, "B", &b, "t1", T0, &set);
+        let block = "Checked.\n```swarmhub\n{\"op\":\"message_bot\",\"kind\":\"tell\",\"to\":\"A\",\"message\":\"Try again?\"}\n```";
+        replied(&history, "B", &b, block, T0 + 1, &set);
+        let history_lines = lines(&history, "B");
+        let refusals: Vec<_> = history_lines.iter().filter(|line| line.1.as_deref() == Some("not_sent")).collect();
+        assert_eq!(refusals.len(), 1);
+        let reason = &refusals[0].2;
+        assert!(reason.contains("B's message to A was not sent"));
+        assert!(reason.contains("bot final-status 1 \"SUMMARY\""));
+        assert!(reason.contains("if this launch cannot file"));
+        assert!(reason.contains("bot reply ID TEXT"));
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_history WHERE code='final_status'"), 0);
+        testing::at(&history, T0 + 2, &set, |ctx| final_status(ctx, "core", &b, ask, "Review complete")).unwrap();
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_messages"), 8);
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_outbox"), 8);
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_history WHERE bot='b-id' AND code='final_status'"), 1);
+        assert_eq!(state(&history, ask), "open");
+        assert!(deliver(&history, T0 + 2, &set).is_empty());
+        closed(&history, T0 + 3, &set, "B", ask, Closing::Reply("Version 2")).unwrap();
+        assert_eq!(state(&history, ask), "answered");
+        assert_eq!(deliver(&history, T0 + 3, &set).len(), 1);
+    }
+
+    #[test]
+    fn final_status_refusals_on_another_pair_refer_to_the_saved_entry() {
+        let (_dir, history) = testing::journal(&["A", "B", "C"]);
+        let set = Settings { pair_messages: 1, ..Settings::default() };
+        let b = testing::session(&history, "B", "t1");
+        super::super::noted(&history, "b-id", &b).unwrap();
+        let id = sent(&history, T0, &set, "A", Kind::Tell, "B", "First pair").unwrap();
+        sent(&history, T0, &set, "A", Kind::Tell, "C", "Second pair").unwrap();
+        testing::at(&history, T0, &set, |ctx| final_status(ctx, "core", &b, id, "Finished")).unwrap();
+        let entry = count(&history, "SELECT id FROM bot_history WHERE code='final_status'");
+        let reference = format!("history entry #{entry}.");
+        for _ in 0..2 {
+            let reason = sent(&history, T0, &set, "A", Kind::Tell, "C", "Again").unwrap_err();
+            assert!(reason.contains(&reference));
+            assert!(!reason.contains("bot final-status"));
+        }
+        for bot in ["A", "C"] {
+            let notices: Vec<_> = lines(&history, bot).into_iter()
+                .filter(|line| line.1.as_deref() == Some("limit_pair")).collect();
+            assert_eq!(notices.len(), 1);
+            assert!(notices[0].2.contains(&reference));
+            assert!(!notices[0].2.contains("bot final-status"));
+        }
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_history WHERE code='final_status'"), 1);
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_messages"), 2);
+        assert_eq!(count(&history, "SELECT count(*) FROM bot_outbox"), 2);
+    }
+
+    #[test]
     fn the_same_two_bots_exchange_at_most_eight_messages_about_one_piece_of_work() {
         let (_scratch, history) = testing::journal(&["Jarvis", "Infra"]);
         let set = Settings {
@@ -2360,10 +2631,8 @@ mod tests {
                 .filter(|line| line.1.as_deref() == Some("limit_pair"))
                 .collect();
             assert_eq!(limits.len(), 1, "{bot}");
-            assert_eq!(
-                limits[0].2,
-                "Jarvis and Infra have exchanged 8 messages about this, which is the limit. Jarvis was told to bring the matter to you."
-            );
+            assert_eq!(limits[0].2, refused);
+            assert!(refused.contains("swarmhub-herdr bot final-status 1 \"SUMMARY\""));
         }
         let db = history.db().unwrap();
         let line = entries(
@@ -2564,7 +2833,7 @@ mod tests {
                 "Take it.",
                 "command"
             ))
-            .unwrap_err()
+            .unwrap_err().text()
             .contains("A owns it")
         );
         closed(&history, T0 + 13, &set, "F", sixth.id, Closing::Accept).unwrap();
@@ -2578,7 +2847,7 @@ mod tests {
             send(ctx, &boppy, task, Kind::Tell, "F", "Again", "command")
         })
         .unwrap_err();
-        assert!(too_fast.contains("in the last"));
+        assert!(too_fast.text().contains("in the last"));
         let later = T0 + seconds(set.window_seconds) + 20;
         testing::at(&history, later, &set, |ctx| {
             send(ctx, &boppy, task, Kind::Tell, "Jarvis", "Again", "command")
@@ -2588,7 +2857,7 @@ mod tests {
             send(ctx, &boppy, task, Kind::Tell, "Jarvis", "Again", "command")
         })
         .unwrap_err();
-        assert!(too_many.contains("exchanged"));
+        assert!(too_many.text().contains("exchanged"));
     }
 
     #[test]
@@ -2825,7 +3094,7 @@ mod tests {
         );
         assert!(
             send_as_jarvis(T0 + 5_000, "Infra", "Again?")
-                .unwrap_err()
+                .unwrap_err().text()
                 .contains("This exchange was ended (Infra was stopped by the person)")
         );
         assert_eq!(testing::at(&history, T0 + 9_000_000, &set, expire), 0);

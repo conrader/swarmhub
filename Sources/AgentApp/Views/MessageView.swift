@@ -56,7 +56,10 @@ struct MessageView: View {
                     Text(summary.line).font(.caption).foregroundStyle(.secondary)
                         .help("Elapsed time and tool calls reported to SwarmHub. The model label comes from this reply’s session.")
                 }
-                if store.canSendAsNextMessage(message) {
+                if let claim = store.waitingDirectClaim(for: message) {
+                    Button("Cancel queued send") { store.cancelQueuedSend(claim) }
+                        .controlSize(.small)
+                } else if store.canSendAsNextMessage(message) {
                     Button(SteerCopy.sendAsNext) { store.sendAsNextMessage(message) }
                         .controlSize(.small).help("Sends this text as a normal message once the current answer ends")
                 }
