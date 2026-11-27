@@ -661,6 +661,34 @@ def sample_stories(source_app):
         print("Verified all four native sample walkthroughs, Scout’s handoff after relaunch, draft revision and approval, replay, shared Inbox decisions, and the published brief in the Pages library.")
 
 
+def sample_composer(source_app):
+    with private_workspace(source_app) as (app, home, store):
+        def patch():
+            return next(b for b in json.loads(store.read_text())["bots"] if b.get("sampleRole") == "patch")
+
+        with open_workspace(app, home) as window:
+            press(window, "Look around with sample bots")
+            def editor():
+                return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message"), None)
+            wait_for("message editor", editor)
+            enter_draft(editor(), "Review this release")
+            press(window, "/goal")
+            wait_for("prefixed objective", lambda: attribute(editor(), "AXValue") == "/goal Review this release")
+            press(window, "Send message")
+            wait_for("sample goal", lambda: patch().get("goal", {}).get("state") == "waiting")
+            press(window, "Hand off to Scout")
+            wait_for("goal follows handoff", lambda: patch()["goal"]["iteration"] == 2)
+
+        with open_workspace(app, home) as window:
+            press(window, "Stop goal")
+            wait_for("sample goal stopped", lambda: patch()["goal"]["state"] == "stopped")
+            press(window, "+ Screenshot")
+            press(window, "Send message")
+            wait_for("contrast in chat", lambda: any("2.10:1" in m["content"] for m in patch()["messages"]))
+            assert any(a["name"] == "ui-bug.png" for m in patch()["messages"] for a in m.get("attachments", []))
+    print("Verified native sample goals and screenshot review in the composer.")
+
+
 def sidebar_focus(source_app):
     import Quartz
 
@@ -2311,6 +2339,8 @@ if __name__ == "__main__":
         live_terminals(Path(sys.argv[2]).resolve(strict=True), long_sidebar=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
         live_terminals(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--sample-composer":
+        sample_composer(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--sample-stories":
         sample_stories(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--sample-workspace":
@@ -2332,4 +2362,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-composer | --sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
