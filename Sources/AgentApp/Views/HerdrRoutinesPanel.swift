@@ -482,22 +482,38 @@ private struct HerdrRoutineActivity: View {
     }
 
     private var history: some View {
-        DisclosureGroup("Recent runs", isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: 8) {
-                if !isWebhook && error != nil {
-                    loadError
-                } else if let detail {
-                    if detail.runs.isEmpty { Text("No runs yet.").foregroundStyle(.secondary) }
-                    ForEach(detail.runs) { run in
-                        Divider()
-                        runRow(run)
-                    }
-                } else if error == nil {
-                    ProgressView().controlSize(.small)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .accessibilityHidden(true)
+                    Text("Recent runs")
                 }
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 6)
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !isWebhook && error != nil {
+                        loadError
+                    } else if let detail {
+                        if detail.runs.isEmpty { Text("No runs yet.").foregroundStyle(.secondary) }
+                        ForEach(detail.runs) { run in
+                            Divider()
+                            runRow(run)
+                        }
+                    } else if error == nil {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+            }
         }
     }
 
