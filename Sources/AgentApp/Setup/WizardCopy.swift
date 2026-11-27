@@ -157,7 +157,7 @@ enum WizardCopy {
     // 5 Projects on other servers (optional)
     static let projectsTitle = "Where are your projects?"
     static func projectsIntro(server: String, main: String) -> String {
-        "Choose the folders \(main) may use on \(server) or another server."
+        "Optional. Choose the folders \(main) may use on \(server) or another server."
     }
     static let projectsSkip = "You can skip this and add projects later in Settings."
     static let projectsReading = "Checking for project servers…"
