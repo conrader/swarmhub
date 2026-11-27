@@ -60,7 +60,7 @@ private struct PublishedResultRow: View {
                 } else { ProgressView("Loading preview…").controlSize(.small) }
             }
             if item.kind == .page, let excerpt = item.excerpt {
-                PublishedBriefCard(title: item.title, excerpt: excerpt) { showing = true }
+                PublishedBriefCard(title: item.title, excerpt: excerpt, revision: item.revision, routineAt: item.routineAt) { showing = true }
             } else {
                 Button { showing = true } label: {
                     Label("Open \(item.title)", systemImage: item.kind == .page ? "doc.richtext" : kind == .video ? "film" : kind == .image ? "photo" : "paperclip")

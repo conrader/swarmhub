@@ -615,6 +615,16 @@ def sample_preview(source_app, destination, appearance, library):
                     press_transition(window, first, story + " second step", lambda: has_button(second))
                     snapshots.capture(story + "-step2")
                     press_transition(window, second, story + " result", lambda: has_button("Replay walkthrough"))
+                    if story == "brief":
+                        def brief_ready():
+                            card = next((e for e in descendants(window) if attribute(e, "AXIdentifier") == "page.preview"
+                                         and attribute(e, "AXRole") == "AXGroup"), None)
+                            if not card:
+                                return False
+                            content = " ".join(str(attribute(e, "AXValue") or label(e)) for e in descendants(card))
+                            return all(part in content for part in ("v0.8.16", "rename", "tests",
+                                                                   "2 pending items", "Routine ·", "Revision 1"))
+                        wait_for("build, helpers and pending decisions on the brief card", brief_ready)
                     snapshots.capture(story + "-step3")
             helpers = json.loads((Path(__file__).resolve().parents[1] / "Fixtures/preview-helpers.json").read_text())
             from preview_sidebar import check_jarvis_branch
@@ -898,13 +908,34 @@ def sample_stories(source_app):
                 press_transition(window, "Routines & brief", "brief opening", lambda: has_button("Gather server status"))
                 press_transition(window, "Gather server status", "collected status", lambda: has_button("Read the morning brief"))
                 press_transition(window, "Read the morning brief", "published sample brief", lambda: has_button("Open Morning brief"))
-                press_transition(window, "Open Morning brief", "reader revision and current inbox count", lambda: present("Revision 1") and present("0 pending items"))
+                def reader_open():
+                    return any(attribute(sheet, "AXRole") == "AXSheet" and
+                               all(any(text in str(attribute(e, "AXValue") or label(e)) for e in descendants(sheet))
+                                   for text in ("Revision 1", "0 pending items", "Sample hosts"))
+                               for sheet in descendants(window))
+                press_transition(window, "Open Morning brief", "reader revision and current inbox count", reader_open)
                 press(window, "Done")
                 open_detail_section(window, "Media")
                 press_transition(window, "Browse published Pages…", "library lists the brief", lambda: has_button("Morning brief"))
-                press_transition(window, "Morning brief", "library opens the saved brief", lambda: present("Revision 1") and present("0 pending items"))
+                search = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextField" and
+                              "Search Pages in this workspace" in (label(e), attribute(e, "AXPlaceholderValue")))
+                def search_for(term):
+                    assert ax.AXUIElementSetAttributeValue(search, "AXValue", term) == 0
+                search_for("No such report")
+                wait_for("no matching sample Pages", lambda: present("No matching Pages."))
+                search_for("v0.8.16")
+                press_transition(window, "Morning brief", "body search opens the saved brief", reader_open)
                 press(window, "Done")
                 wait_for("library dismissed", lambda: not has_button("Done"))
+                press_transition(window, "Search", "Pages button in offline quick switcher", lambda: has_button("Pages"))
+                press_transition(window, "Pages", "sample library from the quick switcher", lambda: has_button("Morning brief"))
+                press_transition(window, "Morning brief", "same saved brief from the quick switcher", reader_open)
+                def open_sheets():
+                    return [e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"]
+                while open_sheets():
+                    stack = open_sheets()
+                    press(stack[-1], "Done")
+                    wait_for("dismiss nested Page view", lambda: len(open_sheets()) < len(stack))
         print("Verified all four native sample walkthroughs, Scout’s handoff after relaunch, draft revision and approval, replay, shared Inbox decisions, and the published brief in the Pages library.")
 
 
@@ -1186,7 +1217,7 @@ def workspace_pages(source_app, service_binary):
             post("/api/pages/" + str(first["id"]), dict(title=first["title"], revision=first["revision"],
                                                        markdown="Indigo revision latest"))
             other = post("/api/pages", dict(title="QA remote only", markdown="Search marker C++ & test"))
-            card = dict(id=94, kind="page", pageID=first["id"], revision=first["revision"], title=first["title"])
+            card = dict(id=94, kind="page", pageID=first["id"], revision=first["revision"], title=first["title"], excerpt=first["markdown"])
             message = dict(id=str(uuid.uuid4()), role="assistant", createdAt=800000000, content="Read the attached result.",
                            publishedResults=dict(serverID="default", items=[card]))
             bot = dict(id=str(uuid.uuid4()), name="PagesQA", backend="Herdr", messages=[message])
@@ -1234,7 +1265,7 @@ def workspace_pages(source_app, service_binary):
                 wait_for("media library dismissed", lambda: not sheets())
                 press(window, "Search")
                 palette = panel("Quick Switcher", lambda s: button(s, "Pages"))
-                enter(palette, first["title"])
+                enter(palette, "Amber revision")
                 click(palette, first["title"])
                 close_page_containing("Amber revision first")
 

@@ -15,8 +15,14 @@ struct HerdrPublishedResult: Identifiable, Codable, Sendable, Equatable {
     let revision: Int?
 
     var excerpt: String?
+    var routineAt: Date?
 
-    init(page: HerdrClient.RoutinePage, journalID: Int) {
+    func matchesPage(_ term: String) -> Bool {
+        kind == .page && (term.isEmpty || title.localizedStandardContains(term) || excerpt?.localizedStandardContains(term) == true)
+    }
+
+    init(page: HerdrClient.RoutinePage, journalID: Int, routineAt: Date? = nil) {
+        self.routineAt = routineAt
         id = journalID
         kind = .page
         title = page.title

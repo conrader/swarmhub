@@ -172,7 +172,12 @@ extension AppStore {
                     let existing = bot.messages.first { row in
                         row.metadata["herdrTeamEntry"] == entry || journal.map { row.metadata["herdrJournal"]?.split(separator: " ").contains(Substring($0)) == true } == true
                     }
-                    let publication = item.journal.flatMap { id in item.page.map { HerdrPublishedResult(page: $0, journalID: id) } }
+                    let publication = item.journal.flatMap { id in
+                        item.page.map { page in
+                            let time = item.code == "routine_result" ? Date(timeIntervalSince1970: Double(item.atMs) / 1000) : nil
+                            return HerdrPublishedResult(page: page, journalID: id, routineAt: time)
+                        }
+                    }
                     let followup = item.code == "direct_followup" || item.code == "routine_result"
                     if let row = existing {
                         if let publication, row.publishedResults?.serverID == server.id || row.publishedResults == nil {

@@ -84,8 +84,8 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
              Self.reply("I’m watching PR #142. A failed check wakes me up so I can investigate.",
                         tools: [("watch", "conrader/swarmhub#142")], seconds: 2)]
         case .brief:
-            [.init(role: .system, content: "Morning brief · Weekdays at 08:55"),
-             Self.reply("I’m checking the sample servers, overnight helper runs and outstanding decisions.")]
+            [.init(role: .system, content: "Routine triggered · Weekdays 08:55 · Morning brief"),
+             Self.reply("Checking connected SSH servers (`web-1`, `studio-server`), overnight helper runs, and pending Inbox decisions.")]
         case .team:
             [.init(role: .system, content: "Patch asked Jarvis for Legal and Payments."),
              Self.reply("Legal handles read-only contract reviews using OpenCode and DeepSeek with a $2.00 session cap.")]
@@ -105,7 +105,7 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
                                   tools: [("read", "macos-14 / swift-test"), ("review", "swift test --filter ImporterTests")], seconds: 14)
         case .brief:
             request = "Report the status of your helpers for the morning brief."
-            response = Self.reply("The rename finished in 41 seconds. Three skill updates are ready to sync.")
+            response = Self.reply("Helper `rename` finished in 41s (`swift build` passed). Three skill updates are ready to sync across Claude Code and Codex.")
         case .team:
             return [Self.reply(bot.sampleDecision?.receipt ?? "Legal is on the team. The Payments proposal is in Needs Attention because the role handles invoices.")]
         }
@@ -116,17 +116,27 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
         return [AppOnlyLine.line(HerdrMessageLine.sent.render(bot.name, teammate.name, request)), response]
     }
 
-    func result(for bot: Bot, pending: Int, testsRunning: Bool) -> ChatMessage {
+    func result(for bot: Bot, pending: Int, testsRunning: Bool, timeZone: TimeZone) -> ChatMessage {
         switch self {
         case .release: return Self.draft(short: false)
         case .checks, .team:
             return Self.reply(bot.sampleDecision?.receipt ?? (self == .team ? "Review the Payments proposal here or in Needs Attention." : "Scout has reviewed the importer tests. You can now decide whether Patch runs them."))
         case .brief:
-            let body = "Sample hosts: " + SampleWorkspace.hosts.joined(separator: ", ") + ".\n\nThe sample build passed verification.\n\nThe rename finished in 41 seconds. The tests helper is " + (testsRunning ? "working." : "stopped.") + "\n\nNeeds Attention has \(pending) pending \(pending == 1 ? "item" : "items")."
-            let row = Self.reply("I saved the morning brief in the sample workspace’s Pages.")
+            let tests = testsRunning ? "running" : "stopped"
+            let body = """
+            - Ready: signed Universal Mac build (`v0.8.16`) verified.
+            - Helpers: `rename` completed (41s), `tests` \(tests).
+            - Needs attention: \(pending) pending \(pending == 1 ? "item" : "items") in `Inbox`.
+
+            Sample hosts: \(SampleWorkspace.hosts.joined(separator: ", ")).
+            """
+            let row = Self.reply("Published today’s brief to your workspace Library.")
             let page = HerdrClient.RoutinePage(id: 1, revision: bot.messages.compactMap { $0.publishedResults?.items.first?.revision }.max().map { $0 + 1 } ?? 1,
                                                title: Self.briefTitle, excerpt: body)
-            row.publishedResults = .init(serverID: SampleWorkspace.server.id, items: [.init(page: page, journalID: page.revision)])
+            var calendar = Calendar.current
+            calendar.timeZone = timeZone
+            let trigger = calendar.date(bySettingHour: 8, minute: 55, second: 0, of: row.createdAt)
+            row.publishedResults = .init(serverID: SampleWorkspace.server.id, items: [.init(page: page, journalID: page.revision, routineAt: trigger)])
             return row
         }
     }
@@ -179,7 +189,7 @@ extension AppStore {
         case .handoff:
             let pending = bots.filter { !$0.isHidden && $0.pendingSampleReview != nil }.count
             let running = bots.first(where: SampleWorkspace.isCoordinator).flatMap { herdrHelpers[$0.id]?.claudeThreads?.first?.isWorking } ?? false
-            bot.messages.append(story.result(for: bot, pending: pending, testsRunning: running))
+            bot.messages.append(story.result(for: bot, pending: pending, testsRunning: running, timeZone: personDisplayZone))
             bot.sampleWalkthrough?.step = .result
         case .result:
             beginSampleStory(story, in: bot)

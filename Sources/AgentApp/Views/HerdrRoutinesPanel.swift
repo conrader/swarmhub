@@ -590,7 +590,8 @@ private struct HerdrRoutineActivity: View {
                 Text("Outcome · \(stateLabel(result.state))").fontWeight(.medium)
                 Text(result.summary).textSelection(.enabled)
                 if let page = result.page {
-                    PublishedBriefCard(title: page.title, excerpt: page.excerpt) {
+                    PublishedBriefCard(title: page.title, excerpt: page.excerpt, revision: page.revision,
+                                       routineAt: Date(timeIntervalSince1970: Double(result.atMs) / 1000)) {
                         selectedPage = .init(serverID: serverID, pageID: page.id, revision: page.revision, title: page.title)
                     }
                 }
