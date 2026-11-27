@@ -19,6 +19,7 @@ def evaluate(rows):
     preservation = {
         "capacity": ("inventory_intact", "protected_intact"),
         "approval": ("inventory_intact", "protected_intact"),
+        "background_export": ("order_intact", "receipt_intact"),
         "helper": ("exports_intact",),
         "sql": ("ledger_intact",),
         "handoff": ("protected_intact",),

@@ -82,6 +82,19 @@ Sol przygotował zapytanie o salda projektów. Program wykonał je na przykłado
 
 Do powtórzenia użyj `--cases sql --model gpt-6.2-sol --screen-seeds 9100 9101 --holdout-seeds 9150 9151` oraz `docs/research/candidates/check-the-result.txt`.
 
+## Czy bot dostarczy wynik zadania w tle bez ponaglenia?
+
+W `background_export` użytkownik raz zleca eksport. Na początku plik wyniku zawiera potwierdzenie poprzedniego zlecenia zakończonego sukcesem. Po otrzymaniu nowego identyfikatora symulowany proces czeka co najmniej 16 sekund i atomowo podmienia potwierdzenie. W jednym zestawie danych eksport się udaje, w drugim kończy się błędem. Bot ma podać status i numer nowego potwierdzenia. Program sprawdza pierwszą zakończoną odpowiedź w dzienniku SwarmHub, model sesji, faktyczne uruchomienie procesu i zawartość plików. Nie wysyła ponaglenia.
+
+| Model | Zwykłe polecenie | Z przypomnieniem o oczekiwaniu | Mediana sekund od uruchomienia do odpowiedzi (zwykłe / z przypomnieniem) |
+| --- | ---: | ---: | ---: |
+| Astra | 2/2 | 2/2 | 37,8 / 35,3 |
+| Sol | 2/2 | 2/2 | 29,2 / 27,9 |
+
+Wszystkie cztery pary zakończyły się remisem, więc zgodnie z przyjętą regułą zakończyliśmy na etapie wstępnym. Wyniki dotyczą dwóch krótkich zleceń na model w aktywnej sesji Workspace. Nie mierzyliśmy powrotu do pracy po zamknięciu aplikacji ani czasu oczekiwania na pomocnika w zajętej sesji. [Próby Astra](background-export-astra-study/screen.jsonl) · [Próby Sol](background-export-sol-study/screen.jsonl)
+
+Aby powtórzyć, wybierz `--cases background_export --screen-seeds 11100 11101 --holdout-seeds 11200 11201` i plik `docs/research/candidates/wait-for-current-result.txt`. Użyj osobnego katalogu wyników dla każdego modelu.
+
 ## Powtórzenie badania
 
 Polecenie uruchom z głównego katalogu repozytorium. Podaj ścieżki do uruchamialnych plików Workspace, Herdr Core i natywnego Codex CLI dla Linuksa oraz pliku uwierzytelnienia Codex. Badanie korzysta z modelu na tym koncie. Poniższe wyniki uzyskano z Workspace 0.2.44. Przy innej wersji podaj jej numer przez `--bridge-version`.

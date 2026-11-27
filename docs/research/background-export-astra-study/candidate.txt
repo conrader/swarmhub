@@ -1,0 +1,1 @@
+Po uruchomieniu pracy w tle zachowaj identyfikator zlecenia. Sprawdzaj stan, aż otrzymasz wynik dla tego identyfikatora, i przekaż go użytkownikowi w tej rozmowie.

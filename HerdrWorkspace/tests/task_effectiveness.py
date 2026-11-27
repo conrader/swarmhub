@@ -12,6 +12,7 @@ import tempfile
 import time
 import uuid
 
+from task_effectiveness_background import BackgroundExport, check_answer
 from task_effectiveness_cases import CASES, GUIDANCE, setup, grade, check_proposal, start_concurrent_job, recover_externally
 from task_effectiveness_one_plan import proposed_scope
 from update_smoke import Server, free_port
@@ -104,6 +105,8 @@ def trial(args, case, seed, arm):
         key = (agent["address"], agent["created_ms"])
         db = root / "db/workspace.sqlite3"
 
+        worker = BackgroundExport(workspace, truth) if case == "background_export" else None
+
         def wait_for_reply(conn, after):
             while time.monotonic() - start < args.timeout:
                 row = conn.execute("SELECT r.id FROM journal r JOIN journal t ON r.reply_for=t.launch_key "
@@ -111,6 +114,8 @@ def trial(args, case, seed, arm):
                                    "ORDER BY r.id LIMIT 1", (*key, after)).fetchone()
                 if row:
                     return row[0]
+                if worker:
+                    worker.poll()
                 time.sleep(1)
             return None
 
@@ -126,6 +131,10 @@ def trial(args, case, seed, arm):
         with contextlib.closing(sqlite3.connect(db)) as conn:
             reply = wait_for_reply(conn, 0)
             turns = int(reply is not None)
+            if worker:
+                message = conn.execute("SELECT text FROM journal WHERE id=?", (reply,)).fetchone()
+                stage_checks = check_answer(truth["receipt"], (message[0] or "") if message else "")
+                stage_checks["worker_delivered"] = worker.delivered
             if case in ("resume", "partial_resume", "short_consent", "interrupted_consent", "busy_after_plan", "external_recovery") and reply:
                 stage_checks = check_proposal(workspace, truth, allow_paths_object=case == "partial_resume")
                 if case in ("short_consent", "interrupted_consent", "busy_after_plan", "external_recovery"):

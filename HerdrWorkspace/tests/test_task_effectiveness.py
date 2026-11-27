@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from task_effectiveness_background import BackgroundExport, check_answer
 from task_effectiveness_cases import CASES, approved_paths, check_proposal, grade, setup, start_concurrent_job, recover_externally
 from task_effectiveness_one_plan import proposed_scope
 from task_effectiveness_report import summarize
@@ -50,6 +51,18 @@ class TaskEffectivenessTests(unittest.TestCase):
                     (p / "result.json").write_text(json.dumps({"own": truth["eligible"][remaining],
                                                               "other": truth["external_units"], "free": 21}))
                     protected = p / "jobs.json"
+                elif case == "background_export":
+                    worker = BackgroundExport(p, truth, delay=0)
+                    (p / "request.txt").write_text("export-previous")
+                    worker.poll()
+                    self.assertFalse(worker.delivered)
+                    (p / "request.txt").write_text(truth["job"])
+                    worker.poll()
+                    self.assertTrue(worker.delivered)
+                    reference = truth["receipt"]["reference"]
+                    self.assertFalse(all(check_answer(truth["receipt"], "GOTOWY " + reference).values()))
+                    self.assertTrue(all(check_answer(truth["receipt"], "BŁĄD " + reference).values()))
+                    protected = p / "order.txt"
                 elif case == "sql":
                     (p / "report.sql").write_text("""
                         SELECT p.id, coalesce(sum(CASE e.kind WHEN 'refund' THEN -e.cents ELSE e.cents END), 0)
