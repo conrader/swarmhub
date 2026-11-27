@@ -1,0 +1,171 @@
+{
+  "astra-disk": {
+    "decision": "inconclusive_exposure",
+    "screen": {
+      "advance": false,
+      "candidate_preservation_failures": 0,
+      "cases": {
+        "gpt-6.2-astra": {
+          "denied_helper_capacity": {
+            "baseline": {
+              "passed": 0,
+              "trials": 2
+            },
+            "guided": {
+              "passed": 1,
+              "trials": 2
+            }
+          }
+        }
+      },
+      "metrics": {
+        "baseline": {
+          "median_seconds": 42.5,
+          "median_tool_calls": 4.0,
+          "passed": 0,
+          "timeouts": 0,
+          "trials": 2
+        },
+        "guided": {
+          "median_seconds": 47.5,
+          "median_tool_calls": 5.0,
+          "passed": 1,
+          "timeouts": 0,
+          "trials": 2
+        }
+      },
+      "missing_refusals": 3,
+      "paired": {
+        "gain": 1,
+        "tie": 1
+      }
+    },
+    "task_completed": 4
+  },
+  "astra-receipt": {
+    "decision": "retain_baseline",
+    "screen": {
+      "advance": false,
+      "candidate_preservation_failures": 0,
+      "cases": {
+        "gpt-6.2-astra": {
+          "denied_helper": {
+            "baseline": {
+              "passed": 2,
+              "trials": 2
+            },
+            "guided": {
+              "passed": 2,
+              "trials": 2
+            }
+          }
+        }
+      },
+      "metrics": {
+        "baseline": {
+          "median_seconds": 27.8,
+          "median_tool_calls": 4.5,
+          "passed": 2,
+          "timeouts": 0,
+          "trials": 2
+        },
+        "guided": {
+          "median_seconds": 26.8,
+          "median_tool_calls": 4.0,
+          "passed": 2,
+          "timeouts": 0,
+          "trials": 2
+        }
+      },
+      "missing_refusals": 0,
+      "paired": {
+        "tie": 2
+      }
+    },
+    "task_completed": 4
+  },
+  "sol-disk": {
+    "decision": "retain_baseline",
+    "screen": {
+      "advance": false,
+      "candidate_preservation_failures": 0,
+      "cases": {
+        "gpt-6.2-sol": {
+          "denied_helper_capacity": {
+            "baseline": {
+              "passed": 2,
+              "trials": 2
+            },
+            "guided": {
+              "passed": 2,
+              "trials": 2
+            }
+          }
+        }
+      },
+      "metrics": {
+        "baseline": {
+          "median_seconds": 41.3,
+          "median_tool_calls": 5.0,
+          "passed": 2,
+          "timeouts": 0,
+          "trials": 2
+        },
+        "guided": {
+          "median_seconds": 47.55,
+          "median_tool_calls": 5.0,
+          "passed": 2,
+          "timeouts": 0,
+          "trials": 2
+        }
+      },
+      "missing_refusals": 0,
+      "paired": {
+        "tie": 2
+      }
+    },
+    "task_completed": 4
+  },
+  "sol-receipt": {
+    "decision": "retain_baseline",
+    "screen": {
+      "advance": false,
+      "candidate_preservation_failures": 0,
+      "cases": {
+        "gpt-6.2-sol": {
+          "denied_helper": {
+            "baseline": {
+              "passed": 2,
+              "trials": 2
+            },
+            "guided": {
+              "passed": 2,
+              "trials": 2
+            }
+          }
+        }
+      },
+      "metrics": {
+        "baseline": {
+          "median_seconds": 25.15,
+          "median_tool_calls": 5.5,
+          "passed": 2,
+          "timeouts": 0,
+          "trials": 2
+        },
+        "guided": {
+          "median_seconds": 26.2,
+          "median_tool_calls": 5.0,
+          "passed": 2,
+          "timeouts": 0,
+          "trials": 2
+        }
+      },
+      "missing_refusals": 0,
+      "paired": {
+        "tie": 2
+      }
+    },
+    "task_completed": 4
+  }
+}

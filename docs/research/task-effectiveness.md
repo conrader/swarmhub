@@ -95,6 +95,10 @@ Wszystkie cztery pary zakończyły się remisem, więc zgodnie z przyjętą regu
 
 Aby powtórzyć, wybierz `--cases background_export --screen-seeds 11100 11101 --holdout-seeds 11200 11201` i plik `docs/research/candidates/wait-for-current-result.txt`. Użyj osobnego katalogu wyników dla każdego modelu.
 
+## Czy bot dokończy zadanie, gdy Workspace odmówi uruchomienia pomocnika?
+
+W 16 próbach Astra i Sol dostarczyły poprawny wynik po jednej wiadomości przy rozliczeniu zamówień lub po jednej zgodzie na plan odzyskania miejsca. W 13 próbach program potwierdził również rzeczywistą odmowę Workspace. Dodatkowa instrukcja nie zwiększyła liczby ukończonych zadań. [Warunki, dane i ograniczenia](helper-refusal-study/README.md)
+
 ## Powtórzenie badania
 
 Polecenie uruchom z głównego katalogu repozytorium. Podaj ścieżki do uruchamialnych plików Workspace, Herdr Core i natywnego Codex CLI dla Linuksa oraz pliku uwierzytelnienia Codex. Badanie korzysta z modelu na tym koncie. Poniższe wyniki uzyskano z Workspace 0.2.44. Przy innej wersji podaj jej numer przez `--bridge-version`.
