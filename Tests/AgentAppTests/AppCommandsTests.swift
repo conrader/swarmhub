@@ -61,6 +61,20 @@ import Testing
         #expect(!AppCommand.nextChat.isEnabled(in: store))
     }
 
+    @Test func detailsCommandTogglesTheLayoutOfItsDestinationWindow() {
+        let store = store(), bot = Bot(name: "Build")
+        store.bots = [bot]
+        store.open(bot)
+        #expect(!store.showsInfo(at: 984))
+        #expect(store.showsInfo(at: 1120))
+
+        AppCommand.toggleInfo.performWorkspaceAction(in: store, windowWidth: 984)
+        #expect(store.showsInfo(at: 984))
+        AppCommand.toggleInfo.performWorkspaceAction(in: store, windowWidth: 1120)
+        #expect(!store.showsInfo(at: 1120))
+        #expect(!store.showsInfo(at: 984))
+    }
+
     @Test func appShortcutsDoNotCollide() {
         let bindings = AppCommand.allCases.map { "\($0.modifiers.rawValue):\($0.key.character)" }
         #expect(Set(bindings).count == bindings.count)

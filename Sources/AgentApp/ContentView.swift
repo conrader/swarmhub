@@ -35,7 +35,7 @@ struct ContentView: View {
         } else { details() }
     }
 
-    private var workspace: some View {
+    private func workspace(detailsVisible: Bool) -> some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
                 .background(SidebarWidthClamp())
@@ -47,14 +47,14 @@ struct ContentView: View {
                     let hasInspector = store.selectedGroup != nil || store.selectedBot != nil || store.inspectorTerminal != nil
                     WorkspaceActivityView(attentionOnly: true)
                         .frame(minWidth: ChromeMetrics.chatWidthWithInspector)
-                        .rightColumn(isPresented: hasInspector ? $store.showInfo : .constant(false), expandable: store.inspectorTerminal != nil) {
+                        .rightColumn(isPresented: hasInspector && detailsVisible, expandable: store.inspectorTerminal != nil) {
                             inspector {
                                 if let group = store.selectedGroup { GroupInfoPanel(group: group) }
                                 else if let bot = store.selectedBot { InfoPanel(bot: bot) }
                             }
                         }
                 } else if let group = store.selectedGroup {
-                    GroupChatView(group: group, initialDraft: store.drafts.text(for: group.id)).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { GroupInfoPanel(group: group) } }
+                    GroupChatView(group: group, initialDraft: store.drafts.text(for: group.id)).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: detailsVisible, expandable: store.inspectorTerminal != nil) { inspector { GroupInfoPanel(group: group) } }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
                     Group {
@@ -64,9 +64,9 @@ struct ContentView: View {
                             HerdrHelperView(bot: bot, selection: helper)
                         }
                     }.id(helper).frame(minWidth: ChromeMetrics.chatWidthWithInspector)
-                        .rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
+                        .rightColumn(isPresented: detailsVisible, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
                 } else if let bot = store.selectedBot {
-                    ChatView(bot: bot, initialDraft: store.drafts.text(for: bot.id)).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
+                    ChatView(bot: bot, initialDraft: store.drafts.text(for: bot.id)).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: detailsVisible, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
                 } else {
                     SetupEmptyState()
                         .overlay(alignment: .topLeading) {
@@ -103,7 +103,14 @@ struct ContentView: View {
                     .windowDragStrip(probe: "sample_workflows")
                 Divider()
             }
-            workspace
+            GeometryReader { geometry in
+                let visible = store.showsInfo(at: geometry.size.width)
+                workspace(detailsVisible: visible)
+                    .environment(\.visibleWorkspaceDetails, visible)
+                    .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in
+                        if windowActivity == .key { store.showInfo = !visible }
+                    }
+            }
         }
         .ignoresSafeArea(.container, edges: .top)
         .preferredColorScheme(sampleBot == nil ? workspaceColorScheme : previewColorScheme ?? workspaceColorScheme)
@@ -127,7 +134,6 @@ struct ContentView: View {
         .sheet(isPresented: $store.showingGrokImport) { GrokImportSheet(store: store) }
         .sheet(isPresented: $store.showingNewGroup) { NewGroupSheet(preselected: store.selectedGroup == nil ? Set(store.selectedBot.map { [$0.id] } ?? []) : []) }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in store.sidebarHidden.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .newBot)) { _ in store.showingNewBot = true }
         .onReceive(NotificationCenter.default.publisher(for: .commandPalette)) { _ in store.showingCommandPalette = true }

@@ -8,6 +8,7 @@ struct GroupChatView: View {
     @State private var verifyingAttachmentSupport = false
     @StateObject private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
+    @Environment(\.visibleWorkspaceDetails) private var windowVisibility
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     init(group: GroupChat, initialDraft: String = "") {
@@ -28,7 +29,7 @@ struct GroupChatView: View {
             HStack(spacing: 11) {
                 ShowSidebarItem()
                 GroupAvatarStack(group: group, members: members, size: 28, halo: AppColor.chat, probe: "group_header:\(group.id)")
-                Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
+                Button { store.showInfo = !(windowVisibility ?? store.showInfo) } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 Text(members.isEmpty ? "No bots yet" : ([store.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
                 if let bot = members.first(where: { $0.backend == .herdr }) {

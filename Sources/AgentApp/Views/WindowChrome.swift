@@ -11,6 +11,9 @@ enum ChromeMetrics {
     static let headerPadding: CGFloat = 20
     /// The chat can share the 980 pt window with both side columns.
     static let chatWidthWithInspector: CGFloat = 350
+    /// At the compact preview width, keep both the session tree and the conversation visible.
+    static func showsInspectorByDefault(at width: CGFloat) -> Bool { width >= 1000 }
+
     /// The resizable Details or Members column.
     static let infoWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (256, 256, 380)
 }
@@ -123,23 +126,36 @@ struct CloseDetailsItem: View {
 }
 
 /// Keep the way back to the inspector visible after its close button is clicked.
+private struct WorkspaceDetailsVisibilityKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    var visibleWorkspaceDetails: Bool? {
+        get { self[WorkspaceDetailsVisibilityKey.self] }
+        set { self[WorkspaceDetailsVisibilityKey.self] = newValue }
+    }
+}
+
 struct ShowDetailsItem: View {
+    @Environment(\.visibleWorkspaceDetails) private var windowVisibility
     @EnvironmentObject private var store: AppStore
     var body: some View {
-        Button("Details", systemImage: "sidebar.right") { store.showInfo.toggle() }
+        let visible = windowVisibility ?? store.showInfo
+        Button("Details", systemImage: "sidebar.right") { store.showInfo = !visible }
             .buttonStyle(.bordered).controlSize(.small).fixedSize()
-            .help(store.showInfo ? "Hide details (⇧⌘I)" : "Show details (⇧⌘I)")
-            .accessibilityValue(store.showInfo ? "Expanded" : "Collapsed")
+            .help(visible ? "Hide details (⇧⌘I)" : "Show details (⇧⌘I)")
+            .accessibilityValue(visible ? "Expanded" : "Collapsed")
             .accessibilityIdentifier("chat.showDetails")
     }
 }
 
 extension View {
     /// Keep the conversation mounted while the inspector opens, closes or changes bots.
-    func rightColumn<Panel: View>(isPresented: Binding<Bool>, expandable: Bool = false, @ViewBuilder panel: () -> Panel) -> some View {
+    func rightColumn<Panel: View>(isPresented: Bool, expandable: Bool = false, @ViewBuilder panel: () -> Panel) -> some View {
         HSplitView {
             self.layoutPriority(1)
-            if isPresented.wrappedValue {
+            if isPresented {
                 panel().frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal,
                               maxWidth: expandable ? .infinity : ChromeMetrics.infoWidth.max)
             }

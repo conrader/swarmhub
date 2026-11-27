@@ -42,8 +42,8 @@ import SwiftUI
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         } catch { output("Cannot create \(directory.path): \(error.localizedDescription)"); return 1 }
 
-        let previousSelection = store.selectedBot, previousInfo = store.showInfo
-        defer { store.selectedBot = previousSelection; store.showInfo = previousInfo }
+        let previousSelection = store.selectedBot, previousInfo = store.inspectorVisibilityChoice
+        defer { store.selectedBot = previousSelection; store.inspectorVisibilityChoice = previousInfo }
         store.showInfo = true
         let firstGrokBot = store.bots.first { $0.grokSourceID != nil && !$0.isReadOnlyArchive && !$0.isHidden } ?? store.bots.first
         var shots: [(file: String, selected: Bot?, render: () async -> Data?)] = [("main.png", firstGrokBot, { await SnapshotRenderer.contentPNG(store: store, size: size) })]
