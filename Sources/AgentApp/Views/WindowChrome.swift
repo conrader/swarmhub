@@ -126,11 +126,11 @@ struct CloseDetailsItem: View {
 struct ShowDetailsItem: View {
     @EnvironmentObject private var store: AppStore
     var body: some View {
-        if !store.showInfo {
-            Button("Details", systemImage: "sidebar.right") { store.showInfo = true }
-                .buttonStyle(.bordered).controlSize(.small).fixedSize()
-                .help("Show details (⇧⌘I)").accessibilityIdentifier("chat.showDetails")
-        }
+        Button("Details", systemImage: "sidebar.right") { store.showInfo.toggle() }
+            .buttonStyle(.bordered).controlSize(.small).fixedSize()
+            .help(store.showInfo ? "Hide details (⇧⌘I)" : "Show details (⇧⌘I)")
+            .accessibilityValue(store.showInfo ? "Expanded" : "Collapsed")
+            .accessibilityIdentifier("chat.showDetails")
     }
 }
 

@@ -136,7 +136,7 @@ import Testing
     store.loadSamples()
     let patch = try #require(store.bots.first { $0.sampleRole == .patch })
     store.open(patch)
-    #expect(store.handleGoalCommand(.start("Review PR #142", stepLimit: 3, budget: 0.25, perGoal: true), in: patch) == nil)
+    #expect(store.handleGoalCommand(.start("Review PR #142", stepLimit: 3, budgetUSD: 0.25, perGoal: true), in: patch) == nil)
     let goalID = try #require(patch.goal?.id)
     #expect(patch.goal?.stepSpending?.chargedUSD == 0 && patch.goal?.state == .waiting)
     #expect(patch.sampleProfile?.contextPercent(in: patch) == 38)
@@ -157,7 +157,7 @@ import Testing
     #expect(same.goal?.state == .stopped && restored.turns.scheduledGoals.isEmpty)
     let legal = try #require(restored.bots.first { $0.sampleRole == .legal })
     restored.open(legal)
-    #expect(restored.handleGoalCommand(.start("Review contracts", budget: 0.05), in: legal) == nil)
+    #expect(restored.handleGoalCommand(.start("Review contracts", budgetUSD: 0.05), in: legal) == nil)
     #expect(legal.goal?.state == .stopped && legal.goal?.iteration == 0 && legal.goal?.lastSpend?.usd == 0.06)
 }
 
