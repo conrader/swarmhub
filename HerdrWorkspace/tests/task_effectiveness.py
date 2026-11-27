@@ -12,7 +12,8 @@ import tempfile
 import time
 import uuid
 
-from task_effectiveness_cases import CASES, GUIDANCE, setup, grade, check_proposal
+from task_effectiveness_cases import CASES, GUIDANCE, setup, grade, check_proposal, start_concurrent_job
+from task_effectiveness_one_plan import proposed_scope
 from update_smoke import Server, free_port
 
 
@@ -121,12 +122,13 @@ def trial(args, case, seed, arm):
             return wait_for_reply(conn, previous)
 
         stage_checks = {}
+        evidence = {}
         with contextlib.closing(sqlite3.connect(db)) as conn:
             reply = wait_for_reply(conn, 0)
             turns = int(reply is not None)
-            if case in ("resume", "partial_resume", "short_consent", "interrupted_consent") and reply:
+            if case in ("resume", "partial_resume", "short_consent", "interrupted_consent", "busy_after_plan") and reply:
                 stage_checks = check_proposal(workspace, truth, allow_paths_object=case == "partial_resume")
-                if case in ("short_consent", "interrupted_consent"):
+                if case in ("short_consent", "interrupted_consent", "busy_after_plan"):
                     text, = conn.execute("SELECT text FROM journal WHERE id=?", (reply,)).fetchone()
                     stage_checks["visible_plan"] = all(name in (text or "") for name in truth["eligible"])
                 if case == "interrupted_consent" and all(stage_checks.values()):
@@ -142,11 +144,27 @@ def trial(args, case, seed, arm):
                         consent = "Tak"
                     if case == "interrupted_consent":
                         consent = "Wracamy do twojego pierwszego planu. Tak, wykonaj go."
+                    if case == "busy_after_plan":
+                        start_concurrent_job(workspace, truth, seed)
+                        consent = ("Tak, wykonaj plan w zakresie, który nadal jest bezpieczny. "
+                                   "Jeśli coś pozostanie do zrobienia, zapisz w request.json pola "
+                                   "missing (brakujące jednostki) i file (ścieżka odłożonego pliku). "
+                                   "Podaj mi wynik w czacie.")
                     if case == "partial_resume":
                         consent = (f"Z planu zatwierdzam tylko {truth['approved']}. Wykonaj zatwierdzoną część. "
                                    "Zachowaj pozostałe pliki. Jeśli wciąż brakuje miejsca, zapisz w request.json "
                                    "obiekt z polami missing (brakujące jednostki) i file (ścieżka do zatwierdzenia).")
                     reply = follow_up(conn, reply, consent)
+                    turns += int(reply is not None)
+            if case == "one_plan" and reply:
+                message, = conn.execute("SELECT text FROM journal WHERE id=?", (reply,)).fetchone()
+                scope, stage_checks = proposed_scope(workspace, truth, message or "")
+                plan_path = workspace / "plan.json"
+                evidence = {"plan_file_present": plan_path.is_file() and not plan_path.is_symlink(),
+                            "paths_in_chat": sum(n in (message or "") for n in truth["eligible"])}
+                if all(stage_checks.values()):
+                    truth["approved"] = scope
+                    reply = follow_up(conn, reply, "Tak. Zatwierdzam usunięcie dokładnie tych plików: " + ", ".join(scope))
                     turns += int(reply is not None)
         elapsed = round(time.monotonic() - start, 1)
         api.call(f"/api/agents/{key[0]}/{key[1]}/end", {}, timeout=30)
@@ -154,9 +172,9 @@ def trial(args, case, seed, arm):
         checks = {**stage_checks, **grade(workspace, case, truth)}
         if case == "interrupted_consent":
             checks["three_replies"] = turns == 3
-        elif case in ("resume", "partial_resume", "short_consent"):
+        elif case in ("resume", "partial_resume", "short_consent", "busy_after_plan", "one_plan"):
             checks["two_replies"] = turns == 2
-        return dict(case=case, seed=seed, arm=arm, model=args.model, observed_models=models,
+        return dict(case=case, seed=seed, arm=arm, model=args.model, observed_models=models, **evidence,
                     guidance_sha256=hashlib.sha256(args.guidance.encode()).hexdigest() if arm == "guided" else None,
                     status="reply" if reply else "timeout", turns=turns, seconds=elapsed, tool_calls=calls,
                     checks=checks, passed=bool(reply) and models == [args.model] and all(checks.values()))
