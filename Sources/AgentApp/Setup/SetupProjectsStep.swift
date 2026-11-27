@@ -32,13 +32,13 @@ struct SetupProjectsStep: View {
             Text("Saving a project server or project applies the change on \(host) immediately.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        ForEach(model.machines) { HerdrMachineCard(model: model, machine: $0) }
-        if model.machines.isEmpty || addingServer || model.adding != .fields {
+        ForEach(model.projectLocations) { HerdrMachineCard(model: model, machine: $0, onThisMac: flow.herdrServer?.kind == .local) }
+        if model.projectLocations.isEmpty || addingServer || model.adding != .fields {
             HerdrAddMachineFlow(model: model, serverName: flow.herdrServer?.name ?? "")
         } else {
             Button(HerdrProjectsCopy.another) { addingServer = true }
         }
-        if !model.machines.isEmpty {
+        if !model.projectLocations.isEmpty {
             SettingBlock(title: model.projects.isEmpty ? WizardCopy.projectsFirst : WizardCopy.projectsFor(flow.mainBotName), detail: model.projects.isEmpty ? HerdrProjectsCopy.projectsDetail : nil) {
                 ForEach(model.projects) { project in
                     let on = flow.mainProjects.contains { $0.id == project.id }
@@ -47,7 +47,7 @@ struct SetupProjectsStep: View {
                             .accessibilityLabel(WizardCopy.projectsMayUse(flow.mainBotName, project.name))
                     }
                 }
-                if model.draft != nil { HerdrProjectEditor(model: model, saved: { choose($0, true) }, canCancel: true) }
+                if model.draft != nil { HerdrProjectEditor(model: model, onThisMac: flow.herdrServer?.kind == .local, saved: { choose($0, true) }, canCancel: true) }
                 else { Button("Add project") { model.newProject() } }
             }
         }

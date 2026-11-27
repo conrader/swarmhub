@@ -513,6 +513,7 @@ async fn views(w: &Workspace) -> Result<Value, Refusal> {
     // Why a server cannot be added from here as things are; `null` when it can.
     let problem = hc().and(tool("ssh")).err();
     let mut response = json!({
+        "workspace_project_host": crate::projects::WORKSPACE_HOST,
         "machines": views, "can_add": problem.is_none(), "problem": problem, "adding": INSTALLS,
     });
     if let crate::fleet_policy::Inspection::Current { policy, .. } = &policy {

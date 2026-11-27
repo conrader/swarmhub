@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-pub(crate) const USAGE: &str = "Projects (folders on other machines that this agent was given; everything below happens there, not here):
+pub(crate) const USAGE: &str = "Projects (folders assigned to this agent on the workspace host or an SSH server):
   swarmhub-herdr project list
   swarmhub-herdr project job KEY -           queue an enrolled fixture job from JSON on stdin
   swarmhub-herdr project run NAME [--timeout SECONDS] -- COMMAND [ARG...]
@@ -27,7 +27,7 @@ Read, write or change a file: swarmhub-herdr project read|write|edit NAME PATH (
 pub(super) const PATH_SHAPE: &str = "Give the file's path inside the project's folder, such as src/main.rs: not a full path, and without `..`.";
 pub(super) const WRITE_SHAPE: &str = "That is more than 128 KB. Write a file this large in parts on the machine with `project run`, or change it with `project edit`.";
 
-const OFFLINE: &str = "The SwarmHub workspace server is not running, so projects on other machines are unavailable. Nothing was run or changed.";
+const OFFLINE: &str = "The SwarmHub workspace server is not running, so project commands are unavailable. Nothing was run or changed.";
 const BLOCKED: &str = "A sandbox stopped this command from reaching the SwarmHub workspace, and it found no .swarmhub-helpers folder it may write to. Nothing was run or changed. Run the command from the folder this agent was started in.";
 const SILENT: &str = "The workspace did not answer in time. A command may still be running on the project's machine: look before you run it again.";
 /// The exit code when the project command itself could not do its work, as distinct from the code of a command

@@ -694,7 +694,7 @@ This version adds nine tables to the journal (`bots`, `bot_work`, `bot_messages`
 
 ## Work on projects on other servers
 
-Your projects may live on other machines than the one Herdr runs on. Add each such machine once as a project server, name the folders on it that matter as projects, and say for each bot which projects it may use. A bot then runs commands and changes files in a project with one command, and never needs the host or the path.
+Your projects may live on other machines than the one Herdr runs on. For folders on the workspace host, use the `workspace_project_host` value returned by `GET /api/machines`. For other machines, add each once as a project server, name the folders on it that matter as projects, and say for each bot which projects it may use. A bot then runs commands and changes files in a project with one command, and never needs the host or the path.
 
 Herdr Core does the connecting: a project server is a machine as in Core’s `hc machine add` (see `docs/machines.md` in Herdr Core). The workspace adds the app’s side of it, the list of projects, and the command for agents.
 

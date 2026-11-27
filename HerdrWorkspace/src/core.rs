@@ -457,7 +457,7 @@ impl Core {
     /// Runs one program in `cwd` on the machine `on`, with no terminal, for at most `seconds`.
     pub(crate) async fn run_on(
         &self,
-        on: &str,
+        on: Option<&str>,
         cwd: &str,
         program: Program<'_>,
         seconds: u64,
@@ -491,7 +491,7 @@ impl Core {
 
     pub(crate) async fn read_on(
         &self,
-        on: &str,
+        on: Option<&str>,
         cwd: &str,
         path: &str,
         offset: Option<usize>,
@@ -508,7 +508,7 @@ impl Core {
 
     pub(crate) async fn write_on(
         &self,
-        on: &str,
+        on: Option<&str>,
         cwd: &str,
         path: &str,
         text: &str,
@@ -525,7 +525,7 @@ impl Core {
     /// Replaces each `old` text, found exactly once, with its `new`; all of them or none.
     pub(crate) async fn edit_on(
         &self,
-        on: &str,
+        on: Option<&str>,
         cwd: &str,
         path: &str,
         edits: &[(String, String)],
