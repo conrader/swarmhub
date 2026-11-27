@@ -12,6 +12,7 @@ private final class PromptBridge: @unchecked Sendable {
 
     func show(_ text: String) { lock.withLock { screen = text } }
     func statusKind(_ value: String) { lock.withLock { kind = value } }
+    func ready() { lock.withLock { state = "idle" } }
     func move() { lock.withLock { state = "working" } }
 
     func session() -> (address: String, session: URLSession) {
@@ -52,6 +53,40 @@ private final class PromptBridge: @unchecked Sendable {
     }
 
     private let blocked = HerdrTurnStatus.blocked(program: "Agent One")
+
+    @Test func promptRetainsBothMessagesInOrderThroughReopen() async throws {
+        let source = temporaryStore(), first = ScriptedTurnBackend(steerless: true)
+        let (original, bot) = steerStore(first, url: source)
+        let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
+        let served = bridge.session()
+        original.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "t")
+        original.herdrClientSetup = { $0.session = served.session }
+        #expect(original.send(text: "First"))
+        try await first.calls.wait { $0.contains("send:First") }
+        let second = ChatMessage(role: .user, content: "Second")
+        bot.messages.append(second)
+        #expect(original.waitForTurn(second, in: bot, reason: TurnWaitCopy.behind))
+        await first.fail(HerdrClient.Failure.waitingAtPrompt)
+        try await waitUntil { !original.anyTurnRunning }
+        #expect(original.turns.nextMessages.map(\.bubble.content) == ["First", "Second"])
+        #expect(!bot.messages.contains { $0.role == .assistant })
+        original.turns.nextMessages = []
+        let next = ScriptedTurnBackend(), keys = InMemoryKeyStore()
+        let restored = AppStore(storeURL: source, autoStart: false, backendFactory: { _ in next }, keyStore: keys, defaults: isolatedDefaults())
+        restored.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "t")
+        restored.herdrClientSetup = { $0.session = served.session }
+        restored.resumeRestoredNextMessages()
+        try await Task.sleep(for: .milliseconds(2250))
+        #expect(next.calls.all.isEmpty && restored.turns.nextMessages.count == 2)
+        bridge.ready()
+        try await next.calls.wait { $0.contains("send:First") }
+        await next.emit(.token("One"), .completed); await next.end()
+        try await next.calls.wait { $0.contains("send:Second") }
+        await next.emit(.token("Two"), .completed); await next.end()
+        try await waitUntil { !restored.anyTurnRunning }
+        #expect(next.calls.all.filter { $0.hasPrefix("send:") } == ["send:First", "send:Second"])
+        #expect(restored.bots[0].messages.filter { $0.role == .user }.map(\.content) == ["First", "Second"])
+    }
 
     @Test func refusedSignInAppearsInItsChatWhileTheMessageCanBeRetried() {
         let (store, bot, peer, _) = makeStore()

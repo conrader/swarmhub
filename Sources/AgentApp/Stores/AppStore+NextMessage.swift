@@ -78,7 +78,12 @@ extension AppStore {
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }
             defer { turns.checkingPromptQueues.remove(next.id); sendQueuedNextMessage() }
-            guard turns.nextMessages.contains(where: { $0.id == next.id }), bots.contains(bot) else { return }
+            guard turns.nextMessages.contains(where: { $0.id == next.id }) else { return }
+            guard bots.contains(bot) else {
+                turns.nextMessages.removeAll { $0.id == next.id }
+                recordNextMessage(next, .removed)
+                return
+            }
             let server = herdrServer(for: bot)
             guard server.id == serverID else {
                 turns.nextMessages.removeAll { $0.id == next.id }

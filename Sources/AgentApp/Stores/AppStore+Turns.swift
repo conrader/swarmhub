@@ -263,6 +263,7 @@ extension AppStore {
     func runChatTurn(bot: Bot, conversation: any Conversation, assistant: ChatMessage, history: [(role: String, content: String)], images: [String],
                      systemPrompt: String, backend activeBackend: any AgentBackend, token: UUID, files: [HerdrClient.TaskFile] = []) async {
         guard let slot = turn(token: token) else { return }
+        let sendServerID = herdrServer(for: bot).id
         var end: TurnEnd
         var sendFailures = 0
         while true {
@@ -306,16 +307,23 @@ extension AppStore {
            let goal = bot.goal, goal.stepSpending?.attempt == attempt {
             await recordGoalStepCost(in: bot, goalID: goal.id, iteration: goal.iteration)
         }
-        if case .error(HerdrClient.Failure.waitingAtPrompt) = end, isCurrent(token),
+        let waitingAtPrompt: Bool
+        switch end {
+        case .error(HerdrClient.Failure.waitingAtPrompt), .error(HerdrClient.Failure.signInRequired): waitingAtPrompt = true
+        default: waitingAtPrompt = false
+        }
+        if waitingAtPrompt, isCurrent(token),
            !slot.stopping, conversation === bot, slot.goalAttempt == nil,
            let userID = assistant.metadata[TurnKey.forUser], let user = bot.messages.first(where: { $0.id.uuidString == userID }),
            assistant.content.isEmpty, assistant.deliveryReceipt == nil,
            let assistantIndex = bot.messages.firstIndex(where: { $0 === assistant }) {
             bot.messages.remove(at: assistantIndex)
-            user.metadata[TurnWaitCopy.promptServer] = herdrServer(for: bot).id
+            user.metadata[TurnWaitCopy.promptServer] = sendServerID
             if waitForTurn(user, in: bot, reason: TurnWaitCopy.atPrompt, keepOnFailure: true) {
                 endTurn(token)
-                save()
+                if case .error(HerdrClient.Failure.signInRequired(let agent, let program)) = end {
+                    showSignIn(for: bot, in: nil, agent: agent, program: program)
+                }
                 sendQueuedNextMessage()
                 return
             }
