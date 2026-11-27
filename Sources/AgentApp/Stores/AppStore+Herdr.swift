@@ -234,6 +234,19 @@ extension AppStore {
                     await self.refreshHerdrAgentReading(for: bot)
                 }
             }
+            backend.onDirectModel = { [weak self] turn, modelID in
+                Task { @MainActor in
+                    guard let self, let bot = self.bots.first(where: { $0.id == botID }),
+                          self.herdrServer(for: bot) == server else { return }
+                    let reading = self.herdrAgentReadings[botID]
+                    let session = HerdrClient.AgentRef(address: turn.address, createdMs: turn.createdMs)
+                    if reading?.core == turn.core, reading?.session == session,
+                       reading?.confirmed == true, case .model(let id, _) = reading?.running, id == modelID { return }
+                    let observed = HerdrModelConfirmation(server: server.id, core: turn.core, address: turn.address,
+                                                          created: turn.createdMs, id: modelID, label: modelID)
+                    await self.refreshHerdrAgentReading(for: bot, observation: observed)
+                }
+            }
             backend.prepareDirect = { [weak self, weak bot] workspace, status in
                 guard let self, let bot else { throw CancellationError() }
                 return try await self.prepareDirectModel(bot: bot, server: server, template: template, model: model, in: workspace, status: status)
@@ -278,7 +291,7 @@ extension AppStore {
 
     /// Reads what the bot's agent runs on (agent program, model, and what the running agent was started on) and keeps
     /// it for the Details panel and the chat header. A server that cannot be read leaves the last reading in place.
-    @discardableResult func refreshHerdrAgentReading(for bot: Bot, requireFresh: Bool = false) async -> HerdrAgentReading? {
+    @discardableResult func refreshHerdrAgentReading(for bot: Bot, requireFresh: Bool = false, observation: HerdrModelConfirmation? = nil) async -> HerdrAgentReading? {
         let server = herdrServer(for: bot)
         guard bot.backend == .herdr, !bot.isReadOnlyArchive, let client = try? herdrClient(for: server) else { return requireFresh ? nil : herdrAgentReadings[bot.id] }
         let template = defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id))
@@ -291,7 +304,9 @@ extension AppStore {
         guard server == herdrServer(for: bot), model == herdrModel(for: bot),
               template == defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)),
               shared == defaults.string(forKey: HerdrBackend.templateKey) else { return nil }
-        if let record = modelConfirmation(bot), record.matches(server: herdrServer(for: bot).id, core: reading?.core, agent: reading?.session), reading?.confirmed == false {
+        if reading?.confirmed == false, let record = [observation, modelConfirmation(bot)].compactMap({ $0 }).first(where: {
+            $0.matches(server: server.id, core: reading?.core, agent: reading?.session)
+        }) {
             reading?.running = .model(id: record.id, label: record.label)
             reading?.confirmed = true
         }
