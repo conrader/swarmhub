@@ -52,6 +52,12 @@ struct WorkspacePageReader: View {
         .task(id: retry) {
             error = nil
             do {
+                if link.serverID == SampleWorkspace.server.id,
+                   let match = store.sampleBriefs.first(where: { $0.pageID == link.pageID && (link.revision == nil || link.revision == $0.revision) }),
+                   let body = match.excerpt {
+                    page = .init(title: match.title, markdown: body)
+                    return
+                }
                 guard let server = store.herdrServer(id: link.serverID) else {
                     throw BackendError.unavailable("The workspace that published this Page is no longer configured.")
                 }
@@ -78,10 +84,18 @@ struct WorkspacePageLibrary: View {
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             Picker("Workspace", selection: $serverID) {
+                if store.bots.contains(where: { $0.sampleProfile != nil && !$0.isHidden }) {
+                    Text(SampleWorkspace.server.name).tag(SampleWorkspace.server.id)
+                }
                 ForEach(store.herdrServers) { Text($0.name).tag($0.id) }
             }
             TextField("Search Pages in this workspace", text: $query)
-            if let server = store.herdrServer(id: serverID) {
+            if serverID == SampleWorkspace.server.id {
+                if let brief = store.sampleBriefs.first, let id = brief.pageID,
+                   query.isEmpty || brief.title.localizedStandardContains(query) {
+                    Button(brief.title) { page = .init(serverID: serverID, pageID: id, revision: brief.revision, title: brief.title) }
+                } else { Text("No matching Pages.") }
+            } else if let server = store.herdrServer(id: serverID) {
                 let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
                 WorkspacePageList(server: server, term: term) { summary in
                     page = .init(serverID: server.id, pageID: summary.id, revision: nil, title: summary.title)

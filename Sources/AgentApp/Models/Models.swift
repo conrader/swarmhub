@@ -139,6 +139,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     /// The session a backend that keeps sessions answers in; a Herdr agent keeps its own conversation, so it stays nil.
     @Published var sessionID: String?
     @Published var isDemo: Bool
+    @Published var sampleWalkthrough: SampleWalkthrough.Position?
     @Published var sampleDecision: SampleReview.Decision?
     @Published var sampleModel: String?
     var sampleRole: SampleWorkspace.Role?
@@ -179,7 +180,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     var outboundPersona: String { grokSourceID == nil ? persona : SecretFilter.redacted(persona, replacement: GrokRedactor.marker) }
     static func ==(lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, sampleRole, sampleModel, sampleDecision, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots, retiredBackend, offersReleaseNotesExample, goal, promotedHelper, pendingRoleReviews, requiresToolReview, sessionCapCents, documentReadOnly }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, sampleRole, sampleModel, sampleDecision, sampleWalkthrough, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots, retiredBackend, offersReleaseNotesExample, goal, promotedHelper, pendingRoleReviews, requiresToolReview, sessionCapCents, documentReadOnly }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id)
         let savedBackend = try c.decodeIfPresent(String.self, forKey: .backend)
@@ -217,6 +218,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         if isDemo && backend == .mock {
             sampleRole = try c.decodeIfPresent(String.self, forKey: .sampleRole).flatMap(SampleWorkspace.Role.init(rawValue:))
             sampleModel = try c.decodeIfPresent(String.self, forKey: .sampleModel)
+            sampleWalkthrough = try? c.decodeIfPresent(SampleWalkthrough.Position.self, forKey: .sampleWalkthrough)
             sampleDecision = try c.decodeIfPresent(String.self, forKey: .sampleDecision).flatMap(SampleReview.Decision.init(rawValue:))
         }
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
@@ -249,6 +251,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         if isDemo {
             try c.encodeIfPresent(sampleRole, forKey: .sampleRole)
             try c.encodeIfPresent(sampleModel, forKey: .sampleModel)
+            try c.encodeIfPresent(sampleWalkthrough, forKey: .sampleWalkthrough)
             try c.encodeIfPresent(sampleDecision?.rawValue, forKey: .sampleDecision)
         }
         if canManageBots { try c.encode(true, forKey: .canManageBots) }
