@@ -276,15 +276,27 @@ private struct SidebarNativeThread: View {
 struct NativeThreadDuration: View {
     let thread: HerdrClient.NativeThread
 
+    var stateOverride: String? = nil
+    var showsStatus = false
+
     var body: some View {
-        if thread.createdMs > 0 {
-            if thread.state == "working" {
-                TimelineView(.periodic(from: .now, by: 1)) { tick in
-                    Text(ActivityCopy.duration(max(0, tick.date.timeIntervalSince1970 - Double(thread.createdMs) / 1000), compact: true))
-                }
-            } else if let end = thread.completedMs, end >= thread.createdMs {
-                Text(ActivityCopy.duration((Double(end) - Double(thread.createdMs)) / 1000, compact: true))
+        let state = stateOverride ?? thread.state
+        if state == "working", thread.createdMs > 0 {
+            TimelineView(.periodic(from: .now, by: 1)) { tick in
+                caption(state, end: tick.date.timeIntervalSince1970 * 1000)
             }
+        } else {
+            caption(state, end: thread.completedMs.map { Double($0) })
+        }
+    }
+
+    @ViewBuilder private func caption(_ state: String, end: Double?) -> some View {
+        let status = showsStatus ? HerdrClient.NativeThread.statusLabel(state) : nil
+        if thread.createdMs > 0, let end, state == "working" || end >= Double(thread.createdMs) {
+            let elapsed = ActivityCopy.duration(max(0, end - Double(thread.createdMs)) / 1000, compact: true)
+            Text(verbatim: [status, elapsed].compactMap { $0 }.joined(separator: " · "))
+        } else if let status {
+            Text(verbatim: status)
         }
     }
 }
@@ -715,13 +727,17 @@ struct HerdrHelperView: View {
 
 @MainActor
 func helperPart<Content: View>(_ title: String, detail: String?, @ViewBuilder content: () -> Content) -> some View {
+    helperPart(title, detail: {
+        if let detail, !detail.isEmpty { Text(verbatim: detail) }
+    }, content: content)
+}
+
+func helperPart<Detail: View, Content: View>(_ title: String, @ViewBuilder detail: () -> Detail, @ViewBuilder content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 8) {
             Text(title).font(.callout.weight(.semibold)).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 4)
-            if let detail, !detail.isEmpty {
-                Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
-            }
+            detail().font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
         }.padding(.horizontal, 12).padding(.vertical, 8)
         Divider()
         VStack(alignment: .leading, spacing: 6) { content() }

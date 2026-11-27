@@ -104,11 +104,13 @@ struct NativeThreadOutput: View {
         let task = details?.task ?? child.task
         let state = visibleState ?? child.state
         let reply = state == activity?.state ? details?.reply ?? child.reply : child.reply
-        helperPart("Task", detail: HerdrClient.NativeThread.statusLabel(state)) {
+        helperPart("Task", detail: {
+            NativeThreadDuration(thread: child, stateOverride: state, showsStatus: true)
+        }) {
             Text(HerdrHelperView.assignment(task.isEmpty ? "No task recorded." : task)).textSelection(.enabled)
         }
         if let parent { HelperGuidanceCard(selection: parent.selection, bot: parent.bot) }
-        helperPart(details.map { $0.steps.count == 64 ? "Steps (latest 64)" : "Steps (\($0.steps.count))" } ?? "Steps", detail: child.model) {
+        helperPart(details.map { $0.steps.count == 64 ? "Steps (latest 64)" : "Steps (\($0.steps.count))" } ?? "Steps", detail: child.modelLine) {
             if let steps = details?.steps {
                 if steps.isEmpty { Text("No steps recorded.").foregroundStyle(.secondary) }
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
@@ -309,20 +311,15 @@ struct NativeSessionView: View {
         }.background(AppColor.chat).accessibilityElement(children: .contain).accessibilityIdentifier("nativeSession.details")
     }
     private func status(of thread: HerdrClient.NativeThread) -> some View {
-        HStack(spacing: 5) {
-            Text(thread.statusLine)
-            NativeThreadDuration(thread: thread)
-        }.font(.caption).foregroundStyle(.secondary)
+        NativeThreadDuration(thread: thread, showsStatus: true).font(.caption).foregroundStyle(.secondary)
     }
 
-    @ViewBuilder private func modelBadge(for thread: HerdrClient.NativeThread) -> some View {
-        if let model = thread.model, !model.isEmpty {
-            Text(verbatim: thread.provider.label + " · " + model)
-                .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
-                .padding(.horizontal, 7).padding(.vertical, 2)
-                .background(AppColor.card, in: RoundedRectangle(cornerRadius: 5))
-                .help(model)
-        }
+    private func modelBadge(for thread: HerdrClient.NativeThread) -> some View {
+        Text(verbatim: thread.modelLine)
+            .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(AppColor.card, in: RoundedRectangle(cornerRadius: 5))
+            .help(thread.modelLine)
     }
 
 }
