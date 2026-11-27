@@ -185,6 +185,9 @@ struct WorkspaceActivityView: View {
                 if attentionOnly && store.sidebarHidden { ShowSidebarItem() }
                 Text(attentionOnly ? "Needs Attention" : "Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
                 Spacer()
+                if attentionOnly && (store.selectedGroup != nil || store.selectedBot != nil || store.inspectorTerminal != nil) {
+                    ShowDetailsItem()
+                }
                 Button("Done") { close() }.keyboardShortcut(.cancelAction)
             }.padding()
             Divider()

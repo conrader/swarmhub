@@ -37,7 +37,15 @@ struct ContentView: View {
         } detail: {
             Group {
                 if store.showOnlyAttention {
+                    let hasInspector = store.selectedGroup != nil || store.selectedBot != nil || store.inspectorTerminal != nil
                     WorkspaceActivityView(attentionOnly: true)
+                        .frame(minWidth: ChromeMetrics.chatWidthWithInspector)
+                        .rightColumn(isPresented: hasInspector ? $store.showInfo : .constant(false), expandable: store.inspectorTerminal != nil) {
+                            inspector {
+                                if let group = store.selectedGroup { GroupInfoPanel(group: group) }
+                                else if let bot = store.selectedBot { InfoPanel(bot: bot) }
+                            }
+                        }
                 } else if let group = store.selectedGroup {
                     GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { GroupInfoPanel(group: group) } }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
