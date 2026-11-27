@@ -20,6 +20,9 @@ struct HerdrAgentReading: Equatable, Sendable {
 
     /// The template the next agent starts from; nil when the server has none it can start (or the bot's own is gone).
     var runtime: HerdrClient.Template?
+    let templates: [HerdrClient.Template]
+    let offeredModels: [HerdrClient.Template.Model]
+    var catalogServer: HerdrServer?
     /// The bot chose this template itself; false: it is the one new bots use, or the server's first.
     var runtimeIsOwn = false
     /// The model the next agent starts on; nil when the server offers no list and the agent program picks.
@@ -62,6 +65,8 @@ struct HerdrAgentReading: Equatable, Sendable {
     /// and the server's profiles, which hold what each session was launched with.
     init(templates usable: [HerdrClient.Template], ownTemplate: String?, sharedTemplate: String?, ownModel: String?, offered: [HerdrClient.Template.Model],
          agent: HerdrClient.Agent? = nil, profiles: [HerdrClient.Profile] = [], core: String? = nil) {
+        templates = usable
+        offeredModels = offered
         (runtime, runtimeIsOwn) = Self.template(own: ownTemplate, shared: sharedTemplate, in: usable)
         if runtime?.takesModel == true {
             if ownModel == HerdrModelChoice.recommended {

@@ -44,7 +44,7 @@ struct ChatView: View {
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer(minLength: 2)
                 if bot.backend == .herdr, !bot.isReadOnlyArchive {
-                    ChatModelButton(reading: store.herdrAgentReadings[bot.id], usage: store.herdrPresence(for: bot)?.usage) { store.openInfoTab(.model) }
+                    ChatModelButton(bot: bot).id(bot.id)
                 }
                 if let session {
                     ChatTerminalPreviewButton(server: store.herdrServer(for: bot),
@@ -209,35 +209,5 @@ struct ChatView: View {
     private func submit(_ value: String, items: [ChatAttachment]) {
         store.chatScroll.toBottom(bot.id)
         if store.send(text: value, attachments: items) { draft = ""; intake.items = [] }
-    }
-}
-
-struct ChatModelButton: View {
-    let reading: HerdrAgentReading?
-    var usage: HerdrClient.SessionUsage? = nil
-    let openSettings: () -> Void
-
-    var body: some View {
-        Button(action: openSettings) {
-            HStack(spacing: 4) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(reading?.headerModel ?? "Model settings")
-                    if let next = reading?.pendingTarget {
-                        Text("Next direct turn · \(next)").foregroundStyle(.primary)
-                    } else if let percent = usage?.contextPercent {
-                        Text("Context \(percent)%").foregroundStyle(.secondary).monospacedDigit()
-                    } else if let cost = usage?.estimatedCost {
-                        Text("Est. \(cost)").foregroundStyle(.secondary).monospacedDigit()
-                    }
-                }
-                Image(systemName: "chevron.right").font(.caption2)
-            }
-            .lineLimit(1)
-            .font(.caption)
-        }
-        .buttonStyle(.bordered).controlSize(.small)
-        .accessibilityIdentifier("chat.bot.model")
-        .accessibilityHint("Open this bot’s model settings")
-        .help(reading?.summary ?? "Open this bot’s model settings")
     }
 }

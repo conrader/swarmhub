@@ -371,8 +371,8 @@ struct HerdrAgentControls: View {
             VStack(alignment: .leading, spacing: 8) {
                 GroupHeading(title: "Bot model", detail: templateError ?? (listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…"))
                 HerdrTemplatePicker(selection: Binding(get: { template }, set: chooseTemplate),
-                                    templates: bot.documentReadOnly ? templates.filter { $0.supportsDocumentReview == true } : templates,
-                                    defaultName: bot.documentReadOnly ? nil : defaultTemplate?.name, defaultNote: "Default", inInspector: true)
+                                    templates: templates.filter { bot.canSwitch(to: $0) },
+                                    defaultName: bot.documentReadOnly || bot.sessionCapCents != nil ? nil : defaultTemplate?.name, defaultNote: "Default", inInspector: true)
                     .disabled(!loaded)
                     .accessibilityElement(children: .contain).accessibilityLabel("AI program")
                 if server.kind == .local {
@@ -471,6 +471,13 @@ struct HerdrAgentControls: View {
             }
         }
         .sheet(item: $moveSource) { HerdrMoveBotsSheet(source: $0, initialBot: bot.id) }
+        .onChange(of: store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? "") { _, saved in
+            guard loaded, template != saved else { return }
+            template = saved
+            models = []
+            Task { await loadModels() }
+        }
+        .onChange(of: store.herdrModel(for: bot)) { _, saved in model = saved }
         .task(id: "\(bot.id)-\(server.id)-\(server.kind == .local ? store.localAIRevision : 0)") {
             template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot)
             loaded = true

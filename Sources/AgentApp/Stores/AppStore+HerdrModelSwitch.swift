@@ -1,5 +1,12 @@
 import Foundation
 
+extension Bot {
+    func canSwitch(to template: HerdrClient.Template) -> Bool {
+        template.error == nil && (!documentReadOnly || template.supportsDocumentReview == true)
+            && (sessionCapCents == nil || template.supportsSessionCap == true)
+    }
+}
+
 extension AppStore {
     func modelSwitchPending(_ bot: Bot) -> Bool { defaults.bool(forKey: "herdr.changeOnSend.\(bot.id)") }
 
