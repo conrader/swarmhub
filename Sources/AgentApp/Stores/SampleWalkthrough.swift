@@ -120,7 +120,10 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
         switch self {
         case .release: return Self.draft(short: false)
         case .checks, .team:
-            return Self.reply(bot.sampleDecision?.receipt ?? (self == .team ? "Review the Payments proposal here or in Needs Attention." : "Scout has reviewed the importer tests. You can now decide whether Patch runs them."))
+            let review: SampleReview = self == .team ? .paymentsBot : .testCommand
+            let row = Self.reply(review.invitation)
+            row.metadata[SampleReview.messageKey] = review.rawValue
+            return row
         case .brief:
             let tests = testsRunning ? "running" : "stopped"
             let body = """

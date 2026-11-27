@@ -129,8 +129,7 @@ extension AppStore {
     func refuseHerdrBot(_ pending: PendingHerdrBot, manager: Bot) {
         guard pendingHerdrBots(for: manager).contains(where: { $0.id == pending.id }) else { return }
         dismissHerdrBot(pending, manager: manager)
-        save()
-        recordInboxDecision(for: manager, server: herdrServer(for: manager), subject: pending.request.name, outcome: "Proposal dismissed")
+        recordProposalDecision("Proposal dismissed", pending: pending, manager: manager, server: herdrServer(for: manager))
         tellHerdrAsker(of: pending, HerdrBotRelay.decision(pending.taken ? .taken(pending.request.name) : .dismissed(pending.request.name), main: manager.name))
     }
 
@@ -257,9 +256,16 @@ extension AppStore {
         let bot = createHerdrBot(pending, manager: manager, templates: templates, offered: offered, byPerson: byPerson, reviewedLaunch: reviewedLaunch, confirmedRoleID: confirmedRoleID)
         if byPerson, let bot {
             tellHerdrAsker(of: pending, HerdrBotRelay.decision(.created(bot.name), main: manager.name))
-            recordInboxDecision(for: manager, server: server, subject: bot.name, outcome: "Bot created")
+            recordProposalDecision("Bot created", pending: pending, manager: manager, server: server)
         }
         return bot
+    }
+
+    private func recordProposalDecision(_ outcome: String, pending: PendingHerdrBot, manager: Bot, server: HerdrServer) {
+        if let source = manager.messages.first(where: { $0.id == pending.messageID }) {
+            source.metadata[HerdrCreationProposal.decisionKey + pending.request.name] = outcome
+        }
+        recordInboxDecision(for: manager, server: server, subject: pending.request.name, outcome: outcome)
     }
 
     // MARK: Bots the main bot created on its own decision

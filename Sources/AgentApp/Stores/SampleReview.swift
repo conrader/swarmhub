@@ -1,6 +1,6 @@
 import Foundation
 
-enum SampleReview: CaseIterable {
+enum SampleReview: String, CaseIterable {
     case testCommand, paymentsBot
 
     enum Decision: String {
@@ -25,6 +25,22 @@ enum SampleReview: CaseIterable {
             case .dismiss: "Payments proposal dismissed."
             }
         }
+    }
+
+    static let messageKey = "sample.review"
+
+    var invitation: String {
+        switch self {
+        case .testCommand: "Scout has reviewed the importer tests. You can now decide whether Patch runs them."
+        case .paymentsBot: "Review the Payments proposal here or in Needs Attention."
+        }
+    }
+
+    func belongs(to message: ChatMessage) -> Bool {
+        guard message.role == .assistant && message.presentation == .text else { return false }
+        if let value = message.metadata[Self.messageKey] { return value == rawValue }
+        // Released sample histories predate the marker and contain the original invitation.
+        return message.content == invitation
     }
 
     static let projectRule = "Allow swift test --filter ImporterTests in /srv/shop"
@@ -77,7 +93,9 @@ extension AppStore {
             payments.sampleRole = .payments
             bots.append(payments)
         }
-        bot.messages.append(ChatMessage(role: .assistant, content: decision.receipt))
+        if !bot.messages.contains(where: review.belongs(to:)) {
+            bot.messages.append(ChatMessage(role: .assistant, content: decision.receipt))
+        }
         updateSampleGoal(in: bot)
         save()
     }

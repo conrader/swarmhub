@@ -625,6 +625,8 @@ def sample_preview(source_app, destination, appearance, library):
                             return all(part in content for part in ("v0.8.16", "rename", "tests",
                                                                    "2 pending items", "Routine ·", "Revision 1"))
                         wait_for("build, helpers and pending decisions on the brief card", brief_ready)
+                    if story in ("checks", "team"):
+                        wait_for("decision attached to the bot reply", lambda: transcript_card(window, "chat.sampleReview") is not None)
                     snapshots.capture(story + "-step3")
             helpers = json.loads((Path(__file__).resolve().parents[1] / "Fixtures/preview-helpers.json").read_text())
             from preview_sidebar import check_jarvis_branch
@@ -2115,6 +2117,18 @@ def session_usage_overview(source_app):
             server.shutdown()
 
 
+def transcript_card(window, identifier):
+    for element in descendants(window):
+        if attribute(element, "AXIdentifier") != identifier:
+            continue
+        ancestor = attribute(element, "AXParent")
+        while ancestor:
+            if attribute(ancestor, "AXRole") == "AXScrollArea":
+                return element
+            ancestor = attribute(ancestor, "AXParent")
+    return None
+
+
 def qa_inbox_proposals(window, store, command, decisions, declined_attempts):
     press(window, "ReaderQA", sidebar=True)
     def count(n):
@@ -2150,7 +2164,7 @@ def qa_inbox_proposals(window, store, command, decisions, declined_attempts):
     print("Handled both bot proposals and the live named command review in Needs Attention while ReaderQA stayed open.")
 
 
-def activity_decisions(source_app, named_review_only=False, proposals_only=False):
+def activity_decisions(source_app, named_review_only=False, proposals_only=False, chat_proposals=False):
     import Quartz
     from threading import Thread
 
@@ -2245,6 +2259,31 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
         store.write_text(json.dumps(dict(version=2, bots=[reader, owner], groups=[])))
         Thread(target=server.serve_forever, daemon=True).start()
         try:
+            if chat_proposals:
+                for reopened in (False, True):
+                    with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
+                        press(window, "Patch", sidebar=True)
+                        if not reopened:
+                            card = lambda: transcript_card(window, "chat.botProposal")
+                            wait_for("the proposal attached to its transcript row", lambda: card() is not None)
+                            press(card(), "Create Payments with Claude")
+                            wait_for("Payments created from the source message", lambda: any(
+                                b["name"] == "Payments" for b in json.loads(store.read_text())["bots"]))
+                            press(window, "Needs Attention")
+                            press(window, "Dismiss proposal for Legal")
+                            press(window, "Done")
+                        def saved_decisions():
+                            labels = {str(attribute(e, "AXValue") or label(e)) for e in descendants(window)}
+                            return (transcript_card(window, "chat.botProposal.result") is not None
+                                    and {"Bot created · Payments", "Proposal dismissed · Legal"} <= labels
+                                    and not any(label(b) == "Create Payments with Claude" for b in buttons(window)))
+                        wait_for("both outcomes in the original chat reply", saved_decisions)
+                        manager = next(b for b in json.loads(store.read_text())["bots"] if b["name"] == "Patch")
+                        original = next(row for row in manager["messages"] if row["id"].lower() == owner["messages"][0]["id"].lower())
+                        assert original["metadata"]["botProposalDecision.Payments"] == "Bot created"
+                        assert original["metadata"]["botProposalDecision.Legal"] == "Proposal dismissed"
+                print("Created Payments from chat, dismissed Legal in Inbox and reopened both decisions on the source message.")
+                return
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token) as window:
                 if proposals_only:
                     qa_inbox_proposals(window, store, pending[0], decisions, declined_attempts)
@@ -2693,6 +2732,8 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity-decisions":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--chat-proposals":
+        activity_decisions(Path(sys.argv[2]).resolve(strict=True), proposals_only=True, chat_proposals=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--inbox-proposals":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True), proposals_only=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--named-review":

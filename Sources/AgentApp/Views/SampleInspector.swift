@@ -146,3 +146,40 @@ struct SampleReviewCard: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+struct SampleChatDecisionCard: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject var bot: Bot
+    let review: SampleReview
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { summary; Spacer(minLength: 8); actions }
+            VStack(alignment: .leading, spacing: 8) { summary; actions }
+        }.reviewCard(inInbox: true, tint: bot.colours)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("chat.sampleReview")
+    }
+
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(review == .testCommand ? "Permission request · Run command" : "Jarvis proposes Payments")
+                .font(.callout.weight(.semibold))
+            Text(review == .testCommand ? "swift test --filter ImporterTests · /srv/shop" : "Prepares supplier invoices · Approval required for every action")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        if let decision = bot.sampleDecision {
+            Label(decision.receipt, systemImage: "checkmark.circle.fill")
+                .font(.caption.weight(.medium)).foregroundStyle(.green)
+        } else {
+            LibraryFlow(spacing: 5) {
+                ForEach(Array(review.choices.reversed()), id: \.self) { choice in
+                    let button = Button(choice.title) { store.resolveSampleReview(choice, for: bot) }.controlSize(.small)
+                    if choice == review.choices.first { button.buttonStyle(.borderedProminent) } else { button }
+                }
+            }
+        }
+    }
+}
