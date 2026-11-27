@@ -43,7 +43,7 @@ struct HelperSteeringTarget {
 }
 
 extension AppStore {
-    private func steeringTarget(_ selection: HerdrHelperSelection, of bot: Bot) -> HelperSteeringTarget? {
+    func steeringTarget(_ selection: HerdrHelperSelection, of bot: Bot) -> HelperSteeringTarget? {
         guard selection.archive == nil, selection.botID == bot.id, !bot.isReadOnlyArchive,
               herdrHelperReads[selection.parent] != .unavailable, let list = herdrHelpers[selection.parent] else { return nil }
         let server = herdrServer(for: bot)
@@ -54,7 +54,7 @@ extension AppStore {
                   let thread = list.nativeThreads.first(where: { $0.id == selection.helperID && $0.provider == native.thread.provider })
             else { return nil }
             name = thread.name
-            task = thread.task
+            task = HelperAssignment.readable(thread.task) ?? ""
         } else {
             guard let helper = list.sidebarSessions.first(where: { $0.id == selection.helperID }) else { return nil }
             name = helper.name
@@ -93,6 +93,12 @@ extension AppStore {
         helperSteeringDrafts.removeValue(forKey: chatID)
         composerFocus = chatID
         return true
+    }
+
+    func sendHelperMessage(_ text: String, to target: HelperSteeringTarget, of bot: Bot) -> Bool {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, steeringTarget(target.selection, of: bot)?.id == target.id else { return false }
+        return deliverHelperGuidance(words, target: target, of: bot)
     }
 
     private func deliverHelperGuidance(_ words: String, target: HelperSteeringTarget, of bot: Bot) -> Bool {

@@ -459,3 +459,50 @@ extension ChatGoalTests {
         #expect(restored.stepSpending?.chargedUSD == 1 && restored.state == .stopped)
     }
 }
+
+extension ChatGoalTests {
+    @MainActor @Test func journalResultRepairsOnlyItsOwnIterationAcrossTeamMessages() throws {
+        let store = goalStore(GoalBackend())
+        let bot = addGoalBot(store, "Infra")
+        var goal = ChatGoal(objective: "Measure available space", destination: store.goalDestination(for: bot))
+        let token = goal.begin()
+        let request = ChatMessage(role: .user, content: "Proceed", metadata: [
+            GoalKey.attempt: token.uuidString, GoalKey.request: goal.request(for: token)
+        ])
+        let earlier = ChatMessage(role: .assistant, content: "Measuring", metadata: [
+            TurnKey.forUser: request.id.uuidString, GoalKey.attempt: token.uuidString
+        ], turnState: .incomplete)
+        let exchange = ChatMessage(role: .system, content: "Team handoff")
+        let unrelated = ChatMessage(role: .assistant, content: "Another turn", turnState: .incomplete)
+        let result = ChatMessage(role: .assistant, content: "", metadata: ["herdrTeamEntry": "fixture:2"])
+        bot.messages = [request, earlier, exchange, unrelated, result]
+        goal.wait(ChatGoal.interruptedDetail)
+        bot.goal = goal
+        let wrong = #"{"iteration":"\#(UUID().uuidString)","outcome":"progress","evidence":"Other task"}"#
+        result.content = wrong
+        bot.recoverGoalResult(in: result)
+        #expect(earlier.turnState == .incomplete && result.content == wrong)
+        result.content = "Measurement finished.\n" + #"{"iteration":"\#(token.uuidString)","outcome":"progress","evidence":"10 GB"}"#
+        func roundTrip(_ item: Bot) throws -> Bot {
+            try #require(StoreFile.decode(JSONEncoder().encode(StoreFile(bots: [item], groups: []))).bots.first)
+        }
+        let repaired = try roundTrip(bot)
+        let reopened = try roundTrip(repaired)
+        #expect(reopened.messages.map(\.id) == bot.messages.map(\.id))
+        #expect(reopened.messages[1].content == "Measuring" && reopened.messages[1].turnState == .finished)
+        #expect(reopened.messages[3].turnState == .incomplete)
+        #expect(reopened.messages[4].content == "Measurement finished.")
+        #expect(reopened.messages[4].metadata[GoalKey.evidence] == "10 GB")
+        #expect(reopened.goal?.state == .waiting && reopened.goal?.detail.contains("10 GB") == true)
+    }
+
+    @Test func helperAssignmentPreservesHumanTextAndOnlyHidesProtectedTaskStrings() {
+        let protected = "gAAAAA" + String(repeating: "A1_-", count: 22) + "=="
+        let ordinary = "Inspect this string in the fixture: " + protected
+        #expect(HelperAssignment.readable(protected) == nil)
+        #expect(HelperAssignment.readable("gAAAAA short identifier") != nil)
+        #expect(HelperAssignment.readable(ordinary) == ordinary)
+        #expect(HelperAssignment.transcript("Task " + protected + "\n$ echo hello") ==
+                "Task " + HelperAssignment.unavailable + "\n$ echo hello")
+    }
+}

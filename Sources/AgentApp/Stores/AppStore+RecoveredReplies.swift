@@ -192,7 +192,10 @@ extension AppStore {
         let remaining = results.filter { !shown.contains($0.id) }
         if !remaining.isEmpty { answer.publishedResults = HerdrReplyResults(serverID: serverID, items: remaining) }
         if let group { groupReplyArrived(answer, state: .finished, from: bot, in: group) }
-        else { directReplyArrived(answer, from: bot) }
+        else {
+            bot.recoverGoalResult(in: answer)
+            directReplyArrived(answer, from: bot)
+        }
     }
 
 }

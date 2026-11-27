@@ -184,6 +184,8 @@ extension AppStore {
     }
 
     func settleGoalTurn(in bot: Bot, attempt: UUID, row: ChatMessage, outcome: TurnOutcome, waitingForPerson: Bool) {
+        let parsed = ChatGoal.Report.read(row.content, for: attempt)
+        if let parsed { row.displayGoalResult(parsed.report, prose: parsed.prose) }
         guard var goal = bot.goal, goal.state == .running, goal.attempt == attempt else { return }
         if outcome.state == .stopped {
             goal.stop()
@@ -191,10 +193,7 @@ extension AppStore {
             goal.wait("Resolve the workspace prompt, then resume the goal.")
         } else if outcome.state != .finished {
             goal.wait(outcome.reason ?? "The iteration ended without a confirmed result. Check the workspace before resuming.")
-        } else if let (report, prose) = ChatGoal.Report.read(row.content, for: attempt) {
-            row.metadata[GoalKey.outcome] = report.outcome.rawValue
-            row.metadata[GoalKey.evidence] = report.evidence
-            row.content = prose.isEmpty ? report.evidence : prose
+        } else if let report = parsed?.report {
             let needsAnswer = ChatCardParser.parseVisibleReply(row.content).contains {
                 switch $0 {
                 case .choices, .multiChoices, .draft, .pageDraft: true
@@ -226,7 +225,8 @@ extension AppStore {
                     turns.scheduledGoals.insert(goal.id)
                 }
             case .running:
-                bot.goal?.wait("SwarmHub closed during this iteration. Check its result before resuming.")
+                bot.goal?.interruptedAttempt = goal.attempt
+                bot.goal?.wait(ChatGoal.interruptedDetail)
                 save()
             default: break
             }

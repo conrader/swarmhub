@@ -578,6 +578,7 @@ def sample_workspace(source_app):
                 press(window, "Sessions for Jarvis")
                 wait_for("expanded samples", lambda: button(tests))
                 press(window, tests)
+                press(window, "Session details")
                 wait_for("sample command, steps and failure", lambda: button("Stop helper") and has_text("Steps (2)") and has_text("testEmptyTitle failed"))
                 press(window, "Show terminal in Details")
                 wait_for("docked sample output", lambda: pane("inspector.terminal") and has_text("expected throw"))
@@ -585,6 +586,7 @@ def sample_workspace(source_app):
                 press(window, "Stop helper")
                 wait_for("stopped in the sidebar", lambda: button("Claude agent tests, Stopped") and not button("Stop helper"))
                 press(window, rename)
+                press(window, "Session details")
                 wait_for("completed sample result", lambda: has_text("Steps (3)") and has_text("14 call sites") and has_text("Build complete!"))
                 press(window, "Steer via Jarvis")
                 wait_for("parent guidance composer", lambda: button("Send helper guidance") and has_text("Steering rename"))
@@ -1436,6 +1438,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 press(window, "Back to Details")
                 # Select the name directly from ReaderQA. The separate terminal icon previews in place.
                 press(window, child_label)
+                wait_for("native helper chat", lambda: any(label(b) == "Send to Layout reader" for b in buttons(window)))
+                press(window, "Session details")
                 expected = {"Layout reader · Helper of Patch", "OpenCode · fixture/default", "Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
                             "Read sidebar.txt", "I am checking the header.", "$ cat sidebar.txt", "The sidebar is expanded."}
                 def shows_details():

@@ -17,6 +17,14 @@ struct SettingsSimplePane: View {
                 you
                 SettingsPersonSection()
                 appearanceGroup
+                SettingBlock(title: "Finished helpers", detail: "Choose which helper conversations stay in the sidebar. Their replies remain available in session history.") {
+                    VStack(alignment: .leading) {
+                        Toggle("Automatically hide finished helpers", isOn: Binding(get: { store.autoHideFinishedHelpers }, set: store.setAutoHideFinishedHelpers))
+                        if store.hasRemovedSidebarHelpers {
+                            Button("Restore manually removed helpers") { store.restoreSidebarHelpers() }
+                        }
+                    }
+                }
                 concurrentReplies
                 DisclosureGroup("Recent errors") {
                     if store.recentErrors.isEmpty { Text("No dismissed alerts.").foregroundStyle(.secondary) }
