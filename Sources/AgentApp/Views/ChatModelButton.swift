@@ -114,7 +114,7 @@ struct ChatModelButton: View {
                         return
                     }
                 }
-                guard store.selectedBot === bot, store.selectedGroup == nil, !bot.isReadOnlyArchive,
+                guard store.bots.contains(where: { $0 === bot }), !bot.isReadOnlyArchive,
                       store.herdrServer(for: bot) == server, bot.canSwitch(to: available),
                       previousTemplate == store.herdrTemplate(for: bot), previousModel == store.herdrModel(for: bot) else { return }
                 store.setHerdrTemplate(available.name, for: bot)
