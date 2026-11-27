@@ -42,6 +42,19 @@ W kalibracji użyliśmy polecenia wymagającego jednocześnie pracy tylko do odc
 
 Po doprecyzowaniu zgody Astra osiągnęła cel po jednym zatwierdzeniu we wszystkich czterech próbach. Dodatkowa wskazówka o wyborze działań o dużym wpływie dała 2/2, tak samo jak instrukcja standardowa. Mediany czasu wyniosły odpowiednio 41,5 i 38 sekund. Ze względu na remis algorytm zakończył obie serie na etapie wstępnym. Dane obejmują po dwa zestawy prób na scenariusz, jeden model i krótkie rozmowy z przygotowanym inwentarzem. Nie mierzą samodzielnego odkrywania dużych katalogów na rzeczywistym serwerze. [Wyniki prób](one-plan-study/screen.jsonl) · [Porównanie](one-plan-study/decision.json)
 
+## Czy bot sam znajdzie duże pliki?
+
+W `discover_capacity` bot otrzymuje dwa drzewa katalogów, pojemność docelowego woluminu i rejestr zajętych plików. Sam wyszukuje i mierzy pliki, także w ukrytych katalogach. Największy plik leży na innym woluminie, a duży plik w katalogu kompilacji nadal jest używany. Obok niego leży bezpieczny kandydat. Dwa zestawy danych zmieniają rozmieszczenie dużych odtwarzalnych plików. Użytkownik zatwierdza najwyżej jeden plan. Program przelicza bajty w całym drzewie docelowym i sprawdza zawartość wszystkich oryginalnych plików spoza zatwierdzonej listy.
+
+| Model | Standardowa instrukcja | Wskazówka o doborze zakresu | Mediana czasu (standardowa / ze wskazówką) |
+| --- | ---: | ---: | ---: |
+| Astra | 2/2 | 2/2 | 42,5 / 42,0 s |
+| Sol | 2/2 | 2/2 | 39,9 / 43,2 s |
+
+W ośmiu oddzielnych sesjach model doszedł do progu po jednej zgodzie i zachował chronione pliki. Obie pary porównań zakończyły się remisem na etapie wstępnym. Próby obejmują dwa układy plików na model. [Próby Astra](discover-capacity-study/screen.jsonl) · [Próby Sol](discover-capacity-sol-study/screen.jsonl)
+
+Założenie dotyczy plików w ćwiczeniu. Każde 1024 bajty treści stanowią jednostkę. Nie symulujemy rozliczania bloków, twardych dowiązań ani otwartych deskryptorów na serwerze. Rejestr `jobs.json` podaje aktywne pliki.
+
 ## Powtórzenie badania
 
 Polecenie uruchom z głównego katalogu repozytorium. Podaj ścieżki do uruchamialnych plików Workspace, Herdr Core i natywnego Codex CLI dla Linuksa oraz pliku uwierzytelnienia Codex. Badanie korzysta z modelu na tym koncie. Poniższe wyniki uzyskano z Workspace 0.2.44. Przy innej wersji podaj jej numer przez `--bridge-version`.
@@ -59,6 +72,8 @@ python3 HerdrWorkspace/tests/task_effectiveness_research.py \
 Dla replik wybierz `--cases archive_twins --screen-seeds 1306 1307 --holdout-seeds 1402 1403`. Dla krótkiej zgody wybierz `--cases short_consent --screen-seeds 2111 2112 --holdout-seeds 2161 2162`. Scenariusz z pytaniem po drodze uruchom z `--cases interrupted_consent --screen-seeds 3101 3102 --holdout-seeds 3201 3202`. Każde uruchomienie wymaga nowego katalogu wynikowego. Program zapisuje wyniki pojedynczych prób na bieżąco do `screen.jsonl`, w tym model, liczbę odpowiedzi, czas, użycia narzędzi i wynik każdego sprawdzenia. O skuteczności rozstrzyga ukończenie zadania. Dodatkowa instrukcja przechodzi do sprawdzenia na świeżych danych, gdy poprawia co najmniej jeden wynik, zachowuje wszystkie wcześniejsze sukcesy i przechodzi sprawdzenia ochrony plików. Po zakończeniu decyzję zawiera `decision.json`.
 
 Dla zmiany stanu w trakcie oczekiwania na zgodę podaj `--cases busy_after_plan --screen-seeds 4100 4101 --holdout-seeds 4202 4203` i plik `docs/research/candidates/recheck-before-execution.txt`. Dla badania zakresu pierwszego planu użyj `--cases one_plan --screen-seeds 5101 5102 --holdout-seeds 5201 5202` i `docs/research/candidates/size-the-plan.txt`. Każde porównanie uruchom z osobnym `--out-dir`.
+
+Aby powtórzyć próbę samodzielnego wyszukania plików, użyj `--cases discover_capacity --screen-seeds 6103 6104 --holdout-seeds 6203 6204` z `docs/research/candidates/size-the-plan.txt`. Uruchom osobno dla modeli `gpt-6.2-astra` i `gpt-6.2-sol`.
 
 Same testy programu oceniającego można uruchomić bez wywoływania modeli.
 

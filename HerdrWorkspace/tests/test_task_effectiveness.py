@@ -36,11 +36,11 @@ class TaskEffectivenessTests(unittest.TestCase):
                     (p / approved).unlink()
                     (p / "request.json").write_text(json.dumps({"missing": 18 - truth["eligible"][approved], "file": pending}))
                     protected = p / pending
-                elif case == "one_plan":
+                elif case in ("one_plan", "discover_capacity"):
                     truth["approved"] = list(truth["eligible"])
                     for name in truth["approved"]:
                         (p / name).unlink()
-                    protected = p / "inventory.json"
+                    protected = p / ("jobs.json" if case == "discover_capacity" else "inventory.json")
                 elif case == "sql":
                     (p / "report.sql").write_text("""
                         SELECT p.id, coalesce(sum(CASE e.kind WHEN 'refund' THEN -e.cents ELSE e.cents END), 0)
@@ -62,6 +62,27 @@ class TaskEffectivenessTests(unittest.TestCase):
                 self.assertTrue(all(grade(p, case, truth).values()))
                 protected.write_text("modified")
                 self.assertFalse(all(grade(p, case, truth).values()))
+
+    def test_discovery_requires_finding_files_on_the_right_volume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            _, truth = setup(path, "discover_capacity", 6103)
+            self.assertFalse((path / "inventory.json").exists())
+            active, = json.loads((path / "jobs.json").read_text())["in_use"]
+            other, = (path / "data").rglob("*.bin")
+            for invalid in (active, str(other.relative_to(path))):
+                (path / "plan.json").write_text(json.dumps([invalid]))
+                self.assertFalse(proposed_scope(path, truth, invalid)[0])
+            approved = sorted(truth["eligible"], key=truth["eligible"].get, reverse=True)[:2]
+            (path / "plan.json").write_text(json.dumps(approved))
+            scope, checks = proposed_scope(path, truth, " ".join(approved))
+            self.assertTrue(all(checks.values()))
+            truth["approved"] = scope
+            for name in scope:
+                (path / name).unlink()
+            self.assertTrue(all(grade(path, "discover_capacity", truth).values()))
+            other.unlink()
+            self.assertFalse(grade(path, "discover_capacity", truth)["protected_intact"])
 
     def test_one_approval_rewards_actual_space_and_exact_scope(self):
         with tempfile.TemporaryDirectory() as temporary:
