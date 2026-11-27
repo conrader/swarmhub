@@ -56,7 +56,7 @@ The screens in this guide are rendered by the app with sample content.
 
 The window ends in the main bot's chat.
 
-On first launch choose **Try a sample** to open Patch’s release notes, or **Bring my Grok bot** to review an import. **Look around with sample bots** is also available in the empty main window. The sample bots answer locally.
+To try a sample before connecting a server, close the setup window and choose **Look around with sample bots** in the empty main window. Open **Patch** in the sidebar for the release-notes example. The sample bots answer locally.
 
 More detail on the ways to connect: [Use the Mac app](../HerdrWorkspace/README.md#use-the-mac-app), and the drawing under [Where bots run](architecture.md#where-bots-run).
 
