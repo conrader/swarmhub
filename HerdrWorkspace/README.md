@@ -985,6 +985,9 @@ Choose **Share Page** from the latest revision to create a read-only viewer link
 
 An agent launched by the workspace can publish a document with `swarmhub-herdr publish-page "Title" < report.md` using the full path to the workspace binary. SwarmHub adds an **Open page** card to that session's conversation. The same session can use `read-page PAGE_ID` to get the Markdown and revision, and `update-page PAGE_ID REVISION < report.md` to revise the document without replacing its card. Browser and agent saves check the revision before writing, so a stale edit cannot overwrite a newer one.
 
+For a routine outcome, append `--page PAGE_ID REVISION` to the supplied `routine-result TOKEN succeeded|failed` command using the receipt from `publish-page`. The routine history and the bot’s direct chat can then open that exact revision. A report without a Page still accepts just its summary on standard input.
+
+
 On an agent-published Page, open **Message about this page** to send a request to the original session. The side panel records the request and its delivery status; the full agent conversation contains its replies. A revision link beside the request opens the version it refers to while that revision is still in history. If the Page changes before you send, **Reload latest revision** keeps your draft and lets you review the new version. The original session must still be running to receive a request.
 
 Pages start private to the workspace. Viewer links use the existing workspace address; there is no separate hosting service or team-specific sharing. Pages use the built-in controls.

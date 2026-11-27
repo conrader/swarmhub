@@ -1346,6 +1346,8 @@ pub(crate) struct Entry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub journal: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<crate::routines::ResultPage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub checkin: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub promise: Option<i64>,
@@ -1398,6 +1400,7 @@ pub(crate) fn entries(db: &Connection, lines: &Lines<'_>) -> rusqlite::Result<Ve
                         notify: row.get(6)?,
                         code: row.get(7)?,
                         journal: row.get(8)?,
+                        page: None,
                         checkin: row.get(9)?,
                         promise: row.get(10)?,
                         direction: None,
@@ -1410,15 +1413,18 @@ pub(crate) fn entries(db: &Connection, lines: &Lines<'_>) -> rusqlite::Result<Ve
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .map(|(mut entry, about)| {
+            if entry.code.as_deref() == Some("routine_result") && let Some(result) = entry.journal {
+                entry.page = crate::routines::result_page(db, result)?;
+            }
             if let Some(about) = about.and_then(|id| message(db, id).ok().flatten()) {
                 if entry.kind == "message" {
                     entry.direction = Some(if about.sender == entry.bot { "out" } else { "in" });
                 }
                 entry.message = Some(view(db, about));
             }
-            entry
+            Ok(entry)
         })
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     if newest_first {
         rows.reverse();
     }

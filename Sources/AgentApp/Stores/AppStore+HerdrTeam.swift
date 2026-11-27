@@ -169,20 +169,35 @@ extension AppStore {
                     if item.kind == "said", !isIdle(bot) { held = true; continue }
                     let entry = "\(server.id):\(item.id)"
                     let journal = item.journal.map { "\(server.id):\($0)" }
-                    let exists = bot.messages.contains { row in
+                    let existing = bot.messages.first { row in
                         row.metadata["herdrTeamEntry"] == entry || journal.map { row.metadata["herdrJournal"]?.split(separator: " ").contains(Substring($0)) == true } == true
                     }
-                    if !exists {
+                    let publication = item.journal.flatMap { id in item.page.map { HerdrPublishedResult(page: $0, journalID: id) } }
+                    let followup = item.code == "direct_followup" || item.code == "routine_result"
+                    if let row = existing {
+                        if let publication, row.publishedResults?.serverID == server.id || row.publishedResults == nil {
+                            var results = row.publishedResults ?? HerdrReplyResults(serverID: server.id, items: [])
+                            if !results.items.contains(where: { $0.pageID == publication.pageID && $0.revision == publication.revision && $0.excerpt != nil }) {
+                                results.items.removeAll { $0.pageID == publication.pageID && $0.revision == publication.revision }
+                                results.items.append(publication)
+                                row.publishedResults = results
+                                changed = true
+                            }
+                        }
+                    } else {
                         var metadata = ["herdrTeamEntry": entry]
                         if let journal { metadata["herdrJournal"] = journal }
                         if item.kind == "message", let exchange = item.message { metadata["herdrExchangeTitle"] = exchange.title }
                         let row = ChatMessage(role: item.kind == "said" ? .assistant : .system, content: item.text,
                             createdAt: Date(timeIntervalSince1970: Double(item.atMs) / 1000), metadata: metadata)
+                        if let publication {
+                            row.publishedResults = HerdrReplyResults(serverID: server.id, items: [publication])
+                        }
                         TranscriptHistory.insert(row, into: &bot.messages, server: server.id, entry: item.id,
-                            followup: item.code == "direct_followup", journal: item.journal, receivedAt: now())
+                            followup: followup, journal: item.journal, receivedAt: now())
                         if item.unread, !row.isSilent, !showsDirectChat(bot) { bot.unreadCount += 1 }
                         if item.notify { notifyIfNeeded(bot: bot, message: item.text) }
-                        if item.kind == "said", item.code != "direct_followup", createsHerdrBots(bot) { herdrReplyEnded(row, from: bot, finished: true) }
+                        if item.kind == "said", !followup, createsHerdrBots(bot) { herdrReplyEnded(row, from: bot, finished: true) }
                         changed = true
                     }
                     if showsDirectChat(bot) { selectedRead = max(selectedRead, item.id) }

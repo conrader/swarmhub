@@ -23,6 +23,7 @@ extension HerdrClient {
             let atMs: Int64
             let unread, notify: Bool
             var code: String? = nil
+            var page: RoutinePage? = nil
             let journal: Int?
             let message: Exchange?
         }

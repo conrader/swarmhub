@@ -14,6 +14,17 @@ struct HerdrPublishedResult: Identifiable, Codable, Sendable, Equatable {
     let pageID: Int?
     let revision: Int?
 
+    var excerpt: String?
+
+    init(page: HerdrClient.RoutinePage, journalID: Int) {
+        id = journalID
+        kind = .page
+        title = page.title
+        pageID = page.id
+        revision = page.revision
+        excerpt = page.excerpt
+    }
+
     init?(_ row: HerdrClient.Item) {
         guard row.id > 0 else { return nil }
         switch row.kind {
