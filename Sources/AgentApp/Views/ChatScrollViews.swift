@@ -143,16 +143,22 @@ import SwiftUI
         await Task.yield()
         guard !Task.isCancelled, request == revision else { return }
         settled = true
-        if let conversation { model?.opened(conversation, top: nil, atBottom: false) }
-        report()
+        if let conversation { model?.opened(conversation, top: nil, atBottom: destination == .latest) }
+        // scrollTo takes effect in a subsequent layout. The old frames describe the previous position.
+        if destination != .latest { report() }
     }
 
-    func measured(_ frames: ChatVisibleRows) {
+    func measured(_ frames: ChatVisibleRows, follow: Bool = true) {
+        let previous = visible
         visible = frames
         if let waitingForRow, frames.height > 0, frames.rows[waitingForRow] != nil {
             self.waitingForRow = nil
             objectWillChange.send()
             revision += 1
+        } else if settled, follow, destination == .latest, !hasLater,
+                  let conversation, model?.follows(conversation) == true,
+                  frames.tailMovedOutOfView(since: previous) {
+            latest()
         } else if settled { report() }
     }
 
@@ -189,6 +195,14 @@ struct ChatVisibleRows: Equatable {
     var start: CGFloat?
     var bottom: CGFloat?
     var height: CGFloat = 0
+
+    func tailMovedOutOfView(since old: Self) -> Bool {
+        guard height > 0, old.height > 0, let bottom, let start, let oldStart = old.start, let oldBottom = old.bottom,
+              bottom > height + 2 else { return false }
+        // A wheel or scrollbar move translates both markers together. Text, media and
+        // tool rows change their separation; opening composer controls shrinks the viewport.
+        return bottom - start > oldBottom - oldStart + 0.5 || height < old.height - 0.5
+    }
 }
 private struct ChatFrames: PreferenceKey {
     static let defaultValue = ChatVisibleRows()
@@ -219,12 +233,12 @@ extension View {
         } }
     }
 
-    func trackChatViewport(_ viewport: ChatViewport) -> some View {
+    func trackChatViewport(_ viewport: ChatViewport, follow: @escaping () -> Bool) -> some View {
         coordinateSpace(name: ChatScrollAnchor.space)
             .background { GeometryReader { geo in
                 Color.clear.preference(key: ChatFrames.self, value: ChatVisibleRows(height: geo.size.height))
             } }
-            .onPreferenceChange(ChatFrames.self) { viewport.measured($0) }
+            .onPreferenceChange(ChatFrames.self) { viewport.measured($0, follow: follow()) }
     }
 }
 

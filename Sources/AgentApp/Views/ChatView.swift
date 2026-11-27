@@ -87,7 +87,7 @@ struct ChatView: View {
                         if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
                         ChatBottomMarker()
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection).environment(\.chatFolds, folds)
-                }.trackChatViewport(viewport).id(bot.id).background(AppColor.chat)
+                }.trackChatViewport(viewport, follow: { !selection.characters.holdsScroll }).id(bot.id).background(AppColor.chat)
                 // ⌘/⇧-click picks rows, ⌘C copies them; another conversation starts with none picked.
                 .messageSelection(selection, viewport: viewport).onChange(of: bot.id) { _, _ in selection.clear(); folds.state.foldAll() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
