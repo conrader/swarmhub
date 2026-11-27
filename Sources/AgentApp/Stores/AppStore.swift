@@ -455,7 +455,7 @@ import UserNotifications
         conversation.messages.append(user)
         let accepted: Bool
         if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) {
-            accepted = waitForTurn(user, in: conversation, reason: reason)
+            accepted = waitForTurn(user, in: conversation, reason: reason, predecessor: predecessorForSend(user, in: conversation))
         } else {
             accepted = startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         }

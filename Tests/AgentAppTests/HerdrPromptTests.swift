@@ -5,6 +5,7 @@ import Testing
 /// A server with one agent that waits at a question, as the app reads it: the list of agents and the terminal's screen.
 private final class PromptBridge: @unchecked Sendable {
     private let lock = NSLock()
+    let workspaceReads = AwaitableLog<String>()
     private var screen = "", state = "blocked"
     private var kind = "permission"
     let agentName: String
@@ -24,6 +25,7 @@ private final class PromptBridge: @unchecked Sendable {
         lock.withLock { () -> (Int, Any) in
             switch "\(request.httpMethod ?? "GET") \(request.url?.path ?? "")" {
             case "GET /api/workspace":
+                workspaceReads.append(state)
                 let agent: [String: Any] = ["address": "t7", "created_ms": 9, "name": agentName, "state": "live", "template": "tpl-one", "status": ["state": state, "kind": kind], "first_message": NSNull(), "ready": true]
                 let template: [String: Any] = ["name": "tpl-one", "description": "", "error": NSNull(), "runtime": ["harness": "Agent One", "provider": NSNull(), "model": NSNull()]]
                 return (200, ["core": "c", "version": "1", "agents": [agent], "templates": [template]])
@@ -54,38 +56,61 @@ private final class PromptBridge: @unchecked Sendable {
 
     private let blocked = HerdrTurnStatus.blocked(program: "Agent One")
 
-    @Test func promptRetainsBothMessagesInOrderThroughReopen() async throws {
+    @Test(arguments: [false, true])
+    func promptRetainsBothMessagesInOrderThroughReopen(retryFirst: Bool) async throws {
         let source = temporaryStore(), first = ScriptedTurnBackend(steerless: true)
         let (original, bot) = steerStore(first, url: source)
         let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
         let served = bridge.session()
         original.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "t")
         original.herdrClientSetup = { $0.session = served.session }
+        let older = ChatMessage(role: .assistant, content: "Older partial answer", turnState: .incomplete)
+        bot.messages.append(older)
         #expect(original.send(text: "First"))
         try await first.calls.wait { $0.contains("send:First") }
-        let second = ChatMessage(role: .user, content: "Second")
-        bot.messages.append(second)
-        #expect(original.waitForTurn(second, in: bot, reason: TurnWaitCopy.behind))
+        #expect(original.send(text: "Second"))
         await first.fail(HerdrClient.Failure.waitingAtPrompt)
         try await waitUntil { !original.anyTurnRunning }
         #expect(original.turns.nextMessages.map(\.bubble.content) == ["First", "Second"])
-        #expect(!bot.messages.contains { $0.role == .assistant })
+        #expect(bot.messages.filter { $0.role == .assistant }.map(\.id) == [older.id])
         original.turns.nextMessages = []
         let next = ScriptedTurnBackend(), keys = InMemoryKeyStore()
-        let restored = AppStore(storeURL: source, autoStart: false, backendFactory: { _ in next }, keyStore: keys, defaults: isolatedDefaults())
-        restored.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "t")
-        restored.herdrClientSetup = { $0.session = served.session }
+        func reopen() -> AppStore {
+            let store = AppStore(storeURL: source, autoStart: false, backendFactory: { _ in next }, keyStore: keys, defaults: isolatedDefaults())
+            store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "t")
+            store.herdrClientSetup = { $0.session = served.session }
+            return store
+        }
+        var restored = reopen()
         restored.resumeRestoredNextMessages()
-        try await Task.sleep(for: .milliseconds(2250))
+        try await bridge.workspaceReads.wait { $0.contains("blocked") }
         #expect(next.calls.all.isEmpty && restored.turns.nextMessages.count == 2)
         bridge.ready()
         try await next.calls.wait { $0.contains("send:First") }
+        restored.resumeRestoredNextMessages()
+        restored.sendQueuedNextMessage()
+        if retryFirst {
+            // A ready terminal says nothing about the outcome of the send it just accepted.
+            await next.fail(HerdrClient.Failure.unconfirmedDelivery)
+            try await waitUntil { !restored.anyTurnRunning }
+            restored = reopen()
+            restored.resumeRestoredNextMessages()
+            #expect(!restored.anyTurnRunning && next.calls.all == ["send:First"])
+            let row = try #require(restored.bots[0].messages.first { $0.turnState == .notSent })
+            restored.retry(row, sendAnyway: true)
+            try await next.calls.wait { $0 == ["send:First", "send:First"] }
+        }
         await next.emit(.token("One"), .completed); await next.end()
         try await next.calls.wait { $0.contains("send:Second") }
         await next.emit(.token("Two"), .completed); await next.end()
         try await waitUntil { !restored.anyTurnRunning }
-        #expect(next.calls.all.filter { $0.hasPrefix("send:") } == ["send:First", "send:Second"])
+        let expected = retryFirst ? ["send:First", "send:First", "send:Second"] : ["send:First", "send:Second"]
+        #expect(next.calls.all == expected)
         #expect(restored.bots[0].messages.filter { $0.role == .user }.map(\.content) == ["First", "Second"])
+        let again = reopen()
+        again.resumeRestoredNextMessages()
+        #expect(!again.anyTurnRunning && !again.hasWaitingTurn(in: again.bots[0]))
+        #expect(next.calls.all == expected)
     }
 
     @Test func refusedSignInAppearsInItsChatWhileTheMessageCanBeRetried() {

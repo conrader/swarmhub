@@ -10,9 +10,12 @@ struct QueuedNextMessage {
     var anchorID: UUID
     /// Only the original live reply may take this waiting message as guidance. Relaunch uses the normal queue.
     var startupTarget: StartupSteerTarget?
+    let predecessor: QueuePredecessor
     var restored = false
-    init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false) {
-        self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored
+    init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil,
+         predecessor: QueuePredecessor = .conversation, restored: Bool = false) {
+        self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id
+        self.predecessor = predecessor; self.restored = restored
     }
 }
 
@@ -40,8 +43,7 @@ extension AppStore {
 
     /// Sends the oldest waiting text when no turn runs; called again whenever a turn or round ends. A chat that can no
     /// longer send puts its bubble back to "failed" (the button returns) and the next one is tried.
-    /// An entry is marked sent in the ledger before it goes (a refused write keeps it queued); entries restored
-    /// after a quit wait for `resumeRestoredNextMessages`.
+    /// The ledger records submission before dispatch. Restored entries also wait for launch reconciliation.
     /// P39: per chat. Each chat's oldest entry goes once that chat has no turn and the turn limits allow it; a chat's later
     /// entries wait behind its first, and a restored entry holds its own chat only.
     func sendQueuedNextMessage() {
@@ -50,7 +52,33 @@ extension AppStore {
         var held: Set<UUID> = []; var index = 0
         while index < turns.nextMessages.count {
             let next = turns.nextMessages[index], key = next.conversation.id
-            guard !held.contains(key), !next.restored, isIdle(next.conversation), turns.pendingInterrupts[key] == nil, turnCapacityProblem(for: waitingBots(next)) == nil else {
+            guard !held.contains(key), !next.restored, turns.pendingInterrupts[key] == nil else {
+                held.insert(key); index += 1; continue
+            }
+            // A stale waiting claim can coexist with a Retry or another claim for the same row.
+            // Once its own reply exists, the turn (including any Retry) owns delivery.
+            if next.kind == .turn, next.conversation is Bot, next.predecessor != .conversation {
+                let hasReply = next.conversation.messages.contains { $0.role == .assistant && $0.metadata[TurnKey.forUser] == next.bubble.id.uuidString }
+                if hasReply || next.bubble.metadata[TurnWaitCopy.key] != "waiting" {
+                    endWait(next.bubble, in: next.conversation)
+                    objectWillChange.send(); save()
+                    guard !turns.saveFailing, recordNextMessage(next, .removed) else { break }
+                    turns.nextMessages.remove(at: index)
+                    continue
+                }
+            }
+            switch resolvePredecessor(for: next) {
+            case .ready: break
+            case .waiting:
+                held.insert(key); index += 1; continue
+            case .giveBack:
+                giveBackBubble(next, warning: TurnWaitCopy.predecessorNotConfirmed)
+                save()
+                guard !turns.saveFailing, recordNextMessage(next, .removed) else { return }
+                turns.nextMessages.remove(at: index)
+                continue
+            }
+            guard isIdle(next.conversation), turnCapacityProblem(for: waitingBots(next)) == nil else {
                 held.insert(key); index += 1; continue
             }
             if let serverID = next.bubble.metadata[TurnWaitCopy.promptServer], let bot = next.conversation as? Bot {
@@ -60,10 +88,10 @@ extension AppStore {
             guard recordNextMessage(next, .submitting) else { break }
             turns.nextMessages.remove(at: index)
             if startNextMessage(next) {
-                // Local rows are saved before dispatch is retired. A crash before this save
-                // leaves a submitting record which recovery exposes as uncertain.
+                // Retire the queue claim only after the local turn and its retry path are durable.
+                // A crash before the save leaves the submission uncertain.
                 save()
-                guard !turns.saveFailing, recordNextMessage(next, .sent) else { continue }
+                guard !turns.saveFailing, recordNextMessage(next, .removed) else { continue }
                 held.insert(key); continue
             }
             recordNextMessage(next, .removed)
@@ -165,9 +193,10 @@ extension AppStore {
     // MARK: P39 turn limit
 
     /// The user's message is already in `conversation`; it waits there with one line until a turn may start.
-    func waitForTurn(_ user: ChatMessage, in conversation: any Conversation, reason: String, startupTarget: StartupSteerTarget? = nil, keepOnFailure: Bool = false) -> Bool {
+    func waitForTurn(_ user: ChatMessage, in conversation: any Conversation, reason: String, startupTarget: StartupSteerTarget? = nil,
+                     predecessor: QueuePredecessor = .conversation, keepOnFailure: Bool = false) -> Bool {
         user.metadata[TurnWaitCopy.key] = "waiting"
-        var next = QueuedNextMessage(conversation: conversation, bubble: user, kind: .turn)
+        var next = QueuedNextMessage(conversation: conversation, bubble: user, kind: .turn, predecessor: predecessor)
         next.startupTarget = startupTarget
         guard enqueueNextMessage(next) else {
             user.metadata[TurnWaitCopy.key] = nil
@@ -207,5 +236,6 @@ enum TurnWaitCopy {
     static let atPrompt = "Queued until the terminal is ready."
     static let afterAnswer = "Queued as the next message after this answer."
     static let behind = "Waiting: an earlier message in this chat goes first."
+    static let predecessorNotConfirmed = "Not sent because the preceding message could not be confirmed. You can send this message again."
     static let notSent = "Not sent: it was still waiting for a free turn."
 }
