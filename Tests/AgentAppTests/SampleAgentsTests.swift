@@ -145,6 +145,7 @@ import Testing
     store.advanceSampleStory(in: patch, from: first)
     store.showSampleStory(.brief)
     #expect(store.selectedBot?.goal == nil && patch.goal?.iteration == 2)
+    #expect(store.sidebarLayout.navigationOrder.map(\.id) == store.bots.map(\.id))
     let restored = reopen()
     let same = try #require(restored.bots.first { $0.id == patch.id })
     restored.open(same)

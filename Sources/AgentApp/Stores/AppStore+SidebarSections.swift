@@ -4,7 +4,15 @@ import Foundation
 /// an offered restore, change it, and save. `sidebarChats` itself stays the plain recency order.
 extension AppStore {
     /// What the sidebar draws; call once per body pass.
-    var sidebarLayout: SidebarLayout { SidebarLayout.make(chats: sidebarChats, organisation: sidebar) }
+    var sidebarLayout: SidebarLayout {
+        // Keep the example team and its expanded helpers in place while trying different chats.
+        let visible = unhiddenChats
+        let sampleTeam = !visible.isEmpty && visible.allSatisfy { chat in
+            if case .bot(let bot) = chat { return bot.sampleProfile != nil }
+            return false
+        }
+        return SidebarLayout.make(chats: sampleTeam ? visible : sidebarChats, organisation: sidebar)
+    }
 
     func isPinned(_ chat: UUID) -> Bool { sidebar.pinned.contains(chat) }
     var canPinMore: Bool { sidebar.canPinMore }
