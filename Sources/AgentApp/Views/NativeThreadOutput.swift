@@ -13,6 +13,7 @@ struct NativeThreadOutput: View {
     var readable = false
     let openedParent: () -> Void
     @State private var activity: HerdrClient.ThreadActivity?
+    @State private var listingStateAtRead: String?
     @State private var requestedTurn: String?
     @State private var sendingClaudeRequest = false
     @State private var promotion: Task<Void, Never>?
@@ -31,8 +32,22 @@ struct NativeThreadOutput: View {
         return nil
     }
 
+    // The sidebar and detail endpoint refresh independently. A changed listing supersedes
+    // activity from the previous state, including its interruptible turn.
+    private var listingState: String? { parent?.child.state }
+    private var visibleState: String? {
+        if let listingState, listingState != listingStateAtRead { return listingState }
+        return activity?.state ?? listingState ?? session?.state
+    }
+
+    private var interruptibleTurn: String? {
+        guard visibleState == "working", activity?.state == "working", listingState == listingStateAtRead else { return nil }
+        return activity?.activeTurn
+    }
+
     var body: some View {
-        Group {
+        let observedState = listingState
+        return Group {
             if let session {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -53,9 +68,12 @@ struct NativeThreadOutput: View {
             }
         }
         .onDisappear { promotion?.cancel() }
-        .task(id: server == SampleWorkspace.server ? parent?.child.state : nil) {
+        .task(id: observedState) {
             if server == SampleWorkspace.server {
-                if let child = parent?.child { activity = SampleWorkspace.activity(for: child) }
+                if let child = parent?.child {
+                    activity = SampleWorkspace.activity(for: child)
+                    listingStateAtRead = observedState
+                }
                 else { readError = "This sample session is no longer available." }
                 return
             }
@@ -65,6 +83,7 @@ struct NativeThreadOutput: View {
                     let snapshot = try await client.threadActivity(runtime, owner: owner, core: core, thread: thread)
                     try Task.checkCancellation()
                     activity = snapshot
+                    listingStateAtRead = observedState
                     readError = nil
                     if requestedTurn != snapshot.activeTurn { requestedTurn = nil }
                 } catch {
@@ -83,8 +102,8 @@ struct NativeThreadOutput: View {
     @ViewBuilder private func cards(for child: HerdrClient.NativeThread) -> some View {
         let details = activity?.details
         let task = details?.task ?? child.task
-        let reply = details?.reply ?? child.reply
-        let state = activity?.state ?? child.state
+        let state = visibleState ?? child.state
+        let reply = state == activity?.state ? details?.reply ?? child.reply : child.reply
         helperPart("Task", detail: HerdrClient.NativeThread.statusLabel(state)) {
             Text(HerdrHelperView.assignment(task.isEmpty ? "No task recorded." : task)).textSelection(.enabled)
         }
@@ -139,7 +158,7 @@ struct NativeThreadOutput: View {
     }
 
     @ViewBuilder private var controls: some View {
-        if session == nil, let state = activity?.state {
+        if session == nil, let state = visibleState {
             Text(HerdrClient.NativeThread.statusLabel(state)).font(.caption).foregroundStyle(.secondary)
         }
         if let parent {
@@ -154,7 +173,7 @@ struct NativeThreadOutput: View {
         }
         if server == SampleWorkspace.server, let parent, parent.child.isWorking {
             Button("Stop helper") { store.stopSampleTests(of: parent.bot) }
-        } else if runtime == .claude, activity?.state == "working", let turn = activity?.activeTurn {
+        } else if runtime == .claude, let turn = interruptibleTurn {
             let pending = sendingClaudeRequest || activity?.stopRequested == true
             Button(pending ? "Stop requested" : "Ask Claude to stop") {
                 sendingClaudeRequest = true
@@ -170,7 +189,7 @@ struct NativeThreadOutput: View {
             }.disabled(pending || readError != nil)
                 .help("Ask the parent Claude session to stop this helper run. Its status updates when Claude confirms.")
                 .accessibilityIdentifier("claudeChild.stop")
-        } else if activity?.state == "working", let turn = activity?.activeTurn, runtime != .claude {
+        } else if let turn = interruptibleTurn, runtime != .claude {
             Button(requestedTurn == turn ? "Stopping…" : "Stop helper") {
                 requestedTurn = turn
                 actionError = nil
