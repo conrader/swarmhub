@@ -423,8 +423,11 @@ import UserNotifications
         if revised?.state.active == true {
             guard goalDestinationMatches(bot) else { return false }
             let guidance = user.modelText + attachments.map { "\nAttached file: " + $0.name }.joined()
-            if user.metadata[GoalKey.amendment] == revised?.id.uuidString { revised?.objective += "\nFollow-up: " + guidance }
-            else { stepGuidance = guidance }
+            if user.metadata[GoalKey.amendment] == revised?.id.uuidString {
+                revised?.objective += "\nFollow-up: " + guidance
+            } else {
+                stepGuidance = guidance
+            }
             guard let revised, validateHerdrDraft(revised.request(for: UUID(), guidance: stepGuidance), attachments: attachments, bot: bot) else { return false }
         } else { revised = nil }
         if let turn = turn(in: conversation) {

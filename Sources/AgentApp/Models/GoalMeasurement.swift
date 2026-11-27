@@ -15,7 +15,7 @@ extension ChatGoal {
         }
 
         func matches(_ other: Measurement) -> Bool {
-            unit == other.unit && direction == other.direction && target == other.target
+            unit.caseInsensitiveCompare(other.unit) == .orderedSame && direction == other.direction && target == other.target
         }
 
         func improves(_ baseline: Double) -> Bool {

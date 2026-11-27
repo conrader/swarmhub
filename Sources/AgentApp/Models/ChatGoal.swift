@@ -192,7 +192,7 @@ struct ChatGoal: Codable, Equatable {
 
     func request(for token: UUID, guidance: String = "") -> String {
         var instructions = originalInstructions(for: token)
-        if !guidance.isEmpty { instructions += "\nUser instruction for this step only:\n" + guidance }
+        if !guidance.isEmpty { instructions += "\nNew user message (respect continuing constraints, use approvals only for their stated action):\n" + guidance }
         let strategy = """
         Keep the user's objective, named target and constraints in scope. Take the largest useful authorized action now. A helper is optional unless the user requires delegation. If a method fails, do independent work yourself. An approval applies only to its stated action. Never retry or substitute a denied action.
         For a numeric target measure the same resource before and after in the same unit. Include measurement in the final JSON: {"unit":"GB","direction":"increase","target":20,"before":2,"after":3}. Use the actual unit and target; direction is increase or decrease. Report no_progress for unchanged results. Requests, handoffs and repeated status checks alone are not progress.
@@ -224,12 +224,8 @@ struct ChatGoal: Codable, Equatable {
                 report.evidence = "Next authorized action: " + String(next.prefix(360)) + "\n" + result.evidence
             }
         case .complete, .progress:
-            if let (target, unit) = freeSpaceThreshold,
-               !(result.measurement.map { $0.target == target && $0.unit.caseInsensitiveCompare(unit) == .orderedSame && $0.direction == .increase } ?? false) {
-                report.outcome = .noProgress
-                report.evidence = "Verify free space on the requested volume in " + unit + ". " + result.evidence
-            } else if let reading = result.measurement {
-                if !reading.valid || bestMeasurement.map({ !reading.matches($0) }) == true {
+            if let reading = result.measurement {
+                if !accepts(reading) {
                     report.outcome = .noProgress
                     report.evidence = "Measure the same target and unit again. " + result.evidence
                 } else if result.outcome == .complete && !reading.reached {
@@ -238,7 +234,7 @@ struct ChatGoal: Codable, Equatable {
                 } else if result.outcome == .progress && (!reading.improves(reading.before) || bestMeasurement.map({ !reading.improves($0.after) }) == true) {
                     report.outcome = .noProgress
                 }
-            } else if bestMeasurement != nil {
+            } else if bestMeasurement != nil || freeSpaceThreshold != nil {
                 report.outcome = .noProgress
                 report.evidence = "Measure the target again to verify the result. " + result.evidence
             }
