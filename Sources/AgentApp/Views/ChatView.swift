@@ -61,6 +61,7 @@ struct ChatView: View {
                 // The bot's own colour, as a soft wash behind its name: each chat is recognisably its bot's.
                 .background(LinearGradient(colors: [bot.tint.opacity(0.13), bot.tint.opacity(0.03)], startPoint: .leading, endPoint: .trailing)).background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
+            let hasStatusPanel = bot.goal != nil || bot.sampleProfile != nil
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
@@ -86,17 +87,20 @@ struct ChatView: View {
                         if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
                         ChatBottomMarker()
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection).environment(\.chatFolds, folds)
-                }.trackChatViewport(viewport).id(bot.id).background(AppColor.chat)
+                }.trackChatViewport(viewport, follow: { !selection.characters.holdsScroll }).id(bot.id).background(AppColor.chat)
                 // ⌘/⇧-click picks rows, ⌘C copies them; another conversation starts with none picked.
                 .messageSelection(selection, viewport: viewport).onChange(of: bot.id) { _, _ in selection.clear(); folds.state.foldAll() }
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
                 // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
-                .floatingBar(edge: .bottom, backing: AppColor.chat) { bottomBar }
+                .floatingBar(edge: .bottom, backing: AppColor.chat) {
+                    if !hasStatusPanel { bottomBar }
+                }
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
                 .task(id: store.scrollTarget) { await viewport.reveal(store.scrollTarget, in: store) }
             }
+            if hasStatusPanel { bottomBar }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .onChange(of: bot.id) { _, _ in terminal = nil }
@@ -176,6 +180,7 @@ struct ChatView: View {
             }
         }
         .frame(maxWidth: .infinity).glassGroup(spacing: 4)
+
     }
 
     private var composer: some View {
@@ -187,7 +192,10 @@ struct ChatView: View {
                      manageActions: store.createsHerdrBots(bot) ? [.newBot, .getToKnowMe] : [],
                      manage: { action in if let request = action.request { draft = request } else { store.chatScroll.toBottom(bot.id); store.startHerdrIntro(for: bot, again: true) } },
                      wantsFocus: store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, recipient: bot.name,
-                     offersGoal: bot.backend == .herdr && !bot.isDemo && !bot.isReadOnlyArchive,
+                     offersGoal: bot.offersChatGoal, sampleChat: bot.sampleProfile != nil,
+                     makeSampleScreenshot: bot.sampleProfile == nil ? nil : {
+                         SampleScreenshot.png.flatMap { store.prepareAttachment(imageData: $0, name: SampleScreenshot.name) }
+                     },
                      goalCommand: { command in
                          let notice = store.handleGoalCommand(command, in: bot, attachments: intake.items)
                          if case .start = command, notice == nil { intake.items = []; store.replyTo = nil }

@@ -110,3 +110,10 @@ import Testing
     reopened.toBottom(group)
     #expect(reopened.stored?[group.uuidString] == nil)
 }
+
+@Test func growingReplyAndShrinkingViewportAreDifferentFromScrollingUp() {
+    let original = ChatVisibleRows(start: -400, bottom: 600, height: 600)
+    #expect(ChatVisibleRows(start: -400, bottom: 632, height: 600).tailMovedOutOfView(since: original))
+    #expect(ChatVisibleRows(start: -400, bottom: 600, height: 550).tailMovedOutOfView(since: original))
+    #expect(!ChatVisibleRows(start: -368, bottom: 632, height: 600).tailMovedOutOfView(since: original))
+}

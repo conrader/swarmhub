@@ -69,6 +69,8 @@ else
   rm -rf "$BUILD_DIR/AgentApp.resources/releases"
   cp -R docs/releases "$BUILD_DIR/AgentApp.resources/releases"
   cp -R Resources/Avatars "$BUILD_DIR/AgentApp.resources/Avatars"
+  rm -rf "$BUILD_DIR/AgentApp.resources/Samples"
+  cp -R Resources/Samples "$BUILD_DIR/AgentApp.resources/Samples"
   rm -rf "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp -R Resources/AppIcon/ThemeIcons "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp Resources/AppIcon/SwarmHub-dark.icns "$BUILD_DIR/AgentApp.resources/AppIcon-dark.icns"

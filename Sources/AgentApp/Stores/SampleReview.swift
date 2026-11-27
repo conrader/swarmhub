@@ -73,6 +73,7 @@ extension AppStore {
             bots.append(payments)
         }
         bot.messages.append(ChatMessage(role: .assistant, content: decision.receipt))
+        updateSampleGoal(in: bot)
         save()
     }
 }

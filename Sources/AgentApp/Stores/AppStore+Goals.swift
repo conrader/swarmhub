@@ -5,8 +5,10 @@ extension AppStore {
     func handleGoalCommand(_ command: SlashCommand, in conversation: any Conversation, attachments: [ChatAttachment] = []) -> String? {
         guard openConversation === conversation, openHerdrHelper == nil,
               let bot = conversation as? Bot, bots.contains(where: { $0 === bot }),
-              bot.backend == .herdr, !bot.isDemo, !bot.isReadOnlyArchive, persistenceEnabled, storeRestoreOffer == nil
+              bot.offersChatGoal, persistenceEnabled, storeRestoreOffer == nil
         else { return "Goals require a writable workspace bot chat." }
+
+        if bot.sampleProfile != nil { return handleSampleGoal(command, bot: bot, attachments: attachments) }
 
         switch command {
         case .start(let objective, let stepLimit, let budget, let perGoal):

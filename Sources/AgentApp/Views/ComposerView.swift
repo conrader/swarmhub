@@ -22,6 +22,9 @@ struct ComposerView: View {
     /// Who the message goes to (a bot's or a group's name), for the placeholder.
     var recipient: String? = nil
     var offersGoal = false
+    var sampleChat = false
+    var makeSampleScreenshot: (() -> ChatAttachment?)?
+    @State private var sampleScreenshotID: UUID?
     var goalCommand: (SlashCommand) -> String? = { _ in "Goals require a writable workspace bot chat." }
     @State private var slashMenu = SlashMenu()
     @State private var commandNotice: String?
@@ -107,16 +110,29 @@ struct ComposerView: View {
                 }
             }
             HStack(spacing: 6) {
-                Button("+ Screenshot") {
+                let example = attachments.first { $0.id == sampleScreenshotID }
+                Button(example == nil ? "+ Screenshot" : "✓ ui-bug.png attached") {
+                    if let makeSampleScreenshot {
+                        if let example {
+                            removeAttachment?(example)
+                            sampleScreenshotID = nil
+                        } else if let image = makeSampleScreenshot() {
+                            attachments.append(image)
+                            sampleScreenshotID = image.id
+                            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { text = SampleScreenshot.prompt }
+                            focused = true
+                        }
+                        return
+                    }
                     imagePicker = true
                     importing = true
-                }.help("Choose a screenshot to attach")
+                }.help(sampleChat ? "Attach or remove the sample dialog screenshot" : "Choose a screenshot to attach")
                 if offersGoal {
                     Button("/goal") {
                         if !text.hasPrefix("/goal ") { text = "/goal " + text }
                         focused = true
                     }.help("Start a goal with this draft")
-                    GoalBudgetButton(draft: $text) { focused = true }
+                    GoalBudgetButton(draft: $text, sample: sampleChat) { focused = true }
                 }
                 Spacer(minLength: 4)
                 jump

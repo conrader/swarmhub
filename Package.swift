@@ -27,7 +27,7 @@ let package = Package(
             // (hidden .build* folders, incl. .build-release, are skipped by SwiftPM anyway). Guarded by PackageManifestTests.
             exclude: ["Tests", "scripts", "Vendor", "dist", "Apps", "HerdrWorkspace", "README.md"] + otherDocs,
             sources: ["Sources/AgentApp"],
-            resources: [.copy("Resources/Avatars"), .copy("Resources/AppIcon/ThemeIcons"), .copy("docs/releases")],
+            resources: [.copy("Resources/Avatars"), .copy("Resources/Samples"), .copy("Resources/AppIcon/ThemeIcons"), .copy("docs/releases")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
                                           "-Xlinker", "-rpath", "-Xlinker", "@executable_path"])]
         ),

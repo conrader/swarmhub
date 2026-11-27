@@ -150,6 +150,7 @@ extension AppStore {
         guard bot.sampleProfile != nil, bot.sampleRole == story.owner else { return }
         bot.sampleWalkthrough = .init(run: UUID(), story: story, step: .opening)
         bot.messages.append(contentsOf: story.opening())
+        updateSampleGoal(in: bot)
         chatScroll.toBottom(bot.id)
         save()
     }
@@ -172,6 +173,7 @@ extension AppStore {
             beginSampleStory(story, in: bot)
             return
         }
+        updateSampleGoal(in: bot)
         chatScroll.toBottom(bot.id)
         save()
     }
