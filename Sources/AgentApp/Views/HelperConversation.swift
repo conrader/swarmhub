@@ -66,7 +66,7 @@ struct HelperChatComposer: View {
             HStack {
                 TextField("Message " + target.name + " via " + bot.name + "…", text: $text, axis: .vertical)
                     .textFieldStyle(.plain).focused($focused).lineLimit(1...6).onSubmit(send)
-                    .onKeyPress(.return) { press in
+                    .onKeyPress(.return, phases: .down) { press in
                         guard !press.modifiers.contains(.shift) else { return .ignored }
                         send(); return .handled
                     }

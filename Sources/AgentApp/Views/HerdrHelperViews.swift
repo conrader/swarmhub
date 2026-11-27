@@ -685,6 +685,7 @@ struct HerdrHelperView: View {
     }
 
     static func assignment(_ source: String) -> AttributedString {
+        guard HelperAssignment.readable(source) != nil else { return AttributedString(HelperAssignment.unavailable) }
         var result = AttributedString()
         var start = source.startIndex
         for span in source.ranges(of: #/`[^`]+`/#) {
