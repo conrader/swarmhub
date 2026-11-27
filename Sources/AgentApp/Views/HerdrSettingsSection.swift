@@ -371,8 +371,8 @@ struct HerdrAgentControls: View {
             VStack(alignment: .leading, spacing: 8) {
                 GroupHeading(title: "Bot model", detail: templateError ?? (listed ? (templates.isEmpty ? "This server has no AI set up yet." : nil) : "Checking…"))
                 HerdrTemplatePicker(selection: Binding(get: { template }, set: chooseTemplate),
-                                    templates: bot.documentReadOnly ? templates.filter { $0.supportsDocumentReview == true } : templates,
-                                    defaultName: bot.documentReadOnly ? nil : defaultTemplate?.name, defaultNote: "Default", inInspector: true)
+                                    templates: templates.filter { bot.canSwitch(to: $0) },
+                                    defaultName: bot.documentReadOnly || bot.sessionCapCents != nil ? nil : defaultTemplate?.name, defaultNote: "Default", inInspector: true)
                     .disabled(!loaded)
                     .accessibilityElement(children: .contain).accessibilityLabel("AI program")
                 if server.kind == .local {

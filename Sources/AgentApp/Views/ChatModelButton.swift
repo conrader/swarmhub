@@ -9,12 +9,7 @@ struct ChatModelButton: View {
     private var reading: HerdrAgentReading? { store.herdrAgentReadings[bot.id] }
     private var templates: [HerdrClient.Template] {
         guard let reading, reading.catalogServer == store.herdrServer(for: bot) else { return [] }
-        return reading.templates.filter(isAvailable)
-    }
-
-    private func isAvailable(_ template: HerdrClient.Template) -> Bool {
-        template.error == nil && (!bot.documentReadOnly || template.supportsDocumentReview == true)
-            && (bot.sessionCapCents == nil || template.supportsSessionCap == true)
+        return reading.templates.filter { bot.canSwitch(to: $0) }
     }
 
     private var next: HerdrClient.Template? {
@@ -106,7 +101,7 @@ struct ChatModelButton: View {
             defer { applying = false }
             do {
                 let catalog = try await store.herdrTemplates(on: server)
-                guard let available = catalog.first(where: { $0.name == template.name }), isAvailable(available) else {
+                guard let available = catalog.first(where: { $0.name == template.name }), bot.canSwitch(to: available) else {
                     failure = "This AI is no longer available for this bot."
                     await store.refreshHerdrAgentReading(for: bot)
                     return
@@ -120,7 +115,7 @@ struct ChatModelButton: View {
                     }
                 }
                 guard store.selectedBot === bot, store.selectedGroup == nil, !bot.isReadOnlyArchive,
-                      store.herdrServer(for: bot) == server, isAvailable(available),
+                      store.herdrServer(for: bot) == server, bot.canSwitch(to: available),
                       previousTemplate == store.herdrTemplate(for: bot), previousModel == store.herdrModel(for: bot) else { return }
                 store.setHerdrTemplate(available.name, for: bot)
                 store.setHerdrModel(model, for: bot)

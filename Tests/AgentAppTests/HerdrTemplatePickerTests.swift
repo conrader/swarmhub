@@ -8,6 +8,23 @@ import Testing
     private let codex = Self.template("swarmhub-codex", harness: "Codex", display: "Codex")
     private let antigravity = Self.template("swarmhub-antigravity", harness: "Antigravity CLI", display: "Gemini (Antigravity)")
 
+    @Test func modelChangesHonorBothOfTheSelectedBotsRestrictions() {
+        let bot = Bot(name: "Legal", persona: "", backend: .herdr)
+        var scoped = codex
+        scoped.supportsDocumentReview = true
+        var capped = claude
+        capped.supportsSessionCap = true
+        var both = scoped
+        both.supportsSessionCap = true
+        #expect(bot.canSwitch(to: claude))
+        bot.documentReadOnly = true
+        #expect(bot.canSwitch(to: scoped) && !bot.canSwitch(to: capped))
+        bot.sessionCapCents = 200
+        #expect(bot.canSwitch(to: both) && !bot.canSwitch(to: scoped) && !bot.canSwitch(to: capped))
+        bot.documentReadOnly = false
+        #expect(bot.canSwitch(to: capped) && !bot.canSwitch(to: claude))
+    }
+
     @Test func runtimeLabelsKeepTheInstalledProgramVisibleAlongsideItsProvider() {
         let templates = [claude, codex, antigravity]
         let labels = HerdrProgramName.labels(for: templates)
