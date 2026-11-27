@@ -78,7 +78,7 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
         case .release:
             [.init(role: .user, content: "Patch, turn the three changes in this build into release notes."),
              Self.reply("I’ll check the commits and ask Scout to verify the user-facing changes before I draft the notes.",
-                        tools: [("bash", "git log v0.8.15..HEAD --oneline"), ("message", "@Scout verify user-facing changes")], seconds: 6)]
+                        tools: [("bash", "git log v0.8.15..HEAD --oneline"), ("send_message", "@Scout verify user-facing changes")], seconds: 6)]
         case .checks:
             [.init(role: .user, content: "Patch, watch PR #142 and inspect any failing check."),
              Self.reply("I’m watching PR #142. A failed check wakes me up so I can investigate.",
@@ -109,7 +109,7 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
         case .team:
             return [Self.reply(bot.sampleDecision?.receipt ?? "Legal is on the team. The Payments proposal is in Needs Attention because the role handles invoices.")]
         }
-        guard let teammate else { return [response] }
+        guard let teammate else { return [Self.reply("The teammate for this step is no longer in the sample workspace.")] }
         teammate.messages.append(AppOnlyLine.line(HerdrMessageLine.sent.render(bot.name, teammate.name, request)))
         teammate.messages.append(.init(role: .assistant, content: response.content))
         response.authorID = teammate.id
@@ -122,7 +122,7 @@ enum SampleWalkthrough: String, Codable, CaseIterable {
         case .checks, .team:
             return Self.reply(bot.sampleDecision?.receipt ?? (self == .team ? "Review the Payments proposal here or in Needs Attention." : "Scout has reviewed the importer tests. You can now decide whether Patch runs them."))
         case .brief:
-            let body = "The sample build passed verification.\n\nThe rename finished in 41 seconds. The tests helper is " + (testsRunning ? "working." : "stopped.") + "\n\nNeeds Attention has \(pending) pending items."
+            let body = "The sample build passed verification.\n\nThe rename finished in 41 seconds. The tests helper is " + (testsRunning ? "working." : "stopped.") + "\n\nNeeds Attention has \(pending) pending \(pending == 1 ? "item" : "items")."
             let row = Self.reply("I saved the morning brief in the sample workspace’s Pages.")
             let page = HerdrClient.RoutinePage(id: 1, revision: bot.messages.compactMap { $0.publishedResults?.items.first?.revision }.max().map { $0 + 1 } ?? 1,
                                                title: Self.briefTitle, excerpt: body)

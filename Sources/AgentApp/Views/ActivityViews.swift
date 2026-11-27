@@ -91,8 +91,11 @@ struct ActivityRow: View {
                 Text(preview).font(.caption.monospaced()).foregroundStyle(AppColor.mark).lineLimit(1).truncationMode(.middle)
             }
         } else if let shown, let summary = ActivityCopy.summary(shown, since: range == nil ? message.createdAt : shown.steps.first?.startedAt ?? message.createdAt) {
-            Text(summary).monospacedDigit()
+            Text(summary).monospacedDigit().fixedSize()
             if shown.steps.contains(where: \.failed) { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(AppColor.caution) }
+            if !expanded, let command = ActivityCopy.lastCommand(in: shown) {
+                Text(verbatim: command).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+            }
         }
     }
 }
