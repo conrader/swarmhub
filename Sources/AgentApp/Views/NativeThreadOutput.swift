@@ -109,6 +109,12 @@ struct NativeThreadOutput: View {
         if let error = actionError ?? readError { Text(error).font(.callout).foregroundStyle(.secondary) }
     }
 
+    private func media(for child: HerdrClient.NativeThread, reply: String) -> HelperReplyMedia {
+        .init(server: server, core: core, agent: owner,
+              entry: [runtime.rawValue, thread, String(child.createdMs),
+                      child.completedMs.map(String.init) ?? "", reply])
+    }
+
     @ViewBuilder private func conversation(for child: HerdrClient.NativeThread) -> some View {
         let details = activity?.details
         let assignment = HelperAssignment.readable(details?.task ?? "") ?? HelperAssignment.readable(child.task)
@@ -120,7 +126,7 @@ struct NativeThreadOutput: View {
             }
         }
         let reply = visibleState == activity?.state ? details?.reply ?? child.reply : child.reply
-        if !reply.isEmpty { HelperChatLine(name: child.name, text: reply, incoming: true) }
+        if !reply.isEmpty { HelperChatLine(name: child.name, text: reply, incoming: true, media: media(for: child, reply: reply)) }
         else if visibleState == "working" { ProgressView("Working…").controlSize(.small) }
         if let steps = details?.steps, !steps.isEmpty {
             DisclosureGroup(steps.count == 64 ? "Latest 64 steps" : "Steps (\(steps.count))", isExpanded: $expandSteps) {
@@ -164,7 +170,7 @@ struct NativeThreadOutput: View {
                 default: Text("No reply recorded.").foregroundStyle(.secondary)
                 }
             } else {
-                NativeSessionReply(text: reply)
+                NativeSessionReply(text: reply, media: media(for: child, reply: reply))
             }
             if let terminal = details?.terminal {
                 VStack(alignment: .leading, spacing: 4) {
@@ -289,10 +295,11 @@ struct NativeThreadOutput: View {
 
 struct NativeSessionReply: View {
     let text: String
+    var media: HelperReplyMedia?
     @StateObject private var message = ChatMessage(role: .assistant, content: "")
 
     var body: some View {
-        MarkdownContent(message: message).textSelection(.enabled)
+        MarkdownContent(message: message, helperMedia: media).textSelection(.enabled)
             .onChange(of: text, initial: true) { _, value in message.content = value }
     }
 }

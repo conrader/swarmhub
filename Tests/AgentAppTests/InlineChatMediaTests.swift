@@ -144,3 +144,15 @@ import Testing
     #expect(try await cache.localFile(reopened, message: reply.id, storeURL: storeURL) == saved)
     await #expect(throws: (any Error).self) { try await cache.localFile(source, message: UUID(), storeURL: storeURL) }
 }
+
+@Test func helperReplyMediaKeepsSessionAndJournalEntriesSeparate() {
+    let server = HerdrServer(id: "workspace", name: "Mac", kind: .local, address: HerdrServer.loopback(port: 8787))
+    func key(core: String = "core", created: UInt64 = 1, entry: [String] = ["managed", "2"]) -> UUID {
+        HelperReplyMedia(server: server, core: core, agent: .init(address: "helper", createdMs: created), entry: entry).replyID
+    }
+    #expect(key() == key())
+    #expect(key() != key(core: "next"))
+    #expect(key() != key(created: 2))
+    #expect(key() != key(entry: ["managed", "3"]))
+    #expect(key(entry: ["ab", "c"]) != key(entry: ["a", "bc"]))
+}
