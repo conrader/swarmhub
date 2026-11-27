@@ -188,7 +188,7 @@ struct WorkspaceActivityView: View {
     private var sections: [ActivitySection] {
         WorkspaceActivityItem.Section.allCases.compactMap { section in
             let rows = items.filter { row in
-                if attentionOnly, section == .attention, case .bot(let bot) = row.chat, bot.pendingSampleReview != nil { return false }
+                if attentionOnly, section == .attention, case .bot(let bot) = row.chat, row.detail == bot.sampleReview?.title { return false }
                 return row.section == section
             }
             return rows.isEmpty ? nil : ActivitySection(id: section, rows: rows)
@@ -244,7 +244,13 @@ struct WorkspaceActivityView: View {
             HStack {
                 if attentionOnly && store.sidebarHidden { ShowSidebarItem() }
                 if attentionOnly {
-                    Label("Inbox", systemImage: "tray").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                    HStack(spacing: 8) {
+                        Image(systemName: "tray").foregroundStyle(.tint).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Needs Attention").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                            Text("Approvals, proposals and failed checks across your bots").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 } else {
                     Text("Activity").font(.title2.bold()).accessibilityAddTraits(.isHeader)
                 }
