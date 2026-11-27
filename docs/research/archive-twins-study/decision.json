@@ -1,0 +1,40 @@
+{
+  "decision": "retain_baseline",
+  "screen": {
+    "advance": false,
+    "candidate_preservation_failures": 0,
+    "cases": {
+      "gpt-6.2-astra": {
+        "archive_twins": {
+          "baseline": {
+            "passed": 2,
+            "trials": 2
+          },
+          "guided": {
+            "passed": 2,
+            "trials": 2
+          }
+        }
+      }
+    },
+    "metrics": {
+      "baseline": {
+        "median_seconds": 29.25,
+        "median_tool_calls": 3.5,
+        "passed": 2,
+        "timeouts": 0,
+        "trials": 2
+      },
+      "guided": {
+        "median_seconds": 28.8,
+        "median_tool_calls": 3.5,
+        "passed": 2,
+        "timeouts": 0,
+        "trials": 2
+      }
+    },
+    "paired": {
+      "tie": 2
+    }
+  }
+}

@@ -218,3 +218,5 @@ To check terminal scaling, run the private window against a real workspace and H
 ```sh
 /usr/bin/python3 Tests/Scripts/terminal-preview-window.py /Applications/SwarmHub.app /path/to/swarmhub-herdr /path/to/herdr-core
 ```
+
+For paired live-model trials that check completed work, scoped consent, protected files and reply delivery, see the [task effectiveness study](research/task-effectiveness.md).
