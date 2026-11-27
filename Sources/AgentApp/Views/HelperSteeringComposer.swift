@@ -33,6 +33,11 @@ struct HelperSteeringComposer: View {
         }.padding(12).background(AppColor.card, in: RoundedRectangle(cornerRadius: 12))
             .padding(.horizontal, 18).padding(.vertical, 8).frame(maxWidth: 768)
             .onAppear { focused = true }
+            .task(id: store.composerFocus) {
+                guard store.composerFocus == chatID else { return }
+                focused = true
+                store.composerFocus = nil
+            }
     }
 
     private func submit() { rejected = !store.submitHelperSteering(in: chatID) }

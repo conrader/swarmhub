@@ -137,7 +137,11 @@ struct ComposerView: View {
                 slashMenu.reset()
                 if draft != noticeDraft { commandNotice = nil }
             }
-            .onAppear(perform: takeFocus).onChange(of: wantsFocus) { _, _ in takeFocus() }
+            .task(id: wantsFocus) {
+                guard wantsFocus else { return }
+                focused = true
+                tookFocus()
+            }
     }
 
     /// The draft, sized by a hidden copy of its text (wrapped lines included): one line fills a 28 pt slot with the line
@@ -194,13 +198,6 @@ struct ComposerView: View {
             if commandNotice == nil || command == .status { text = "" }
         }
         noticeDraft = text
-    }
-
-    /// The window that asked (the setup wizard) is still closing, and a field only takes the keyboard in the key
-    /// window, so the request is answered a moment later.
-    private func takeFocus() {
-        guard wantsFocus else { return }
-        Task { @MainActor in try? await Task.sleep(for: .milliseconds(300)); focused = true; tookFocus() }
     }
 
     /// Intercept menu keys before NSTextView uses them for caret movement, tabbing

@@ -86,7 +86,6 @@ final class HandoffBridge: @unchecked Sendable {
         let (host, session) = MockHTTPProtocol.serve { [self] in answer($0) }
         var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
         client.following = .polling; client.pollInterval = .milliseconds(2); client.agentCheckInterval = .milliseconds(5)
-        client.busyWaitLimit = .seconds(2)
         return client
     }
 
@@ -241,7 +240,6 @@ final class HandoffBridge: @unchecked Sendable {
     store.saveHerdrServer(HerdrServer(id: HerdrServer.defaultID, name: "Test", kind: .address, address: client.baseURL.absoluteString), token: "t")
     store.herdrClientSetup = { made in
         made.session = client.session; made.following = .polling; made.pollInterval = client.pollInterval; made.agentCheckInterval = client.agentCheckInterval
-        made.busyWaitLimit = client.busyWaitLimit
     }
     let bot = Bot(id: botID, name: "Ada", backend: .herdr)
     store.bots = [bot]; store.selectedBot = bot

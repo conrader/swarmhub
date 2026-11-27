@@ -220,7 +220,7 @@ func nextMessageWaitsForCoreAfterThePreviousReplyIsSaved(provider: String) async
     #expect((turn.steerReference != nil) == (provider == "Codex"))
 }
 
-@Test(arguments: ["replaced", "blocked", "lost status", "timeout"])
+@Test(arguments: ["replaced", "blocked", "lost status", "deferred"])
 func busyDeliveryNeverPostsOnAnUnconfirmedSession(outcome: String) async throws {
     let first = LockedValue(true)
     let (host, session) = MockHTTPProtocol.serve { _ in
@@ -231,10 +231,14 @@ func busyDeliveryNeverPostsOnAnUnconfirmedSession(outcome: String) async throws 
     }
     var client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "fixture", session: session)
     client.agentCheckInterval = .milliseconds(1)
-    if outcome == "timeout" { client.busyWaitLimit = .zero }
+    let sender = client
     do {
-        _ = try await client.deliver("Next question", name: "bot", template: nil)
+        _ = try await HerdrClient.$queueWhenBusy.withValue(outcome == "deferred") {
+            try await sender.deliver("Next question", name: "bot", template: nil)
+        }
         Issue.record("The workspace did not confirm the original session was ready")
+    } catch let busy as HerdrClient.BusySession {
+        #expect(outcome == "deferred" && busy.core == "c" && busy.ref == .init(address: "p", createdMs: 1))
     } catch let failure as HerdrClient.Failure {
         if outcome == "blocked" { #expect(failure == .waitingAtPrompt) }
         else if case .notDelivered = failure {} else { Issue.record("Unexpected failure: \(failure)") }

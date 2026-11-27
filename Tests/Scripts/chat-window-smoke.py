@@ -505,6 +505,36 @@ def steer_reopen(source_app):
         print("Verified reply order, unread badges for pinned and unpinned chats, helper navigation and offline relaunch.")
 
 
+def sidebar_focus(source_app):
+    import Quartz
+
+    bots = [dict(id=str(uuid.uuid4()), name=name, backend="Mock") for name in ("WriterQA", "PinnedQA")]
+    with private_workspace(source_app) as (app, home, store):
+        store.write_text(json.dumps(dict(version=2, bots=bots, groups=[], sidebar=dict(pinned=[bots[1]["id"]]))))
+        with open_workspace(app, home) as window:
+            pid = ax.AXUIElementGetPid(window, None)[1]
+
+            def focused_draft():
+                return next((attribute(e, "AXValue") for e in descendants(window)
+                             if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message"
+                             and attribute(e, "AXFocused")), None)
+
+            def type_text(text):
+                for down in (True, False):
+                    key = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+                    Quartz.CGEventKeyboardSetUnicodeString(key, len(text), text)
+                    Quartz.CGEventPostToPid(pid, key)
+
+            for name, before, typed in [("WriterQA", "", "alpha"), ("PinnedQA", "", "beta"),
+                                        ("WriterQA", "alpha", ""), ("WriterQA", "alpha", "")]:
+                press(window, name, sidebar=True)
+                wait_for(name + " composer automatically focused", lambda: any(label(b) == name for b in buttons(window)) and focused_draft() == before)
+                if typed:
+                    type_text(typed)
+                    wait_for(name + " received keystrokes", lambda: focused_draft() == typed)
+            print("Verified typing directly after selecting ordinary and pinned bots, reselecting a bot, and restoring its draft.")
+
+
 def workspace_activity(source_app):
     import Quartz
 
@@ -2125,6 +2155,8 @@ if __name__ == "__main__":
         live_terminals(Path(sys.argv[2]).resolve(strict=True), long_sidebar=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
         live_terminals(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--sidebar-focus":
+        sidebar_focus(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
         workspace_activity(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--window-unread":
@@ -2140,4 +2172,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")

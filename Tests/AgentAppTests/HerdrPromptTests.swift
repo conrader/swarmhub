@@ -56,8 +56,8 @@ private final class PromptBridge: @unchecked Sendable {
 
     private let blocked = HerdrTurnStatus.blocked(program: "Agent One")
 
-    @Test(arguments: [false, true])
-    func promptRetainsBothMessagesInOrderThroughReopen(retryFirst: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func promptRetainsBothMessagesInOrderThroughReopen(retryFirst: Bool, busy: Bool) async throws {
         let source = temporaryStore(), first = ScriptedTurnBackend(steerless: true)
         let (original, bot) = steerStore(first, url: source)
         let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
@@ -69,8 +69,12 @@ private final class PromptBridge: @unchecked Sendable {
         #expect(original.send(text: "First"))
         try await first.calls.wait { $0.contains("send:First") }
         #expect(original.send(text: "Second"))
-        await first.fail(HerdrClient.Failure.waitingAtPrompt)
+        if busy {
+            bridge.move()
+            await first.fail(HerdrClient.BusySession(core: "c", ref: .init(address: "t7", createdMs: 9)))
+        } else { await first.fail(HerdrClient.Failure.waitingAtPrompt) }
         try await waitUntil { !original.anyTurnRunning }
+        #expect(original.errorMessage == nil)
         #expect(original.turns.nextMessages.map(\.bubble.content) == ["First", "Second"])
         #expect(bot.messages.filter { $0.role == .assistant }.map(\.id) == [older.id])
         original.turns.nextMessages = []
@@ -83,7 +87,7 @@ private final class PromptBridge: @unchecked Sendable {
         }
         var restored = reopen()
         restored.resumeRestoredNextMessages()
-        try await bridge.workspaceReads.wait { $0.contains("blocked") }
+        try await bridge.workspaceReads.wait { $0.contains(busy ? "working" : "blocked") }
         #expect(next.calls.all.isEmpty && restored.turns.nextMessages.count == 2)
         bridge.ready()
         try await next.calls.wait { $0.contains("send:First") }
