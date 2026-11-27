@@ -292,8 +292,10 @@ extension AppStore {
                 }
             }
             slot.backend = activeBackend
-            end = await streamChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: systemPrompt,
-                                       backend: activeBackend, token: token, files: files)
+            end = await HerdrClient.$queueWhenBusy.withValue(conversation === bot && slot.goalAttempt == nil) {
+                await streamChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images,
+                                     systemPrompt: systemPrompt, backend: activeBackend, token: token, files: files)
+            }
             if Task.isCancelled { end = .stoppedByUser }
             guard let delay = sendRetryDelay(after: end, failures: sendFailures), isCurrent(token) else { break }
             if slot.goalAttempt != nil { slot.backend = nil }
@@ -313,21 +315,27 @@ extension AppStore {
            let goal = bot.goal, goal.stepSpending?.attempt == attempt {
             await recordGoalStepCost(in: bot, goalID: goal.id, iteration: goal.iteration)
         }
-        let waitingAtPrompt: Bool
+        let waitReason: String?
         switch end {
-        case .error(HerdrClient.Failure.waitingAtPrompt), .error(HerdrClient.Failure.signInRequired): waitingAtPrompt = true
-        default: waitingAtPrompt = false
+        case .error(HerdrClient.Failure.waitingAtPrompt), .error(HerdrClient.Failure.signInRequired): waitReason = TurnWaitCopy.atPrompt
+        case .error(is HerdrClient.BusySession): waitReason = TurnWaitCopy.busy
+        default: waitReason = nil
         }
-        if waitingAtPrompt, isCurrent(token),
+        if let waitReason, isCurrent(token),
            !slot.stopping, conversation === bot, slot.goalAttempt == nil,
            let userID = assistant.metadata[TurnKey.forUser], let user = bot.messages.first(where: { $0.id.uuidString == userID }),
            assistant.content.isEmpty, assistant.deliveryReceipt == nil,
            let assistantIndex = bot.messages.firstIndex(where: { $0 === assistant }) {
             bot.messages.remove(at: assistantIndex)
+            if case .error(let busy as HerdrClient.BusySession) = end {
+                user.metadata[TurnWaitCopy.busyCore] = busy.core
+                user.metadata[TurnWaitCopy.busyAddress] = busy.ref.address
+                user.metadata[TurnWaitCopy.busyCreated] = String(busy.ref.createdMs)
+            }
             user.metadata[TurnWaitCopy.promptServer] = sendServerID
             // This request already reached dispatch. Requeue it ahead of its followers without linking it to itself.
             let predecessor: QueuePredecessor = tracksPredecessor(of: user, in: bot) ? .independent : .conversation
-            if waitForTurn(user, in: bot, reason: TurnWaitCopy.atPrompt, predecessor: predecessor, keepOnFailure: true) {
+            if waitForTurn(user, in: bot, reason: waitReason, predecessor: predecessor, keepOnFailure: true) {
                 endTurn(token)
                 if case .error(HerdrClient.Failure.signInRequired(let agent, let program)) = end {
                     showSignIn(for: bot, in: nil, agent: agent, program: program)
@@ -335,7 +343,7 @@ extension AppStore {
                 sendQueuedNextMessage()
                 return
             }
-            user.metadata[TurnWaitCopy.promptServer] = nil
+            TurnWaitCopy.clearDestination(of: user)
             bot.messages.insert(assistant, at: min(assistantIndex, bot.messages.count))
         }
         let waitingForPerson = slot.goalAttempt != nil && herdrWaits(bot).waits

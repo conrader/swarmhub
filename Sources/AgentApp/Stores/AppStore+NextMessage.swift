@@ -177,10 +177,19 @@ extension AppStore {
                   workspace.core != nil, herdrServer(for: bot) == server,
                   turns.nextMessages.contains(where: { $0.id == next.id }) else { return }
             let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
-            if let agent = client.liveAgent(named: name, in: workspace) {
+            let agent = client.liveAgent(named: name, in: workspace)
+            if let core = next.bubble.metadata[TurnWaitCopy.busyCore],
+               core != workspace.core || next.bubble.metadata[TurnWaitCopy.busyAddress] != agent?.address
+                || next.bubble.metadata[TurnWaitCopy.busyCreated] != agent.map({ String($0.createdMs) }) {
+                turns.nextMessages.removeAll { $0.id == next.id }
+                giveBack(next)
+                save()
+                return
+            }
+            if let agent {
                 guard agent.status?.state == "idle" || agent.status?.state == "done" else { return }
             }
-            next.bubble.metadata[TurnWaitCopy.promptServer] = nil
+            TurnWaitCopy.clearDestination(of: next.bubble)
         }
     }
 
@@ -287,6 +296,13 @@ enum TurnWaitCopy {
     static let recipients = "queuedRecipientIDs"
     static let key = "turnWait"
     static let promptServer = "waitingAtPromptServer"
+    static let busy = "Queued until the bot finishes its current task."
+    static let busyCore = "waitingForCore"
+    static let busyAddress = "waitingForAgent"
+    static let busyCreated = "waitingForLaunch"
+    static func clearDestination(of bubble: ChatMessage) {
+        for key in [promptServer, busyCore, busyAddress, busyCreated] { bubble.metadata[key] = nil }
+    }
     static let atPrompt = "Queued until the terminal is ready."
     static let afterAnswer = "Queued as the next message after this answer."
     static let cancelled = "Queued send cancelled. You can send this message again."

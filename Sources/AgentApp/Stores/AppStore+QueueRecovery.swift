@@ -252,7 +252,7 @@ extension AppStore {
         case .turn:
             // The explicit resend action keeps this text available and out of subsequent model history.
             if next.predecessor != .conversation { next.bubble.metadata[SteerKey.steer] = "failed" }
-            next.bubble.metadata[TurnWaitCopy.promptServer] = nil
+            TurnWaitCopy.clearDestination(of: next.bubble)
             endWait(next.bubble, in: next.conversation)
             addWarning(warning, in: next.conversation, after: next.bubble)
         }

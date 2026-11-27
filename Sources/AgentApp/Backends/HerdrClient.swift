@@ -251,7 +251,13 @@ struct HerdrClient: Sendable {
     var agentCheckInterval: Duration = .seconds(2)
     /// Retry budget for reading a turn the workspace already accepted. Its command is never submitted again.
     var reconnectLimit: Duration = .seconds(120)
-    var busyWaitLimit: Duration = .seconds(300)
+    /// Direct chat can park its unsent message in the durable queue, including during model preparation.
+    @TaskLocal static var queueWhenBusy = false
+    struct BusySession: LocalizedError {
+        let core: String
+        let ref: AgentRef
+        var errorDescription: String? { "The bot is finishing its current task." }
+    }
     /// Runs before every request. A server reached over SSH opens its port forward here when it is not up
     /// (`HerdrTunnels.ensure`) and returns its current loopback port.
     var prepare: (@Sendable () async throws -> Int)? = nil
@@ -439,8 +445,8 @@ struct HerdrClient: Sendable {
 
     private func waitForIdle(_ agent: Agent, name: String, core: String?, status: @Sendable (HerdrTurnStatus) -> Void) async throws -> (workspace: Workspace, agent: Agent) {
         status(.waitingForIdle)
-        let deadline = ContinuousClock.now + busyWaitLimit
-        while ContinuousClock.now < deadline {
+        if Self.queueWhenBusy, let core { throw BusySession(core: core, ref: agent.ref) }
+        while true {
             try await Task.sleep(for: agentCheckInterval)
             let current = try await workspace()
             guard core == current.core, let live = liveAgent(named: name, in: current), live.ref == agent.ref else {
@@ -453,7 +459,6 @@ struct HerdrClient: Sendable {
             default: throw Failure.notDelivered("The workspace could not confirm the session was ready.")
             }
         }
-        throw Failure.notDelivered("The workspace session is still busy.")
     }
 
     /// What became of a start ahead of time.
