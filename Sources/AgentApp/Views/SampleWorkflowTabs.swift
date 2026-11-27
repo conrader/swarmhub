@@ -8,8 +8,7 @@ struct SampleWorkflowTabs: View {
     @Binding var previewColorScheme: ColorScheme?
 
     private var selectedStory: SampleWalkthrough? {
-        if store.showOnlyAttention { return nil }
-        if store.openHerdrHelper?.botID == bot.id { return .team }
+        if store.showOnlyAttention || store.openHerdrHelper?.botID == bot.id { return nil }
         return bot.sampleWalkthrough?.story
     }
 
@@ -17,7 +16,10 @@ struct SampleWorkflowTabs: View {
         HStack(spacing: 12) {
             LibraryFlow(spacing: 4) {
                 storyButton(.release)
-                tab("Inbox & approvals", selected: store.showOnlyAttention) { store.showOnlyAttention = true }
+                tab("Inbox & approvals", selected: store.showOnlyAttention) {
+                    store.inspectorTerminal = nil
+                    store.showOnlyAttention = true
+                }
                 storyButton(.checks)
                 storyButton(.brief)
                 storyButton(.team)

@@ -611,13 +611,15 @@ def sample_stories(source_app):
                 def has_button(name):
                     return any(label(b) == name for b in buttons(window))
 
-                def pick_story(title):
-                    press(window, title)
-
                 if not reopened:
                     wait_for("sample entry", lambda: has_button("Look around with sample bots"))
                     press(window, "Look around with sample bots")
                     wait_for("release opening", lambda: has_button("Hand off to Scout") and present("Step 1 of 3"))
+                    workflows = ["Release notes", "Inbox & approvals", "CI & reviewer bot", "Routines & brief", "Team & helpers"]
+                    assert [label(b) for b in buttons(window) if label(b) in workflows] == workflows
+                    press(window, "Inbox & approvals")
+                    wait_for("review inbox", lambda: has_button("Allow once"))
+                    press(window, "Release notes")
                     press(window, "Hand off to Scout")
                     def received_handoff():
                         sample = {b.get("sampleRole"): b for b in json.loads(store.read_text())["bots"]}
@@ -636,20 +638,20 @@ def sample_stories(source_app):
                 wait_for("local approval receipt", lambda: present("Release notes approved in this sample."))
                 press(window, "Replay walkthrough")
                 wait_for("replay", lambda: has_button("Hand off to Scout"))
-                pick_story("CI & reviewer bot")
+                press(window, "CI & reviewer bot")
                 wait_for("CI opening", lambda: has_button("Review the failing check"))
                 press(window, "Review the failing check")
                 press(window, "Review the test command")
                 wait_for("local command approval", lambda: has_button("Allow once"))
                 press(window, "Allow once")
                 wait_for("command receipt", lambda: present("28 tests passed"))
-                pick_story("Team & helpers")
+                press(window, "Team & helpers")
                 wait_for("Jarvis story", lambda: has_button("Review the new roles"))
                 press(window, "Review the new roles")
                 press(window, "Open the Payments proposal")
                 press(window, "Not now")
                 wait_for("proposal dismissed", lambda: present("Payments proposal dismissed"))
-                pick_story("Routines & brief")
+                press(window, "Routines & brief")
                 wait_for("brief opening", lambda: has_button("Gather server status"))
                 press(window, "Gather server status")
                 press(window, "Read the morning brief")

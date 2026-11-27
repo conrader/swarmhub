@@ -5,6 +5,7 @@ import SwiftUI
 /// list), a Herdr bot's helper agents nested under it, then a quiet "Hidden chats" disclosure, and a bottom bar with the user's initial and a Settings pill. P47: Connect apps sits on its
 /// own row directly above that bar (beside it, the Settings pill would truncate in a 240 pt sidebar).
 struct SidebarView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var store: AppStore
     @Environment(\.openWindow) private var openWindow
     @Binding var selection: Bot?
@@ -139,6 +140,7 @@ struct SidebarView: View {
                     Text(UserIdentity.initial(of: accountName)).font(.system(size: 12, weight: .bold)).foregroundStyle(AppColor.onAccent)
                         .frame(width: 22, height: 22).background(Circle().fill(.tint))
                     Text("Settings").font(.system(size: 13, weight: .medium)).fixedSize()
+                        .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
                 }.padding(.leading, 5).padding(.trailing, 9)
                     .frame(height: SidebarMetrics.roundButton).glassSurface(in: Capsule(), interactive: true, fallback: Color.primary.opacity(0.08), border: Color.clear).contentShape(Capsule())
             }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
