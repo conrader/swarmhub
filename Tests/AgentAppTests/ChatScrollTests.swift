@@ -117,3 +117,32 @@ import Testing
     #expect(ChatVisibleRows(start: -400, bottom: 600, height: 550).tailMovedOutOfView(since: original))
     #expect(!ChatVisibleRows(start: -368, bottom: 632, height: 600).tailMovedOutOfView(since: original))
 }
+
+@MainActor @Test func openingASampleWorkflowKeepsEarlierMessagesReachable() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    store.loadSamples()
+    store.showSampleStory(.team)
+    let bot = try #require(store.selectedBot)
+    let request = try #require(store.scrollTarget)
+    let initial = bot.messages.map(\.id)
+    let viewport = ChatViewport()
+    viewport.show(bot.id, order: initial, model: store.chatScroll)
+    await viewport.reveal(request, in: store)
+    #expect(viewport.range == (initial.count - 2)..<initial.count)
+    store.advanceSampleStory(in: bot, from: try #require(bot.sampleWalkthrough))
+    viewport.show(bot.id, order: bot.messages.map(\.id), model: store.chatScroll)
+    viewport.arrived(1)
+    #expect(viewport.range.lowerBound == initial.count - 2)
+    viewport.earlier()
+    #expect(viewport.range.contains(0))
+    store.showSampleStory(.team)
+    #expect(bot.sampleWalkthrough?.step == .opening && bot.messages.prefix(initial.count).map(\.id) == initial)
+    viewport.show(bot.id, order: bot.messages.map(\.id), model: store.chatScroll)
+    await viewport.reveal(store.scrollTarget, in: store)
+    #expect(viewport.range.count == 2)
+    viewport.jump(to: initial[0])
+    #expect(viewport.range.contains(0))
+    let count = bot.messages.count
+    store.showSampleStory(.team)
+    #expect(bot.messages.count == count)
+}

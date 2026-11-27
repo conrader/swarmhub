@@ -143,16 +143,28 @@ extension AppStore {
     func showSampleStory(_ story: SampleWalkthrough) {
         guard let owner = bots.first(where: { !$0.isHidden && $0.sampleProfile != nil && $0.sampleRole == story.owner }) else { return }
         open(owner)
-        if owner.sampleWalkthrough?.story != story { beginSampleStory(story, in: owner) }
+        beginSampleStory(story, in: owner)
     }
 
-    func beginSampleStory(_ story: SampleWalkthrough, in bot: Bot) {
+    private func beginSampleStory(_ story: SampleWalkthrough, in bot: Bot) {
         guard bot.sampleProfile != nil, bot.sampleRole == story.owner else { return }
-        bot.sampleWalkthrough = .init(run: UUID(), story: story, step: .opening)
-        bot.messages.append(contentsOf: story.opening())
-        updateSampleGoal(in: bot)
+        let opening = story.opening()
+        let recent = bot.messages.suffix(opening.count)
+        let first: ChatMessage
+        if bot.sampleWalkthrough?.story == story, bot.sampleWalkthrough?.step == .opening,
+           recent.elementsEqual(opening, by: { $0.role == $1.role && $0.content == $1.content }),
+           let existing = recent.first {
+            first = existing
+        } else {
+            guard let new = opening.first else { return }
+            first = new
+            bot.sampleWalkthrough = .init(run: UUID(), story: story, step: .opening)
+            bot.messages.append(contentsOf: opening)
+            updateSampleGoal(in: bot)
+            save()
+        }
         chatScroll.toBottom(bot.id)
-        save()
+        scrollTarget = ChatMessageLocation(conversation: bot.id, walkthrough: first.id)
     }
 
     func advanceSampleStory(in bot: Bot, from position: SampleWalkthrough.Position) {
