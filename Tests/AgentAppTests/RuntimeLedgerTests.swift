@@ -5,9 +5,11 @@ import Testing
 
 /// A journal that refuses every write, like a full disk.
 @MainActor final class RejectingRuntime: RuntimeStoring {
+    private let readable: (any RuntimeStoring)?
+    init(reading readable: (any RuntimeStoring)? = nil) { self.readable = readable }
     func put<T: Encodable>(_ value: T, kind: String, id: String) throws { throw BackendError.unavailable("fixture disk-full") }
     func putMany<T: Encodable>(_ values: [(id: String, value: T)], kind: String) throws { throw BackendError.unavailable("fixture disk-full") }
-    func records<T: Decodable>(_ type: T.Type, kind: String) throws -> [T] { [] }
+    func records<T: Decodable>(_ type: T.Type, kind: String) throws -> [T] { try readable?.records(type, kind: kind) ?? [] }
 }
 
 @MainActor struct RuntimeLedgerTests {

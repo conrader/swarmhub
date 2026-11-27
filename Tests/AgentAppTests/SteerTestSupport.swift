@@ -40,7 +40,10 @@ actor ScriptedTurnBackend: AgentBackend {
         if case .serverRun(let run) = target { calls.append("stop:\(run)") }
         return .requested
     }
-    func cancel(sessionID: String) async throws -> StopOutcome { .requested }
+    func cancel(sessionID: String) async throws -> StopOutcome {
+        calls.append("cancel:\(sessionID)")
+        return .requested
+    }
     func testConnection() async throws -> String { "ok" }
 
     /// Yields to the newest stream (or stream `index`, 1-based).

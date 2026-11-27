@@ -226,7 +226,7 @@ extension AppStore {
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)
-        if outcome.state != .incomplete { assistant.deliveryReceipt = nil }
+        if outcome.state != .incomplete || outcome.why == "error" { assistant.deliveryReceipt = nil }
         assistant.turnState = outcome.state
         assistant.metadata[TurnKey.why] = outcome.state == .finished ? nil : outcome.why
         assistant.metadata[TurnKey.ambiguous] = outcome.ambiguous ? "1" : nil
@@ -325,7 +325,9 @@ extension AppStore {
            let assistantIndex = bot.messages.firstIndex(where: { $0 === assistant }) {
             bot.messages.remove(at: assistantIndex)
             user.metadata[TurnWaitCopy.promptServer] = sendServerID
-            if waitForTurn(user, in: bot, reason: TurnWaitCopy.atPrompt, keepOnFailure: true) {
+            // This request already reached dispatch. Requeue it ahead of its followers without linking it to itself.
+            let predecessor: QueuePredecessor = tracksPredecessor(of: user, in: bot) ? .independent : .conversation
+            if waitForTurn(user, in: bot, reason: TurnWaitCopy.atPrompt, predecessor: predecessor, keepOnFailure: true) {
                 endTurn(token)
                 if case .error(HerdrClient.Failure.signInRequired(let agent, let program)) = end {
                     showSignIn(for: bot, in: nil, agent: agent, program: program)
@@ -343,6 +345,9 @@ extension AppStore {
         }
         endTurn(token)
         if outcome.state == .finished { directReplyArrived(assistant, from: bot) }
+        if launchWorkEnabled, conversation === bot, outcome.state == .incomplete {
+            recoverAcceptedReply(in: bot, row: assistant)
+        }
         save()
         sendQueuedNextMessage()
         // The main bot's decided bots are created, and requests for bots are passed between bots.

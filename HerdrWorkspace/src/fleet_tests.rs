@@ -1862,3 +1862,4 @@ mod outbound_drafts;
 mod outbound_delivery;
 
 mod team_registration;
+mod bot_final_status;

@@ -13,6 +13,7 @@ pub(crate) const USAGE: &str = "Bots (messages to the other bots of this server;
   swarmhub-herdr bot tell NAME TEXT           for its information; no answer comes
   swarmhub-herdr bot handoff NAME TEXT        it takes the work over and reports back when done
   swarmhub-herdr bot reply ID TEXT            answer an ask, or report the result of a hand-off you accepted
+  swarmhub-herdr bot final-status ID TEXT     record one final status for the work of a capped exchange
   swarmhub-herdr bot accept ID                take over the work of a hand-off
   swarmhub-herdr bot decline ID REASON        refuse an ask or a hand-off
   swarmhub-herdr bot job submit KEY -         queue a managed fixture job from JSON on stdin
@@ -65,6 +66,7 @@ pub(crate) enum Ask {
         to: String,
         text: String,
     },
+    FinalStatus { id: i64, text: String },
     Reply {
         id: i64,
         text: String,
@@ -319,6 +321,10 @@ fn parse(
             id: id(rest.first())?,
             text: text(&rest[1..], "Write the answer.")?,
         },
+        ("bot", "final-status") => Ask::FinalStatus {
+            id: id(rest.first()).map_err(|_| "Give a message number from the capped exchange.")?,
+            text: text(&rest[1..], "Summarize the outcome and anything still open.")?,
+        },
         ("bot", "accept") => {
             alone(1)?;
             Ask::Accept {
@@ -480,6 +486,21 @@ mod tests {
         for line in ["completion ack", "completion ack job:0", "completion ack ../job:1",
                      "completion inbox job:1 extra"] {
             assert!(parsed("bot", line).is_err(), "{line}");
+        }
+    }
+
+    #[test]
+    fn final_status_cli_requires_a_message_and_an_explicit_summary() {
+        assert_eq!(ask("bot", "final-status #8 -"), Ask::FinalStatus {
+            id: 8, text: "from stdin".into(),
+        });
+        for line in ["final-status", "final-status 0 summary", "final-status 8"] {
+            assert!(parsed("bot", line).is_err(), "{line}");
+        }
+        for extra in ["work", "from", "to"] {
+            let mut request = serde_json::json!({"op":"final_status","id":8,"text":"done"});
+            request[extra] = "another".into();
+            assert!(serde_json::from_value::<Ask>(request).is_err());
         }
     }
 

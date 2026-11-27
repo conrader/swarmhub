@@ -135,6 +135,46 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     #expect(Set(next.bots.map(\.name)) == ["Boppy", "Jarvis"] && next.storeRestoreOffer == nil)
 }
 
+@Test @MainActor func aRestoredGoalCanRunAfterTwoRelaunchesAndStopsOnceOnRequest() async throws {
+    let (url, defaults) = try setup()
+    let writer = launch(url, defaults)
+    let bot = Bot(name: "Reviewer", backend: .herdr)
+    let goal = ChatGoal(objective: "Review the saved report", destination: writer.goalDestination(for: bot))
+    bot.goal = goal
+    writer.bots = [bot]
+    writer.pendingHerdrEndings = [try #require(writer.herdrEnding(for: bot))]
+    try writer.writeStore()
+    try FileManager.default.moveItem(at: url, to: url.appendingPathExtension("backup"))
+
+    let backend = TestBackend(streamMode: .longRunning)
+    func reopen() -> AppStore {
+        let store = AppStore(storeURL: url, autoStart: true, backendFactory: { _ in backend },
+                             keyStore: InMemoryKeyStore(), defaults: defaults)
+        store.herdrClientSetup = { $0.session = UnreachableProtocol.session }
+        return store
+    }
+    var store = reopen()
+    try #require(store.restoreSetAsideStore())
+    store.startLaunchWork(makeConnectivity: { nil })
+    for _ in 0..<2 {
+        store = reopen()
+        store.startLaunchWork(makeConnectivity: { nil })
+        #expect(store.pendingHerdrEndings.isEmpty)
+        #expect(store.selectedBot?.goal?.state == .waiting)
+    }
+    let restored = try #require(store.selectedBot)
+    #expect(restored.id == bot.id && restored.goal?.id == goal.id)
+    #expect(backend.calls.all.isEmpty)
+    store.resumeGoal(in: restored)
+    try #require(restored.goal?.state == .running)
+    try await backend.calls.wait { $0.contains("send") }
+    try #require(store.handleGoalCommand(.stop, in: restored) == nil)
+    try await waitUntil { store.isIdle(restored) && store.turns.pendingInterrupts[restored.id] == nil }
+    #expect(backend.calls.all == ["send", "capture", "post", "post:run-1"])
+    let saved = try StoreFile.decode(Data(contentsOf: url))
+    #expect(saved.bots.first?.goal?.state == .stopped)
+}
+
 @Test @MainActor func anUnsupportedStoreIsSetAsideWholeWithoutRewritingIt() throws {
     let (url, defaults) = try setup()
     let valid = try JSONEncoder().encode(StoreFile(bots: [Bot(name: "Current", backend: .herdr)], groups: []))

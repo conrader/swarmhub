@@ -74,9 +74,14 @@ extension AppStore {
         }
     }
 
+    func canRecoverSavedReply(_ row: ChatMessage, in bot: Bot) -> Bool {
+        guard let receipt = row.deliveryReceipt, bot.backend == .herdr, !bot.isReadOnlyArchive,
+              receipt.server == herdrServer(for: bot).id, !row.isStreaming else { return false }
+        return row.stopUnconfirmed || (row.turnState == .incomplete && row.metadata[TurnKey.why] != "error")
+    }
+
     func recoverAcceptedReply(in bot: Bot, row: ChatMessage, group: GroupChat? = nil) {
-        guard let receipt = row.deliveryReceipt, !row.checkingSavedReply, !row.isStreaming,
-              row.turnState == .incomplete || row.stopUnconfirmed else { return }
+        guard let receipt = row.deliveryReceipt, !row.checkingSavedReply, canRecoverSavedReply(row, in: bot) else { return }
         row.checkingSavedReply = true
         Task { [weak self, weak bot, weak row] in
             defer {
@@ -98,28 +103,38 @@ extension AppStore {
         let conversation: any Conversation = group as (any Conversation)? ?? bot
         func current() -> Bool {
             if let group, !(groups.contains { $0 === group } && group.memberIDs.contains(bot.id) && row.authorID == bot.id && row.stopUnconfirmed) { return false }
-            return storeRestoreOffer == nil && bots.contains { $0 === bot } && bot.backend == .herdr && !bot.isReadOnlyArchive
-                && herdrServer(for: bot) == server && server.id == receipt.server && conversation.messages.contains { $0 === row }
-                && row.deliveryReceipt == receipt && (row.turnState == .incomplete || row.stopUnconfirmed) && !row.isStreaming
+            return storeRestoreOffer == nil && bots.contains { $0 === bot } && canRecoverSavedReply(row, in: bot)
+                && herdrServer(for: bot) == server && conversation.messages.contains { $0 === row }
+                && row.deliveryReceipt == receipt
         }
+        // A reply can also lose its recovery path while the history read is in flight.
+        defer {
+            if !current(), group == nil, !turns.saveFailing,
+               turns.nextMessages.contains(where: { $0.conversation === bot && $0.predecessor != .conversation }) {
+                sendQueuedNextMessage()
+            }
+        }
+        let outcome: HerdrDeliveryReceipt.Outcome
         guard current() else { return false }
         do {
-            let outcome = try await receipt.read(from: herdrClient(for: server))
-            guard current() else { return false }
-            switch outcome {
-            case .waiting: return true
-            case .unresolved: break
-            case .answered(let reply, let results):
-                restoreSavedAnswer(reply, results: results, for: row, in: bot, group: group, serverID: server.id)
-            }
-            row.deliveryReceipt = nil
-            bot.objectWillChange.send()
-            objectWillChange.send()
-            save()
-            return false
+            outcome = try await receipt.read(from: herdrClient(for: server))
+        } catch HerdrClient.Failure.http(let code, _) where code == 404 || code == 410 {
+            outcome = .unresolved
         } catch {
-            return !Task.isCancelled
+            return !Task.isCancelled && current()
         }
+        guard current() else { return false }
+        switch outcome {
+        case .waiting: return true
+        case .unresolved: break
+        case .answered(let reply, let results):
+            restoreSavedAnswer(reply, results: results, for: row, in: bot, group: group, serverID: server.id)
+        }
+        row.deliveryReceipt = nil
+        bot.objectWillChange.send()
+        objectWillChange.send()
+        save()
+        return false
     }
 
     func restoreSavedAnswer(_ reply: HerdrClient.Item, results: [HerdrPublishedResult], for row: ChatMessage,
