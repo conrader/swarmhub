@@ -228,6 +228,10 @@ import SwiftUI
             case "draft": actual = store.helperSteeringDrafts[bot.id]?.text ?? store.drafts.text(for: bot.id)
             case "unread": actual = String(bot.unreadCount)
             case "lastRole": actual = bot.messages.last?.role.rawValue ?? ""
+            case "lastUserText": actual = bot.messages.last(where: { $0.role == .user })?.content ?? ""
+            case "lastUserRequestContains":
+                let text = try field("text")
+                actual = String(bot.messages.last(where: { $0.role == .user })?.modelText.contains(text) == true)
             case "contains":
                 let text = try field("text")
                 actual = String(bot.messages.contains { $0.content.contains(text) })

@@ -33,7 +33,7 @@ Omit `--hunt` to send one JSON object per line on standard input. Wait for the `
 | `details` | `value` = `show` or `hide` | Show or hide chat details |
 | `screen` | `value` = `workspace` or `whatsNew` | Choose the native workspace or release notes pane for capture |
 | `capture` | | Save a PNG of the current screen and return its filename |
-| `expect` | `field`, `value` | Compare selected chat (`selected`), `draft`, `pinned`, `unread` or `lastRole`. Helper checks include `child`, `terminal`, and `visibleChildren`. For `contains` or `terminalContains`, also pass `text` and expect `true` or `false` |
+| `expect` | `field`, `value` | Compare selected chat (`selected`), `draft`, `pinned`, `unread` or `lastRole`. Helper checks include `child`, `terminal`, and `visibleChildren`. Use `lastUserText` for the newest user bubble. For `lastUserRequestContains` (the outbound request), `contains` or `terminalContains`, also pass `text` and expect `true` or `false` |
 | `finding` | `kind` = `bug` or `improvement`, plus `text` | Save an observation with its step number and screenshot |
 
 Under **Patch**, the working **review** session has a child named **citations**. Each row in `state.children` reports its `depth` (starting at zero), `provider`, `hasChildren`, and `expanded`. A folded branch hides its descendants from both `child` and `terminal(id)`. If two visible sessions belong to different providers and have the same id, include `provider` to choose one. **Atlas** has a workspace helper (`helper/4`, provider `workspace`) that owns another provider’s session tree. Open its terminal, read its output, or navigate from a nested thread back to the helper.
