@@ -40,8 +40,7 @@ extension AppStore {
         let origin = PromotedHelper(serverID: native.server.id, core: native.core, session: native.owner, parentID: parent.id,
                                     native: .init(runtime: runtime, id: threadID, awaitingResult: waiting))
         var history: [ChatMessage] = []
-        let task = activity.details?.task ?? child.task
-        if !task.isEmpty {
+        if let task = HelperAssignment.readable(activity.details?.task ?? "") ?? HelperAssignment.readable(child.task) {
             history.append(ChatMessage(role: .user, content: task, metadata: [PromotedHelper.rowKey: "assignment"]))
         }
         if let record = nativeSessionRecord(activity) {
@@ -52,7 +51,7 @@ extension AppStore {
     }
 
     private func nativeSessionRecord(_ activity: HerdrClient.ThreadActivity) -> String? {
-        let transcript = activity.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcript = HelperAssignment.transcript(activity.transcript).trimmingCharacters(in: .whitespacesAndNewlines)
         let reply = activity.details?.reply.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if transcript.isEmpty { return reply.isEmpty ? nil : reply }
         // Some providers keep a longer reply in the details than in their terminal preview.

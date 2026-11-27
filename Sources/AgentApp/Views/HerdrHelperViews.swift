@@ -253,7 +253,7 @@ private struct SidebarNativeThread: View {
         let selected = !store.showOnlyAttention && store.openHerdrHelper?.parent == selection.parent
             && current?.owner == selection.native?.owner && current?.core == selection.native?.core && current?.server == selection.native?.server
             && current?.thread.id == thread.id && current?.thread.provider == thread.provider
-        let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : thread.task
+        let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : (HelperAssignment.readable(thread.task) ?? "")
         let icon: String
         let color: Color
         switch thread.state {
@@ -443,6 +443,8 @@ struct HerdrHelperView: View {
         let helper: HerdrClient.AgentRef?
         let attempt: Int
     }
+    @State private var showDetails = false
+    @State private var expandedSteps = false
     @State private var readAttempt = 0
     @StateObject private var reply: ChatMessage
     @State private var guidance = ""
@@ -513,6 +515,7 @@ struct HerdrHelperView: View {
                     } else if listed == nil, shown != nil {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
+                    if showDetails || closeOverviewDetails != nil {
                     helperPart("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
                         if let task = shown?.task ?? log?.tasks.first?.text, !task.isEmpty {
                             Text(Self.assignment(task)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -555,13 +558,19 @@ struct HerdrHelperView: View {
                                 .accessibilityLabel("Terminal output")
                         }
                     }
+                    } else {
+                        conversation(shown)
+                    }
+                    if closeOverviewDetails == nil {
+                        Button(showDetails ? "Show conversation" : "Session details") { showDetails.toggle() }
+                    }
                     Button(selection.archive == nil ? "Steer via " + bot.name : "Open " + (group?.name ?? bot.name), systemImage: "arrow.right") {
                         if store.beginHelperSteering(selection, of: bot) { closeOverviewDetails?() }
                         else { controlError = "The group session that started this helper is no longer available." }
                     }.buttonStyle(.appleProminent).controlSize(.large).accessibilityIdentifier("helper.steerViaParent")
                     if let shown, listed?.isLive == true && !unavailable && !stopped {
                         VStack(alignment: .leading, spacing: 8) {
-                            if selection.archive == nil {
+                            if selection.archive == nil && (showDetails || closeOverviewDetails != nil) {
                                 HStack {
                                     TextField("Guide this helper through \(bot.name)…", text: $guidance)
                                         .onSubmit { guide(shown) }
@@ -611,6 +620,9 @@ struct HerdrHelperView: View {
                     }
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
             }
+            if !showDetails, closeOverviewDetails == nil, let target = store.steeringTarget(selection, of: bot) {
+                HelperChatComposer(target: target, bot: bot, draft: store.helperChatDrafts[target.id] ?? "").id(target.id)
+            }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .task(id: ReadKey(selection: selection, core: store.herdrHelpers[selection.parent]?.core ?? core,
@@ -648,6 +660,30 @@ struct HerdrHelperView: View {
     }
 
     /// A task can contain shell syntax. Only paired inline code markers change how its text appears.
+    @ViewBuilder private func conversation(_ shown: HerdrClient.Helper?) -> some View {
+        let name = shown?.name ?? "Helper"
+        let history = ((log?.tasks ?? []) + (log?.replies ?? [])).sorted { $0.id < $1.id }
+        if log?.tasks.isEmpty != false, let task = shown?.task {
+            HelperChatLine(name: bot.name, text: task, unavailable: HelperAssignment.readable(task) == nil)
+        }
+        ForEach(history, id: \.id) { item in
+            let incoming = item.kind == "reply"
+            HelperChatLine(name: incoming ? name : bot.name, text: item.text, incoming: incoming,
+                           unavailable: !incoming && HelperAssignment.readable(item.text) == nil)
+        }
+        if shown?.answered != true, let draft = log?.draft, !draft.isEmpty {
+            HelperChatLine(name: name, text: draft, incoming: true)
+        } else if log?.replies.isEmpty != false, let preview = shown?.resultPreview {
+            HelperChatLine(name: name, text: preview, incoming: true)
+        }
+        HelperGuidanceCard(selection: selection, bot: bot)
+        if let tools = log?.tools, !tools.isEmpty {
+            DisclosureGroup("Steps (\(tools.count))", isExpanded: $expandedSteps) {
+                ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) }
+            }
+        }
+    }
+
     static func assignment(_ source: String) -> AttributedString {
         var result = AttributedString()
         var start = source.startIndex

@@ -12,6 +12,8 @@ struct NativeThreadOutput: View {
     var session: HerdrClient.NativeThread? = nil
     var readable = false
     let openedParent: () -> Void
+    @State private var showDetails = false
+    @State private var expandSteps = false
     @State private var activity: HerdrClient.ThreadActivity?
     @State private var listingStateAtRead: String?
     @State private var requestedTurn: String?
@@ -49,12 +51,20 @@ struct NativeThreadOutput: View {
         let observedState = listingState
         return Group {
             if let session {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        cards(for: parent?.child ?? session)
-                        actionLayout
-                        errors
-                    }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            if showDetails { cards(for: parent?.child ?? session) }
+                            else { conversation(for: parent?.child ?? session) }
+                            actionLayout
+                            errors
+                        }.frame(maxWidth: showDetails ? .infinity : 720, alignment: .leading)
+                            .padding(18).frame(maxWidth: .infinity)
+                    }
+                    if !showDetails, let parent, let target = store.steeringTarget(parent.selection, of: parent.bot) {
+                        HelperChatComposer(target: target, bot: parent.bot, draft: store.helperChatDrafts[target.id] ?? "")
+                            .id(target.id)
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
@@ -62,7 +72,7 @@ struct NativeThreadOutput: View {
                     actionLayout
                     errors
                     if let activity {
-                        TerminalTextGrid(output: activity.transcript, scrollback: true, readable: readable)
+                        TerminalTextGrid(output: HelperAssignment.transcript(activity.transcript), scrollback: true, readable: readable)
                     } else if readError == nil { ProgressView("Connecting…") }
                 }
             }
@@ -99,9 +109,31 @@ struct NativeThreadOutput: View {
         if let error = actionError ?? readError { Text(error).font(.callout).foregroundStyle(.secondary) }
     }
 
+    @ViewBuilder private func conversation(for child: HerdrClient.NativeThread) -> some View {
+        let details = activity?.details
+        let assignment = HelperAssignment.readable(details?.task ?? "") ?? HelperAssignment.readable(child.task)
+        HelperChatLine(name: parent?.bot.name ?? "Assignment", text: assignment ?? "", unavailable: assignment == nil)
+        if let parent, let target = store.steeringTarget(parent.selection, of: parent.bot) {
+            let chat = store.groupOwningHelper(parent.selection, of: parent.bot)?.messages ?? parent.bot.messages
+            ForEach(chat.filter { $0.role == .user && $0.metadata[HelperGuidanceKey.route] == target.routeKey }) { row in
+                HelperChatLine(name: "You", text: row.content)
+            }
+        }
+        let reply = visibleState == activity?.state ? details?.reply ?? child.reply : child.reply
+        if !reply.isEmpty { HelperChatLine(name: child.name, text: reply, incoming: true) }
+        else if visibleState == "working" { ProgressView("Working…").controlSize(.small) }
+        if let steps = details?.steps, !steps.isEmpty {
+            DisclosureGroup(steps.count == 64 ? "Latest 64 steps" : "Steps (\(steps.count))", isExpanded: $expandSteps) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                    NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command)
+                }
+            }.font(.callout)
+        }
+    }
+
     @ViewBuilder private func cards(for child: HerdrClient.NativeThread) -> some View {
         let details = activity?.details
-        let task = details?.task ?? child.task
+        let task = HelperAssignment.readable(details?.task ?? "") ?? HelperAssignment.readable(child.task) ?? HelperAssignment.unavailable
         let state = visibleState ?? child.state
         let reply = state == activity?.state ? details?.reply ?? child.reply : child.reply
         helperPart("Task", detail: {
@@ -160,6 +192,9 @@ struct NativeThreadOutput: View {
     }
 
     @ViewBuilder private var controls: some View {
+        if session != nil {
+            Button(showDetails ? "Show conversation" : "Session details") { showDetails.toggle() }
+        }
         if session == nil, let state = visibleState {
             Text(HerdrClient.NativeThread.statusLabel(state)).font(.caption).foregroundStyle(.secondary)
         }
@@ -251,7 +286,7 @@ struct NativeThreadOutput: View {
     }
 }
 
-private struct NativeSessionReply: View {
+struct NativeSessionReply: View {
     let text: String
     @StateObject private var message = ChatMessage(role: .assistant, content: "")
 

@@ -15,11 +15,11 @@ struct ChatGoal: Codable, Equatable {
         let outcome: Outcome
         let evidence: String
 
-        static func read(_ reply: String, for attempt: UUID) -> (report: Self, prose: String)? {
+        static func read(_ reply: String, for attempt: UUID? = nil) -> (report: Self, prose: String)? {
             let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
             let start = text.lastIndex(where: \.isNewline).map { text.index(after: $0) } ?? text.startIndex
             guard let report = try? JSONDecoder().decode(Self.self, from: Data(text[start...].utf8)),
-                  report.iteration == attempt, !report.evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  (attempt == nil || report.iteration == attempt), !report.evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return nil }
             return (report, String(text[..<start]).trimmingCharacters(in: .whitespacesAndNewlines))
         }
@@ -138,6 +138,8 @@ struct ChatGoal: Codable, Equatable {
     var stepLimit: Int?
     var stepProgress: String? { stepLimit.map { "Steps: \(iteration) of \($0)" } }
     var iteration = 0
+    static let interruptedDetail = "SwarmHub closed during this iteration. Check its result before resuming."
+    var interruptedAttempt: UUID?
     var attempt: UUID?
     var detail = ""
     private var stalls = 0
@@ -161,6 +163,7 @@ struct ChatGoal: Codable, Equatable {
 
     mutating func begin() -> UUID {
         let token = UUID()
+        interruptedAttempt = nil
         attempt = token
         if stepSpending?.pending != nil { stepSpending?.attempt = token }
         iteration += 1

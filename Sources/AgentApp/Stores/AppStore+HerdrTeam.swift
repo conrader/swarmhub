@@ -195,8 +195,9 @@ extension AppStore {
                         }
                         TranscriptHistory.insert(row, into: &bot.messages, server: server.id, entry: item.id,
                             followup: followup, journal: item.journal, receivedAt: now())
+                        bot.recoverGoalResult(in: row)
                         if item.unread, !row.isSilent, !showsDirectChat(bot) { bot.unreadCount += 1 }
-                        if item.notify { notifyIfNeeded(bot: bot, message: item.text) }
+                        if item.notify { notifyIfNeeded(bot: bot, message: row.content) }
                         if item.kind == "said", !followup, createsHerdrBots(bot) { herdrReplyEnded(row, from: bot, finished: true) }
                         changed = true
                     }
