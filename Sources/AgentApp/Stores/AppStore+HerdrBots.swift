@@ -56,7 +56,7 @@ extension AppStore {
 
     /// "Main bot of This Mac" for a server's main bot, which wears a star (`HerdrMainBotStar`); nil for every other bot.
     func herdrMainBotLabel(_ bot: Bot) -> String? {
-        guard createsHerdrBots(bot) else { return nil }
+        guard SampleWorkspace.isCoordinator(bot) || createsHerdrBots(bot) else { return nil }
         return "Main bot of \(herdrServer(for: bot).name)"
     }
 

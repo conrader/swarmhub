@@ -31,6 +31,7 @@ import Foundation
         let selection = (store.selectedBot, store.selectedGroup)
         undo.append {
             store.bots = bots
+            store.restoreSampleSessions()
             for (bot, flag) in hidden { bot.isHidden = flag }
             (store.selectedBot, store.selectedGroup) = selection
         }

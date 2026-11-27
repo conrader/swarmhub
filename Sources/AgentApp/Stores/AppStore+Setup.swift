@@ -39,10 +39,11 @@ extension AppStore {
     /// "Look around with sample agents": the demo bots, labelled as samples, removed once a real bot exists.
     func loadSamples() {
         guard !bots.contains(where: \.isDemo) else { bots.filter(\.isDemo).forEach { $0.isHidden = false }; selectVisibleChat(); save(); return }
-        let real = bots
-        loadDemoData()
-        bots += real
-        selectVisibleChat(); save()
+        let team = makeSampleTeam()
+        bots.insert(contentsOf: team.bots, at: 0)
+        restoreSampleSessions()
+        open(team.selected)
+        save()
     }
 
     /// Opens the setup window (its own scene), restarted for this app's state.
@@ -67,6 +68,7 @@ extension AppStore {
         let samples = Set(bots.filter(\.isDemo).map(\.id))
         guard !samples.isEmpty else { return }
         bots.removeAll { samples.contains($0.id) }
+        restoreSampleSessions()
         for group in groups { for id in group.memberIDs where samples.contains(id) { group.removeWorkflowMember(id) } }
         for id in samples { drafts.set("", for: id) }
         if let selected = selectedBot, samples.contains(selected.id) { selectedBot = nil; if selectedGroup == nil { selectVisibleChat() } }

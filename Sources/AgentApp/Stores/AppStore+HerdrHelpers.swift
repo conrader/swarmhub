@@ -643,7 +643,7 @@ extension AppStore {
             noteHerdrReadiness(readiness, watched: current, on: server)
         }
         let bound = Set(current.map(\.id))
-        let remainingBots = Set(bots.filter { $0.backend == .herdr && !$0.isReadOnlyArchive }.map(\.id))
+        let remainingBots = Set(bots.filter { ($0.backend == .herdr && !$0.isReadOnlyArchive) || SampleWorkspace.isCoordinator($0) }.map(\.id))
         let expected = Set(targets.map { $0.0 })
         func keep(_ parent: HerdrHelperParent) -> Bool {
             remainingBots.contains(parent.botID) && (!bound.contains(parent.botID) || expected.contains(parent) || herdrStreamingParents.contains(parent))

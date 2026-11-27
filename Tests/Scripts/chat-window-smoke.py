@@ -505,6 +505,51 @@ def steer_reopen(source_app):
         print("Verified reply order, unread badges for pinned and unpinned chats, helper navigation and offline relaunch.")
 
 
+def sample_workspace(source_app):
+    with private_workspace(source_app) as (app, home, store):
+        for reopened in (False, True):
+            with open_workspace(app, home) as window:
+                def button(title):
+                    return any(label(b) == title for b in buttons(window))
+
+                def has_text(text):
+                    return any(text in str(attribute(e, "AXValue") or label(e)) for e in descendants(window))
+
+                def pane(identifier):
+                    return next((e for e in descendants(window) if attribute(e, "AXIdentifier") == identifier), None)
+
+                tests = "Claude agent tests, Working"
+                rename = "Codex agent rename, Answered"
+                if reopened:
+                    wait_for("saved sample disclosure", lambda: button("Sessions for Jarvis") and not button(rename))
+                    press(window, "Sessions for Jarvis")
+                    wait_for("saved stopped sample", lambda: button("Claude agent tests, Stopped") and button(rename))
+                    continue
+                entry = "Look around with sample bots"
+                wait_for("empty workspace sample entry", lambda: button(entry))
+                press(window, entry)
+                wait_for("Patch chat and both Jarvis children", lambda: button("Patch") and button(tests) and button(rename))
+                assert [b["name"] for b in json.loads(store.read_text())["bots"]] == ["Jarvis", "Patch", "Scout", "Legal"]
+                press(window, "Sessions for Jarvis")
+                wait_for("folded samples", lambda: not button(tests) and not button(rename))
+                press(window, "Sessions for Jarvis")
+                wait_for("expanded samples", lambda: button(tests))
+                press(window, tests)
+                wait_for("sample command, steps and failure", lambda: button("Stop helper") and has_text("Steps (2)") and has_text("testEmptyTitle failed"))
+                press(window, "Preview tests in Details")
+                wait_for("docked sample output", lambda: pane("inspector.terminal") and has_text("expected throw"))
+                press(window, "Back to Details")
+                press(window, "Stop helper")
+                wait_for("stopped in the sidebar", lambda: button("Claude agent tests, Stopped") and not button("Stop helper"))
+                press(window, rename)
+                wait_for("completed sample result", lambda: has_text("Steps (3)") and has_text("14 call sites") and has_text("Build complete!"))
+                press(window, "Steer via Jarvis")
+                wait_for("parent guidance composer", lambda: button("Send helper guidance") and has_text("Steering rename"))
+                press(window, "Sessions for Jarvis")
+                wait_for("fold before quitting", lambda: not button(rename))
+        print("Verified the offline sample entry, four bots, both child sessions, steps, terminal output, stop, steering and reopening.")
+
+
 def sidebar_focus(source_app):
     import Quartz
 
@@ -2155,6 +2200,8 @@ if __name__ == "__main__":
         live_terminals(Path(sys.argv[2]).resolve(strict=True), long_sidebar=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
         live_terminals(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--sample-workspace":
+        sample_workspace(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--sidebar-focus":
         sidebar_focus(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
@@ -2172,4 +2219,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-workspace | --sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")

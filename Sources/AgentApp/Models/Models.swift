@@ -139,6 +139,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     /// The session a backend that keeps sessions answers in; a Herdr agent keeps its own conversation, so it stays nil.
     @Published var sessionID: String?
     @Published var isDemo: Bool
+    var sampleRole: SampleWorkspace.Role?
     /// This bot is the main bot of its Herdr server: the one that creates bots there (`AppStore+HerdrBots.swift`).
     @Published var canManageBots = false
     /// The sidebar's manual "Mark as Unread" flag.
@@ -176,7 +177,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     var outboundPersona: String { grokSourceID == nil ? persona : SecretFilter.redacted(persona, replacement: GrokRedactor.marker) }
     static func ==(lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots, retiredBackend, offersReleaseNotesExample, goal, promotedHelper, pendingRoleReviews, requiresToolReview, sessionCapCents, documentReadOnly }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, sessionID, isDemo, sampleRole, accentColor, grokSourceID, grokHistoryCount, archivedMembers, manualUnread, createdAt, messages, avatarMark, canManageBots, retiredBackend, offersReleaseNotesExample, goal, promotedHelper, pendingRoleReviews, requiresToolReview, sessionCapCents, documentReadOnly }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id)
         let savedBackend = try c.decodeIfPresent(String.self, forKey: .backend)
@@ -211,6 +212,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         canManageBots = try c.decodeIfPresent(Bool.self, forKey: .canManageBots) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         messages = TranscriptHistory.restoring(try c.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? [])
+        if isDemo && backend == .mock { sampleRole = try c.decodeIfPresent(String.self, forKey: .sampleRole).flatMap(SampleWorkspace.Role.init(rawValue:)) }
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
         avatarMark = (try? c.decodeIfPresent(AvatarMark.self, forKey: .avatarMark)) ?? nil
         if avatarMark == nil, let migrated = AvatarMigration.mark(avatarName: avatarName, accentColor: accentColor, grokSourceID: grokSourceID) {
@@ -238,6 +240,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encodeIfPresent(goal, forKey: .goal)
         try c.encodeIfPresent(retiredBackend, forKey: .retiredBackend)
         if offersReleaseNotesExample { try c.encode(true, forKey: .offersReleaseNotesExample) }
+        if isDemo { try c.encodeIfPresent(sampleRole, forKey: .sampleRole) }
         if canManageBots { try c.encode(true, forKey: .canManageBots) }
     }
 }

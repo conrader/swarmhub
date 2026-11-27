@@ -15,7 +15,7 @@ import Testing
     FirstRun.dismissed(defaults)
     #expect(FirstRun.state(defaults) == .skipped && !FirstRun.settle(store), "it never nags")
     store.loadSamples()
-    #expect(store.bots.count == 5 && store.bots.allSatisfy(\.isDemo) && store.selectedBot?.isDemo == true)
+    #expect(store.bots.map(\.name) == ["Jarvis", "Patch", "Scout", "Legal"] && store.bots.allSatisfy(\.isDemo) && store.selectedBot?.name == "Patch")
 }
 
 @MainActor @Test func headlessStoresWriteNoSetupStateAndSettleMarksConfiguredInstallsDone() {

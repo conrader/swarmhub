@@ -68,6 +68,7 @@ extension AppStore {
 
     /// A bot with an open session may already have a different AI configured for its next launch.
     func sidebarProgram(for bot: Bot) -> String? {
+        if bot.isDemo, let role = bot.sampleRole { return role.runtime }
         let reading = herdrAgentReadings[bot.id]
         if let presence = herdrPresence(for: bot) {
             guard let session = presence.session else {

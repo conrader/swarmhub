@@ -53,7 +53,12 @@ struct NativeThreadOutput: View {
             }
         }
         .onDisappear { promotion?.cancel() }
-        .task {
+        .task(id: server == SampleWorkspace.server ? parent?.child.state : nil) {
+            if server == SampleWorkspace.server {
+                if let child = parent?.child { activity = SampleWorkspace.activity(for: child) }
+                else { readError = "This sample session is no longer available." }
+                return
+            }
             while !Task.isCancelled {
                 do {
                     let client = try connectedClient()
@@ -148,7 +153,9 @@ struct NativeThreadOutput: View {
                 }.controlSize(.small).accessibilityIdentifier(runtime.rawValue + "Child.openSession")
             }
         }
-        if runtime == .claude, activity?.state == "working", let turn = activity?.activeTurn {
+        if server == SampleWorkspace.server, let parent, parent.child.isWorking {
+            Button("Stop helper") { store.stopSampleTests(of: parent.bot) }
+        } else if runtime == .claude, activity?.state == "working", let turn = activity?.activeTurn {
             let pending = sendingClaudeRequest || activity?.stopRequested == true
             Button(pending ? "Stop requested" : "Ask Claude to stop") {
                 sendingClaudeRequest = true
@@ -195,7 +202,7 @@ struct NativeThreadOutput: View {
             .buttonStyle(.appleProminent)
             .accessibilityLabel(title)
             .accessibilityIdentifier(runtime.rawValue + "Child.openParent")
-            if session != nil {
+            if session != nil, server != SampleWorkspace.server {
                 let existing = store.promotedBot(for: owner, core: core, parent: parent.bot, runtime: runtime, thread: thread)
                 Button(existing.map { "Open " + $0.name + " chat" } ?? "Promote to bot") {
                     var selected = parent.selection

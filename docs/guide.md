@@ -56,7 +56,7 @@ The screens in this guide are rendered by the app with sample content.
 
 The window ends in the main bot's chat.
 
-To try a sample before connecting a server, close the setup window and choose **Look around with sample bots** in the empty main window. Open **Patch** in the sidebar for the release-notes example. The sample bots answer locally.
+To try a sample before connecting a server, close the setup window and choose **Look around with sample bots** in the empty main window. Patch opens with a release-notes example. Under **Jarvis**, choose **tests** or **rename** to see the helper’s task, steps and reply. Its terminal button opens the recorded output in Details. Select **Steer via Jarvis** to write to the parent. These examples work offline.
 
 More detail on the ways to connect: [Use the Mac app](../HerdrWorkspace/README.md#use-the-mac-app), and the drawing under [Where bots run](architecture.md#where-bots-run).
 

@@ -111,7 +111,7 @@ struct WorkspaceTerminals: View {
                 }
                 Text(selected?.title ?? group.map { $0.name + " terminals" } ?? "Live terminals").font(.headline)
                 Spacer()
-                if selected == nil {
+                if selected == nil, server != SampleWorkspace.server {
                     Picker("Workspace", selection: Binding(get: { server.id }, set: { id in
                         if let next = store.herdrServer(id: id) { terminals = []; problem = nil; loaded = false; server = next }
                     })) {
@@ -175,6 +175,13 @@ struct WorkspaceTerminals: View {
         .accessibilityIdentifier(docked ? "inspector.terminal" : "workspace.terminals")
         .task(id: server.id + (selected == nil ? "-list" : "-preview")) {
             guard selected == nil else { return }
+            if server == SampleWorkspace.server {
+                terminals = store.bots.filter(SampleWorkspace.isCoordinator).flatMap { bot in
+                    store.sidebarRoots(for: bot).flatMap { root in store.sessionRows(under: root, for: bot, includingFolded: true).compactMap(\.terminal) }
+                }
+                loaded = true
+                return
+            }
             while !Task.isCancelled {
                 do {
                     let client = try store.herdrClient(for: server)
