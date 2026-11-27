@@ -698,12 +698,20 @@ def sample_composer(source_app):
 
 def sidebar_focus(source_app):
     import Quartz
+    from AppKit import NSRunningApplication
 
     bots = [dict(id=str(uuid.uuid4()), name=name, backend="Mock") for name in ("WriterQA", "PinnedQA")]
     with private_workspace(source_app) as (app, home, store):
         store.write_text(json.dumps(dict(version=2, bots=bots, groups=[], sidebar=dict(pinned=[bots[1]["id"]]))))
         with open_workspace(app, home) as window:
             pid = ax.AXUIElementGetPid(window, None)[1]
+
+            # CGEventPostToPid can send keys to an inactive window. Make the private
+            # workspace key before the first sidebar selection, as it is for a person typing.
+            application = ax.AXUIElementCreateApplication(pid)
+            running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+            running.activateWithOptions_(3)
+            wait_for("foreground chat window", lambda: running.isActive() and attribute(application, "AXFocusedWindow") == window)
 
             def focused_draft():
                 return next((attribute(e, "AXValue") for e in descendants(window)
