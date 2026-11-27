@@ -1425,6 +1425,11 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
             elif route.endswith("/output"):
                 screens.append(route)
                 reply = dict(text=route + " line " + str(screens.count(route)))
+            elif route == "/api/history/qa/terminal4/104":
+                reply = dict(items=[dict(id=19, kind="task", text="Assigned to NestedQA")])
+            elif route == "/api/history/qa/terminal4/104/draft":
+                reply = dict(tools=[dict(seq=seq, tool="Read", detail=f"nested-{seq}.swift", finished=True, failed=False)
+                                    for seq in range(1, 5)])
             elif media and route == "/api/history/qa/finished/99":
                 files = [dict(id=i, kind="artifact", detail=name) for i, name in published_files.items()] if published else []
                 reply = dict(items=[*files, dict(id=18, kind="reply", text=media_text)])
@@ -1445,7 +1450,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                              details=dict(task="Check the full header assignment.",
                                           reply=media_text if media else "Complete sidebar result." if child_finished.is_set() else "I am checking the header.",
                                           terminal=dict(command="cat sidebar.txt", output="The sidebar is expanded."),
-                                          steps=[dict(text="Read sidebar.txt", state="completed")]),
+                                          steps=[dict(text=name, state="completed") for name in (
+                                              "Find workspace", "Check entry point", "List views", "Open header", "Read sidebar.txt")]),
                              transcript="Task Check header.\n\ncompleted · read · sidebar.txt")
             elif route.endswith("/helpers"):
                 _, _, _, address, created, _ = route.split("/")
@@ -1598,8 +1604,13 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 # Select the name directly from ReaderQA. The separate terminal icon previews in place.
                 press(window, child_label)
                 wait_for("native helper chat", lambda: any(label(b) == "Send to Layout reader" for b in buttons(window)))
+                def visible_step(text):
+                    return any(text == label(n) or text == attribute(n, "AXValue") for n in descendants(window))
+                wait_for("three recent helper steps on opening chat", lambda: visible_step("List views") and visible_step("Read sidebar.txt") and not visible_step("Find workspace"))
+                press_transition(window, "Show earlier steps (2)", "all five steps", lambda: visible_step("Find workspace"))
+                press_transition(window, "Show latest 3", "recent steps again", lambda: visible_step("Open header") and not visible_step("Find workspace"))
                 press(window, "Session details")
-                expected = {"Layout reader · Helper of Patch", "OpenCode · fixture/default", "Task", "Steps (1)", "Latest reply", "Check the full header assignment.",
+                expected = {"Layout reader · Helper of Patch", "OpenCode · fixture/default", "Task", "Steps (5)", "Latest reply", "Check the full header assignment.",
                             "Read sidebar.txt", "I am checking the header.", "$ cat sidebar.txt", "The sidebar is expanded."}
                 def shows_details():
                     center = panel("nativeSession.details")
@@ -1708,6 +1719,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 press(window, label(nested_button()))
                 wait_for("nested helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA"
                                                                 for n in descendants(window)))
+                wait_for("workspace helper shows recent steps", lambda: visible_step("nested-4.swift") and not visible_step("nested-1.swift"))
+                press_transition(window, "Show earlier steps (1)", "workspace helper history", lambda: visible_step("nested-1.swift"))
                 press_transition(window, "Preview NestedQA in Details", "embedded preview",
                                  lambda: any(attribute(n, "AXIdentifier") == "inspector.terminal" for n in descendants(window)))
                 output("/api/agents/terminal4/104/output", updates=2)
