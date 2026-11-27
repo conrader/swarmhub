@@ -251,19 +251,19 @@ struct WorkspaceActivityView: View {
                                         .accessibilityValue(row.chat.isUnread ? "Unread" : "")
                                     if row.section == .attention {
                                         if attentionOnly, case .bot(let manager) = row.chat, store.createsHerdrBots(manager) {
-                                            HerdrBotRequestCard(manager: manager, showsCreatedBots: false)
+                                            HerdrBotRequestCard(manager: manager, showsCreatedBots: false, inInbox: true)
                                         }
                                         ForEach(store.workspaceReviews(in: row.chat, inboxes: pending)) { review in
                                             let inspecting = selectedReview?.refers(to: review) == true
                                             if attentionOnly || inspecting {
                                                 HerdrApprovalReview(request: review.request, server: review.server,
-                                                                    inboxBotName: attentionOnly ? review.bot.name : nil,
+                                                                    inboxBot: attentionOnly ? review.bot : nil,
                                                                     inspect: attentionOnly && !inspecting ? { selectedReview = review } : nil,
                                                                     keyboardDecisions: inspecting) {
                                                     completed.append(review)
                                                     items = store.workspaceActivity(inboxes: remainingInboxes, attentionOnly: attentionOnly)
                                                     if selectedReview?.refers(to: review) == true { selectedReview = nil }
-                                                }.id(review.id).chatCard(tint: review.bot.colours)
+                                                }.id(review.id).reviewCard(inInbox: attentionOnly, tint: review.bot.colours)
                                             } else {
                                                 VStack(alignment: .leading, spacing: 3) {
                                                     if let command = review.request.commandPreview {

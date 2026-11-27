@@ -630,6 +630,20 @@ extension View {
             .glassSurface(in: shape, tint: tint.fill.opacity(AppGlass.botTint), fallback: ChatCardFill(tint: tint), border: tint.border)
             .padding(.horizontal, 24).frame(maxWidth: 768)
     }
+
+    @ViewBuilder func reviewCard(inInbox: Bool, tint: BotTint) -> some View {
+        if inInbox {
+            let shape = RoundedRectangle(cornerRadius: 8)
+            frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                .background(AppColor.card)
+                .overlay { shape.strokeBorder(AppColor.separator) }
+                .overlay(alignment: .leading) { Rectangle().fill(.tint).frame(width: 2) }
+                .clipShape(shape)
+                .padding(.vertical, 3)
+        } else {
+            chatCard(tint: tint)
+        }
+    }
 }
 
 /// The card surface washed with a bot's colour, as one style.
