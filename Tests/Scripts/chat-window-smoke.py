@@ -571,6 +571,43 @@ def steer_reopen(source_app):
         print("Verified reply order, unread badges for pinned and unpinned chats, helper navigation and offline relaunch.")
 
 
+class WindowSnapshots:
+    def __init__(self, home, destination, appearance, library):
+        self.image = home / "preview-window.png"
+        self.destination = destination
+        self.appearance = appearance.lower()
+        self.environment = {"DYLD_INSERT_LIBRARIES": str(library), "SWARMHUB_QA_SNAPSHOT_PATH": str(self.image)}
+
+    def capture(self, state):
+        trigger = self.image.with_suffix(".png.request")
+        trigger.touch()
+        wait_for("image of the private Mac window", lambda: self.image.exists() and not trigger.exists(), seconds=15)
+        shutil.copyfile(self.image, self.destination / f"{self.appearance}-{state}.png")
+
+
+def sample_preview(source_app, destination, appearance, library):
+    with private_workspace(source_app) as (app, home, store):
+        snapshots = WindowSnapshots(home, destination, appearance, library)
+        with open_workspace(app, home, extra_environment=snapshots.environment, appearance=appearance) as window:
+            # Each target has a control that only exists once the new screen is ready.
+            for target, ready, filename in [
+                ("Look around with sample bots", "Hand off to Scout", "release"),
+                ("Inbox & approvals", "Allow once", "inbox"),
+                ("CI & reviewer bot", "Review the failing check", "checks"),
+                ("Routines & brief", "Gather server status", "brief"),
+                ("Team & helpers", "Review the new roles", "team"),
+            ]:
+                press_transition(window, target, filename, lambda: any(label(b) == ready for b in buttons(window)))
+                snapshots.capture(filename)
+            for target, result, filename in [("Claude agent tests, Working", "expected throw", "tests"),
+                                              ("Codex agent rename, Answered", "Build complete!", "rename")]:
+                def shows_output():
+                    panel = next((e for e in descendants(window) if attribute(e, "AXIdentifier") == "helper.chatTerminal"), None)
+                    return panel and any(result in str(attribute(e, "AXValue") or "") for e in descendants(window))
+                press_transition(window, target, filename + " terminal output", shows_output)
+                snapshots.capture(filename)
+
+
 def sample_workspace(source_app):
     with private_workspace(source_app) as (app, home, store):
         for reopened in (False, True):
@@ -1463,17 +1500,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
             bots.extend(dict(id=str(uuid.uuid4()), name=f"Z fixture {i:02}", backend="Mock", messages=[]) for i in range(50))
         store.write_text(json.dumps(dict(version=2, bots=bots, groups=[group], sidebar=dict(pinned=[pinned["id"]]),
                                          scrollPositions={group["id"].upper(): group["messages"][77]["id"]})))
-        environment = {}
-        if screenshots is not None:
-            snapshot = home / "helper-window.png"
-            trigger = home / "helper-window.png.request"
-            environment = {"DYLD_INSERT_LIBRARIES": str(library), "SWARMHUB_QA_SNAPSHOT_PATH": str(snapshot)}
-
-        def capture(state):
-            if screenshots is not None:
-                trigger.touch()
-                wait_for("image of the private Mac window", lambda: snapshot.exists() and not trigger.exists(), seconds=15)
-                shutil.copyfile(snapshot, screenshots / f"{appearance.lower()}-{state}.png")
+        snapshots = WindowSnapshots(home, screenshots, appearance, library) if screenshots is not None else None
+        environment = snapshots.environment if snapshots else {}
 
         Thread(target=server.serve_forever, daemon=True).start()
         try:
@@ -1597,7 +1625,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                                for b in buttons(window))
                 wait_for("working OpenCode session in Overview", overview_preview)
                 verify_workspace_columns(window)
-                capture("working")
+                if snapshots:
+                    snapshots.capture("working")
                 press(window, native_preview)
                 wait_for("terminal from the active helper card", lambda: panel("inspector.terminal") and shows_details())
                 press(window, "Back to Details")
@@ -1606,7 +1635,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 expected.add("Complete sidebar result.")
                 wait_for("completed reply without reopening the session", shows_details)
                 wait_for("answered helper leaves Overview", lambda: panel("overview.activeHelpers") and not overview_preview())
-                capture("answered")
+                if snapshots:
+                    snapshots.capture("answered")
                 press(window, "Preview Layout reader in Details")
                 wait_for("docked transcript beside child details", lambda: panel("inspector.terminal") and shows_details())
                 press(window, "Back to Details")
@@ -2491,7 +2521,7 @@ if __name__ == "__main__":
         session_usage_overview(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--helper-media":
         live_terminals(Path(sys.argv[2]).resolve(strict=True), media=True)
-    elif len(sys.argv) == 4 and sys.argv[1] == "--helper-screenshots":
+    elif len(sys.argv) == 4 and sys.argv[1] in ("--helper-screenshots", "--sample-screenshots"):
         import platform
         if tuple(int(n) for n in platform.mac_ver()[0].split(".")[:2]) < (14, 4):
             raise SystemExit("Capturing the private test window requires macOS 14.4 or later.")
@@ -2503,8 +2533,9 @@ if __name__ == "__main__":
             subprocess.run(["xcrun", "clang", "-dynamiclib", "-fobjc-arc", str(Path(__file__).with_name("qa-window-capture.m")),
                             "-framework", "AppKit", "-framework", "ScreenCaptureKit", "-o", str(library)], check=True)
             subprocess.run(["codesign", "--force", "--sign", "-", library], check=True)
+            capture_window = sample_preview if sys.argv[1] == "--sample-screenshots" else live_terminals
             for appearance in ("Dark", "Light"):
-                live_terminals(source_app, destination, appearance, library)
+                capture_window(source_app, destination, appearance, library)
     elif len(sys.argv) == 3 and sys.argv[1] == "--sidebar-reveal":
         live_terminals(Path(sys.argv[2]).resolve(strict=True), long_sidebar=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
@@ -2532,4 +2563,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-composer | --sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --helper-media | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-composer | --sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --helper-media | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | (--sample-screenshots | --helper-screenshots) APP OUTPUT_DIRECTORY")
