@@ -171,3 +171,32 @@ import Testing
         #expect(text.contains(expected))
     }
 }
+
+@MainActor @Test func steeringSampleHelpersKeepsTheirSeparateInstructionsAfterReopening() throws {
+    let file = temporaryStore(), defaults = isolatedDefaults(), keys = InMemoryKeyStore()
+    func reopen() -> AppStore { AppStore(storeURL: file, autoStart: false, keyStore: keys, defaults: defaults) }
+    func sessions(_ store: AppStore, _ bot: Bot) throws -> [HerdrHelperSelection] {
+        let root = try #require(store.sidebarRoots(for: bot).first)
+        return store.sessionRows(under: root, for: bot, includingFolded: true).map(\.selection)
+    }
+    let store = reopen()
+    store.loadSamples()
+    let bot = try #require(store.bots.first(where: SampleWorkspace.isCoordinator))
+    let targets = try sessions(store, bot)
+    #expect(targets.count == 2)
+    for target in targets {
+        #expect(store.beginHelperSteering(target, of: bot))
+        let draft = try #require(store.helperSteeringDrafts[bot.id])
+        draft.text = "Review " + target.helperID
+        #expect(store.submitHelperSteering(in: bot.id))
+        let row = try #require(store.latestGuidance(for: target, of: bot))
+        #expect(row.content == "Review " + target.helperID)
+        #expect(row.modelText.contains("thread " + target.helperID + ", owner "))
+    }
+    store.stopSampleTests(of: bot)
+    let restored = reopen()
+    let jarvis = try #require(restored.bots.first(where: SampleWorkspace.isCoordinator))
+    for target in try sessions(restored, jarvis) {
+        #expect(restored.latestGuidance(for: target, of: jarvis)?.content == "Review " + target.helperID)
+    }
+}

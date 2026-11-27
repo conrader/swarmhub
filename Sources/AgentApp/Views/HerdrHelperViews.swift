@@ -499,6 +499,7 @@ struct HerdrHelperView: View {
                     } else if listed == nil, shown != nil {
                         StatusCard(kind: .info, title: "This helper has finished.", detail: "This is how it looked at the end.")
                     }
+                    HelperGuidanceCard(selection: selection, bot: bot)
                     helperPart("Task", detail: stopped ? "Stopped" : shown?.statusLine) {
                         if let task = shown?.task ?? log?.tasks.first?.text, !task.isEmpty {
                             Text(Self.assignment(task)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)

@@ -42,3 +42,25 @@ struct HelperSteeringComposer: View {
 
     private func submit() { rejected = !store.submitHelperSteering(in: chatID) }
 }
+
+/// A parent instruction remains distinct from what a helper reports doing.
+struct HelperGuidanceCard: View {
+    @EnvironmentObject private var store: AppStore
+    let selection: HerdrHelperSelection
+    @ObservedObject var bot: Bot
+
+    var body: some View {
+        if let row = store.latestGuidance(for: selection, of: bot) {
+            VStack(alignment: .leading, spacing: 5) {
+                Label("Latest guidance via " + bot.name, systemImage: "arrow.turn.down.right")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(verbatim: row.content).textSelection(.enabled)
+                if row.metadata[TurnWaitCopy.key] == "waiting" {
+                    Text("Queued in " + bot.name + "’s chat").font(.caption).foregroundStyle(.secondary)
+                } else if let status = SteerCopy.caption(row, botName: bot.name) {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).inspectorCard()
+        }
+    }
+}

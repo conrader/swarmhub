@@ -14,6 +14,13 @@ struct HelperSteeringTarget {
             && selection.native?.thread.provider == other.selection.native?.thread.provider && selection.helperID == other.selection.helperID
     }
 
+    var routeKey: String {
+        // Length prefixes preserve arbitrary provider IDs and avoid collisions with separators in names.
+        let fields = [selection.botID.uuidString, server.id, core, owner.address, String(owner.createdMs),
+                      selection.groupRuntime ?? "", selection.native?.thread.provider.rawValue ?? "workspace", selection.helperID]
+        return fields.map { "\($0.utf8.count):" + $0 }.joined()
+    }
+
     var reference: String {
         let session = selection.native.map { $0.thread.provider.label + " thread " } ?? "workspace session "
         return "\(session)\(selection.helperID), owner \(owner.address)/\(owner.createdMs), core \(core)"
@@ -76,14 +83,36 @@ extension AppStore {
 
     private func deliverHelperGuidance(_ words: String, target: HelperSteeringTarget, of bot: Bot) -> Bool {
         let owner = delegatingSession(for: target.selection).map { "the helper delegated by “\($0.helper.name)” named" } ?? "your helper"
-        let text = "Please steer \(owner) “\(target.name)” (\(target.reference)) with this instruction:\n\(words)"
+        let prefix = "Please steer \(owner) “\(target.name)” (\(target.reference)) with this instruction:"
+        let metadata = [HelperGuidanceKey.route: target.routeKey, HelperGuidanceKey.helper: target.name, HelperGuidanceKey.prefix: prefix]
         if let runtime = target.selection.groupRuntime {
             guard let group = groupOwningHelper(target.selection, of: bot),
                   HerdrBackend.groupRuntimeName(sessionID: turnSessionID(in: group, bot: bot), botID: bot.id) == runtime
             else { return false }
-            return send(text: text, to: group, recipientIDs: [bot.id], queueChoice: true, usesComposerReply: false)
+            return send(text: words, to: group, recipientIDs: [bot.id], queueChoice: true, usesComposerReply: false, metadata: metadata)
         }
-        return send(text: text, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true)
+        if SampleWorkspace.isCoordinator(bot) {
+            guard persistenceEnabled, storeRestoreOffer == nil else { return false }
+            let user = ChatMessage(role: .user, content: words, metadata: metadata)
+            let reply = ChatMessage(role: .assistant, content: "I saved your instruction with the \(target.name) sample session.",
+                                    metadata: [TurnKey.forUser: user.id.uuidString])
+            bot.messages.append(contentsOf: [user, reply])
+            save()
+            if turns.saveFailing {
+                bot.messages.removeAll { $0 === user || $0 === reply }
+                return false
+            }
+            chatScroll.toBottom(bot.id)
+            return true
+        }
+        return send(text: words, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true, metadata: metadata)
+    }
+
+    func latestGuidance(for selection: HerdrHelperSelection, of bot: Bot) -> ChatMessage? {
+        guard let target = steeringTarget(selection, of: bot) else { return nil }
+        let messages = selection.groupRuntime == nil ? bot.messages : groupOwningHelper(selection, of: bot)?.messages ?? []
+        let key = target.routeKey
+        return messages.last { $0.role == .user && $0.metadata[HelperGuidanceKey.route] == key }
     }
 
     func guideHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot, instruction: String) -> Bool {
@@ -94,4 +123,11 @@ extension AppStore {
               deliverHelperGuidance(words, target: target, of: bot) else { return false }
         return openHelperParent(selection, of: bot)
     }
+}
+
+
+enum HelperGuidanceKey {
+    static let route = "helperGuidanceRoute"
+    static let helper = "helperGuidanceName"
+    static let prefix = "helperGuidanceRequestPrefix"
 }

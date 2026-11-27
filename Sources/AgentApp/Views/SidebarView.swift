@@ -95,8 +95,11 @@ struct SidebarView: View {
                     HStack {
                         let endpoints = Set(store.herdrServers.filter { $0.kind == .ssh }.compactMap(\.sshEndpoint)
                             .map { "\($0.host.lowercased()):\($0.port ?? 22)" })
-                        Text(endpoints.count == 1 ? "1 SSH host" : "\(endpoints.count) SSH hosts")
-                            .help("Configured SSH hosts")
+                        let sampleHosts = endpoints.isEmpty && store.showsSampleTeam
+                        let count = sampleHosts ? SampleWorkspace.hosts.count : endpoints.count
+                        Text(count == 1 ? "1 SSH host" : "\(count) SSH hosts")
+                            .help(sampleHosts ? "Sample SSH hosts: " + SampleWorkspace.hosts.joined(separator: ", ") : "Configured SSH hosts")
+                            .accessibilityLabel(sampleHosts ? "2 sample SSH hosts" : "\(count) SSH hosts")
                         Spacer()
                         Text(AppStore.botCount(store.bots.filter { !$0.isReadOnlyArchive }.count))
                             .help("Bots in this workspace, including hidden bots")

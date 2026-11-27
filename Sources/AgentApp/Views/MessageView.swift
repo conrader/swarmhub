@@ -106,6 +106,9 @@ struct MessageView: View {
         } else if message.role == .user, message.metadata[GoalKey.attempt] != nil {
             Label { literalBody } icon: { Image(systemName: "scope") }.font(.caption).foregroundStyle(.secondary)
         } else if message.role == .user {
+            if let helper = message.metadata[HelperGuidanceKey.helper] {
+                Label("Guidance for " + helper, systemImage: "arrow.turn.down.right").font(.caption).foregroundStyle(.secondary)
+            }
             if !message.content.isEmpty {
                 UserMessageText(source: message.content).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
 

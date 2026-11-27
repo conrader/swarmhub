@@ -8,6 +8,7 @@ enum SampleWorkspace {
 
     static let server = HerdrServer(id: "sample-preview", name: "Sample workspace", kind: .address, address: "")
     static let core = "sample-preview"
+    static let hosts = ["web-1", "studio-server"]
 
     /// Older samples retire once a workspace is configured. The offline preview stays until a real bot is added.
     static func hideConfiguredSamples(in bots: [Bot]) {

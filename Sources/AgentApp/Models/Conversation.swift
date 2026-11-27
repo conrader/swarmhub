@@ -74,6 +74,7 @@ extension ChatMessage {
     /// send the same question even if the agent has since moved on.
     var modelText: String {
         if role == .user, let request = metadata[GoalKey.request] { return request }
+        if role == .user, let prefix = metadata[HelperGuidanceKey.prefix] { return prefix + "\n" + content }
         guard role == .user, let quote = metadata[ChoiceReply.quoteKey] else { return content }
         return "In reply to “\(quote)”\n\(content)"
     }
