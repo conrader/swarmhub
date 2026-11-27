@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// The app's only way to open something outside itself: a page in the browser, a file in Finder, another app. In a test
 /// run nothing is opened; the call is reported to the test bundle's sentinel as production access, so a test that would
@@ -18,5 +19,18 @@ import AppKit
     static func openApplication(at url: URL, probe: String? = nil) {
         if TestRunGuard.refuses("open app \(url.path)", probe: probe) { return }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+}
+
+extension View {
+    /// A reply handles its own media links inside the window. Other links keep the enclosing view's policy.
+    func previewReplyLinks(_ preview: @escaping (URL) -> Bool) -> some View {
+        transformEnvironment(\.openURL) { action in
+            let inherited = action
+            action = OpenURLAction { url in
+                if !preview(url) { inherited(url) }
+                return .handled
+            }
+        }
     }
 }

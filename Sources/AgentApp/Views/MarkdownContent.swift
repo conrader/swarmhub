@@ -70,7 +70,6 @@ struct ProseBlock: View {
     var replyID: UUID?
     var published: HerdrReplyResults?
     var localMedia = false
-    @Environment(\.openURL) private var openURL
     @State private var selectedMedia: ReplyMediaLink?
     private func publishedFile(_ link: ReplyMediaLink) -> HerdrPublishedResult? {
         published?.items.first { $0.kind == .file && $0.title == link.url.lastPathComponent }
@@ -85,12 +84,13 @@ struct ProseBlock: View {
         let media = replyID == nil ? [] : ReplyMediaLink.links(in: prose)
         VStack(alignment: .leading, spacing: 9) {
             MarkdownBlockContent(blocks: prose)
-                .environment(\.openURL, OpenURLAction { url in
+                .previewReplyLinks { url in
                     if let file = ReplyMediaLink.fileURL(url), let link = media.first(where: { $0.url == file }) {
                         selectedMedia = link
-                    } else { openURL(url) }
-                    return .handled
-                })
+                        return true
+                    }
+                    return false
+                }
             if let replyID {
                 ForEach(media.filter { publishedFile($0) == nil }) { link in
                     ReplyMediaPreview(link: link, messageID: replyID, isLocal: localMedia) { selectedMedia = link }
