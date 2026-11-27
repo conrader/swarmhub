@@ -739,8 +739,13 @@ def sample_workspace(source_app):
                 press(window, rename)
                 wait_for("guidance and build output in the rename conversation", lambda: button("Session details") and
                          has_text("Check the renamed tests") and has_text("Build complete!") and not has_text("expected throw"))
+                message = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message rename")
+                enter_draft(message, "Also verify the release build.")
+                press_transition(window, "Send to rename", "both instructions in rename's chat",
+                                 lambda: has_text("Check the renamed tests") and has_text("Also verify the release build.") and
+                                 attribute(message, "AXValue") == "")
                 press(window, "Claude agent tests, Stopped")
-                wait_for("opened the stopped helper chat", lambda: button("Session details") and not has_text("Check the renamed tests"))
+                wait_for("opened the stopped helper chat", lambda: button("Session details") and not has_text("Check the renamed tests") and not has_text("Also verify the release build."))
                 press(window, "Session details")
                 wait_for("sibling output has no rename guidance", lambda: has_text("expected throw") and not has_text("Check the renamed tests"))
                 press(window, "Sessions for Jarvis")

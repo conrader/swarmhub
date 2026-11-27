@@ -566,7 +566,9 @@ struct HerdrHelperView: View {
                         }
                     }
                     } else {
-                        conversation(shown)
+                        HelperGuidanceHistory(selection: selection, bot: bot) { instructions in
+                            conversation(shown, guidance: instructions)
+                        }
                     }
                     if closeOverviewDetails == nil {
                         Button(showDetails ? "Show conversation" : "Session details") { showDetails.toggle() }
@@ -694,21 +696,27 @@ struct HerdrHelperView: View {
     }
 
     /// A task can contain shell syntax. Only paired inline code markers change how its text appears.
-    @ViewBuilder private func conversation(_ shown: HerdrClient.Helper?) -> some View {
+    @ViewBuilder private func conversation(_ shown: HerdrClient.Helper?, guidance: [ChatMessage]) -> some View {
         let name = shown?.name ?? "Helper"
-        let history = (log.map { $0.tasks + $0.replies + $0.publications } ?? []).sorted { $0.id < $1.id }
+        let history = HelperConversationEvent.timeline(journal: log.map { $0.tasks + $0.replies + $0.publications } ?? [],
+                                                       guidance: guidance)
         if log?.tasks.isEmpty != false, let task = shown?.task {
             HelperChatLine(name: bot.name, text: task, unavailable: HelperAssignment.readable(task) == nil)
         }
-        ForEach(history, id: \.id) { item in
-            if let result = HerdrPublishedResult(item) {
-                publicationCards([result], from: shown)
-            } else {
-                let incoming = item.kind == "reply"
-                HelperChatLine(name: incoming ? name : bot.name, text: item.text, incoming: incoming,
-                               unavailable: !incoming && HelperAssignment.readable(item.text) == nil,
-                               media: incoming ? media(for: shown, server: logServer, entry: String(item.id),
-                                                       results: log?.results(forReply: item.id) ?? []) : nil)
+        ForEach(history) { event in
+            switch event {
+            case .guidance(let message):
+                HelperChatGuidance(message: message, botName: bot.name)
+            case .journal(let item):
+                if let result = HerdrPublishedResult(item) {
+                    publicationCards([result], from: shown)
+                } else {
+                    let incoming = item.kind == "reply"
+                    HelperChatLine(name: incoming ? name : bot.name, text: item.text, incoming: incoming,
+                                   unavailable: !incoming && HelperAssignment.readable(item.text) == nil,
+                                   media: incoming ? media(for: shown, server: logServer, entry: String(item.id),
+                                                           results: log?.results(forReply: item.id) ?? []) : nil)
+                }
             }
         }
         if shown?.answered != true, let draft = log?.draft, !draft.isEmpty {
@@ -716,7 +724,6 @@ struct HerdrHelperView: View {
         } else if log?.replies.isEmpty != false, let preview = shown?.resultPreview {
             HelperChatLine(name: name, text: preview, incoming: true, media: previewMedia(shown))
         }
-        HelperGuidanceCard(selection: selection, bot: bot)
         if let tools = log?.tools {
             HelperChatSteps(steps: tools, title: "Steps (\(tools.count))") { call in
                 step(call, running: shown?.isWorking == true)

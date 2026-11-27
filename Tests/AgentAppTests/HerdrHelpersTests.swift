@@ -483,3 +483,16 @@ private let listingJSON = """
     #expect(store.latestGuidance(for: sibling, of: bot) == nil)
     await backend.end()
 }
+
+@MainActor @Test func workspaceHelperGuidanceIsInterleavedWithTheJournalWithoutReorderingUndatedEvents() {
+    var task = HerdrClient.Item(id: 10, kind: "task", text: "Review")
+    task.atMs = 1_000
+    let undated = HerdrClient.Item(id: 11, kind: "artifact", text: "Published image")
+    var reply = HerdrClient.Item(id: 12, kind: "reply", text: "Checked")
+    reply.atMs = 3_000
+    let first = ChatMessage(role: .user, content: "Look at the margins", createdAt: Date(timeIntervalSince1970: 2))
+    let second = ChatMessage(role: .user, content: "Then check the footer", createdAt: Date(timeIntervalSince1970: 4))
+
+    let events = HelperConversationEvent.timeline(journal: [reply, task, undated], guidance: [first, second])
+    #expect(events.map(\.id) == [.journal(10), .journal(11), .guidance(first.id), .journal(12), .guidance(second.id)])
+}

@@ -55,7 +55,7 @@ import SwiftUI
               appearance(value: dark/light), viewport(width,height), details(value: show/hide),
               screen(value: workspace/whatsNew), capture, expect(field,value), finding(kind,text).
             Session ids can be qualified with provider. Children report depth, hasChildren and expanded.
-            Fields are strings. Expect supports selected, draft, pinned, unread, child, guidance, terminal, terminalContains, visibleChildren, lastRole, and contains (with text).
+            Fields are strings. Expect supports selected, draft, pinned, unread, child, guidance, terminal, terminalContains, visibleChildren, lastRole, lastHelperInstruction, and contains (with text).
             Findings take the kind bug or improvement. Close stdin to save report.json beside replay.jsonl.
             """)
             return 0
@@ -98,6 +98,19 @@ import SwiftUI
         }
     }
 
+    private func composerDraft(for bot: Bot) -> String {
+        if let selection = store.openHerdrHelper {
+            guard let target = store.steeringTarget(selection, of: bot) else { return "" }
+            return store.helperChatDrafts[target.id] ?? ""
+        }
+        return store.helperSteeringDrafts[bot.id]?.text ?? store.drafts.text(for: bot.id)
+    }
+
+    private var selectedHelperInstructions: [ChatMessage] {
+        guard let selection = store.openHerdrHelper, let bot = store.selectedBot else { return [] }
+        return store.guidanceMessages(for: selection, of: bot)
+    }
+
     /// State an agent can use to decide its next action, without parsing a screenshot.
     var state: [String: Any] {
         let bot = store.selectedBot
@@ -105,7 +118,8 @@ import SwiftUI
                 "children": bot.map { visibleChildren($0).map(\.qaState) } ?? [],
                 "guidance": bot.flatMap { store.helperSteeringDrafts[$0.id]?.target.selection.helperID } ?? "",
                 "child": store.openHerdrHelper?.helperID ?? "", "terminal": terminalID,
-                "draft": bot.map { store.helperSteeringDrafts[$0.id]?.text ?? store.drafts.text(for: $0.id) } ?? "", "details": store.showInfo, "screen": screen,
+                "sentInstructions": selectedHelperInstructions.map(\.content),
+                "draft": bot.map { composerDraft(for: $0) } ?? "", "details": store.showInfo, "screen": screen,
                 "messages": bot?.messages.map { ["role": $0.role.rawValue, "text": $0.content] } ?? [],
                 "appearance": scheme == .dark ? "dark" : "light", "width": Int(size.width), "height": Int(size.height)]
     }
@@ -180,17 +194,25 @@ import SwiftUI
             default: throw QAError("Choose show or hide.")
             }
         case "draft":
-            guard store.openHerdrHelper == nil else { throw QAError("Open the parent chat to draft a message.") }
             let bot = try requireBot()
             guard let text = command["text"] else { throw QAError("Missing text") }
-            if let guidance = store.helperSteeringDrafts[bot.id] { guidance.text = text }
+            if let selection = store.openHerdrHelper {
+                guard let target = store.steeringTarget(selection, of: bot) else { throw QAError("This helper has no message composer.") }
+                store.helperChatDrafts[target.id] = text.isEmpty ? nil : text
+            } else if let guidance = store.helperSteeringDrafts[bot.id] { guidance.text = text }
             else { store.drafts.set(text, for: bot.id) }
         case "pin": store.setPinned((try requireBot()).id, true)
         case "unpin": store.setPinned((try requireBot()).id, false)
         case "send":
-            guard store.openHerdrHelper == nil else { throw QAError("Open the parent chat to send a message.") }
             let bot = try requireBot()
-            if let guidance = store.helperSteeringDrafts[bot.id] {
+            if let selection = store.openHerdrHelper {
+                guard let target = store.steeringTarget(selection, of: bot) else { throw QAError("This helper has no message composer.") }
+                if let text = command["text"] { store.helperChatDrafts[target.id] = text }
+                guard store.sendHelperMessage(store.helperChatDrafts[target.id] ?? "", to: target, of: bot) else {
+                    throw QAError("Helper guidance was declined.")
+                }
+                store.helperChatDrafts[target.id] = nil
+            } else if let guidance = store.helperSteeringDrafts[bot.id] {
                 if let text = command["text"] { guidance.text = text }
                 guard store.submitHelperSteering(in: bot.id) else { throw QAError("Helper guidance was declined.") }
             } else {
@@ -225,8 +247,9 @@ import SwiftUI
             case "selected": actual = bot.name
             case "pinned": actual = String(store.isPinned(bot.id))
             case "guidance": actual = store.helperSteeringDrafts[bot.id]?.target.selection.helperID ?? ""
-            case "draft": actual = store.helperSteeringDrafts[bot.id]?.text ?? store.drafts.text(for: bot.id)
+            case "draft": actual = composerDraft(for: bot)
             case "unread": actual = String(bot.unreadCount)
+            case "lastHelperInstruction": actual = selectedHelperInstructions.last?.content ?? ""
             case "lastRole": actual = bot.messages.last?.role.rawValue ?? ""
             case "lastUserText": actual = bot.messages.last(where: { $0.role == .user })?.content ?? ""
             case "lastUserRequestContains":
