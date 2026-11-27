@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import json
 from pathlib import Path
+import re
 import secrets
 import shlex
 import sqlite3
@@ -18,16 +19,22 @@ from task_effectiveness_one_plan import proposed_scope
 from update_smoke import Server, free_port
 
 
-def runtime(root, workspace, args, stack):
+def runtime(root, workspace, args, stack, *, helper_transport=False):
     home = root / "codex"
     for sub in ("codex", "run", "state", "config/herdr-core/templates", "db", "cache", "data"):
         (root / sub).mkdir(parents=True, exist_ok=True, mode=0o700)
     (home / "auth.json").symlink_to(args.auth)
+    spool_setting = ""
+    if helper_transport:
+        spool = workspace.parent / ".swarmhub-helpers"
+        spool.mkdir(exist_ok=True, mode=0o700)
+        spool_setting = "writable_roots = " + json.dumps([str(spool)]) + "\n"
     (home / "config.toml").write_text(
         f'model = {json.dumps(args.model)}\nmodel_reasoning_effort = "medium"\n'
         'approval_policy = "never"\nsandbox_mode = "workspace-write"\n'
         'check_for_update_on_startup = false\n'
         '[sandbox_workspace_write]\nnetwork_access = false\nexclude_slash_tmp = true\nexclude_tmpdir_env_var = true\n'
+        f'{spool_setting}'
         f'[projects.{json.dumps(str(workspace))}]\ntrust_level = "trusted"\n')
     env = dict(HOME=str(root), CODEX_HOME=str(home), PATH="/usr/bin:/bin", LANG="C.UTF-8",
                HC_SOCKET=str(root / "hc.sock"), HC_SESSION="research", XDG_RUNTIME_DIR=str(root / "run"),
@@ -88,15 +95,43 @@ def rollout_metrics(root, *, parent_model_only=False):
     return calls, sorted(models)
 
 
+def helper_failure(delegate, delegate_source):
+    # Capture the actual CLI diagnostic even if the model's tool only returns an exit code.
+    log = delegate.parent / ".delegation-result"
+    if (delegate.is_symlink() or not delegate.is_file() or delegate.read_text() != delegate_source
+            or log.is_symlink() or not log.is_file()):
+        return "no_receipt"
+    diagnostic = log.read_text(errors="replace")
+    if "workspace has no helper-policy.json" in diagnostic:
+        return "missing_policy"
+    if "A sandbox stopped this command" in diagnostic:
+        return "transport_blocked"
+    return "other"
+
+
 def trial(args, case, seed, arm):
     with tempfile.TemporaryDirectory(prefix="sw-eval-") as temporary, contextlib.ExitStack() as stack:
         root = Path(temporary)
         workspace = root / "agents" / str(uuid.uuid4())
         workspace.mkdir(parents=True)
         prompt, truth = setup(workspace, case, seed)
+        delegate_tasks = {
+            "denied_helper": ("zlec-rozliczenie", "Policz sumę opłaconych zamówień z bieżącego eksportu."),
+            "denied_helper_capacity": ("zlec-pomiar", "Wskaż pliki, których usunięcie pozwoli osiągnąć próg."),
+        }
+        if case in delegate_tasks:
+            name, task = delegate_tasks[case]
+            delegate = workspace / name
+            delegate_source = (
+                "#!/bin/sh\n" + shlex.quote(str(args.bridge))
+                + " helper start --difficulty easy --here " + shlex.quote(task)
+                + ' > "$(dirname "$0")/.delegation-result" 2>&1\n'
+                + 'code=$?\ncat "$(dirname "$0")/.delegation-result"\nexit "$code"\n')
+            delegate.write_text(delegate_source)
+            delegate.chmod(0o755)
         if arm == "guided":
             prompt += "\n" + args.guidance
-        api = runtime(root, workspace, args, stack)
+        api = runtime(root, workspace, args, stack, helper_transport=case in delegate_tasks)
         start = time.monotonic()
         code, agent = api.call("/api/agents", {"name": "research", "template": "swarmhub-codex",
                                "workspace_id": workspace.name, "model_id": args.model, "task": prompt}, timeout=90)
@@ -131,6 +166,10 @@ def trial(args, case, seed, arm):
         with contextlib.closing(sqlite3.connect(db)) as conn:
             reply = wait_for_reply(conn, 0)
             turns = int(reply is not None)
+            if case == "denied_helper":
+                message = conn.execute("SELECT text FROM journal WHERE id=?", (reply,)).fetchone()
+                stage_checks["total_in_chat"] = bool(message and re.search(
+                    rf"(?<![\w.,]){truth['total']}(?!\w|[.,]\d)", message[0] or ""))
             if worker:
                 message = conn.execute("SELECT text FROM journal WHERE id=?", (reply,)).fetchone()
                 stage_checks = check_answer(truth["receipt"], (message[0] or "") if message else "")
@@ -171,7 +210,7 @@ def trial(args, case, seed, arm):
                                    "obiekt z polami missing (brakujące jednostki) i file (ścieżka do zatwierdzenia).")
                     reply = follow_up(conn, reply, consent)
                     turns += int(reply is not None)
-            if case in ("one_plan", "discover_capacity", "linked_capacity") and reply:
+            if case in ("one_plan", "discover_capacity", "linked_capacity", "denied_helper_capacity") and reply:
                 message, = conn.execute("SELECT text FROM journal WHERE id=?", (reply,)).fetchone()
                 scope, stage_checks = proposed_scope(workspace, truth, message or "")
                 plan_path = workspace / "plan.json"
@@ -185,12 +224,15 @@ def trial(args, case, seed, arm):
         api.call(f"/api/agents/{key[0]}/{key[1]}/end", {}, timeout=30)
         calls, models = rollout_metrics(root)
         checks = {**stage_checks, **grade(workspace, case, truth)}
+        if case in delegate_tasks:
+            evidence["delegation_result"] = helper_failure(delegate, delegate_source)
+            checks["helper_refused_by_workspace"] = evidence["delegation_result"] == "missing_policy"
         if case == "external_recovery" and "external_units" in truth:
             evidence = dict(external_units=truth["external_units"],
                             planned_units=sum(truth["eligible"].values()))
         if case == "interrupted_consent":
             checks["three_replies"] = turns == 3
-        elif case in ("resume", "partial_resume", "short_consent", "busy_after_plan", "external_recovery", "one_plan", "discover_capacity", "linked_capacity"):
+        elif case in ("resume", "partial_resume", "short_consent", "busy_after_plan", "external_recovery", "one_plan", "discover_capacity", "linked_capacity", "denied_helper_capacity"):
             checks["two_replies"] = turns == 2
         return dict(case=case, seed=seed, arm=arm, model=args.model, observed_models=models, **evidence,
                     guidance_sha256=hashlib.sha256(args.guidance.encode()).hexdigest() if arm == "guided" else None,
