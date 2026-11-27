@@ -65,6 +65,7 @@ extension Bot {
             guard current.matchesSavedRequest(sent, token: report.iteration) else { return }
         }
         let assessed = current.assessed(report)
+        current.recordMeasurement(report.measurement)
         answer.metadata[GoalKey.outcome] = assessed.outcome.rawValue
         answer.metadata[GoalKey.evidence] = assessed.evidence
         current.interruptedAttempt = nil

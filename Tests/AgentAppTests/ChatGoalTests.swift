@@ -531,6 +531,8 @@ extension ChatGoalTests {
         let store = goalStore(GoalBackend())
         let bot = addGoalBot(store, "Infra")
         var goal = ChatGoal(objective: "zrobic 20 GB wolnego na OVH", destination: store.goalDestination(for: bot))
+        let diagnostic = ChatGoal(objective: "Check whether the disk has 20 GB free", destination: goal.destination)
+        #expect(diagnostic.freeSpaceThreshold == nil)
         func report(_ outcome: ChatGoal.Report.Outcome, _ before: Double, _ after: Double, target: Double = 20) -> ChatGoal.Report {
             .init(iteration: goal.begin(), outcome: outcome, evidence: "df on OVH /",
                   measurement: .init(unit: "GB", direction: .increase, target: target, before: before, after: after))

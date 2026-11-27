@@ -202,7 +202,8 @@ struct ChatGoal: Codable, Equatable {
             instructions += "\n" + strategy
         }
         if let (target, unit) = freeSpaceThreshold {
-            instructions += "\nRequired measurement: free space on the requested volume, target \(target) \(unit), direction increase."
+            let requirement = "\nRequired measurement: free space on the requested volume, target \(target) \(unit), direction increase."
+            if instructions.utf8.count + requirement.utf8.count <= HerdrClient.messageBytes { instructions += requirement }
         }
         if let bestMeasurement {
             let checkpoint = "\nBest reported measurement: \(bestMeasurement.after) \(bestMeasurement.unit), target \(bestMeasurement.target) (\(bestMeasurement.direction.rawValue))."
@@ -251,12 +252,15 @@ struct ChatGoal: Codable, Equatable {
         return true
     }
 
+    mutating func recordMeasurement(_ reading: Measurement?) {
+        guard let reading, accepts(reading), bestMeasurement.map({ reading.improves($0.after) }) ?? true else { return }
+        bestMeasurement = reading
+    }
+
     @discardableResult mutating func finish(_ result: Report) -> Report {
         guard state == .running, attempt == result.iteration else { return result }
         let report = assessed(result)
-        if let reading = result.measurement, accepts(reading) {
-            if bestMeasurement == nil || bestMeasurement.map({ reading.improves($0.after) }) == true { bestMeasurement = reading }
-        }
+        recordMeasurement(result.measurement)
         attempt = nil
         detail = String(report.evidence.trimmingCharacters(in: .whitespacesAndNewlines).prefix(800))
         switch report.outcome {

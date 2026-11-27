@@ -31,6 +31,10 @@ extension ChatGoal {
     /// report omits its measurement. Other numeric goals establish a metric in their report.
     var freeSpaceThreshold: (Double, String)? {
         let primary = objective.components(separatedBy: "\nFollow-up: ").first ?? objective
+        // A request to report or investigate a threshold can finish below it.
+        // Recognize a direct capacity objective; other goals use reported metrics.
+        let action = #/(?i)^\s*(?:(?:please|proszę|prosze)\s+)?(?:zrób|zrob|zrobić|zrobic|uzyskaj|zapewnij|zwolnij|odzyskaj|zapewnić|ensure|reach|achieve|get|free up|maintain|make|leave|keep|[0-9])/#
+        guard primary.firstMatch(of: action) != nil else { return nil }
         let pattern = #/(?i)\b([0-9]+(?:[.,][0-9]+)?)\s*(KiB|MiB|GiB|TiB|KB|MB|GB|TB)\s+(?:wolnego\b|wolnej\s+przestrzeni\b|(?:of\s+)?free(?:\s+(?:disk\s+)?space)?\b)/#
         guard let match = primary.firstMatch(of: pattern),
               let target = Double(match.1.replacingOccurrences(of: ",", with: ".")), target > 0
