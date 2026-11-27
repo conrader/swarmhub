@@ -174,12 +174,12 @@ private struct SidebarSessionScrollView<Content: View>: View {
         ScrollViewReader { proxy in
             ScrollView { content() }
                 .onChange(of: store.sidebarReveal?.request) {
-                    guard let target = store.sidebarReveal?.target else { return }
+                    guard let reveal = store.sidebarReveal else { return }
                     // LazyVStack may not have built the nested row yet. Materialize its bot first.
-                    proxy.scrollTo(target.parent.botID)
+                    proxy.scrollTo(reveal.target.parent.botID)
                     DispatchQueue.main.async {
-                        guard store.sidebarReveal?.target == target else { return }
-                        proxy.scrollTo(target)
+                        guard store.openHerdrHelper != nil, store.sidebarReveal?.request == reveal.request else { return }
+                        proxy.scrollTo(reveal.target)
                     }
                 }
         }

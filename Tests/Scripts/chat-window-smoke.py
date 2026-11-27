@@ -1029,7 +1029,7 @@ def message_search(source_app):
         print("Verified live and imported search, archive paging, restored positions, and recovery from a missing archive.")
 
 
-def live_terminals(source_app, screenshots=None, appearance=None, library=None):
+def live_terminals(source_app, screenshots=None, appearance=None, library=None, long_sidebar=False):
     import hashlib
 
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
@@ -1123,7 +1123,10 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
             pass
 
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
-        store.write_text(json.dumps(dict(version=2, bots=[reader, owner, standby, pinned], groups=[group], sidebar=dict(pinned=[pinned["id"]]),
+        bots = [reader, owner, standby, pinned]
+        if long_sidebar:
+            bots.extend(dict(id=str(uuid.uuid4()), name=f"Z fixture {i:02}", backend="Mock", messages=[]) for i in range(50))
+        store.write_text(json.dumps(dict(version=2, bots=bots, groups=[group], sidebar=dict(pinned=[pinned["id"]]),
                                          scrollPositions={group["id"].upper(): group["messages"][77]["id"]})))
         environment = {}
         if screenshots is not None:
@@ -1167,6 +1170,23 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None):
                 wait_for("cross-chat child preview", lambda: panel("inspector.terminal"))
                 assert attribute(field, "AXValue") == "Draft stays in ReaderQA"
                 assert any(label(b) == "Open session" for b in buttons(panel("inspector.terminal")))
+                if long_sidebar:
+                    area = next(a for a in descendants(window) if attribute(a, "AXRole") == "AXScrollArea"
+                                and any(label(b) == child_label for b in buttons(a)))
+
+                    def visible_child():
+                        row = next((b for b in buttons(area) if label(b) == child_label), None)
+                        viewport, frame = bounds(area), bounds(row) if row else None
+                        return frame and viewport and viewport[0] <= frame[0] and frame[1] <= viewport[1]
+
+                    bar = attribute(area, "AXVerticalScrollBar")
+                    assert ax.AXUIElementSetAttributeValue(bar, "AXValue", 1.0) == 0
+                    wait_for("helper preview beside an independently scrolled sidebar", lambda: not visible_child())
+                    press(panel("inspector.terminal"), "Open session")
+                    wait_for("central session details", lambda: panel("nativeSession.details"))
+                    wait_for("opened helper visible in the sidebar", visible_child)
+                    print("Opened the previewed session and revealed its row among 50 additional chats.", flush=True)
+                    return
                 press(window, "Back to Details")
                 # Select the name directly from ReaderQA. The separate terminal icon previews in place.
                 press(window, child_label)
@@ -2101,6 +2121,8 @@ if __name__ == "__main__":
             subprocess.run(["codesign", "--force", "--sign", "-", library], check=True)
             for appearance in ("Dark", "Light"):
                 live_terminals(source_app, destination, appearance, library)
+    elif len(sys.argv) == 3 and sys.argv[1] == "--sidebar-reveal":
+        live_terminals(Path(sys.argv[2]).resolve(strict=True), long_sidebar=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
         live_terminals(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
@@ -2118,4 +2140,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--session-usage | --terminals | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
