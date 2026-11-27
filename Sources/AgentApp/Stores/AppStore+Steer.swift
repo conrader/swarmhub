@@ -188,7 +188,7 @@ extension AppStore {
                 try await activeBackend.steer(sessionID: sessionID, text: value, files: files)
                 state = .sent
                 message.metadata[SteerKey.steer] = "delivered"
-                if let bot = conversation as? Bot, let goalID, bot.goal?.id == goalID, bot.goal?.state.active == true {
+                if let bot = conversation as? Bot, let goalID, message.metadata[GoalKey.amendment] == goalID.uuidString, bot.goal?.id == goalID, bot.goal?.state.active == true {
                     bot.goal?.objective += "\nFollow-up: " + value + files.map { "\nAttached file: " + $0.name }.joined()
                 }
             } catch {

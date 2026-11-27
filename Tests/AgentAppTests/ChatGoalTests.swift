@@ -506,3 +506,80 @@ extension ChatGoalTests {
                 "Task " + HelperAssignment.unavailable + "\n$ echo hello")
     }
 }
+
+extension ChatGoalTests {
+    @MainActor @Test func optionalHelperBlockContinuesDirectlyButARealApprovalPauses() async throws {
+        let backend = GoalBackend(), store = goalStore(backend)
+        let bot = addGoalBot(store, "Infra")
+        #expect(store.handleGoalCommand(.start("Inspect disk usage on OVH"), in: bot) == nil)
+        try await waitUntil { await backend.requests.count == 1 }
+        let first = try #require(bot.goal?.attempt)
+        let report = ChatGoal.Report(iteration: first, outcome: .blocked, evidence: "Helper could not start",
+                                     alternateAction: "Measure the volume directly via the authorized session")
+        await backend.emit(.replace(String(decoding: try JSONEncoder().encode(report), as: UTF8.self)), step: 0)
+        await backend.end(0)
+        try await waitUntil { await backend.requests.count == 2 }
+        let next = try #require(await backend.requests.last?.messages.last?.content)
+        #expect(next.contains("Measure the volume directly"))
+        let second = try #require(bot.goal?.attempt)
+        try await backend.report(.blocked, "Approval required for deleting the selected file.", for: second, step: 1)
+        try await waitUntil { bot.goal?.state == .waiting }
+        #expect(await backend.requests.count == 2)
+    }
+
+    @MainActor @Test func zeroBytesCannotCompleteOrAdvanceAFreeSpaceGoal() throws {
+        let store = goalStore(GoalBackend())
+        let bot = addGoalBot(store, "Infra")
+        var goal = ChatGoal(objective: "zrobic 20 GB wolnego na OVH", destination: store.goalDestination(for: bot))
+        let diagnostic = ChatGoal(objective: "Check whether the disk has 20 GB free", destination: goal.destination)
+        #expect(diagnostic.freeSpaceThreshold == nil)
+        func report(_ outcome: ChatGoal.Report.Outcome, _ before: Double, _ after: Double, target: Double = 20) -> ChatGoal.Report {
+            .init(iteration: goal.begin(), outcome: outcome, evidence: "df on OVH /",
+                  measurement: .init(unit: "GB", direction: .increase, target: target, before: before, after: after))
+        }
+        let handoff = ChatGoal.Report(iteration: goal.begin(), outcome: .progress, evidence: "Filed a ticket")
+        #expect(goal.finish(handoff).outcome == .noProgress)
+        let flat = report(.progress, 2, 2)
+        #expect(goal.finish(flat).outcome == .noProgress)
+        #expect(goal.state == .waiting)
+        goal.resume()
+        let changedTarget = report(.complete, 2, 3, target: 3)
+        #expect(goal.finish(changedTarget).outcome == .noProgress)
+        let improvement = report(.progress, 2, 3)
+        #expect(goal.finish(improvement).outcome == .progress)
+        let early = report(.complete, 3, 4)
+        #expect(goal.finish(early).outcome == .noProgress)
+        let restored = try JSONDecoder().decode(ChatGoal.self, from: JSONEncoder().encode(goal))
+        #expect(restored.bestMeasurement?.after == 4)
+        let done = report(.complete, 4, 21)
+        #expect(goal.finish(done).outcome == .complete && goal.state == .completed)
+    }
+
+    @MainActor @Test func aQuotedApprovalIsDeliveredOnceAndDoesNotAmendTheGoal() async throws {
+        let backend = GoalBackend(), store = goalStore(backend), objective = "Inspect the archive"
+        let bot = addGoalBot(store, "Infra")
+        #expect(store.handleGoalCommand(.start(objective), in: bot) == nil)
+        try await waitUntil { await backend.requests.count == 1 }
+        let attempt = try #require(bot.goal?.attempt)
+        let question = "Approve the specific archive operation?"
+        try await backend.report(.blocked, question, for: attempt, step: 0)
+        try await waitUntil { bot.goal?.state == .waiting }
+        let id = try #require(bot.messages.last?.id)
+        #expect(store.send(text: "Tak", bot: bot, conversation: bot, replyToID: id, metadata: [ChoiceReply.quoteKey: question]))
+        try await waitUntil { await backend.requests.count == 2 }
+        #expect((await backend.requests.last?.messages.last?.content)?.contains("In reply to “" + question + "”\nTak") == true)
+        let next = try #require(bot.goal?.attempt)
+        try await backend.report(.progress, "Archive verified", for: next, step: 1)
+        try await waitUntil { await backend.requests.count == 3 }
+        #expect(bot.goal?.objective == objective)
+        #expect((await backend.requests.last?.messages.last?.content)?.contains(question) == false)
+        // A legacy store keeps the chat record and any unrelated objective amendments.
+        bot.goal?.objective += "\nFollow-up: In reply to “" + question + "”\nTak\nFollow-up: Keep the manifest"
+        bot.retireSavedGoalApprovals()
+        #expect(bot.goal?.objective == objective + "\nFollow-up: Keep the manifest")
+        #expect(bot.messages.contains { $0.content == "Tak" })
+        let third = try #require(bot.goal?.attempt)
+        try await backend.report(.complete, "All checked", for: third, step: 2)
+        try await waitUntil { bot.goal?.state == .completed }
+    }
+}

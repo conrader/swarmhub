@@ -12,8 +12,10 @@ struct ChatGoal: Codable, Equatable {
     struct Report: Codable {
         enum Outcome: String, Codable { case progress, complete, blocked, noProgress = "no_progress", failed }
         let iteration: UUID
-        let outcome: Outcome
-        let evidence: String
+        var outcome: Outcome
+        var evidence: String
+        var measurement: Measurement? = nil
+        var alternateAction: String? = nil
 
         static func read(_ reply: String, for attempt: UUID? = nil) -> (report: Self, prose: String)? {
             let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -142,6 +144,7 @@ struct ChatGoal: Codable, Equatable {
     var interruptedAttempt: UUID?
     var attempt: UUID?
     var detail = ""
+    private(set) var bestMeasurement: Measurement?
     private var stalls = 0
     private var progressEvidence: [String] = []
 
@@ -171,14 +174,41 @@ struct ChatGoal: Codable, Equatable {
         return token
     }
 
-    func request(for token: UUID) -> String {
-        let instructions = """
+    // Keep the former envelope recognizable when recovering answers from an older installation.
+    private func originalInstructions(for token: UUID) -> String {
+        """
         Work on one step toward this goal: \(objective)
         Use the normal workspace approval process. If input or approval is needed, wait for the person.
         End your reply with one JSON line for this step. Set outcome to progress, complete, blocked, no_progress, or failed.
         For progress name the new result. For complete give evidence that the entire objective was met. Otherwise explain what is needed.
         {"iteration":"\(token.uuidString)","outcome":"...","evidence":"..."}
         """
+    }
+
+    func matchesSavedRequest(_ request: String, token: UUID) -> Bool {
+        let prefix = originalInstructions(for: token)
+        return request == prefix || request.hasPrefix(prefix + "\n")
+    }
+
+    func request(for token: UUID, guidance: String = "") -> String {
+        var instructions = originalInstructions(for: token)
+        if !guidance.isEmpty { instructions += "\nNew user message (respect continuing constraints, use approvals only for their stated action):\n" + guidance }
+        let strategy = """
+        Keep the user's objective, named target and constraints in scope. Take the largest useful authorized action now. A helper is optional unless the user requires delegation. If a method fails, do independent work yourself. An approval applies only to its stated action. Never retry or substitute a denied action.
+        For a numeric target measure the same resource before and after in the same unit. Include measurement in the final JSON: {"unit":"GB","direction":"increase","target":20,"before":2,"after":3}. Use the actual unit and target; direction is increase or decrease. Report no_progress for unchanged results. Requests, handoffs and repeated status checks alone are not progress.
+        If only a method is blocked and a different authorized action is available, include alternateAction naming that concrete action. If the objective itself needs a decision, report blocked and ask once.
+        """
+        if instructions.utf8.count + strategy.utf8.count + 1 <= HerdrClient.messageBytes {
+            instructions += "\n" + strategy
+        }
+        if let (target, unit) = freeSpaceThreshold {
+            let requirement = "\nRequired measurement: free space on the requested volume, target \(target) \(unit), direction increase."
+            if instructions.utf8.count + requirement.utf8.count <= HerdrClient.messageBytes { instructions += requirement }
+        }
+        if let bestMeasurement {
+            let checkpoint = "\nBest reported measurement: \(bestMeasurement.after) \(bestMeasurement.unit), target \(bestMeasurement.target) (\(bestMeasurement.direction.rawValue))."
+            if instructions.utf8.count + checkpoint.utf8.count <= HerdrClient.messageBytes { instructions += checkpoint }
+        }
         guard !detail.isEmpty else { return instructions }
         // An objective that fit on the first step must still fit on its next step.
         let lead = "\nLast result: "
@@ -186,8 +216,51 @@ struct ChatGoal: Codable, Equatable {
         return room > 0 ? instructions + lead + HerdrClient.plain(detail, bytes: room) : instructions
     }
 
-    mutating func finish(_ report: Report) {
-        guard state == .running, attempt == report.iteration else { return }
+    func assessed(_ result: Report) -> Report {
+        var report = result
+        switch result.outcome {
+        case .blocked:
+            if let next = result.alternateAction?.trimmingCharacters(in: .whitespacesAndNewlines), !next.isEmpty {
+                report.outcome = .noProgress
+                report.evidence = "Next authorized action: " + String(next.prefix(360)) + "\n" + result.evidence
+            }
+        case .complete, .progress:
+            if let reading = result.measurement {
+                if !accepts(reading) {
+                    report.outcome = .noProgress
+                    report.evidence = "Measure the same target and unit again. " + result.evidence
+                } else if result.outcome == .complete && !reading.reached {
+                    report.outcome = .noProgress
+                    report.evidence = "The reported measurement is short of the target. " + result.evidence
+                } else if result.outcome == .progress && (!reading.improves(reading.before) || bestMeasurement.map({ !reading.improves($0.after) }) == true) {
+                    report.outcome = .noProgress
+                }
+            } else if bestMeasurement != nil || freeSpaceThreshold != nil {
+                report.outcome = .noProgress
+                report.evidence = "Measure the target again to verify the result. " + result.evidence
+            }
+        case .noProgress, .failed: break
+        }
+        return report
+    }
+
+    private func accepts(_ reading: Measurement) -> Bool {
+        guard reading.valid, bestMeasurement.map({ reading.matches($0) }) ?? true else { return false }
+        if let (target, unit) = freeSpaceThreshold {
+            return reading.target == target && reading.unit.caseInsensitiveCompare(unit) == .orderedSame && reading.direction == .increase
+        }
+        return true
+    }
+
+    mutating func recordMeasurement(_ reading: Measurement?) {
+        guard let reading, accepts(reading), bestMeasurement.map({ reading.improves($0.after) }) ?? true else { return }
+        bestMeasurement = reading
+    }
+
+    @discardableResult mutating func finish(_ result: Report) -> Report {
+        guard state == .running, attempt == result.iteration else { return result }
+        let report = assessed(result)
+        recordMeasurement(result.measurement)
         attempt = nil
         detail = String(report.evidence.trimmingCharacters(in: .whitespacesAndNewlines).prefix(800))
         switch report.outcome {
@@ -206,10 +279,11 @@ struct ChatGoal: Codable, Equatable {
             }
             state = .queued
         }
-        if state == .queued, stopAtStepLimit() { return }
+        if state == .queued, stopAtStepLimit() { return report }
         if state == .queued, stalls >= 2 {
             wait("Two steps produced no new progress. " + detail)
         }
+        return report
     }
 
     mutating func wait(_ reason: String) {

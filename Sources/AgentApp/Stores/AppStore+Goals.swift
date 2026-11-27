@@ -12,13 +12,13 @@ extension AppStore {
 
         switch command {
         case .start(let objective, let stepLimit, let budget, let perGoal):
-            if bot.goal?.state.active == true {
+            if let current = bot.goal, current.state.active {
                 guard budget == nil else { return "Stop the current goal before changing the spending limit." }
                 guard stepLimit == nil else { return "Stop the current goal before starting one with a new step limit." }
                 if let turn = turn(in: bot), !turn.steerAvailable || turn.stopping {
                     return "This goal step cannot take live guidance. Wait for it to finish before updating the goal."
                 }
-                return send(text: objective, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true)
+                return send(text: objective, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true, metadata: [GoalKey.amendment: current.id.uuidString])
                     ? nil : "The goal update could not be submitted."
             }
             guard attachments.isEmpty else { return "Start the goal, then attach files to a follow-up." }
@@ -204,7 +204,9 @@ extension AppStore {
                 row.metadata[GoalKey.outcome] = ChatGoal.Report.Outcome.blocked.rawValue
                 goal.wait("Review the reply in this chat, then resume the goal.")
             } else {
-                goal.finish(report)
+                let assessed = goal.finish(report)
+                row.metadata[GoalKey.outcome] = assessed.outcome.rawValue
+                row.metadata[GoalKey.evidence] = assessed.evidence
             }
         } else {
             goal.wait("The reply had no confirmed goal outcome. Review it before resuming.")
@@ -238,5 +240,7 @@ enum GoalKey {
     static let attempt = "goalAttemptID"
     static let outcome = "goalOutcome"
     static let evidence = "goalEvidence"
+    static let amendment = "goalAmendment"
+    static let guidance = "goalStepGuidance"
     static let request = "goalIterationRequest"
 }
