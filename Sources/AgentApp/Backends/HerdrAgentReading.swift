@@ -138,6 +138,12 @@ struct HerdrAgentReading: Equatable, Sendable {
         }
     }
 
+    var confirmedModelLabel: String? {
+        if let codexSessionModel { return codexSessionModel }
+        if confirmed, case .model(_, let label) = running { return label }
+        return nil
+    }
+
     var pendingLine: String? {
         guard let target = pendingTarget else { return nil }
         return changesProgram ? "Next new direct turn: \(target). Your chat stays here."

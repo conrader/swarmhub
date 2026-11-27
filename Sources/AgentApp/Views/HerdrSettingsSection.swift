@@ -631,12 +631,16 @@ struct HerdrOverviewSection: View {
                 Button { store.infoTab = .model } label: {
                     HStack(alignment: .top, spacing: 8) {
                         fact("AI", reading.runtime?.label ?? "None set up", isDefault: reading.runtime != nil && !reading.runtimeIsOwn, symbol: "terminal.fill", colour: AppColor.olive)
-                        fact("Model", reading.model.map(HerdrAgentReading.name) ?? HerdrAgentReading.programPicks, isDefault: reading.model != nil && !reading.modelIsOwn, symbol: "cpu.fill", colour: AppColor.plum)
+                        if let label = reading.confirmedModelLabel {
+                            fact("Active model", label, isDefault: false, symbol: "cpu.fill", colour: AppColor.plum)
+                        } else {
+                            fact("Model", reading.model.map(HerdrAgentReading.name) ?? HerdrAgentReading.programPicks, isDefault: reading.model != nil && !reading.modelIsOwn, symbol: "cpu.fill", colour: AppColor.plum)
+                        }
                     }
                 }.buttonStyle(.plain).help("Change them under Model").accessibilityLabel(reading.summary).accessibilityHint("Opens Model")
                 if let running = reading.runningLine, reading.pendingLine != nil || reading.running == .unstated || reading.running == .unknown {
                     StatusCard(kind: .info, title: running, detail: reading.pendingLine, inInspector: true)
-                } else if case .model(_, let label) = reading.running {
+                } else if reading.confirmedModelLabel == nil, case .model(_, let label) = reading.running {
                     Text("Running on \(label) now.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
