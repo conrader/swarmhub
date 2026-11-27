@@ -176,6 +176,8 @@ struct ChatView: View {
             }
         }
         .frame(maxWidth: .infinity).glassGroup(spacing: 4)
+        // These status lines sit outside the composer's glass surface.
+        .background(bot.goal != nil || bot.sampleProfile != nil ? AppColor.chat : Color.clear)
     }
 
     private var composer: some View {
