@@ -221,7 +221,12 @@ extension HerdrClient.HelperLog {
             func put(_ row: HerdrClient.Item, in rows: inout [HerdrClient.Item]) {
                 if let index = rows.firstIndex(where: { $0.id == row.id }) { rows[index] = row } else { rows.append(row); rows.sort { $0.id < $1.id } }
             }
-            if row.kind == "task" { put(row, in: &tasks) } else if row.kind == "reply" { put(row, in: &replies) }
+            switch row.kind {
+            case "task": put(row, in: &tasks)
+            case "reply": put(row, in: &replies)
+            default:
+                if HerdrPublishedResult(row) != nil { put(row, in: &publications) }
+            }
         }
         func note(_ call: HerdrClient.ToolCall) {
             if let index = tools.firstIndex(where: { $0.seq == call.seq }) { tools[index] = call } else { tools.append(call); tools.sort { $0.seq < $1.seq } }

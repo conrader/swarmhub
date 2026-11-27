@@ -538,9 +538,14 @@ struct HerdrHelperView: View {
                         else if log == nil { quiet(problem.isEmpty ? "Loading…" : "Steps unavailable.") }
                         else { quiet("No steps yet.") }
                     }
+                    if let items = log?.publications, !items.isEmpty {
+                        helperPart("Published results", detail: nil) {
+                            publicationCards(items.compactMap(HerdrPublishedResult.init), from: shown)
+                        }
+                    }
                     helperPart(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", detail: nil) {
                         if let text = log?.latestReply(answered: shown?.answered == true), !text.isEmpty {
-                            NativeSessionReply(text: text, media: media(for: shown, server: logServer, entry: latestEntry(shown)))
+                            NativeSessionReply(text: text, media: latestMedia(for: shown))
                         } else if let latest = shown?.resultPreview {
                             NativeSessionReply(text: latest, media: previewMedia(shown))
                             if shown?.reply?.truncated == true { quiet("Showing the saved excerpt.") }
@@ -663,16 +668,25 @@ struct HerdrHelperView: View {
         }
     }
 
-    private func media(for helper: HerdrClient.Helper?, server: HerdrServer?, entry: String) -> HelperReplyMedia? {
-        guard let helper, let core, let server, !bot.isDemo else { return nil }
-        return .init(server: server, core: core, agent: helper.ref, entry: ["managed", entry])
+    private func media(for helper: HerdrClient.Helper?, server: HerdrServer?, entry: String, results: [HerdrPublishedResult] = []) -> HelperReplyMedia? {
+        guard let helper, let core, let server, store.herdrServer(id: server.id) == server, !bot.isDemo else { return nil }
+        return .init(server: server, core: core, agent: helper.ref, entry: ["managed", entry],
+                     published: results.isEmpty ? nil : .init(serverID: server.id, items: results))
     }
 
     private var draftEntry: String { "draft-" + String(log?.tasks.last?.id ?? 0) }
 
-    private func latestEntry(_ shown: HerdrClient.Helper?) -> String {
-        if shown?.answered != true, let draft = log?.draft, !draft.isEmpty { return draftEntry }
-        return log?.replies.last.map { String($0.id) } ?? draftEntry
+    private func latestMedia(for shown: HerdrClient.Helper?) -> HelperReplyMedia? {
+        let writing = shown?.answered != true && log?.draft?.isEmpty == false
+        let id = writing ? nil : log?.replies.last?.id
+        return media(for: shown, server: logServer, entry: id.map(String.init) ?? draftEntry,
+                     results: log?.results(forReply: id ?? Int.max) ?? [])
+    }
+
+    @ViewBuilder private func publicationCards(_ items: [HerdrPublishedResult], from helper: HerdrClient.Helper?) -> some View {
+        if let source = media(for: helper, server: logServer, entry: "", results: items), let results = source.published {
+            HerdrReplyFiles(messageID: source.publicationID, results: results)
+        }
     }
 
     private func previewMedia(_ shown: HerdrClient.Helper?) -> HelperReplyMedia? {
@@ -683,18 +697,23 @@ struct HerdrHelperView: View {
     /// A task can contain shell syntax. Only paired inline code markers change how its text appears.
     @ViewBuilder private func conversation(_ shown: HerdrClient.Helper?) -> some View {
         let name = shown?.name ?? "Helper"
-        let history = ((log?.tasks ?? []) + (log?.replies ?? [])).sorted { $0.id < $1.id }
+        let history = (log.map { $0.tasks + $0.replies + $0.publications } ?? []).sorted { $0.id < $1.id }
         if log?.tasks.isEmpty != false, let task = shown?.task {
             HelperChatLine(name: bot.name, text: task, unavailable: HelperAssignment.readable(task) == nil)
         }
         ForEach(history, id: \.id) { item in
-            let incoming = item.kind == "reply"
-            HelperChatLine(name: incoming ? name : bot.name, text: item.text, incoming: incoming,
-                           unavailable: !incoming && HelperAssignment.readable(item.text) == nil,
-                           media: incoming ? media(for: shown, server: logServer, entry: String(item.id)) : nil)
+            if let result = HerdrPublishedResult(item) {
+                publicationCards([result], from: shown)
+            } else {
+                let incoming = item.kind == "reply"
+                HelperChatLine(name: incoming ? name : bot.name, text: item.text, incoming: incoming,
+                               unavailable: !incoming && HelperAssignment.readable(item.text) == nil,
+                               media: incoming ? media(for: shown, server: logServer, entry: String(item.id),
+                                                       results: log?.results(forReply: item.id) ?? []) : nil)
+            }
         }
         if shown?.answered != true, let draft = log?.draft, !draft.isEmpty {
-            HelperChatLine(name: name, text: draft, incoming: true, media: media(for: shown, server: logServer, entry: draftEntry))
+            HelperChatLine(name: name, text: draft, incoming: true, media: media(for: shown, server: logServer, entry: draftEntry, results: log?.results(forReply: Int.max) ?? []))
         } else if log?.replies.isEmpty != false, let preview = shown?.resultPreview {
             HelperChatLine(name: name, text: preview, incoming: true, media: previewMedia(shown))
         }
