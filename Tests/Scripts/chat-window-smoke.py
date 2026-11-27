@@ -653,6 +653,16 @@ def sample_workspace(source_app):
                 wait_for("expanded samples", lambda: button(tests))
                 press(window, tests)
                 wait_for("opened the tests helper chat", lambda: button("Session details"))
+                wait_for("tests command and recent output directly in chat", lambda: pane("helper.chatTerminal") and has_text("expected throw"))
+                def toggle_excerpt():
+                    control = next(e for e in descendants(pane("helper.chatTerminal"))
+                                   if attribute(e, "AXRole") == "AXDisclosureTriangle")
+                    result = ax.AXUIElementPerformAction(control, "AXPress")
+                    assert result in (0, ax.kAXErrorFailure), result
+                toggle_excerpt()
+                wait_for("collapsed helper output", lambda: not has_text("expected throw"))
+                toggle_excerpt()
+                wait_for("reopened helper output", lambda: has_text("expected throw"))
                 press(window, "Session details")
                 wait_for("sample command, steps and failure", lambda: button("Stop helper") and has_text("Steps (2)") and has_text("testEmptyTitle failed"))
                 press(window, "Show terminal in Details")
@@ -672,7 +682,8 @@ def sample_workspace(source_app):
                 press(window, "Send helper guidance")
                 wait_for("parent receipt", lambda: has_text("I saved your instruction with the rename sample session"))
                 press(window, rename)
-                wait_for("guidance in the rename conversation", lambda: button("Session details") and has_text("Check the renamed tests"))
+                wait_for("guidance and build output in the rename conversation", lambda: button("Session details") and
+                         has_text("Check the renamed tests") and has_text("Build complete!") and not has_text("expected throw"))
                 press(window, "Claude agent tests, Stopped")
                 wait_for("opened the stopped helper chat", lambda: button("Session details") and not has_text("Check the renamed tests"))
                 press(window, "Session details")

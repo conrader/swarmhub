@@ -723,6 +723,9 @@ struct HerdrHelperView: View {
                 ForEach(tools, id: \.seq) { step($0, running: shown?.isWorking == true) }
             }
         }
+        if let screen = log?.screen {
+            HelperChatTerminal(output: screen)
+        }
     }
 
     static func assignment(_ source: String) -> AttributedString {

@@ -135,6 +135,9 @@ struct NativeThreadOutput: View {
                 }
             }.font(.callout)
         }
+        if let terminal = details?.terminal {
+            HelperChatTerminal(command: terminal.command, output: terminal.output)
+        }
     }
 
     @ViewBuilder private func cards(for child: HerdrClient.NativeThread) -> some View {

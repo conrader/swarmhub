@@ -24,6 +24,37 @@ enum HelperAssignment {
     }
 }
 
+/// The conversation shows the most recent terminal lines. The full output stays available in Details.
+struct HelperChatTerminal: View {
+    var command: String? = nil
+    let output: String
+    @State private var expanded = true
+
+    nonisolated static func excerpt(_ output: String) -> String {
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        guard let last = lines.lastIndex(where: { !$0.allSatisfy(\.isWhitespace) }) else { return "" }
+        return HelperAssignment.transcript(lines[...last].suffix(5).joined(separator: "\n"))
+    }
+
+    var body: some View {
+        let excerpt = Self.excerpt(output)
+        if !excerpt.isEmpty || command?.isEmpty == false {
+            DisclosureGroup("Terminal output", isExpanded: $expanded) {
+                ScrollView(.horizontal) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let command, !command.isEmpty { Text(verbatim: "$ " + command).lineLimit(2).foregroundStyle(.secondary) }
+                        if !excerpt.isEmpty { Text(verbatim: excerpt) }
+                    }.font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+                }.padding(.top, 3)
+            }.font(.callout).padding(9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppColor.sidebar, in: RoundedRectangle(cornerRadius: 6))
+                .accessibilityIdentifier("helper.chatTerminal")
+        }
+    }
+}
+
 struct HelperChatLine: View {
     let name: String
     let text: String
