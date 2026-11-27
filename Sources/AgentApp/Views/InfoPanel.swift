@@ -42,7 +42,16 @@ struct InfoPanel: View {
             InfoTabBar(tabs: store.infoTabs(for: bot), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
             Divider()
             if store.visibleInfoTab(for: bot) == .overview { identity }
-            ScrollView { panelContent.padding(14).frame(maxWidth: .infinity, alignment: .leading) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let profile = bot.sampleProfile, store.visibleInfoTab(for: bot) != .media {
+                        SampleInspector(bot: bot, profile: profile, tab: store.visibleInfoTab(for: bot))
+                        if store.visibleInfoTab(for: bot) == .overview { groups }
+                    } else {
+                        panelContent
+                    }
+                }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            }
         }.frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal, maxWidth: ChromeMetrics.infoWidth.max)
         .background(AppColor.panel)
     }
@@ -159,7 +168,7 @@ struct InfoPanel: View {
     }
 }
 
-private struct BotInstructions: View {
+struct BotInstructions: View {
     let text: String
     @State private var expanded = false
     @State private var overflows = false

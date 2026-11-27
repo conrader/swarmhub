@@ -4,7 +4,6 @@ struct BotUsageOverview: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     @State private var note = ""
-    @AppStorage("accent") private var accent = AppTheme.defaultAccent
 
     var body: some View {
         let server = store.herdrServer(for: bot)
@@ -17,16 +16,7 @@ struct BotUsageOverview: View {
                 if let percent = usage?.contextPercent { Text("\(percent)% ctx").monospacedDigit() }
             }.font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             if let percent = usage?.contextPercent {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(AppColor.selection)
-                        Capsule().fill(AppTheme.accentColor(for: accent))
-                            .frame(width: geometry.size.width * CGFloat(percent) / 100)
-                    }
-                }
-                .frame(height: 4)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Context used").accessibilityValue("\(percent)%")
+                ContextUsageMeter(percent: percent)
             }
             if let presence, !bot.isReadOnlyArchive, store.helperRosters[server.id] != .unavailable {
                 let template = presence.session == nil ? store.herdrTemplate(for: bot) : presence.template
@@ -133,5 +123,23 @@ struct SummarizeBotButton: View {
             .disabled(disabled || store.herdrBotIsBusy(bot) || store.summarizingChats.contains(bot.id))
             .help("Keep your messages and give the new session a summary of this chat.")
         }
+    }
+}
+
+struct ContextUsageMeter: View {
+    let percent: Int
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(AppColor.selection)
+                Capsule().fill(AppTheme.accentColor(for: accent))
+                    .frame(width: geometry.size.width * CGFloat(percent) / 100)
+            }
+        }
+        .frame(height: 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Context used").accessibilityValue("\(percent)%")
     }
 }

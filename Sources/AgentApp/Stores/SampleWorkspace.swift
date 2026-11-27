@@ -5,13 +5,6 @@ enum SampleWorkspace {
     enum Role: String, Codable {
         case jarvis, patch, scout, legal
 
-        var runtime: String {
-            switch self {
-            case .jarvis, .scout: "Claude"
-            case .patch: "Codex"
-            case .legal: "OpenCode"
-            }
-        }
     }
 
     static let server = HerdrServer(id: "sample-preview", name: "Sample workspace", kind: .address, address: "")

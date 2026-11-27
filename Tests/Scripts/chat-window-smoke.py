@@ -518,18 +518,46 @@ def sample_workspace(source_app):
                 def pane(identifier):
                     return next((e for e in descendants(window) if attribute(e, "AXIdentifier") == identifier), None)
 
+                def model_picker(bot):
+                    return next((e for e in descendants(window) if label(e) == "Choose sample model for " + bot), None)
+
                 tests = "Claude agent tests, Working"
                 rename = "Codex agent rename, Answered"
                 if reopened:
                     wait_for("saved sample disclosure", lambda: button("Sessions for Jarvis") and not button(rename))
                     press(window, "Sessions for Jarvis")
                     wait_for("saved stopped sample", lambda: button("Claude agent tests, Stopped") and button(rename))
+                    press(window, "Patch", sidebar=True)
+                    wait_for("restored Patch model", lambda: has_text("Claude · Sonnet") and model_picker("Patch"))
                     continue
                 entry = "Look around with sample bots"
                 wait_for("empty workspace sample entry", lambda: button(entry))
                 press(window, entry)
                 wait_for("Patch chat and both Jarvis children", lambda: button("Patch") and button(tests) and button(rename))
                 assert [b["name"] for b in json.loads(store.read_text())["bots"]] == ["Jarvis", "Patch", "Scout", "Legal"]
+                open_detail_section(window, "Overview")
+                wait_for("Patch context and projects", lambda: has_text("34% ctx") and has_text("/srv/shop") and has_text("Drafts release notes"))
+                open_detail_section(window, "Approvals")
+                wait_for("Patch scoped rule", lambda: has_text("Reviewer: Scout") and has_text("Allow swift test"))
+                open_detail_section(window, "Routines")
+                wait_for("Patch CI watcher", lambda: has_text("Watch PR #142") and has_text("Changelog"))
+                picker = model_picker("Patch")
+                assert picker and ax.AXUIElementPerformAction(picker, "AXPress") == 0
+
+                def choose_claude():
+                    item = next((e for e in descendants(picker) if attribute(e, "AXRole") == "AXMenuItem"
+                                 and "Claude · Sonnet" in label(e)), None)
+                    return item and ax.AXUIElementPerformAction(item, "AXPress") == 0
+
+                wait_for("select sample Claude model", choose_claude)
+                wait_for("Patch model saved", lambda: json.loads(store.read_text())["bots"][1].get("sampleModel") == "Claude · Sonnet")
+                press(window, "Scout", sidebar=True)
+                wait_for("Scout routine", lambda: has_text("Morning brief") and has_text("08:55"))
+                press(window, "Legal", sidebar=True)
+                open_detail_section(window, "Approvals")
+                wait_for("Legal approval policy", lambda: has_text("Ask everything") and has_text("Read-only documents"))
+                open_detail_section(window, "Overview")
+                wait_for("Legal spend cap and projects", lambda: has_text("$0.06 / $2.00 cap") and has_text("Saved documents"))
                 press(window, "Sessions for Jarvis")
                 wait_for("folded samples", lambda: not button(tests) and not button(rename))
                 press(window, "Sessions for Jarvis")

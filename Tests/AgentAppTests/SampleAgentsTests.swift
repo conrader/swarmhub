@@ -39,3 +39,23 @@ import Testing
     restored.removeSampleBots()
     #expect(restored.herdrHelpers[same.id] == nil && restored.bots.contains { $0.id == real.id })
 }
+
+@MainActor @Test func sampleInspectorAndModelFollowOnlyTheSelectedExample() throws {
+    let file = temporaryStore(), defaults = isolatedDefaults(), keys = InMemoryKeyStore()
+    func reopen() -> AppStore { AppStore(storeURL: file, autoStart: false, keyStore: keys, defaults: defaults) }
+    let store = reopen()
+    store.loadSamples()
+    let patch = try #require(store.bots.first { $0.sampleRole == .patch })
+    let scout = try #require(store.bots.first { $0.sampleRole == .scout })
+    #expect(store.infoTabs(for: patch) == [.overview, .approvals, .routines, .media])
+    #expect(patch.sampleModelLabel == "Codex · Sol")
+    patch.sampleModel = "Gemini CLI · Beta"
+    store.save()
+    let restored = try #require(reopen().bots.first { $0.id == patch.id })
+    #expect(restored.sampleModelLabel == "Gemini CLI · Beta" && store.sidebarProgram(for: restored) == "Gemini CLI")
+    #expect(scout.sampleModelLabel == "Claude · Sonnet")
+    restored.sampleModel = "Retired example"
+    #expect(restored.sampleModelLabel == "Codex · Sol")
+    restored.backend = .herdr
+    #expect(restored.sampleProfile == nil && restored.sampleModelLabel == nil && store.infoTabs(for: restored) == AgentInfoTab.allCases)
+}

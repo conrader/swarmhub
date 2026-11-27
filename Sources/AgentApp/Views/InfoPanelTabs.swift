@@ -16,7 +16,10 @@ extension AgentInfoTab {
 }
 
 extension AppStore {
-    func infoTabs(for bot: Bot) -> [AgentInfoTab] { bot.backend == .herdr ? AgentInfoTab.allCases : [.overview, .media] }
+    func infoTabs(for bot: Bot) -> [AgentInfoTab] {
+        if bot.sampleProfile != nil { return [.overview, .approvals, .routines, .media] }
+        return bot.backend == .herdr ? AgentInfoTab.allCases : [.overview, .media]
+    }
 
     /// The tab the panel shows: the chosen one when this agent has it, else Overview (`infoTab` itself is left alone so
     /// the choice comes back on an agent that has the tab).
