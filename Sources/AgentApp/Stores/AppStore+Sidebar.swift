@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 extension ChatMessage {
     var contributesToSidebarDate: Bool {
@@ -59,8 +59,14 @@ extension AppStore {
 
     func openAndFocusComposer(_ chat: SidebarChat) {
         open(chat)
-        if case .bot(let bot) = chat, bot.isReadOnlyArchive { composerFocus = nil }
-        else { composerFocus = chat.id }
+        if case .bot(let bot) = chat, bot.isReadOnlyArchive {
+            composerKeyboard.cancel()
+            composerFocus = nil
+        } else {
+            let id = chat.id
+            composerFocus = id
+            composerKeyboard.begin(in: NSApp?.keyWindow) { [weak self] in self?.openConversation?.id == id }
+        }
     }
 
     func open(_ chat: SidebarChat) {

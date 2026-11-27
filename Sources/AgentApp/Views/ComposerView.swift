@@ -172,6 +172,9 @@ struct ComposerView: View {
                         }
                     }
                     .padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset)
+                    .onChange(of: wantsFocus, initial: true) { _, requested in
+                        if requested { focused = true }
+                    }
                     .task(id: wantsFocus) {
                         guard wantsFocus else { return }
                         await Task.yield()

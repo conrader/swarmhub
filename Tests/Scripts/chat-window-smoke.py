@@ -1383,9 +1383,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                     event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
                     Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
                     Quartz.CGEventPostToPid(pid, event)
-                wait_for("keystrokes after leaving a bot with a working helper", lambda: any(
-                    attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message" and attribute(e, "AXValue") == text
-                    for e in descendants(window)))
+                field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
+                wait_for("keystrokes after leaving a bot with a working helper", lambda: attribute(field, "AXValue") == text)
                 def has_nested():
                     return any(label(b) == "OpenCode agent Nested reader, Answered" for b in buttons(window))
                 wait_for("nested session under its provider parent", has_nested)

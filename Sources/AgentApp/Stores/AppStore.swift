@@ -110,6 +110,7 @@ import UserNotifications
     var herdrProjectModels: [String: HerdrProjectsModel] = [:]
     /// The setup wizard's ending (`AppStore+SetupHerdr.swift`): the bot whose composer takes the keyboard once, and the
     /// chat it ended in with the number of messages it had then, which says that the first reply takes longer.
+    let composerKeyboard = ComposerKeyboardHandoff()
     @Published var composerFocus: UUID?
     var herdrLanding: (bot: UUID, messages: Int)?
     /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
