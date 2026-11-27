@@ -228,6 +228,13 @@ struct WorkspaceTerminals: View {
                 names[HerdrBackend.agentName(botName: bot.name, botID: bot.id)] = bot.name
             }
         }
+        func displayName(_ agent: HerdrClient.Agent) -> String {
+            guard let parent = agent.parent else { return names[agent.name] ?? agent.name }
+            // Workspace scopes a helper's terminal name to its parent; its sidebar name omits that suffix.
+            let suffix = "-" + parent.address
+            guard agent.name.hasSuffix(suffix), agent.name.count > suffix.count else { return agent.name }
+            return String(agent.name.dropLast(suffix.count))
+        }
         var results = agents.compactMap { agent -> LiveTerminal? in
             if request.groupID != nil {
                 var root = agent
@@ -236,9 +243,9 @@ struct WorkspaceTerminals: View {
                 guard names[root.name] != nil else { return nil }
             }
             let parent = agent.parent.flatMap { byRef[$0] }
-            let detail = [parent.map { "Helper of " + (names[$0.name] ?? $0.name) }, agent.status?.state, agent.template]
+            let detail = [parent.map { "Helper of " + displayName($0) }, agent.status?.state, agent.template]
                 .compactMap { $0 }.joined(separator: " · ")
-            return LiveTerminal(agent: agent.ref, title: names[agent.name] ?? agent.name, detail: detail, core: roster.core)
+            return LiveTerminal(agent: agent.ref, title: displayName(agent), detail: detail, core: roster.core)
         }
         let visibleOwners = Set(results.compactMap { terminal -> HerdrClient.AgentRef? in
             if case .agent(let ref) = terminal.id { return ref }
