@@ -27,17 +27,32 @@ private struct RowText: View {
     let name: String; let fragment: String; let unread: Bool
     var program: String? = nil
     var mainBotLabel: String? = nil
+    private var title: some View {
+        HStack(spacing: 5) {
+            Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium))
+                .foregroundStyle(.primary).lineLimit(1)
+            if let mainBotLabel { HerdrMainBotStar(label: mainBotLabel) }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
-                Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
-                    .lineLimit(1).layoutPriority(1)
-                if let mainBotLabel { HerdrMainBotStar(label: mainBotLabel) }
-                if let program {
-                    Spacer(minLength: 4)
-                    Text(program).font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.secondary).lineLimit(1).help(program)
+            if let program {
+                let runtime = Text(verbatim: program).font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary).lineLimit(1).help(program)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 5) {
+                        title.fixedSize()
+                        Spacer(minLength: 4)
+                        runtime.fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        title
+                        runtime
+                    }
                 }
+            } else {
+                title
             }
             // A blank fragment still takes its line, so every row is the same height.
             Text(fragment.isEmpty ? " " : fragment).font(.system(size: SidebarMetrics.fragmentSize)).foregroundStyle(.secondary)
