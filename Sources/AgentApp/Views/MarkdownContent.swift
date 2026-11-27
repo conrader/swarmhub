@@ -8,6 +8,7 @@ struct MarkdownContent: View {
     @ObservedObject var message: ChatMessage
     /// Where the cards answer; nil (renders) shows them without actions.
     var actionTarget: ConversationActionTarget? = nil
+    var helperMedia: HelperReplyMedia?
     /// One text segment of an ordered reply (nil = the whole text), and for each of its blocks the place that block
     /// has in the whole reply (`ReplyLayout.blockIndexes`), which is what a card's answer is stored and checked by.
     var text: String? = nil; var indexes: [Int]? = nil
@@ -22,8 +23,8 @@ struct MarkdownContent: View {
                 let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset
                 switch block {
                 case .markdown(let text):
-                    ProseBlock(text: text, rendered: rendered.prose, replyID: message.id, published: message.publishedResults,
-                               localMedia: store.replyMediaIsOnThisMac(message, target: actionTarget))
+                    ProseBlock(text: text, rendered: rendered.prose, replyID: message.id, helperMedia: helperMedia, published: message.publishedResults,
+                               localMedia: helperMedia.map { $0.server.kind == .local } ?? store.replyMediaIsOnThisMac(message, target: actionTarget))
                 case .code(_, let body):
                     if let run = rendered.run { CodeBlock(code: body, run: run) }
                 case .choices(let prompt, let options):
@@ -68,6 +69,7 @@ struct ProseBlock: View {
     let text: String
     var rendered: [TranscriptText.Prose]? = nil
     var replyID: UUID?
+    var helperMedia: HelperReplyMedia?
     var published: HerdrReplyResults?
     var localMedia = false
     @State private var selectedMedia: ReplyMediaLink?
@@ -82,6 +84,7 @@ struct ProseBlock: View {
     var body: some View {
         let prose = blocks
         let media = replyID == nil ? [] : ReplyMediaLink.links(in: prose)
+        let mediaID = media.isEmpty ? nil : (helperMedia?.replyID ?? replyID)
         VStack(alignment: .leading, spacing: 9) {
             MarkdownBlockContent(blocks: prose)
                 .previewReplyLinks { url in
@@ -91,7 +94,7 @@ struct ProseBlock: View {
                     }
                     return false
                 }
-            if let replyID {
+            if let replyID = mediaID {
                 let previews = media.filter { publishedFile($0) == nil }
                 let gallery = previews.count > 1 && previews.allSatisfy { ChatMediaKind(filename: $0.url.lastPathComponent) == .image }
                 let layout = gallery ? AnyLayout(LibraryFlow(spacing: 8)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
@@ -116,7 +119,7 @@ struct ProseBlock: View {
         .sheet(item: $selectedMedia) { link in
             if let replyID, let published, let item = publishedFile(link) {
                 HerdrResultSheet(messageID: replyID, serverID: published.serverID, item: item, preview: nil)
-            } else if let replyID {
+            } else if let replyID = mediaID {
                 ImagePreviewSheet(title: link.title) {
                     ReplyMediaPreview(link: link, messageID: replyID, isLocal: localMedia, expanded: true) {}
                 }

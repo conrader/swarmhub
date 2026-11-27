@@ -1,6 +1,27 @@
 import CryptoKit
 import Foundation
 
+/// Helper replies have journal or thread identities instead of a persisted ChatMessage UUID.
+struct HelperReplyMedia {
+    let server: HerdrServer
+    let core: String
+    let agent: HerdrClient.AgentRef
+    let entry: [String]
+
+    var replyID: UUID {
+        let fields = ["helper-reply", server.id, server.kind.rawValue, server.address,
+                      core, agent.address, String(agent.createdMs)] + entry
+        // Length prefixes keep paths, thread identifiers and arbitrary text unambiguous.
+        var hash = SHA256()
+        for field in fields {
+            var length = UInt64(field.utf8.count).bigEndian
+            withUnsafeBytes(of: &length) { hash.update(bufferPointer: $0) }
+            hash.update(data: Data(field.utf8))
+        }
+        return hash.finalize().withUnsafeBytes { UUID(uuid: $0.loadUnaligned(as: uuid_t.self)) }
+    }
+}
+
 /// A bounded local copy of media already shown in chat. The server's journal remains the source
 /// for a new download if macOS reclaims the cache or the result has aged out.
 actor PublishedMediaCache {

@@ -11,6 +11,8 @@ struct ReplyMediaPreview: View {
     @State private var file: URL?
     @State private var error: String?
 
+    private struct LoadKey: Equatable { let url: URL; let message: UUID; let local: Bool }
+
     var body: some View {
         Group {
             if let file {
@@ -27,7 +29,7 @@ struct ReplyMediaPreview: View {
                 Label(link.url.lastPathComponent + " · " + error, systemImage: "paperclip").font(.caption).foregroundStyle(.secondary)
             } else { ProgressView("Loading preview…").controlSize(.small) }
         }
-        .task(id: isLocal) {
+        .task(id: LoadKey(url: link.url, message: messageID, local: isLocal)) {
             file = nil
             error = nil
             guard isLocal else { error = "Ask the bot to publish this file from its workspace."; return }

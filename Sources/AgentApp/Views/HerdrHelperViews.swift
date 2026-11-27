@@ -450,7 +450,7 @@ struct HerdrHelperView: View {
     @State private var showDetails = false
     @State private var expandedSteps = false
     @State private var readAttempt = 0
-    @StateObject private var reply: ChatMessage
+    @State private var logServer: HerdrServer?
     @State private var guidance = ""
     @State private var controlError = ""
     @State private var promotion: Task<Void, Never>?
@@ -462,7 +462,6 @@ struct HerdrHelperView: View {
         self.bot = bot; self.selection = selection
         self.groupName = groupName; self.closeOverviewDetails = closeOverviewDetails
         _helper = State(initialValue: helper); _core = State(initialValue: core); _log = State(initialValue: log)
-        _reply = StateObject(wrappedValue: ChatMessage(role: .assistant, content: log?.latestReply(answered: helper?.answered == true) ?? ""))
     }
 
     private var listed: HerdrClient.Helper? { store.herdrHelpers[selection.parent]?.sidebarSessions.first { $0.id == selection.helperID } }
@@ -540,10 +539,10 @@ struct HerdrHelperView: View {
                         else { quiet("No steps yet.") }
                     }
                     helperPart(shown?.answered != true && log?.draft?.isEmpty == false ? "Reply so far" : "Latest reply", detail: nil) {
-                        if !reply.content.isEmpty {
-                            MarkdownContent(message: reply).textSelection(.enabled)
+                        if let text = log?.latestReply(answered: shown?.answered == true), !text.isEmpty {
+                            NativeSessionReply(text: text, media: media(for: shown, server: logServer, entry: latestEntry(shown)))
                         } else if let latest = shown?.resultPreview {
-                            Text(verbatim: latest).textSelection(.enabled)
+                            NativeSessionReply(text: latest, media: previewMedia(shown))
                             if shown?.reply?.truncated == true { quiet("Showing the saved excerpt.") }
                         } else {
                             if stopped { quiet("Stopped before replying.") }
@@ -664,6 +663,23 @@ struct HerdrHelperView: View {
         }
     }
 
+    private func media(for helper: HerdrClient.Helper?, server: HerdrServer?, entry: String) -> HelperReplyMedia? {
+        guard let helper, let core, let server, !bot.isDemo else { return nil }
+        return .init(server: server, core: core, agent: helper.ref, entry: ["managed", entry])
+    }
+
+    private var draftEntry: String { "draft-" + String(log?.tasks.last?.id ?? 0) }
+
+    private func latestEntry(_ shown: HerdrClient.Helper?) -> String {
+        if shown?.answered != true, let draft = log?.draft, !draft.isEmpty { return draftEntry }
+        return log?.replies.last.map { String($0.id) } ?? draftEntry
+    }
+
+    private func previewMedia(_ shown: HerdrClient.Helper?) -> HelperReplyMedia? {
+        guard let listed, listed == shown, let result = listed.reply else { return nil }
+        return media(for: listed, server: store.herdrAgentPresence[bot.id]?.server, entry: String(result.id))
+    }
+
     /// A task can contain shell syntax. Only paired inline code markers change how its text appears.
     @ViewBuilder private func conversation(_ shown: HerdrClient.Helper?) -> some View {
         let name = shown?.name ?? "Helper"
@@ -674,12 +690,13 @@ struct HerdrHelperView: View {
         ForEach(history, id: \.id) { item in
             let incoming = item.kind == "reply"
             HelperChatLine(name: incoming ? name : bot.name, text: item.text, incoming: incoming,
-                           unavailable: !incoming && HelperAssignment.readable(item.text) == nil)
+                           unavailable: !incoming && HelperAssignment.readable(item.text) == nil,
+                           media: incoming ? media(for: shown, server: logServer, entry: String(item.id)) : nil)
         }
         if shown?.answered != true, let draft = log?.draft, !draft.isEmpty {
-            HelperChatLine(name: name, text: draft, incoming: true)
+            HelperChatLine(name: name, text: draft, incoming: true, media: media(for: shown, server: logServer, entry: draftEntry))
         } else if log?.replies.isEmpty != false, let preview = shown?.resultPreview {
-            HelperChatLine(name: name, text: preview, incoming: true)
+            HelperChatLine(name: name, text: preview, incoming: true, media: previewMedia(shown))
         }
         HelperGuidanceCard(selection: selection, bot: bot)
         if let tools = log?.tools, !tools.isEmpty {
@@ -728,6 +745,7 @@ struct HerdrHelperView: View {
     /// Follows the helper on its event stream until its session ends (true). Its terminal is not in the stream and is
     /// read every two seconds beside it. False when the stream could not be opened or broke: the caller polls.
     private func followStream() async -> Bool {
+        let server = store.herdrServer(for: bot)
         guard store.launchWorkEnabled, let helper = listed ?? helper, let events = try? store.herdrHelperEvents(helper.ref, of: bot) else { return false }
         let screens = Task { @MainActor in
             while !Task.isCancelled {
@@ -742,17 +760,17 @@ struct HerdrHelperView: View {
                 guard held.apply(event, draftID: &draftID) else { return false }
                 if case .heartbeat = event { continue }
                 held.screen = log?.screen
-                show(held)
+                guard !Task.isCancelled else { return true }
+                show(held, server: server)
                 if case .end = event { return true }
             }
         } catch {}
         return false
     }
 
-    private func show(_ fresh: HerdrClient.HelperLog) {
+    private func show(_ fresh: HerdrClient.HelperLog, server: HerdrServer) {
+        logServer = server
         if fresh != log { log = fresh }
-        let text = fresh.latestReply(answered: (listed ?? helper)?.answered == true) ?? ""
-        if reply.content != text { reply.content = text }
         problem = ""
     }
 
@@ -762,9 +780,10 @@ struct HerdrHelperView: View {
             return
         }
         do {
+            let server = store.herdrServer(for: bot)
             let fresh = try await store.herdrHelperLog(helper.ref, core: core, of: bot, includeScreen: helper.isLive)
             guard !Task.isCancelled else { return }
-            show(fresh)
+            show(fresh, server: server)
         } catch { if log == nil, !Task.isCancelled { problem = error.localizedDescription } }
     }
 }

@@ -29,6 +29,7 @@ struct HelperChatLine: View {
     let text: String
     var incoming = false
     var unavailable = false
+    var media: HelperReplyMedia?
 
     var body: some View {
         VStack(alignment: incoming ? .leading : .trailing, spacing: 5) {
@@ -36,7 +37,7 @@ struct HelperChatLine: View {
             if unavailable {
                 Text(HelperAssignment.unavailable).font(.callout).foregroundStyle(.secondary)
             } else if incoming {
-                NativeSessionReply(text: text)
+                NativeSessionReply(text: text, media: media)
             } else {
                 Text(HerdrHelperView.assignment(text)).textSelection(.enabled)
                     .padding(.horizontal, 14).padding(.vertical, 10)

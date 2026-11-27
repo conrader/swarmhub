@@ -197,13 +197,17 @@ def private_workspace(source_app):
 
 
 @contextmanager
-def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_environment=None, appearance=None):
+def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_environment=None, appearance=None, server_kind=None):
     from AppKit import NSRunningApplication
 
     environment = dict(os.environ, HOME=str(home), CFFIXED_USER_HOME=str(home),
                        SWARMHUB_DISABLE_UPDATES="1", SWARMHUB_SERVICE_HOME=str(home), SWARMHUB_HERDR_TOKEN=token)
     environment.update(extra_environment or {})
     arguments = [app / "Contents/MacOS/AgentApp", "-setupState", "skipped", "-herdrBaseURL", address]
+    if server_kind:
+        servers = [dict(id="default", name="QA", kind=server_kind, address=address)]
+        domain = plistlib.loads((app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
+        subprocess.run(["defaults", "write", domain, "herdrServers", "-string", json.dumps(servers)], check=True)
     if appearance is not None:
         arguments.extend(["-appearance", appearance])
     process = subprocess.Popen(arguments, env=environment)
@@ -231,6 +235,8 @@ def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_envi
                 process.kill()
                 process.wait()
                 raise RuntimeError("Private workspace did not quit normally")
+        if server_kind:
+            subprocess.run(["defaults", "delete", domain, "herdrServers"], check=True)
 
 
 def group_restart(source_app):
@@ -333,6 +339,29 @@ def verify_media(window):
     wait_for("image preview sheet", lambda: any(label(b) == "Done" for b in buttons(window)))
     press(window, "Done")
     wait_for("image preview closed", lambda: all(label(b) != "Done" for b in buttons(window)))
+
+
+def verify_linked_media(window, chat):
+    import Quartz
+    wait_for("linked image in " + chat, lambda: any(label(b) == "Preview image" for b in buttons(window)))
+    def video_control():
+        timeline = next((e for e in descendants(window) if label(e) == "timeline"), None)
+        if timeline is None:
+            return None
+        position = attribute(timeline, "AXPosition")
+        if position:
+            origin = ax.AXValueGetValue(position, ax.kAXValueCGPointType, None)[1]
+            move = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (origin.x + 10, origin.y - 12), 0)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, move)
+        return next((b for b in descendants(window) if label(b).lower() == "play/pause"), None)
+    wait_for("video controls in " + chat, video_control)
+    play = video_control()
+    ax.AXUIElementPerformAction(play, "AXPress")
+    wait_for("video playing in " + chat, lambda: int(attribute(play, "AXValue") or 0) == 1)
+    press_transition(window, "Preview image", "expanded image in " + chat,
+                     lambda: any(label(b) == "Done" for b in buttons(window)))
+    press(window, "Done")
+    wait_for("image closed", lambda: all(label(b) != "Done" for b in buttons(window)))
 
 
 def steer_reopen(source_app):
@@ -1274,7 +1303,7 @@ def message_search(source_app):
         print("Verified live and imported search, archive paging, restored positions, and recovery from a missing archive.")
 
 
-def live_terminals(source_app, screenshots=None, appearance=None, library=None, long_sidebar=False):
+def live_terminals(source_app, screenshots=None, appearance=None, library=None, long_sidebar=False, media=False):
     import hashlib
     import Quartz
 
@@ -1322,10 +1351,12 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
             elif route.endswith("/output"):
                 screens.append(route)
                 reply = dict(text=route + " line " + str(screens.count(route)))
+            elif media and route == "/api/history/qa/finished/99":
+                reply = dict(items=[dict(id=18, kind="reply", text=media_text)])
             elif route == "/api/agents/terminal0/100/opencode-threads/ses_layout":
                 reply = dict(state="answered" if child_finished.is_set() else "working",
                              details=dict(task="Check the full header assignment.",
-                                          reply="Complete sidebar result." if child_finished.is_set() else "I am checking the header.",
+                                          reply=media_text if media else "Complete sidebar result." if child_finished.is_set() else "I am checking the header.",
                                           terminal=dict(command="cat sidebar.txt", output="The sidebar is expanded."),
                                           steps=[dict(text="Read sidebar.txt", state="completed")]),
                              transcript="Task Check header.\n\ncompleted · read · sidebar.txt")
@@ -1347,12 +1378,12 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                         name="Layout reader", model="fixture/default", created_ms=child_started_ms,
                         completed_ms=child_started_ms + 74000 if child_finished.is_set() else None,
                         state="answered" if child_finished.is_set() else "working", task="Check header.",
-                        reply="Sidebar result." if child_finished.is_set() else "")]
+                        reply=media_text if media else "Sidebar result." if child_finished.is_set() else "")]
                     reply["opencode_threads"].append(dict(id="ses_nested", parent="ses_layout", runtime="opencode",
                         name="Nested reader", model="fixture/default", created_ms=105, completed_ms=110,
                         state="answered", task="Inspect the header", reply="Header checked."))
                     reply["last_result"] = dict(address="finished", created_ms=99, name="AnsweredQA", state="finished",
-                                                answered=True, task="Check the import", reply=dict(id=18, text="The import passed."))
+                                                answered=True, task="Check the import", reply=dict(id=18, text=media_text if media else "The import passed."))
                     reply["recent_sessions"] = [dict(address="finished", created_ms=65, name="EarlierQA", state="gone",
                                                      answered=True, task="Check the export", reply=dict(id=17, text="The export passed."))]
             else:
@@ -1369,6 +1400,14 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
             pass
 
     with private_workspace(source_app) as (app, home, store), ThreadingHTTPServer(("127.0.0.1", 0), Workspace) as server:
+        if media:
+            paths = [home / filename for filename in ("render.png", "clip.mp4")]
+            for path in paths:
+                shutil.copyfile(Path(__file__).resolve().parents[1] / "Fixtures/chat-media" / path.name, path)
+            media_text = "Review [image](" + paths[0].as_uri() + ") and [movie](" + paths[1].as_uri() + ")."
+            owner["messages"] = [dict(id=str(uuid.uuid4()), role="assistant", content=media_text,
+                                      createdAt=800000000, metadata={"herdrJournal": "default:qa 12"})]
+            child_finished.set()
         bots = [reader, owner, standby, pinned]
         if long_sidebar:
             bots.extend(dict(id=str(uuid.uuid4()), name=f"Z fixture {i:02}", backend="Mock", messages=[]) for i in range(50))
@@ -1388,6 +1427,26 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
 
         Thread(target=server.serve_forever, daemon=True).start()
         try:
+            if media:
+                address = "http://127.0.0.1:" + str(server.server_port)
+                for launch, kind in enumerate(("local", "local", "address")):
+                    with open_workspace(app, home, address, token, server_kind=kind) as window:
+                        for prefix in ("Patch", "OpenCode agent Layout reader", "Helper AnsweredQA"):
+                            def row():
+                                return next((b for b in buttons(window) if prefix in label(b).split(", ") and "," in label(b)), None)
+                            wait_for("sidebar row " + prefix, row)
+                            press(window, label(row()))
+                            if kind == "address":
+                                wait_for("remote file prompt", lambda: any("publish this file" in
+                                         str(attribute(e, "AXValue") or label(e)) for e in descendants(window)))
+                            else:
+                                verify_linked_media(window, prefix)
+                        if launch == 0:
+                            for path in paths:
+                                path.unlink()
+                print("Opened linked images and played videos in the bot and both helper chats, "
+                      "reopened them after relaunch without source files, and verified remote paths stayed remote.")
+                return
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token, environment, appearance) as window:
                 press(window, "ReaderQA", sidebar=True)
                 wait_for("Patch’s live Codex label before opening its chat", lambda: any(
@@ -1555,8 +1614,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 press(window, label(nested_button()))
                 wait_for("nested helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA"
                                                                 for n in descendants(window)))
-                press(window, "Preview NestedQA in Details")
-                wait_for("embedded preview", lambda: any(attribute(n, "AXIdentifier") == "inspector.terminal" for n in descendants(window)))
+                press_transition(window, "Preview NestedQA in Details", "embedded preview",
+                                 lambda: any(attribute(n, "AXIdentifier") == "inspector.terminal" for n in descendants(window)))
                 output("/api/agents/terminal4/104/output", updates=2)
                 choose("Back to Details")
                 wait_for("helper assignment still open", lambda: any(attribute(n, "AXValue") == "Assigned to NestedQA" for n in descendants(window)))
@@ -1566,8 +1625,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 press(window, "Back to GroupHelperQA")
                 wait_for("delegating helper assignment", lambda: any(attribute(n, "AXValue") == "Assigned to GroupHelperQA"
                                                                      for n in descendants(window)))
-                press(window, "Back to ReleaseQA")
-                wait_for("restored group reading position", lambda: 77 in visible_messages(window))
+                press_transition(window, "Back to ReleaseQA", "restored group reading position",
+                                 lambda: 77 in visible_messages(window))
                 wait_for("restored group draft", lambda: group_composer() and
                          attribute(group_composer(), "AXValue") == "Group draft before opening a helper")
                 press(window, "Group terminals")
@@ -1613,7 +1672,8 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 wait_for("answered helper in the same tree", answered_button)
                 press(window, label(answered_button()))
                 wait_for("saved helper reply", lambda: any(attribute(n, "AXValue") == "The import passed." for n in descendants(window)))
-                press(window, "Steer via Patch")
+                press_transition(window, "Steer via Patch", "parent guidance composer",
+                                 lambda: any(label(b) == "Send helper guidance" for b in buttons(window)))
                 press(window, "ReaderQA", sidebar=True)
                 press(window, label(owner_row()))
                 def earlier():
@@ -2365,6 +2425,8 @@ if __name__ == "__main__":
         steer_reopen(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--session-usage":
         session_usage_overview(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--helper-media":
+        live_terminals(Path(sys.argv[2]).resolve(strict=True), media=True)
     elif len(sys.argv) == 4 and sys.argv[1] == "--helper-screenshots":
         import platform
         if tuple(int(n) for n in platform.mac_ver()[0].split(".")[:2]) < (14, 4):
@@ -2406,4 +2468,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-composer | --sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-composer | --sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --helper-media | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
