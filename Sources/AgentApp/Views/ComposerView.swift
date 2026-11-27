@@ -164,16 +164,18 @@ struct ComposerView: View {
             .padding(.vertical, ComposerMetrics.textInset).hidden()
             .frame(minHeight: ComposerMetrics.control, maxHeight: ComposerMetrics.maxInput).fixedSize(horizontal: false, vertical: true)
             .overlay {
-                TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
+                TextEditor(text: $text).focused($focused).font(.body).scrollContentBackground(.hidden)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
                             Text(placeholder).font(.body).foregroundStyle(.tertiary).lineLimit(1)
                                 .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
                         }
                     }
-                    .padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset).focused($focused)
-                    .onChange(of: wantsFocus, initial: true) { _, requested in
-                        guard requested else { return }
+                    .padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset)
+                    .task(id: wantsFocus) {
+                        guard wantsFocus else { return }
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
                         focused = true
                         tookFocus()
                     }

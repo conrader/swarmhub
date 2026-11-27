@@ -1253,6 +1253,7 @@ def message_search(source_app):
 
 def live_terminals(source_app, screenshots=None, appearance=None, library=None, long_sidebar=False):
     import hashlib
+    import Quartz
 
     owner = dict(id=str(uuid.uuid4()), name="Patch", backend="Herdr")
     reader = dict(id=str(uuid.uuid4()), name="ReaderQA", backend="Mock")
@@ -1366,14 +1367,25 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
         try:
             with open_workspace(app, home, "http://127.0.0.1:" + str(server.server_port), token, environment, appearance) as window:
                 press(window, "ReaderQA", sidebar=True)
-                field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
-                enter_draft(field, "Draft stays in ReaderQA")
                 wait_for("Patch’s live Codex label before opening its chat", lambda: any(
                     "Patch" in label(b).split(", ") and "Codex" in label(b).split(", ") for b in buttons(window)))
                 wait_for("idle bot’s configured Claude label without opening it", lambda: any(
                     "StandbyQA" in label(b).split(", ") and "Claude" in label(b).split(", ") for b in buttons(window)))
                 child_label = "OpenCode agent Layout reader, Working"
                 wait_for("native child under Patch", lambda: any(label(b) == child_label for b in buttons(window)))
+                press(window, "Patch", sidebar=True)
+                wait_for("parent chat", lambda: any(label(b) == "Patch" for b in buttons(window)))
+                press(window, "ReaderQA", sidebar=True)
+                wait_for("reader chat", lambda: any(label(b) == "ReaderQA" for b in buttons(window)))
+                pid = ax.AXUIElementGetPid(window, None)[1]
+                text = "Draft stays in ReaderQA"
+                for down in (True, False):
+                    event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+                    Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
+                    Quartz.CGEventPostToPid(pid, event)
+                wait_for("keystrokes after leaving a bot with a working helper", lambda: any(
+                    attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message" and attribute(e, "AXValue") == text
+                    for e in descendants(window)))
                 def has_nested():
                     return any(label(b) == "OpenCode agent Nested reader, Answered" for b in buttons(window))
                 wait_for("nested session under its provider parent", has_nested)
