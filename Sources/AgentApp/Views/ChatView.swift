@@ -81,9 +81,10 @@ struct ChatView: View {
                                 store.composerFocus = bot.id
                             }.buttonStyle(.bordered).help("Edit the example changes or send them as written.")
                         }
-                        let openers = Self.openers(shown)
+                        let page = shown[viewport.range]
+                        let openers = Self.openers(page)
                         if viewport.hasEarlier { HistoryPageButton(earlier: true, action: viewport.earlier) }
-                        ForEach(shown[viewport.range]) { message in
+                        ForEach(page) { message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                         actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: author(of: message, openers: openers)).id(message.id).chatRow(message.id)
                                 .selectableMessage(message.id, in: selection)
@@ -130,7 +131,7 @@ struct ChatView: View {
         return openers.contains(message.id) ? bot : nil
     }
 
-    static func openers(_ shown: [ChatMessage]) -> Set<UUID> {
+    static func openers(_ shown: some Collection<ChatMessage>) -> Set<UUID> {
         var found: Set<UUID> = [], previous: ChatMessage?
         for message in shown where message.role != .system {
             let trigger = message.metadata[TurnKey.forUser]

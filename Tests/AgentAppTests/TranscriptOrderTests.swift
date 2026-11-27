@@ -10,6 +10,7 @@ import Testing
         let followup = ChatMessage(role: .assistant, content: "Both helpers finished", metadata: ["herdrTeamEntry": "local:2"])
         let queued = ChatMessage(role: .assistant, content: "Next request", metadata: [TurnKey.forUser: "second"])
         #expect(ChatView.openers([first, fragment, notice, followup, queued]) == [first.id, followup.id, queued.id])
+        #expect(ChatView.openers([first, notice, fragment].dropFirst()) == [fragment.id])
     }
 
     @Test(arguments: [-3_600_000, 3_600_000]) func textOnlySteerSurvivesFinalSnapshotReloadAndRepeatedHistoryPages(clockSkew: Int) async throws {
