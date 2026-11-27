@@ -256,6 +256,7 @@ struct HerdrClient: Sendable {
     struct BusySession: LocalizedError {
         let core: String
         let ref: AgentRef
+        var waitingForModelSwitch = false
         var errorDescription: String? { "The bot is finishing its current task." }
     }
     /// Runs before every request. A server reached over SSH opens its port forward here when it is not up

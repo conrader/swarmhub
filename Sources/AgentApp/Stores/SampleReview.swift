@@ -1,6 +1,6 @@
 import Foundation
 
-enum SampleReview {
+enum SampleReview: CaseIterable {
     case testCommand, paymentsBot
 
     enum Decision: String {
@@ -38,8 +38,8 @@ enum SampleReview {
 
     var detail: String {
         switch self {
-        case .testCommand: "Scout reviewed this sample command. It runs the importer tests locally."
-        case .paymentsBot: "Jarvis requested a sample bot that prepares invoices. You review every action."
+        case .testCommand: "Scout (Claude) reviewed the local importer tests. They use no network and perform no destructive writes."
+        case .paymentsBot: "Jarvis paused creation because this bot handles billing. Each action requires your approval."
         }
     }
 
@@ -53,7 +53,12 @@ enum SampleReview {
 
 extension Bot {
     var pendingSampleReview: SampleReview? {
-        guard isDemo, backend == .mock, sampleDecision == nil else { return nil }
+        guard sampleDecision == nil else { return nil }
+        return sampleReview
+    }
+
+    var sampleReview: SampleReview? {
+        guard isDemo, backend == .mock else { return nil }
         switch sampleRole {
         case .jarvis: return .paymentsBot
         case .patch: return .testCommand
@@ -73,7 +78,6 @@ extension AppStore {
             bots.append(payments)
         }
         bot.messages.append(ChatMessage(role: .assistant, content: decision.receipt))
-        recordInboxDecision(for: bot, subject: review.title, outcome: decision.receipt)
         updateSampleGoal(in: bot)
         save()
     }

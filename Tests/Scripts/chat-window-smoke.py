@@ -682,10 +682,15 @@ def sample_preview(source_app, destination, appearance, library):
 
             press_transition(window, "Needs Attention", "pending proposal", lambda: action("Create bot"))
             press_transition(window, "Always allow in /srv/shop", "saved scoped command", lambda: not action("Always allow in /srv/shop"))
+            def cards_in_order():
+                chat_links = {label(b): b for b in buttons(window) if label(b) in ("Open Patch chat", "Open Jarvis chat")}
+                return len(chat_links) == 2 and bounds(chat_links["Open Patch chat"])[1] < bounds(chat_links["Open Jarvis chat"])[1]
+            wait_for("resolved Patch card above the pending Jarvis card", lambda: cards_in_order() and action("Create bot"))
+            snapshots.capture("inbox-scoped")
             def resolved():
                 texts = {str(attribute(e, "AXValue") or label(e)) for e in descendants(window)}
                 expected = ("No pending items", "Saved the project rule for /srv/shop.", "Payments joined the sample team.")
-                return all(any(fragment in value for value in texts) for fragment in expected)
+                return cards_in_order() and all(any(fragment in value for value in texts) for fragment in expected)
             press_transition(window, "Create bot", "both decisions confirmed", resolved)
             snapshots.capture("inbox-resolved")
 
@@ -721,6 +726,10 @@ def sample_workspace(source_app):
                     press(window, "Patch", sidebar=True)
                     wait_for("restored Patch model", lambda: model_picker("Patch") and attribute(model_picker("Patch"), "AXValue") == "Gemini CLI · Beta")
                     wait_for("resolved sample inbox after restart", lambda: any(label(b) == "Needs Attention" and attribute(b, "AXValue") == "0" for b in buttons(window)))
+                    press(window, "Needs Attention")
+                    wait_for("both sample decisions in their original cards after restart",
+                             lambda: has_text("Saved the project rule for /srv/shop.") and has_text("Payments joined the sample team.")
+                             and not button("Always allow in /srv/shop") and not button("Create bot"))
                     assert any(b["name"] == "Payments" for b in json.loads(store.read_text())["bots"])
                     continue
                 entry = "Look around with sample bots"

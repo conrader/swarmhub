@@ -270,12 +270,19 @@ extension AppStore {
                         let agent = client.liveAgent(named: name, in: workspace)
                         let running = agent.map { [bot.id: HerdrAgentLaunch(server: server.id, core: core, address: $0.address, createdMs: $0.createdMs)] } ?? [:]
                         armHerdrCarryOver(for: [bot], running: running)
-                        if herdrBotIsBusy(bot) || agent.map({ !$0.isIdleForRollover || herdrAgentIsBusy($0, in: workspace.agents) }) == true {
+                        if herdrBotIsBusy(bot) {
                             busy += 1
                             continue
                         }
                         do {
-                            if let agent { try await client.endIfIdle(agent, core: core, workspace: workspace) }
+                            if let agent {
+                                guard try await readyForModelSwitch(bot, agent: agent, workspace: workspace, client: client) else {
+                                    busy += 1
+                                    continue
+                                }
+                                guard stillApplies(bot, change), !herdrBotIsBusy(bot) else { continue }
+                                try await client.endIfIdle(agent, core: core, workspace: workspace)
+                            }
                         } catch { failed += 1; continue }
                         guard stillApplies(bot, change) else { continue }
                         if !runningTurns.values.contains(where: { $0.botID == bot.id }) { forgetHerdrAgentState(for: bot) }
