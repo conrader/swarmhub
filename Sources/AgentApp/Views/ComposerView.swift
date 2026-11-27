@@ -80,7 +80,7 @@ struct ComposerView: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 6) {
                         ForEach(attachments) { attachment in
-                            AttachmentTile(attachment: attachment, size: 64) { if let removeAttachment { removeAttachment(attachment) } else { attachments.removeAll { $0.id == attachment.id } } }
+                            AttachmentTile(attachment: attachment, imageBounds: CGSize(width: 80, height: 54)) { if let removeAttachment { removeAttachment(attachment) } else { attachments.removeAll { $0.id == attachment.id } } }
                         }
                         ForEach(reading) { item in ReadingChip(label: item.label) { cancelReading(item.id) } }
                     }

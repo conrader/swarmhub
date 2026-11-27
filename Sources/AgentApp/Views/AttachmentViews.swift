@@ -18,12 +18,15 @@ struct AttachmentThumbnails: View {
     @EnvironmentObject private var store: AppStore
     var body: some View {
         let layout = attachments.contains { $0.kind == .video }
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(LibraryFlow(spacing: 6))
         layout {
             ForEach(attachments) { item in
                 if item.kind == .video, let url = store.attachmentURL(item) {
                     ChatVideo(url: url).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(item.name)
-                } else { AttachmentTile(attachment: item, size: 120) }
+                } else {
+                    AttachmentTile(attachment: item, imageBounds: attachments.count == 1
+                        ? CGSize(width: 420, height: 260) : CGSize(width: 156, height: 140))
+                }
             }
         }
     }
@@ -31,7 +34,9 @@ struct AttachmentThumbnails: View {
 
 struct AttachmentTile: View {
     @EnvironmentObject private var store: AppStore
-    let attachment: ChatAttachment; let size: CGFloat; var remove: (() -> Void)? = nil
+    let attachment: ChatAttachment
+    let imageBounds: CGSize
+    var remove: (() -> Void)? = nil
     @State private var previewing = false
     var body: some View {
         Button { previewing = true } label: { tile }.buttonStyle(.plain).accessibilityLabel("Preview " + attachment.name).help(attachment.summary.map { "\(attachment.name)\n\($0)" } ?? attachment.name)
@@ -42,8 +47,13 @@ struct AttachmentTile: View {
     }
     @ViewBuilder private var tile: some View {
         if attachment.kind == .image, let url = store.attachmentURL(attachment), let image = ThumbnailCache.image(at: url) {
-            Image(nsImage: image).resizable().scaledToFill().frame(width: size, height: size * 0.75).clipShape(RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5))
+            let aspect = image.size.width / max(1, image.size.height)
+            let width = min(image.size.width, imageBounds.width, imageBounds.height * aspect)
+            Image(nsImage: image).resizable().scaledToFit()
+                .frame(idealWidth: width, maxWidth: width)
+                .padding(2)
+                .background(AppColor.card, in: RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(AppColor.separator, lineWidth: 0.5))
         } else {
             HStack(spacing: 7) {
                 Image(systemName: AttachmentPreview.symbol(for: attachment)).foregroundStyle(.secondary)
