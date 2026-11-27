@@ -87,13 +87,16 @@ struct HelperChatGuidance: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 3) {
-            HelperChatLine(name: "You via " + botName, text: message.content)
+            Text("You via " + botName).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(HerdrHelperView.assignment(message.content)).textSelection(.enabled)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Color.accentColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 16))
             if message.metadata[TurnWaitCopy.key] == "waiting" {
                 Text("Queued in " + botName + "’s chat").font(.caption).foregroundStyle(.secondary)
             } else if let caption = SteerCopy.caption(message, botName: botName) {
                 Text(caption).font(.caption).foregroundStyle(.secondary)
             }
-        }
+        }.frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
@@ -101,14 +104,17 @@ struct HelperChatGuidance: View {
 struct HelperChatSteps<Step, Row: View>: View {
     let steps: [Step]
     let title: String
+    let model: String?
     @ViewBuilder let row: (Step) -> Row
     @State private var expanded = true
     @State private var showEarlier = false
 
     var body: some View {
-        if !steps.isEmpty {
+        VStack(alignment: .leading, spacing: 0) {
             DisclosureGroup(isExpanded: $expanded) {
+                Divider()
                 VStack(alignment: .leading, spacing: 6) {
+                    if steps.isEmpty { Text("No steps yet.").foregroundStyle(.secondary) }
                     if steps.count > 3 {
                         Button(showEarlier ? "Show latest 3" : "Show earlier steps (\(steps.count - 3))") {
                             showEarlier.toggle()
@@ -117,12 +123,17 @@ struct HelperChatSteps<Step, Row: View>: View {
                     ForEach(steps.indices.suffix(showEarlier ? steps.count : 3), id: \.self) { index in
                         row(steps[index]).lineLimit(2)
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
             } label: {
-                Text(title).font(.callout.weight(.semibold))
-            }
-            .inspectorCard().accessibilityElement(children: .contain).accessibilityIdentifier("helper.chatSteps")
-        }
+                HStack {
+                    Text(title).font(.callout.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 4)
+                    if let model { Text(verbatim: model).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1) }
+                }
+            }.padding(.horizontal, 10).padding(.vertical, 7)
+        }.background(AppColor.card, in: RoundedRectangle(cornerRadius: 7))
+            .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(AppColor.separator) }
+            .accessibilityElement(children: .contain).accessibilityIdentifier("helper.chatSteps")
     }
 }
 
@@ -157,26 +168,21 @@ struct HelperChatTerminal: View {
     }
 }
 
-struct HelperChatLine: View {
-    let name: String
-    let text: String
-    var incoming = false
-    var unavailable = false
+struct HelperChatReply: View {
+    var title = "Latest reply"
+    var text: String?
+    var placeholder = "No reply yet."
     var media: HelperReplyMedia?
+    var command: String?
+    var output: String?
 
     var body: some View {
-        VStack(alignment: incoming ? .leading : .trailing, spacing: 5) {
-            Text(verbatim: name).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            if unavailable {
-                Text(HelperAssignment.unavailable).font(.callout).foregroundStyle(.secondary)
-            } else if incoming {
-                NativeSessionReply(text: text, media: media)
-            } else {
-                Text(HerdrHelperView.assignment(text)).textSelection(.enabled)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(Color.accentColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 16))
-            }
-        }.frame(maxWidth: .infinity, alignment: incoming ? .leading : .trailing)
+        let hasOutput = command?.isEmpty == false || !HelperChatTerminal.excerpt(output ?? "").isEmpty
+        helperPart(title, detail: hasOutput ? "Terminal output below" : nil) {
+            if let text, !text.isEmpty { NativeSessionReply(text: text, media: media) }
+            else { Text(placeholder).foregroundStyle(.secondary) }
+            if hasOutput { HelperChatTerminal(command: command, output: output ?? "") }
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("helper.chatReply")
     }
 }
 
