@@ -98,7 +98,7 @@ enum SidebarSessionItem: Identifiable {
 
     var finished: Bool {
         switch self {
-        case .native(let row, _, _): ["answered", "stopped"].contains(row.thread.state)
+        case .native(let row, _, _): ["answered", "stopped", "finished"].contains(row.thread.state)
         case .workspace(let row): row.helper.showingAnswer || ["finished", "gone"].contains(row.helper.state)
         }
     }
@@ -242,7 +242,7 @@ extension AppStore {
     func removeSidebarHelper(_ item: SidebarSessionItem, for bot: Bot) {
         guard item.finished else { return }
         var removed = removedHelpers(for: bot)
-        removed.insert(item.removalKey)
+        guard removed.insert(item.removalKey).inserted else { return }
         if let data = try? JSONEncoder().encode(removed) {
             defaults.set(data, forKey: removedHelpersKey(for: bot))
             objectWillChange.send()

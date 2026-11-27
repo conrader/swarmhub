@@ -194,6 +194,7 @@ struct NativeThreadOutput: View {
     @ViewBuilder private var controls: some View {
         if session != nil {
             Button(showDetails ? "Show conversation" : "Session details") { showDetails.toggle() }
+            if showDetails, let parent { RemoveFinishedHelperButton(selection: parent.selection, bot: parent.bot) }
         }
         if session == nil, let state = visibleState {
             Text(HerdrClient.NativeThread.statusLabel(state)).font(.caption).foregroundStyle(.secondary)

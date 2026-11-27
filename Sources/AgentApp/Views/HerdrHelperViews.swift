@@ -569,6 +569,7 @@ struct HerdrHelperView: View {
                     }
                     if closeOverviewDetails == nil {
                         Button(showDetails ? "Show conversation" : "Session details") { showDetails.toggle() }
+                        if showDetails { RemoveFinishedHelperButton(selection: selection, bot: bot) }
                     }
                     Button(selection.archive == nil ? "Steer via " + bot.name : "Open " + (group?.name ?? bot.name), systemImage: "arrow.right") {
                         if store.beginHelperSteering(selection, of: bot) { closeOverviewDetails?() }
@@ -789,4 +790,20 @@ func helperPart<Detail: View, Content: View>(_ title: String, @ViewBuilder detai
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
     }.background(AppColor.card, in: RoundedRectangle(cornerRadius: 7))
         .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(AppColor.separator) }
+}
+
+struct RemoveFinishedHelperButton: View {
+    @EnvironmentObject private var store: AppStore
+    let selection: HerdrHelperSelection
+    let bot: Bot
+
+    var body: some View {
+        let root = HerdrHelperParent(botID: bot.id, groupRuntime: selection.groupRuntime, archive: selection.archive)
+        if let item = store.sessionRows(under: root, for: bot).first(where: { $0.selection == selection && $0.finished }) {
+            Button("Remove from sidebar") {
+                store.removeSidebarHelper(item, for: bot)
+                store.open(bot)
+            }
+        }
+    }
 }

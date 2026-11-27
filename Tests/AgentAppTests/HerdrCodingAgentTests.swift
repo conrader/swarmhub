@@ -695,6 +695,42 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         return count
     }
 
+    @Test func finishedHelperVisibilitySurvivesRefreshAndKeepsThePathToActiveChildren() throws {
+        let store = makeStore(), bot = Bot(name: "GameDev", backend: .herdr)
+        let root = HerdrHelperParent(botID: bot.id)
+        let owner = HerdrClient.AgentRef(address: "qa", createdMs: 1)
+        func thread(_ name: String, parent: String = "root", state: String) -> HerdrClient.NativeThread {
+            .init(id: name, parent: parent, name: name, model: nil, createdMs: 2, state: state, task: "", reply: "")
+        }
+        let old = thread("Raman", state: "answered")
+        let parent = thread("Review", state: "finished")
+        let child = thread("Check", parent: parent.id, state: "working")
+        let shell = HerdrClient.Helper(address: "shell", createdMs: 2, name: "Build", state: "finished")
+        let snapshot = HerdrClient.Helpers(core: "test", parent: owner, helpers: [shell], codexThreads: [old, parent, child])
+        store.herdrHelpers[root] = snapshot
+        func ids(_ store: AppStore) -> [String] {
+            store.sessionRows(under: root, for: bot).map(\.selection.helperID)
+        }
+        let original = ids(store)
+        let row = try #require(store.sessionRows(under: root, for: bot).first { $0.selection.helperID == old.id })
+        store.removeSidebarHelper(row, for: bot)
+        store.herdrHelpers[root] = snapshot
+        #expect(ids(store) == original.filter { $0 != old.id })
+        store.setAutoHideFinishedHelpers(true)
+        #expect(ids(store) == [parent.id, child.id])
+        let reopened = AppStore(storeURL: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+                                autoStart: false, keyStore: MemoryKeyStore(), defaults: store.defaults)
+        reopened.herdrHelpers[root] = snapshot
+        #expect(ids(reopened) == [parent.id, child.id])
+        reopened.herdrHelpers[root]?.codexThreads = [old, parent, thread("Check", parent: parent.id, state: "answered")]
+        #expect(ids(reopened).isEmpty)
+        #expect(reopened.sessionRows(under: root, for: bot, includingFolded: true).count == 4)
+        reopened.setAutoHideFinishedHelpers(false)
+        #expect(ids(reopened) == original.filter { $0 != old.id })
+        reopened.restoreSidebarHelpers()
+        #expect(ids(reopened) == original)
+    }
+
     private func makeStore() -> AppStore {
         AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     }
