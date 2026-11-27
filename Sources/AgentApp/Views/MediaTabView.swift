@@ -9,7 +9,7 @@ struct MediaTabView: View {
     var body: some View {
         let items = MediaExtractor.items(in: bot)
         VStack(alignment: .leading, spacing: 6) {
-            if bot.backend == .herdr && !bot.isDemo {
+            if (bot.backend == .herdr && !bot.isDemo) || bot.sampleProfile != nil {
                 Button("Browse published Pages…") { browsingPages = true }
             }
             // P38: saved documents first; the chat's images, files and links below.

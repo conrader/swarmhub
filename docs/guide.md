@@ -56,7 +56,7 @@ The screens in this guide are rendered by the app with sample content.
 
 The window ends in the main bot's chat.
 
-To try a sample before connecting a server, close the setup window and choose **Look around with sample bots** in the empty main window. Patch opens with a release-notes example. Under **Jarvis**, choose **tests** or **rename** to see the helper’s task, steps and reply. Its terminal button opens the recorded output in Details. Select **Steer via Jarvis** to write to the parent. These examples work offline.
+To try a sample before connecting a server, close the setup window and choose **Look around with sample bots** in the empty main window. Patch opens at step one of the release-notes example. Choose **Hand off to Scout** and **Read Patch’s draft**, then **Make shorter** or **Approve**. Use the walkthrough menu above the composer to try a CI failure, a morning brief, or a bot proposal. Under **Jarvis**, choose **tests** or **rename** to see the helper’s task, steps and reply. Its terminal button opens the recorded output in Details. Select **Steer via Jarvis** to write to the parent. These examples work offline.
 
 Open **Needs Attention** to review Patch’s test command and Jarvis’s proposal for a Payments bot. Choosing **Always allow in /srv/shop** adds the rule to Patch’s **Details → Approvals**. Choosing **Create bot** adds Payments to the sample sidebar. You can also switch Patch’s model from its chat header and check its CI watcher under **Details → Routines**.
 
@@ -91,7 +91,7 @@ To move bots between servers, open **Settings → Servers**, select their curren
 
 ### Release notes example
 
-Choose **Draft release notes** in a new bot’s chat. Edit the changes or send the example as written. The sample bot Patch shows this locally written reference answer for the three example changes.
+Choose **Draft release notes** in a new bot’s chat. Edit the changes or send the example as written. Here is a reference answer for those three example changes.
 
 - Choose a model for each bot when you set it up.
 - Bring recent Grok Bot conversations into SwarmHub from this Mac.

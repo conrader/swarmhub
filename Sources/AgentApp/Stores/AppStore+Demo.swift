@@ -37,11 +37,15 @@ extension AppStore {
         let legal = sample(.legal, "Contracts & licensing", "teardrop", .cyan,
                            [.init(role: .assistant, content: "Ready to review contracts and licensing terms.")])
         let scout = sample(.scout, "Research, briefs & reviewer", "blob", .violet,
-                           [.init(role: .assistant, content: "I checked the three changes for Patch’s release notes.")])
+                           SampleWalkthrough.brief.opening())
         let patch = sample(.patch, "Releases & pull requests", "circle", .blue,
-                           [.init(role: .user, content: ReleaseNotesExample.prompt), .init(role: .assistant, content: ReleaseNotesExample.sampleReply)])
+                           SampleWalkthrough.release.opening())
         let jarvis = sample(.jarvis, "Main bot · Coordinator", "squircle", .green, sampleLaunchConversation() + [
             .init(role: .assistant, content: "The rename is complete. My tests helper is checking the CSV reader.")])
+        jarvis.messages.append(contentsOf: SampleWalkthrough.team.opening())
+        for (bot, story) in [(patch, SampleWalkthrough.release), (scout, .brief), (jarvis, .team)] {
+            bot.sampleWalkthrough = .init(run: UUID(), story: story, step: .opening)
+        }
         return ([jarvis, patch, scout, legal], patch)
     }
 

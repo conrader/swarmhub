@@ -93,11 +93,17 @@ struct ToolActivity: Codable, Equatable, Sendable {
 
 /// The words the chat and the sidebar use for activity (plain, simple copy).
 enum ActivityCopy {
+    private static let commandNames = ["terminal", "shell", "bash", "exec_command", "execute_code", "process"]
+
+    static func lastCommand(in activity: ToolActivity) -> String? {
+        activity.steps.last { commandNames.contains($0.name.lowercased()) && $0.preview != nil }?.preview
+    }
+
     /// "Running a command", "Reading a file"; a tool without plain words is "Running <tool>".
     static func label(_ tool: String) -> String {
         let name = tool.lowercased()
         let plain: [(keys: [String], text: String)] = [
-            (["terminal", "shell", "bash", "exec_command", "execute_code", "process"], "Running a command"),
+            (commandNames, "Running a command"),
             (["read_file", "search_files", "file_read", "list_files"], "Reading a file"),
             (["write_file", "patch", "edit_file", "file_write"], "Editing a file"),
             (["web_search", "search"], "Searching the web"),
@@ -151,7 +157,8 @@ enum ActivityCopy {
     static func summary(_ activity: ToolActivity?, since start: Date) -> String? {
         guard let activity, activity.total > 0 else { return nil }
         let end = activity.endedAt ?? activity.steps.compactMap(\.finishedAt).max() ?? start
-        return "\(steps(activity.total)) · \(duration(end.timeIntervalSince(start)))"
+        let began = min(start, activity.steps.first?.startedAt ?? start)
+        return "\(steps(activity.total)) · \(duration(end.timeIntervalSince(began)))"
     }
 
     static func steps(_ count: Int) -> String { count == 1 ? "1 step" : "\(count) steps" }

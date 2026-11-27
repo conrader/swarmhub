@@ -7,12 +7,13 @@ struct AvatarMarkView: View {
     let shape: String; let colour: AvatarColour; let size: CGFloat; let mode: AvatarMotionMode; let seed: String
     var facing: AvatarFacing = .forward; var context: AvatarMotionContext = .focus; var calm = false
     var isSelected = false
+    var fillHex: String?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let type = AvatarKitMap.body(for: shape).type
-        let hex = colour.hex(dark: colorScheme == .dark)
+        let hex = fillHex ?? colour.hex(dark: colorScheme == .dark)
         ZStack {
             if mode == .still {
                 AvatarStillMark(type: type, colourHex: hex, size: size, facing: facing).equatable().transition(.opacity)

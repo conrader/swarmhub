@@ -592,6 +592,75 @@ def sample_workspace(source_app):
         print("Verified the offline sample entry, both Jarvis sessions, a per-bot model change, inspector profiles, two inbox decisions and restoration after reopening.")
 
 
+def sample_stories(source_app):
+    with private_workspace(source_app) as (app, home, store):
+        for reopened in (False, True):
+            with open_workspace(app, home) as window:
+                def present(text):
+                    return any(text in str(attribute(e, "AXValue") or label(e)) for e in descendants(window))
+
+                def has_button(name):
+                    return any(label(b) == name for b in buttons(window))
+
+                def pick_story(title):
+                    menu = next(e for e in descendants(window) if attribute(e, "AXHelp") == "Choose a sample walkthrough")
+                    assert ax.AXUIElementPerformAction(menu, "AXPress") == 0
+                    def choose():
+                        item = next((e for e in descendants(menu) if attribute(e, "AXRole") == "AXMenuItem" and label(e) == title), None)
+                        return item and ax.AXUIElementPerformAction(item, "AXPress") == 0
+                    wait_for(title, choose)
+
+                if not reopened:
+                    wait_for("sample entry", lambda: has_button("Look around with sample bots"))
+                    press(window, "Look around with sample bots")
+                    wait_for("release opening", lambda: has_button("Hand off to Scout") and present("Step 1 of 3"))
+                    press(window, "Hand off to Scout")
+                    def received_handoff():
+                        sample = {b.get("sampleRole"): b for b in json.loads(store.read_text())["bots"]}
+                        last = sample["patch"]["messages"][-1]
+                        return last.get("authorID") == sample["scout"]["id"] and "unified Inbox" in last["content"]
+                    wait_for("Scout handoff", lambda: has_button("Read Patch’s draft") and received_handoff())
+                    continue
+
+                press(window, "Patch", sidebar=True)
+                wait_for("persisted handoff", lambda: has_button("Read Patch’s draft") and present("Step 2 of 3"))
+                press(window, "Read Patch’s draft")
+                wait_for("release draft", lambda: has_button("Make shorter") and has_button("Approve"))
+                press(window, "Make shorter")
+                wait_for("shortened draft", lambda: present("Paste screenshots into bot chats."))
+                press(window, "Approve")
+                wait_for("local approval receipt", lambda: present("Release notes approved in this sample."))
+                press(window, "Replay walkthrough")
+                wait_for("replay", lambda: has_button("Hand off to Scout"))
+                pick_story("CI & reviewer bot")
+                wait_for("CI opening", lambda: has_button("Review the failing check"))
+                press(window, "Review the failing check")
+                press(window, "Review the test command")
+                wait_for("local command approval", lambda: has_button("Allow once"))
+                press(window, "Allow once")
+                wait_for("command receipt", lambda: present("28 tests passed"))
+                pick_story("Team & helpers")
+                wait_for("Jarvis story", lambda: has_button("Review the new roles"))
+                press(window, "Review the new roles")
+                press(window, "Open the Payments proposal")
+                press(window, "Not now")
+                wait_for("proposal dismissed", lambda: present("Payments proposal dismissed"))
+                pick_story("Routines & brief")
+                wait_for("brief opening", lambda: has_button("Gather server status"))
+                press(window, "Gather server status")
+                press(window, "Read the morning brief")
+                wait_for("published sample brief", lambda: has_button("Open Morning brief"))
+                press(window, "Open Morning brief")
+                wait_for("reader revision and current inbox count", lambda: present("Revision 1") and present("0 pending items"))
+                press(window, "Done")
+                open_detail_section(window, "Media")
+                press(window, "Browse published Pages…")
+                wait_for("library lists the brief", lambda: has_button("Morning brief"))
+                press(window, "Morning brief")
+                wait_for("library opens the saved brief", lambda: present("Revision 1") and present("0 pending items"))
+        print("Verified all four native sample walkthroughs, Scout’s handoff after relaunch, draft revision and approval, replay, shared Inbox decisions, and the published brief in the Pages library.")
+
+
 def sidebar_focus(source_app):
     import Quartz
 
@@ -2242,6 +2311,8 @@ if __name__ == "__main__":
         live_terminals(Path(sys.argv[2]).resolve(strict=True), long_sidebar=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--terminals":
         live_terminals(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--sample-stories":
+        sample_stories(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--sample-workspace":
         sample_workspace(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--sidebar-focus":
@@ -2261,4 +2332,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-workspace | --sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | --helper-screenshots APP OUTPUT_DIRECTORY")

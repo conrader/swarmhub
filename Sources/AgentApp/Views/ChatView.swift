@@ -80,7 +80,7 @@ struct ChatView: View {
                         if viewport.hasEarlier { HistoryPageButton(earlier: true, action: viewport.earlier) }
                         ForEach(shown[viewport.range]) { message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
-                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: openers.contains(message.id) ? bot : nil).id(message.id).chatRow(message.id)
+                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: author(of: message, openers: openers)).id(message.id).chatRow(message.id)
                                 .selectableMessage(message.id, in: selection)
                         }
                         if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
@@ -116,10 +116,17 @@ struct ChatView: View {
     }
     /// The replies that open a run of the bot's own rows (the first after something the person, or the app, wrote):
     /// they carry the bot's face and name, so a long chat always shows who is talking.
+    private func author(of message: ChatMessage, openers: Set<UUID>) -> Bot? {
+        if bot.sampleProfile != nil, let authorID = message.authorID, message.role == .assistant,
+           let author = store.bots.first(where: { $0.id == authorID && $0.sampleProfile != nil }) { return author }
+        return openers.contains(message.id) ? bot : nil
+    }
+
     static func openers(_ shown: [ChatMessage]) -> Set<UUID> {
-        var found: Set<UUID> = [], previous: MessageRole?
+        var found: Set<UUID> = [], previous: MessageRole?, previousAuthor: UUID?
         for message in shown where message.role != .system {
-            if message.role == .assistant, previous != .assistant { found.insert(message.id) }
+            if message.role == .assistant, previous != .assistant || previousAuthor != message.authorID { found.insert(message.id) }
+            previousAuthor = message.authorID
             previous = message.role
         }
         return found
@@ -162,6 +169,7 @@ struct ChatView: View {
                 if let goal = bot.goal {
                     GoalStatusView(bot: bot, goal: goal)
                 }
+                if bot.sampleProfile != nil, store.helperSteeringDrafts[bot.id] == nil { SampleWalkthroughBar(bot: bot) }
                 if let guidance = store.helperSteeringDrafts[bot.id] {
                     HelperSteeringComposer(draft: guidance, chatID: bot.id, jump: jumpToLatest).id(ObjectIdentifier(guidance))
                 } else { composer }

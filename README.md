@@ -11,7 +11,7 @@
 
 ### Try the sample
 
-On a fresh install, close the setup window and choose **Look around with sample bots** in the main window. Patch opens with three changes and a finished release-note draft. Expand **Jarvis** to inspect its **tests** and **rename** sessions. The example is stored locally and uses no model quota. In a new real bot’s chat, choose **Draft release notes** for the same editable input. Compare the answer with [the sample output](docs/guide.md#release-notes-example).
+On a fresh install, close the setup window and choose **Look around with sample bots** in the main window. Patch opens with a release-notes request. Choose **Hand off to Scout**, then **Read Patch’s draft** to review the result. Expand **Jarvis** to inspect its **tests** and **rename** sessions. The example is stored locally and uses no model quota. In a new real bot’s chat, choose **Draft release notes** for an editable prompt. Compare the answer with [the sample output](docs/guide.md#release-notes-example).
 
 ### Switching from Grok Bot
 
