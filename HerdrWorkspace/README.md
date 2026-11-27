@@ -348,6 +348,7 @@ The workspace does this only for bots it knows. A client registers its bots ([Re
 | `swarmhub-herdr bot tell NAME TEXT` | Sends a tell: for the other bot's information. No answer comes. |
 | `swarmhub-herdr bot handoff NAME TEXT` | Sends a hand-off: the other bot is to take the work over and report when it is done. |
 | `swarmhub-herdr bot reply ID TEXT` | Answers ask `ID`, or reports the result of hand-off `ID`. |
+| `swarmhub-herdr bot final-status ID TEXT` | Records one summary on the existing work at the pair limit. Use a message number from that pair. |
 | `swarmhub-herdr bot accept ID` | Takes over the work of hand-off `ID`. |
 | `swarmhub-herdr bot decline ID REASON` | Refuses ask or hand-off `ID`. The reason is required. |
 | `swarmhub-herdr checkin in 30m WHAT` | Plans a one-off check-in. Also `at 17:30`. |
@@ -390,7 +391,9 @@ Each of these is checked in the workspace, in one database transaction, before a
 - the same two bots have exchanged `pair_messages` (8) messages about this piece of work, counting every kind in both directions;
 - the sender has sent `messages_per_window` (6) new messages in the last `window_seconds` (600).
 
-At a limit the sender's command is refused with the instruction to bring the matter to the person. Both bots' histories get one notice for the person (only the sender's, for the rate limit). The other bot's agent is not woken. A reply, an acceptance or a refusal of something that is still open always goes through, so a limit leaves nothing hanging.
+At a limit the sender's command is refused. Both bots' histories get one limit notice for the person (only the sender's, for the rate limit). The other bot's agent is not woken. A reply, an acceptance or a refusal of something that is still open always goes through, so a limit leaves nothing hanging.
+
+At the pair limit, an authorized launch of either participant can file a summary of the outcome and anything still open. The refusal gives the `bot final-status` command or, if the work already has a summary, its history entry number. When a message block in a reply hits the pair limit, the refusal appears in the sender’s history without starting another turn. The first summary becomes a `final_status` notice in the main bot’s chat history, or in the filing bot’s history if the server has no main bot. The notice carries `final_status_work` and `final_status_by`. Repeating the command returns the existing history entry number. Filing the summary leaves open asks available for reply and requires no agent turn.
 
 **Stop.** `POST /api/agents/{address}/{created_ms}/interrupt` (the person's Stop), `…/end` and `POST /api/bots/{id}/stop` end every piece of work in which the bot has something open:
 

@@ -59,7 +59,13 @@ pub(crate) async fn answer(
             why
         }
     })?;
+    let sending = matches!(&ask, Ask::Send { .. });
     let said = match ask {
+        Ask::FinalStatus { id, text } => {
+            // A history-only command has no delivery for the desk to process.
+            return super::write(&w.history, |ctx| rules::final_status(ctx, &core_id, key, id, &text))
+                .map_err(|_| STORAGE.to_owned())?;
+        }
         Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } => {
             completion_command(w, &core_id, key, ask).await
         }
@@ -80,7 +86,9 @@ pub(crate) async fn answer(
         _ => super::write(&w.history, |ctx| perform(ctx, key, ask))
             .map_err(|_| STORAGE.to_owned())?,
     };
-    kick();
+    if !sending || said.is_ok() {
+        kick();
+    }
     said
 }
 
@@ -95,11 +103,12 @@ fn perform(ctx: &super::Ctx<'_>, key: &str, ask: Ask) -> rusqlite::Result<Result
     let cmd = ctx.cmd;
     Ok(match ask {
         Ask::List => Ok(rules::list_text(ctx, &bot)?),
-        Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } | Ask::Park { .. } | Ask::Job { .. } | Ask::JobReview { .. } => Err(UNKNOWN_BOT.into()),
+        Ask::FinalStatus { .. } | Ask::CompletionInbox { .. } | Ask::CompletionAck { .. } | Ask::Park { .. } | Ask::Job { .. } | Ask::JobReview { .. } => Err(UNKNOWN_BOT.into()),
         Ask::Send { kind, to, text } => match rules::Kind::parse(&kind) {
             Some(kind) => {
                 let task = rules::newest_task(ctx.db, key, None)?;
-                rules::send(ctx, &bot, task, kind, &to, &text, "command")?.map(|sent| sent.text)
+                rules::send(ctx, &bot, task, kind, &to, &text, "command")?
+                    .map(|sent| sent.text).map_err(rules::SendRefusal::text)
             }
             None => Err("A message is an ask, a tell or a handoff.".to_owned()),
         },
