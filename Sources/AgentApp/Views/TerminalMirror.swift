@@ -6,6 +6,7 @@ import WebKit
 struct TerminalTextGrid: View {
     let output: String
     var scrollback = false
+    var readable = false
 
     var body: some View {
         let rows = output.split(separator: "\n", omittingEmptySubsequences: false).flatMap { line -> [String] in
@@ -24,7 +25,13 @@ struct TerminalTextGrid: View {
             let cell = ("0" as NSString).size(withAttributes: [.font: font])
             let size = CGSize(width: cell.width * 80, height: ceil(cell.height) * 24)
             let scale = min(geometry.size.width / size.width, geometry.size.height / size.height)
-            if scrollback {
+            if readable {
+                ScrollView {
+                    Text(verbatim: scrollback ? output : rows.suffix(24).joined(separator: "\n"))
+                        .font(.system(size: 14, design: .monospaced))
+                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                }.defaultScrollAnchor(.bottom)
+            } else if scrollback {
                 ScrollView {
                     Text(verbatim: rows.joined(separator: "\n"))
                         .font(.system(size: 14 * scale, design: .monospaced))
@@ -49,6 +56,7 @@ struct TerminalMirror: NSViewRepresentable {
     let token: String
     let agent: HerdrClient.AgentRef
     let core: String?
+    var readable = false
     let failed: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -62,7 +70,11 @@ struct TerminalMirror: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: WKWebView, context: Context) {}
+    func updateNSView(_ view: WKWebView, context: Context) {
+        guard context.coordinator.mirror.readable != readable else { return }
+        context.coordinator.mirror = self
+        context.coordinator.applySize(to: view)
+    }
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
         view.navigationDelegate = nil
         view.stopLoading()
@@ -70,15 +82,31 @@ struct TerminalMirror: NSViewRepresentable {
     }
 
     @MainActor final class Coordinator: NSObject, WKNavigationDelegate {
-        let mirror: TerminalMirror
+        var mirror: TerminalMirror
         init(_ mirror: TerminalMirror) { self.mirror = mirror }
 
         func webView(_ view: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
             action.targetFrame?.isMainFrame == true && action.request.url == mirror.url ? .allow : .cancel
         }
 
+        func applySize(to view: WKWebView) {
+            // Keep the observer's original cell grid. Changing the PTY would also resize the bot's terminal.
+            guard view.url == mirror.url else { return }
+            view.callAsyncJavaScript("""
+                let style = document.getElementById('swarmhub-readable');
+                if (!style) {
+                    style = document.createElement('style');
+                    style.id = 'swarmhub-readable';
+                    style.textContent = '#viewport { overflow: auto } #grid { transform: none !important }';
+                    document.head.append(style);
+                }
+                style.disabled = !readable;
+                """, arguments: ["readable": mirror.readable], in: nil, in: .page, completionHandler: nil)
+        }
+
         func webView(_ view: WKWebView, didFinish navigation: WKNavigation!) {
             guard view.url == mirror.url else { return }
+            applySize(to: view)
             view.callAsyncJavaScript("window.openTerminalPreview(address, created, token, core)", arguments: [
                 "address": mirror.agent.address, "created": NSNumber(value: mirror.agent.createdMs),
                 "token": mirror.token, "core": mirror.core as Any? ?? NSNull()

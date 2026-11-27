@@ -10,6 +10,7 @@ struct NativeThreadOutput: View {
     let thread: String
     let detail: String
     var session: HerdrClient.NativeThread? = nil
+    var readable = false
     let openedParent: () -> Void
     @State private var activity: HerdrClient.ThreadActivity?
     @State private var requestedTurn: String?
@@ -46,7 +47,7 @@ struct NativeThreadOutput: View {
                     actionLayout
                     errors
                     if let activity {
-                        TerminalTextGrid(output: activity.transcript, scrollback: true)
+                        TerminalTextGrid(output: activity.transcript, scrollback: true, readable: readable)
                     } else if readError == nil { ProgressView("Connecting…") }
                 }
             }

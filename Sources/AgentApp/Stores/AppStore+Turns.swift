@@ -26,6 +26,7 @@ import Foundation
     var inFlightSteers: Set<UUID> = []
     /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
     var nextMessages: [QueuedNextMessage] = []
+    var checkingPromptQueues: Set<UUID> = []
 }
 
 /// One stream consumer and one `finishTurn` for both send paths (a bot's chat and a group).
@@ -304,6 +305,22 @@ extension AppStore {
         if conversation === bot, isCurrent(token), let attempt = slot.goalAttempt,
            let goal = bot.goal, goal.stepSpending?.attempt == attempt {
             await recordGoalStepCost(in: bot, goalID: goal.id, iteration: goal.iteration)
+        }
+        if case .error(HerdrClient.Failure.waitingAtPrompt) = end, isCurrent(token),
+           !slot.stopping, conversation === bot, slot.goalAttempt == nil,
+           let userID = assistant.metadata[TurnKey.forUser], let user = bot.messages.first(where: { $0.id.uuidString == userID }),
+           assistant.content.isEmpty, assistant.deliveryReceipt == nil,
+           let assistantIndex = bot.messages.firstIndex(where: { $0 === assistant }) {
+            bot.messages.remove(at: assistantIndex)
+            user.metadata[TurnWaitCopy.promptServer] = herdrServer(for: bot).id
+            if waitForTurn(user, in: bot, reason: TurnWaitCopy.atPrompt, keepOnFailure: true) {
+                endTurn(token)
+                save()
+                sendQueuedNextMessage()
+                return
+            }
+            user.metadata[TurnWaitCopy.promptServer] = nil
+            bot.messages.insert(assistant, at: min(assistantIndex, bot.messages.count))
         }
         let waitingForPerson = slot.goalAttempt != nil && herdrWaits(bot).waits
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation)

@@ -91,6 +91,7 @@ struct WorkspaceTerminals: View {
     @State private var terminals: [LiveTerminal] = []
     @State private var problem: String?
     @State private var loaded = false
+    @AppStorage("terminalPreviewFitPanel") private var fitPanel = false
 
     init(request: TerminalBrowserRequest, docked: Bool = false) {
         self.docked = docked
@@ -126,13 +127,19 @@ struct WorkspaceTerminals: View {
                         .help("Back to Details").accessibilityLabel("Back to Details")
                 } else { Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
             }
+            if docked, selected != nil {
+                Picker("Terminal text size", selection: $fitPanel) {
+                    Text("Readable").tag(false)
+                    Text("Fit terminal").tag(true)
+                }.pickerStyle(.segmented)
+            }
             if let selected {
                 if let child = selected.id.child {
-                    NativeThreadOutput(server: server, runtime: child.runtime, core: child.core, owner: child.owner, thread: child.thread, detail: selected.detail) {
+                    NativeThreadOutput(server: server, runtime: child.runtime, core: child.core, owner: child.owner, thread: child.thread, detail: selected.detail, readable: docked && !fitPanel) {
                         if docked { store.inspectorTerminal = nil } else { dismiss() }
                     }.id(selected.id)
                 } else {
-                    TerminalOutput(server: server, target: selected).id(selected.id)
+                    TerminalOutput(server: server, target: selected, readable: docked && !fitPanel).id(selected.id)
                 }
             } else {
                 if let problem { Text(problem).foregroundStyle(.secondary) }
@@ -237,6 +244,7 @@ private struct TerminalOutput: View {
     @EnvironmentObject private var store: AppStore
     let server: HerdrServer
     let target: LiveTerminal
+    let readable: Bool
     private struct Mirror { let url: URL; let token: String; let ref: HerdrClient.AgentRef; let core: String? }
     @State private var mirror: Mirror?
     @State private var output: String?
@@ -246,9 +254,9 @@ private struct TerminalOutput: View {
         VStack(alignment: .leading, spacing: 6) {
             if let problem { Text(problem).font(.callout).foregroundStyle(.secondary) }
             if let mirror {
-                TerminalMirror(url: mirror.url, token: mirror.token, agent: mirror.ref, core: mirror.core) { problem = $0 }
+                TerminalMirror(url: mirror.url, token: mirror.token, agent: mirror.ref, core: mirror.core, readable: readable) { problem = $0 }
             } else if let output {
-                TerminalTextGrid(output: output)
+                TerminalTextGrid(output: output, readable: readable)
             } else if problem == nil { ProgressView("Connecting…") }
         }.task {
             while !Task.isCancelled {
