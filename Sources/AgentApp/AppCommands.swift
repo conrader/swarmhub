@@ -150,16 +150,17 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .keyboardShortcuts: openWindow(id: KeyboardShortcutsView.windowID)
         default:
             // Workspace commands stay useful from Settings too.
-            if let window = NSApp.windows.first(where: { $0.title == AppConstants.name }) {
+            let window = NSApp.orderedWindows.first { $0.title == AppConstants.name }
+            if let window {
                 window.makeKeyAndOrderFront(nil)
             } else {
                 openWindow(id: ContentView.windowID)
             }
-            performWorkspaceAction(in: store)
+            performWorkspaceAction(in: store, windowWidth: window?.contentView?.bounds.width)
         }
     }
 
-    @MainActor func performWorkspaceAction(in store: AppStore) {
+    @MainActor func performWorkspaceAction(in store: AppStore, windowWidth: CGFloat? = nil) {
         guard isEnabled(in: store) else { return }
         if let infoTab {
             store.infoTab = infoTab
@@ -174,7 +175,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .activity: store.showOnlyAttention = false; store.showingActivity = true
         case .toggleSidebar: store.sidebarHidden.toggle()
         case .toggleInfo:
-            let visible = NSApp?.mainWindow?.contentView.map { store.showsInfo(at: $0.bounds.width) } ?? store.showInfo
+            let visible = windowWidth.map { store.showsInfo(at: $0) } ?? store.showInfo
             store.showInfo = !visible
         case .hiddenChats: store.sidebarHidden = false; store.showingHiddenBots.toggle()
         case .previousChat: store.moveChatSelection(by: -1)
