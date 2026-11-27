@@ -9,9 +9,18 @@ struct HelperSteeringTarget {
     let name: String
     let task: String
 
-    func identifies(_ other: Self) -> Bool {
-        server == other.server && core == other.core && owner == other.owner && selection.parent == other.selection.parent
-            && selection.native?.thread.provider == other.selection.native?.thread.provider && selection.helperID == other.selection.helperID
+    struct ID: Hashable {
+        let parent: HerdrHelperParent
+        let server: HerdrServer
+        let core: String
+        let owner: HerdrClient.AgentRef
+        let provider: HerdrClient.ChildRuntime?
+        let helperID: String
+    }
+
+    var id: ID {
+        .init(parent: selection.parent, server: server, core: core, owner: owner,
+              provider: selection.native?.thread.provider, helperID: selection.helperID)
     }
 
     var routeKey: String {
@@ -58,9 +67,14 @@ extension AppStore {
         if selection.archive != nil { return openHelperParent(selection, of: bot) }
         guard let target = steeringTarget(selection, of: bot), openHelperParent(selection, of: bot),
               let chat = openConversation else { return false }
-        if helperSteeringDrafts[chat.id]?.target.identifies(target) != true {
-            helperSteeringDrafts[chat.id] = HelperSteeringDraft(target)
+        let current = helperSteeringDrafts[chat.id]
+        if current?.target.id == target.id { return true }
+        if let current, !current.text.isEmpty {
+            inactiveHelperInstructions[current.target.id] = current.text
         }
+        let draft = HelperSteeringDraft(target)
+        draft.text = inactiveHelperInstructions.removeValue(forKey: target.id) ?? ""
+        helperSteeringDrafts[chat.id] = draft
         return true
     }
 
@@ -71,7 +85,7 @@ extension AppStore {
         guard !words.isEmpty else { return false }
         let target = draft.target
         guard let current = steeringTarget(target.selection, of: bot),
-              current.identifies(target) else {
+              current.id == target.id else {
             errorMessage = "The selected helper session is no longer available. Your instruction is still here."
             return false
         }

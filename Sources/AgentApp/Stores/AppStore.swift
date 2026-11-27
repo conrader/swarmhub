@@ -23,6 +23,7 @@ import UserNotifications
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false
     @Published var helperSteeringDrafts: [UUID: HelperSteeringDraft] = [:]
+    var inactiveHelperInstructions: [HelperSteeringTarget.ID: String] = [:]
     @Published var draftReplyIDs: [UUID: UUID] = [:]
     var replyTo: ChatMessage? {
         get {
