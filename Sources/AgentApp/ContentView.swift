@@ -2,6 +2,13 @@ import SwiftUI
 
 struct ContentView: View {
     static let windowID = "workspace"
+    var workspaceColorScheme: ColorScheme?
+    @State private var previewColorScheme: ColorScheme?
+
+    private var sampleBot: Bot? {
+        guard store.selectedGroup == nil, let bot = store.selectedBot, bot.sampleProfile != nil else { return nil }
+        return bot
+    }
     @EnvironmentObject private var store: AppStore
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
@@ -28,7 +35,7 @@ struct ContentView: View {
         } else { details() }
     }
 
-    var body: some View {
+    private var workspace: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
                 .background(SidebarWidthClamp())
@@ -83,6 +90,23 @@ struct ContentView: View {
             .disabled(store.storeRestoreOffer != nil).ignoresSafeArea(.container, edges: .top)
             .overlay(alignment: .top) { StoreRestorePrompt() }
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let bot = sampleBot {
+                SampleWorkflowTabs(bot: bot, previewColorScheme: $previewColorScheme)
+                    .padding(.leading, ChromeMetrics.lightsClearance)
+                    .padding(.trailing, 12).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColor.sidebar)
+                    .windowDragStrip(probe: "sample_workflows")
+                Divider()
+            }
+            workspace
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        .preferredColorScheme(sampleBot == nil ? workspaceColorScheme : previewColorScheme ?? workspaceColorScheme)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Transient network trouble is this line, never the alert below.
             if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.dismissError() } }

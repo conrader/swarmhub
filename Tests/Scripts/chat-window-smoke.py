@@ -612,12 +612,7 @@ def sample_stories(source_app):
                     return any(label(b) == name for b in buttons(window))
 
                 def pick_story(title):
-                    menu = next(e for e in descendants(window) if attribute(e, "AXHelp") == "Choose a sample walkthrough")
-                    assert ax.AXUIElementPerformAction(menu, "AXPress") == 0
-                    def choose():
-                        item = next((e for e in descendants(menu) if attribute(e, "AXRole") == "AXMenuItem" and label(e) == title), None)
-                        return item and ax.AXUIElementPerformAction(item, "AXPress") == 0
-                    wait_for(title, choose)
+                    press(window, title)
 
                 if not reopened:
                     wait_for("sample entry", lambda: has_button("Look around with sample bots"))
