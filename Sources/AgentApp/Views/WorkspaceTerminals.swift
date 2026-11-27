@@ -86,8 +86,10 @@ struct WorkspaceTerminals: View {
     let request: TerminalBrowserRequest
     let docked: Bool
     @Environment(\.openWindow) private var openWindow
-    @State private var server: HerdrServer
-    @State private var selected: LiveTerminal?
+    @State private var windowLocation: TerminalBrowserRequest
+    private var location: TerminalBrowserRequest { docked ? request : windowLocation }
+    private var server: HerdrServer { location.server }
+    private var selected: LiveTerminal? { location.target }
     @State private var terminals: [LiveTerminal] = []
     @State private var problem: String?
     @State private var loaded = false
@@ -96,8 +98,17 @@ struct WorkspaceTerminals: View {
     init(request: TerminalBrowserRequest, docked: Bool = false) {
         self.docked = docked
         self.request = request
-        _server = State(initialValue: request.server)
-        _selected = State(initialValue: request.target)
+        _windowLocation = State(initialValue: request)
+    }
+
+    private func navigate(to target: LiveTerminal?, on server: HerdrServer) {
+        let next = TerminalBrowserRequest(id: request.id, server: server, target: target, groupID: request.groupID)
+        if docked {
+            guard store.inspectorTerminal?.id == request.id else { return }
+            store.inspectorTerminal = next
+        } else {
+            windowLocation = next
+        }
     }
 
     private var group: GroupChat? { store.groups.first { $0.id == request.groupID } }
@@ -106,14 +117,19 @@ struct WorkspaceTerminals: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 if selected != nil {
-                    Button { selected = nil } label: { Image(systemName: "chevron.left") }
+                    Button { navigate(to: nil, on: server) } label: { Image(systemName: "chevron.left") }
                         .accessibilityLabel("All terminals")
                 }
                 Text(selected?.title ?? group.map { $0.name + " terminals" } ?? "Live terminals").font(.headline)
                 Spacer()
                 if selected == nil, server != SampleWorkspace.server {
                     Picker("Workspace", selection: Binding(get: { server.id }, set: { id in
-                        if let next = store.herdrServer(id: id) { terminals = []; problem = nil; loaded = false; server = next }
+                        if let next = store.herdrServer(id: id) {
+                            terminals = []
+                            problem = nil
+                            loaded = false
+                            navigate(to: nil, on: next)
+                        }
                     })) {
                         ForEach(store.herdrServers) { Text($0.name).tag($0.id) }
                     }.labelsHidden().fixedSize()
@@ -151,7 +167,7 @@ struct WorkspaceTerminals: View {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(terminals) { terminal in
                                 Button {
-                                    selected = terminal
+                                    navigate(to: terminal, on: server)
                                 } label: {
                                     HStack {
                                         Image(systemName: "terminal")

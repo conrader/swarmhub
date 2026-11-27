@@ -753,8 +753,44 @@ def sample_workspace(source_app):
                 press(window, "Session details")
                 wait_for("sample command, steps and failure", lambda: button("Stop helper") and has_text("Steps (2)") and has_text("testEmptyTitle failed"))
                 press(window, "Show terminal in Details")
-                wait_for("docked sample output", lambda: pane("inspector.terminal") and has_text("expected throw"))
+                def marked_terminal(name):
+                    return any(label(b) == "Preview terminal for " + name and attribute(b, "AXSelected")
+                               for b in buttons(window))
+
+                def panel_has(identifier, text):
+                    panel = pane(identifier)
+                    return panel and any(text in str(attribute(e, "AXValue") or "") for e in descendants(panel))
+
+                wait_for("docked tests output and sidebar selection",
+                         lambda: marked_terminal("tests") and panel_has("inspector.terminal", "expected throw"))
+                press_transition(window, "All terminals", "terminal list clears both sidebar selections",
+                                 lambda: button("Preview rename") and not marked_terminal("tests") and not marked_terminal("rename"))
+                press_transition(window, "Preview rename", "rename preview beside the tests chat",
+                                 lambda: marked_terminal("rename") and not marked_terminal("tests")
+                                 and panel_has("inspector.terminal", "Build complete!")
+                                 and panel_has("nativeSession.details", "expected throw"))
+                application = ax.AXUIElementCreateApplication(ax.AXUIElementGetPid(window, None)[1])
+                def separate_window():
+                    return next((w for w in attribute(application, "AXWindows") or []
+                                 if label(w) == "Live terminals"), None)
+
+                press_transition(window, "Open terminal preview in a window", "separate terminal", separate_window)
+                detached = separate_window()
+                def separate_output(text):
+                    return any(text in str(attribute(e, "AXValue") or "") for e in descendants(detached))
+
+                wait_for("separate rename output", lambda: separate_output("Build complete!"))
+                press_transition(detached, "All terminals", "terminal choices in separate window",
+                                 lambda: any(label(b) == "Preview tests" for b in buttons(detached)))
+                press_transition(detached, "Preview tests", "independent tests output",
+                                 lambda: separate_output("expected throw") and not separate_output("Build complete!"))
+                assert marked_terminal("rename") and panel_has("inspector.terminal", "Build complete!")
+                assert panel_has("nativeSession.details", "expected throw")
+                assert ax.AXUIElementPerformAction(attribute(detached, "AXCloseButton"), "AXPress") == 0
+                wait_for("separate window closed", lambda: not separate_window())
                 press(window, "Back to Details")
+                wait_for("closing preview clears the sidebar selection",
+                         lambda: not pane("inspector.terminal") and not marked_terminal("rename"))
                 press(window, "Sessions for Jarvis")
                 wait_for("two folded sessions, including one working",
                          lambda: collapsed_summary("Collapsed, 2 sessions, 1 working") and not button(rename)
