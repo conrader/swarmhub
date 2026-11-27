@@ -53,10 +53,9 @@ import SwiftUI
     }
     @SceneBuilder private var normalScenes: some Scene {
         WindowGroup(AppConstants.name, id: ContentView.windowID) {
-            ContentView()
+            ContentView(workspaceColorScheme: AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
                 .environmentObject(store)
                 .defaultAppStorage(store.defaults)
-                .preferredColorScheme(AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
                 .frame(minWidth: 980, minHeight: 620)
         }
             .defaultSize(width: 1120, height: 760)

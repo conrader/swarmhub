@@ -11,14 +11,6 @@ struct SampleWalkthroughBar: View {
                 SampleReviewCard(bot: bot, review: review).inspectorCard(padding: 8)
             }
             HStack {
-                Menu {
-                    ForEach(SampleWalkthrough.allCases, id: \.self) { story in
-                        Button(story.title) { store.showSampleStory(story) }
-                    }
-                    Button("Inbox & approvals") { store.showOnlyAttention = true }
-                } label: {
-                    Text(bot.sampleWalkthrough?.story.title ?? "Walkthroughs")
-                }.fixedSize().controlSize(.small).help("Choose a sample walkthrough")
                 if let position = bot.sampleWalkthrough {
                     Text("Step \(position.step.rawValue) of 3").font(.caption).foregroundStyle(.secondary)
                     Spacer()
