@@ -616,13 +616,24 @@ def sample_preview(source_app, destination, appearance, library):
                     snapshots.capture(story + "-step2")
                     press_transition(window, second, story + " result", lambda: has_button("Replay walkthrough"))
                     snapshots.capture(story + "-step3")
-            for target, result, filename in [("Claude agent tests, Working", "expected throw", "tests"),
-                                              ("Codex agent rename, Answered", "Build complete!", "rename")]:
-                def shows_output():
-                    panel = next((e for e in descendants(window) if attribute(e, "AXIdentifier") == "helper.chatTerminal"), None)
-                    return panel and any(result in str(attribute(e, "AXValue") or "") for e in descendants(window))
-                press_transition(window, target, filename + " terminal output", shows_output)
-                snapshots.capture(filename)
+            helpers = json.loads((Path(__file__).resolve().parents[1] / "Fixtures/preview-helpers.json").read_text())
+            for name, expected in helpers.items():
+                def shows_conversation():
+                    elements = list(descendants(window))
+                    def static_text(items):
+                        return [str(attribute(e, "AXValue") or "") for e in items
+                                if attribute(e, "AXRole") == "AXStaticText"]
+                    messages = static_text(elements)
+                    step_panel = next((e for e in elements if attribute(e, "AXIdentifier") == "helper.chatSteps"), None)
+                    terminal = next((e for e in elements if attribute(e, "AXIdentifier") == "helper.chatTerminal"
+                                     and attribute(e, "AXRole") == "AXScrollArea"), None)
+                    step_title = f'Steps ({expected["steps"]})'
+                    return (step_panel and terminal and any(label(e) == step_title for e in descendants(step_panel))
+                            and all(any(fragment in text for text in messages) for fragment in (expected["task"], expected["reply"]))
+                            and any(expected["terminal"] in text for text in static_text(descendants(terminal)))
+                            and has_button("Stop helper") == expected["canStop"])
+                press_transition(window, expected["sidebarLabel"], name + " conversation", shows_conversation)
+                snapshots.capture(name)
             def instruction_focused():
                 return any(attribute(e, "AXRole") == "AXTextField" and attribute(e, "AXFocused") and
                            "Instruction for rename" in (label(e), attribute(e, "AXPlaceholderValue")) for e in descendants(window))
@@ -748,9 +759,11 @@ def sample_workspace(source_app):
                 wait_for("two folded sessions, including one working",
                          lambda: collapsed_summary("Collapsed, 2 sessions, 1 working") and not button(rename)
                          and not button(tests) and button("Stop helper"))
-                press(window, "Sessions for Jarvis")
-                wait_for("same helper open after unfolding", lambda: button(tests) and button(rename) and button("Stop helper"))
                 press(window, "Stop helper")
+                wait_for("activity indicator clears without unfolding the bot",
+                         lambda: collapsed_summary("Collapsed, 2 sessions") and not button("Stop helper")
+                         and not button(rename) and not button("Claude agent tests, Stopped"))
+                press(window, "Sessions for Jarvis")
                 wait_for("stopped in the sidebar", lambda: button("Claude agent tests, Stopped") and not button("Stop helper"))
                 press(window, rename)
                 wait_for("opened the rename helper chat", lambda: button("Session details"))
