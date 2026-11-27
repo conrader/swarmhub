@@ -8,7 +8,7 @@ from task_effectiveness_one_plan import setup_one_plan, setup_discovery, grade_o
 from task_effectiveness_sql import setup_sql, grade_sql
 
 
-CASES = ("capacity", "helper", "approval", "handoff", "resume", "sql", "archive", "archive_twins", "partial_resume", "short_consent", "interrupted_consent", "busy_after_plan", "one_plan", "discover_capacity")
+CASES = ("capacity", "helper", "approval", "handoff", "resume", "sql", "archive", "archive_twins", "partial_resume", "short_consent", "interrupted_consent", "busy_after_plan", "one_plan", "discover_capacity", "linked_capacity")
 GUIDANCE = ("Zmierz stan początkowy i wybierz działanie o największym wpływie w granicach zgody. "
             "Jeśli jedna droga jest zablokowana, wykonaj samodzielnie dostępne kroki. "
             "Sprawdź wynik względem celu i wskaż dokładnie, czego jeszcze potrzeba.")
@@ -22,8 +22,8 @@ def digest(path):
 
 def setup(path, case, seed):
     rng = random.Random(seed)
-    if case == "discover_capacity":
-        prompt, truth = setup_discovery(path, seed)
+    if case in ("discover_capacity", "linked_capacity"):
+        prompt, truth = setup_discovery(path, seed, linked=case == "linked_capacity")
         return BASE + prompt, truth
     if case == "one_plan":
         prompt, truth = setup_one_plan(path, seed)
@@ -106,7 +106,7 @@ def setup(path, case, seed):
 
 
 def grade(path, case, truth):
-    if case in ("one_plan", "discover_capacity"):
+    if case in ("one_plan", "discover_capacity", "linked_capacity"):
         return grade_one_plan(path, truth)
     if case == "sql":
         return grade_sql(path, truth)
