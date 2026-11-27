@@ -146,11 +146,21 @@ struct MessageView: View {
                 Label("Guidance for " + helper, systemImage: "arrow.turn.down.right").font(.caption).foregroundStyle(.secondary)
             }
             if !message.content.isEmpty {
-                UserMessageText(source: message.content).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
-
-                    .background(message.isSteer || message.isCorrection ? AnyShapeStyle(AppColor.card) : userBubbleFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .background(AppColor.chat, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay { if message.isSteer || message.isCorrection { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
+                let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10,
+                                                    bottomTrailingRadius: 3, topTrailingRadius: 10)
+                let steering = message.isSteer || message.isCorrection
+                MessageBubbleLayout { UserMessageText(source: message.content) }
+                    .font(.body).lineSpacing(3)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(steering ? AnyShapeStyle(AppColor.card) : userBubbleFill, in: bubble)
+                    .background(AppColor.chat, in: bubble)
+                    .overlay {
+                        if steering {
+                            bubble.strokeBorder(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        } else {
+                            bubble.strokeBorder(.tint.opacity(0.24), lineWidth: 1)
+                        }
+                    }
             }
         } else {
             OrderedReply(message: message, actionTarget: actionTarget, stepsExpanded: stepsExpanded)
@@ -158,6 +168,21 @@ struct MessageView: View {
     }
     private var literalBody: some View {
         TranscriptRunView(run: .init(value: AttributedString(message.content), offset: 0), style: .caption)
+    }
+}
+
+/// NSTextView can accept all the offered space. Keep short messages at their text width
+/// and measure longer Markdown at its actual wrapping width.
+private struct MessageBubbleLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let text = subviews[0]
+        let ideal = text.sizeThatFits(.unspecified)
+        guard let width = proposal.width, width < ideal.width else { return ideal }
+        return text.sizeThatFits(.init(width: width, height: nil))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: bounds.width, height: nil))
     }
 }
 

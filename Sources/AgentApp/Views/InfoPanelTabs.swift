@@ -17,7 +17,7 @@ extension AgentInfoTab {
 
 extension AppStore {
     func infoTabs(for bot: Bot) -> [AgentInfoTab] {
-        if bot.sampleProfile != nil { return [.overview, .approvals, .routines, .media] }
+        if bot.sampleProfile != nil { return [.overview, .approvals, .routines, .model, .media] }
         return bot.backend == .herdr ? AgentInfoTab.allCases : [.overview, .media]
     }
 
