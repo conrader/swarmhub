@@ -36,7 +36,19 @@ extension AppStore {
     /// Joins the queue only once the ledger has it.
     func enqueueNextMessage(_ next: QueuedNextMessage) -> Bool {
         guard recordNextMessage(next, .waiting) else { return false }
-        turns.nextMessages.append(next); return true
+        insertNextMessage(next); return true
+    }
+
+    private func insertNextMessage(_ next: QueuedNextMessage) {
+        let rows = next.conversation.messages
+        if let index = rows.firstIndex(where: { $0 === next.bubble }),
+           let later = turns.nextMessages.firstIndex(where: { item in
+               item.conversation === next.conversation && rows[(index + 1)...].contains(where: { $0 === item.bubble })
+           }) {
+            turns.nextMessages.insert(next, at: later)
+        } else {
+            turns.nextMessages.append(next)
+        }
     }
 
     /// Launch (`restoreLedger`): waiting entries rejoin the queue in their order, held until the launch reconcile ran.
@@ -93,7 +105,7 @@ extension AppStore {
                     }
                     bubble = anchor
                 }
-                turns.nextMessages.append(QueuedNextMessage(id: record.id, conversation: conversation, bubble: bubble, kind: record.kind, anchorID: anchor.id, restored: true))
+                insertNextMessage(QueuedNextMessage(id: record.id, conversation: conversation, bubble: bubble, kind: record.kind, anchorID: anchor.id, restored: true))
             }
         } catch { errorMessage = "Could not restore the message queue: \(error.localizedDescription)" }
     }

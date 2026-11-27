@@ -486,6 +486,10 @@ async fn send_all(connection: &mut Option<Connection>, requests: Vec<Value>) {
 
 /// Connects and introduces this client. `None` while the server is not ready.
 async fn connect(socket: &Path) -> Option<Connection> {
+    connect_with_settings(socket, false).await
+}
+
+async fn connect_with_settings(socket: &Path, experimental: bool) -> Option<Connection> {
     let hello = async {
         // Codex puts the socket itself under a short name and leaves a link at the path it was given.
         let stream = UnixStream::connect(fs::canonicalize(socket)?).await?;
@@ -495,7 +499,7 @@ async fn connect(socket: &Path) -> Option<Connection> {
         for leave_out in [Some(UNUSED), None] {
             let request = json!({"id":0,"method":"initialize","params":{
                 "clientInfo":{"name":"swarmhub-herdr","title":"SwarmHub","version":env!("CARGO_PKG_VERSION")},
-                "capabilities":{"experimentalApi":false,"requestAttestation":false,
+                "capabilities":{"experimentalApi":experimental,"requestAttestation":false,
                                 "optOutNotificationMethods":leave_out},
             }});
             connection.send(Message::text(request.to_string())).await?;
@@ -560,6 +564,47 @@ async fn rpc(connection: &mut Connection, id: u64, method: &str, params: Value) 
         }
     }
     Err(Failure::Uncertain.into())
+}
+
+/// Change only the reviewer of the direct bot's root thread. Codex owns the sandbox,
+/// existing approval requests and the decision made by its automatic reviewer.
+pub(crate) async fn apply_saved_reviewer(history: &crate::history::History, bot: &str) {
+    use crate::ApiError;
+    let _ = timeout(Duration::from_secs(4), async {
+        let key: String = {
+            let db = history.db()?;
+            db.query_row(
+                "SELECT j.launch_key FROM journal j JOIN bots b ON b.id=j.parent_bot_id
+                 WHERE b.id=?1 AND j.agent=b.agent_name AND j.launch_key IS NOT NULL
+                 AND j.document_read_only=0 AND j.launch_tool_review=0
+                 AND json_extract(j.launch_runtime,'$.harness')='Codex' ORDER BY j.id DESC LIMIT 1",
+                [bot], |row| row.get(0),
+            ).map_err(crate::history::StoreError::from)?
+        };
+        let socket = note_path(history.file(), &key).with_extension("sock");
+        let mut connection = connect_with_settings(&socket, true).await.ok_or(ApiError::Conflict("Codex is offline."))?;
+        let threads = rpc(&mut connection, 1, "thread/loaded/list", json!({})).await?;
+        let mut parent = None;
+        for id in threads["data"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            let read = rpc(&mut connection, 2, "thread/read", json!({"threadId":id,"includeTurns":false})).await?;
+            if read["thread"]["id"] == id && !other_conversation(&read["thread"]) && parent.replace(id).is_some() {
+                return Err(ApiError::Conflict("Several direct threads are active."));
+            }
+        }
+        let thread = parent.ok_or(ApiError::Conflict("The direct thread has not started."))?;
+        rpc(&mut connection, 3, "thread/resume", json!({"threadId":thread,"excludeTurns":true})).await?;
+        loop {
+            let settings = crate::bot_agent_settings::for_bot(&*history.db()?, bot).map_err(crate::history::StoreError::from)?;
+            if settings.review_every_tool || settings.document_read_only { break; }
+            let reviewer = if settings.auto_mode { "auto_review" } else { "user" };
+            rpc(&mut connection, 4, "thread/settings/update", json!({"threadId":thread,"approvalsReviewer":reviewer})).await?;
+            let effective = rpc(&mut connection, 5, "thread/resume", json!({"threadId":thread,"excludeTurns":true})).await?;
+            if effective["approvalsReviewer"] != reviewer { break; }
+            save_review(history.file(), &key, Some(reviewer), None, None, None);
+            if crate::bot_agent_settings::for_bot(&*history.db()?, bot).map_err(crate::history::StoreError::from)?.auto_mode == settings.auto_mode { break; }
+        }
+        Ok::<(), ApiError>(())
+    }).await;
 }
 
 pub(crate) async fn steer(journal: &Path, key: &str, reference: &str, text: &str) -> Result<(), crate::ApiError> {

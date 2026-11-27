@@ -53,6 +53,10 @@ extension AppStore {
             guard !held.contains(key), !next.restored, isIdle(next.conversation), turns.pendingInterrupts[key] == nil, turnCapacityProblem(for: waitingBots(next)) == nil else {
                 held.insert(key); index += 1; continue
             }
+            if let serverID = next.bubble.metadata[TurnWaitCopy.promptServer], let bot = next.conversation as? Bot {
+                checkPromptQueue(next, bot: bot, serverID: serverID)
+                held.insert(key); index += 1; continue
+            }
             guard recordNextMessage(next, .submitting) else { break }
             turns.nextMessages.remove(at: index)
             if startNextMessage(next) {
@@ -65,6 +69,36 @@ extension AppStore {
             recordNextMessage(next, .removed)
             if next.kind == .turn { giveBackBubble(next) } else { next.bubble.metadata[SteerKey.steer] = "failed" }
             objectWillChange.send(); save()
+        }
+    }
+
+    private func checkPromptQueue(_ next: QueuedNextMessage, bot: Bot, serverID: String) {
+        guard turns.checkingPromptQueues.insert(next.id).inserted else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self else { return }
+            defer { turns.checkingPromptQueues.remove(next.id); sendQueuedNextMessage() }
+            guard turns.nextMessages.contains(where: { $0.id == next.id }) else { return }
+            guard bots.contains(bot) else {
+                turns.nextMessages.removeAll { $0.id == next.id }
+                recordNextMessage(next, .removed)
+                return
+            }
+            let server = herdrServer(for: bot)
+            guard server.id == serverID else {
+                turns.nextMessages.removeAll { $0.id == next.id }
+                giveBack(next)
+                save()
+                return
+            }
+            guard let client = try? herdrClient(for: server), let workspace = try? await client.workspace(),
+                  workspace.core != nil, herdrServer(for: bot) == server,
+                  turns.nextMessages.contains(where: { $0.id == next.id }) else { return }
+            let name = HerdrBackend.agentName(botName: bot.name, botID: bot.id)
+            if let agent = client.liveAgent(named: name, in: workspace) {
+                guard agent.status?.state == "idle" || agent.status?.state == "done" else { return }
+            }
+            next.bubble.metadata[TurnWaitCopy.promptServer] = nil
         }
     }
 
@@ -131,11 +165,15 @@ extension AppStore {
     // MARK: P39 turn limit
 
     /// The user's message is already in `conversation`; it waits there with one line until a turn may start.
-    func waitForTurn(_ user: ChatMessage, in conversation: any Conversation, reason: String, startupTarget: StartupSteerTarget? = nil) -> Bool {
+    func waitForTurn(_ user: ChatMessage, in conversation: any Conversation, reason: String, startupTarget: StartupSteerTarget? = nil, keepOnFailure: Bool = false) -> Bool {
         user.metadata[TurnWaitCopy.key] = "waiting"
         var next = QueuedNextMessage(conversation: conversation, bubble: user, kind: .turn)
         next.startupTarget = startupTarget
-        guard enqueueNextMessage(next) else { user.metadata[TurnWaitCopy.key] = nil; conversation.messages.removeAll { $0 === user }; return false }
+        guard enqueueNextMessage(next) else {
+            user.metadata[TurnWaitCopy.key] = nil
+            if !keepOnFailure { conversation.messages.removeAll { $0 === user } }
+            return false
+        }
         if let index = conversation.messages.firstIndex(where: { $0 === user }) {
             conversation.messages.insert(ChatMessage(role: .system, content: reason, metadata: [TurnWaitCopy.key: "line"]), at: index + 1)
         }
@@ -143,7 +181,7 @@ extension AppStore {
         if turns.saveFailing {
             turns.nextMessages.removeAll { $0.id == next.id }
             endWait(user, in: conversation)
-            conversation.messages.removeAll { $0 === user }
+            if !keepOnFailure { conversation.messages.removeAll { $0 === user } }
             recordNextMessage(next, .removed)
             return false
         }
@@ -165,6 +203,8 @@ extension AppStore {
 enum TurnWaitCopy {
     static let recipients = "queuedRecipientIDs"
     static let key = "turnWait"
+    static let promptServer = "waitingAtPromptServer"
+    static let atPrompt = "Queued until the terminal is ready."
     static let afterAnswer = "Queued as the next message after this answer."
     static let behind = "Waiting: an earlier message in this chat goes first."
     static let notSent = "Not sent: it was still waiting for a free turn."

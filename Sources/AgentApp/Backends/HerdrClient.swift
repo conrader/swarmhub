@@ -235,7 +235,7 @@ struct HerdrClient: Sendable {
             case .notDelivered(let why): why.map { "\($0) Choose Retry in chat once the bot is ready." } ?? "The bot did not get ready. Answer any terminal prompt in this chat, then choose Retry."
             case .unconfirmedDelivery: "The workspace could not confirm delivery. Check the conversation before sending the message again."
             case .startNotObserved: "The bot may not have received your message. Check its terminal or chat before retrying."
-            case .waitingAtPrompt: "The first message did not start. If the bot is asking a question, choose Answer here in chat. Once the bot is ready, choose Retry."
+            case .waitingAtPrompt: "The bot is waiting at a terminal prompt."
             }
         }
     }
@@ -431,7 +431,9 @@ struct HerdrClient: Sendable {
     /// can also own it. Only poll the original session, before reading the history cursor or posting.
     func workspaceForDelivery(name: String, status: @Sendable (HerdrTurnStatus) -> Void) async throws -> Workspace {
         let initial = try await workspace()
-        guard let agent = liveAgent(named: name, in: initial), agent.status?.state == "working" else { return initial }
+        guard let agent = liveAgent(named: name, in: initial) else { return initial }
+        if agent.status?.state == "blocked" { throw agent.promptFailure(program: initial.program(of: agent)) }
+        guard agent.status?.state == "working" else { return initial }
         return try await waitForIdle(agent, name: name, core: initial.core, status: status).workspace
     }
 

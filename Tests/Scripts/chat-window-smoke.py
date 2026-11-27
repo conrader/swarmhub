@@ -2012,7 +2012,7 @@ def team_inspector(source_app, appearance):
                 wait_for("Patch approval controls", lambda: element("New sessions: Auto") and element("Command reviewer: Claude Sonnet"))
                 wait_for("Patch’s scoped command", lambda: element("swift test"))
                 press_link(w, "Edit approval controls")
-                wait_for("approval editor", lambda: element("Auto mode for new sessions"))
+                wait_for("approval editor", lambda: element("Auto mode"))
                 popup = next(e for e in descendants(w) if attribute(e, "AXIdentifier") == "bot.commandReviewer"
                              and attribute(e, "AXRole") == "AXPopUpButton")
                 assert ax.AXUIElementPerformAction(popup, "AXPress") == 0

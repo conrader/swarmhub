@@ -108,11 +108,11 @@ struct HerdrHelperModelSection: View {
             let reading = store.herdrAgentReadings[bot.id]
             VStack(alignment: .leading, spacing: 7) {
                 Toggle(isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } })) {
-                    Text("Auto mode for new sessions").font(.headline).foregroundStyle(.primary)
+                    Text("Auto mode").font(.headline).foregroundStyle(.primary)
                 }
-                .toggleStyle(.switch).accessibilityLabel("Auto mode for new sessions").accessibilityIdentifier("bot.autoMode")
+                .toggleStyle(.switch).accessibilityLabel("Auto mode").accessibilityIdentifier("bot.autoMode")
                 .disabled(saving || saved.reviewEveryTool == true)
-                Text("Applies to standard Claude, Codex and Antigravity launches. Managed permissions still apply.")
+                Text("Workspace 0.2.40 or later can apply automatic review to the next Codex turn. Claude and Antigravity use this setting on their next launch.")
                     .foregroundStyle(.secondary)
                 if let reviewing = saved.reviewEveryTool {
                     let selected = HerdrAgentReading.template(own: store.herdrTemplate(for: bot), shared: nil, in: approvalsOnly ? approvalTemplates : templates).template
@@ -124,7 +124,7 @@ struct HerdrHelperModelSection: View {
                     }
                 }
                 if store.autoSwitchPending(bot) || reading?.autoRestartPending == true {
-                    Label("Saved change pending. The next direct message can replace the session once it and its helpers are idle.", systemImage: "clock")
+                    Label("Launch settings are pending. The next message applies them when this session and its helpers are idle. A prompt already on screen still needs a decision.", systemImage: "clock")
                         .foregroundStyle(.primary)
                 }
                 if let changed = saved.autoChangedMs, let launch = reading?.session?.createdMs, changed > launch {

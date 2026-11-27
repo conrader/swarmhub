@@ -180,6 +180,7 @@ async fn save(
     if !bots::valid_id(&bot) || existing.iter().any(|agent| !valid_name(agent)) {
         return Err(Failure::Input("Invalid bot or agent name.").into());
     }
+    let changes_auto = matches!(&body, Edit::Auto(_));
     let mut choice: Option<Tier> = None;
     if let Edit::Model(edit) = &body {
         choice = serde_json::from_value(edit.choice.clone()).map_err(|_| {
@@ -267,6 +268,7 @@ async fn save(
         tx.commit().map_err(StoreError::from)?;
         saved
     };
+    if changes_auto { crate::codex_agent::stream::apply_saved_reviewer(&w.history, &bot).await; }
     choices(&w, &bot, result).await
 }
 
