@@ -20,7 +20,17 @@ import UserNotifications
         inspectorTerminal = request
         showInfo = true
     }
-    @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
+    /// A deliberate open or close takes precedence over each window’s initial layout.
+    @Published var inspectorVisibilityChoice: Bool?
+    var showInfo: Bool {
+        get { inspectorVisibilityChoice ?? true }
+        set { inspectorVisibilityChoice = newValue }
+    }
+    func showsInfo(at width: CGFloat) -> Bool {
+        inspectorVisibilityChoice ?? ChromeMetrics.showsInspectorByDefault(at: width)
+    }
+
+    @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false
     @Published var helperSteeringDrafts: [UUID: HelperSteeringDraft] = [:]
     var inactiveHelperInstructions: [HelperSteeringTarget.ID: String] = [:]

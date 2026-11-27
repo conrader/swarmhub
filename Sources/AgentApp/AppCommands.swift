@@ -173,7 +173,9 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .quickSwitcher: store.showingCommandPalette = true
         case .activity: store.showOnlyAttention = false; store.showingActivity = true
         case .toggleSidebar: store.sidebarHidden.toggle()
-        case .toggleInfo: store.showInfo.toggle()
+        case .toggleInfo:
+            let visible = NSApp?.mainWindow?.contentView.map { store.showsInfo(at: $0.bounds.width) } ?? store.showInfo
+            store.showInfo = !visible
         case .hiddenChats: store.sidebarHidden = false; store.showingHiddenBots.toggle()
         case .previousChat: store.moveChatSelection(by: -1)
         case .nextChat: store.moveChatSelection(by: 1)

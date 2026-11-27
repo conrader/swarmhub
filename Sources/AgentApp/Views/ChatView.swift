@@ -9,6 +9,7 @@ struct ChatView: View {
     @State private var terminal: HerdrTerminalTarget?
     /// The messages between bots that are unfolded, while this chat is on screen.
     @StateObject private var folds: ChatFolds
+    @Environment(\.visibleWorkspaceDetails) private var windowVisibility
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     /// `unfolded`: cards that start unfolded (renders); the app starts every card folded.
     init(bot: Bot, initialDraft: String = "", unfolded: Set<UUID> = []) {
@@ -33,7 +34,7 @@ struct ChatView: View {
                 ShowSidebarItem()
                 BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: answering, probe: "chat_header",
                           hasActiveCodingAgent: coding, mainBotLabel: store.herdrMainBotLabel(bot))
-                Button { store.showInfo.toggle() } label: {
+                Button { store.showInfo = !(windowVisibility ?? store.showInfo) } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(bot.name).font(.system(size: 14, weight: .semibold))
                         if !bot.title.isEmpty, bot.title != Bot.placeholderTitle {
