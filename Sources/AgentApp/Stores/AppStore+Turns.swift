@@ -130,6 +130,9 @@ extension AppStore {
                 if hasNewOutput, addition.isEmpty, ChatCardParser.steerBoundary(in: row.content, after: row.content) == nil {
                     hasNewOutput = false
                 }
+                if hasNewOutput, cumulativeReplacements, !addition.isEmpty {
+                    TurnReplyText.carryOpenParagraph(from: row, into: &addition)
+                }
                 if hasNewOutput, let next = continueAfterSteer(origin: assistant, row: row) {
                     if next !== row {
                         earlierParts.append(row)

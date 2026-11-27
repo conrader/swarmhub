@@ -27,22 +27,30 @@ enum TurnReplyText {
     /// A receipt records delivery time, which can fall mid-word or mid-sentence.
     /// Move the open paragraph into the continuation without changing the complete text or message IDs.
     static func keepProseTogether(_ first: ChatMessage, _ next: ChatMessage) {
-        guard next.metadata[separator] == nil, let end = first.content.last, end.isLetter || end.isNumber,
-              let start = next.content.first, !start.isNewline else { return }
-        let following = next.content.drop(while: { $0 == " " || $0 == "\t" }).first
-        guard let following, following.isLowercase || (!start.isWhitespace && following.isNumber) else { return }
-        let cut = first.content.range(of: "\n\n", options: .backwards)?.upperBound ?? first.content.startIndex
-        let tail = first.content[cut...]
-        guard !tail.contains("`"), !tail.contains("~"), !first.content.contains("```"), !first.content.contains("~~~") else { return }
-        let length = tail.utf16.count
-        next.content = String(tail) + next.content
-        first.content.removeSubrange(cut...)
+        guard next.metadata[separator] == nil else { return }
+        let length = carryOpenParagraph(from: first, into: &next.content)
+        guard length > 0 else { return }
         if var activity = next.activity {
             for i in activity.steps.indices {
                 if let offset = activity.steps[i].textOffset { activity.steps[i].textOffset = offset + length }
             }
             next.activity = activity
         }
+    }
+
+    @discardableResult
+    static func carryOpenParagraph(from first: ChatMessage, into continuation: inout String) -> Int {
+        guard let end = first.content.last, end.isLetter || end.isNumber,
+              let start = continuation.first, !start.isNewline else { return 0 }
+        let following = continuation.drop(while: { $0 == " " || $0 == "\t" }).first
+        guard let following, following.isLowercase || (!start.isWhitespace && following.isNumber) else { return 0 }
+        let cut = first.content.range(of: "\n\n", options: .backwards)?.upperBound ?? first.content.startIndex
+        let tail = first.content[cut...]
+        guard !tail.contains("`"), !tail.contains("~"), !first.content.contains("```"), !first.content.contains("~~~") else { return 0 }
+        let length = tail.utf16.count
+        continuation = String(tail) + continuation
+        first.content.removeSubrange(cut...)
+        return length
     }
 
     /// Old snapshots sometimes put a short piece of the new answer on a much longer

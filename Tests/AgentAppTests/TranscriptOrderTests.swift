@@ -92,7 +92,7 @@ import Testing
         pair.continuation.yield(.completed)
         pair.continuation.finish()
         _ = try await store.consumeTurn(pair.stream, assistant: draft, bot: bot, cumulativeReplacements: true)
-        #expect(bot.messages.last?.content == answer)
+        #expect(bot.messages.map(\.content) == ["Team exchange", "Sprawdź M1", answer])
         #expect(bot.messages.filter { $0.role == .assistant }.map(\.content).joined() == answer)
         #expect(bot.messages.contains { $0 === exchange })
     }
