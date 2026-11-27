@@ -24,6 +24,79 @@ enum HelperAssignment {
     }
 }
 
+/// Journal IDs order the remote events. Locally sent guidance is inserted at the next dated event.
+enum HelperConversationEvent: Identifiable {
+    case journal(HerdrClient.Item)
+    case guidance(ChatMessage)
+
+    enum ID: Hashable { case journal(Int), guidance(UUID) }
+
+    var id: ID {
+        switch self {
+        case .journal(let item): .journal(item.id)
+        case .guidance(let message): .guidance(message.id)
+        }
+    }
+
+    static func timeline(journal: [HerdrClient.Item], guidance: [ChatMessage]) -> [Self] {
+        var events: [Self] = []
+        var pending = guidance[...]
+        for item in journal.sorted(by: { $0.id < $1.id }) {
+            if let milliseconds = item.atMs {
+                let date = Date(timeIntervalSince1970: Double(milliseconds) / 1000)
+                while let next = pending.first, next.createdAt < date {
+                    events.append(.guidance(next))
+                    pending = pending.dropFirst()
+                }
+            }
+            events.append(.journal(item))
+        }
+        return events + pending.map(Self.guidance)
+    }
+}
+
+/// Guidance is saved in the parent conversation. Observe that owner even while its chat is closed.
+struct HelperGuidanceHistory<Content: View>: View {
+    @EnvironmentObject private var store: AppStore
+    let selection: HerdrHelperSelection
+    let bot: Bot
+    @ViewBuilder let content: ([ChatMessage]) -> Content
+
+    var body: some View {
+        if let target = store.steeringTarget(selection, of: bot) {
+            if selection.groupRuntime == nil {
+                ObservedHelperInstructions(owner: bot, target: target, content: content)
+            } else if let group = store.groupOwningHelper(selection, of: bot) {
+                ObservedHelperInstructions(owner: group, target: target, content: content)
+            } else { content([]) }
+        } else { content([]) }
+    }
+}
+
+private struct ObservedHelperInstructions<Owner: ObservableObject & Conversation, Content: View>: View {
+    @ObservedObject var owner: Owner
+    let target: HelperSteeringTarget
+    let content: ([ChatMessage]) -> Content
+
+    var body: some View { content(target.instructions(in: owner.messages)) }
+}
+
+struct HelperChatGuidance: View {
+    @ObservedObject var message: ChatMessage
+    let botName: String
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            HelperChatLine(name: "You via " + botName, text: message.content)
+            if message.metadata[TurnWaitCopy.key] == "waiting" {
+                Text("Queued in " + botName + "’s chat").font(.caption).foregroundStyle(.secondary)
+            } else if let caption = SteerCopy.caption(message, botName: botName) {
+                Text(caption).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 /// Show enough activity to follow a helper without pushing its answer offscreen.
 struct HelperChatSteps<Step, Row: View>: View {
     let steps: [Step]

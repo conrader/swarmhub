@@ -118,10 +118,11 @@ struct NativeThreadOutput: View {
         let details = activity?.details
         let assignment = HelperAssignment.readable(details?.task ?? "") ?? HelperAssignment.readable(child.task)
         HelperChatLine(name: parent?.bot.name ?? "Assignment", text: assignment ?? "", unavailable: assignment == nil)
-        if let parent, let target = store.steeringTarget(parent.selection, of: parent.bot) {
-            let chat = store.groupOwningHelper(parent.selection, of: parent.bot)?.messages ?? parent.bot.messages
-            ForEach(chat.filter { $0.role == .user && $0.metadata[HelperGuidanceKey.route] == target.routeKey }) { row in
-                HelperChatLine(name: "You", text: row.content)
+        if let parent {
+            HelperGuidanceHistory(selection: parent.selection, bot: parent.bot) { instructions in
+                ForEach(instructions) { message in
+                    HelperChatGuidance(message: message, botName: parent.bot.name)
+                }
             }
         }
         if let steps = details?.steps {

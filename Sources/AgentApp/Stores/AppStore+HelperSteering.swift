@@ -30,6 +30,11 @@ struct HelperSteeringTarget {
         return fields.map { "\($0.utf8.count):" + $0 }.joined()
     }
 
+    func instructions(in messages: [ChatMessage]) -> [ChatMessage] {
+        let key = routeKey
+        return messages.filter { $0.role == .user && $0.metadata[HelperGuidanceKey.route] == key }
+    }
+
     var reference: String {
         let session = selection.native.map { $0.thread.provider.label + " thread " } ?? "workspace session "
         return "\(session)\(selection.helperID), owner \(owner.address)/\(owner.createdMs), core \(core)"
@@ -128,11 +133,14 @@ extension AppStore {
         return send(text: words, bot: bot, conversation: bot, replyToID: nil, waitWhenFull: true, metadata: metadata)
     }
 
-    func latestGuidance(for selection: HerdrHelperSelection, of bot: Bot) -> ChatMessage? {
-        guard let target = steeringTarget(selection, of: bot) else { return nil }
+    func guidanceMessages(for selection: HerdrHelperSelection, of bot: Bot) -> [ChatMessage] {
+        guard let target = steeringTarget(selection, of: bot) else { return [] }
         let messages = selection.groupRuntime == nil ? bot.messages : groupOwningHelper(selection, of: bot)?.messages ?? []
-        let key = target.routeKey
-        return messages.last { $0.role == .user && $0.metadata[HelperGuidanceKey.route] == key }
+        return target.instructions(in: messages)
+    }
+
+    func latestGuidance(for selection: HerdrHelperSelection, of bot: Bot) -> ChatMessage? {
+        guidanceMessages(for: selection, of: bot).last
     }
 
     func guideHelper(_ helper: HerdrClient.Helper, selection: HerdrHelperSelection, of bot: Bot, instruction: String) -> Bool {
