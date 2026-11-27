@@ -39,11 +39,17 @@ struct AttachmentTile: View {
     var remove: (() -> Void)? = nil
     @State private var previewing = false
     var body: some View {
-        Button { previewing = true } label: { tile }.buttonStyle(.plain).accessibilityLabel("Preview " + attachment.name).help(attachment.summary.map { "\(attachment.name)\n\($0)" } ?? attachment.name)
-            .overlay(alignment: .topTrailing) {
-                if let remove { Button(action: remove) { Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary).background(Circle().fill(AppColor.chat)) }.buttonStyle(.plain).padding(3).help("Remove") }
+        HStack(alignment: .top, spacing: 2) {
+            Button { previewing = true } label: { tile }
+                .buttonStyle(.plain).accessibilityLabel("Preview " + attachment.name)
+                .help(attachment.summary.map { "\(attachment.name)\n\($0)" } ?? attachment.name)
+            if let remove {
+                Button(action: remove) { Image(systemName: "xmark.circle.fill").font(.system(size: 13)).padding(3) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel("Remove " + attachment.name).help("Remove")
             }
-            .sheet(isPresented: $previewing) { ImagePreviewSheet(title: attachment.name) { preview } }
+        }
+        .sheet(isPresented: $previewing) { ImagePreviewSheet(title: attachment.name) { preview } }
     }
     @ViewBuilder private var tile: some View {
         if attachment.kind == .image, let url = store.attachmentURL(attachment), let image = ThumbnailCache.image(at: url) {
