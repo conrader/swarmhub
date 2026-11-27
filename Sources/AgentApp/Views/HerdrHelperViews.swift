@@ -23,7 +23,11 @@ struct SidebarBotSessions<ParentRow: View>: View {
         let expanded = store.sessionsExpanded(for: bot)
         let hasSessions = !groups.isEmpty || !workers.isEmpty
         let terminal = store.herdrTerminalSession(for: bot)
-        let controlsWidth: CGFloat = (terminal == nil ? 0 : 24) + (hasSessions ? 28 : 0)
+        let count = groups.reduce(workers.count) { $0 + $1.rows.count }
+        let working = expanded ? 0 : groups.reduce(workers.filter { $0.job.isWorking }.count) { $0 + $1.rows.filter(\.isWorking).count }
+        let summary = (count == 1 ? "1 session" : "\(count) sessions") + (working > 0 ? ", \(working) working" : "")
+        let disclosureWidth: CGFloat = expanded ? 28 : (working > 0 ? 62 : 48)
+        let controlsWidth: CGFloat = (terminal == nil ? 0 : 24) + (hasSessions ? disclosureWidth : 0)
         parentRow(controlsWidth)
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 0) {
@@ -34,14 +38,21 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         Button {
                             store.setSessionsExpanded(!expanded, for: bot)
                         } label: {
-                            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                .frame(width: 28, height: 24).contentShape(Rectangle())
+                            HStack(spacing: 3) {
+                                if !expanded {
+                                    if working > 0 {
+                                        Image(systemName: "circle.dotted").foregroundStyle(.tint)
+                                    }
+                                    Text(count > 99 ? "99+" : String(count)).monospacedDigit()
+                                }
+                                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            }.font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                .frame(width: disclosureWidth, height: 24).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Sessions for " + bot.name)
-                        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                        .help(expanded ? "Hide sessions" : "Show sessions")
+                        .accessibilityValue(expanded ? "Expanded" : "Collapsed, " + summary)
+                        .help(expanded ? "Hide sessions" : "Show " + summary)
                     }
                 }.padding(.top, 3)
             }

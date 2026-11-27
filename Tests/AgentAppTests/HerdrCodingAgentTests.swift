@@ -725,6 +725,12 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         store.herdrHelpers[branch] = snapshot("answered", "working")
         guard case .native(let folded, _, _) = rows().last else { Issue.record("Missing folded ancestor"); return }
         #expect(folded.hasChildren && folded.folded)
+        store.setSessionsExpanded(false, for: bot)
+        let collapsed = store.sidebarSessionGroups(for: bot, roots: [root]).flatMap(\.rows)
+        #expect(collapsed.map(\.selection.helperID) == [outer.id.helperID, "review", "check"])
+        #expect(collapsed.filter(\.isWorking).map(\.selection.helperID) == ["check"])
+        store.setSessionsExpanded(true, for: bot)
+        #expect(rows().last?.selection.helperID == "review")
         store.setNativeSessionFolded(false, target: review.id, for: bot)
         #expect(rows().last?.selection.helperID == "check")
 

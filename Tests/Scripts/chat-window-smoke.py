@@ -661,8 +661,13 @@ def sample_workspace(source_app):
 
                 tests = "Claude agent tests, Working"
                 rename = "Codex agent rename, Answered"
+                def collapsed_summary(expected):
+                    return any(label(b) == "Sessions for Jarvis" and attribute(b, "AXValue") == expected
+                               for b in buttons(window))
+
                 if reopened:
-                    wait_for("saved sample disclosure", lambda: button("Sessions for Jarvis") and not button(rename))
+                    wait_for("two finished sessions under the folded bot",
+                             lambda: collapsed_summary("Collapsed, 2 sessions") and not button(rename))
                     press(window, "Sessions for Jarvis")
                     wait_for("saved stopped sample", lambda: button("Claude agent tests, Stopped") and button(rename))
                     press(window, "Patch", sidebar=True)
@@ -739,6 +744,12 @@ def sample_workspace(source_app):
                 press(window, "Show terminal in Details")
                 wait_for("docked sample output", lambda: pane("inspector.terminal") and has_text("expected throw"))
                 press(window, "Back to Details")
+                press(window, "Sessions for Jarvis")
+                wait_for("two folded sessions, including one working",
+                         lambda: collapsed_summary("Collapsed, 2 sessions, 1 working") and not button(rename)
+                         and not button(tests) and button("Stop helper"))
+                press(window, "Sessions for Jarvis")
+                wait_for("same helper open after unfolding", lambda: button(tests) and button(rename) and button("Stop helper"))
                 press(window, "Stop helper")
                 wait_for("stopped in the sidebar", lambda: button("Claude agent tests, Stopped") and not button("Stop helper"))
                 press(window, rename)
