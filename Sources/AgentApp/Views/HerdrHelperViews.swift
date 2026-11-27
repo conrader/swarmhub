@@ -682,16 +682,9 @@ struct HerdrHelperView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: call.failed ? "xmark.circle" : call.finished ? "checkmark.circle" : running ? "circle.dotted" : "circle")
                 .font(.system(size: 11)).foregroundStyle(call.failed ? Color.red : call.finished ? AppColor.sage : .secondary).frame(width: 14)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    let tool = HerdrBackend.toolName(call.tool)
-                    Text(tool == "bash" ? (running && !call.finished ? "Running command" : "Command") : ActivityCopy.label(tool)).font(.callout)
-                    HelperStepDuration(start: call.startedMs, end: call.completedMs, running: running && !call.finished)
-                }
-                if let detail = call.detail, !detail.isEmpty {
-                    Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                }
-            }
+            let tool = HerdrBackend.toolName(call.tool)
+            HelperStepContent(label: tool == "bash" ? (running && !call.finished ? "Running command" : "Command") : ActivityCopy.label(tool),
+                              detail: call.detail, start: call.startedMs, end: call.completedMs, running: running && !call.finished)
         }
     }
 

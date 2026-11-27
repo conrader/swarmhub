@@ -14,16 +14,8 @@ struct NativeStepRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: style.0).font(.caption).foregroundStyle(style.1)
                 .frame(width: 14).help(step.state ?? "Status unavailable")
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    Text(verbatim: parts.label).font(.callout).textSelection(.enabled)
-                    HelperStepDuration(start: step.startedMs, end: step.completedMs, duration: step.durationMs, running: running)
-                }
-                if let detail = parts.detail {
-                    Text(verbatim: detail).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
+            HelperStepContent(label: parts.label, detail: parts.detail, start: step.startedMs, end: step.completedMs,
+                              duration: step.durationMs, running: running)
         }.accessibilityElement(children: .combine)
             .accessibilityValue(step.state ?? "Status unavailable")
     }
@@ -55,6 +47,37 @@ struct NativeStepRow: View {
         case "failed", "error", "declined": ("xmark.circle", .red)
         case "cancelled", "canceled", "interrupted", "stopped": ("stop.circle", .secondary)
         default: ("circle", .secondary)
+        }
+    }
+}
+
+/// Keep short steps on one line like the preview. Long commands wrap beneath the label in a narrow chat.
+struct HelperStepContent: View {
+    let label: String
+    let detail: String?
+    let start: Int64?
+    let end: Int64?
+    var duration: Int64? = nil
+    let running: Bool
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) { title; detailText }
+                .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 2) { title; detailText }
+        }
+    }
+
+    private var title: some View {
+        HStack(spacing: 5) {
+            Text(verbatim: label).font(.callout).textSelection(.enabled)
+            HelperStepDuration(start: start, end: end, duration: duration, running: running)
+        }
+    }
+
+    @ViewBuilder private var detailText: some View {
+        if let detail, !detail.isEmpty {
+            Text(verbatim: detail).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
         }
     }
 }
