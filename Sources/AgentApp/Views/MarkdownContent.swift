@@ -21,7 +21,9 @@ struct MarkdownContent: View {
                 let block = rendered.card
                 let index = indexes.map { $0.indices.contains(offset) ? $0[offset] : -1 } ?? offset
                 switch block {
-                case .markdown(let text): ProseBlock(text: text, rendered: rendered.prose)
+                case .markdown(let text):
+                    ProseBlock(text: text, rendered: rendered.prose, replyID: message.id, published: message.publishedResults,
+                               localMedia: store.replyMediaIsOnThisMac(message, target: actionTarget))
                 case .code(_, let body):
                     if let run = rendered.run { CodeBlock(code: body, run: run) }
                 case .choices(let prompt, let options):
@@ -65,14 +67,35 @@ struct MarkdownContent: View {
 struct ProseBlock: View {
     let text: String
     var rendered: [TranscriptText.Prose]? = nil
+    var replyID: UUID?
+    var published: HerdrReplyResults?
+    var localMedia = false
+    @Environment(\.openURL) private var openURL
+    @State private var selectedMedia: ReplyMediaLink?
+    private func publishedFile(_ link: ReplyMediaLink) -> HerdrPublishedResult? {
+        published?.items.first { $0.kind == .file && $0.title == link.url.lastPathComponent }
+    }
     private var blocks: [TranscriptText.Prose] {
         if let rendered { return rendered }
         var projection = TranscriptText()
         return projection.prose(text)
     }
     var body: some View {
+        let prose = blocks
+        let media = replyID == nil ? [] : ReplyMediaLink.links(in: prose)
         VStack(alignment: .leading, spacing: 9) {
-            MarkdownBlockContent(blocks: blocks)
+            MarkdownBlockContent(blocks: prose)
+                .environment(\.openURL, OpenURLAction { url in
+                    if let file = ReplyMediaLink.fileURL(url), let link = media.first(where: { $0.url == file }) {
+                        selectedMedia = link
+                    } else { openURL(url) }
+                    return .handled
+                })
+            if let replyID {
+                ForEach(media.filter { publishedFile($0) == nil }) { link in
+                    ReplyMediaPreview(link: link, messageID: replyID, isLocal: localMedia) { selectedMedia = link }
+                }
+            }
             let urls = ChatCardParser.bareURLs(in: text)
             if !urls.isEmpty { LinkPillRow(urls: urls) }
             ForEach(ChatCardParser.links(in: text), id: \.self) { link in
@@ -82,6 +105,15 @@ struct ProseBlock: View {
                     case .video: ChatVideo(url: url).frame(maxWidth: 420).frame(height: 208).accessibilityLabel(url.lastPathComponent)
                     case nil: EmptyView()
                     }
+                }
+            }
+        }
+        .sheet(item: $selectedMedia) { link in
+            if let replyID, let published, let item = publishedFile(link) {
+                HerdrResultSheet(messageID: replyID, serverID: published.serverID, item: item, preview: nil)
+            } else if let replyID {
+                ImagePreviewSheet(title: link.title) {
+                    ReplyMediaPreview(link: link, messageID: replyID, isLocal: localMedia, expanded: true) {}
                 }
             }
         }

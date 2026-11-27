@@ -42,6 +42,13 @@ enum MediaExtractor {
             }
             switch message.presentation {
             case .text where message.role != .system:
+                if message.role == .assistant {
+                    let prose = TranscriptText(reply: message.content, segments: nil).parts.flatMap { $0 }.flatMap(\.prose)
+                    for item in ReplyMediaLink.links(in: prose) where message.publishedResults?.items.contains(where: { $0.kind == .file && $0.title == item.url.lastPathComponent }) != true {
+                        let kind: MediaItem.Kind = ChatMediaKind(filename: item.url.lastPathComponent) == .video ? .video : .image
+                        found.append((kind, item.title, nil, nil))
+                    }
+                }
                 for image in ChatCardParser.markdownImages(in: message.content) {
                     found.append((.image, image.alt.isEmpty ? (image.url.hasPrefix("data:") ? "Image" : ChatCardParser.pillLabel(image.url)) : image.alt, image.url, nil))
                 }

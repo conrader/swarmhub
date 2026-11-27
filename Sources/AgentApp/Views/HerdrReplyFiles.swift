@@ -13,7 +13,7 @@ struct HerdrReplyFiles: View {
     }
 }
 
-private final class PublishedLocalFile {
+final class PublishedLocalFile {
     let url: URL
 
     init(data: Data, title: String) throws {
@@ -84,7 +84,7 @@ private struct PublishedResultRow: View {
     }
 }
 
-private struct HerdrResultSheet: View {
+struct HerdrResultSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     let messageID: UUID
