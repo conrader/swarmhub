@@ -615,7 +615,11 @@ def sample_stories(source_app):
                     press(window, "Look around with sample bots")
                     wait_for("release opening", lambda: has_button("Hand off to Scout") and present("Step 1 of 3"))
                     press(window, "Hand off to Scout")
-                    wait_for("Scout handoff", lambda: has_button("Read Patch’s draft") and present("I verified the unified Inbox"))
+                    def received_handoff():
+                        sample = {b.get("sampleRole"): b for b in json.loads(store.read_text())["bots"]}
+                        last = sample["patch"]["messages"][-1]
+                        return last.get("authorID") == sample["scout"]["id"] and "unified Inbox" in last["content"]
+                    wait_for("Scout handoff", lambda: has_button("Read Patch’s draft") and received_handoff())
                     continue
 
                 press(window, "Patch", sidebar=True)
