@@ -12,9 +12,7 @@ import AppKit
         guard let window, window.isKeyWindow else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self, weak window] event in
             guard let self, let window, window.isKeyWindow, event.window === window, isCurrent(),
-                  event.type == .keyDown, event.modifierFlags.intersection([.command, .control]).isEmpty,
-                  let text = event.characters, !text.isEmpty,
-                  text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && !((0xF700...0xF8FF).contains($0.value)) })
+                  event.type == .keyDown, event.modifierFlags.intersection([.command, .control]).isEmpty
             else {
                 self?.cancel()
                 return event
@@ -26,6 +24,12 @@ import AppKit
             guard window.firstResponder === window else {
                 self.cancel()
                 return event
+            }
+            // Once typing has started, keep immediately following editing keys in sequence too.
+            if self.keys.isEmpty {
+                guard let text = event.characters, !text.isEmpty, text.unicodeScalars.allSatisfy({
+                    !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value)
+                }) else { self.cancel(); return event }
             }
             self.keys.append(event)
             if self.replay == nil {

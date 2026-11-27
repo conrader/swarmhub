@@ -724,6 +724,11 @@ def sidebar_focus(source_app):
                 type_text(typed)
                 wait_for(name + " received keystrokes", lambda: focused_draft() == before + typed
                          and any(label(b) == name for b in buttons(window)))
+            press(window, "WriterQA", sidebar=True)
+            type_text("XY")
+            for down in (True, False):
+                Quartz.CGEventPostToPid(pid, Quartz.CGEventCreateKeyboardEvent(None, 51, down))
+            wait_for("immediate Backspace edits the new draft", lambda: focused_draft() == "alpha12X")
             print("Verified typing directly after selecting ordinary and pinned bots, reselecting a bot, and restoring its draft.")
 
 
