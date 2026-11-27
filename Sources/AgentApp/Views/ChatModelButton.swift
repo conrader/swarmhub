@@ -29,7 +29,8 @@ struct ChatModelButton: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("chat.bot.model")
-            .help(next.map { "Switch \(bot.name) to \($0.pickerLabel)" } ?? "Open this bot’s model settings")
+            .help([reading?.headerModel, next.map { "Switch \(bot.name) to \($0.pickerLabel)" } ?? "Open this bot’s model settings"]
+                .compactMap { $0 }.joined(separator: "\n"))
             if !templates.isEmpty {
                 Divider().frame(height: 13)
                 Menu { choices } label: {
@@ -53,7 +54,16 @@ struct ChatModelButton: View {
     private var caption: some View {
         let usage = store.herdrPresence(for: bot)?.usage
         return VStack(alignment: .leading, spacing: 2) {
-            Text(reading?.headerModel ?? "Model settings")
+            if let reading, let label = reading.confirmedModelLabel {
+                ViewThatFits(in: .horizontal) {
+                    Text(reading.headerModel).fixedSize()
+                    Text(label.split(separator: "/").last.map(String.init) ?? label)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(reading.headerModel)
+            } else {
+                Text(reading?.headerModel ?? "Model settings")
+            }
             if let target = reading?.pendingTarget {
                 Text("Next direct turn · \(target)")
             } else if let percent = usage?.contextPercent {

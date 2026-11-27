@@ -173,7 +173,7 @@ struct HerdrAgentReading: Equatable, Sendable {
         if let label = confirmedModelLabel {
             return [program, "Active model: \(label).", pendingLine].compactMap { $0 }.joined(separator: " ")
         }
-        var parts = [program, "Model: \(modelLine.trimmingCharacters(in: CharacterSet(charactersIn: ".")))."]
+        var parts = [program, "Model: \(modelLine)" + (modelLine.hasSuffix(".") ? "" : ".")]
         if let pendingLine, let runningLine { parts += [runningLine, pendingLine] }
         else if case .model = running, let runningLine { parts.append(runningLine) }
         else if let runningLine, running != .none { parts.append(runningLine) }
