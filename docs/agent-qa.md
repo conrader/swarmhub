@@ -112,7 +112,7 @@ To compare the helper session with the website’s Interactive preview, capture 
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --helper-screenshots /Applications/SwarmHub.app ./helper-screenshots
 ```
 
-To compare the same sample data as the [Interactive preview](https://swarmhub.org/), capture the five workflow tabs and both Jarvis helper conversations. The driver selects each view and waits for its first action or the selected helper’s own terminal result. It writes 14 PNGs, with names such as `dark-tests.png` and `light-brief.png`, from a disposable local workspace. See the working helper in version 0.8.118 in [dark](screenshots/dark/helper-chat.png) and [light](screenshots/light/helper-chat.png) appearance.
+To compare the same sample data as the [Interactive preview](https://swarmhub.org/), capture the five workflow tabs, both Jarvis helper conversations, the focused parent composer after steering rename, and the Inbox after resolving both decisions. The driver waits for the selected helper’s own terminal output, the guidance field, or the decision confirmations before capturing each corresponding view. It writes 18 PNGs, with names such as `dark-tests.png` and `light-brief.png`, from a disposable local workspace. See the working helper in version 0.8.120 in [dark](screenshots/dark/helper-chat.png) and [light](screenshots/light/helper-chat.png) appearance.
 
 ```sh
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --sample-screenshots /Applications/SwarmHub.app ./sample-screenshots

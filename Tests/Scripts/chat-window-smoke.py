@@ -606,6 +606,23 @@ def sample_preview(source_app, destination, appearance, library):
                     return panel and any(result in str(attribute(e, "AXValue") or "") for e in descendants(window))
                 press_transition(window, target, filename + " terminal output", shows_output)
                 snapshots.capture(filename)
+            def instruction_focused():
+                return any(attribute(e, "AXRole") == "AXTextField" and attribute(e, "AXFocused") and
+                           "Instruction for rename" in (label(e), attribute(e, "AXPlaceholderValue")) for e in descendants(window))
+            press_transition(window, "Steer via Jarvis", "focused guidance for rename", instruction_focused)
+            snapshots.capture("steer-rename")
+
+            def action(title):
+                return any(label(b) == title for b in buttons(window))
+
+            press_transition(window, "Needs Attention", "pending proposal", lambda: action("Create bot"))
+            press_transition(window, "Always allow in /srv/shop", "saved scoped command", lambda: not action("Always allow in /srv/shop"))
+            def resolved():
+                texts = {str(attribute(e, "AXValue") or label(e)) for e in descendants(window)}
+                expected = ("No pending items", "Saved the project rule for /srv/shop.", "Payments joined the sample team.")
+                return all(any(fragment in value for value in texts) for fragment in expected)
+            press_transition(window, "Create bot", "both decisions confirmed", resolved)
+            snapshots.capture("inbox-resolved")
 
 
 def sample_workspace(source_app):
