@@ -198,7 +198,17 @@ extension AppStore {
         return sidebarRows(under: parent, for: bot, includeNestedFolds: false)
     }
 
-    private func sidebarRows(under parent: HerdrHelperParent, for bot: Bot, includeNestedFolds: Bool) -> [SidebarSessionItem] {
+    /// Search results can outlive a server move, a new workspace process, or a removed helper.
+    func openSidebarSession(_ id: SidebarSessionID, server: String, core: String) -> Bool {
+        guard let bot = bots.first(where: { $0.id == id.parent.botID }), herdrServer(for: bot).id == server else { return false }
+        let root = HerdrHelperParent(botID: bot.id, groupRuntime: id.parent.groupRuntime, archive: id.parent.archive)
+        guard herdrHelpers[root]?.core == core,
+              let row = sidebarRows(under: root, for: bot, includeNestedFolds: true).first(where: { $0.sidebarID == id }) else { return false }
+        open(bot, helper: row.selection)
+        return true
+    }
+
+    func sidebarRows(under parent: HerdrHelperParent, for bot: Bot, includeNestedFolds: Bool) -> [SidebarSessionItem] {
         let visible = listedSessionRows(under: parent, for: bot, includingFolded: includeNestedFolds)
         let removed = removedHelpers(for: bot)
         guard autoHideFinishedHelpers || !removed.isEmpty else { return visible }

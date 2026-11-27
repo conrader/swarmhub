@@ -877,6 +877,38 @@ def sample_workspace(source_app):
         print("Verified the offline sample entry, both Jarvis sessions, a per-bot model change, inspector profiles, two inbox decisions and restoration after reopening.")
 
 
+def search_folded_helper(window, owner, name):
+    import Quartz
+    def disclosure():
+        return next((b for b in buttons(window) if label(b) == "Sessions for " + owner), None)
+    def child():
+        return next((b for b in buttons(window) if attribute(b, "AXValue") and label(b).startswith(
+            ("Helper " + name + ",", "Claude agent " + name + ",", "Codex agent " + name + ","))), None)
+    wait_for("visible session before folding", child)
+    press_transition(window, "Sessions for " + owner, "folded sessions", lambda: not child())
+    press(window, "Search")
+    def sheet():
+        return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXSheet"), None)
+    wait_for("search sheet", sheet)
+    field = next(e for e in descendants(sheet()) if attribute(e, "AXRole") == "AXTextField")
+    assert ax.AXUIElementSetAttributeValue(field, "AXValue", name) == 0
+    wait_for("helper result with its owner", lambda: any(name in label(b) and "Helper of " + owner in label(b)
+                                                        for b in buttons(sheet())))
+    pid = ax.AXUIElementGetPid(window, None)[1]
+    for down in (True, False):
+        event = Quartz.CGEventCreateKeyboardEvent(None, 36, down)
+        Quartz.CGEventPostToPid(pid, event)
+    wait_for("search revealed and selected the folded session", lambda: not sheet() and
+             attribute(disclosure(), "AXValue") == "Expanded" and child() and attribute(child(), "AXSelected"))
+    print("Search opened " + name + " and unfolded " + owner + " with the matching child selected.", flush=True)
+
+
+def sample_helper_search(source_app):
+    with private_workspace(source_app) as (app, home, store), open_workspace(app, home) as window:
+        press(window, "Look around with sample bots")
+        search_folded_helper(window, "Jarvis", "rename")
+
+
 def sample_stories(source_app):
     with private_workspace(source_app) as (app, home, store):
         for reopened in (False, True):
@@ -2732,6 +2764,8 @@ if __name__ == "__main__":
         group_restart(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity-decisions":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--helper-search":
+        sample_helper_search(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--chat-proposals":
         activity_decisions(Path(sys.argv[2]).resolve(strict=True), proposals_only=True, chat_proposals=True)
     elif len(sys.argv) == 3 and sys.argv[1] == "--inbox-proposals":

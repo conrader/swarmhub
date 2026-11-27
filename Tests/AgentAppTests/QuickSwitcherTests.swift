@@ -112,3 +112,34 @@ private func item(_ id: String, enabled: Bool = true) -> QuickSwitcherModel.Item
                            .init(serverID: "mac", pageID: 7, revision: 3, title: "Résumé"),
                            .init(serverID: "linux", pageID: 7, revision: 2, title: "Résumé")])
 }
+
+@MainActor @Test func quickSwitcherRevealsOnlyTheMatchingListedSession() throws {
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let first = Bot(name: "Forge", backend: .herdr), second = Bot(name: "Scout", backend: .herdr)
+    store.bots = [first, second]
+    let owner = HerdrClient.AgentRef(address: "qa", createdMs: 1)
+    let shell = HerdrClient.Helper(address: "worker", createdMs: 2, name: "Build", state: "live")
+    let leaf = HerdrClient.NativeThread(id: "leaf", parent: "root", name: "Check", model: nil,
+                                        createdMs: 3, state: "answered", task: "", reply: "")
+    for bot in store.bots {
+        let root = HerdrHelperParent(botID: bot.id)
+        store.herdrHelpers[root] = .init(core: "qa", parent: owner, helpers: [shell])
+        store.herdrHelpers[root.children(of: shell.ref, core: "qa")] = .init(core: "qa", parent: shell.ref, helpers: [], codexThreads: [leaf])
+        guard case .workspace(let row) = store.sessionRows(under: root, for: bot).first else { Issue.record("Missing parent"); return }
+        store.setHelperBranchFolded(true, branch: row.branch, for: bot)
+        store.setSessionsExpanded(false, for: bot)
+    }
+    func results() -> [QuickSwitcherModel.Item] { QuickSwitcherModel.items(in: store, query: "check").filter { $0.title == "Check" } }
+    let hits = results()
+    #expect(hits.count == 2 && Set(hits.map(\.id)).count == 2)
+    let match = try #require(hits.first { $0.detail?.contains("Forge") == true })
+    guard case .helper(let id, let server, let core) = match.target else { Issue.record("Wrong search destination"); return }
+    #expect(!store.openSidebarSession(id, server: server, core: "old"))
+    #expect(store.openSidebarSession(id, server: server, core: core))
+    #expect(store.openHerdrHelper?.helperID == leaf.id && store.selectedBot?.id == first.id)
+    #expect(store.sessionsExpanded(for: first) && !store.sessionsExpanded(for: second))
+    #expect(store.sessionRows(under: .init(botID: first.id), for: first).last?.selection.helperID == leaf.id)
+    store.setAutoHideFinishedHelpers(true)
+    #expect(results().isEmpty)
+    #expect(!store.openSidebarSession(id, server: server, core: core))
+}

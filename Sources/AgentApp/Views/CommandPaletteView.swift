@@ -33,7 +33,7 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search chats, messages, Pages and actions", text: $query).textFieldStyle(.plain).font(.title3).focused($searchFocused)
+                TextField("Search chats, helpers, messages, Pages and actions", text: $query).textFieldStyle(.plain).font(.title3).focused($searchFocused)
                     .onKeyPress(.downArrow) { move(1, proxy: proxy); return .handled }
                     .onKeyPress(.upArrow) { move(-1, proxy: proxy); return .handled }
                     .onSubmit { if let item = model.selection { perform(item) } }
@@ -149,6 +149,11 @@ struct CommandPaletteView: View {
         switch item.target {
         case .bot(let id): if let bot = store.bots.first(where: { $0.id == id }) { store.open(bot) }
         case .group(let id): if let group = store.groups.first(where: { $0.id == id }) { store.open(group) }
+        case .helper(let id, let server, let core):
+            guard store.openSidebarSession(id, server: server, core: core) else {
+                model.update(model.items.filter { $0.id != item.id })
+                return
+            }
         case .message(let location):
             if let group = store.groups.first(where: { $0.id == location.conversation }) { store.open(group) }
             else if let bot = store.bots.first(where: { $0.id == location.conversation }) { store.open(bot) }

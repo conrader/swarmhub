@@ -4,10 +4,10 @@ import Foundation
 /// over enabled rows and stop at the ends; Return opens the highlighted row.
 struct QuickSwitcherModel: Equatable {
     struct Item: Identifiable, Equatable {
-        enum Target: Equatable { case bot(UUID), group(UUID), message(ChatMessageLocation), page(WorkspacePageLink), findPages, command(AppCommand), setup }
+        enum Target: Equatable { case bot(UUID), group(UUID), helper(SidebarSessionID, server: String, core: String), message(ChatMessageLocation), page(WorkspacePageLink), findPages, command(AppCommand), setup }
         var id: String; var title: String; var icon: String; var detail: String? = nil; var shortcut: String? = nil; var isEnabled = true; var target: Target
         /// Commands come after a divider.
-        var isCommand: Bool { switch target { case .bot, .group, .message, .page: false; case .command, .findPages, .setup: true } }
+        var isCommand: Bool { switch target { case .bot, .group, .helper, .message, .page: false; case .command, .findPages, .setup: true } }
     }
 
     private(set) var items: [Item] = []
@@ -159,6 +159,34 @@ struct QuickSwitcherModel: Equatable {
         func matches(_ title: String) -> Bool { query.isEmpty || title.localizedCaseInsensitiveContains(query) }
         var items = store.bots.filter { matches($0.name) }.map { Item(id: "bot-\($0.id)", title: $0.name, icon: "message", target: .bot($0.id)) }
         items += store.groups.filter { matches($0.name) }.map { Item(id: "group-\($0.id)", title: $0.name, icon: "person.3", target: .group($0.id)) }
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !term.isEmpty {
+            for bot in store.bots {
+                let server = store.herdrServer(for: bot)
+                for (index, root) in store.sidebarRoots(for: bot).enumerated() {
+                    guard let core = store.herdrHelpers[root]?.core else { continue }
+                    let group = store.helperGroupNames[root] ?? root.groupRuntime
+                    let rows = store.sidebarRows(under: root, for: bot, includeNestedFolds: true)
+                    for (offset, row) in rows.enumerated() {
+                        let name: String, status: String
+                        switch row {
+                        case .workspace(let session):
+                            (name, status) = (session.helper.name, session.helper.statusLine)
+                        case .native(let session, _, _):
+                            (name, status) = (session.thread.name, session.thread.statusLine)
+                        }
+                        guard name.localizedStandardContains(term) else { continue }
+                        let owner = store.backDestination(for: row.selection, of: bot).delegatorName(for: bot)
+                        let archived = root.archive.map { Date(timeIntervalSince1970: Double($0.session.createdMs) / 1000)
+                            .formatted(date: .abbreviated, time: .shortened) }
+                        let detail = ["Helper of " + owner, owner == bot.name ? nil : bot.name, group, archived, status]
+                            .compactMap { $0 }.joined(separator: " · ")
+                        items.append(Item(id: "helper-\(bot.id)-\(index)-\(offset)", title: name, icon: "arrow.triangle.branch",
+                                          detail: detail, target: .helper(row.sidebarID, server: server.id, core: core)))
+                    }
+                }
+            }
+        }
         items += AppCommand.allCases.filter { $0 != .quickSwitcher && matches($0.title) }.map {
             Item(id: "command-\($0.rawValue)", title: $0.title, icon: $0.icon, shortcut: $0.shortcutText, isEnabled: $0.isEnabled(in: store), target: .command($0))
         }
