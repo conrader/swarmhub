@@ -57,7 +57,7 @@ extension AppStore {
         return dated.map(\.chat)
     }
 
-    func openFromSidebar(_ chat: SidebarChat) {
+    func openAndFocusComposer(_ chat: SidebarChat) {
         open(chat)
         if case .bot(let bot) = chat, bot.isReadOnlyArchive { composerFocus = nil }
         else { composerFocus = chat.id }

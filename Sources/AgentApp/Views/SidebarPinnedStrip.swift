@@ -51,7 +51,7 @@ private struct PinnedBotTile: View {
         let terminal = store.herdrTerminalSession(for: bot)
         let coding = store.hasActiveCodingAgent(bot), attention = store.needsAttention(bot)
         let main = store.herdrMainBotLabel(bot)
-        Button { store.openFromSidebar(.bot(bot)) } label: {
+        Button { store.openAndFocusComposer(.bot(bot)) } label: {
             PinnedTileFrame(name: bot.name, unread: bot.isUnread, selected: selected, hovering: hovering) {
                 BotAvatar(bot: bot, size: SidebarMetrics.pinnedMark, motion: .list, isWorking: store.isAnswering(bot), isHovered: hovering,
                           probe: "sidebar", hasActiveCodingAgent: coding, showsCodingBadge: terminal == nil, mainBotLabel: main)
@@ -87,7 +87,7 @@ private struct PinnedGroupTile: View {
 
     var body: some View {
         let selected = !store.showOnlyAttention && store.selectedGroup?.id == group.id
-        Button { store.openFromSidebar(.group(group)) } label: {
+        Button { store.openAndFocusComposer(.group(group)) } label: {
             PinnedTileFrame(name: group.name, unread: group.isUnread, selected: selected, hovering: hovering) {
                 GroupAvatarStack(group: group, members: store.members(of: group), size: SidebarMetrics.pinnedMark, isHovered: hovering,
                                  halo: selected ? AppColor.selection : AppColor.sidebar, probe: "group:\(group.id)")

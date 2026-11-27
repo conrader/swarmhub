@@ -103,7 +103,7 @@ struct BotRow: View {
             return bot.isDemo ? SimpleCopy.sampleLabel : !answering && store.herdrPrompts[bot.id] != nil ? HerdrPrompt.sidebar : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: answering,
                                                                        archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
         }
-        Button { store.openFromSidebar(.bot(bot)) } label: {
+        Button { store.openAndFocusComposer(.bot(bot)) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: answering, isHovered: hovering,
                           probe: "sidebar", hasActiveCodingAgent: coding)
@@ -143,7 +143,7 @@ struct GroupRow: View {
                                             archiveNewest: store.grokHistory.newestVisible(for: group.id),
                                             author: { id in id.flatMap { id in store.bots.first { $0.id == id }?.name } },
                                             working: store.workingLine(for: group, now: now)) }
-        Button { store.openFromSidebar(.group(group)) } label: {
+        Button { store.openAndFocusComposer(.group(group)) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 GroupAvatarStack(group: group, members: store.members(of: group), size: SidebarMetrics.mark, isHovered: hovering,
                                  halo: selected ? AppColor.selection : AppColor.sidebar, probe: "group:\(group.id)")

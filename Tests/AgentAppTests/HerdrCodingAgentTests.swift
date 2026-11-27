@@ -443,6 +443,7 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         store.herdrHelpers[branch] = nil
         store.open(store.backDestination(for: selected, of: bot), of: bot)
         #expect(store.openHerdrHelper == nil && store.selectedBot?.id == bot.id)
+        #expect(store.composerFocus == bot.id)
     }
 
     @Test func openingSessionRevealsOnlyItsSectionAndAncestors() throws {

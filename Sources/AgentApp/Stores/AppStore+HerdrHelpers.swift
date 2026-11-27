@@ -300,8 +300,8 @@ extension AppStore {
     func open(_ destination: HelperBackDestination, of bot: Bot) {
         switch destination {
         case .session(let selection, _): open(bot, helper: selection)
-        case .group(let group): open(group)
-        case .chat(let owner): open(owner)
+        case .group(let group): openAndFocusComposer(.group(group))
+        case .chat(let owner): openAndFocusComposer(.bot(owner))
         }
     }
 
@@ -770,11 +770,9 @@ extension AppStore {
         if selection.groupRuntime != nil {
             guard let group = groupOwningHelper(selection, of: bot)
             else { return false }
-            open(group)
-            composerFocus = group.id
+            openAndFocusComposer(.group(group))
         } else {
-            open(bot)
-            composerFocus = bot.id
+            openAndFocusComposer(.bot(bot))
         }
         return true
     }
