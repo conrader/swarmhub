@@ -28,20 +28,20 @@ extension AppStore {
     }
 
     func makeSampleTeam() -> (bots: [Bot], selected: Bot) {
-        func sample(_ name: String, _ role: String, _ shape: String, _ colour: AvatarColour, _ messages: [ChatMessage]) -> Bot {
-            let bot = Bot(name: name, title: role, messages: messages, isDemo: true)
+        func sample(_ role: SampleWorkspace.Role, _ title: String, _ shape: String, _ colour: AvatarColour, _ messages: [ChatMessage]) -> Bot {
+            let bot = Bot(name: role.rawValue.capitalized, title: title, messages: messages, isDemo: true)
+            bot.sampleRole = role
             bot.avatarMark = AvatarMark(shape: shape, colour: colour.rawValue)
             return bot
         }
-        let legal = sample("Legal", "Contracts & licensing", "teardrop", .cyan,
+        let legal = sample(.legal, "Contracts & licensing", "teardrop", .cyan,
                            [.init(role: .assistant, content: "Ready to review contracts and licensing terms.")])
-        let scout = sample("Scout", "Research, briefs & reviewer", "blob", .violet,
+        let scout = sample(.scout, "Research, briefs & reviewer", "blob", .violet,
                            [.init(role: .assistant, content: "I checked the three changes for Patch’s release notes.")])
-        let patch = sample("Patch", "Releases & pull requests", "pebble", .blue,
+        let patch = sample(.patch, "Releases & pull requests", "circle", .blue,
                            [.init(role: .user, content: ReleaseNotesExample.prompt), .init(role: .assistant, content: ReleaseNotesExample.sampleReply)])
-        let jarvis = sample("Jarvis", "Main bot · Coordinator", "squircle", .green, sampleLaunchConversation() + [
+        let jarvis = sample(.jarvis, "Main bot · Coordinator", "squircle", .green, sampleLaunchConversation() + [
             .init(role: .assistant, content: "The rename is complete. My tests helper is checking the CSV reader.")])
-        jarvis.canManageBots = true
         return ([jarvis, patch, scout, legal], patch)
     }
 

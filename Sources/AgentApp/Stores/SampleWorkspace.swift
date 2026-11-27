@@ -2,11 +2,23 @@ import Foundation
 
 /// The offline example uses the same session rows, detail cards and terminal view as a connected bot.
 enum SampleWorkspace {
+    enum Role: String, Codable {
+        case jarvis, patch, scout, legal
+
+        var runtime: String {
+            switch self {
+            case .jarvis, .scout: "Claude"
+            case .patch: "Codex"
+            case .legal: "OpenCode"
+            }
+        }
+    }
+
     static let server = HerdrServer(id: "sample-preview", name: "Sample workspace", kind: .address, address: "")
     static let core = "sample-preview"
 
     @MainActor static func isCoordinator(_ bot: Bot) -> Bool {
-        bot.isDemo && bot.backend == .mock && bot.canManageBots
+        bot.isDemo && bot.backend == .mock && bot.sampleRole == .jarvis
     }
 
     struct Session {
