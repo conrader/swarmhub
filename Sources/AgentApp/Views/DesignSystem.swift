@@ -41,6 +41,12 @@ enum AppColor {
     static let raised = adaptive(Palette.raised)
     static let separator = adaptive(Palette.separator)
     static let selection = adaptive(Palette.selection)
+    static let inlineCodeFill = NSColor(name: nil) { appearance in
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return .white.withAlphaComponent(0.05)
+        }
+        return NSColor(srgbRed: 15/255, green: 23/255, blue: 42/255, alpha: 0.045)
+    }
     /// The line around a control that is not chosen: 3:1 on every surface above, so the control's edge can be seen.
     static let outline = adaptive(Palette.outline)
     /// What is written or drawn on a fill of the accent (the name on a chosen tile, the tick, a default button's label).

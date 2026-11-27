@@ -38,13 +38,13 @@ enum SampleWorkspace {
     }
 
     static let tests = Session(id: "tests", runtime: .claude, model: "Haiku", sidebarSummary: "CSVReaderTests",
-        task: "Run CSVReaderTests and isolate the blank-title assertion failure in Sources/Importer/.",
-        reply: "Whitespace-only titles bypass the empty check in `CSVReader.swift` on line 84.",
+        task: "Run `CSVReaderTests` and isolate the blank-title assertion failure in `Sources/Importer/`.",
+        reply: "Reproduced failure on line 84 of `CSVReader.swift`: whitespace-only titles bypass the empty check.",
         elapsed: 72000, working: true, steps: ["Read Sources/Importer/CSVReader.swift", "swift test --filter CSVReaderTests"],
         command: "swift test --filter CSVReaderTests", output: "CSVReaderTests started\ntestEmptyTitle failed: expected throw for a whitespace-only title")
     static let rename = Session(id: "rename", runtime: .codex, model: "Sol", sidebarSummary: "14 call sites",
-        task: "Rename fetchAll to loadAll everywhere in Sources/.",
-        reply: "Renamed 14 call sites across 6 files. `swift build` passed.",
+        task: "Rename `fetchAll` to `loadAll` everywhere in `Sources/`.",
+        reply: "Renamed 14 call sites across 6 files (`CSVReader.swift`, `ImportQueue.swift`, and 4 tests). `swift build` passed.",
         elapsed: 41000, working: false, steps: ["Search for fetchAll", "Edit Sources/Importer/CSVReader.swift", "swift build"],
         command: "swift build", output: "Build complete! (3.42s)\n14 call sites updated")
 

@@ -646,7 +646,7 @@ struct HerdrHelperView: View {
             start = span.upperBound
         }
         result.append(AttributedString(source[start...]))
-        return result
+        return result.highlightingInlineCode
     }
 
     /// Every later task the helper was given (`helper send`).
