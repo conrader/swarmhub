@@ -1213,7 +1213,9 @@ mod tests {
         assert!(report(&launch, (id, 1)));
         assert!(!report(&launch, (id, 1)));
         let result: i64 = db.query_row("SELECT journal FROM bot_history WHERE code='routine_result' AND bot='scout-id'", [], |r| r.get(0)).unwrap();
+        drop(db);
         assert_eq!(history.routine_runs(routine).unwrap()[0].result.as_ref().unwrap().id, result);
+        let db = history.db().unwrap();
         db.execute("DELETE FROM routine_runs WHERE id=?1", [run]).unwrap();
         for revision in 2..=53 {
             db.execute("UPDATE workspace_pages SET revision=?1,markdown='Updated' WHERE id=?2", params![revision, id]).unwrap();
