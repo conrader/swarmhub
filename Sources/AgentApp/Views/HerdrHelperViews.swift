@@ -8,21 +8,20 @@ extension Bot {
 struct SidebarBotSessions<ParentRow: View>: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot
-    let parents: [HerdrHelperParent]
+    let groups: [SidebarSessionGroup]
     let workers: [HerdrCodejobRow]
     let parentRow: ParentRow
 
-    init(bot: Bot, parents: [HerdrHelperParent], workers: [HerdrCodejobRow], @ViewBuilder row: () -> ParentRow) {
+    init(bot: Bot, groups: [SidebarSessionGroup], workers: [HerdrCodejobRow], @ViewBuilder row: () -> ParentRow) {
         self.bot = bot
-        self.parents = AppStore.sortedSidebarRoots(parents)
+        self.groups = groups
         self.workers = workers
         parentRow = row()
     }
 
     var body: some View {
         let expanded = store.sessionsExpanded(for: bot)
-        let visibleParents = parents.filter { !store.sessionRows(under: $0, for: bot).isEmpty }
-        if visibleParents.isEmpty && workers.isEmpty {
+        if groups.isEmpty && workers.isEmpty {
             botControls
         } else {
             HStack(spacing: 0) {
@@ -41,8 +40,9 @@ struct SidebarBotSessions<ParentRow: View>: View {
             }
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(visibleParents, id: \.self) { parent in
-                        if let archive = parent.archive, visibleParents.count > 1 {
+                    ForEach(groups) { group in
+                        let parent = group.id
+                        if let archive = parent.archive, groups.count > 1 {
                             let started = Date(timeIntervalSince1970: Double(archive.session.createdMs) / 1000)
                             let when = started.formatted(date: .abbreviated, time: .shortened)
                             Text([store.helperGroupNames[parent], when].compactMap { $0 }.joined(separator: " · "))
@@ -50,7 +50,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                         } else if let group = store.helperGroupNames[parent] {
                             Text(group).font(.caption).foregroundStyle(.secondary).padding(.leading, 10)
                         }
-                        ForEach(store.sessionRows(under: parent, for: bot)) { item in
+                        ForEach(group.rows) { item in
                             Group {
                                 switch item {
                                 case .workspace(let row):

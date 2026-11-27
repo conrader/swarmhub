@@ -4,7 +4,7 @@ struct NativeSidebarRow: Identifiable {
     let thread: HerdrClient.NativeThread
     let target: LiveTerminal
     let depth: Int
-    let hasChildren: Bool
+    var hasChildren: Bool
     let folded: Bool
     var id: LiveTerminal.Source { target.id }
 }
@@ -103,12 +103,28 @@ enum SidebarSessionItem: Identifiable {
         }
     }
 
+    func withVisibleChildren(_ hasChildren: Bool) -> Self {
+        switch self {
+        case .workspace(var row):
+            row.hasChildren = hasChildren
+            return .workspace(row)
+        case .native(var row, let selection, let depth):
+            row.hasChildren = hasChildren
+            return .native(row, selection: selection, depth: depth)
+        }
+    }
+
     var terminal: LiveTerminal? {
         switch self {
         case .workspace(let row): row.helper.isLive ? LiveTerminal(agent: row.helper.ref, title: row.helper.name, core: row.core) : nil
         case .native(let row, _, _): row.target
         }
     }
+}
+
+struct SidebarSessionGroup: Identifiable {
+    let id: HerdrHelperParent
+    let rows: [SidebarSessionItem]
 }
 
 extension AppStore {
@@ -121,6 +137,14 @@ extension AppStore {
 
     func sidebarRoots(for bot: Bot) -> [HerdrHelperParent] {
         Self.sortedSidebarRoots(herdrHelpers.keys.filter { $0.botID == bot.id && $0.source == nil && herdrHelpers[$0]?.hasSidebarSessions == true })
+    }
+
+    /// A pin only needs a full-width parent row if there is something to unfold.
+    func sidebarSessionGroups(for bot: Bot, roots: [HerdrHelperParent]) -> [SidebarSessionGroup] {
+        Self.sortedSidebarRoots(roots).compactMap { root in
+            let rows = sessionRows(under: root, for: bot)
+            return rows.isEmpty ? nil : SidebarSessionGroup(id: root, rows: rows)
+        }
     }
 
     static func sortedSidebarRoots(_ roots: [HerdrHelperParent]) -> [HerdrHelperParent] {
@@ -170,16 +194,23 @@ extension AppStore {
         // A finished parent can still own a working child, including inside a folded branch.
         let full = listedSessionRows(under: parent, for: bot, includingFolded: true)
         var keep = Set<SidebarSessionID>()
+        var parentsWithChildren = Set<SidebarSessionID>()
         var ancestors: [SidebarSessionItem] = []
         for item in full {
             while let last = ancestors.last, last.depth >= item.depth { ancestors.removeLast() }
             if !item.finished || (!autoHideFinishedHelpers && !removed.contains(item.removalKey)) {
                 keep.insert(item.sidebarID)
-                for ancestor in ancestors { keep.insert(ancestor.sidebarID) }
+                for ancestor in ancestors {
+                    keep.insert(ancestor.sidebarID)
+                    parentsWithChildren.insert(ancestor.sidebarID)
+                }
             }
             ancestors.append(item)
         }
-        return visible.filter { keep.contains($0.sidebarID) }
+        return visible.compactMap { item in
+            guard keep.contains(item.sidebarID) else { return nil }
+            return item.withVisibleChildren(parentsWithChildren.contains(item.sidebarID))
+        }
     }
 
     private func listedSessionRows(under parent: HerdrHelperParent, for bot: Bot, includingFolded: Bool) -> [SidebarSessionItem] {

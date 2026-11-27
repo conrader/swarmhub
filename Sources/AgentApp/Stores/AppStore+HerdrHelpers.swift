@@ -50,7 +50,7 @@ struct SidebarHelperSession: Identifiable {
     let helper: HerdrClient.Helper
     let core: String
     let depth: Int
-    let hasChildren: Bool
+    var hasChildren: Bool
     let branch: HelperBranch
     let folded: Bool
 }

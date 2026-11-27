@@ -64,7 +64,9 @@ func pinnedRowsCenterTheirOccupiedTiles(sidebarWidth: Int) throws {
         for x in 0..<image.pixelsWide {
             for y in 0..<image.pixelsHigh {
                 guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if color.redComponent > 0.8 && color.blueComponent > 0.8 && color.greenComponent < 0.3 {
+                // The display profile can raise green when converting the tinted glyph to sRGB.
+                let magenta = min(color.redComponent, color.blueComponent)
+                if magenta > 0.8 && magenta - color.greenComponent > 0.5 {
                     columns.insert(Int(CGFloat(x) / scale))
                     break
                 }
