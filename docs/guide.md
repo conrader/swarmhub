@@ -58,6 +58,8 @@ The window ends in the main bot's chat.
 
 To try a sample before connecting a server, close the setup window and choose **Look around with sample bots** in the empty main window. Patch opens with a release-notes example. Under **Jarvis**, choose **tests** or **rename** to see the helper’s task, steps and reply. Its terminal button opens the recorded output in Details. Select **Steer via Jarvis** to write to the parent. These examples work offline.
 
+Open **Needs Attention** to review Patch’s test command and Jarvis’s proposal for a Payments bot. Choosing **Always allow in /srv/shop** adds the rule to Patch’s **Details → Approvals**. Choosing **Create bot** adds Payments to the sample sidebar. You can also switch Patch’s model from its chat header and check its CI watcher under **Details → Routines**.
+
 More detail on the ways to connect: [Use the Mac app](../HerdrWorkspace/README.md#use-the-mac-app), and the drawing under [Where bots run](architecture.md#where-bots-run).
 
 <a id="the-first-conversation"></a>

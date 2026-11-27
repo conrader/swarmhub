@@ -518,25 +518,67 @@ def sample_workspace(source_app):
                 def pane(identifier):
                     return next((e for e in descendants(window) if attribute(e, "AXIdentifier") == identifier), None)
 
+                def model_picker(bot):
+                    return next((e for e in descendants(window) if attribute(e, "AXRole") == "AXMenuButton"
+                                 and attribute(e, "AXHelp") == "Choose sample model for " + bot), None)
+
                 tests = "Claude agent tests, Working"
                 rename = "Codex agent rename, Answered"
                 if reopened:
                     wait_for("saved sample disclosure", lambda: button("Sessions for Jarvis") and not button(rename))
                     press(window, "Sessions for Jarvis")
                     wait_for("saved stopped sample", lambda: button("Claude agent tests, Stopped") and button(rename))
+                    press(window, "Patch", sidebar=True)
+                    wait_for("restored Patch model", lambda: model_picker("Patch") and attribute(model_picker("Patch"), "AXValue") == "Claude · Sonnet")
+                    wait_for("resolved sample inbox after restart", lambda: any(label(b) == "Needs Attention" and attribute(b, "AXValue") == "0" for b in buttons(window)))
+                    assert any(b["name"] == "Payments" for b in json.loads(store.read_text())["bots"])
                     continue
                 entry = "Look around with sample bots"
                 wait_for("empty workspace sample entry", lambda: button(entry))
                 press(window, entry)
                 wait_for("Patch chat and both Jarvis children", lambda: button("Patch") and button(tests) and button(rename))
                 assert [b["name"] for b in json.loads(store.read_text())["bots"]] == ["Jarvis", "Patch", "Scout", "Legal"]
+                open_detail_section(window, "Overview")
+                wait_for("Patch context and projects", lambda: has_text("34% ctx") and has_text("/srv/shop") and has_text("Drafts release notes"))
+                open_detail_section(window, "Approvals")
+                wait_for("Patch scoped rule", lambda: has_text("Reviewer: Scout") and has_text("Allow swift test"))
+                open_detail_section(window, "Routines")
+                wait_for("Patch CI watcher", lambda: has_text("Watch PR #142") and has_text("Changelog"))
+                picker = model_picker("Patch")
+                assert picker and ax.AXUIElementPerformAction(picker, "AXPress") == 0
+
+                def choose_claude():
+                    item = next((e for e in descendants(picker) if attribute(e, "AXRole") == "AXMenuItem"
+                                 and "Claude · Sonnet" in label(e)), None)
+                    return item and ax.AXUIElementPerformAction(item, "AXPress") == 0
+
+                wait_for("select sample Claude model", choose_claude)
+                wait_for("Patch model saved", lambda: json.loads(store.read_text())["bots"][1].get("sampleModel") == "Claude · Sonnet")
+                press(window, "Scout", sidebar=True)
+                wait_for("Scout routine", lambda: has_text("Morning brief") and has_text("08:55"))
+                press(window, "Legal", sidebar=True)
+                open_detail_section(window, "Approvals")
+                wait_for("Legal approval policy", lambda: has_text("Ask everything") and has_text("Read-only documents"))
+                open_detail_section(window, "Overview")
+                wait_for("Legal spend cap and projects", lambda: has_text("$0.06 / $2.00 cap") and has_text("Saved documents"))
+                wait_for("two sample inbox requests", lambda: any(label(b) == "Needs Attention" and attribute(b, "AXValue") == "2" for b in buttons(window)))
+                press(window, "Needs Attention")
+                wait_for("both decisions", lambda: button("Always allow in /srv/shop") and button("Create bot"))
+                press(window, "Always allow in /srv/shop")
+                wait_for("command resolved", lambda: not button("Always allow in /srv/shop") and button("Create bot"))
+                press(window, "Create bot")
+                wait_for("empty inbox", lambda: has_text("No pending items"))
+                press(window, "Patch", sidebar=True)
+                open_detail_section(window, "Approvals")
+                wait_for("saved project rule", lambda: has_text("Allow swift test --filter ImporterTests in /srv/shop"))
+                open_detail_section(window, "Overview")
                 press(window, "Sessions for Jarvis")
                 wait_for("folded samples", lambda: not button(tests) and not button(rename))
                 press(window, "Sessions for Jarvis")
                 wait_for("expanded samples", lambda: button(tests))
                 press(window, tests)
                 wait_for("sample command, steps and failure", lambda: button("Stop helper") and has_text("Steps (2)") and has_text("testEmptyTitle failed"))
-                press(window, "Preview tests in Details")
+                press(window, "Show terminal in Details")
                 wait_for("docked sample output", lambda: pane("inspector.terminal") and has_text("expected throw"))
                 press(window, "Back to Details")
                 press(window, "Stop helper")
@@ -547,7 +589,7 @@ def sample_workspace(source_app):
                 wait_for("parent guidance composer", lambda: button("Send helper guidance") and has_text("Steering rename"))
                 press(window, "Sessions for Jarvis")
                 wait_for("fold before quitting", lambda: not button(rename))
-        print("Verified the offline sample entry, four bots, both child sessions, steps, terminal output, stop, steering and reopening.")
+        print("Verified the offline sample entry, both Jarvis sessions, a per-bot model change, inspector profiles, two inbox decisions and restoration after reopening.")
 
 
 def sidebar_focus(source_app):

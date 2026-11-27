@@ -43,7 +43,9 @@ struct ChatView: View {
                 }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer(minLength: 2)
-                if bot.backend == .herdr, !bot.isReadOnlyArchive {
+                if let profile = bot.sampleProfile, let model = bot.sampleModelLabel {
+                    SampleModelPicker(bot: bot, profile: profile, selection: model)
+                } else if bot.backend == .herdr, !bot.isReadOnlyArchive {
                     ChatModelButton(bot: bot).id(bot.id)
                 }
                 if let session {
