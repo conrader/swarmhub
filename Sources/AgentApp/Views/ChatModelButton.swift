@@ -3,7 +3,6 @@ import SwiftUI
 struct ChatModelButton: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
-    @State private var applying = false
     @State private var failure: String?
 
     private var reading: HerdrAgentReading? { store.herdrAgentReadings[bot.id] }
@@ -45,7 +44,7 @@ struct ChatModelButton: View {
         }
         .background(AppColor.card, in: RoundedRectangle(cornerRadius: 6))
         .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator).allowsHitTesting(false) }
-        .disabled(applying)
+        .disabled(store.checkingHerdrModelChoices.contains(bot.id))
         .alert("Couldn’t switch model", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
             Button("OK") { failure = nil }
         } message: { Text(failure ?? "") }
@@ -93,12 +92,11 @@ struct ChatModelButton: View {
     }
 
     private func choose(_ template: HerdrClient.Template, model: String) {
-        guard !applying else { return }
+        guard store.checkingHerdrModelChoices.insert(bot.id).inserted else { return }
         let server = store.herdrServer(for: bot)
         let previousTemplate = store.herdrTemplate(for: bot), previousModel = store.herdrModel(for: bot)
-        applying = true
         Task {
-            defer { applying = false }
+            defer { store.checkingHerdrModelChoices.remove(bot.id) }
             do {
                 let catalog = try await store.herdrTemplates(on: server)
                 guard let available = catalog.first(where: { $0.name == template.name }), bot.canSwitch(to: available) else {

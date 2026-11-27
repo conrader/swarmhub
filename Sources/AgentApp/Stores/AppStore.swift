@@ -71,6 +71,7 @@ import UserNotifications
     var latestHerdrMoves: [UUID: UUID] = [:]
     var herdrMovingWork: Set<UUID> = []
     var herdrMovesCleaning: Set<UUID> = []
+    @Published var checkingHerdrModelChoices: Set<UUID> = []
     @Published var herdrAgentPresence: [UUID: HerdrAgentPresence] = [:]
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
     /// panel and the chat header show it by name.
