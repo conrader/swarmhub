@@ -21,7 +21,8 @@ struct SidebarBotSessions<ParentRow: View>: View {
 
     var body: some View {
         let expanded = store.sessionsExpanded(for: bot)
-        if parents.isEmpty && workers.isEmpty {
+        let visibleParents = parents.filter { !store.sessionRows(under: $0, for: bot).isEmpty }
+        if visibleParents.isEmpty && workers.isEmpty {
             botControls
         } else {
             HStack(spacing: 0) {
@@ -40,8 +41,8 @@ struct SidebarBotSessions<ParentRow: View>: View {
             }
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(parents, id: \.self) { parent in
-                        if let archive = parent.archive, parents.count > 1 {
+                    ForEach(visibleParents, id: \.self) { parent in
+                        if let archive = parent.archive, visibleParents.count > 1 {
                             let started = Date(timeIntervalSince1970: Double(archive.session.createdMs) / 1000)
                             let when = started.formatted(date: .abbreviated, time: .shortened)
                             Text([store.helperGroupNames[parent], when].compactMap { $0 }.joined(separator: " · "))
@@ -60,6 +61,11 @@ struct SidebarBotSessions<ParentRow: View>: View {
                                     SidebarNativeThread(bot: bot, row: row, selection: selection)
                                 }
                             }.padding(.leading, CGFloat(min(item.depth, 5)) * 10)
+                                .contextMenu {
+                                    if item.finished {
+                                        Button("Remove from sidebar", systemImage: "sidebar.left") { store.removeSidebarHelper(item, for: bot) }
+                                    }
+                                }
                                 .id(item.sidebarID)
                         }
                     }
@@ -262,7 +268,7 @@ private struct SidebarNativeThread: View {
         case "error": (icon, color) = ("exclamationmark.circle", .orange)
         default: (icon, color) = ("stop.circle", .secondary)
         }
-        let subtitle = [thread.statusLine, thread.sidebarSummary ?? detail].filter { !$0.isEmpty }.joined(separator: " · ")
+        let subtitle = [thread.statusLine, thread.sidebarSummary.flatMap(HelperAssignment.readable) ?? detail].filter { !$0.isEmpty }.joined(separator: " · ")
         return SidebarSessionRow(bot: bot, name: thread.name, detail: subtitle, selected: selected, target: row.target,
                                  folded: row.folded, toggleBranch: row.hasChildren ? { store.setNativeSessionFolded(!row.folded, target: row.id, for: bot) } : nil,
                                  accessibilityName: thread.provider.label + " agent " + thread.name + ", " + thread.statusLine,

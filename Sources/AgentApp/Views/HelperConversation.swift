@@ -64,8 +64,16 @@ struct HelperChatComposer: View {
         VStack(alignment: .leading) {
             if error { Text("This helper could not receive the message. Your draft is still here.").font(.caption) }
             HStack {
-                TextField("Message " + target.name + " via " + bot.name + "…", text: $text, axis: .vertical)
-                    .textFieldStyle(.plain).focused($focused).lineLimit(1...6).onSubmit(send)
+                TextEditor(text: $text)
+                    .font(.body).focused($focused).scrollContentBackground(.hidden)
+                    .frame(height: min(100, 26 + CGFloat(text.filter { $0.isNewline }.count) * 18))
+                    .accessibilityLabel("Message " + target.name)
+                    .overlay(alignment: .topLeading) {
+                        if text.isEmpty {
+                            Text("Message " + target.name + " via " + bot.name + "…")
+                                .foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false)
+                        }
+                    }
                     .onKeyPress(.return, phases: .down) { press in
                         guard !press.modifiers.contains(.shift) else { return .ignored }
                         send(); return .handled
@@ -76,7 +84,11 @@ struct HelperChatComposer: View {
                     .accessibilityLabel("Send to " + target.name)
             }.padding(10).background(AppColor.card, in: RoundedRectangle(cornerRadius: 16))
         }.frame(maxWidth: 768).padding(.horizontal, 18).padding(.vertical, 8)
-            .onAppear { focused = true }
+            .task(id: target.id) {
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                focused = true
+            }
             .onChange(of: text) { _, value in
                 store.helperChatDrafts[target.id] = value.isEmpty ? nil : value
             }

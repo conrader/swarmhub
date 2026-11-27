@@ -96,6 +96,13 @@ enum SidebarSessionItem: Identifiable {
         }
     }
 
+    var finished: Bool {
+        switch self {
+        case .native(let row, _, _): ["answered", "stopped"].contains(row.thread.state)
+        case .workspace(let row): row.helper.showingAnswer || ["finished", "gone"].contains(row.helper.state)
+        }
+    }
+
     var terminal: LiveTerminal? {
         switch self {
         case .workspace(let row): row.helper.isLive ? LiveTerminal(agent: row.helper.ref, title: row.helper.name, core: row.core) : nil
@@ -156,6 +163,26 @@ extension AppStore {
     }
 
     func sessionRows(under parent: HerdrHelperParent, for bot: Bot, includingFolded: Bool = false) -> [SidebarSessionItem] {
+        let visible = listedSessionRows(under: parent, for: bot, includingFolded: includingFolded)
+        guard !includingFolded else { return visible }
+        let removed = removedHelpers(for: bot)
+        guard autoHideFinishedHelpers || !removed.isEmpty else { return visible }
+        // A finished parent can still own a working child, including inside a folded branch.
+        let full = listedSessionRows(under: parent, for: bot, includingFolded: true)
+        var keep = Set<SidebarSessionID>()
+        var ancestors: [SidebarSessionItem] = []
+        for item in full {
+            while let last = ancestors.last, last.depth >= item.depth { ancestors.removeLast() }
+            if !item.finished || (!autoHideFinishedHelpers && !removed.contains(item.removalKey)) {
+                keep.insert(item.sidebarID)
+                for ancestor in ancestors { keep.insert(ancestor.sidebarID) }
+            }
+            ancestors.append(item)
+        }
+        return visible.filter { keep.contains($0.sidebarID) }
+    }
+
+    private func listedSessionRows(under parent: HerdrHelperParent, for bot: Bot, includingFolded: Bool) -> [SidebarSessionItem] {
         func native(under parent: HerdrHelperParent, depth: Int) -> [SidebarSessionItem] {
             guard let list = herdrHelpers[parent], !list.nativeThreads.isEmpty else { return [] }
             let server = herdrServer(for: bot)
@@ -176,5 +203,60 @@ extension AppStore {
             }
         }
         return entries
+    }
+}
+
+private struct RemovedHelper: Hashable, Codable {
+    let core: String
+    let source: LiveTerminal.Source
+}
+
+private extension SidebarSessionItem {
+    var removalKey: RemovedHelper {
+        switch self {
+        case .workspace(let row): .init(core: row.core, source: id)
+        case .native(let row, _, _): .init(core: row.id.child?.core ?? "", source: id)
+        }
+    }
+}
+
+extension AppStore {
+    var autoHideFinishedHelpers: Bool { defaults.bool(forKey: "sidebar.autoHideFinishedHelpers") }
+
+    func setAutoHideFinishedHelpers(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "sidebar.autoHideFinishedHelpers")
+        objectWillChange.send()
+    }
+
+    private static let removedHelpersPrefix = "sidebar.removedHelpers."
+
+    private func removedHelpersKey(for bot: Bot) -> String {
+        Self.removedHelpersPrefix + bot.id.uuidString + "." + herdrServer(for: bot).id
+    }
+
+    private func removedHelpers(for bot: Bot) -> Set<RemovedHelper> {
+        guard let data = defaults.data(forKey: removedHelpersKey(for: bot)) else { return [] }
+        return (try? JSONDecoder().decode(Set<RemovedHelper>.self, from: data)) ?? []
+    }
+
+    func removeSidebarHelper(_ item: SidebarSessionItem, for bot: Bot) {
+        guard item.finished else { return }
+        var removed = removedHelpers(for: bot)
+        removed.insert(item.removalKey)
+        if let data = try? JSONEncoder().encode(removed) {
+            defaults.set(data, forKey: removedHelpersKey(for: bot))
+            objectWillChange.send()
+        }
+    }
+
+    var hasRemovedSidebarHelpers: Bool {
+        defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix(Self.removedHelpersPrefix) }
+    }
+
+    func restoreSidebarHelpers() {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.removedHelpersPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+        objectWillChange.send()
     }
 }
