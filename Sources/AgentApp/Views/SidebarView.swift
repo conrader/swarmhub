@@ -175,7 +175,12 @@ private struct SidebarSessionScrollView<Content: View>: View {
             ScrollView { content() }
                 .onChange(of: store.sidebarReveal?.request) {
                     guard let target = store.sidebarReveal?.target else { return }
-                    proxy.scrollTo(target)
+                    // LazyVStack may not have built the nested row yet. Materialize its bot first.
+                    proxy.scrollTo(target.parent.botID)
+                    DispatchQueue.main.async {
+                        guard store.sidebarReveal?.target == target else { return }
+                        proxy.scrollTo(target)
+                    }
                 }
         }
     }
