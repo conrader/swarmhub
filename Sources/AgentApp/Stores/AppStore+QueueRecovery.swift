@@ -23,6 +23,8 @@ struct NextMessageRecord: Codable, Equatable, Sendable {
     var text: String
     var state: State
     var predecessor: QueuePredecessor?
+    /// Reapply the local give-back if the app quit between the journal commit and the chat save.
+    var returnWarning: String?
 }
 
 /// P38 E (Codex's queued turns that survive a restart, on main's design): what waited as the next message resumes in
@@ -64,7 +66,21 @@ extension AppStore {
     func restoreNextMessages() {
         guard persistenceEnabled, hasLedger else { return }
         do {
-            for record in try journal().records(NextMessageRecord.self, kind: Self.nextMessageKind) where record.state == .waiting || record.state == .submitting || record.state == .uncertain {
+            let records = try journal().records(NextMessageRecord.self, kind: Self.nextMessageKind)
+            if records.contains(where: { $0.returnWarning != nil }) {
+                let latest = Dictionary(records.map { ($0.anchorID, $0) }, uniquingKeysWith: { _, newer in newer })
+                for bot in bots {
+                    for bubble in bot.messages where bubble.metadata[TurnWaitCopy.key] == "waiting" {
+                        guard let record = latest[bubble.id], record.state == .removed, let warning = record.returnWarning,
+                              !bot.messages.contains(where: { $0.role == .assistant && $0.metadata[TurnKey.forUser] == bubble.id.uuidString })
+                        else { continue }
+                        giveBackBubble(QueuedNextMessage(id: record.id, conversation: bot, bubble: bubble, kind: .turn,
+                                                         predecessor: record.predecessor ?? .unknown), warning: warning)
+                        save()
+                    }
+                }
+            }
+            for record in records where record.state == .waiting || record.state == .submitting || record.state == .uncertain {
                 guard !turns.nextMessages.contains(where: { $0.id == record.id }) else { continue }
                 guard let conversation = conversation(containing: record.anchorID), let anchor = conversation.messages.first(where: { $0.id == record.anchorID }) else {
                     try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
@@ -185,7 +201,7 @@ extension AppStore {
         return .message(id)
     }
 
-    func resolvePredecessor(for next: QueuedNextMessage) -> QueuePredecessorResolution {
+    func resolvePredecessor(for next: QueuedNextMessage, removing removed: Set<UUID> = []) -> QueuePredecessorResolution {
         switch next.predecessor {
         case .independent, .conversation: return .ready
         case .unknown: return .giveBack
@@ -193,7 +209,7 @@ extension AppStore {
             let rows = next.conversation.messages
             guard let user = rows.first(where: { $0.id == id && $0.role == .user }) else { return .giveBack }
             // Only an earlier queue entry can still run before this one.
-            if turns.nextMessages.prefix(while: { $0.id != next.id }).contains(where: { $0.bubble === user }) ||
+            if turns.nextMessages.prefix(while: { $0.id != next.id }).contains(where: { $0.bubble === user && !removed.contains($0.id) }) ||
                 turns.inFlightSteers.contains(id) { return .waiting }
             let replies: [ChatMessage]
             if user.isSteer {
@@ -236,6 +252,7 @@ extension AppStore {
         case .turn:
             // The explicit resend action keeps this text available and out of subsequent model history.
             if next.predecessor != .conversation { next.bubble.metadata[SteerKey.steer] = "failed" }
+            next.bubble.metadata[TurnWaitCopy.promptServer] = nil
             endWait(next.bubble, in: next.conversation)
             addWarning(warning, in: next.conversation, after: next.bubble)
         }

@@ -113,6 +113,26 @@ private final class PromptBridge: @unchecked Sendable {
         #expect(next.calls.all == expected)
     }
 
+    @Test func promptReadyAfterQueuedSendIsCancelledDoesNotDispatch() async throws {
+        let backend = ScriptedTurnBackend(steerless: true), (store, bot) = steerStore(backend)
+        let bridge = PromptBridge(agentName: HerdrBackend.agentName(botName: bot.name, botID: bot.id))
+        let served = bridge.session()
+        store.saveHerdrServer(.init(id: HerdrServer.defaultID, name: "Studio", kind: .address, address: served.address), token: "t")
+        store.herdrClientSetup = { $0.session = served.session }
+        #expect(store.send(text: "First"))
+        try await backend.calls.wait { $0 == ["send:First"] }
+        #expect(store.send(text: "Second"))
+        await backend.fail(HerdrClient.Failure.waitingAtPrompt)
+        try await waitUntil { store.isIdle(bot) && !store.turns.checkingPromptQueues.isEmpty }
+        let first = try #require(bot.messages.first { $0.content == "First" })
+        let claim = try #require(store.waitingDirectClaim(for: first))
+        #expect(store.cancelQueuedSend(claim))
+        bridge.ready()
+        try await waitUntil { store.turns.checkingPromptQueues.isEmpty }
+        #expect(!store.hasWaitingTurn(in: bot) && store.isIdle(bot))
+        #expect(backend.calls.all == ["send:First"])
+    }
+
     @Test func refusedSignInAppearsInItsChatWhileTheMessageCanBeRetried() {
         let (store, bot, peer, _) = makeStore()
         let group = GroupChat(name: "Review", memberIDs: [bot.id, peer.id])

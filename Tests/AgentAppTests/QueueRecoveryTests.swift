@@ -192,6 +192,68 @@ import Testing
         #expect(again.isIdle(saved) && backend.calls.all == ["send:Second", "send:Third"])
     }
 
+    @Test func cancelQueuedFollowerWhileSavedReceiptStillWaits() async throws {
+        let url = temporaryStore(), backend = ScriptedTurnBackend(steerless: true)
+        let (original, bot) = steerStore(backend, url: url)
+        let reads = AwaitableLog<String>()
+        let http = MockHTTPProtocol.serve { request in
+            reads.append("\(request.httpMethod ?? "") \(request.url?.path ?? "")")
+            return (200, ["items": [["id": 11, "kind": "task", "text": "First"]]])
+        }
+        let server = HerdrServer(id: HerdrServer.defaultID, name: "Fixture", kind: .address, address: "http://\(http.host)")
+        original.saveHerdrServer(server, token: "test")
+        let receipt = HerdrDeliveryReceipt(server: server.id,
+            turn: .init(core: "c", address: "p", createdMs: 7, after: 10, launched: false), text: "First")
+        #expect(original.send(text: "First"))
+        try await backend.calls.wait { $0 == ["send:First"] }
+        await backend.emit(.accepted(receipt))
+        #expect(original.send(text: "Second"))
+        #expect(original.send(text: "Third"))
+        await backend.end()
+        try await waitUntil { original.isIdle(bot) }
+
+        let (store, chat) = reopen(url, backend)
+        store.saveHerdrServer(server, token: "test")
+        store.herdrClientSetup = { $0.session = http.session }
+        store.resumeRestoredNextMessages()
+        let reply = try #require(chat.messages.first { $0.deliveryReceipt == receipt })
+        for _ in 0..<2 {
+            #expect(await store.checkRecoveredReply(receipt, bot: chat, row: reply))
+            store.sendQueuedNextMessage()
+        }
+        let second = try #require(chat.messages.first { $0.content == "Second" })
+        let claim = try #require(store.waitingDirectClaim(for: second))
+        #expect(store.turns.nextMessages.map(\.bubble.content) == ["Second", "Third"])
+        let ledger = try store.journal()
+        store.runtime = RejectingRuntime(reading: ledger)
+        #expect(!store.cancelQueuedSend(claim))
+        #expect(store.waitingDirectClaim(for: second)?.id == claim.id && !store.canSendAsNextMessage(second))
+        store.runtime = ledger
+
+        #expect(store.recordNextMessage(claim, .submitting))
+        #expect(!store.cancelQueuedSend(claim))
+        #expect(try ledger.records(NextMessageRecord.self, kind: AppStore.nextMessageKind).first { $0.id == claim.id }?.state == .submitting)
+        #expect(store.recordNextMessage(claim, .waiting))
+        #expect(store.cancelQueuedSend(claim))
+        #expect(!store.cancelQueuedSend(claim) && !store.hasWaitingTurn(in: chat))
+        #expect(reply.deliveryReceipt == receipt && reply.turnState == .incomplete)
+        #expect(backend.calls.all == ["send:First"] && reads.all == Array(repeating: "GET /api/history/c/p/7", count: 2))
+        #expect(store.send(text: "Fresh"))
+        try await backend.calls.wait { $0 == ["send:First", "send:Fresh"] }
+        await backend.emit(.completed); await backend.end()
+        try await waitUntil { store.isIdle(chat) }
+        for _ in 0..<2 {
+            let (again, saved) = reopen(url, backend)
+            again.resumeRestoredNextMessages()
+            #expect(again.isIdle(saved) && !again.hasWaitingTurn(in: saved))
+            #expect(saved.messages.filter { again.canSendAsNextMessage($0) }.map(\.content) == ["Second", "Third"])
+            #expect(saved.messages.filter { $0.content == TurnWaitCopy.cancelled }.count == 1)
+            #expect(saved.messages.filter { $0.content == TurnWaitCopy.predecessorNotConfirmed }.count == 1)
+            #expect(saved.messages.contains { $0.deliveryReceipt == receipt })
+            #expect(backend.calls.all == ["send:First", "send:Fresh"])
+        }
+    }
+
     enum RetryClaim: CaseIterable { case retired, staleWaiting, submitting }
 
     @Test(arguments: RetryClaim.allCases)

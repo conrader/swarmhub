@@ -23,6 +23,59 @@ struct QueuedNextMessage {
 /// message in the same chat, thread or group: at once when nothing runs, else once the running turn or round ends.
 /// The original user row becomes the trigger for its own turn.
 extension AppStore {
+    /// The button captures the claim ID so an old click cannot remove a newer send of the same row.
+    func waitingDirectClaim(for bubble: ChatMessage) -> QueuedNextMessage? {
+        guard storeRestoreOffer == nil, bubble.role == .user, !bubble.isSteer,
+              bubble.metadata[TurnWaitCopy.key] == "waiting", !turns.inFlightSteers.contains(bubble.id),
+              let next = turns.nextMessages.first(where: { $0.bubble === bubble }),
+              next.kind == .turn, next.predecessor != .conversation, let bot = next.conversation as? Bot,
+              bots.contains(where: { $0 === bot }), bot.messages.contains(where: { $0 === bubble }),
+              !bot.messages.contains(where: { $0.role == .assistant && $0.metadata[TurnKey.forUser] == bubble.id.uuidString })
+        else { return nil }
+        return next
+    }
+
+    @discardableResult func cancelQueuedSend(_ claim: QueuedNextMessage) -> Bool {
+        guard waitingDirectClaim(for: claim.bubble)?.id == claim.id else { return false }
+        var returned = [claim], claimIDs: Set<UUID> = [claim.id], bubbleIDs: Set<UUID> = [claim.bubble.id]
+        // Resolve only descendants. Cancelling a wait must never launch other ready work.
+        for next in turns.nextMessages where next.conversation === claim.conversation {
+            guard case .message(let prior) = next.predecessor, bubbleIDs.contains(prior),
+                  waitingDirectClaim(for: next.bubble)?.id == next.id,
+                  resolvePredecessor(for: next, removing: claimIDs) == .giveBack else { continue }
+            returned.append(next)
+            claimIDs.insert(next.id)
+            bubbleIDs.insert(next.bubble.id)
+        }
+        func warning(for id: UUID) -> String {
+            id == claim.id ? TurnWaitCopy.cancelled : TurnWaitCopy.predecessorNotConfirmed
+        }
+        if persistenceEnabled {
+            do {
+                let ledger = try journal()
+                let records = try ledger.records(NextMessageRecord.self, kind: Self.nextMessageKind)
+                let claims = records.filter { bubbleIDs.contains($0.anchorID) && $0.state != .removed }
+                guard claims.count == returned.count, claims.allSatisfy({ claimIDs.contains($0.id) && $0.state == .waiting }) else {
+                    throw BackendError.unavailable("The queued send changed. Reopen the chat before trying again.")
+                }
+                try ledger.putMany(claims.map { record in
+                    var copy = record
+                    copy.state = .removed
+                    copy.returnWarning = warning(for: copy.id)
+                    return (id: copy.id.uuidString, value: copy)
+                }, kind: Self.nextMessageKind)
+            } catch {
+                errorMessage = "Could not save the message queue: \(error.localizedDescription)"
+                return false
+            }
+        }
+        turns.nextMessages.removeAll { claimIDs.contains($0.id) }
+        for next in returned { giveBackBubble(next, warning: warning(for: next.id)) }
+        objectWillChange.send()
+        save()
+        return true
+    }
+
     /// Shown under a failed steer bubble that is not already waiting (a "next" left over from a quit counts as failed).
     func canSendAsNextMessage(_ bubble: ChatMessage) -> Bool {
         guard bubble.role == .user, let state = bubble.metadata[SteerKey.steer] else { return false }
@@ -105,6 +158,7 @@ extension AppStore {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }
+            // Re-enter the normal drain, which only dispatches claims still in the queue.
             defer { turns.checkingPromptQueues.remove(next.id); sendQueuedNextMessage() }
             guard turns.nextMessages.contains(where: { $0.id == next.id }) else { return }
             guard bots.contains(bot) else {
@@ -235,6 +289,7 @@ enum TurnWaitCopy {
     static let promptServer = "waitingAtPromptServer"
     static let atPrompt = "Queued until the terminal is ready."
     static let afterAnswer = "Queued as the next message after this answer."
+    static let cancelled = "Queued send cancelled. You can send this message again."
     static let behind = "Waiting: an earlier message in this chat goes first."
     static let predecessorNotConfirmed = "Not sent because the preceding message could not be confirmed. You can send this message again."
     static let notSent = "Not sent: it was still waiting for a free turn."
