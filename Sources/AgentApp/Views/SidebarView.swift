@@ -44,7 +44,7 @@ struct SidebarView: View {
             let layout = store.sidebarLayout
             let sessions = Dictionary(grouping: store.herdrHelpers.keys.filter { $0.source == nil && store.herdrHelpers[$0]?.hasSidebarSessions == true }, by: \.botID)
             let workers = store.sidebarCodejobs
-            ScrollView {
+            SidebarSessionScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if !layout.pinned.isEmpty {
                         let pinnedParents = layout.pinned.compactMap { chat -> Bot? in
@@ -161,6 +161,22 @@ struct SidebarView: View {
     @ViewBuilder private func row(_ bot: Bot, parents: [HerdrHelperParent], workers: [HerdrCodejobRow]) -> some View {
         SidebarBotSessions(bot: bot, parents: parents, workers: workers) {
             BotRow(bot: bot, drafts: store.drafts, selected: !store.showOnlyAttention && selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete, askNewSection: { sectionPrompt = .new($0) })
+        }
+    }
+}
+
+/// Scroll only on explicit navigation. Polling and opening a terminal preview preserve the reading position.
+private struct SidebarSessionScrollView<Content: View>: View {
+    @EnvironmentObject private var store: AppStore
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView { content() }
+                .onChange(of: store.sidebarReveal?.request) {
+                    guard let target = store.sidebarReveal?.target else { return }
+                    proxy.scrollTo(target)
+                }
         }
     }
 }

@@ -60,6 +60,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                                     SidebarNativeThread(bot: bot, row: row, selection: selection)
                                 }
                             }.padding(.leading, CGFloat(min(item.depth, 5)) * 10)
+                                .id(item.sidebarID)
                         }
                     }
                     ForEach(workers) { row in
