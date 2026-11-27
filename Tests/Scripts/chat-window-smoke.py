@@ -546,6 +546,7 @@ def sample_workspace(source_app):
                 press(window, "Steer via Jarvis")
                 wait_for("parent guidance composer", lambda: button("Send helper guidance") and has_text("Steering rename"))
                 press(window, "Sessions for Jarvis")
+                wait_for("fold before quitting", lambda: not button(rename))
         print("Verified the offline sample entry, four bots, both child sessions, steps, terminal output, stop, steering and reopening.")
 
 

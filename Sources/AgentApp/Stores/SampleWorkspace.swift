@@ -75,7 +75,7 @@ extension AppStore {
     }
 
     func restoreSampleSessions() {
-        var lists = herdrHelpers.filter { $0.value.core != SampleWorkspace.core }
+        var lists = herdrHelpers.filter { $0.value.core != SampleWorkspace.core || $0.value.parent.address != $0.key.botID.uuidString }
         for bot in bots where SampleWorkspace.isCoordinator(bot) {
             let stopped = defaults.object(forKey: "sample.tests.stopped." + bot.id.uuidString) as? NSNumber
             let tests = stopped.map { SampleWorkspace.stoppedTests(at: $0.int64Value) } ?? SampleWorkspace.tests.thread

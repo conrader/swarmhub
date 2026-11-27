@@ -57,7 +57,7 @@ enum StoreRestore {
         var file = try StoreFile.decode(data)
         file.version = StoreFile.currentVersion
         _ = file.migrateArchivedGroups()
-        if hideSamples { file.bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+        if hideSamples && FirstRun.hasRealAgents(file.bots) { file.bots.filter(\.isDemo).forEach { $0.isHidden = true } }
         // A backup's deletion intents are historical and must not replay on a host.
         file.removedBots = nil
         file.pendingHerdrEndings = nil
