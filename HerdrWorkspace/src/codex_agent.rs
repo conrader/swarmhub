@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{env, os::unix::process::CommandExt, path::Path, process::Command};
 
+mod assignments;
 mod models;
 mod prefetch;
 mod recovery;
