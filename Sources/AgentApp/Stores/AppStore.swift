@@ -216,7 +216,7 @@ import UserNotifications
         if readOnly { persistenceEnabled = false }
         if demoMode {
             persistenceEnabled = false
-            loadDemoData(includeActivity: true)
+            loadDemoData()
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
                 let data = try Data(contentsOf: fileURL)
@@ -267,7 +267,7 @@ import UserNotifications
     /// The decoded store becomes this window's state (launch, and the restore of a set-aside store).
     func adoptStoreFile(_ file: StoreFile) {
         turns.scheduledGoals.removeAll()
-        bots = file.bots; groups = file.groups; removedBots = file.removedBots ?? [:]; deletedGroupIDs = file.deletedGroupIDs ?? []
+        bots = file.bots; restoreSampleSessions(); groups = file.groups; removedBots = file.removedBots ?? [:]; deletedGroupIDs = file.deletedGroupIDs ?? []
         pendingHerdrEndings = file.pendingHerdrEndings ?? []
         chatScroll.restore(file.scrollPositions)
         sidebar = file.sidebar ?? SidebarOrganisation(); sidebar.prune(keeping: Set(bots.map(\.id) + groups.map(\.id)))

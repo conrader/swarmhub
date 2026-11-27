@@ -42,7 +42,7 @@ extension AppStore {
     }
 
     func nativeSidebarRows(_ list: HerdrClient.Helpers, for bot: Bot, includingFolded: Bool = false) -> [NativeSidebarRow] {
-        let threads = list.nativeThreads
+        let threads = SampleWorkspace.isCoordinator(bot) ? (list.claudeThreads ?? []) + (list.codexThreads ?? []) : list.nativeThreads
         let folded = nativeFolds(for: bot)
         let ids = Set(threads.map { ThreadKey(provider: $0.provider, id: $0.id) })
         let children = Dictionary(grouping: threads) { ThreadKey(provider: $0.provider, id: $0.parent) }

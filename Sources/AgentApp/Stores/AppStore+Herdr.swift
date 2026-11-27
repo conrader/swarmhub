@@ -36,6 +36,7 @@ extension AppStore {
     }
 
     func herdrServer(for bot: Bot, in servers: [HerdrServer]) -> HerdrServer {
+        if SampleWorkspace.isCoordinator(bot) { return SampleWorkspace.server }
         // `herdrServers` is never empty.
         return HerdrServerList.server(bound: defaults.string(forKey: HerdrServer.botKey(bot.id)), in: servers) ?? servers[0]
     }
