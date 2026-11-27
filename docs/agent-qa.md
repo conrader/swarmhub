@@ -114,13 +114,13 @@ To compare the helper session with the website’s Interactive preview, capture 
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --helper-screenshots /Applications/SwarmHub.app ./helper-screenshots
 ```
 
-To compare the same sample data as the [Interactive preview](https://swarmhub.org/), capture every step of the four walkthroughs, the Inbox, both Jarvis helper conversations, the focused parent composer after steering rename, and the Inbox after resolving both decisions. The driver waits for the selected helper’s own terminal output, the guidance field, or the decision confirmations before capturing each corresponding view. It writes 34 PNGs, with names such as `dark-tests.png` and `light-brief.png`, from a disposable local workspace. See the working helper in version 0.8.120 in [dark](screenshots/dark/helper-chat.png) and [light](screenshots/light/helper-chat.png) appearance.
+To compare the same sample data as the [Interactive preview](https://swarmhub.org/), capture every step of the four walkthroughs, the Inbox, both Jarvis helper conversations, the focused parent composer after steering rename, and the Inbox after resolving both decisions. The driver waits for the selected helper’s own terminal output, the guidance field, or the decision confirmations before capturing each corresponding view. It writes 34 PNGs, with names such as `dark-tests.png` and `light-brief.png`, from a disposable local workspace. See the working helper in version 0.8.124 in [dark](screenshots/dark/helper-chat.png) and [light](screenshots/light/helper-chat.png) appearance.
 
 ```sh
 /usr/bin/python3 Tests/Scripts/chat-window-smoke.py --sample-screenshots /Applications/SwarmHub.app ./sample-screenshots
 ```
 
-To capture the matching website views, run the browser driver with Python Playwright and its Chromium browser installed. You can also pass `--chromium /path/to/chrome`. Both drivers check the assignment, step count, reply, terminal result and availability of Stop helper before capturing each helper. They read the same expected results from [the two helper examples](../Tests/Fixtures/preview-helpers.json). Match each image to the file of the same name from the Mac driver.
+To capture the matching website views, run the browser driver with Python Playwright and its Chromium browser installed. You can also pass `--chromium /path/to/chrome`. Both drivers check the assignment, step count, reply, terminal result and availability of Stop helper before capturing each helper. When switching between helpers and returning to Jarvis, both drivers measure the sidebar rows on screen. They check their order, indentation, spacing and selection. They read the same expected results from [the two helper examples](../Tests/Fixtures/preview-helpers.json). Match each image to the file of the same name from the Mac driver.
 
 ```sh
 python3 Tests/Scripts/preview-reference.py ./website-screenshots
