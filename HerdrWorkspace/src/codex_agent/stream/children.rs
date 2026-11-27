@@ -24,7 +24,7 @@ struct Child {
     failures: u8,
 }
 
-pub(super) struct Snapshot {
+pub(in crate::codex_agent) struct Snapshot {
     id: String,
     summary: Value,
     transcript: String,
@@ -76,7 +76,7 @@ fn valid(id: &str) -> bool {
         })
 }
 
-fn origin(thread: &Value) -> Option<&str> {
+pub(in crate::codex_agent) fn origin(thread: &Value) -> Option<&str> {
     thread["source"]["subAgent"]["thread_spawn"]["parent_thread_id"].as_str()
 }
 
@@ -98,6 +98,17 @@ impl Children {
             self.see_thread(&data["thread"]);
         } else if let Some(sender) = data["threadId"].as_str() {
             let item = &data["item"];
+            if matches!(method, "item/started" | "item/completed")
+                && item["type"] == "subAgentActivity"
+                && let Some(id) = item["agentThreadId"].as_str()
+                && id != sender
+            {
+                self.track(id, sender);
+                if let Some(child) = self.tracked.get_mut(id) {
+                    child.due = Some(Instant::now());
+                    child.failures = 0;
+                }
+            }
             if method == "item/completed"
                 && item["type"] == "collabAgentToolCall"
                 && item["tool"] == "spawnAgent"
@@ -135,6 +146,15 @@ impl Children {
         };
         if let Some(parent) = origin(thread) {
             self.track(id, parent);
+            // Activity can be relayed to an ancestor. The child's own metadata names its direct parent.
+            if valid(parent) && id != parent
+                && let Some(child) = self.tracked.get_mut(id)
+                && child.parent != parent
+            {
+                child.parent = parent.to_owned();
+                child.assignment.clear();
+                child.due = Some(Instant::now());
+            }
         } else if !super::other_conversation(thread) {
             self.roots.insert(id.into());
         }
@@ -166,14 +186,17 @@ impl Children {
         child.due = (child.failures < 6).then(|| Instant::now() + Duration::from_secs(2));
         if let Some(thread) = result.map(|value| &value["thread"])
             && thread["id"] == id
-            && origin(thread) == Some(child.parent.as_str())
+            && let Some(parent) = origin(thread).filter(|parent| valid(parent) && *parent != id)
         {
-            child.failures = 0;
-            let snapshot = Snapshot::read(&id, &child.parent, &child.assignment, thread);
-            if snapshot.summary["state"] != "working" {
-                child.due = None;
+            self.see_thread(thread);
+            if self.owns(&id) {
+                let child = self.tracked.get_mut(&id).unwrap();
+                child.failures = 0;
+                let snapshot = Snapshot::read(&id, parent, &child.assignment, thread);
+                child.due = (snapshot.summary["state"] == "working")
+                    .then(|| Instant::now() + Duration::from_secs(2));
+                self.snapshot = Some(snapshot);
             }
-            self.snapshot = Some(snapshot);
         }
         true
     }
@@ -243,7 +266,7 @@ fn step(item: &Value) -> Option<Value> {
 }
 
 impl Snapshot {
-    fn read(id: &str, parent: &str, assignment: &str, thread: &Value) -> Self {
+    pub(in crate::codex_agent) fn read(id: &str, parent: &str, assignment: &str, thread: &Value) -> Self {
         let turns = thread["turns"]
             .as_array()
             .map(Vec::as_slice)
@@ -358,6 +381,13 @@ impl Snapshot {
         }
     }
 
+    // A concurrent live snapshot always takes precedence over a historical read.
+    pub(in crate::codex_agent) fn restore(self, db: &rusqlite::Connection, launch: i64) -> rusqlite::Result<usize> {
+        db.execute("INSERT INTO codex_children(launch,thread,summary,transcript)
+                    VALUES(?1,?2,?3,?4) ON CONFLICT(launch,thread) DO NOTHING",
+            params![launch,self.id,self.summary.to_string(),self.transcript])
+    }
+
     pub(super) fn save(self, journal: &Path, key: &str) -> rusqlite::Result<()> {
         let db = crate::history::connection(journal)?;
         db.execute("INSERT INTO codex_children(launch,thread,summary,transcript)
@@ -390,6 +420,22 @@ mod tests {
         assert!(f.read_children().is_empty());
         assert!(f.children.answer(id,Some(&json!({"thread":{"id":CHILD,"source":{"subAgent":{"thread_spawn":{"parent_thread_id":"other"}}}}}))));
         assert!(f.children.snapshot.is_none());
+    }
+
+    #[test]
+    fn parent_activity_discovers_a_worker_without_a_spawn_tool_call() {
+        let mut f = Follower::default();
+        f.children.see_thread(&json!({"id":ROOT,"source":"cli"}));
+        let activity = json!({"threadId":ROOT,"item":{"type":"subAgentActivity","kind":"started","agentThreadId":CHILD}});
+        f.children.observe("item/started", &activity);
+        let read = f.read_children().pop().unwrap();
+        assert_eq!(read["params"]["threadId"], CHILD);
+        let thread = json!({"id":CHILD,"source":{"subAgent":{"thread_spawn":{"parent_thread_id":ROOT}}},
+            "turns":[{"id":TURN,"status":"completed","items":[]}]});
+        assert!(f.children.answer(read["id"].as_u64().unwrap(), Some(&json!({"thread":thread}))));
+        assert_eq!(f.children.snapshot.take().unwrap().id, CHILD);
+        f.children.observe("item/completed", &activity);
+        assert_eq!(f.read_children().len(), 1);
     }
 
     #[test]

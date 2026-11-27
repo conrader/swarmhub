@@ -41,6 +41,8 @@ pub(super) struct AppServer {
     input: Option<ChildStdin>,
     output: ChildStdout,
     pending: Vec<u8>,
+    frame_limit: usize,
+    output_limit: usize,
     total: usize,
     frames: usize,
     deadline: Instant,
@@ -73,6 +75,8 @@ impl AppServer {
             output: process.stdout.take().ok_or_else(protocol)?,
             process,
             pending: Vec::new(),
+            frame_limit: MAX_FRAME,
+            output_limit: MAX_OUTPUT,
             total: 0,
             frames: 0,
             deadline,
@@ -102,28 +106,43 @@ impl AppServer {
     }
 
     fn read(&mut self) -> io::Result<Value> {
+        let mut scanned = 0;
         loop {
-            if let Some(end) = self.pending.iter().position(|byte| *byte == b'\n') {
+            if let Some(offset) = self.pending[scanned..].iter().position(|byte| *byte == b'\n') {
+                let end = scanned + offset;
                 self.frames += 1;
-                if end >= MAX_FRAME || self.frames > MAX_FRAMES {
+                if end >= self.frame_limit || self.frames > MAX_FRAMES {
                     return Err(protocol());
                 }
                 let value = serde_json::from_slice(&self.pending[..end]).map_err(|_| protocol())?;
                 self.pending.drain(..=end);
                 return Ok(value);
             }
-            if self.pending.len() >= MAX_FRAME {
+            scanned = self.pending.len();
+            if scanned >= self.frame_limit {
                 return Err(protocol());
             }
             wait(self.output.as_raw_fd(), libc::POLLIN, self.deadline)?;
             let mut buffer = [0; 8192];
             let count = self.output.read(&mut buffer).map_err(|_| protocol())?;
             self.total += count;
-            if count == 0 || self.total > MAX_OUTPUT {
+            if count == 0 || self.total > self.output_limit {
                 return Err(protocol());
             }
             self.pending.extend_from_slice(&buffer[..count]);
         }
+    }
+
+    pub(super) fn saved_thread(&mut self, id: &str) -> io::Result<Value> {
+        // A saved turn can include megabytes of tool output. Bound each read independently.
+        self.frame_limit = 32 * 1024 * 1024;
+        self.output_limit = self.frame_limit + MAX_FRAME;
+        self.frames = 0;
+        self.total = 0;
+        self.deadline = Instant::now() + TIMEOUT;
+        self.send(json!({"id":2,"method":"thread/read","params":{"threadId":id,"includeTurns":true}}))?;
+        let mut reply: Value = self.result(2)?;
+        Ok(reply["thread"].take())
     }
 
     pub(super) fn result<T: DeserializeOwned>(&mut self, id: u64) -> io::Result<T> {
@@ -203,7 +222,7 @@ fn nonblocking(fd: libc::c_int) -> io::Result<()> {
     Ok(())
 }
 
-fn initialized(command: Command) -> io::Result<AppServer> {
+pub(super) fn initialized(command: Command) -> io::Result<AppServer> {
     let mut server = AppServer::start(command)?;
     server.send(json!({"id":1,"method":"initialize","params":{"clientInfo":{
         "name":"swarmhub-herdr","version":env!("CARGO_PKG_VERSION")
