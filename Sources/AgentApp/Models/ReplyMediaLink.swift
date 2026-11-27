@@ -13,7 +13,9 @@ struct ReplyMediaLink: Identifiable {
         let path = url.path(percentEncoded: false)
         guard path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("\0"),
               ChatMediaKind(filename: path) != nil else { return nil }
-        return URL(fileURLWithPath: path).standardizedFileURL
+        // Preserve the written path as the cache key. On macOS standardization strips /private
+        // from an existing temporary file but keeps it after the file disappears.
+        return URL(fileURLWithPath: path, isDirectory: false)
     }
 
     static func links(in blocks: [TranscriptText.Prose]) -> [Self] {

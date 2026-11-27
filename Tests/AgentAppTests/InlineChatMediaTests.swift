@@ -134,9 +134,13 @@ import Testing
     let cache = PublishedMediaCache(directory: folder.appending(path: "cache"))
     let source = folder.appending(path: "form.png"), bytes = Data("original bytes".utf8)
     try bytes.write(to: source)
-    let saved = try await cache.localFile(source, message: reply.id, storeURL: storeURL)
+    let reference = URL(fileURLWithPath: source.resolvingSymlinksInPath().path).absoluteURL
+    let linked = try #require(ReplyMediaLink.fileURL(reference))
+    let saved = try await cache.localFile(linked, message: reply.id, storeURL: storeURL)
     try FileManager.default.removeItem(at: source)
     #expect(try Data(contentsOf: saved) == bytes)
-    #expect(try await cache.localFile(source, message: reply.id, storeURL: storeURL) == saved)
+    let reopened = try #require(ReplyMediaLink.fileURL(reference))
+    #expect(reopened == linked)
+    #expect(try await cache.localFile(reopened, message: reply.id, storeURL: storeURL) == saved)
     await #expect(throws: (any Error).self) { try await cache.localFile(source, message: UUID(), storeURL: storeURL) }
 }
