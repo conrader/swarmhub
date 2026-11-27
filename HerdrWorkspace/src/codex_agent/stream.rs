@@ -13,7 +13,7 @@
 //!
 //! If the app server does not come up, `run-codex` starts Codex the way it did before and the reply appears whole.
 
-mod children;
+pub(super) mod children;
 
 use crate::session_usage as usage;
 

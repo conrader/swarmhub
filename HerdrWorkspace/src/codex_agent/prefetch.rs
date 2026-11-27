@@ -34,7 +34,7 @@ const TIME_LIMIT: Duration = Duration::from_secs(30);
 const CHUNK: usize = 1024 * 1024;
 
 /// Where Codex keeps its databases: `CODEX_SQLITE_HOME`, else `CODEX_HOME`, else `~/.codex`.
-fn home() -> Option<PathBuf> {
+pub(super) fn home() -> Option<PathBuf> {
     ["CODEX_SQLITE_HOME", "CODEX_HOME"]
         .into_iter()
         .find_map(|name| env::var_os(name).filter(|value| !value.is_empty()))

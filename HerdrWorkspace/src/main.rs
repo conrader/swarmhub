@@ -267,6 +267,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     if vault::listen(workspace.clone()).is_err() {
         eprintln!("SwarmHub agent access to the Vault is unavailable.");
     }
+    codex_agent::recover_sessions(workspace.history.file());
     routine_routes::start(workspace.clone());
     results::start(workspace.history.clone());
     page_share::start_cleanup(workspace.history.clone());

@@ -8,6 +8,8 @@ use std::{env, os::unix::process::CommandExt, path::Path, process::Command};
 
 mod models;
 mod prefetch;
+mod recovery;
+pub(crate) use recovery::recover_sessions;
 pub(crate) mod stream;
 pub(crate) mod trust;
 pub(crate) use models::Catalog as ModelCatalog;
