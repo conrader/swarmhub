@@ -1,0 +1,40 @@
+{
+  "decision": "retain_baseline",
+  "screen": {
+    "advance": false,
+    "candidate_preservation_failures": 0,
+    "cases": {
+      "gpt-6.2-sol": {
+        "background_export": {
+          "baseline": {
+            "passed": 2,
+            "trials": 2
+          },
+          "guided": {
+            "passed": 2,
+            "trials": 2
+          }
+        }
+      }
+    },
+    "metrics": {
+      "baseline": {
+        "median_seconds": 29.15,
+        "median_tool_calls": 5.5,
+        "passed": 2,
+        "timeouts": 0,
+        "trials": 2
+      },
+      "guided": {
+        "median_seconds": 27.9,
+        "median_tool_calls": 5.5,
+        "passed": 2,
+        "timeouts": 0,
+        "trials": 2
+      }
+    },
+    "paired": {
+      "tie": 2
+    }
+  }
+}
