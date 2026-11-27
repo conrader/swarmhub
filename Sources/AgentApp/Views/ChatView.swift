@@ -25,6 +25,11 @@ struct ChatView: View {
         let queue = ChatQueuePresentation(bot.messages)
         let shown = queue.transcript
         let _ = viewport.show(bot.id, order: shown.map(\.id), model: store.chatScroll)
+        let page = shown[viewport.range]
+        let pageIDs = Set(page.map(\.id))
+        let requests = store.pendingHerdrBots(for: bot)
+        let inlineRequests = Dictionary(grouping: requests, by: \.messageID)
+        let otherRequests = requests.filter { $0.messageID.map(pageIDs.contains) != true }
         let appStore = store, botName = bot.name
         let _ = selection.show(rows: shown, conversation: bot.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: botName) }
         let coding = store.hasActiveCodingAgent(bot)
@@ -83,12 +88,12 @@ struct ChatView: View {
                                 store.composerFocus = bot.id
                             }.buttonStyle(.bordered).help("Edit the example changes or send them as written.")
                         }
-                        let page = shown[viewport.range]
                         let openers = Self.openers(page)
                         if viewport.hasEarlier { HistoryPageButton(earlier: true, action: viewport.earlier) }
                         ForEach(page) { message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
-                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: author(of: message, openers: openers)).id(message.id).chatRow(message.id)
+                                        actionTarget: .bot(botID: bot.id), reply: { store.replyTo = message }, author: author(of: message, openers: openers),
+                                        reviewBot: bot, proposals: inlineRequests[message.id] ?? []).id(message.id).chatRow(message.id)
                                 .selectableMessage(message.id, in: selection)
                         }
                         if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
@@ -100,14 +105,14 @@ struct ChatView: View {
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
                 // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
                 .floatingBar(edge: .bottom, backing: AppColor.chat) {
-                    if !hasStatusPanel { bottomBar(queue: queue) }
+                    if !hasStatusPanel { bottomBar(queue: queue, otherRequests: otherRequests) }
                 }
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
                 .task(id: store.scrollTarget) { await viewport.reveal(store.scrollTarget, in: store) }
             }
-            if hasStatusPanel { bottomBar(queue: queue) }
+            if hasStatusPanel { bottomBar(queue: queue, otherRequests: otherRequests) }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .onChange(of: bot.id) { _, _ in terminal = nil }
@@ -149,7 +154,7 @@ struct ChatView: View {
 
     /// Under the transcript: whom a reply answers, what waits for the person, and the message box. One group, so
     /// that glass surfaces standing close together are drawn together.
-    private func bottomBar(queue: ChatQueuePresentation) -> some View {
+    private func bottomBar(queue: ChatQueuePresentation, otherRequests: [HerdrCreationProposal]) -> some View {
         VStack(spacing: 0) {
             ChatQueueSummary(queue: queue).id(bot.id)
             if store.helperSteeringDrafts[bot.id] == nil, let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
@@ -173,7 +178,7 @@ struct ChatView: View {
                     if store.createsHerdrBots(bot) {
                         if !bot.messages.isEmpty { HerdrIntroOffer(bot: bot) }
                         HerdrAboutYouCard(bot: bot)
-                        HerdrBotRequestCard(manager: bot)
+                        HerdrBotRequestCard(manager: bot, proposals: otherRequests)
                         HerdrModelChangeCard(manager: bot)
                     }
                     if bot.backend == .herdr, !helpers.isEmpty {

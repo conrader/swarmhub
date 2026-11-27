@@ -15,9 +15,12 @@ struct MessageView: View {
     /// Set on the reply that opens a run of the bot's rows: its face and name go above it, in its colour.
     var author: Bot? = nil
     var showsRemovedAuthor = false
-    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, author: Bot? = nil, showsRemovedAuthor: Bool = false) {
+    var reviewBot: Bot?
+    var proposals: [HerdrCreationProposal]
+    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, author: Bot? = nil, showsRemovedAuthor: Bool = false, reviewBot: Bot? = nil, proposals: [HerdrCreationProposal] = []) {
         self.actionTarget = actionTarget; self.message = message; self.repliedMessage = repliedMessage; self.reply = reply; self.author = author
         self.showsRemovedAuthor = showsRemovedAuthor
+        self.reviewBot = reviewBot; self.proposals = proposals
     }
     private var userBubbleFill: AnyShapeStyle {
         accent == "Blue" ? AnyShapeStyle(AppColor.adaptive(Palette.userBubble)) : AnyShapeStyle(TintShapeStyle().opacity(0.16))
@@ -75,6 +78,21 @@ struct MessageView: View {
                         }
                     }
                 } else { content }
+                if let bot = reviewBot, message.role == .assistant {
+                    if let review = bot.sampleReview, review.belongs(to: message) {
+                        SampleChatDecisionCard(bot: bot, review: review)
+                    }
+                    if !proposals.isEmpty {
+                        HerdrBotRequestCard(manager: bot, showsCreatedBots: false, proposals: proposals)
+                            .accessibilityElement(children: .contain).accessibilityIdentifier("chat.botProposal")
+                    }
+                    ForEach(message.metadata.keys.filter { $0.hasPrefix(HerdrCreationProposal.decisionKey) }.sorted(), id: \.self) { key in
+                        let name = String(key.dropFirst(HerdrCreationProposal.decisionKey.count))
+                        Label((message.metadata[key] ?? "") + " · " + name, systemImage: "checkmark.circle.fill")
+                            .font(.callout.weight(.medium)).foregroundStyle(.green)
+                            .accessibilityIdentifier("chat.botProposal.result")
+                    }
+                }
                 if let outcome = message.metadata[GoalKey.outcome] {
                     Text("Goal step · " + outcome.replacingOccurrences(of: "_", with: " ").capitalized)
                         .font(.caption).foregroundStyle(.secondary)

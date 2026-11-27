@@ -166,6 +166,9 @@ struct HerdrBotRequest: Codable, Equatable, Sendable {
 
 /// A proposal keeps its identity when it outlives the conversation page that introduced it.
 struct HerdrCreationProposal: Codable, Identifiable, Equatable {
+    var messageID: UUID? { id.split(separator: "#", maxSplits: 1).first.flatMap { UUID(uuidString: String($0)) } }
+    static let decisionKey = "botProposalDecision."
+
     let id: String
     let request: HerdrBotRequest
     var taken: Bool
