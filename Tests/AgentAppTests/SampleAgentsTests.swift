@@ -183,11 +183,17 @@ import Testing
     store.loadSamples()
     let bot = try #require(store.bots.first(where: SampleWorkspace.isCoordinator))
     let targets = try sessions(store, bot)
-    #expect(targets.count == 2)
+    try #require(targets.count == 2)
     for target in targets {
         #expect(store.beginHelperSteering(target, of: bot))
         let draft = try #require(store.helperSteeringDrafts[bot.id])
+        #expect(draft.text.isEmpty)
         draft.text = "Review " + target.helperID
+    }
+    for target in targets {
+        #expect(store.beginHelperSteering(target, of: bot))
+        let draft = try #require(store.helperSteeringDrafts[bot.id])
+        #expect(draft.text == "Review " + target.helperID)
         #expect(store.submitHelperSteering(in: bot.id))
         let row = try #require(store.latestGuidance(for: target, of: bot))
         #expect(row.content == "Review " + target.helperID)
