@@ -47,6 +47,8 @@ struct Assignment {
 #[derive(Deserialize, Serialize)]
 struct Step {
     call: String,
+    started_ms: Option<i64>,
+    completed_ms: Option<i64>,
     text: String,
     state: String,
 }
@@ -119,6 +121,7 @@ impl Record {
         for step in &mut self.steps {
             if step.state == "Running" {
                 step.state = "Stopped".into();
+                step.completed_ms = self.ended;
             }
         }
     }
@@ -339,8 +342,9 @@ pub(crate) fn step(
     }
     let _ = update(journal, key, session, child, |r| {
         if let Some(step) = r.steps.iter_mut().find(|s| s.call == call) {
-            if state != "Running" {
+            if state != "Running" && step.state == "Running" {
                 step.state = state.into();
+                step.completed_ms = Some(history::now());
             }
         } else {
             if r.steps.len() >= 64 {
@@ -348,6 +352,8 @@ pub(crate) fn step(
             }
             r.steps.push(Step {
                 call: call.into(),
+                started_ms: (state == "Running").then(history::now),
+                completed_ms: (state != "Running").then(history::now),
                 text: label.chars().take(256).collect(),
                 state: state.into(),
             });
@@ -362,7 +368,7 @@ mod tests {
     #[test]
     fn stopped_session_keeps_its_transcript_and_can_run_again() {
         let mut row = Record { task: "Review".into(), steps: vec![Step {
-            call: "read".into(), text: "Read notes".into(), state: "Running".into(),
+            call: "read".into(), started_ms: Some(1), completed_ms: None, text: "Read notes".into(), state: "Running".into(),
         }], ..Record::default() };
         row.stop_controls = true;
         row.start(Some("again".into()));

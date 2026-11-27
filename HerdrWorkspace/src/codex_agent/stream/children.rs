@@ -288,7 +288,16 @@ fn step(item: &Value) -> Option<Value> {
         "imageGeneration" => "Generate image",
         _ => return None,
     };
-    Some(json!({"text":clipped(label,512),"state":item["status"].as_str()}))
+    let mut step = json!({"text":clipped(label,512),"state":item["status"].as_str()});
+    if kind == "commandExecution" {
+        step["tool"] = "shell".into();
+    }
+    for (source, dest) in [("startedAtMs", "started_ms"), ("completedAtMs", "completed_ms"), ("durationMs", "duration_ms")] {
+        if let Some(ms) = item[source].as_u64() {
+            step[dest] = ms.into();
+        }
+    }
+    Some(step)
 }
 
 impl Snapshot {
@@ -508,14 +517,14 @@ mod tests {
             {"id":ROOT,"items":[{"type":"agentMessage","text":"parent only"}]},
             {"id":TURN,"status":"completed","items":[
                 {"type":"userMessage","content":[{"type":"text","text":"Check tests"}]},
-                {"type":"commandExecution","command":"cargo test","aggregatedOutput":"1 passed"},
+                {"type":"commandExecution","command":"cargo test","aggregatedOutput":"1 passed","startedAtMs":8000,"completedAtMs":9800,"durationMs":1800},
                 {"type":"agentMessage","text":"All green","phase":"final_answer"}]}]});
         let snapshot = Snapshot::read(CHILD, ROOT, "", &thread);
         assert_eq!(snapshot.summary["state"], "answered");
         assert_eq!(snapshot.summary["task"], "Check tests");
         assert_eq!(snapshot.summary["reply"], "All green");
         assert_eq!(snapshot.summary["details"], json!({"task":"Check tests","reply":"All green",
-            "steps":[{"text":"cargo test","state":null}],"terminal":{"command":"cargo test","output":"1 passed"}}));
+            "steps":[{"tool":"shell","text":"cargo test","state":null,"started_ms":8000,"completed_ms":9800,"duration_ms":1800}],"terminal":{"command":"cargo test","output":"1 passed"}}));
         assert_eq!(
             snapshot.transcript,
             "Task Check tests\n\n$ cargo test\n1 passed\n\nCodex All green"

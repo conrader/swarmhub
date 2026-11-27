@@ -178,6 +178,10 @@ extension HerdrClient {
             struct Step: Decodable {
                 let text: String
                 let state: String?
+                var tool: String? = nil
+                var startedMs: Int64? = nil
+                var completedMs: Int64? = nil
+                var durationMs: Int64? = nil
             }
             let task: String
             let reply: String

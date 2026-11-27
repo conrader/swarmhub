@@ -200,7 +200,15 @@ struct HerdrClient: Sendable {
 
     /// A tool call the agent's hooks reported (`tool_activity` in the bridge): `seq` only grows; `detail` is the
     /// command, file, search or address in one line.
-    struct ToolCall: Decodable, Sendable, Equatable { let seq: UInt64; let tool: String; let detail: String?; let finished: Bool; let failed: Bool }
+    struct ToolCall: Decodable, Sendable, Equatable {
+        let seq: UInt64
+        let tool: String
+        let detail: String?
+        let finished: Bool
+        let failed: Bool
+        var startedMs: Int64? = nil
+        var completedMs: Int64? = nil
+    }
 
     /// A task on its way: the session it went to and the last saved row and tool call before it, so its reply and
     /// its tool calls are the ones after those.

@@ -496,3 +496,13 @@ private let listingJSON = """
     let events = HelperConversationEvent.timeline(journal: [reply, task, undated], guidance: [first, second])
     #expect(events.map(\.id) == [.journal(10), .journal(11), .guidance(first.id), .journal(12), .guidance(second.id)])
 }
+
+@Test func helperStepUsesTheIndividualCallClock() {
+    let elapsed = HelperStepDuration.milliseconds
+    #expect(elapsed(1000, nil, nil, 2400) == 1400)
+    #expect(elapsed(1000, 2300, nil, 9000) == 1300)
+    #expect(elapsed(nil, 2300, 0, nil) == 0)
+    #expect(elapsed(nil, 2300, nil, nil) == nil)
+    #expect(elapsed(1000, nil, nil, nil) == nil)
+    #expect(elapsed(2400, nil, nil, 2300) == nil)
+}

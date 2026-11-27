@@ -126,6 +126,8 @@ pub(crate) struct Call {
     detail: Option<String>,
     finished: bool,
     failed: bool,
+    started_ms: Option<u64>,
+    completed_ms: Option<u64>,
     #[serde(skip)]
     call: Option<String>,
     #[serde(skip)]
@@ -174,6 +176,7 @@ impl Activity {
                 call.detail = event.detail;
             }
             if event.phase != Phase::Started {
+                call.completed_ms.get_or_insert(now_ms);
                 call.finished = true;
                 call.failed |= event.phase == Phase::Failed;
                 call.at = now;
@@ -203,6 +206,8 @@ impl Activity {
             detail: event.detail,
             finished: event.phase != Phase::Started,
             failed: event.phase == Phase::Failed,
+            started_ms: (event.phase == Phase::Started).then_some(now_ms),
+            completed_ms: (event.phase != Phase::Started).then_some(now_ms),
             call: event.call,
             at: now,
         });
@@ -479,6 +484,7 @@ mod tests {
         assert_eq!(calls.len(), 2);
         assert!(calls[0].finished && !calls[0].failed && !calls[1].finished);
         assert_eq!(calls[0].seq, 1);
+        assert_eq!((calls[0].started_ms, calls[0].completed_ms), (Some(1), Some(4)));
         assert_eq!(calls[0].detail.as_deref(), Some("sleep 4"));
     }
 
@@ -492,6 +498,7 @@ mod tests {
         let calls = activity.snapshot(KEY);
         assert_eq!(calls.len(), 1);
         assert!(calls[0].finished && calls[0].failed);
+        assert_eq!((calls[0].started_ms, calls[0].completed_ms), (None, Some(5)));
         assert_eq!(calls[0].detail.as_deref(), Some("false"));
         for source in ["userShell", "unifiedExecInteraction"] {
             item["source"] = json!(source);
