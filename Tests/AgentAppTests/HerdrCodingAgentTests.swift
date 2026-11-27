@@ -695,6 +695,50 @@ private let detachedRosterFixture = Testing.ConditionTrait.enabled("Requires bri
         return count
     }
 
+    @Test func helperDisclosuresFollowTheChildrenLeftInTheSidebar() throws {
+        let store = makeStore(), bot = Bot(name: "GameDev", backend: .herdr)
+        let root = HerdrHelperParent(botID: bot.id)
+        let owner = HerdrClient.AgentRef(address: "qa", createdMs: 1)
+        let shell = HerdrClient.Helper(address: "worker", createdMs: 2, name: "Build", state: "live")
+        let branch = root.children(of: shell.ref, core: "test")
+        store.herdrHelpers[root] = .init(core: "test", parent: owner, helpers: [shell])
+
+        func snapshot(_ first: String, _ second: String) -> HerdrClient.Helpers {
+            let parent = HerdrClient.NativeThread(id: "review", parent: "root", name: "Review", model: nil,
+                                                  createdMs: 3, state: first, task: "", reply: "")
+            let leaf = HerdrClient.NativeThread(id: "check", parent: "review", name: "Check", model: nil,
+                                                createdMs: 4, state: second, task: "", reply: "")
+            return .init(core: "test", parent: shell.ref, helpers: [], codexThreads: [parent, leaf])
+        }
+        func rows() -> [SidebarSessionItem] {
+            store.sessionRows(under: root, for: bot)
+        }
+        store.setAutoHideFinishedHelpers(true)
+        store.herdrHelpers[branch] = snapshot("working", "answered")
+        guard case .workspace(let outer) = rows().first, case .native(let review, _, _) = rows().last else {
+            Issue.record("Expected a workspace helper with a provider-native child")
+            return
+        }
+        #expect(outer.hasChildren)
+        #expect(!review.hasChildren)
+        store.setNativeSessionFolded(true, target: review.id, for: bot)
+        store.herdrHelpers[branch] = snapshot("answered", "working")
+        guard case .native(let folded, _, _) = rows().last else { Issue.record("Missing folded ancestor"); return }
+        #expect(folded.hasChildren && folded.folded)
+        store.setNativeSessionFolded(false, target: review.id, for: bot)
+        #expect(rows().last?.selection.helperID == "check")
+
+        store.herdrHelpers[branch] = snapshot("answered", "answered")
+        guard case .workspace(let single) = rows().first else { Issue.record("Missing working helper"); return }
+        #expect(rows().count == 1 && !single.hasChildren)
+        store.herdrHelpers[root] = .init(core: "test", parent: owner, helpers: [])
+        #expect(store.sidebarSessionGroups(for: bot, roots: [root]).isEmpty)
+        store.herdrHelpers[root] = snapshot("answered", "answered")
+        #expect(store.sidebarSessionGroups(for: bot, roots: [root]).isEmpty)
+        store.setAutoHideFinishedHelpers(false)
+        #expect(store.sidebarSessionGroups(for: bot, roots: [root]).first?.rows.count == 2)
+    }
+
     @Test func finishedHelperVisibilitySurvivesRefreshAndKeepsThePathToActiveChildren() throws {
         let store = makeStore(), bot = Bot(name: "GameDev", backend: .herdr)
         let root = HerdrHelperParent(botID: bot.id)
