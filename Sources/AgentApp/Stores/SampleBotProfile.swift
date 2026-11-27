@@ -54,6 +54,11 @@ extension SampleWorkspace.Role {
                   rules: ["Read-only documents", "Ask before outbound drafts"],
                   routine: "No active routines", schedule: "On-demand · Idle",
                   skills: ["PDF forms", "Writing plainly"])
+        case .payments:
+            .init(instructions: "Prepare supplier invoices for review. Ask before taking any action.",
+                  models: ["Codex · Sol"], contextPercent: 0, spend: "Subscription", projects: ["Supplier invoices"],
+                  controlLevel: "Ask everything", reviewer: "You", rules: ["Ask before preparing an invoice"],
+                  routine: "No active routines", schedule: "On demand", skills: ["Invoice preparation"])
         }
     }
 }

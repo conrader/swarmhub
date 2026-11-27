@@ -59,3 +59,30 @@ import Testing
     restored.backend = .herdr
     #expect(restored.sampleProfile == nil && restored.sampleModelLabel == nil && store.infoTabs(for: restored) == AgentInfoTab.allCases)
 }
+
+@MainActor @Test func sampleInboxDecisionsAreScopedAndPersistWithChats() throws {
+    for command in SampleReview.testCommand.choices {
+        for proposal in SampleReview.paymentsBot.choices {
+            let file = temporaryStore(), defaults = isolatedDefaults(), keys = InMemoryKeyStore()
+            func reopen() -> AppStore { AppStore(storeURL: file, autoStart: false, keyStore: keys, defaults: defaults) }
+            let store = reopen()
+            store.loadSamples()
+            let patch = try #require(store.bots.first { $0.sampleRole == .patch })
+            let jarvis = try #require(store.bots.first { $0.sampleRole == .jarvis })
+            let count = patch.messages.count
+            #expect(store.workspaceActivity(attentionOnly: true).count == 2)
+            store.resolveSampleReview(.createBot, for: patch)
+            #expect(patch.sampleDecision == nil)
+            store.resolveSampleReview(command, for: patch)
+            store.resolveSampleReview(proposal, for: jarvis)
+            store.resolveSampleReview(command, for: patch)
+            store.resolveSampleReview(proposal, for: jarvis)
+            let restored = reopen()
+            let same = try #require(restored.bots.first { $0.id == patch.id })
+            #expect(same.sampleDecision == command && same.messages.count == count + 1)
+            #expect(restored.workspaceActivity(attentionOnly: true).isEmpty)
+            #expect(restored.bots.filter { $0.sampleRole == .payments }.count == (proposal == .createBot ? 1 : 0))
+            #expect(store.herdrAgents.isEmpty && restored.herdrAgents.isEmpty)
+        }
+    }
+}

@@ -28,7 +28,11 @@ struct SampleInspector: View {
         case .approvals:
             tags("Control level", [profile.controlLevel, "Reviewer: " + profile.reviewer])
             Divider()
-            rows("Scoped rules", profile.rules)
+            rows("Scoped rules", profile.rules + (bot.sampleDecision == .allowInProject ? [SampleReview.projectRule] : []))
+            if let review = bot.pendingSampleReview {
+                Divider()
+                SampleReviewCard(bot: bot, review: review)
+            }
         case .routines:
             VStack(alignment: .leading, spacing: 6) {
                 heading("Routines & triggers")
@@ -85,5 +89,26 @@ struct SampleModelPicker: View {
         }.fixedSize().controlSize(.small)
             .accessibilityLabel("Choose sample model for " + bot.name)
             .accessibilityValue(selection)
+            .accessibilityIdentifier("chat.sample.model")
+            .help("Choose sample model for " + bot.name)
+    }
+}
+
+struct SampleReviewCard: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject var bot: Bot
+    let review: SampleReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(verbatim: review.title).font(.callout.weight(.semibold))
+            Text(verbatim: review.detail).font(.caption).foregroundStyle(.secondary)
+            LibraryFlow(spacing: 6) {
+                ForEach(review.choices, id: \.self) { decision in
+                    Button(decision.title) { store.resolveSampleReview(decision, for: bot) }
+                        .controlSize(.small)
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }

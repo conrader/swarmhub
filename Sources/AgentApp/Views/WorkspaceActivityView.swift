@@ -61,6 +61,7 @@ extension AppStore {
         switch chat {
         case .bot(let bot):
             conversation = bot
+            if let review = bot.pendingSampleReview { return item(.attention, review.title) }
             if let request = approvals(for: bot, in: nil, inboxes: inboxes).first {
                 return item(.attention, "Review " + HerdrClient.Approval.visible(request.tool))
             }
@@ -250,6 +251,10 @@ struct WorkspaceActivityView: View {
                                     }.buttonStyle(.plain).accessibilityLabel("\(row.chat.displayName), \(row.detail)")
                                         .accessibilityValue(row.chat.isUnread ? "Unread" : "")
                                     if row.section == .attention {
+                                        if case .bot(let bot) = row.chat, let review = bot.pendingSampleReview {
+                                            SampleReviewCard(bot: bot, review: review)
+                                                .reviewCard(inInbox: attentionOnly, tint: bot.colours)
+                                        }
                                         if attentionOnly, case .bot(let manager) = row.chat, store.createsHerdrBots(manager) {
                                             HerdrBotRequestCard(manager: manager, showsCreatedBots: false, inInbox: true)
                                         }
