@@ -630,7 +630,7 @@ struct HerdrOverviewSection: View {
             if let reading = store.herdrAgentReadings[bot.id] {
                 Button { store.infoTab = .model } label: {
                     HStack(alignment: .top, spacing: 8) {
-                        fact("AI", reading.runtime?.label ?? "None set up", isDefault: reading.runtime != nil && !reading.runtimeIsOwn, symbol: "terminal.fill", colour: AppColor.olive)
+                        fact(reading.changesProgram ? "Next AI" : "AI", reading.runtime?.label ?? "None set up", isDefault: reading.runtime != nil && !reading.runtimeIsOwn, symbol: "terminal.fill", colour: AppColor.olive)
                         if let label = reading.confirmedModelLabel {
                             fact("Active model", label, isDefault: false, symbol: "cpu.fill", colour: AppColor.plum)
                         } else {

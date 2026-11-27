@@ -169,7 +169,11 @@ struct HerdrAgentReading: Equatable, Sendable {
 
     /// Overview's sentences: the agent program, the model, and the running agent when it differs or is unknown.
     var summary: String {
-        var parts = ["AI: \(runtimeLine).", "Model: \(modelLine)."]
+        let program = changesProgram ? "Next AI: \(runtimeLine)." : "AI: \(runtimeLine)."
+        if let label = confirmedModelLabel {
+            return [program, "Active model: \(label).", pendingLine].compactMap { $0 }.joined(separator: " ")
+        }
+        var parts = [program, "Model: \(modelLine.trimmingCharacters(in: CharacterSet(charactersIn: ".")))."]
         if let pendingLine, let runningLine { parts += [runningLine, pendingLine] }
         else if case .model = running, let runningLine { parts.append(runningLine) }
         else if let runningLine, running != .none { parts.append(runningLine) }

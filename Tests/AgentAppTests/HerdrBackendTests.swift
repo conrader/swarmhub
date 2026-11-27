@@ -106,6 +106,10 @@ func herdrStopFindsTheRightAgentWhileDeliveryIsStillSending(inGroup: Bool, outco
     var confirmed = running
     confirmed.confirmed = true
     #expect(confirmed.headerModel == "Last confirmed · Model B")
+    #expect(confirmed.confirmedModelLabel == "Model B")
+    #expect(confirmed.summary.contains("Active model: Model B."))
+    #expect(confirmed.pendingLine.map { confirmed.summary.contains($0) } == true)
+    #expect(running.confirmedModelLabel == nil)
     var changedProgram = running
     changedProgram.activeTemplate = "old-program"
     #expect(changedProgram.changesProgram && changedProgram.pendingLine == "Next new direct turn: Agent One · Model A. Your chat stays here.")
