@@ -80,6 +80,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     @Published var turnState: TurnState?
     @Published var runSummary: RunSummary?
     @Published var checkingSavedReply = false
+    var commandReview: HerdrClient.Approval.Reviewer?
     var deliveryReceipt: HerdrDeliveryReceipt?
     @Published var publishedResults: HerdrReplyResults?
     /// P27: the tools this reply ran (bounded); encoded only when set. `lastTextAt` (memory only): when text last arrived.
@@ -90,7 +91,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         historyPlacement = TranscriptHistory.placement(in: metadata)
         self.turnState = turnState
     }
-    enum CodingKeys: CodingKey { case id, role, content, createdAt, continuedAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary, publishedResults, deliveryReceipt }
+    enum CodingKeys: CodingKey { case id, role, content, createdAt, continuedAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity, runSummary, publishedResults, deliveryReceipt, commandReview }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); role = try c.decode(MessageRole.self, forKey: .role)
@@ -107,6 +108,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         // An unknown value (a newer build's state) must not make the whole store undecodable.
         turnState = (try? c.decodeIfPresent(TurnState.self, forKey: .turnState)) ?? nil
         activity = (try? c.decodeIfPresent(ToolActivity.self, forKey: .activity)) ?? nil
+        commandReview = try? c.decodeIfPresent(HerdrClient.Approval.Reviewer.self, forKey: .commandReview)
         deliveryReceipt = try? c.decodeIfPresent(HerdrDeliveryReceipt.self, forKey: .deliveryReceipt)
         publishedResults = try? c.decodeIfPresent(HerdrReplyResults.self, forKey: .publishedResults)
         runSummary = try? c.decodeIfPresent(RunSummary.self, forKey: .runSummary)
@@ -121,6 +123,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
         try c.encodeIfPresent(authorID, forKey: .authorID); try c.encodeIfPresent(turnState, forKey: .turnState)
         try c.encodeIfPresent(activity, forKey: .activity)
+        try c.encodeIfPresent(commandReview, forKey: .commandReview)
         try c.encodeIfPresent(deliveryReceipt, forKey: .deliveryReceipt)
         try c.encodeIfPresent(publishedResults, forKey: .publishedResults)
         try c.encodeIfPresent(runSummary, forKey: .runSummary)

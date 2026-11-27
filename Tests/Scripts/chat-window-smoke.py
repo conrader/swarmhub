@@ -970,6 +970,7 @@ def sample_stories(source_app):
                 press_transition(window, "Replay walkthrough", "replay", lambda: has_button("Hand off to Scout"))
                 press_transition(window, "CI & reviewer bot", "CI opening", lambda: has_button("Review the failing check"))
                 press_transition(window, "Review the failing check", "cross-model review", lambda: has_button("Review the test command"))
+                wait_for("review on Scout's source reply", lambda: present("Reviewed by Scout (Claude)") and present("Safe local test command"))
                 press_transition(window, "Review the test command", "local command approval", lambda: has_button("Allow once"))
                 press_transition(window, "Allow once", "command receipt", lambda: present("28 tests passed"))
                 press_transition(window, "Team & helpers", "Jarvis story", lambda: has_button("Review the new roles"))
@@ -2364,7 +2365,14 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
                     assert not decisions
                     press(window, "Deny")
                     wait_for("user decided after reading Scout’s review", lambda: (9, "deny") in decisions)
-                    print("Scout’s background review appeared in the open Patch chat. The decision waited for the person.")
+                    wait_for("review retained beside the denied command in chat",
+                             lambda: any("This command prints orchid." in str(attribute(e, "AXValue") or label(e))
+                                         and "Reviewed by Scout" in str(attribute(e, "AXValue") or label(e)) for e in descendants(window)))
+                    press(window, "Needs Attention")
+                    wait_for("review retained in the Inbox decision", lambda: chat_text("Denied") and any(
+                        "Reviewed by Scout" in str(attribute(e, "AXValue") or label(e)) and "prints orchid" in str(attribute(e, "AXValue") or label(e))
+                        for e in descendants(window)))
+                    print("Scout’s advice remained with the denied command in both Patch chat and the Inbox.")
                     return
                 press(window, "ReaderQA", sidebar=True)
                 def count_is(expected):

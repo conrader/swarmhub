@@ -61,12 +61,24 @@ extension HerdrClient {
         let agent, provider, tool, cwd, arguments: String
         let core, address: String?
         let createdMs: UInt64?
-        struct Reviewer: Decodable, Equatable, Sendable {
+        struct Reviewer: Codable, Equatable, Sendable {
             let model: String
             let assessment: String?
             var botId: String? = nil
             var botName: String? = nil
             var problem: String? = nil
+
+            var resultText: String? {
+                guard let text = problem ?? assessment, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                return Approval.visible(text)
+            }
+
+            var resultTitle: String {
+                if problem == nil, let botName, !botName.isEmpty {
+                    return "Reviewed by " + Approval.visible(botName) + " (Claude)"
+                }
+                return title
+            }
 
             var title: String {
                 if let botName { return Approval.visible(botName) + " · Claude review" }

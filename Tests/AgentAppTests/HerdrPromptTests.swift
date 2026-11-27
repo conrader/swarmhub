@@ -468,6 +468,19 @@ private final class PromptBridge: @unchecked Sendable {
     #expect(store.approvals(for: bot, in: nil, inboxes: inboxes).map(\.id) == [1])
     #expect(store.approvals(for: bot, in: group, inboxes: inboxes).map(\.id) == [2])
     #expect(store.workspaceActivity(inboxes: inboxes).filter { $0.section == .attention }.map(\.id) == [bot.id, group.id])
+    let review = try #require(store.workspaceReviews(in: .group(group), inboxes: inboxes).first)
+    let advice = HerdrClient.Approval.Reviewer(model: "opus", assessment: "This command prints a word.", botName: "Scout")
+    store.recordInboxDecision(for: bot, server: server, subject: "printf audit", outcome: "Denied", reviewer: advice, group: review.group)
+    #expect(bot.messages.isEmpty)
+    let row = try #require(group.messages.last)
+    #expect(row.commandReview == advice && AppOnlyLine.isAppOnly(row))
+    #expect(row.content == "Build · Denied · printf audit")
+    #expect(store.recentInboxDecisions.first?.reviewer == advice)
+
+    store.recordInboxDecision(for: bot, server: server, subject: "printf other", outcome: "Allowed once",
+                              reviewer: .init(model: "opus", assessment: nil))
+    #expect(bot.messages.isEmpty && group.messages.count == 1)
+    #expect(store.recentInboxDecisions.first?.reviewer == nil)
     var moved = server
     moved.address = "http://127.0.0.1:4567"
     store.saveHerdrServer(moved, token: "changed")
