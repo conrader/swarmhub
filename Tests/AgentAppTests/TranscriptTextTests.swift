@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 import Testing
 @testable import AgentApp
 
@@ -25,6 +25,28 @@ enum SelectionFixture {
 }
 
 struct TranscriptTextTests {
+    @Test @MainActor func inlineCodePaintsOnlyMarkedTextAndPreservesSelection() throws {
+        let value = TranscriptText.inline("π `swift build` → [docs](https://example.org)")
+        let rich = value.highlightingInlineCode
+        let native = TranscriptFont.body.render(value)
+        #expect(String(rich.characters) == "π swift build → docs")
+        #expect(native.string == String(rich.characters))
+        #expect(rich.runs.filter { $0.backgroundColor != nil }.map { String(rich[$0.range].characters) } == ["swift build"])
+        #expect(native.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
+        var range = NSRange()
+        #expect(native.attribute(.backgroundColor, at: 2, effectiveRange: &range) != nil)
+        #expect((native.string as NSString).substring(with: range) == "swift build")
+        #expect(native.attribute(.link, at: native.length - 1, effectiveRange: nil) != nil)
+
+        let view = TranscriptTextView(usingTextLayoutManager: false)
+        view.textStorage?.setAttributedString(native)
+        view.highlight(range)
+        #expect((view.string as NSString).substring(with: view.selectedRange()) == "swift build")
+        view.highlight(nil)
+        #expect(view.textStorage?.attribute(.backgroundColor, at: 2, effectiveRange: nil) != nil)
+        #expect(TranscriptFont.code.render(AttributedString("swift build")).attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
+    }
+
     @Test func renderedRunsIndexTheExactClipboardText() throws {
         let projection = TranscriptText(reply: SelectionFixture.markdown, segments: nil)
         #expect(projection.string == SelectionFixture.visible)

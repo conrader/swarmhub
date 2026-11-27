@@ -23,8 +23,18 @@ struct TranscriptRunView: View {
         if let row, let selection {
             NativeRun(run: run, style: style, row: row, selection: selection)
         } else {
-            Text(run.value).textSelection(.enabled)
+            Text(run.value.highlightingInlineCode).textSelection(.enabled)
         }
+    }
+}
+
+extension AttributedString {
+    var highlightingInlineCode: Self {
+        var styled = self
+        for run in runs where run.inlinePresentationIntent?.contains(.code) == true {
+            styled[run.range].backgroundColor = Color(nsColor: AppColor.inlineCodeFill)
+        }
+        return styled
     }
 }
 
@@ -54,6 +64,7 @@ enum TranscriptFont: Equatable {
             if intent.contains(.emphasized) { face = NSFontManager.shared.convert(face, toHaveTrait: .italicFontMask) }
             var attrs: [NSAttributedString.Key: Any] = [.font: face, .paragraphStyle: paragraph,
                 .foregroundColor: self == .marker ? NSColor.controlAccentColor : NSColor.labelColor]
+            if intent.contains(.code) { attrs[.backgroundColor] = AppColor.inlineCodeFill }
             if let link = run.link { attrs[.link] = link }
             if intent.contains(.strikethrough) { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             result.append(NSAttributedString(string: String(value[run.range].characters), attributes: attrs))
