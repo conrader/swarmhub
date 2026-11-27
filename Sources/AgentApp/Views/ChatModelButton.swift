@@ -26,20 +26,31 @@ struct ChatModelButton: View {
     }
 
     var body: some View {
-        Group {
-            if let next {
-                Menu { choices } label: { caption } primaryAction: { choose(next, model: HerdrModelChoice.recommended) }
-                    .help("Switch " + bot.name + " to " + next.pickerLabel + ". Open the menu to choose a model.")
-            } else if let template = templates.first, template.takesModel {
-                Menu { choices } label: { caption }
-                    .help("Choose a model for " + bot.name)
-            } else {
-                Button { store.openInfoTab(.model) } label: { caption }
-                    .help("Open this bot’s model settings")
+        HStack(spacing: 0) {
+            Button {
+                if let next { choose(next, model: HerdrModelChoice.recommended) }
+                else { store.openInfoTab(.model) }
+            } label: {
+                caption.padding(.horizontal, 7).padding(.vertical, 3).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chat.bot.model")
+            .help(next.map { "Switch \(bot.name) to \($0.pickerLabel)" } ?? "Open this bot’s model settings")
+            if !templates.isEmpty {
+                Divider().frame(height: 13)
+                Menu { choices } label: {
+                    Image(systemName: "chevron.down").font(.caption2)
+                        .frame(width: 23, height: 22).contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .accessibilityLabel("Choose model for " + bot.name)
+                .accessibilityIdentifier("chat.bot.model.choices")
+                .help("Choose an AI or model for " + bot.name)
             }
         }
-        .controlSize(.small).disabled(applying)
-        .accessibilityIdentifier("chat.bot.model")
+        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 6))
+        .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(AppColor.separator).allowsHitTesting(false) }
+        .disabled(applying)
         .alert("Couldn’t switch model", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
             Button("OK") { failure = nil }
         } message: { Text(failure ?? "") }
@@ -88,7 +99,7 @@ struct ChatModelButton: View {
             defer { applying = false }
             do {
                 let catalog = try await store.herdrTemplates(on: server)
-                guard store.selectedBot?.id == bot.id, store.selectedGroup == nil, store.herdrServer(for: bot) == server,
+                guard store.selectedBot === bot, store.selectedGroup == nil, !bot.isReadOnlyArchive, store.herdrServer(for: bot) == server,
                       previousTemplate == store.herdrTemplate(for: bot), previousModel == store.herdrModel(for: bot) else { return }
                 guard let available = catalog.first(where: { $0.name == template.name }), isAvailable(available) else {
                     failure = "This AI is no longer available for this bot."
