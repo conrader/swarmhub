@@ -3,6 +3,7 @@ import SwiftUI
 /// Activity reported by the CLI for a child without a separate terminal.
 struct NativeThreadOutput: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.compactWorkspaceHeight) private var compactHeight
     let server: HerdrServer
     let runtime: HerdrClient.ChildRuntime
     let core: String
@@ -55,15 +56,14 @@ struct NativeThreadOutput: View {
                         VStack(alignment: .leading, spacing: 14) {
                             if showDetails { cards(for: parent?.child ?? session) }
                             else { conversation(for: parent?.child ?? session) }
-                            actionLayout
+                            if !compactHeight { actionLayout }
                             errors
                         }.frame(maxWidth: showDetails ? .infinity : 720, alignment: .leading)
                             .padding(18).frame(maxWidth: .infinity)
                     }
-                    if !showDetails, let parent, let target = store.steeringTarget(parent.selection, of: parent.bot) {
-                        HelperChatComposer(target: target, bot: parent.bot, draft: store.helperChatDrafts[target.id] ?? "")
-                            .id(target.id)
-                    }
+                    if compactHeight {
+                        CompactHelperFooter { actionLayout } composer: { composer }
+                    } else { composer }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
@@ -101,6 +101,13 @@ struct NativeThreadOutput: View {
                 }
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
             }
+        }
+    }
+
+    @ViewBuilder private var composer: some View {
+        if !showDetails, let parent, let target = store.steeringTarget(parent.selection, of: parent.bot) {
+            HelperChatComposer(target: target, bot: parent.bot, draft: store.helperChatDrafts[target.id] ?? "")
+                .id(target.id)
         }
     }
 

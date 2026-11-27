@@ -56,7 +56,7 @@ import SwiftUI
             ContentView(workspaceColorScheme: AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
                 .environmentObject(store)
                 .defaultAppStorage(store.defaults)
-                .frame(minWidth: 980, minHeight: 620)
+                .frame(minWidth: 980, minHeight: 500)
         }
             .defaultSize(width: 1120, height: 760)
             .windowStyle(.hiddenTitleBar)

@@ -186,7 +186,25 @@ struct HelperChatReply: View {
     }
 }
 
+/// Keep steering in reach while leaving the transcript the height of a single toolbar when it fits.
+struct CompactHelperFooter<Actions: View, Composer: View>: View {
+    @ViewBuilder let actions: Actions
+    @ViewBuilder let composer: Composer
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                actions.fixedSize(horizontal: true, vertical: false)
+                composer.frame(minWidth: 200)
+            }
+            VStack(alignment: .leading, spacing: 4) { actions; composer }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 4)
+    }
+}
+
 struct HelperChatComposer: View {
+    @Environment(\.compactWorkspaceHeight) private var compactHeight
     @EnvironmentObject private var store: AppStore
     let target: HelperSteeringTarget
     let bot: Bot
@@ -223,7 +241,7 @@ struct HelperChatComposer: View {
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityLabel("Send to " + target.name)
             }.padding(10).background(AppColor.card, in: RoundedRectangle(cornerRadius: 16))
-        }.frame(maxWidth: 768).padding(.horizontal, 18).padding(.vertical, 8)
+        }.frame(maxWidth: 768).padding(.horizontal, compactHeight ? 0 : 18).padding(.vertical, compactHeight ? 0 : 8)
             .task(id: target.id) {
                 await Task.yield()
                 guard !Task.isCancelled else { return }
