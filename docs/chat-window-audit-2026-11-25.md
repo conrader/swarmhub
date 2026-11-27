@@ -230,6 +230,8 @@ For each live trial, the driver pasted a different PNG, typed the same question 
 
 In a fourth Mac window, the driver selected the standalone Gemini CLI, pasted the image and sent it to a Linux workspace. Gemini CLI 0.71.1 sent the matching PNG as inline image data to a local Google-compatible test endpoint, and the endpoint’s reply appeared in chat. A separate live Google attempt stopped at its OAuth sign-in prompt. On Linux, an OpenCode 2.4.1 integration test uploaded a PNG in a first message, observed an image part with the exact bytes at the local model endpoint, and found the endpoint’s reply in the workspace journal. Neither endpoint test measures a live model’s image recognition.
 
+In SwarmHub 0.8.81 on the MacBook, two fresh test bots ran OpenCode 2.4.2 with `opencode/mimo-v2.6-flash-free`. The driver pasted a generated PNG in each chat with ⌘V and pressed Send. The provider returned 3424 and 8837 respectively in the visible chat, exactly matching the pixels. The file name and prompt omitted the numbers. A separate Nemotron trial received the attachment and exceeded the test window before producing a final answer.
+
 ## Gemini waits for Google authorization before its first hook
 
 With Gemini CLI 0.71.1 and a private home on Linux, the authorization-code question was visible after about two seconds. The original workspace kept a cold first message pending for 60 seconds and then returned both `ready: true` and `first_message.sent: false`. The updated workspace returned the unsent receipt, `ready: false`, and `blocked/auth` after about three seconds. The message stayed out of the authorization field.

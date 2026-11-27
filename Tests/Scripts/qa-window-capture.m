@@ -13,10 +13,17 @@ __attribute__((constructor)) static void installCapture(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             static BOOL busy = NO;
             [NSTimer scheduledTimerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *timer) {
-                if (busy || ![[NSFileManager defaultManager] fileExistsAtPath:request] || !NSApp.keyWindow) return;
+                if (busy || ![[NSFileManager defaultManager] fileExistsAtPath:request]) return;
+                NSWindow *target = NSApp.keyWindow ?: NSApp.mainWindow;
+                if (!target) {
+                    for (NSWindow *candidate in NSApp.windows) {
+                        if (candidate.isVisible && candidate.canBecomeMainWindow) { target = candidate; break; }
+                    }
+                }
+                if (!target) return;
                 busy = YES;
-                NSInteger number = NSApp.keyWindow.windowNumber;
-                CGFloat scale = NSApp.keyWindow.backingScaleFactor;
+                NSInteger number = target.windowNumber;
+                CGFloat scale = target.backingScaleFactor;
                 [SCShareableContent getCurrentProcessShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *err) {
                     for (SCWindow *window in content.windows) {
                         if (window.windowID != number) continue;
