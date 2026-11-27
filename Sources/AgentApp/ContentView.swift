@@ -54,7 +54,7 @@ struct ContentView: View {
                             }
                         }
                 } else if let group = store.selectedGroup {
-                    GroupChatView(group: group).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { GroupInfoPanel(group: group) } }
+                    GroupChatView(group: group, initialDraft: store.drafts.text(for: group.id)).id(group.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { GroupInfoPanel(group: group) } }
                 } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
                     // One of the bot's helper agents, read-only, in place of its chat.
                     Group {
@@ -66,7 +66,7 @@ struct ContentView: View {
                     }.id(helper).frame(minWidth: ChromeMetrics.chatWidthWithInspector)
                         .rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
                 } else if let bot = store.selectedBot {
-                    ChatView(bot: bot).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
+                    ChatView(bot: bot, initialDraft: store.drafts.text(for: bot.id)).id(bot.id).frame(minWidth: ChromeMetrics.chatWidthWithInspector).rightColumn(isPresented: $store.showInfo, expandable: store.inspectorTerminal != nil) { inspector { InfoPanel(bot: bot) } }
                 } else {
                     SetupEmptyState()
                         .overlay(alignment: .topLeading) {

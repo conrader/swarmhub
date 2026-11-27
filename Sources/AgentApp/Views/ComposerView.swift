@@ -17,7 +17,7 @@ struct ComposerView: View {
     var mentionNames: [String] = []
     /// P22: the manager bot's chat offers the Manage bots menu (each item fills this composer with a plain request).
     var manageActions: [ManageBotsAction] = []; var manage: (ManageBotsAction) -> Void = { _ in }
-    /// The setup wizard ends in a chat with the keyboard in its composer: true asks for it, and `tookFocus` says it happened.
+    /// Request keyboard focus for the editor when the destination opens or its sidebar row is selected again.
     var wantsFocus = false; var tookFocus: () -> Void = {}
     /// Who the message goes to (a bot's or a group's name), for the placeholder.
     var recipient: String? = nil
@@ -153,11 +153,6 @@ struct ComposerView: View {
                 slashMenu.reset()
                 if draft != noticeDraft { commandNotice = nil }
             }
-            .task(id: wantsFocus) {
-                guard wantsFocus else { return }
-                focused = true
-                tookFocus()
-            }
     }
 
     /// The draft, sized by a hidden copy of its text (wrapped lines included): one line fills a 28 pt slot with the line
@@ -177,6 +172,11 @@ struct ComposerView: View {
                         }
                     }
                     .padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset).focused($focused)
+                    .onChange(of: wantsFocus, initial: true) { _, requested in
+                        guard requested else { return }
+                        focused = true
+                        tookFocus()
+                    }
                     .accessibilityLabel("Message")
                     .accessibilityHint(slashMenu.selection(for: text).map { "Selected " + $0.rawValue + ". Use the arrows to choose, then Tab or Return to insert." } ?? "Type / to list chat commands.")
                     .onKeyPress(.return, phases: .down) { press in

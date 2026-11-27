@@ -4,11 +4,16 @@ import SwiftUI
 struct GroupChatView: View {
     @Environment(\.workspaceApprovals) private var approvalInboxes
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
-    @State private var draft = ""; private var intake: AttachmentIntake { store.attachmentIntake(for: group.id) }
+    @State private var draft: String; private var intake: AttachmentIntake { store.attachmentIntake(for: group.id) }
     @State private var verifyingAttachmentSupport = false
     @StateObject private var viewport = ChatViewport()
     @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
+
+    init(group: GroupChat, initialDraft: String = "") {
+        self.group = group
+        _draft = State(initialValue: initialDraft)
+    }
 
     private var jumpToLatest: JumpToLatestButton {
         JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, action: viewport.latest)
@@ -99,7 +104,6 @@ struct GroupChatView: View {
                 guard !files.isEmpty else { return false }
                 intake.attach(files, store: store); return true
             }
-            .task(id: group.id) { draft = store.drafts.text(for: group.id) }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: group.id) }
     }
 
