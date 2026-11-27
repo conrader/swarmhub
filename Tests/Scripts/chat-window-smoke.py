@@ -344,6 +344,27 @@ def verify_media(window):
 def verify_linked_media(window, chat):
     import Quartz
     wait_for("linked image in " + chat, lambda: any(label(b) == "Preview image" for b in buttons(window)))
+    # Use a pointer here. AXPress on an NSTextView link skips the transcript's mouse handling.
+    def movie_link_point():
+        link = next((e for e in descendants(window) if attribute(e, "AXRole") == "AXLink" and label(e) == "movie"), None)
+        if link is None:
+            return None
+        origin = ax.AXValueGetValue(attribute(link, "AXPosition"), ax.kAXValueCGPointType, None)[1]
+        size = ax.AXValueGetValue(attribute(link, "AXSize"), ax.kAXValueCGSizeType, None)[1]
+        point = (origin.x + size.width / 2, origin.y + size.height / 2)
+        error, hit = ax.AXUIElementCopyElementAtPosition(ax.AXUIElementCreateSystemWide(), *point, None)
+        if error == 0 and hit == link:
+            return point
+        return None
+    wait_for("visible movie link in " + chat, movie_link_point)
+    point = movie_link_point()
+    for kind in (Quartz.kCGEventMouseMoved, Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+        event = Quartz.CGEventCreateMouseEvent(None, kind, point, Quartz.kCGMouseButtonLeft)
+        Quartz.CGEventSetIntegerValueField(event, Quartz.kCGMouseEventClickState, 1)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+    wait_for("movie link opened in " + chat, lambda: any(label(b) == "Done" for b in buttons(window)))
+    press(window, "Done")
+    wait_for("movie sheet closed", lambda: all(label(b) != "Done" for b in buttons(window)))
     def video_control():
         timeline = next((e for e in descendants(window) if label(e) == "timeline"), None)
         if timeline is None:
