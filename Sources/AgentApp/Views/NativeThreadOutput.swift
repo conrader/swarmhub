@@ -132,7 +132,7 @@ struct NativeThreadOutput: View {
         }
         if let steps = details?.steps {
             HelperChatSteps(steps: steps, title: steps.count == 64 ? "Latest 64 steps" : "Steps (\(steps.count))", model: child.modelLine) { step in
-                NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command)
+                NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command, sessionWorking: state == "working")
             }
         }
         let reply = visibleState == activity?.state ? details?.reply ?? child.reply : child.reply
@@ -156,7 +156,7 @@ struct NativeThreadOutput: View {
             if let steps = details?.steps {
                 if steps.isEmpty { Text("No steps recorded.").foregroundStyle(.secondary) }
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                    NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command)
+                    NativeStepRow(step: step, runtime: child.provider, command: details?.terminal?.command, sessionWorking: state == "working")
                 }
             } else if activity == nil && readError == nil {
                 ProgressView("Loading steps…").controlSize(.small)

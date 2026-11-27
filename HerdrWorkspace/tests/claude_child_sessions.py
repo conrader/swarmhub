@@ -222,6 +222,8 @@ class ChildScenario:
                 running = request(activity + query)
                 assert running["details"]["terminal"]["output"].strip() == "Child workspace fixture", running
                 assert running["details"]["terminal"]["command"] == "cat " + shlex.quote(str(self.sample))
+                shell = next(s for s in running["details"]["steps"] if s["text"].startswith("Bash "))
+                assert 0 < shell["started_ms"] <= shell["completed_ms"], shell
                 assert "Read" in running["transcript"] and "sidebar.txt" in running["transcript"], running
                 for url in (activity + "?core=unrelated", base + "/codex-threads/" + child + query):
                     try:

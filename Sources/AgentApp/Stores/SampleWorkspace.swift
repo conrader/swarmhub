@@ -25,13 +25,14 @@ enum SampleWorkspace {
         let activity: HerdrClient.ThreadActivity
 
         init(id: String, runtime: HerdrClient.ChildRuntime, model: String, sidebarSummary: String, task: String, reply: String,
-             elapsed: Int64, working: Bool, steps: [String], command: String, output: String) {
+             elapsed: Int64, working: Bool, steps: [String], command: String, commandElapsed: Int64, output: String) {
             let now = Int64(Date.now.timeIntervalSince1970 * 1000)
             let state = working ? "working" : "answered"
             thread = .init(id: id, parent: "jarvis", runtime: runtime, name: id, model: model, createdMs: now - elapsed,
                            completedMs: working ? nil : now, state: state, task: task, reply: reply, sidebarSummary: sidebarSummary)
             let details = HerdrClient.ThreadActivity.Details(task: task, reply: reply,
-                steps: steps.map { .init(text: $0, state: working && $0 == command ? "inProgress" : "completed") },
+                steps: steps.map { .init(text: $0, state: working && $0 == command ? "inProgress" : "completed",
+                    startedMs: $0 == command ? now - commandElapsed : nil, completedMs: $0 == command && !working ? now : nil) },
                 terminal: .init(command: command, output: output))
             activity = .init(details: details, transcript: "$ " + command + "\n" + output, state: state, activeTurn: nil)
         }
@@ -41,12 +42,12 @@ enum SampleWorkspace {
         task: "Run `CSVReaderTests` and isolate the blank-title assertion failure in `Sources/Importer/`.",
         reply: "Reproduced failure on line 84 of `CSVReader.swift`: whitespace-only titles bypass the empty check.",
         elapsed: 72000, working: true, steps: ["Read Sources/Importer/CSVReader.swift", "swift test --filter CSVReaderTests"],
-        command: "swift test --filter CSVReaderTests", output: "Test Suite 'CSVReaderTests' started\n✖ testEmptyTitle failed — expected throw, got Title(\"   \")\n● Running follow-up check (1m 12s)…")
+        command: "swift test --filter CSVReaderTests", commandElapsed: 72000, output: "Test Suite 'CSVReaderTests' started\n✖ testEmptyTitle failed — expected throw, got Title(\"   \")\n● Running follow-up check (1m 12s)…")
     static let rename = Session(id: "rename", runtime: .codex, model: "Sol", sidebarSummary: "14 call sites",
         task: "Rename `fetchAll` to `loadAll` everywhere in `Sources/`.",
         reply: "Renamed 14 call sites across 6 files (`CSVReader.swift`, `ImportQueue.swift`, and 4 tests). `swift build` passed.",
         elapsed: 41000, working: false, steps: ["Search for fetchAll", "Edit Sources/Importer/CSVReader.swift", "swift build"],
-        command: "swift build", output: "Build complete! (3.42s)\n* Worked for 41s · 14 call sites updated")
+        command: "swift build", commandElapsed: 3420, output: "Build complete! (3.42s)\n* Worked for 41s · 14 call sites updated")
 
     static func stoppedTests(at finish: Int64) -> HerdrClient.NativeThread {
         let tests = tests.thread
@@ -57,7 +58,8 @@ enum SampleWorkspace {
     static func activity(for thread: HerdrClient.NativeThread) -> HerdrClient.ThreadActivity? {
         if thread.id == tests.thread.id, thread.provider == .claude, thread.state == "stopped", let details = tests.activity.details {
             return .init(details: .init(task: thread.task, reply: thread.reply,
-                                        steps: details.steps.map { .init(text: $0.text, state: $0.state == "inProgress" ? "stopped" : $0.state) },
+                                        steps: details.steps.map { .init(text: $0.text, state: $0.state == "inProgress" ? "stopped" : $0.state,
+                                            startedMs: $0.state == "inProgress" ? thread.createdMs : $0.startedMs, completedMs: $0.state == "inProgress" ? thread.completedMs : $0.completedMs) },
                                         terminal: details.terminal),
                          transcript: tests.activity.transcript + "\nStopped.", state: "stopped", activeTurn: nil)
         }

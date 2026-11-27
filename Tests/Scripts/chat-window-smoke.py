@@ -671,6 +671,16 @@ def sample_preview(source_app, destination, appearance, library):
                             and has_button("Stop helper") == expected["canStop"])
                 press_transition(window, expected["sidebarLabel"], name + " conversation", shows_conversation)
                 sidebar_selection(name)
+                def timed_command():
+                    panel = next(e for e in descendants(window) if attribute(e, "AXIdentifier") == "helper.chatSteps")
+                    command = "swift test --filter CSVReaderTests" if name == "tests" else "swift build"
+                    return next((label(e) for e in descendants(panel) if command in label(e)), "")
+                first_command = timed_command()
+                if name == "tests":
+                    assert "Running command" in first_command and "· " in first_command, first_command
+                    wait_for("running command time to advance", lambda: timed_command() != first_command and "Running command" in timed_command())
+                else:
+                    assert "· 3s" in first_command, first_command
                 snapshots.capture(name)
             def instruction_focused():
                 return any(attribute(e, "AXRole") == "AXTextField" and attribute(e, "AXFocused") and
