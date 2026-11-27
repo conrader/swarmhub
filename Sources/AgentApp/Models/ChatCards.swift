@@ -17,6 +17,8 @@ struct PageDraft: Codable, Equatable {
     let title: String
     let markdown: String
 
+    var quotedText: String { title + "\n" + markdown }
+
     enum Decision: String {
         case approve, shorten
 

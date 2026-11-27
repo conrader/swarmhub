@@ -18,7 +18,7 @@ enum SidebarFragment {
         for message in messages.reversed() {
             guard message.role != .system && !message.isSilent, message.metadata[HerdrIntro.Key.kind] == nil else { continue }
             let passedOn = message.role == .user && message.metadata[HerdrBotRelay.Key.kind] != nil
-            let body = plain(line(message))
+            let body = plain(preview(message))
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body
             guard !value.isEmpty else { continue }
             return prefixed(value, isUser: message.role == .user && !passedOn, author: message.role == .assistant ? author?(message.authorID) : nil)
@@ -43,6 +43,13 @@ enum SidebarFragment {
         let visible = SwarmhubBlock.visibleText(message.finalText)
         if visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let block = SwarmhubSummary.lines(in: message.finalText).last { return block.summary }
         return visible
+    }
+
+    static func preview(_ message: ChatMessage) -> String {
+        let visible = line(message)
+        guard message.role == .assistant, visible.prefix(scanLimit).lowercased().contains("page-draft"),
+              case .pageDraft(let draft) = ChatCardParser.parse(visible).first else { return visible }
+        return draft.quotedText
     }
 
     private static func prefixed(_ value: String, isUser: Bool, author: String?) -> String {
