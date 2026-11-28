@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Presents requests from the current workspace session above its chat composer.
+/// Shows the workspace session’s pending command in its chat or inspector.
 struct HerdrChatApprovals: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     let server: HerdrServer
     var group: GroupChat? = nil
+    var inTranscript = false
     @Environment(\.workspaceApprovals) private var inboxes
     @State private var error: String?
     @State private var decided: Set<Int> = []
@@ -16,8 +17,8 @@ struct HerdrChatApprovals: View {
             if let request = pending.first(where: { !decided.contains($0.id) }) {
                 HerdrApprovalReview(request: request, server: server, bot: bot, group: group) {
                     decided.insert(request.id)
-                }.id(request.id).chatCard(tint: bot.colours)
-            } else { HerdrPromptCard(bot: bot, group: group) }
+                }.id(request.id).reviewCard(inInbox: inTranscript, tint: bot.colours)
+            } else if !inTranscript { HerdrPromptCard(bot: bot, group: group) }
             if let error { Text(error).font(.caption).foregroundStyle(AppColor.caution) }
         }
         .onChange(of: inboxes[server.id]) { previous, current in
@@ -61,7 +62,7 @@ struct HerdrApprovalReview: View {
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("Open " + (inboxChatName ?? bot.name) + " chat")
             } else {
-                Text("\(request.provider) requests \(tool)").font(.headline)
+                Text((group == nil ? "" : bot.name + " · ") + "\(request.provider) requests \(tool)").font(.headline)
             }
             if inspect == nil, let address = request.address, let created = request.createdMs {
                 Text("\(request.launchModel ?? "Model unreported") · \(address)/\(String(created))").font(.caption)
@@ -135,7 +136,7 @@ struct HerdrApprovalReview: View {
                 case .rememberCommand: outcome = "Rule saved for " + folder
                 case .rememberCommandHour: outcome = "Allowed for 1 hour in " + folder
                 }
-                store.recordInboxDecision(for: bot, server: server, subject: request.commandPreview ?? HerdrClient.Approval.visible(request.tool),
+                store.recordCommandDecision(for: bot, server: server, subject: request.commandPreview ?? HerdrClient.Approval.visible(request.tool),
                                           outcome: outcome, reviewer: request.reviewer, group: group)
                 didDecide()
             } catch { self.error = error.localizedDescription }

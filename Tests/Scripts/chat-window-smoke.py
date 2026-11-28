@@ -2418,6 +2418,10 @@ def activity_decisions(source_app, named_review_only=False, proposals_only=False
                 wait_for("empty sidebar badge", lambda: count_is(0))
                 press(window, "Patch", sidebar=True)
                 wait_for("writable bot composer", lambda: any(label(b) == "/goal" for b in buttons(window)))
+                wait_for("unreviewed Inbox decisions in the issuing chat", lambda:
+                         {"Denied · Bash", "Allowed once · Read"}.issubset({
+                             str(attribute(e, "AXValue") or label(e)) for e in descendants(window)}))
+
                 if not any(label(b) == "Approvals" for b in buttons(window)):
                     press(window, "Details")
                 press(window, "Approvals")
