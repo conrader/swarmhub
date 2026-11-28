@@ -1,0 +1,11 @@
+{
+  "original": {
+    "long_preexisting": true
+  },
+  "repair": {
+    "long_preexisting": false
+  },
+  "size_chars": 144000,
+  "repair_sha256": "3bec0c3c54b400a6a5a756d93b9da423eea041991ff2298820e509a9c84ea14c",
+  "repair_source": "import csv\nimport io\nimport json\nimport sys\n\n\ndef records(text):\n    if text.startswith(\"\\ufeff\"):\n        text = text[1:]\n    reader = csv.reader(io.StringIO(text, newline=\"\"))\n    rows = (row for row in reader if row)\n    names = next(rows, [])\n    return [dict(zip(names, row)) for row in rows]\n\n\nif __name__ == \"__main__\":\n    sys.stdin.reconfigure(encoding=\"utf-8\", newline=\"\")\n    print(json.dumps(records(sys.stdin.read())))\n"
+}
