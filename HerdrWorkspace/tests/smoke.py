@@ -1781,12 +1781,16 @@ def smoke(hc, bridge, chrome=None):
                     group = parent("group-legacy")
                     second = parent("other", other)
                     url = "/api/bot-agent-settings/" + owner
-                    assert request(url) == {"choice": None, "auto_mode": False, "review_every_tool": False,
+                    assert request(url) == {"choice": None, "auto_mode": True, "review_every_tool": False,
                                             "auto_changed_ms": None, "command_reviewer": "off",
                                             "reviewer_bot_id": None, "reviewer_bots": []}
                     assert request(url, {"choice": chosen, "existing_agents": ["group-legacy"]})["choice"] == chosen
                     request(url, {"choice": {"template": "missing", "model": "x"}}, status=422)
                     assert request(url)["choice"] == chosen
+                    # Auto is the default: another setting's first save keeps it on, and only a change is dated.
+                    kept = request(url)
+                    assert kept["auto_mode"] and kept["auto_changed_ms"] is None
+                    assert not request(url, {"auto_mode": False})["auto_mode"]
                     updated = request(url, {"auto_mode": True})
                     assert updated["choice"] == chosen and updated["auto_mode"] and updated["auto_changed_ms"] > 0
                     fresh = parent("fresh", owner)
@@ -1863,7 +1867,7 @@ def smoke(hc, bridge, chrome=None):
                         assert (agy_args[4:] == ["--mode", "auto", "--dangerously-skip-permissions"]) == bool(auto)
                     first_helper = spawn(direct, "custom", chosen)
                     spawn(group, "legacy", chosen)
-                    spawn(second, "other", default, auto=False)
+                    spawn(second, "other", default)
                     spawn(direct, "blocked", None, difficulty="hard")
                     assert request(url, {"choice": None})["choice"] is None
                     updated = request(url, {"auto_mode": False})

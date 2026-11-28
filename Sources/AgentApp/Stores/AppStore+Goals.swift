@@ -77,6 +77,13 @@ extension AppStore {
         if ownedTurn { stop(bot) }
     }
 
+    /// The status of a goal that has ended leaves the chat. `/goal status` still reports it.
+    func dismissGoal(in bot: Bot) {
+        guard let goal = bot.goal, !goal.state.active, goal.dismissed != true else { return }
+        bot.goal?.dismissed = true
+        save()
+    }
+
     /// Called by the normal queue drain, after messages waiting for a slot had their turn.
     func dispatchQueuedGoals(checkedGoal: UUID? = nil, spend: ChatGoal.SpendReading? = nil) {
         guard !turns.scheduledGoals.isEmpty, persistenceEnabled, storeRestoreOffer == nil else { return }

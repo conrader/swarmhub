@@ -93,7 +93,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool
         note.push_str(&format!("\n- Queue fixture jobs with `{cmd} bot job submit KEY -`. Record reviews and reserve fixes with `bot job review -`. Escalate at the limit.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `bot completion ack JOB:ATTEMPT` and reuse its key.\n- File a park with `{cmd} bot park file ID -`."));
     }
     if bot.main && bot.takes_initiative {
-        note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Tell the person briefly and offer what you could do; do not act on a note without their yes.");
+        note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Look into a note yourself first when looking only reads (a terminal, a status, a log); never ask whether you may look. Then tell the person briefly what you found and what you recommend. Start work that changes, sends, deletes or spends only with their yes.");
     }
     note
 }
@@ -276,7 +276,7 @@ pub(crate) fn main_note(lines: &[String]) -> String {
         note.push_str(line);
         note.push('\n');
     }
-    note.push_str("(Tell the person about this in a short message: what happened and what you could do about it. Offer; do not start any work on it without their yes.)");
+    note.push_str("(Look into this first when looking only reads: a terminal, a status, a log. Do not ask whether you may look. Then tell the person in a short message what happened, what you found and what you recommend. Start work that changes, sends, deletes or spends only with their yes.)");
     note
 }
 
@@ -336,7 +336,7 @@ mod tests {
         assert!(note.len() < 2_300, "{} bytes", note.len());
         assert!(crate::core::validate_task(&note).is_ok());
         let main = standing(&all[0], &all, "swarmhub-herdr", false);
-        assert!(main.contains("You are the main bot") && main.contains("do not act on a note"));
+        assert!(main.contains("You are the main bot") && main.contains("never ask whether you may look"));
         // The switches take the commands away, not only the permission.
         let silent = Bot {
             may_message: false,
@@ -398,7 +398,7 @@ mod tests {
             stopped("Infra", 12, "ask", "was stopped by the person")
                 .contains("Do not write to Infra about this again")
         );
-        assert!(main_note(&["A helper stopped.".into()]).contains("Offer; do not start any work"));
+        assert!(main_note(&["A helper stopped.".into()]).contains("Do not ask whether you may look."));
         let reminded = reminder("sh", "Jarvis", 12, "ask", Some(545));
         assert!(
             reminded.contains("the ask #12 from Jarvis is still open")

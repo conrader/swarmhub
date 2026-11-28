@@ -28,6 +28,9 @@ struct GoalStatusView: View {
             }
             if goal.state.active {
                 Button("Stop goal") { store.stopGoal(in: bot) }
+            } else {
+                Button("Dismiss") { store.dismissGoal(in: bot) }
+                    .accessibilityLabel("Dismiss goal status")
             }
         }
         .controlSize(.small).padding(.horizontal, 32).padding(.top, 8).frame(maxWidth: 768)

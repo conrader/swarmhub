@@ -322,10 +322,21 @@ struct ChatGoal: Codable, Equatable {
         progressEvidence.removeAll()
     }
 
+    static let stoppedByPerson = "Stopped by you."
+
     mutating func stop() {
         completionObservation = nil
         state = .stopped
         attempt = nil
-        detail = "Stopped by you."
+        detail = Self.stoppedByPerson
+    }
+
+    /// Set when the person closes the status of a goal that has ended.
+    var dismissed: Bool?
+
+    /// Above the composer while the goal is live. A goal that ended by itself stays until the person
+    /// dismisses it, so its reason is seen once. A goal the person stopped needs no further notice.
+    var showsStatus: Bool {
+        state.active || (dismissed != true && !(state == .stopped && detail == Self.stoppedByPerson))
     }
 }

@@ -2000,7 +2000,7 @@ mod tests {
         assert!(
             waiting[0]
                 .3
-                .contains("Offer; do not start any work on it without their yes.")
+                .contains("Start work that changes, sends, deletes or spends only with their yes.")
         );
         // At most one note in five minutes: what is flagged meanwhile waits and goes out together.
         testing::at(&history, NOON + 2_000, &set, |ctx| {

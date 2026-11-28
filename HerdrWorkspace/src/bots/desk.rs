@@ -903,7 +903,7 @@ async fn watch(w: &Workspace, seen: &mut Seen) {
                     "blocked",
                     format!("blocked:{key}:{}", agent.turn()),
                     format!(
-                        "{} {} is waiting at a prompt in its terminal ({}) and cannot go on by itself. A person has to answer the prompt.",
+                        "{} {} is waiting at a prompt in its terminal ({}) and cannot go on by itself. Read the prompt, then tell the person what it asks and which answer you recommend. A person has to answer the prompt.",
                         if helper { "A helper of the bot" } else { "The agent of the bot" },
                         notes::line(&bot),
                         agent.address

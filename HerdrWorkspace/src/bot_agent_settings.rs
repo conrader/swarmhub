@@ -1,4 +1,6 @@
 //! Per-bot launch preferences. Re-read for each new agent, including a running bot's next helper.
+//! Auto mode is on unless the person turned it off for that bot: a bot with no saved row, and a row
+//! first written by any other setting, both launch in Auto.
 use crate::{
     ApiError, Workspace, bots,
     command_reviewer::Candidate,
@@ -15,7 +17,7 @@ use axum::{
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Serialize)]
+#[derive(Serialize)]
 pub(crate) struct Settings {
     pub choice: Option<Tier>,
     pub auto_mode: bool,
@@ -27,6 +29,22 @@ pub(crate) struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reviewer_bots: Option<Vec<Candidate>>,
     pub auto_changed_ms: Option<i64>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            choice: None,
+            auto_mode: true,
+            session_cap_cents: None,
+            document_read_only: false,
+            review_every_tool: false,
+            command_reviewer: Default::default(),
+            reviewer_bot_id: None,
+            reviewer_bots: None,
+            auto_changed_ms: None,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -223,22 +241,22 @@ async fn save(
                 if !(1..=900_719_925).contains(&edit.session_cap_cents) {
                     return Err(Failure::Input("Enter a positive session limit in US cents.").into());
                 }
-                tx.execute("INSERT INTO bot_agent_settings(bot,session_cap_cents) VALUES(?1,?2)
+                tx.execute("INSERT INTO bot_agent_settings(bot,session_cap_cents,auto_mode) VALUES(?1,?2,1)
                     ON CONFLICT(bot) DO UPDATE SET session_cap_cents=excluded.session_cap_cents",
                     params![bot,edit.session_cap_cents])
             }
             Edit::ToolReview(edit) => tx.execute(
-                "INSERT INTO bot_agent_settings(bot,review_every_tool,auto_changed_ms) VALUES(?1,?2,?3)
+                "INSERT INTO bot_agent_settings(bot,review_every_tool,auto_changed_ms,auto_mode) VALUES(?1,?2,?3,NOT ?2)
                  ON CONFLICT(bot) DO UPDATE SET review_every_tool=excluded.review_every_tool,
                  auto_mode=CASE WHEN excluded.review_every_tool THEN 0 ELSE auto_mode END,
                  auto_changed_ms=CASE WHEN review_every_tool!=excluded.review_every_tool THEN excluded.auto_changed_ms ELSE auto_changed_ms END",
                  params![bot,edit.review_every_tool,crate::history::now()]),
             Edit::Model(_) => tx.execute(
-                "INSERT INTO bot_agent_settings(bot,helper_template,helper_model) VALUES(?1,?2,?3)
+                "INSERT INTO bot_agent_settings(bot,helper_template,helper_model,auto_mode) VALUES(?1,?2,?3,1)
                  ON CONFLICT(bot) DO UPDATE SET helper_template=excluded.helper_template,helper_model=excluded.helper_model",
                 params![bot, choice.as_ref().map(|c| &c.template), choice.as_ref().map(|c| &c.model)]),
             Edit::Reviewer(edit) => tx.execute(
-                "INSERT INTO bot_agent_settings(bot,command_reviewer) VALUES(?1,?2)
+                "INSERT INTO bot_agent_settings(bot,command_reviewer,auto_mode) VALUES(?1,?2,1)
                  ON CONFLICT(bot) DO UPDATE SET command_reviewer=excluded.command_reviewer,reviewer_bot_id=NULL",
                 params![bot, edit.command_reviewer.name()]),
             Edit::BotReviewer(edit) => {
@@ -246,7 +264,7 @@ async fn save(
                     .and_then(|b| Candidate::resolve(&b, &templates, &Catalog::load(w.history.file()))).is_none() {
                     return Err(Failure::Input("This bot is unavailable as a Claude reviewer on this workspace.").into());
                 }
-                tx.execute("INSERT INTO bot_agent_settings(bot,reviewer_bot_id) VALUES(?1,?2)
+                tx.execute("INSERT INTO bot_agent_settings(bot,reviewer_bot_id,auto_mode) VALUES(?1,?2,1)
                     ON CONFLICT(bot) DO UPDATE SET reviewer_bot_id=excluded.reviewer_bot_id,command_reviewer='off'",
                     params![bot, edit.reviewer_bot_id])
             },
@@ -302,4 +320,35 @@ pub(crate) fn auto_writable_dirs_from(
         }
     }
     dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_mode_is_on_until_the_person_turns_it_off() {
+        let (_dir, history) = crate::bots::testing::journal(&["Doc", "Infra", "Legal", "Strict"]);
+        let db = history.db().unwrap();
+        let id = crate::bots::testing::id_of;
+        // No saved row, and a launch nobody owns.
+        assert!(for_bot(&db, &id("Doc")).unwrap().auto_mode);
+        assert!(Settings::default().auto_mode);
+
+        // What a workspace held before Auto became the default: rows first written by another
+        // setting (a move between servers saves review_every_tool=0) started with Auto off.
+        db.execute("INSERT INTO bot_agent_settings(bot,auto_mode,review_every_tool) VALUES(?1,0,0)", [id("Infra")]).unwrap();
+        db.execute("INSERT INTO bot_agent_settings(bot,auto_mode,document_read_only) VALUES(?1,0,1)", [id("Legal")]).unwrap();
+        db.execute("INSERT INTO bot_agent_settings(bot,auto_mode,review_every_tool) VALUES(?1,0,1)", [id("Strict")]).unwrap();
+        db.execute_batch(&include_str!("migrate-auto-default.sql").replace("BEGIN IMMEDIATE;", "").replace("COMMIT;", "")).unwrap();
+        let infra = for_bot(&db, &id("Infra")).unwrap();
+        assert!(infra.auto_mode && infra.auto_changed_ms.is_some());
+        // The two stricter roles keep their choice.
+        assert!(!for_bot(&db, &id("Legal")).unwrap().auto_mode);
+        assert!(!for_bot(&db, &id("Strict")).unwrap().auto_mode);
+
+        // Afterwards the person's Off stays off.
+        db.execute("UPDATE bot_agent_settings SET auto_mode=0 WHERE bot=?1", [id("Infra")]).unwrap();
+        assert!(!for_bot(&db, &id("Infra")).unwrap().auto_mode);
+    }
 }
