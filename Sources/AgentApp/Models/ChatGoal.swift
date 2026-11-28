@@ -345,6 +345,21 @@ struct ChatGoal: Codable, Equatable {
     /// Set when the person closes the status of a goal that has ended.
     var dismissed: Bool?
 
+    /// The workspace's id for a goal it steps itself, also while SwarmHub is closed. Zero until the
+    /// workspace has answered the request that started it. Such a goal never dispatches from this Mac.
+    var serverGoal: Int?
+
+    /// Takes over what the workspace says about its goal.
+    mutating func apply(_ server: HerdrClient.ServerGoal) {
+        serverGoal = server.id
+        objective = server.objective
+        state = State(rawValue: server.state) ?? state
+        iteration = server.iteration
+        stepLimit = server.stepLimit
+        detail = server.detail
+        attempt = nil
+    }
+
     /// Above the composer while the goal is live. A goal that ended by itself stays until the person
     /// dismisses it, so its reason is seen once. A goal the person stopped needs no further notice.
     var showsStatus: Bool {

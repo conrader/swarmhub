@@ -29,6 +29,46 @@ pub(crate) struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reviewer_bots: Option<Vec<Candidate>>,
     pub auto_changed_ms: Option<i64>,
+    /// How much the bot asks before acting, as the person set it; `None` follows Auto mode.
+    pub autonomy: Option<Autonomy>,
+}
+
+/// How much a bot asks the person before it acts. The person can turn it up or down for each bot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Autonomy {
+    /// Asks before deleting, sending, spending or deploying, even when the task implies it.
+    Careful,
+    /// Finishes its task without asking about steps; asks before what cannot be taken back.
+    Balanced,
+    /// Does not ask for permission. It reports what it did.
+    Full,
+}
+
+impl Autonomy {
+    fn stored(name: Option<&str>) -> Option<Self> {
+        match name? {
+            "careful" => Some(Self::Careful),
+            "balanced" => Some(Self::Balanced),
+            "full" => Some(Self::Full),
+            _ => None,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Careful => "careful",
+            Self::Balanced => "balanced",
+            Self::Full => "full",
+        }
+    }
+}
+
+impl Settings {
+    /// The level in force: what the person chose, else what Auto mode stands for.
+    pub(crate) fn effective_autonomy(&self) -> Autonomy {
+        self.autonomy.unwrap_or(if self.auto_mode { Autonomy::Balanced } else { Autonomy::Careful })
+    }
 }
 
 impl Default for Settings {
@@ -43,6 +83,7 @@ impl Default for Settings {
             reviewer_bot_id: None,
             reviewer_bots: None,
             auto_changed_ms: None,
+            autonomy: None,
         }
     }
 }
@@ -50,6 +91,7 @@ impl Default for Settings {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Edit {
+    Autonomy(AutonomyEdit),
     Model(ModelEdit),
     Auto(AutoEdit),
     SessionCap(SessionCapEdit),
@@ -58,6 +100,12 @@ enum Edit {
     Reviewer(ReviewerEdit),
     BotReviewer(BotReviewerEdit),
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AutonomyEdit {
+    autonomy: Autonomy,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelEdit {
@@ -109,12 +157,13 @@ pub(crate) fn routes() -> Router<Workspace> {
 pub(crate) fn for_bot(db: &Connection, id: &str) -> rusqlite::Result<Settings> {
     Ok(db
         .query_row(
-            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id,review_every_tool,session_cap_cents,document_read_only FROM bot_agent_settings WHERE bot=?1",
+            "SELECT helper_template,helper_model,auto_mode,auto_changed_ms,command_reviewer,reviewer_bot_id,review_every_tool,session_cap_cents,document_read_only,autonomy FROM bot_agent_settings WHERE bot=?1",
             [id],
             |r| {
                 let template: Option<String> = r.get(0)?;
                 let model: Option<String> = r.get(1)?;
                 Ok(Settings {
+                    autonomy: Autonomy::stored(r.get::<_, Option<String>>(9)?.as_deref()),
                     review_every_tool: r.get(6)?,
                     session_cap_cents: r.get(7)?,
                     document_read_only: r.get(8)?,
@@ -188,7 +237,7 @@ async fn save(
     Json(body): Json<Edit>,
 ) -> Result<Json<Settings>, ApiError> {
     let existing: &[String] = match &body {
-        Edit::SessionCap(_) | Edit::DocumentReview(_) => &[],
+        Edit::SessionCap(_) | Edit::DocumentReview(_) | Edit::Autonomy(_) => &[],
         Edit::Model(e) => &e.existing_agents,
         Edit::Auto(e) => &e.existing_agents,
         Edit::ToolReview(e) => &e.existing_agents,
@@ -228,6 +277,10 @@ async fn save(
             return Err(ApiError::Conflict("Turn off review for every tool before enabling Auto mode."));
         }
         match &body {
+            Edit::Autonomy(edit) => tx.execute(
+                "INSERT INTO bot_agent_settings(bot,autonomy,auto_mode) VALUES(?1,?2,1)
+                 ON CONFLICT(bot) DO UPDATE SET autonomy=excluded.autonomy",
+                params![bot, edit.autonomy.name()]),
             Edit::DocumentReview(edit) => {
                 if !edit.document_read_only {
                     return Err(Failure::Input("This role keeps read-only document access.").into());
@@ -287,7 +340,47 @@ async fn save(
         saved
     };
     if changes_auto { crate::codex_agent::stream::apply_saved_reviewer(&w.history, &bot).await; }
+    if matches!(&body, Edit::Auto(edit) if edit.auto_mode) {
+        end_session_stuck_without_auto(&w, &bot).await;
+    }
+    // A running session keeps the rules it read when it started: the bot is told the new ones now.
+    if let Edit::Autonomy(edit) = &body {
+        bots::autonomy_changed(&w, &bot, edit.autonomy)?;
+    }
     choices(&w, &bot, result).await
+}
+
+/// Auto mode was turned on while the bot's session, started without it, sits at a permission prompt. A
+/// session keeps the sandbox it started with and that prompt would wait for the person for ever, so the
+/// session ends here and the bot's next message starts one in Auto. A session that is working is left alone.
+async fn end_session_stuck_without_auto(w: &Workspace, bot: &str) {
+    let Some(bot) = w.history.db().ok().and_then(|db| bots::one(&db, bot).ok().flatten()) else {
+        return;
+    };
+    let (Ok(hello), Ok(mut agents)) = (w.core.identify().await, w.core.agents().await) else {
+        return;
+    };
+    let Some(index) = bots::desk::agent_of(&w.history, &hello.core.id, &agents, &bot) else {
+        return;
+    };
+    let agent = agents.swap_remove(index);
+    let at_prompt = agent
+        .status
+        .as_ref()
+        .is_some_and(|status| status.state == "blocked" && status.kind.as_deref() == Some("permission"));
+    let without_auto = agent.launch_key().is_some_and(|key| {
+        w.history.db().ok().is_some_and(|db| {
+            db.query_row("SELECT launch_auto FROM journal WHERE launch_key=?1", [key], |row| {
+                row.get::<_, Option<bool>>(0)
+            })
+            .ok()
+            .flatten()
+                == Some(false)
+        })
+    });
+    if at_prompt && without_auto && w.core.end(&agent).await.is_ok() {
+        bots::stopped_agent(w, &agent);
+    }
 }
 
 pub(crate) const AUTO_ENV: &str = "SWARMHUB_PROJECT_AUTO";

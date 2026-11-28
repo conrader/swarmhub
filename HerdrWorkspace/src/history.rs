@@ -870,6 +870,8 @@ pub(crate) fn migrations() -> &'static [&'static str] {
         include_str!("migrate-routine-pages.sql"),
         include_str!("migrate-bot-final-status.sql"),
         include_str!("migrate-auto-default.sql"),
+        include_str!("migrate-bot-goals.sql"),
+        include_str!("migrate-autonomy.sql"),
     ]
 }
 

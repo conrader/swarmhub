@@ -3,6 +3,7 @@
 //! bot. They are kept short: the standing note costs tokens on every start.
 
 use super::{Bot, Settings};
+use crate::bot_agent_settings::Autonomy;
 
 /// How a message from another bot starts, as the Mac app wrote it, so an agent can tell it from the person.
 pub(crate) const MESSAGE_LEAD: &str = "[Message from the bot";
@@ -49,18 +50,34 @@ pub(super) fn completion(cmd: &str, event: &super::completions::Completion) -> S
     format!("{SERVER_LEAD} Job completion {data}\nRun {cmd} bot completion ack {} to acknowledge it. Reuse the returned token as the idempotency key for its managed next step.", event.id)
 }
 
-/// What a bot's agent reads once, with its first task: how to behave towards the person, and the commands.
-/// `auto`: the bot's Auto mode. There the person chose a bot that finishes its task without asking about its
-/// steps, so only what cannot be taken back, leaves the server or costs money still waits for their yes.
-pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool, auto: bool) -> String {
-    let rules = if auto {
-        "- Do what the person asks of you, to the end, without asking permission for its steps. Reading, inspecting, building, testing, editing and any change you can undo need no yes. Removing files that can be made again (caches, temporary files, build output, old logs) needs no yes when the task calls for it: say what you removed in your report. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
+/// When a bot asks the person, for each level of autonomy the person can set. Every level honours a
+/// "do not ask me about this": the person's word settles it for the rest of the conversation.
+pub(crate) fn asking(level: Autonomy) -> &'static str {
+    match level {
+        Autonomy::Careful => "- Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
+         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n\
+         - When the person tells you not to ask about a kind of action, that is their yes for it from then on: do not ask about it again.\n",
+        Autonomy::Balanced => "- Do what the person asks of you, to the end, without asking permission for its steps. Reading, inspecting, building, testing, editing and any change you can undo need no yes. Removing files that can be made again (caches, temporary files, build output, old logs) needs no yes when the task calls for it: say what you removed in your report. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
          - Ask the person and wait for their yes only before: deleting data that cannot be made again or restored (documents, databases, backups, repositories, mail), sending something out of this server to other people (email, posts, messages), paying or spending money, or deploying to production. Ask once, with what you recommend, and go on with the rest of the work meanwhile. Only their word for that exact action is a yes.\n\
-         - Work nobody asked you for (something you noticed, something a note from SwarmHub tells you): look into it when looking only reads, then report what you found and what you recommend. Start changing it only with the person's yes.\n"
-    } else {
-        "- Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
-         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n"
-    };
+         - When the person tells you not to ask about a kind of action, that is their yes for it from then on: do not ask about it again.\n\
+         - Work nobody asked you for (something you noticed, something a note from SwarmHub tells you): look into it when looking only reads, then report what you found and what you recommend. Start changing it only with the person's yes.\n",
+        Autonomy::Full => "- The person chose that you do not ask for permission. Do what they ask of you, to the end. Deleting, sending, spending and deploying that the task calls for are yours to decide and to do. After fixing a blocker, resume the task, verify the result and report back.\n\
+         - Say in your report what you did that cannot be undone. Stop and ask only when you would have to guess what the person wants. Never do what the person told you not to do.\n\
+         - Work nobody asked you for (something you noticed, something a note from SwarmHub tells you): look into it, fix what is clearly broken and within your job, and report what you did.\n",
+    }
+}
+
+/// What a bot whose level the person just changed is told at once: a session keeps the notes it started with.
+pub(crate) fn autonomy_changed(level: Autonomy) -> String {
+    format!(
+        "{SERVER_LEAD} The person changed how much you ask before you act. These replace the earlier notes about asking, from now on:\n{}(The person did not write this now. Answer with one short sentence that says what changes.)",
+        asking(level)
+    )
+}
+
+/// What a bot's agent reads once, with its first task: how to behave towards the person, and the commands.
+pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool, level: Autonomy) -> String {
+    let rules = asking(level);
     let mut note = format!(
         "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n{rules}",
         line(&bot.name)
@@ -322,7 +339,7 @@ mod tests {
             .iter()
             .map(|name| testing::bot(&history, name))
             .collect();
-        let note = standing(&all[1], &all, "swarmhub-herdr", true, false);
+        let note = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Careful);
         assert!(note.starts_with("[SwarmHub notes for the bot \"Infra\"]"));
         for said in [
             "Do what the person asks of you",
@@ -349,10 +366,10 @@ mod tests {
             "a bot is not told to write to itself"
         );
         assert!(!note.contains("You are the main bot"));
-        assert!(note.len() < 2_300, "{} bytes", note.len());
+        assert!(note.len() < 2_450, "{} bytes", note.len());
         // In Auto mode the bot finishes its task without asking about its steps; what cannot be taken back,
         // leaves the server or costs money still waits for the person.
-        let auto = standing(&all[1], &all, "swarmhub-herdr", true, true);
+        let auto = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Balanced);
         for said in [
             "without asking permission for its steps",
             "Removing files that can be made again",
@@ -365,9 +382,26 @@ mod tests {
             assert!(auto.contains(said), "{said}");
         }
         assert!(!auto.contains("Before deleting anything") && !auto.contains("you only offer"));
-        assert!(auto.len() < 3_200, "{} bytes", auto.len());
+        assert!(auto.len() < 3_350, "{} bytes", auto.len());
+        // Every level that still asks stops asking about what the person said not to ask about.
+        for asks in [&note, &auto] {
+            assert!(asks.contains("tells you not to ask about a kind of action"));
+        }
+        // The person can turn asking off altogether, and back on.
+        let full = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Full);
+        for said in [
+            "The person chose that you do not ask for permission",
+            "Deleting, sending, spending and deploying that the task calls for are yours to decide",
+            "Say in your report what you did that cannot be undone",
+            "Never do what the person told you not to do",
+        ] {
+            assert!(full.contains(said), "{said}");
+        }
+        assert!(!full.contains("wait for their yes") && !full.contains("you only offer"));
+        let told = autonomy_changed(Autonomy::Full);
+        assert!(told.starts_with("[From SwarmHub] The person changed how much you ask") && told.contains("do not ask for permission"));
         assert!(crate::core::validate_task(&note).is_ok());
-        let main = standing(&all[0], &all, "swarmhub-herdr", false, false);
+        let main = standing(&all[0], &all, "swarmhub-herdr", false, Autonomy::Careful);
         assert!(main.contains("You are the main bot") && main.contains("never ask whether you may look"));
         // The switches take the commands away, not only the permission.
         let silent = Bot {
@@ -375,7 +409,7 @@ mod tests {
             takes_initiative: false,
             ..all[0].clone()
         };
-        let note = standing(&silent, &all, "swarmhub-herdr", false, false);
+        let note = standing(&silent, &all, "swarmhub-herdr", false, Autonomy::Careful);
         assert!(note.contains("do not write to other bots, ask the person instead"));
         assert!(!note.contains("bot ask") && !note.contains("checkin in"));
         assert!(!note.contains("You are the main bot"));
@@ -384,7 +418,7 @@ mod tests {
             takes_messages: false,
             ..all[2].clone()
         };
-        let note = standing(&all[1], &[all[0].clone(), all[1].clone(), closed], "x", false, false);
+        let note = standing(&all[1], &[all[0].clone(), all[1].clone(), closed], "x", false, Autonomy::Careful);
         assert!(note.contains("\"Jarvis\"") && !note.contains("\"Shop\""));
     }
 

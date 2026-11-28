@@ -15,7 +15,7 @@ use super::{
     Ask, Bot, Who,
     cli::NOT_A_BOT,
     completions::{self, Blocker},
-    notes, plans, rules,
+    goals, notes, plans, rules,
 };
 use crate::{ApiError, Workspace, core::Terminal, history::now, warm};
 use rusqlite::{OptionalExtension, params};
@@ -246,6 +246,8 @@ async fn tick(w: &Workspace) {
             plans::fire_due(ctx)?;
             plans::unanswered(ctx)?;
             plans::raise_due(ctx)?;
+            goals::overdue(ctx)?;
+            goals::advance(ctx)?;
             plans::note_main(ctx)?;
             Ok(())
         });
@@ -773,10 +775,10 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
             .ok()
             .and_then(|db| super::all(&db).ok())
             .unwrap_or_default();
-        // A setting that cannot be read is treated as Auto off: the stricter rules.
+        // A setting that cannot be read gets the strictest rules.
         let auto = w.history.db().ok()
             .and_then(|db| crate::bot_agent_settings::for_bot(&db, &bot.id).ok())
-            .is_some_and(|settings| settings.auto_mode);
+            .map_or(crate::bot_agent_settings::Autonomy::Careful, |settings| settings.effective_autonomy());
         format!(
             "{}\n\n{}",
             notes::standing(

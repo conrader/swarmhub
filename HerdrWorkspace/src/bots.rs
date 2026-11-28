@@ -26,6 +26,7 @@ mod ci;
 pub(crate) mod completions;
 pub(crate) mod cli;
 pub(crate) mod desk;
+pub(crate) mod goals;
 mod notes;
 mod plans;
 mod routes;
@@ -560,11 +561,30 @@ pub(crate) fn launch_note(
         return Ok(None);
     };
     let others = all(&db)?;
-    let auto = crate::bot_agent_settings::for_bot(&db, &bot.id)?.auto_mode;
+    let auto = crate::bot_agent_settings::for_bot(&db, &bot.id)?.effective_autonomy();
     Ok(Some((
         bot.id.clone(),
         notes::standing(&bot, &others, &command(), w.fleet_authority().configured().is_ok(), auto),
     )))
+}
+
+/// The person changed how much a bot asks. Its running agent read the earlier notes, so it is told now.
+pub(crate) fn autonomy_changed(
+    w: &crate::Workspace,
+    bot: &str,
+    level: crate::bot_agent_settings::Autonomy,
+) -> Result<(), StoreError> {
+    write(&w.history, |ctx| {
+        if one(ctx.db, bot)?.is_some() {
+            rules::post(
+                ctx,
+                rules::Post { bot, text: &notes::autonomy_changed(level), cause: "notice", ..rules::Post::default() },
+            )?;
+        }
+        Ok(())
+    })?;
+    desk::kick();
+    Ok(())
 }
 
 /// Whether any bot is registered. Without one the workspace does nothing here.

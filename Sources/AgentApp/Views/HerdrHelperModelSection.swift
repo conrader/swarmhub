@@ -107,6 +107,23 @@ struct HerdrHelperModelSection: View {
             }
             let reading = store.herdrAgentReadings[bot.id]
             VStack(alignment: .leading, spacing: 7) {
+                Text("Autonomy").font(.headline).foregroundStyle(.primary)
+                Picker("Autonomy", selection: Binding(get: { saved.effectiveAutonomy }, set: { level in Task { await setAutonomy(level) } })) {
+                    Text("Asks first").tag("careful")
+                    Text("Asks when it matters").tag("balanced")
+                    Text("Does not ask").tag("full")
+                }
+                .pickerStyle(.segmented).labelsHidden().disabled(saving)
+                .accessibilityLabel("Autonomy").accessibilityIdentifier("bot.autonomy")
+                Text(Self.autonomyDetail(saved.effectiveAutonomy, bot: bot.name)).foregroundStyle(.secondary)
+                Button("Use this level for every bot on \(server.name)") { Task { await setAutonomyForAll(saved.effectiveAutonomy) } }
+                    .buttonStyle(.link).disabled(saving)
+                    .accessibilityIdentifier("bot.autonomyAll")
+            }
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            .inspectorCard()
+            VStack(alignment: .leading, spacing: 7) {
                 Toggle(isOn: Binding(get: { saved.autoMode }, set: { value in Task { await setAuto(value) } })) {
                     Text("Auto mode").font(.headline).foregroundStyle(.primary)
                 }
@@ -190,6 +207,39 @@ struct HerdrHelperModelSection: View {
             bot.requiresToolReview = enabled
             store.save()
             await store.approvalSettingsChanged(bot, client: client, names: names)
+            autoProblem = ""
+        } catch { autoProblem = error.localizedDescription }
+    }
+
+    static func autonomyDetail(_ level: String, bot: String) -> String {
+        switch level {
+        case "careful": "\(bot) asks you before it deletes, sends, spends or deploys, also when the task implies it."
+        case "full": "\(bot) does not ask for permission. It does what the task calls for, including deleting, sending, spending and deploying, and tells you afterwards what cannot be undone."
+        default: "\(bot) finishes a task without asking about its steps. It asks once before deleting data that cannot be restored, sending to other people, spending money or deploying to production."
+        }
+    }
+
+    /// The bot is told the new level at once; a session keeps the notes it started with.
+    private func setAutonomy(_ level: String) async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            saved = try await store.herdrClient(for: server).setAutonomy(level, for: bot.id)
+            autoProblem = ""
+        } catch { autoProblem = error.localizedDescription }
+    }
+
+    private func setAutonomyForAll(_ level: String) async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            let client = try store.herdrClient(for: server)
+            for other in store.bots where other.backend == .herdr && store.herdrServer(for: other) == server {
+                let answer = try await client.setAutonomy(level, for: other.id)
+                if other.id == bot.id { saved = answer }
+            }
             autoProblem = ""
         } catch { autoProblem = error.localizedDescription }
     }

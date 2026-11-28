@@ -1,5 +1,6 @@
 mod activity;
 mod agent;
+mod alerts;
 mod appearance;
 mod approval_rules;
 mod command_reviewer;
@@ -284,6 +285,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     }
     helpers::start_serving(workspace.clone());
     tokio::spawn(ci_push::deliver(workspace.history.clone()));
+    tokio::spawn(alerts::deliver(workspace.history.clone()));
     bots::start_serving(workspace.clone());
     warm::start_sweeping(workspace.clone());
     service::keep_core_running();
@@ -382,6 +384,8 @@ fn workspace_router(workspace: Workspace) -> Router {
         .merge(outbound::routes())
         .merge(attention::routes())
         .merge(ci_push::routes())
+        .merge(alerts::routes())
+        .merge(service::routes())
         .merge(activity::routes())
         .merge(skills::routes())
         .merge(skillshare::routes())
@@ -781,7 +785,7 @@ async fn workspace_state(State(w): State<Workspace>, Query(query): Query<Workspa
     let mut roster = json!({"timezone":timezone,"version":hello.version,"core":hello.core.id,"bridge":update::info(),"agents":agents,"templates":templates,
                "demo":std::env::var("SWARMHUB_DEMO").as_deref() == Ok("1"),
                "runtime_catalog_warning":catalog.warning,
-               "attachments":hello.supports("terminal.put"),"terminal_preview":true,"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"group_workflow_file":true,"codex_turn_steer":true,"helper_results":true,"end_if_idle":true,
+               "attachments":hello.supports("terminal.put"),"terminal_preview":true,"bot_workspaces":true,"routine_transfers":true,"launch_attachments":true,"group_workflow_file":true,"codex_turn_steer":true,"helper_results":true,"end_if_idle":true,"bot_goals":true,"alerts":true,"server_ais":true,
                "workspace_root":core::bot_workspace_root().ok().flatten(),"terminal_attach":hello.supports("terminal.attach"),
                "connected_files":w.connected_files.is_some() || w.drive_files.as_ref().is_some_and(drive_files::Drive::connected)});
     if let Some((session_parents, archived_helper_parents)) = session_parents {

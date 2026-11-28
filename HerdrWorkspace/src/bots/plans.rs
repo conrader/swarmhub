@@ -1175,7 +1175,7 @@ mod tests {
         assert_eq!(testing::at(&history, moved_at, &bangkok, fire_due), 0);
         assert_eq!(slot(), (Some(due_in_bangkok), 1));
 
-        let returned_at = due_in_bangkok + 30_001;
+        let returned_at = due_in_bangkok + crate::routines::LATE_MS + 1;
         testing::at(&history, returned_at, &warsaw, |ctx| {
             crate::person_profile::rezone(ctx.db, ctx.now, Bangkok, Warsaw)
         });
