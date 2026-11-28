@@ -68,6 +68,10 @@ def main():
                 expect(feed.get_by_role("button", name="Stop helper")).to_have_count(int(expected["canStop"]))
                 sidebar_selection(helper)
                 shell.screenshot(path=args.directory / f"{theme}-{helper}.png")
+            for name, kind in (("patch", "bot"), ("tests", "helper"), ("rename", "helper")):
+                shell.locator(f'[data-select-{kind}="{name}"]').click()
+                expect(shell.locator("#chat-active-name")).to_contain_text(name.title() if kind == "bot" else name)
+                sidebar_selection(name)
             shell.get_by_role("button", name="Steer via Jarvis").click()
             expect(shell.locator("#chat-active-name")).to_contain_text("Jarvis")
             expect(shell.locator("#mac-feed")).to_contain_text("Opened Jarvis to steer helper “rename”")

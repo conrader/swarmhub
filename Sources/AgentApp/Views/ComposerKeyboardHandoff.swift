@@ -7,9 +7,13 @@ import AppKit
     private var expiry: Task<Void, Never>?
     private var keys: [NSEvent] = []
 
-    func begin(in window: NSWindow?, isCurrent: @escaping @MainActor () -> Bool) {
+    func begin(in window: NSWindow?, leavingEditor: NSTextView? = nil, isCurrent: @escaping @MainActor () -> Bool) {
         cancel()
         guard let window, window.isKeyWindow else { return }
+        // A departing editor may remain the responder until SwiftUI mounts the next chat.
+        if let leavingEditor, window.firstResponder === leavingEditor {
+            window.makeFirstResponder(nil)
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self, weak window] event in
             guard let self, let window, window.isKeyWindow, event.window === window, isCurrent(),
                   event.type == .keyDown, event.modifierFlags.intersection([.command, .control]).isEmpty

@@ -1097,6 +1097,35 @@ def sidebar_focus(source_app):
             print("Verified typing directly after selecting ordinary and pinned bots, reselecting a bot, and restoring its draft.")
 
 
+def sidebar_helper_focus(source_app):
+    from AppKit import NSRunningApplication
+
+    with private_workspace(source_app) as (app, home, store):
+        with open_workspace(app, home) as window:
+            pid = ax.AXUIElementGetPid(window, None)[1]
+            running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+            running.activateWithOptions_(3)
+            wait_for("private workspace in front", running.isActive)
+            press_transition(window, "Look around with sample bots", "sample workspace",
+                             lambda: any(label(b) == "Hand off to Scout" for b in buttons(window)))
+            rename, tests = "Codex agent rename, Answered", "Claude agent tests, Working"
+            for row, field, typed, expected in [
+                (rename, "Message rename", "alpha", "alpha"),
+                (tests, "Message tests", "beta", "beta"),
+                ("Patch", "Message", "delta", "delta"),
+                (rename, "Message rename", "X", "alphaX"),
+                (tests, "Message tests", "Y", "betaY"),
+                (tests, "Message tests", "Z", "betaYZ"),
+                ("Patch", "Message", "A", "deltaA"),
+            ]:
+                press(window, row, sidebar=row == "Patch")
+                type_unmodified_text(pid, typed)
+                wait_for(field + " has its original draft and new keystrokes", lambda: any(
+                    attribute(e, "AXRole") == "AXTextArea" and label(e) == field
+                    and attribute(e, "AXFocused") and attribute(e, "AXValue") == expected for e in descendants(window)))
+            print("Verified immediate typing and draft isolation across two helpers and a bot, including reselection.")
+
+
 def workspace_activity(source_app):
     import Quartz
 
@@ -2024,7 +2053,16 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 def answered_button():
                     return next((b for b in buttons(window) if label(b).startswith("Helper AnsweredQA,")), None)
                 wait_for("answered helper in the same tree", answered_button)
+                from AppKit import NSRunningApplication
+                pid = ax.AXUIElementGetPid(window, None)[1]
+                running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+                running.activateWithOptions_(3)
+                wait_for("foreground workspace for helper input", running.isActive)
                 press(window, label(answered_button()))
+                type_unmodified_text(pid, "Verify the import again")
+                wait_for("immediate draft in the managed helper", lambda: any(
+                    label(e) == "Message AnsweredQA" and attribute(e, "AXFocused")
+                    and attribute(e, "AXValue") == "Verify the import again" for e in descendants(window)))
                 wait_for("saved helper reply", lambda: any(attribute(n, "AXValue") == "The import passed." for n in descendants(window)))
                 press_transition(window, "Steer via Patch", "parent guidance composer",
                                  lambda: any(label(b) == "Send helper guidance" for b in buttons(window)))
@@ -2865,6 +2903,8 @@ if __name__ == "__main__":
         sample_stories(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--sample-workspace":
         sample_workspace(Path(sys.argv[2]).resolve(strict=True))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--sidebar-helper-focus":
+        sidebar_helper_focus(Path(sys.argv[2]).resolve())
     elif len(sys.argv) == 3 and sys.argv[1] == "--sidebar-focus":
         sidebar_focus(Path(sys.argv[2]).resolve(strict=True))
     elif len(sys.argv) == 3 and sys.argv[1] == "--activity":
@@ -2882,4 +2922,4 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         main(int(sys.argv[1]))
     else:
-        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-composer | --sample-stories | --sample-workspace | --sidebar-focus | --session-usage | --terminals | --helper-media | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | (--sample-screenshots | --helper-screenshots) APP OUTPUT_DIRECTORY")
+        raise SystemExit("Usage: chat-window-smoke.py QA_PROCESS_ID | (--sample-composer | --sample-stories | --sample-workspace | --sidebar-helper-focus | --sidebar-focus | --session-usage | --terminals | --helper-media | --sidebar-reveal | --group-restart | --media-reopen | --message-search | --steer-reopen | --team-pack | --team | --activity-decisions | --window-unread | --activity) /path/to/SwarmHub.app | (--pages | --ai-inventory) APP SERVICE | (--sample-screenshots | --helper-screenshots) APP OUTPUT_DIRECTORY")
