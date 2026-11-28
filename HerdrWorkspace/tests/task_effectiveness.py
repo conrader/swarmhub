@@ -110,10 +110,10 @@ def helper_failure(delegate, delegate_source):
 
 
 def trial(args, case, seed, arm):
-    if case == "archive_consent":
+    if case in ("archive_consent", "archive_completion"):
         from task_effectiveness_archive_consent import research_row, trial as archive_trial
         guided = arm == "guided"
-        result = archive_trial(args, seed, guided, hint=args.guidance)
+        result = archive_trial(args, seed, guided, hint=args.guidance, finish_plan=case == "archive_completion")
         return research_row(result, args.guidance)
     with tempfile.TemporaryDirectory(prefix="sw-eval-") as temporary, contextlib.ExitStack() as stack:
         root = Path(temporary)

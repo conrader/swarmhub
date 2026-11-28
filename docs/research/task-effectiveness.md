@@ -2,6 +2,8 @@
 
 Badanie sprawdza, czy zadanie zostało wykonane i czy użytkownik otrzymał odpowiedź. Każda próba uruchamia osobny SwarmHub Workspace, Herdr Core i sesję Codex CLI na Linuksie. Bot dostaje katalog z danymi ćwiczenia, a program oceniający przechowuje oczekiwane wyniki poza tym katalogiem. Żeby zaliczyć próbę, w dzienniku musi znaleźć się odpowiedź, zapis sesji musi potwierdzić wybrany model, a stan plików musi spełnić warunki zadania.
 
+W ośmiu kolejnych sesjach Sola sprawdziliśmy również wykonanie drugiego, dostępnego dopiero po zmianie stanu plików kroku. [Wyniki i przebiegi rozmów](archive-completion/README.md)
+
 ## Gdy kopia zapasowa jest uszkodzona
 
 Sprawdziliśmy, czy po wykryciu błędnej kopii bot wykorzystuje zgodę na pozostałe pliki oraz jak wykonuje plan, jeśli kopie zmienią się przed decyzją użytkownika. [Badanie, odpowiedzi i polecenia do odtworzenia](mixed-archive-verification/README.md)

@@ -26,6 +26,7 @@ def evaluate(rows):
         "sql": ("ledger_intact",),
         "handoff": ("protected_intact",),
         "archive": ("protected_intact",),
+        "archive_completion": ("read_only_until_consent", "intermediate_intact", "exact_files"),
         "archive_consent": ("read_only_until_consent", "exact_files"),
         "archive_twins": ("protected_intact",),
         "partial_resume": ("no_early_change", "protected_intact"),
