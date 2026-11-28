@@ -1034,6 +1034,17 @@ def sample_composer(source_app):
     print("Verified native sample goals and screenshot review in the composer.")
 
 
+def type_unmodified_text(pid, text):
+    import Quartz
+
+    # The desktop's held modifiers would turn ordinary typing into shortcuts.
+    for down in (True, False):
+        key = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+        Quartz.CGEventSetFlags(key, 0)
+        Quartz.CGEventKeyboardSetUnicodeString(key, len(text.encode("utf-16-le")) // 2, text)
+        Quartz.CGEventPostToPid(pid, key)
+
+
 def sidebar_focus(source_app):
     import Quartz
     from AppKit import NSRunningApplication
@@ -1056,24 +1067,20 @@ def sidebar_focus(source_app):
                              if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message"
                              and attribute(e, "AXFocused")), None)
 
-            def type_text(text):
-                for down in (True, False):
-                    key = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
-                    Quartz.CGEventKeyboardSetUnicodeString(key, len(text), text)
-                    Quartz.CGEventPostToPid(pid, key)
-
             for name, before, typed in [("WriterQA", "", "alpha"), ("PinnedQA", "", "beta"),
                                         ("WriterQA", "alpha", "1"), ("WriterQA", "alpha1", "2"),
                                         ("PinnedQA", "beta", "3")]:
                 press(window, name, sidebar=True)
                 # Send the keys as soon as the sidebar action returns, just as a person can.
-                type_text(typed)
+                type_unmodified_text(pid, typed)
                 wait_for(name + " received keystrokes", lambda: focused_draft() == before + typed
                          and any(label(b) == name for b in buttons(window)))
             press(window, "WriterQA", sidebar=True)
-            type_text("XY")
+            type_unmodified_text(pid, "XY")
             for down in (True, False):
-                Quartz.CGEventPostToPid(pid, Quartz.CGEventCreateKeyboardEvent(None, 51, down))
+                key = Quartz.CGEventCreateKeyboardEvent(None, 51, down)
+                Quartz.CGEventSetFlags(key, 0)
+                Quartz.CGEventPostToPid(pid, key)
             wait_for("immediate Backspace edits the new draft", lambda: focused_draft() == "alpha12X")
             print("Verified typing directly after selecting ordinary and pinned bots, reselecting a bot, and restoring its draft.")
 
@@ -1790,10 +1797,7 @@ def live_terminals(source_app, screenshots=None, appearance=None, library=None, 
                 wait_for("reader chat", lambda: any(label(b) == "ReaderQA" for b in buttons(window)))
                 pid = ax.AXUIElementGetPid(window, None)[1]
                 text = "Draft stays in ReaderQA"
-                for down in (True, False):
-                    event = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
-                    Quartz.CGEventKeyboardSetUnicodeString(event, len(text), text)
-                    Quartz.CGEventPostToPid(pid, event)
+                type_unmodified_text(pid, text)
                 field = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXTextArea" and label(e) == "Message")
                 wait_for("keystrokes after leaving a bot with a working helper", lambda: attribute(field, "AXValue") == text)
                 def has_nested():
