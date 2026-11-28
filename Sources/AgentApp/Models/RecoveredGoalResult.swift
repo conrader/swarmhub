@@ -1,6 +1,16 @@
 import Foundation
 
 extension ChatMessage {
+    /// The reply shows a card or a list of options that waits for the person's choice.
+    var asksForAnswer: Bool {
+        ChatCardParser.parseVisibleReply(content).contains {
+            switch $0 {
+            case .choices, .multiChoices, .draft, .pageDraft: true
+            default: false
+            }
+        } || ChatChoiceInference.options(in: content) != nil
+    }
+
     func displayGoalResult(_ report: ChatGoal.Report, prose: String) {
         metadata[GoalKey.outcome] = report.outcome.rawValue
         metadata[GoalKey.evidence] = report.evidence
@@ -74,13 +84,27 @@ extension Bot {
                   let sent = request.metadata[GoalKey.request] else { return }
             guard current.matchesSavedRequest(sent, token: report.iteration) else { return }
         }
-        let assessed = current.assessed(report)
-        current.recordMeasurement(report.measurement)
-        answer.metadata[GoalKey.outcome] = assessed.outcome.rawValue
-        answer.metadata[GoalKey.evidence] = assessed.evidence
         current.interruptedAttempt = nil
-        current.wait("Result recovered after SwarmHub closed. " + String(assessed.evidence.prefix(800)))
-        if assessed.outcome == .complete { current.state = .completed }
+        if answer.asksForAnswer {
+            // A question to the person is theirs to answer, whatever outcome the step reported.
+            let assessed = current.assessed(report)
+            current.recordMeasurement(report.measurement)
+            answer.metadata[GoalKey.outcome] = ChatGoal.Report.Outcome.blocked.rawValue
+            answer.metadata[GoalKey.evidence] = assessed.evidence
+            current.wait("Result recovered after SwarmHub closed. Review the reply in this chat, then resume the goal.")
+            goal = current
+            return
+        }
+        // Settle the recovered step the way a step heard live is settled. Confirmed progress goes on to
+        // the next step by itself; the goal stops here only when it is blocked, stalled, at a limit or done.
+        current.state = .running
+        current.attempt = report.iteration
+        let settled = current.finish(report)
+        answer.metadata[GoalKey.outcome] = settled.outcome.rawValue
+        answer.metadata[GoalKey.evidence] = settled.evidence
+        if current.state == .waiting {
+            current.detail = "Result recovered after SwarmHub closed. " + String(settled.evidence.prefix(800))
+        }
         goal = current
     }
 }

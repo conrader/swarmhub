@@ -70,6 +70,7 @@ else
   cp -R docs/releases "$BUILD_DIR/AgentApp.resources/releases"
   cp -R Resources/Avatars "$BUILD_DIR/AgentApp.resources/Avatars"
   rm -rf "$BUILD_DIR/AgentApp.resources/Samples"
+  cp Resources/OperationalApprovals.txt "$BUILD_DIR/AgentApp.resources/"
   cp -R Resources/Samples "$BUILD_DIR/AgentApp.resources/Samples"
   rm -rf "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp -R Resources/AppIcon/ThemeIcons "$BUILD_DIR/AgentApp.resources/ThemeIcons"

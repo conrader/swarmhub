@@ -72,6 +72,8 @@ struct HerdrSettingsSection: View {
                 }
             }
             if let current { HerdrAllBotsModelBlock(server: current).id(current.id) }
+            if let current { HerdrServerAIsBlock(server: current).id(current.id) }
+            if let current { HerdrAlertAddressBlock(server: current).id(current.id) }
         }
         .sheet(item: $moveSource) { HerdrMoveBotsSheet(source: $0) }
         .sheet(item: $loginServer) { server in

@@ -1,7 +1,7 @@
 //! Bots for the app: the directory it registers its bots in, each bot's history, check-ins and promises, the
 //! settings, and one stream of events for all bots. The README has the contract ("Bots on the server").
 
-use super::{Bot, Registration, Settings, desk, plans, rules};
+use super::{Bot, Registration, Settings, desk, goals, plans, rules};
 use crate::{Workspace, history::StoreError};
 use axum::{
     Json, Router,
@@ -45,6 +45,9 @@ pub(crate) fn routes() -> Router<Workspace> {
         .route("/api/bots/{id}/checkins", get(checkins).post(plan))
         .route("/api/bots/{id}/checkins/{checkin}/enabled", post(checkin_enabled))
         .route("/api/bots/{id}/checkins/{checkin}/cancel", post(cancel))
+        .route("/api/bots/{id}/goal", get(goal).post(set_goal))
+        .route("/api/bots/{id}/goal/stop", post(stop_goal))
+        .route("/api/bots/{id}/goal/resume", post(resume_goal))
         .route("/api/bots/{id}/promises", get(promises))
         .route(
             "/api/bots/{id}/promises/{promise}/close",
@@ -314,7 +317,59 @@ async fn history(State(w): State<Workspace>, Query(query): Query<HistoryQuery>) 
                 items.remove(0);
             }
         }
-        Ok(Json(json!({"items":items,"more":more})).into_response())
+        // Every bot's newest goal comes with the feed the app already reads, so the app shows a goal the
+        // workspace advanced while it was closed without asking again.
+        let goals = goals::latest_all(&db).map_err(storage)?;
+        Ok(Json(json!({"items":items,"more":more,"goals":goals})).into_response())
+    })())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewGoal {
+    objective: String,
+    #[serde(default)]
+    step_limit: Option<i64>,
+}
+
+async fn goal(State(w): State<Workspace>, Path(id): Path<String>) -> Response {
+    answered((|| {
+        let found = for_bot(&w, &id, |ctx, bot| goals::latest(ctx.db, &bot.id))?;
+        Ok(Json(json!({"goal":found})).into_response())
+    })())
+}
+
+/// Sets the bot's goal. The workspace types its steps from here on, also with no app open.
+async fn set_goal(State(w): State<Workspace>, Path(id): Path<String>, bytes: Bytes) -> Response {
+    answered((|| {
+        let wanted: NewGoal = body(&bytes, "Send the objective in words, and optionally step_limit.")?;
+        let set = for_bot(&w, &id, |ctx, bot| {
+            goals::start(ctx, bot, &wanted.objective, wanted.step_limit)
+        })?
+        .map_err(|why| invalid(&why))?;
+        desk::kick();
+        Ok((StatusCode::CREATED, Json(json!({"goal":set}))).into_response())
+    })())
+}
+
+async fn stop_goal(State(w): State<Workspace>, Path(id): Path<String>) -> Response {
+    answered((|| {
+        let stopped = for_bot(&w, &id, |ctx, bot| goals::stop(ctx, &bot.id))?;
+        let Some(stopped) = stopped else {
+            return Err(refusal(StatusCode::CONFLICT, "no_goal", "This bot has no active goal."));
+        };
+        Ok(Json(json!({"goal":stopped})).into_response())
+    })())
+}
+
+async fn resume_goal(State(w): State<Workspace>, Path(id): Path<String>) -> Response {
+    answered((|| {
+        let resumed = for_bot(&w, &id, |ctx, bot| goals::resume(ctx, &bot.id))?;
+        let Some(resumed) = resumed else {
+            return Err(refusal(StatusCode::CONFLICT, "not_waiting", "This bot has no goal that is waiting."));
+        };
+        desk::kick();
+        Ok(Json(json!({"goal":resumed})).into_response())
     })())
 }
 

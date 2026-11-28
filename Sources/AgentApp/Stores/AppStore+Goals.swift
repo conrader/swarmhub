@@ -12,6 +12,16 @@ extension AppStore {
 
         switch command {
         case .start(let objective, let stepLimit, let budget, let perGoal):
+            if let current = bot.goal, current.state.active, current.serverGoal != nil {
+                // The workspace steps this goal. More words about it are an ordinary message to the bot.
+                guard budget == nil, stepLimit == nil else { return "Stop the current goal before starting one with new limits." }
+                return send(text: objective, attachments: attachments, bot: bot, conversation: bot, replyToID: replyTo?.id, waitWhenFull: true)
+                    ? nil : "The message could not be submitted."
+            }
+            if bot.goal?.state.active != true, budget == nil, attachments.isEmpty,
+               turns.goalServers.contains(herdrServer(for: bot).id) {
+                return startServerGoal(objective, stepLimit: stepLimit, in: bot)
+            }
             if let current = bot.goal, current.state.active {
                 guard budget == nil else { return "Stop the current goal before changing the spending limit." }
                 guard stepLimit == nil else { return "Stop the current goal before starting one with a new step limit." }
@@ -54,7 +64,76 @@ extension AppStore {
         return nil
     }
 
+    /// The workspace keeps this goal: it types the steps and reads their outcome, so the goal goes on
+    /// while SwarmHub is closed or this Mac sleeps. The chat shows what the workspace reports.
+    private func startServerGoal(_ objective: String, stepLimit: Int?, in bot: Bot) -> String? {
+        var goal = ChatGoal(objective: objective, destination: goalDestination(for: bot), stepLimit: stepLimit)
+        goal.serverGoal = 0
+        let previous = bot.goal
+        bot.goal = goal
+        save()
+        guard !turns.saveFailing else { bot.goal = previous; return "The goal could not be saved." }
+        let id = goal.id, server = herdrServer(for: bot)
+        Task {
+            do {
+                let started = try await herdrClient(for: server).startGoal(objective, stepLimit: stepLimit, for: bot.id)
+                guard bot.goal?.id == id, let started else { return }
+                bot.goal?.apply(started)
+            } catch {
+                guard bot.goal?.id == id else { return }
+                bot.goal?.stop()
+                bot.goal?.detail = "The workspace could not start this goal. \(error.localizedDescription)"
+            }
+            objectWillChange.send()
+            save()
+        }
+        return nil
+    }
+
+    /// Stop and Resume of a goal the workspace keeps.
+    private func askServer(about bot: Bot, resume: Bool) {
+        guard let id = bot.goal?.id else { return }
+        let server = herdrServer(for: bot), botID = bot.id
+        Task {
+            do {
+                let client = try herdrClient(for: server)
+                let answer = resume ? try await client.resumeGoal(for: botID) : try await client.stopGoal(for: botID)
+                guard let answer, bot.goal?.id == id else { return }
+                bot.goal?.apply(answer)
+                objectWillChange.send()
+                save()
+            } catch { return }
+        }
+    }
+
+    /// What the workspace's feed says about its goals. A goal set from another device is taken up here too.
+    func applyServerGoals(_ goals: [HerdrClient.ServerGoal], server: HerdrServer) {
+        turns.goalServers.insert(server.id)
+        var changed = false
+        for item in goals {
+            guard let bot = bots.first(where: { $0.id.uuidString.lowercased() == item.bot && $0.backend == .herdr && herdrServer(for: $0) == server }) else { continue }
+            if var goal = bot.goal, let known = goal.serverGoal {
+                // The request that started it may not have been answered before SwarmHub closed.
+                guard known == item.id || (known == 0 && goal.objective == item.objective) else { continue }
+                let before = goal
+                goal.apply(item)
+                if goal != before { bot.goal = goal; changed = true }
+            } else if bot.goal?.state.active != true, ["queued", "running", "waiting"].contains(item.state) {
+                var goal = ChatGoal(objective: item.objective, destination: goalDestination(for: bot), stepLimit: item.stepLimit)
+                goal.apply(item)
+                bot.goal = goal
+                changed = true
+            }
+        }
+        if changed { objectWillChange.send(); save() }
+    }
+
     func resumeGoal(in bot: Bot) {
+        if bot.goal?.serverGoal != nil {
+            guard bot.goal?.state == .waiting else { return }
+            askServer(about: bot, resume: true)
+            return
+        }
         guard openConversation === bot, bot.goal?.state == .waiting, isIdle(bot),
               goalDestinationMatches(bot), !herdrWaits(bot).waits else { return }
         bot.goal?.resume()
@@ -65,6 +144,12 @@ extension AppStore {
 
     func stopGoal(in bot: Bot) {
         guard let goal = bot.goal, goal.state.active else { return }
+        if goal.serverGoal != nil {
+            bot.goal?.stop()
+            save()
+            askServer(about: bot, resume: false)
+            return
+        }
         let ownedTurn = goal.attempt != nil && turn(in: bot)?.goalAttempt == goal.attempt
         if let attempt = goal.attempt {
             let pending = turns.nextMessages.filter { $0.conversation === bot && $0.bubble.metadata[GoalKey.attempt] == attempt.uuidString }
@@ -77,9 +162,35 @@ extension AppStore {
         if ownedTurn { stop(bot) }
     }
 
+    /// A step whose result was recovered after the app was closed can leave the goal ready for its next
+    /// step. Hand it to the normal dispatcher, which checks prompts, limits and budget before it sends.
+    func continueRecoveredGoal(in bot: Bot) {
+        guard let goal = bot.goal, goal.serverGoal == nil, goal.state == .queued, !turns.scheduledGoals.contains(goal.id),
+              unconfirmedReply(in: bot) == nil else { return }
+        turns.scheduledGoals.insert(goal.id)
+        save()
+        sendQueuedNextMessage()
+    }
+
+    /// The status of a goal that has ended leaves the chat. `/goal status` still reports it.
+    func dismissGoal(in bot: Bot) {
+        guard let goal = bot.goal, !goal.state.active, goal.dismissed != true else { return }
+        bot.goal?.dismissed = true
+        save()
+    }
+
     /// Called by the normal queue drain, after messages waiting for a slot had their turn.
     func dispatchQueuedGoals(checkedGoal: UUID? = nil, spend: ChatGoal.SpendReading? = nil) {
-        guard !turns.scheduledGoals.isEmpty, persistenceEnabled, storeRestoreOffer == nil else { return }
+        guard persistenceEnabled, storeRestoreOffer == nil else { return }
+        // A goal that paused only for a workspace prompt is scheduled again once the prompt is gone.
+        for bot in bots where bot.goal?.state == .waiting && bot.goal?.resumesWhenClear == true {
+            guard isIdle(bot), goalDestinationMatches(bot), !herdrWaits(bot).waits, herdrPrompts[bot.id] == nil,
+                  let id = bot.goal?.id else { continue }
+            bot.goal?.resume()
+            turns.scheduledGoals.insert(id)
+            save()
+        }
+        guard !turns.scheduledGoals.isEmpty else { return }
         for bot in bots {
             guard var goal = bot.goal, goal.state == .queued, turns.scheduledGoals.contains(goal.id),
                   isIdle(bot), turns.pendingInterrupts[bot.id] == nil, !hasWaitingTurn(in: bot), turnCapacityProblem(for: [bot]) == nil else { continue }
@@ -95,7 +206,7 @@ extension AppStore {
                 continue
             }
             guard !herdrWaits(bot).waits, herdrPrompts[bot.id] == nil else {
-                bot.goal?.wait("Resolve the workspace prompt, then resume the goal.")
+                bot.goal?.waitForPrompt()
                 save()
                 continue
             }
@@ -194,13 +305,7 @@ extension AppStore {
         } else if outcome.state != .finished {
             goal.wait(outcome.reason ?? "The iteration ended without a confirmed result. Check the workspace before resuming.")
         } else if let report = parsed?.report {
-            let needsAnswer = ChatCardParser.parseVisibleReply(row.content).contains {
-                switch $0 {
-                case .choices, .multiChoices, .draft, .pageDraft: true
-                default: false
-                }
-            } || ChatChoiceInference.options(in: row.content) != nil
-            if needsAnswer && report.outcome != .blocked {
+            if row.asksForAnswer && report.outcome != .blocked {
                 row.metadata[GoalKey.outcome] = ChatGoal.Report.Outcome.blocked.rawValue
                 goal.wait("Review the reply in this chat, then resume the goal.")
             } else {
@@ -250,7 +355,8 @@ extension AppStore {
 
     func recoverGoals() {
         for bot in bots {
-            guard let goal = bot.goal, isIdle(bot) else { continue }
+            // A goal the workspace keeps went on without this Mac; the feed brings its state.
+            guard let goal = bot.goal, goal.serverGoal == nil, isIdle(bot) else { continue }
             switch goal.state {
             case .queued:
                 if unconfirmedReply(in: bot) != nil {

@@ -428,6 +428,29 @@ A check-in is the workspace typing "you planned this" into the bot's agent at th
 - **After downtime** a recurring check-in that was due fires once, not once for every time it missed, and goes on from then. A one-off that was due while the workspace was stopped fires when it starts.
 - The person can plan and cancel check-ins too ([For a client](#for-a-client)).
 
+### Goals
+
+A goal is an objective the workspace keeps a bot working on. `POST /api/bots/{id}/goal` with `{"objective": "Get 20 GB free on OVH", "step_limit": 12}` sets it (`step_limit` is optional, 40 when left out, at most 500) and ends a goal the bot still had. From then on the workspace types one step at a time into the bot's agent, starting the agent when it is not running, also with no app connected. A step asks for one JSON line at the end of the reply: `{"iteration": "<the step's token>", "outcome": "progress|complete|blocked|no_progress|failed", "evidence": "…"}`, with an optional `measurement` (`unit`, `direction`, `target`, `before`, `after`) and `alternateAction`.
+
+- **Progress** queues the next step, which carries the last result. **Complete** ends the goal. An objective that names a free-space threshold, and any goal once it has reported a measurement, is complete only with a measurement in the same unit that reaches the target.
+- **Blocked** pauses the goal (`pause: "blocked"`). It goes on by itself when the person writes to the bot and the bot has answered. A blocked method with an `alternateAction` counts as a step without progress instead.
+- Two steps in a row without new progress pause it (`stalled`), a reply without a report line pauses it (`unconfirmed`), a step that cannot be typed is tried once more and then pauses it (`undelivered`), and a step with no reply within an hour pauses it (`silent`) and is flagged to the main bot. Reaching the step limit stops it.
+- `POST /api/bots/{id}/goal/resume` queues a waiting goal again; `POST /api/bots/{id}/goal/stop` stops the active one. `GET /api/bots/{id}/goal` answers `{"goal": …}` with the bot's newest goal, and `GET /api/bots/history` carries every bot's newest goal in `goals`, so an app that reads the feed shows what happened while it was closed.
+
+A step's reply is a `said` line in the bot's history without its report line (`code: "goal"`, no alert). The person gets a `notice` with an alert when the goal is complete, paused or stopped. `/api/workspace` says `"bot_goals": true` on a workspace that keeps goals.
+
+### How much a bot asks
+
+`POST /api/bot-agent-settings/{bot}` with `{"autonomy": "careful" | "balanced" | "full"}` sets how much the bot asks the person before it acts; `GET` returns it as `autonomy`, `null` while it follows Auto mode (`balanced` with Auto on, `careful` with it off). The level picks the rules in the note a bot's agent reads once: `careful` asks before deleting, sending, spending or deploying; `balanced` asks only before what cannot be taken back, leaves the server or costs money; `full` does not ask and reports what cannot be undone. At every level a "do not ask me about this" from the person settles that kind of action for the rest of the conversation. A running session keeps the note it started with, so a change is typed into the bot's agent at once.
+
+### Alerts to an address
+
+`POST /api/alerts` with `{"address": "https://ntfy.sh/your-topic", "test": true}` saves where the workspace posts every history line that raises a notification: the bot's name in a `Title` header and up to 300 characters of the line as plain text, or `{"text": …}` for a Slack incoming webhook. `test` posts one line now and answers `"test": "sent"` or why it did not arrive. An empty `address` turns alerts off; `GET /api/alerts` returns the saved one. The address must be https, or http on this machine or a private network. Only lines written after the address was saved are posted, each once and in order; an address that is down gets them when it is back, except lines more than an hour old. `/api/workspace` says `"alerts": true`.
+
+### The server's AI programs
+
+`GET /api/ais` answers `{"programs": […]}` with what `service status` says about each AI program on this server: `id`, `name`, `installed`, `template_written` (a bot can run on it), `can_install` and `how`. `POST /api/ais/{id}` registers an installed program (`service add-ai`). `POST /api/ais/{id}/install` installs Codex, OpenCode or Gemini CLI with `npm install -g`, when npm is on the server, and registers it; for the others it answers 409 `manual_install` with what to do. Signing in stays with the person. `/api/workspace` says `"server_ais": true`.
+
 ### Open promises
 
 A promise is "I will do or report this by then". `promise done` closes it.

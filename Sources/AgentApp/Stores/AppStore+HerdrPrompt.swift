@@ -73,6 +73,8 @@ extension AppStore {
         guard herdrWaits(bot, in: group).waits, bot.backend == .herdr, bots.contains(bot),
               group.map(groups.contains) != false else {
             if herdrPrompts[id] != nil { herdrPrompts[id] = nil }
+            // The prompt a goal was waiting for is gone: the dispatcher schedules its next step.
+            if group == nil, bot.goal?.state == .waiting, bot.goal?.resumesWhenClear == true { dispatchQueuedGoals() }
             return
         }
         if launchWorkEnabled || herdrClientSetup != nil { Task { await refreshHerdrPrompt(for: bot, in: group) } }

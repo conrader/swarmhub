@@ -198,7 +198,7 @@ struct ChatView: View {
                         }, openDetails: { helper in store.open(helper, of: bot) })
                     }
                 }.padding(.top, store.createsHerdrBots(bot) || store.herdrPrompts[bot.id] != nil || !helpers.isEmpty ? 8 : 0).frame(maxWidth: .infinity)
-                if let goal = bot.goal {
+                if let goal = bot.goal, goal.showsStatus {
                     GoalStatusView(bot: bot, goal: goal)
                 }
                 if bot.sampleProfile != nil, store.helperSteeringDrafts[bot.id] == nil { SampleWalkthroughBar(bot: bot) }

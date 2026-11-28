@@ -312,20 +312,57 @@ struct ChatGoal: Codable, Equatable {
         attempt = nil
         state = .waiting
         detail = reason
+        resumesWhenClear = nil
+    }
+
+    /// Set while the goal waits only for a workspace prompt that was on screen before a step was sent.
+    /// Nothing reached the agent, so the goal goes on by itself once the prompt is gone.
+    var resumesWhenClear: Bool?
+
+    mutating func waitForPrompt() {
+        wait("Waiting for the workspace prompt. The goal goes on when it is answered.")
+        resumesWhenClear = true
     }
 
     mutating func resume() {
         guard state == .waiting else { return }
+        resumesWhenClear = nil
         completionObservation = nil
         state = .queued
         stalls = 0
         progressEvidence.removeAll()
     }
 
+    static let stoppedByPerson = "Stopped by you."
+
     mutating func stop() {
         completionObservation = nil
         state = .stopped
         attempt = nil
-        detail = "Stopped by you."
+        detail = Self.stoppedByPerson
+    }
+
+    /// Set when the person closes the status of a goal that has ended.
+    var dismissed: Bool?
+
+    /// The workspace's id for a goal it steps itself, also while SwarmHub is closed. Zero until the
+    /// workspace has answered the request that started it. Such a goal never dispatches from this Mac.
+    var serverGoal: Int?
+
+    /// Takes over what the workspace says about its goal.
+    mutating func apply(_ server: HerdrClient.ServerGoal) {
+        serverGoal = server.id
+        objective = server.objective
+        state = State(rawValue: server.state) ?? state
+        iteration = server.iteration
+        stepLimit = server.stepLimit
+        detail = server.detail
+        attempt = nil
+    }
+
+    /// Above the composer while the goal is live. A goal that ended by itself stays until the person
+    /// dismisses it, so its reason is seen once. A goal the person stopped needs no further notice.
+    var showsStatus: Bool {
+        state.active || (dismissed != true && !(state == .stopped && detail == Self.stoppedByPerson))
     }
 }

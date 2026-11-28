@@ -209,6 +209,7 @@ extension AppStore {
                     preference = try await sourceClient.botAgentSettings(for: bot.id).reviewEveryTool ?? preference
                 }
                 try await copyToolReview(preference, for: bot, to: destinationClient, template: change.after.template, templates: templates)
+                await copyAutoMode(for: bot, from: sourceClient, to: destinationClient, toolReview: preference)
             }
             record.receipts = try await stageRoutines(record, workspace: workspace, destination: destinationWorkspace)
             for change in changes {
@@ -311,6 +312,13 @@ extension AppStore {
         guard target?.supportsSessionCap == true, try await client.setSessionCap(cap, for: bot.id).sessionCapCents == cap else {
             throw HerdrMoveError.sessionCapUnavailable
         }
+    }
+
+    /// A move never changes how much a bot asks: the destination takes the source's Auto mode.
+    /// Review before every tool call has already turned Auto off there.
+    private func copyAutoMode(for bot: Bot, from source: HerdrClient, to destination: HerdrClient, toolReview: Bool?) async {
+        guard toolReview != true, let auto = try? await source.botAgentSettings(for: bot.id).autoMode else { return }
+        _ = try? await destination.setProjectAutoMode(auto, for: bot.id, existingAgents: [])
     }
 
     private func copyToolReview(_ preference: Bool?, for bot: Bot, to client: HerdrClient,

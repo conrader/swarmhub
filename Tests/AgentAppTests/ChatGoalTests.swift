@@ -493,7 +493,8 @@ extension ChatGoalTests {
         #expect(reopened.messages[3].turnState == .incomplete)
         #expect(reopened.messages[4].content == "Measurement finished.")
         #expect(reopened.messages[4].metadata[GoalKey.evidence] == "10 GB")
-        #expect(reopened.goal?.state == .waiting && reopened.goal?.detail.contains("10 GB") == true)
+        // Confirmed progress leaves the goal ready for its next step instead of waiting for Resume.
+        #expect(reopened.goal?.state == .queued && reopened.goal?.detail.contains("10 GB") == true)
     }
 
     @Test func helperChatTerminalShowsRecentLinesAndMasksProtectedAssignments() {
@@ -628,6 +629,27 @@ extension ChatGoalTests {
         stopped.stop()
         bot.goal = stopped
         #expect(!store.checkReportedCompletion(in: bot, reply: row))
+    }
+
+    @MainActor @Test func aGoalThePersonStoppedLeavesTheChatAndOtherEndingsWaitForDismissal() throws {
+        let store = goalStore(GoalBackend()), bot = addGoalBot(store, "Infra")
+        var goal = ChatGoal(objective: "Get 20 GB free on OVH", destination: store.goalDestination(for: bot))
+        #expect(goal.showsStatus)
+        goal.stop()
+        #expect(!goal.showsStatus)
+        // A goal saved by an earlier version carries no dismissal and is recognised by its reason.
+        var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(goal)) as? [String: Any])
+        legacy["dismissed"] = nil
+        let restored = try JSONDecoder().decode(ChatGoal.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(restored.state == .stopped && !restored.showsStatus)
+
+        var capped = ChatGoal(objective: "Inspect", destination: store.goalDestination(for: bot), stepLimit: 1)
+        let token = capped.begin()
+        capped.finish(.init(iteration: token, outcome: .progress, evidence: "Checked one item"))
+        #expect(capped.state == .stopped && capped.showsStatus)
+        bot.goal = capped
+        store.dismissGoal(in: bot)
+        #expect(bot.goal?.state == .stopped && bot.goal?.showsStatus == false)
     }
 
     @MainActor @Test func anInconclusiveCompletionCheckReturnsToWaiting() throws {

@@ -29,6 +29,40 @@ extension HerdrClient {
         }
         let items: [Entry]
         let more: Bool
+        /// Every bot's newest goal, from a workspace that keeps goals itself. An older workspace sends none.
+        var goals: [ServerGoal]? = nil
+    }
+
+    /// A goal the workspace steps by itself (`bots/goals.rs`), also while no app is open.
+    struct ServerGoal: Decodable, Sendable, Equatable {
+        let id: Int
+        let bot: String
+        let objective: String
+        /// `queued`, `running`, `waiting`, `completed` or `stopped`: the raw values of `ChatGoal.State`.
+        let state: String
+        var pause: String? = nil
+        let iteration: Int
+        let stepLimit: Int
+        let detail: String
+    }
+
+    private struct GoalAnswer: Decodable { let goal: ServerGoal? }
+
+    func startGoal(_ objective: String, stepLimit: Int?, for bot: UUID) async throws -> ServerGoal? {
+        var body: [String: Any] = ["objective": objective]
+        if let stepLimit { body["step_limit"] = stepLimit }
+        let answer: GoalAnswer = try await post("/api/bots/\(bot.uuidString.lowercased())/goal", body)
+        return answer.goal
+    }
+
+    func stopGoal(for bot: UUID) async throws -> ServerGoal? {
+        let answer: GoalAnswer = try await post("/api/bots/\(bot.uuidString.lowercased())/goal/stop", [:])
+        return answer.goal
+    }
+
+    func resumeGoal(for bot: UUID) async throws -> ServerGoal? {
+        let answer: GoalAnswer = try await post("/api/bots/\(bot.uuidString.lowercased())/goal/resume", [:])
+        return answer.goal
     }
 
     struct TeamOK: Decodable {}

@@ -295,6 +295,7 @@ enum HerdrHelperNote {
         Choose easy for small mechanical edits, medium for normal features and fixes, hard for design-heavy or risky work. \
         The server uses the person's helper model choice for this bot or its default for the difficulty. It limits concurrent helpers \
         and stops a helper a short while after it has answered. Check the saved answer before relying on it.
+        Give an independent part of a larger task to a helper, so you stay free for the person.
         If an optional helper is unavailable, continue authorized work directly. Ask for a decision only when it blocks the user’s objective.
         """
 }
@@ -426,6 +427,12 @@ extension HerdrClient {
         var commandReviewer: String? = nil
         var reviewerBotId: String? = nil
         var reviewerBots: [Candidate]? = nil
+        /// How much the bot asks before acting: `careful`, `balanced` or `full`. nil follows Auto mode,
+        /// and is what a workspace without this setting sends.
+        var autonomy: String? = nil
+
+        /// The level in force, as the workspace works it out.
+        var effectiveAutonomy: String { autonomy ?? (autoMode ? "balanced" : "careful") }
 
         var reviewerLabel: String {
             if let id = reviewerBotId {
@@ -457,6 +464,10 @@ extension HerdrClient {
 
     func setToolReview(_ enabled: Bool, for bot: UUID, existingAgents: [String] = []) async throws -> BotAgentSettings {
         try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["review_every_tool": enabled, "existing_agents": existingAgents])
+    }
+
+    func setAutonomy(_ level: String, for bot: UUID) async throws -> BotAgentSettings {
+        try await post("/api/bot-agent-settings/\(bot.uuidString.lowercased())", ["autonomy": level])
     }
 
     func setProjectAutoMode(_ enabled: Bool, for bot: UUID, existingAgents: [String]) async throws -> BotAgentSettings {

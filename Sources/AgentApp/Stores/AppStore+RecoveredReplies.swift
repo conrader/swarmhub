@@ -195,6 +195,7 @@ extension AppStore {
         else {
             bot.recoverGoalResult(in: answer)
             directReplyArrived(answer, from: bot)
+            continueRecoveredGoal(in: bot)
         }
     }
 

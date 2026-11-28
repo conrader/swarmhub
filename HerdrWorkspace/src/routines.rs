@@ -261,8 +261,12 @@ pub(crate) fn next_local(
     None
 }
 
+/// How late a scheduled run may start. A workspace that was restarting or briefly unreachable when a run
+/// came due still does it; one that was down for longer skips it, so a morning's run is not done at night.
+pub(crate) const LATE_MS: i64 = 30 * 60_000;
+
 pub(crate) fn schedule_lateness_cutoff(at: i64) -> i64 {
-    at.saturating_sub(30_000)
+    at.saturating_sub(LATE_MS)
 }
 
 pub(crate) fn rezone(db: &Connection, at: i64, zone: Tz) -> rusqlite::Result<()> {
@@ -379,6 +383,8 @@ pub struct Dispatch {
     pub routine: Routine,
     pub run: i64,
     pub event: Option<String>,
+    /// A scheduled run waits for an agent that is busy. A test and a webhook event are answered at once.
+    pub waits_for_agent: bool,
 }
 
 pub enum HookRun {
@@ -519,6 +525,54 @@ impl History {
         Ok(Move::Changed)
     }
 
+    /// A routine follows its bot. When the session it was made for has ended, it is bound to the session
+    /// the bot has now, if that one runs on the same profile, and the bot stays its owner. `None` when the
+    /// routine has no bot, is not active, or the session belongs to someone else.
+    pub fn follow_routine(
+        &self,
+        id: i64,
+        core: &str,
+        bot: &str,
+        agent: &Terminal,
+    ) -> Result<Option<Routine>, StoreError> {
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let Some(routine) = tx
+            .query_row(&format!("{WITH_OWNER} WHERE id=?1 AND state='active'"), [id], with_owner)
+            .optional()?
+            .filter(|routine| routine.owner_bot.as_deref() == Some(bot))
+        else {
+            return Ok(None);
+        };
+        let launch: Option<(Option<i64>, Option<String>)> = tx
+            .query_row(
+                "SELECT profile_id,parent_bot_id FROM journal WHERE launch_key=?1 AND core_id=?2",
+                params![agent.launch_key(), core],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((profile, _)) = launch.filter(|(profile, _)| routine.profile_id.is_none() || *profile == routine.profile_id) else {
+            return Ok(None);
+        };
+        let _ = profile;
+        tx.execute(
+            "UPDATE routines SET core=?2,address=?3,created_ms=?4,agent=?5,transferred_owner=?6 WHERE id=?1",
+            params![id, core, agent.address, agent.created_ms, agent.display_name(), bot],
+        )?;
+        let moved = tx.query_row(&format!("{WITH_OWNER} WHERE id=?1"), [id], with_owner)?;
+        tx.commit()?;
+        Ok(Some(moved))
+    }
+
+    /// The bot a routine belongs to, when it has one.
+    pub fn routine_owner(&self, id: i64) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .db()?
+            .query_row(&format!("{WITH_OWNER} WHERE id=?1"), [id], with_owner)
+            .optional()?
+            .and_then(|routine| routine.owner_bot))
+    }
+
     pub fn edit_routine(
         &self,
         id: i64,
@@ -629,6 +683,7 @@ impl History {
             routine,
             run,
             event: None,
+            waits_for_agent: false,
         }))
     }
 
@@ -790,6 +845,7 @@ impl History {
             routine,
             run,
             event,
+            waits_for_agent: false,
         })))
     }
 
@@ -870,6 +926,7 @@ impl History {
             routine,
             run,
             event,
+            waits_for_agent: false,
         })))
     }
 
@@ -1098,6 +1155,7 @@ pub(crate) fn claim_schedule(db: &mut Connection, at: i64) -> Result<Vec<Dispatc
                 routine,
                 run,
                 event: None,
+                waits_for_agent: true,
             });
         }
     }
@@ -1278,12 +1336,47 @@ mod tests {
     }
 
     #[test]
+    fn a_routine_follows_its_bot_to_the_session_it_has_now() {
+        let (_scratch, history) = crate::bots::testing::journal(&["Infra", "Other"]);
+        let old = crate::bots::testing::session(&history, "Infra", "t1");
+        let bot = crate::bots::testing::id_of("Infra");
+        let schedule = Schedule::Daily { hour: 2, minute: 30, timezone: None, weekdays: false };
+        let id: i64 = {
+            let db = history.db().unwrap();
+            db.execute("UPDATE journal SET parent_bot_id=?1 WHERE launch_key=?2", params![bot, old]).unwrap();
+            db.query_row(
+                "INSERT INTO routines(core,address,created_ms,agent,name,task,schedule,state,next_at)
+                 VALUES ('core','t1',42,'infra','Daily','Do it',?1,'active',1) RETURNING id",
+                [encode(&schedule).unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(history.routine_owner(id).unwrap().as_deref(), Some(bot.as_str()));
+
+        // The session it was made for ends and the bot gets another.
+        let new = crate::bots::testing::session(&history, "Infra", "t2");
+        let terminal: Terminal = serde_json::from_value(serde_json::json!({
+            "address":"t2","name":"infra","state":"live","status":null,"template":"fixture","created_ms":42,
+            "exit_code":null,"reason":null,"first_message":null,"labels":{"swarmhub.workspace":"agent","swarmhub.launch":new}
+        })).unwrap();
+        assert!(history.follow_routine(id, "core", "other-id", &terminal).unwrap().is_none(), "only to its own bot");
+        let moved = history.follow_routine(id, "core", &bot, &terminal).unwrap().unwrap();
+        assert_eq!((moved.target.address.as_str(), moved.owner_bot.as_deref()), ("t2", Some(bot.as_str())));
+        assert_eq!(history.routine_owner(id).unwrap().as_deref(), Some(bot.as_str()), "the bot stays its owner");
+
+        // A paused routine stays where the person left it.
+        history.db().unwrap().execute("UPDATE routines SET state='paused',address='t1' WHERE id=?1", [id]).unwrap();
+        assert!(history.follow_routine(id, "core", &bot, &terminal).unwrap().is_none());
+    }
+
+    #[test]
     fn rezone_skips_old_routines_and_expires_a_preserved_routine_at_the_normal_cutoff() {
         use chrono_tz::{Asia::Bangkok, Europe::Warsaw};
         let (_scratch, history) = crate::bots::testing::journal(&[]);
         let mut db = history.db().unwrap();
         let due_at = ms("2026-03-28T19:30:00Z");
-        let moved_at = due_at + 30_000;
+        let moved_at = due_at + LATE_MS;
         let old_due = due_at - 86_400_000;
         let old = insert_daily(&db, 2, 30, old_due);
         let recent = insert_daily(&db, 2, 30, due_at);

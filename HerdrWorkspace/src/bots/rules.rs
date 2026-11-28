@@ -11,7 +11,7 @@
 //!   something that is still open always goes through, so nothing is left hanging because of a limit.
 //! - A stop ends every exchange the stopped bot is part of, and the bots that waited are told.
 
-use super::{Bot, Ctx, blocks, notes, plans};
+use super::{Bot, Ctx, blocks, goals, notes, plans};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::Serialize;
 
@@ -194,12 +194,14 @@ pub(crate) struct Post<'a> {
     pub checkin: Option<i64>,
     pub promise: Option<i64>,
     pub quiet: bool,
+    /// The goal this is a step of (`goals`).
+    pub goal: Option<i64>,
 }
 
 pub(crate) fn post(ctx: &Ctx<'_>, post: Post<'_>) -> rusqlite::Result<i64> {
     ctx.db.query_row(
-        "INSERT INTO bot_outbox (bot,text,cause,message,work,checkin,promise,quiet,created_ms,give_up_ms,delivery_receipt)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,CASE WHEN ?3 IN ('message','outcome') THEN 'unsent' END) RETURNING id",
+        "INSERT INTO bot_outbox (bot,text,cause,message,work,checkin,promise,quiet,created_ms,give_up_ms,delivery_receipt,goal)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,CASE WHEN ?3 IN ('message','outcome') THEN 'unsent' END,?11) RETURNING id",
         params![
             post.bot,
             post.text,
@@ -210,7 +212,8 @@ pub(crate) fn post(ctx: &Ctx<'_>, post: Post<'_>) -> rusqlite::Result<i64> {
             post.promise,
             post.quiet,
             ctx.now,
-            ctx.now + seconds(ctx.set.deliver_seconds)
+            ctx.now + seconds(ctx.set.deliver_seconds),
+            post.goal
         ],
         |row| row.get(0),
     )
@@ -1148,6 +1151,7 @@ struct Typed {
     checkin: Option<i64>,
     promise: Option<i64>,
     quiet: bool,
+    goal: Option<i64>,
 }
 
 /// A reply the agent of `bot` saved (journal row `reply`, for the launch `key`). This is where a turn the
@@ -1186,7 +1190,7 @@ pub(crate) fn on_reply(
     for task in &tasks {
         let found = db
             .query_row(
-                "SELECT id,cause,message,checkin,promise,quiet FROM bot_outbox WHERE task=?1",
+                "SELECT id,cause,message,checkin,promise,quiet,goal FROM bot_outbox WHERE task=?1",
                 [task],
                 |row| {
                     Ok(Typed {
@@ -1196,6 +1200,7 @@ pub(crate) fn on_reply(
                         checkin: row.get(3)?,
                         promise: row.get(4)?,
                         quiet: row.get(5)?,
+                        goal: row.get(6)?,
                     })
                 },
             )
@@ -1215,6 +1220,22 @@ pub(crate) fn on_reply(
     let only_ours = ours && typed.len() == tasks.len();
     let newest = typed.last();
     let visible = blocks::visible(text);
+    // A step of a goal that was typed into this turn: its report line says how the goal goes on.
+    let step = match typed.iter().rev().find_map(|typed| typed.goal.map(|goal| (goal, typed.outbox))) {
+        Some((goal, outbox)) => goals::settle(ctx, bot, goal, outbox, text)?,
+        None => None,
+    };
+    // The person wrote to the bot and got its answer: a goal that waited for their decision goes on.
+    if step.is_none() && !tasks.is_empty() && !ours {
+        goals::person_answered(ctx, &bot.id)?;
+    }
+    let goal_news = |ctx: &Ctx<'_>| -> rusqlite::Result<()> {
+        if let Some(line) = step.as_ref().and_then(|step| step.after.as_deref()) {
+            let about = About { code: Some("goal"), ..About::default() };
+            entry(ctx, &bot.id, "notice", line, about, true, true)?;
+        }
+        Ok(())
+    };
 
     let read_only: bool = db.query_row(
         "SELECT document_read_only FROM journal WHERE launch_key=?1", [key], |r| r.get(0),
@@ -1357,9 +1378,17 @@ pub(crate) fn on_reply(
             "UPDATE bot_checkins SET last_outcome=?2 WHERE id=?1",
             params![checkin, if quiet { "quiet" } else { "reported" }],
         )?;
+        // The answer to a first try can arrive after its second try was queued. A second try is posted
+        // later than the firing it belongs to, which tells it from the next firing of a recurring check-in.
+        db.execute(
+            "UPDATE bot_outbox SET state='dropped',outcome='replied'
+             WHERE cause='checkin' AND checkin=?1 AND state='pending'
+               AND created_ms>(SELECT coalesce(last_fired_ms,0) FROM bot_checkins WHERE id=?1)",
+            [checkin],
+        )?;
     }
     if !ours || quiet || visible.is_empty() && blocks::blocks(text).is_empty() {
-        return Ok(());
+        return goal_news(ctx);
     }
     let newest = newest.expect("a turn of ours has a typed task");
     let about = newest
@@ -1375,7 +1404,10 @@ pub(crate) fn on_reply(
         (cause, _) => cause.to_owned(),
     };
     // What a bot says after a plain ask or tell is in its chat without an alert; the rest is news for the person.
-    let notify = !matches!(code.as_str(), "ask" | "tell" | "notice");
+    // A goal step is shown without its report line and without an alert: the goal's end is the news.
+    let notify = step.is_none() && !matches!(code.as_str(), "ask" | "tell" | "notice");
+    let code = if step.is_some() { "goal".to_owned() } else { code };
+    let text = step.as_ref().map_or(text, |step| step.text.as_str());
     entry(
         ctx,
         &bot.id,
@@ -1391,7 +1423,7 @@ pub(crate) fn on_reply(
         true,
         notify,
     )?;
-    Ok(())
+    goal_news(ctx)
 }
 
 // ---- For the app and for `bot list`.

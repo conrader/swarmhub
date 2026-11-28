@@ -15,7 +15,7 @@ use super::{
     Ask, Bot, Who,
     cli::NOT_A_BOT,
     completions::{self, Blocker},
-    notes, plans, rules,
+    goals, notes, plans, rules,
 };
 use crate::{ApiError, Workspace, core::Terminal, history::now, warm};
 use rusqlite::{OptionalExtension, params};
@@ -246,6 +246,8 @@ async fn tick(w: &Workspace) {
             plans::fire_due(ctx)?;
             plans::unanswered(ctx)?;
             plans::raise_due(ctx)?;
+            goals::overdue(ctx)?;
+            goals::advance(ctx)?;
             plans::note_main(ctx)?;
             Ok(())
         });
@@ -766,6 +768,10 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
     let key = launch.to_owned();
     // An agent that started before its bot was registered has not read the notes: they go in front, once.
     let unread = bot.noted_launch.as_deref() != Some(key.as_str());
+    // A setting that cannot be read gets the strictest rules.
+    let auto = w.history.db().ok()
+        .and_then(|db| crate::bot_agent_settings::for_bot(&db, &bot.id).ok())
+        .map_or(crate::bot_agent_settings::Autonomy::Careful, |settings| settings.effective_autonomy());
     let mut text = if unread {
         let others = w
             .history
@@ -779,10 +785,23 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
                 &bot,
                 &others,
                 &super::command(),
-                w.fleet_authority().configured().is_ok()
+                w.fleet_authority().configured().is_ok(),
+                auto
             ),
             item.text
         )
+    // A session from before the standing operational approvals reads them once. A bot that does not ask at
+    // all is not given a list of when to ask.
+    } else if auto != crate::bot_agent_settings::Autonomy::Full && !w.history.db().is_ok_and(|db| {
+        db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM journal l JOIN journal t
+               ON t.id=l.id OR (t.core_id=l.core_id AND t.address=l.address AND t.created_ms=l.created_ms)
+             WHERE l.launch_key=?1 AND t.kind='task' AND t.state='sent' AND instr(t.text,?2)>0)",
+            params![key, crate::command_reviewer::OPERATIONAL_APPROVAL.trim()],
+            |row| row.get::<_, bool>(0),
+        ).unwrap_or(false)
+    }) {
+        format!("{}\n\n{}", crate::command_reviewer::OPERATIONAL_APPROVAL.trim(), item.text)
     } else {
         item.text.clone()
     };
@@ -903,7 +922,7 @@ async fn watch(w: &Workspace, seen: &mut Seen) {
                     "blocked",
                     format!("blocked:{key}:{}", agent.turn()),
                     format!(
-                        "{} {} is waiting at a prompt in its terminal ({}) and cannot go on by itself. A person has to answer the prompt.",
+                        "{} {} is waiting at a prompt in its terminal ({}) and cannot go on by itself. Read the prompt, then tell the person what it asks and which answer you recommend. A person has to answer the prompt.",
                         if helper { "A helper of the bot" } else { "The agent of the bot" },
                         notes::line(&bot),
                         agent.address

@@ -1512,6 +1512,81 @@ fn did_lines(said: &Value) -> Vec<String> {
         .collect()
 }
 
+// MARK: The AI programs, for an app on another machine
+
+/// What installs each program that npm carries. The others have an installer of their own, named in `how`.
+fn npm_package(id: &str) -> Option<&'static str> {
+    match id {
+        "codex" => Some("@openai/codex"),
+        "opencode" => Some("@opencode/cli"),
+        "gemini" => Some("@google/gemini-cli"),
+        _ => None,
+    }
+}
+
+/// The server's AI programs as `service status` lists them, with whether this server can install each.
+fn ai_inventory() -> Result<Value, Stop> {
+    let places = Places::from_env()?;
+    let folders = search_folders(&places.home);
+    let npm = find("npm", &folders).is_some();
+    let mut report = look(&places, &asked(std::iter::empty())?, &folders);
+    let mut programs = report["programs"].take();
+    for program in programs.as_array_mut().into_iter().flatten() {
+        let installable = npm && program["id"].as_str().and_then(npm_package).is_some();
+        program["can_install"] = json!(installable && program["installed"] == false);
+    }
+    Ok(json!({"programs": programs, "can_add_ai": true}))
+}
+
+fn ai_answer(result: Result<Value, Stop>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match result {
+        Ok(view) => axum::Json(view).into_response(),
+        Err(stop) => (
+            axum::http::StatusCode::CONFLICT,
+            axum::Json(json!({"error": stop.message, "kind": stop.kind})),
+        )
+            .into_response(),
+    }
+}
+
+/// `GET /api/ais`: what `service status` says about the AI programs here. `POST /api/ais/{id}` registers one
+/// that is installed (`service add-ai`). `POST /api/ais/{id}/install` installs one npm carries, then registers
+/// it. Signing in stays with the person, in the program's own terminal.
+pub(crate) fn routes() -> axum::Router<crate::Workspace> {
+    use axum::routing::{get, post};
+    axum::Router::new()
+        .route("/api/ais", get(|| async { ai_answer(tokio::task::spawn_blocking(ai_inventory).await.unwrap_or_else(|_| Err(Stop::failed("The server could not look."))))}))
+        .route("/api/ais/{id}", post(|axum::extract::Path(id): axum::extract::Path<String>| async move {
+            ai_answer(tokio::task::spawn_blocking(move || {
+                let places = Places::from_env()?;
+                add_ai(&places, &id, &search_folders(&places.home))?;
+                ai_inventory()
+            }).await.unwrap_or_else(|_| Err(Stop::failed("The server could not add it."))))
+        }))
+        .route("/api/ais/{id}/install", post(|axum::extract::Path(id): axum::extract::Path<String>| async move {
+            ai_answer(tokio::task::spawn_blocking(move || {
+                let places = Places::from_env()?;
+                let folders = search_folders(&places.home);
+                let program = PROGRAMS.iter().find(|program| program.id == id)
+                    .ok_or_else(|| Stop::failed("Choose a supported AI program."))?;
+                if find(program.bin, &folders).is_none() {
+                    let (Some(package), Some(npm)) = (npm_package(&id), find("npm", &folders)) else {
+                        return Err(Stop::new("manual_install", program.how));
+                    };
+                    let ran = run_program(&npm, &["install".into(), "-g".into(), package.into()], &[], Duration::from_secs(600))
+                        .map_err(|_| Stop::failed(format!("npm could not install {package} within ten minutes.")))?;
+                    if !ran.ok {
+                        let why: String = ran.err.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("npm failed.").chars().take(300).collect();
+                        return Err(Stop::failed(format!("npm could not install {package}: {why}")));
+                    }
+                }
+                add_ai(&places, &id, &search_folders(&places.home))?;
+                ai_inventory()
+            }).await.unwrap_or_else(|_| Err(Stop::failed("The server could not install it."))))
+        }))
+}
+
 /// `swarmhub-herdr service status|install|remove`. (`run` is taken before this: it becomes the server.)
 pub(crate) async fn cli() -> Result<(), Failed> {
     let mut arguments = env::args_os().skip(2);
