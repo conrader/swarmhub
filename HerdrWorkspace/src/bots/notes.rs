@@ -55,23 +55,33 @@ pub(super) fn completion(cmd: &str, event: &super::completions::Completion) -> S
 pub(crate) fn asking(level: Autonomy) -> &'static str {
     match level {
         Autonomy::Careful => "- Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
-         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n\
+         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it, unless the standing operational approvals below cover it. Only their word for that exact action is a yes.\n\
          - When the person tells you not to ask about a kind of action, that is their yes for it from then on: do not ask about it again.\n",
         Autonomy::Balanced => "- Do what the person asks of you, to the end, without asking permission for its steps. Reading, inspecting, building, testing, editing and any change you can undo need no yes. Removing files that can be made again (caches, temporary files, build output, old logs) needs no yes when the task calls for it: say what you removed in your report. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
          - Ask the person and wait for their yes only before: deleting data that cannot be made again or restored (documents, databases, backups, repositories, mail), sending something out of this server to other people (email, posts, messages), paying or spending money, or deploying to production. Ask once, with what you recommend, and go on with the rest of the work meanwhile. Only their word for that exact action is a yes.\n\
          - When the person tells you not to ask about a kind of action, that is their yes for it from then on: do not ask about it again.\n\
          - Work nobody asked you for (something you noticed, something a note from SwarmHub tells you): look into it when looking only reads, then report what you found and what you recommend. Start changing it only with the person's yes.\n",
         Autonomy::Full => "- The person chose that you do not ask for permission. Do what they ask of you, to the end. Deleting, sending, spending and deploying that the task calls for are yours to decide and to do. After fixing a blocker, resume the task, verify the result and report back.\n\
-         - Say in your report what you did that cannot be undone. Stop and ask only when you would have to guess what the person wants. Never do what the person told you not to do.\n\
+         - Say in your report what you did that cannot be undone. Stop and ask only when you would have to guess what the person wants. Never do what the person told you not to do. This replaces any note that tells you to ask for consent.\n\
          - Work nobody asked you for (something you noticed, something a note from SwarmHub tells you): look into it, fix what is clearly broken and within your job, and report what you did.\n",
+    }
+}
+
+/// The standing operational approvals (`Resources/OperationalApprovals.txt`), for the levels that still ask:
+/// what routine operations need no question. A bot that does not ask at all needs no list of exceptions.
+pub(crate) fn approvals(level: Autonomy) -> String {
+    match level {
+        Autonomy::Full => String::new(),
+        _ => format!("- {}\n", crate::command_reviewer::OPERATIONAL_APPROVAL.trim()),
     }
 }
 
 /// What a bot whose level the person just changed is told at once: a session keeps the notes it started with.
 pub(crate) fn autonomy_changed(level: Autonomy) -> String {
     format!(
-        "{SERVER_LEAD} The person changed how much you ask before you act. These replace the earlier notes about asking, from now on:\n{}(The person did not write this now. Answer with one short sentence that says what changes.)",
-        asking(level)
+        "{SERVER_LEAD} The person changed how much you ask before you act. These replace the earlier notes about asking, from now on:\n{}{}(The person did not write this now. Answer with one short sentence that says what changes.)",
+        asking(level),
+        approvals(level)
     )
 }
 
@@ -79,8 +89,9 @@ pub(crate) fn autonomy_changed(level: Autonomy) -> String {
 pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool, level: Autonomy) -> String {
     let rules = asking(level);
     let mut note = format!(
-        "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n{rules}",
-        line(&bot.name)
+        "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n{rules}{}",
+        line(&bot.name),
+        approvals(level)
     );
     if bot.may_message {
         let others: Vec<String> = all
@@ -118,7 +129,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool
         note.push_str(&format!("\n- Queue fixture jobs with `{cmd} bot job submit KEY -`. Record reviews and reserve fixes with `bot job review -`. Escalate at the limit.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `bot completion ack JOB:ATTEMPT` and reuse its key.\n- File a park with `{cmd} bot park file ID -`."));
     }
     if bot.main && bot.takes_initiative {
-        note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Look into a note yourself first when looking only reads (a terminal, a status, a log); never ask whether you may look. Then tell the person briefly what you found and what you recommend. Start work that changes, sends, deletes or spends only with their yes.");
+        note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Look into a note yourself first when looking only reads (a terminal, a status, a log); never ask whether you may look. Apply standing approvals, coordinate one owner and report the verified result. Start other work that changes, sends, deletes or spends only with the person's yes.");
     }
     note
 }
@@ -309,7 +320,7 @@ pub(crate) fn main_note(lines: &[String]) -> String {
         note.push_str(line);
         note.push('\n');
     }
-    note.push_str("(Look into this first when looking only reads: a terminal, a status, a log. Do not ask whether you may look. Then tell the person in a short message what happened, what you found and what you recommend. Start work that changes, sends, deletes or spends only with their yes.)");
+    note.push_str("(Look into this first when looking only reads: a terminal, a status, a log. Do not ask whether you may look. Triage this alert under the standing approvals. Report the verified outcome or the specific decision still needed.)");
     note
 }
 
@@ -339,16 +350,21 @@ mod tests {
             .iter()
             .map(|name| testing::bot(&history, name))
             .collect();
-        let note = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Careful);
+        let note = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Balanced);
         assert!(note.starts_with("[SwarmHub notes for the bot \"Infra\"]"));
         for said in [
             "Do what the person asks of you",
-            "you only offer",
+            "Read-only inspection needs no additional consent",
             "resume the authorized task",
-            "wait for the person's yes",
-            "Before deleting anything, sending something out of this server",
+            "restore the affected service to its known working configuration",
+            "independent, complete, readable copy",
             "it needs no yes from the person",
-            "ask the person and wait for their yes",
+            "without asking permission for its steps",
+            "Removing files that can be made again",
+            "deleting data that cannot be made again or restored",
+            "sending something out of this server to other people",
+            "Ask once, with what you recommend",
+            "look into it when looking only reads",
             "\"Jarvis\", \"Shop\"",
             "swarmhub-herdr bot ask NAME",
             "swarmhub-herdr bot tell NAME",
@@ -366,28 +382,25 @@ mod tests {
             "a bot is not told to write to itself"
         );
         assert!(!note.contains("You are the main bot"));
-        assert!(note.len() < 2_450, "{} bytes", note.len());
-        // In Auto mode the bot finishes its task without asking about its steps; what cannot be taken back,
-        // leaves the server or costs money still waits for the person.
-        let auto = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Balanced);
+        assert!(note.len() < 3_900, "{} bytes", note.len());
+        assert!(!note.contains("Before deleting anything") && !note.contains("you only offer"));
+        // The careful level asks before deleting, sending, spending or deploying; the standing operational
+        // approvals are its only exceptions.
+        let careful = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Careful);
         for said in [
-            "without asking permission for its steps",
-            "Removing files that can be made again",
-            "deleting data that cannot be made again or restored",
-            "sending something out of this server to other people",
-            "Ask once, with what you recommend",
-            "look into it when looking only reads",
-            "swarmhub-herdr bot ask NAME",
+            "you only offer",
+            "wait for the person's yes",
+            "Before deleting anything, sending something out of this server",
+            "unless the standing operational approvals below cover it",
+            "Read-only inspection needs no additional consent",
         ] {
-            assert!(auto.contains(said), "{said}");
+            assert!(careful.contains(said), "{said}");
         }
-        assert!(!auto.contains("Before deleting anything") && !auto.contains("you only offer"));
-        assert!(auto.len() < 3_350, "{} bytes", auto.len());
         // Every level that still asks stops asking about what the person said not to ask about.
-        for asks in [&note, &auto] {
+        for asks in [&note, &careful] {
             assert!(asks.contains("tells you not to ask about a kind of action"));
         }
-        // The person can turn asking off altogether, and back on.
+        // The person can turn asking off altogether, and back on. Then no note tells the bot to ask.
         let full = standing(&all[1], &all, "swarmhub-herdr", true, Autonomy::Full);
         for said in [
             "The person chose that you do not ask for permission",
@@ -397,12 +410,12 @@ mod tests {
         ] {
             assert!(full.contains(said), "{said}");
         }
-        assert!(!full.contains("wait for their yes") && !full.contains("you only offer"));
+        assert!(!full.contains("wait for their yes") && !full.contains("you only offer") && !full.contains("Standing operational approvals"));
         let told = autonomy_changed(Autonomy::Full);
         assert!(told.starts_with("[From SwarmHub] The person changed how much you ask") && told.contains("do not ask for permission"));
         assert!(crate::core::validate_task(&note).is_ok());
-        let main = standing(&all[0], &all, "swarmhub-herdr", false, Autonomy::Careful);
-        assert!(main.contains("You are the main bot") && main.contains("never ask whether you may look"));
+        let main = standing(&all[0], &all, "swarmhub-herdr", false, Autonomy::Balanced);
+        assert!(main.contains("You are the main bot") && main.contains("never ask whether you may look") && main.contains("coordinate one owner"));
         // The switches take the commands away, not only the permission.
         let silent = Bot {
             may_message: false,
@@ -464,7 +477,8 @@ mod tests {
             stopped("Infra", 12, "ask", "was stopped by the person")
                 .contains("Do not write to Infra about this again")
         );
-        assert!(main_note(&["A helper stopped.".into()]).contains("Do not ask whether you may look."));
+        let alert = main_note(&["A helper stopped.".into()]);
+        assert!(alert.contains("Do not ask whether you may look.") && alert.contains("Triage this alert under the standing approvals"));
         let reminded = reminder("sh", "Jarvis", 12, "ask", Some(545));
         assert!(
             reminded.contains("the ask #12 from Jarvis is still open")

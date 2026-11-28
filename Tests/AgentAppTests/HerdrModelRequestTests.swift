@@ -213,7 +213,7 @@ private final class ModelBridge: @unchecked Sendable {
     let (store, jarvis, legal, infra, _) = modelStore()
     let server = store.herdrServer(for: jarvis)
     let backend = try store.herdrBackend(for: jarvis)
-    #expect(backend.notes.first?.note == HerdrModelRequest.brief && backend.launchInstructions?.contains(HerdrModelRequest.brief) == true)
+    #expect(backend.notes.contains { $0.note == HerdrModelRequest.brief } && backend.launchInstructions?.contains(HerdrModelRequest.brief) == true)
     #expect(try store.herdrBackend(for: legal).modelBrief == nil)
     for text in ["zmień wszystkie boty na astra 6.2", "set every bot to astra 6.2", "Astra 6.2"] {
         #expect(backend.managementReminder(for: text) == HerdrModelRequest.how)

@@ -2103,7 +2103,7 @@ mod tests {
         assert!(
             waiting[0]
                 .3
-                .contains("Start work that changes, sends, deletes or spends only with their yes.")
+                .contains("Triage this alert under the standing approvals.")
         );
         // At most one note in five minutes: what is flagged meanwhile waits and goes out together.
         testing::at(&history, NOON + 2_000, &set, |ctx| {

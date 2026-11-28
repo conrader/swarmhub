@@ -522,7 +522,7 @@ struct HerdrClient: Sendable {
 
     /// A first message must fit alongside the bot’s instructions and the app’s notes. Validate the byte budget
     /// before sending so the complete message reaches the agent.
-    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 6_700, taskBytes = 16_000
+    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 7_450, taskBytes = 16_000
 
     struct TaskFile: Sendable {
         static let maxBytes = 8 * 1024 * 1024
