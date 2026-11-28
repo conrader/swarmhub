@@ -9,37 +9,13 @@ struct InfoPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Text("Details").font(.headline).fixedSize().accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                if bot.backend == .herdr || (bot.sampleProfile != nil && store.openHerdrHelper?.native != nil) {
-                    Button {
-                        let target: LiveTerminal?
-                        if let native = store.openHerdrHelper?.native {
-                            store.previewInInspector(.init(server: native.server, target: LiveTerminal(thread: native.thread, owner: native.owner, core: native.core)))
-                            return
-                        }
-                        if let helper = store.openHerdrHelper, helper.botID == bot.id,
-                           let list = store.herdrHelpers[helper.parent],
-                           let child = list.helpers.first(where: { $0.id == helper.helperID }) {
-                            target = LiveTerminal(agent: child.ref, title: child.name, core: list.core)
-                        } else if store.openHerdrHelper == nil, let ref = store.herdrTerminalSession(for: bot) {
-                            target = LiveTerminal(agent: ref, title: bot.name)
-                        } else { target = nil }
-                        store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target))
-                    } label: {
-                        ViewThatFits(in: .horizontal) {
-                            Label("Terminal", systemImage: "terminal").fixedSize()
-                            Image(systemName: "terminal")
-                        }
-                    }.controlSize(.small).help("Show terminal in Details").accessibilityLabel("Show terminal in Details")
-                }
-                MoreInfoSections(tabs: Array(store.infoTabs(for: bot).dropFirst(3)), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
-                Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
+            HStack(spacing: 0) {
+                InfoTabBar(tabs: store.infoTabs(for: bot), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
                 CloseDetailsItem()
-            }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
-            Divider()
-            InfoTabBar(tabs: store.infoTabs(for: bot), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
+            }
+            .padding(.trailing, 10)
+            .frame(height: 54)
+            .windowDragStrip(probe: "details_header")
             Divider()
             if store.visibleInfoTab(for: bot) == .overview { identity }
             ScrollView {
@@ -52,8 +28,40 @@ struct InfoPanel: View {
                     }
                 }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
             }
+            Divider()
+            panelActions
         }.frame(minWidth: ChromeMetrics.infoWidth.min, idealWidth: ChromeMetrics.infoWidth.ideal, maxWidth: ChromeMetrics.infoWidth.max)
         .background(AppColor.panel)
+    }
+
+    private var panelActions: some View {
+        HStack(spacing: 8) {
+            if bot.backend == .herdr || (bot.sampleProfile != nil && store.openHerdrHelper?.native != nil) {
+                Button {
+                    let target: LiveTerminal?
+                    if let native = store.openHerdrHelper?.native {
+                        store.previewInInspector(.init(server: native.server, target: LiveTerminal(thread: native.thread, owner: native.owner, core: native.core)))
+                        return
+                    }
+                    if let helper = store.openHerdrHelper, helper.botID == bot.id,
+                       let list = store.herdrHelpers[helper.parent],
+                       let child = list.helpers.first(where: { $0.id == helper.helperID }) {
+                        target = LiveTerminal(agent: child.ref, title: child.name, core: list.core)
+                    } else if store.openHerdrHelper == nil, let ref = store.herdrTerminalSession(for: bot) {
+                        target = LiveTerminal(agent: ref, title: bot.name)
+                    } else { target = nil }
+                    store.previewInInspector(.init(server: store.herdrServer(for: bot), target: target))
+                } label: {
+                    ViewThatFits(in: .horizontal) {
+                        Label("Terminal", systemImage: "terminal").fixedSize()
+                        Image(systemName: "terminal")
+                    }
+                }.controlSize(.small).help("Show terminal in Details").accessibilityLabel("Show terminal in Details")
+            }
+            MoreInfoSections(tabs: Array(store.infoTabs(for: bot).dropFirst(3)), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
+            Spacer(minLength: 4)
+            Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
+        }.padding(.horizontal, 12).frame(height: 34)
     }
 
     @ViewBuilder private var panelContent: some View {

@@ -102,6 +102,7 @@ struct HelperChatGuidance: View {
 
 /// Show enough activity to follow a helper without pushing its answer offscreen.
 struct HelperChatSteps<Step, Row: View>: View {
+    @Environment(\.compactWorkspaceHeight) private var compactHeight
     let steps: [Step]
     let title: String
     let model: String?
@@ -123,7 +124,7 @@ struct HelperChatSteps<Step, Row: View>: View {
                     ForEach(steps.indices.suffix(showEarlier ? steps.count : 3), id: \.self) { index in
                         row(steps[index]).lineLimit(2)
                     }
-                }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.horizontal, 8).padding(.vertical, compactHeight ? 4 : 8).frame(maxWidth: .infinity, alignment: .leading)
             } label: {
                 HStack {
                     Text(title).font(.callout.weight(.semibold)).accessibilityAddTraits(.isHeader)

@@ -694,6 +694,16 @@ def sample_preview(source_app, destination, appearance, library):
                 actions = ["Steer via Jarvis"] + (["Stop helper"] if expected["canStop"] else [])
                 composer = next(e for e in descendants(window) if label(e) == "Message " + name and attribute(e, "AXRole") == "AXTextArea")
                 assert bounds(window)[0] < bounds(composer)[0] < bounds(composer)[1] <= bounds(window)[1]
+                if name == "rename":
+                    output = next(e for e in descendants(window) if attribute(e, "AXRole") == "AXStaticText"
+                                  and "14 call sites updated" in str(attribute(e, "AXValue") or ""))
+                    scroll = attribute(output, "AXParent")
+                    while scroll and attribute(scroll, "AXIdentifier") != "helper.chatTerminal":
+                        scroll = attribute(scroll, "AXParent")
+                    # The terminal excerpt and its final line must both fit above the fixed footer.
+                    assert scroll and bounds(output)[1] <= bounds(scroll)[1] + 1
+                    steer = next(b for b in buttons(window) if label(b) == "Steer via Jarvis")
+                    assert bounds(output)[1] < bounds(steer)[0], (bounds(output), bounds(steer))
                 for title in actions:
                     button = next(b for b in buttons(window) if label(b) == title)
                     assert bounds(window)[0] < bounds(button)[0] < bounds(button)[1] <= bounds(window)[1], title

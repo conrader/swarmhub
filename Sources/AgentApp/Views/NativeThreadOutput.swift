@@ -53,13 +53,13 @@ struct NativeThreadOutput: View {
             if let session {
                 VStack(spacing: 0) {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: compactHeight ? 8 : 14) {
                             if showDetails { cards(for: parent?.child ?? session) }
                             else { conversation(for: parent?.child ?? session) }
                             if !compactHeight { actionLayout }
                             errors
                         }.frame(maxWidth: showDetails ? .infinity : 720, alignment: .leading)
-                            .padding(18).frame(maxWidth: .infinity)
+                            .padding(.horizontal, 18).padding(.vertical, compactHeight ? 8 : 18).frame(maxWidth: .infinity)
                     }
                     if compactHeight {
                         CompactHelperFooter { actionLayout } composer: { composer }
