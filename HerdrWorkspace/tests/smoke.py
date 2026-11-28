@@ -267,7 +267,11 @@ for turn, line in enumerate(sys.stdin, start=1):
     if task.startswith("Routine: "):
         continue
     if task.startswith("When this run finishes, pipe a short outcome report to this command: "):
-        assert next(sys.stdin).startswith("Use failed instead of succeeded")
+        following = next(sys.stdin)
+        # The line about a published Page comes between the command and the failure instruction.
+        if following.startswith("For a Page you published"):
+            following = next(sys.stdin)
+        assert following.startswith("Use failed instead of succeeded")
         assert next(sys.stdin).strip() == ""
         task = next(sys.stdin).strip()
     if task.startswith("approval ") and approval:
@@ -1783,7 +1787,9 @@ def smoke(hc, bridge, chrome=None):
                     url = "/api/bot-agent-settings/" + owner
                     assert request(url) == {"choice": None, "auto_mode": True, "review_every_tool": False,
                                             "auto_changed_ms": None, "command_reviewer": "off",
-                                            "reviewer_bot_id": None, "reviewer_bots": []}
+                                            "reviewer_bot_id": None, "reviewer_bots": [],
+                                            "document_read_only": False, "session_cap_cents": None,
+                                            "autonomy": None}
                     assert request(url, {"choice": chosen, "existing_agents": ["group-legacy"]})["choice"] == chosen
                     request(url, {"choice": {"template": "missing", "model": "x"}}, status=422)
                     assert request(url)["choice"] == chosen
