@@ -222,6 +222,8 @@ class ChildScenario:
                 running = request(activity + query)
                 assert running["details"]["terminal"]["output"].strip() == "Child workspace fixture", running
                 assert running["details"]["terminal"]["command"] == "cat " + shlex.quote(str(self.sample))
+                assert any(row["id"] == child and row.get("sidebar_summary") == "Shell command"
+                           for row in request(route)["claude_threads"])
                 shell = next(s for s in running["details"]["steps"] if s["text"].startswith("Bash "))
                 assert 0 < shell["started_ms"] <= shell["completed_ms"], shell
                 assert "Read" in running["transcript"] and "sidebar.txt" in running["transcript"], running
