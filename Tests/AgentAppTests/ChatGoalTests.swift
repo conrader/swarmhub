@@ -590,3 +590,54 @@ extension ChatGoalTests {
         try await waitUntil { bot.goal?.state == .completed }
     }
 }
+
+extension ChatGoalTests {
+    @MainActor @Test func backgroundMeasurementChecksPausedGoalOnceWithoutResumingCleanup() async throws {
+        let backend = GoalBackend(), store = goalStore(backend)
+        let bot = addGoalBot(store, "Infra")
+        let destination = store.goalDestination(for: bot)
+        let journal = ["herdrJournal": destination.serverID + ":3811", "herdrTeamEntry": destination.serverID + ":3289"]
+        let objective = "zrobic 20 GB wolnego na OVH"
+        #expect(store.handleGoalCommand(.start(objective), in: bot) == nil)
+        try await waitUntil { await backend.requests.count == 1 }
+        let first = try #require(bot.goal?.attempt)
+        try await backend.report(.blocked, "Waiting for helper setup.", for: first, step: 0)
+        try await waitUntil { bot.goal?.state == .waiting }
+        let text = "**Cel 20 GB na OVH osiągnięty.** Dwa pomiary partycji / potwierdziły wynik. O 22:06 było 24,44 GB wolnego."
+        let row = ChatMessage(role: .assistant, content: text, metadata: journal)
+        bot.messages.append(row)
+        #expect(!store.checkReportedCompletion(in: bot, reply: ChatMessage(role: .system, content: text, metadata: journal)))
+        #expect(!store.checkReportedCompletion(in: bot, reply: ChatMessage(role: .assistant, content: "Cel 2 GB na OVH osiągnięty.", metadata: journal)))
+        #expect(!store.checkReportedCompletion(in: bot, reply: ChatMessage(role: .assistant, content: text, createdAt: .distantPast, metadata: journal)))
+        #expect(store.checkReportedCompletion(in: bot, reply: row))
+        #expect(!store.checkReportedCompletion(in: bot, reply: row))
+        store.sendQueuedNextMessage()
+        try await waitUntil { await backend.requests.count == 2 }
+        let check = try #require(await backend.requests.last?.messages.last?.content)
+        #expect(check.contains("Read-only goal verification") && check.contains(objective))
+        #expect(check.contains("24,44 GB") && check.contains("verified earlier crossing"))
+        #expect(!check.contains("Take the largest useful authorized action"))
+        let token = try #require(bot.goal?.attempt)
+        let complete = ChatGoal.Report(iteration: token, outcome: .complete, evidence: "df on OVH / reports 24.44 GB free.",
+            measurement: .init(unit: "GB", direction: .increase, target: 20, before: 24.44, after: 24.44))
+        await backend.emit(.replace(String(decoding: try JSONEncoder().encode(complete), as: UTF8.self)), step: 1)
+        await backend.end(1)
+        try await waitUntil { bot.goal?.state == .completed }
+        #expect(!store.checkReportedCompletion(in: bot, reply: row))
+        var stopped = try #require(bot.goal)
+        stopped.stop()
+        bot.goal = stopped
+        #expect(!store.checkReportedCompletion(in: bot, reply: row))
+    }
+
+    @MainActor @Test func anInconclusiveCompletionCheckReturnsToWaiting() throws {
+        let store = goalStore(GoalBackend()), bot = addGoalBot(store, "Infra")
+        var goal = ChatGoal(objective: "Get 20 GB free on OVH", destination: store.goalDestination(for: bot))
+        goal.completionObservation = .init(reportedAt: .now, excerpt: "Goal 20 GB reached.")
+        let token = goal.begin()
+        let short = ChatGoal.Report(iteration: token, outcome: .complete, evidence: "Only 19 GB free.",
+            measurement: .init(unit: "GB", direction: .increase, target: 20, before: 19, after: 19))
+        #expect(goal.finish(short).outcome == .blocked)
+        #expect(goal.state == .waiting && goal.completionObservation == nil)
+    }
+}

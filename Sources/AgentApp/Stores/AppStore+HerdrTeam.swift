@@ -162,7 +162,7 @@ extension AppStore {
         var selectedRead = cursor
         repeat {
             let page: HerdrClient.TeamPage = try await client.get("/api/bots/history?after=\(cursor)&limit=200")
-            var changed = false, held = false
+            var changed = false, held = false, goalCheck = false
             let before = cursor
             for item in page.items {
                 if let bot = bots.first(where: { $0.id.uuidString.lowercased() == item.bot && $0.backend == .herdr && herdrServer(for: $0) == server }) {
@@ -201,6 +201,7 @@ extension AppStore {
                         TranscriptHistory.insert(row, into: &bot.messages, server: server.id, entry: item.id,
                             followup: followup, journal: item.journal, receivedAt: now())
                         bot.recoverGoalResult(in: row)
+                        if checkReportedCompletion(in: bot, reply: row) { goalCheck = true }
                         if item.unread, !row.isSilent, !showsDirectChat(bot) { bot.unreadCount += 1 }
                         if item.notify { notifyIfNeeded(bot: bot, message: row.content) }
                         if item.kind == "said", !followup, createsHerdrBots(bot) { herdrReplyEnded(row, from: bot, finished: true) }
@@ -213,6 +214,7 @@ extension AppStore {
             if changed || turns.saveFailing { save() }
             guard !turns.saveFailing else { return }
             if cursor != before { defaults.set(cursor, forKey: key) }
+            if goalCheck { sendQueuedNextMessage() }
             if held || !page.more || cursor != page.items.last?.id { break }
         } while !Task.isCancelled
         let readThrough = max(cursor, selectedRead)
