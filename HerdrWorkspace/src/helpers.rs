@@ -424,6 +424,7 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
     let core_id = registered(w, &key).await?;
     let agents = w.core.agents().await.map_err(explain)?;
     let mut helpers = stored(views(&w.history, &core_id, &key, &agents, READ_REPLY_CHARS, RECENT_LAUNCHES))?;
+    for helper in &mut helpers { stored(helper.refresh_activity(&w.drafts))?; }
     let find = |helpers: &[View], name: &str| {
         helpers
             .iter()
@@ -850,9 +851,7 @@ pub(crate) async fn listing(
     if !helpers.is_empty() {
         let catalog = crate::runtimes::Catalog::load(w.history.file());
         for helper in &mut helpers {
-            if helper.live() && helper.working() {
-                helper.sidebar_summary = w.drafts.sidebar_summary(&helper.launch_key, helper.task_at_ms)?;
-            }
+            helper.refresh_activity(&w.drafts)?;
             helper.open_task = Some(helper.working());
             helper.model_label = catalog.model_label(&helper.template, &helper.model);
         }
