@@ -50,11 +50,19 @@ pub(super) fn completion(cmd: &str, event: &super::completions::Completion) -> S
 }
 
 /// What a bot's agent reads once, with its first task: how to behave towards the person, and the commands.
-pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool) -> String {
+/// `auto`: the bot's Auto mode. There the person chose a bot that finishes its task without asking about its
+/// steps, so only what cannot be taken back, leaves the server or costs money still waits for their yes.
+pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool, auto: bool) -> String {
+    let rules = if auto {
+        "- Do what the person asks of you, to the end, without asking permission for its steps. Reading, inspecting, building, testing, editing and any change you can undo need no yes. Removing files that can be made again (caches, temporary files, build output, old logs) needs no yes when the task calls for it: say what you removed in your report. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
+         - Ask the person and wait for their yes only before: deleting data that cannot be made again or restored (documents, databases, backups, repositories, mail), sending something out of this server to other people (email, posts, messages), paying or spending money, or deploying to production. Ask once, with what you recommend, and go on with the rest of the work meanwhile. Only their word for that exact action is a yes.\n\
+         - Work nobody asked you for (something you noticed, something a note from SwarmHub tells you): look into it when looking only reads, then report what you found and what you recommend. Start changing it only with the person's yes.\n"
+    } else {
+        "- Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
+         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n"
+    };
     let mut note = format!(
-        "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n\
-         - Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
-         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n",
+        "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n{rules}",
         line(&bot.name)
     );
     if bot.may_message {
@@ -261,6 +269,14 @@ pub(crate) fn checkin(
     }
 }
 
+/// The same check-in a second time, after the first got no answer or did not arrive.
+pub(crate) fn checkin_again(first: &str, typed: bool) -> String {
+    format!(
+        "{first}\n(Second try: {}. If you already did this, say the outcome now and do not do it twice.)",
+        if typed { "the first one got no answer" } else { "the first one did not reach you" }
+    )
+}
+
 pub(crate) fn promise(cmd: &str, id: i64, what: &str, due_ms: i64, zone: chrono_tz::Tz) -> String {
     format!(
         "{SERVER_LEAD} Your promise #{id} was due at {}: {what}\n\
@@ -306,7 +322,7 @@ mod tests {
             .iter()
             .map(|name| testing::bot(&history, name))
             .collect();
-        let note = standing(&all[1], &all, "swarmhub-herdr", true);
+        let note = standing(&all[1], &all, "swarmhub-herdr", true, false);
         assert!(note.starts_with("[SwarmHub notes for the bot \"Infra\"]"));
         for said in [
             "Do what the person asks of you",
@@ -334,8 +350,24 @@ mod tests {
         );
         assert!(!note.contains("You are the main bot"));
         assert!(note.len() < 2_300, "{} bytes", note.len());
+        // In Auto mode the bot finishes its task without asking about its steps; what cannot be taken back,
+        // leaves the server or costs money still waits for the person.
+        let auto = standing(&all[1], &all, "swarmhub-herdr", true, true);
+        for said in [
+            "without asking permission for its steps",
+            "Removing files that can be made again",
+            "deleting data that cannot be made again or restored",
+            "sending something out of this server to other people",
+            "Ask once, with what you recommend",
+            "look into it when looking only reads",
+            "swarmhub-herdr bot ask NAME",
+        ] {
+            assert!(auto.contains(said), "{said}");
+        }
+        assert!(!auto.contains("Before deleting anything") && !auto.contains("you only offer"));
+        assert!(auto.len() < 3_200, "{} bytes", auto.len());
         assert!(crate::core::validate_task(&note).is_ok());
-        let main = standing(&all[0], &all, "swarmhub-herdr", false);
+        let main = standing(&all[0], &all, "swarmhub-herdr", false, false);
         assert!(main.contains("You are the main bot") && main.contains("never ask whether you may look"));
         // The switches take the commands away, not only the permission.
         let silent = Bot {
@@ -343,7 +375,7 @@ mod tests {
             takes_initiative: false,
             ..all[0].clone()
         };
-        let note = standing(&silent, &all, "swarmhub-herdr", false);
+        let note = standing(&silent, &all, "swarmhub-herdr", false, false);
         assert!(note.contains("do not write to other bots, ask the person instead"));
         assert!(!note.contains("bot ask") && !note.contains("checkin in"));
         assert!(!note.contains("You are the main bot"));
@@ -352,7 +384,7 @@ mod tests {
             takes_messages: false,
             ..all[2].clone()
         };
-        let note = standing(&all[1], &[all[0].clone(), all[1].clone(), closed], "x", false);
+        let note = standing(&all[1], &[all[0].clone(), all[1].clone(), closed], "x", false, false);
         assert!(note.contains("\"Jarvis\"") && !note.contains("\"Shop\""));
     }
 

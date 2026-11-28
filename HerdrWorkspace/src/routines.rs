@@ -379,6 +379,8 @@ pub struct Dispatch {
     pub routine: Routine,
     pub run: i64,
     pub event: Option<String>,
+    /// A scheduled run waits for an agent that is busy. A test and a webhook event are answered at once.
+    pub waits_for_agent: bool,
 }
 
 pub enum HookRun {
@@ -629,6 +631,7 @@ impl History {
             routine,
             run,
             event: None,
+            waits_for_agent: false,
         }))
     }
 
@@ -790,6 +793,7 @@ impl History {
             routine,
             run,
             event,
+            waits_for_agent: false,
         })))
     }
 
@@ -870,6 +874,7 @@ impl History {
             routine,
             run,
             event,
+            waits_for_agent: false,
         })))
     }
 
@@ -1098,6 +1103,7 @@ pub(crate) fn claim_schedule(db: &mut Connection, at: i64) -> Result<Vec<Dispatc
                 routine,
                 run,
                 event: None,
+                waits_for_agent: true,
             });
         }
     }

@@ -513,13 +513,14 @@ pub(crate) fn fire_due(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
     Ok(fired)
 }
 
-/// A check-in that fired and got no answer, or could not be typed at all, leaves a line for the person: always
-/// for a one-off, and for a recurring one the first time in a row.
+/// A check-in that fired and got no answer, or could not be typed at all, is tried once more. When the second
+/// try ends the same way it leaves a line for the person (always for a one-off, and for a recurring one the
+/// first time in a row) and a flag for the main bot, which can look at the agent's terminal.
 pub(crate) fn unanswered(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
-    let late: Vec<(i64, String, i64, String, Option<String>)> = ctx
+    let late: Vec<(i64, String, i64, String, Option<String>, String, bool)> = ctx
         .db
         .prepare_cached(
-            "SELECT o.id,o.bot,o.checkin,o.state,o.detail FROM bot_outbox o
+            "SELECT o.id,o.bot,o.checkin,o.state,o.detail,o.text,o.quiet FROM bot_outbox o
              WHERE o.cause='checkin' AND o.outcome IS NULL
                AND (o.state IN ('failed','dropped')
                     OR (o.state IN ('typed','typing') AND coalesce(o.typed_ms,o.created_ms)<=?1))
@@ -532,10 +533,12 @@ pub(crate) fn unanswered(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
                 row.get(2)?,
                 row.get(3)?,
                 row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
             ))
         })?
         .collect::<Result<_, _>>()?;
-    for (outbox, bot, id, state, detail) in &late {
+    for (outbox, bot, id, state, detail, text, quiet) in &late {
         let typed = matches!(state.as_str(), "typed" | "typing");
         let outcome = if typed { "no_answer" } else { "not_delivered" };
         ctx.db.execute(
@@ -553,25 +556,57 @@ pub(crate) fn unanswered(ctx: &Ctx<'_>) -> rusqlite::Result<usize> {
         let Some((what, schedule, fired, before)) = found else {
             continue;
         };
+        // The first miss of a firing is tried once more before anyone is told: a session that was replaced
+        // or was stuck when the first one came often answers the second.
+        let tries: i64 = ctx.db.query_row(
+            "SELECT count(*) FROM bot_outbox WHERE cause='checkin' AND checkin=?1 AND created_ms>=?2",
+            params![id, fired.unwrap_or(0)],
+            |row| row.get(0),
+        )?;
+        if tries < 2 && super::one(ctx.db, bot)?.is_some_and(|bot| bot.takes_initiative) {
+            post(
+                ctx,
+                Post {
+                    bot,
+                    text: &notes::checkin_again(text, typed),
+                    cause: "checkin",
+                    checkin: Some(*id),
+                    quiet: *quiet,
+                    ..Post::default()
+                },
+            )?;
+            continue;
+        }
         ctx.db.execute(
             "UPDATE bot_checkins SET last_outcome=?2 WHERE id=?1",
             params![id, outcome],
+        )?;
+        let again = if tries >= 2 { ", also on a second try" } else { "" };
+        let name = notes::line(&super::name_of(ctx.db, bot));
+        // At most one flag a day for a check-in, so a recurring one that keeps failing does not fill the notes.
+        flag(
+            ctx,
+            "checkin",
+            &format!("checkin:{id}:{}", ctx.now / 86_400_000),
+            &format!(
+                "The check-in \"{}\" of the bot {name} got no answer{again}. Read {name}'s terminal for what its agent is doing or waiting on.",
+                one_line(&what, 160)
+            ),
         )?;
         let recurring = serde_json::from_str::<Schedule>(&schedule).is_ok_and(|s| s.recurring());
         if recurring && matches!(before.as_deref(), Some("no_answer" | "not_delivered")) {
             continue;
         }
-        let name = notes::line(&super::name_of(ctx.db, bot));
         let at = notes::clock(fired.unwrap_or(ctx.now), ctx.zone);
         let line = if typed {
             format!(
-                "The check-in \"{}\" fired at {at}, but {name}'s agent gave no answer within {}.",
+                "The check-in \"{}\" fired at {at}, but {name}'s agent gave no answer within {}{again}.",
                 one_line(&what, 160),
                 notes::span(ctx.set.checkin_answer_seconds)
             )
         } else {
             format!(
-                "The check-in \"{}\" was due at {at}, but it did not reach {name}'s agent: {}",
+                "The check-in \"{}\" was due at {at}, but it did not reach {name}'s agent{again}: {}",
                 one_line(&what, 160),
                 detail.as_deref().unwrap_or("it could not be typed.")
             )
@@ -1499,8 +1534,23 @@ mod tests {
             testing::at(&history, NOON + 86 * MINUTE, &set, unanswered),
             1
         );
+        // The first miss is tried once more, and nobody is told yet.
+        assert!(notices(&history, "Jarvis").is_empty());
+        let (again, _, cause, text, _) = outbox(&history).pop().unwrap();
+        assert!(cause == "checkin" && text.contains("Check the backup.") && text.contains("Second try: the first one got no answer"));
+        testing::at(&history, NOON + 87 * MINUTE, &set, |ctx| {
+            rules::typed(ctx, again)
+        });
         assert_eq!(
-            testing::at(&history, NOON + 87 * MINUTE, &set, unanswered),
+            testing::at(&history, NOON + 101 * MINUTE, &set, unanswered),
+            0
+        );
+        assert_eq!(
+            testing::at(&history, NOON + 102 * MINUTE, &set, unanswered),
+            1
+        );
+        assert_eq!(
+            testing::at(&history, NOON + 103 * MINUTE, &set, unanswered),
             0,
             "said once"
         );
@@ -1509,8 +1559,12 @@ mod tests {
         assert_eq!(lines[0].0.as_deref(), Some("checkin_unanswered"));
         assert_eq!(
             lines[0].1,
-            "The check-in \"Check the backup.\" fired at 16 Nov 13:10, but Jarvis's agent gave no answer within 15 minutes."
+            "The check-in \"Check the backup.\" fired at 16 Nov 13:10, but Jarvis's agent gave no answer within 15 minutes, also on a second try."
         );
+        // The main bot is told once, so it can read the terminal.
+        let flagged: String = history.db().unwrap()
+            .query_row("SELECT text FROM bot_flags WHERE kind='checkin'", [], |row| row.get(0)).unwrap();
+        assert!(flagged.contains("Check the backup.") && flagged.contains("Read Jarvis's terminal"));
         assert!(lines[0].2 && lines[0].3);
         assert_eq!(
             checkins(&history.db().unwrap(), Some("jarvis-id"), true)
@@ -1541,10 +1595,20 @@ mod tests {
             testing::at(&history, NOON + 131 * MINUTE, &set, unanswered),
             1
         );
+        assert_eq!(notices(&history, "Jarvis").len(), 1, "a second try comes first");
+        let (again, _, _, text, _) = outbox(&history).pop().unwrap();
+        assert!(text.contains("Second try: the first one did not reach you"));
+        testing::at(&history, NOON + 132 * MINUTE, &set, |ctx| {
+            rules::untyped(ctx, again, "its agent could not be started.")
+        });
+        assert_eq!(
+            testing::at(&history, NOON + 132 * MINUTE, &set, unanswered),
+            1
+        );
         assert!(
             notices(&history, "Jarvis")[1]
                 .1
-                .contains("did not reach Jarvis's agent: its agent could not be started.")
+                .contains("did not reach Jarvis's agent, also on a second try: its agent could not be started.")
         );
     }
 
@@ -1682,6 +1746,45 @@ mod tests {
         assert_eq!(
             checkins(&history.db().unwrap(), Some("jarvis-id"), false).unwrap()[0].next_ms,
             Some(NOON + 610 * MINUTE)
+        );
+    }
+
+    #[test]
+    fn a_late_answer_to_the_first_try_takes_back_the_second() {
+        let (_scratch, history) = testing::journal(&["Jarvis"]);
+        let set = utc();
+        let key = testing::session(&history, "Jarvis", "t7");
+        crate::history::publish_reply(history.file(), &key, "Agent", "Hello.", None).unwrap();
+        planned(&history, NOON, &set, "Jarvis", When::In { seconds: 600 }, "Check the backup.").unwrap();
+        let terminal: crate::core::Terminal = serde_json::from_value(serde_json::json!({
+            "address":"t7","name":"jarvis-jarvis","state":"live","status":null,"template":"fixture","created_ms":42,
+            "exit_code":null,"reason":null,"first_message":null,"labels":{"swarmhub.workspace":"agent","swarmhub.launch":key}
+        })).unwrap();
+        let jarvis = testing::bot(&history, "Jarvis");
+        assert_eq!(testing::at(&history, NOON + 10 * MINUTE, &set, fire_due), 1);
+        let (id, _, _, text, _) = outbox(&history).pop().unwrap();
+        let (task, _) = history.start_task("core", &terminal, &text, None, false, &[]).unwrap();
+        history.finish(task, crate::history::State::Sent, None, None).unwrap();
+        history.db().unwrap()
+            .execute("UPDATE bot_outbox SET task=?1 WHERE id=?2", params![task, id]).unwrap();
+        testing::at(&history, NOON + 10 * MINUTE, &set, |ctx| rules::typed(ctx, id));
+        // The agent is still on it after fifteen minutes: a second try is queued.
+        assert_eq!(testing::at(&history, NOON + 26 * MINUTE, &set, unanswered), 1);
+        assert_eq!(outbox(&history).len(), 1);
+        // Its answer to the first try arrives before the second was typed.
+        let answer = "The backup is complete.";
+        crate::history::publish_reply(history.file(), &key, "Agent", answer, None).unwrap();
+        let reply: i64 = history.db().unwrap()
+            .query_row("SELECT max(id) FROM journal", [], |row| row.get(0)).unwrap();
+        testing::at(&history, NOON + 27 * MINUTE, &set, |ctx| {
+            rules::on_reply(ctx, &jarvis, &key, reply, answer)
+        });
+        assert!(outbox(&history).is_empty(), "the second try is taken back");
+        assert_eq!(testing::at(&history, NOON + 600 * MINUTE, &set, unanswered), 0);
+        assert!(notices(&history, "Jarvis").is_empty());
+        assert_eq!(
+            checkins(&history.db().unwrap(), Some("jarvis-id"), true).unwrap()[0].last_outcome.as_deref(),
+            Some("reported")
         );
     }
 

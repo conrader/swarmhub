@@ -611,6 +611,7 @@ pub(crate) fn spawn(w: Workspace, dispatch: Dispatch) {
             &dispatch.routine,
             dispatch.run,
             dispatch.event.as_deref(),
+            dispatch.waits_for_agent,
         )
         .await;
         let saved = tokio::task::spawn_blocking(move || {
@@ -642,7 +643,11 @@ fn undelivered(state: &'static str, detail: impl Into<String>) -> Settlement {
     }
 }
 
-async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>) -> Settlement {
+/// How long a due run waits for an agent that is working or at a prompt, and how often it looks.
+const BUSY_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
+const BUSY_POLL: std::time::Duration = std::time::Duration::from_secs(10);
+
+async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>, patient: bool) -> Settlement {
     match w.core.identify().await {
         Ok(hello) if hello.core.id == item.core => (),
         Ok(_) => {
@@ -655,6 +660,30 @@ async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>) -
             return undelivered("not_sent", "Cannot reach a compatible Herdr Core.");
         }
     };
+    // A scheduled run that comes due while the agent is busy waits for it instead of being lost: most
+    // turns end within minutes. The turn lock is taken only once the agent looks free, so chat is never held up.
+    let waited = std::time::Instant::now();
+    while patient {
+        match w.core.agent(&item.target.address, item.target.created_ms).await {
+            Ok(agent) if agent.require_live().is_ok() => {
+                let busy = agent.status.as_ref().map(|status| status.state.as_str())
+                    .filter(|state| matches!(*state, "working" | "blocked"));
+                let Some(state) = busy else { break };
+                if waited.elapsed() >= BUSY_WAIT {
+                    return undelivered("skipped", format!(
+                        "The agent still reported {state} after {} minutes.", BUSY_WAIT.as_secs() / 60
+                    ));
+                }
+            }
+            _ => {
+                return undelivered(
+                    "not_sent",
+                    "The routine's agent session is no longer running.",
+                );
+            }
+        }
+        tokio::time::sleep(BUSY_POLL).await;
+    }
     let _turn = crate::task_turn(w, &item.target.address, item.target.created_ms).await;
     let agent = match w
         .core
@@ -669,6 +698,7 @@ async fn deliver(w: &Workspace, item: &Routine, run: i64, event: Option<&str>) -
             );
         }
     };
+    // It can have started a turn between the last look and the lock.
     if let Some(status) = &agent.status
         && matches!(status.state.as_str(), "working" | "blocked")
     {

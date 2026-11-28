@@ -312,10 +312,21 @@ struct ChatGoal: Codable, Equatable {
         attempt = nil
         state = .waiting
         detail = reason
+        resumesWhenClear = nil
+    }
+
+    /// Set while the goal waits only for a workspace prompt that was on screen before a step was sent.
+    /// Nothing reached the agent, so the goal goes on by itself once the prompt is gone.
+    var resumesWhenClear: Bool?
+
+    mutating func waitForPrompt() {
+        wait("Waiting for the workspace prompt. The goal goes on when it is answered.")
+        resumesWhenClear = true
     }
 
     mutating func resume() {
         guard state == .waiting else { return }
+        resumesWhenClear = nil
         completionObservation = nil
         state = .queued
         stalls = 0

@@ -773,13 +773,18 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
             .ok()
             .and_then(|db| super::all(&db).ok())
             .unwrap_or_default();
+        // A setting that cannot be read is treated as Auto off: the stricter rules.
+        let auto = w.history.db().ok()
+            .and_then(|db| crate::bot_agent_settings::for_bot(&db, &bot.id).ok())
+            .is_some_and(|settings| settings.auto_mode);
         format!(
             "{}\n\n{}",
             notes::standing(
                 &bot,
                 &others,
                 &super::command(),
-                w.fleet_authority().configured().is_ok()
+                w.fleet_authority().configured().is_ok(),
+                auto
             ),
             item.text
         )

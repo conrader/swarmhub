@@ -493,7 +493,8 @@ extension ChatGoalTests {
         #expect(reopened.messages[3].turnState == .incomplete)
         #expect(reopened.messages[4].content == "Measurement finished.")
         #expect(reopened.messages[4].metadata[GoalKey.evidence] == "10 GB")
-        #expect(reopened.goal?.state == .waiting && reopened.goal?.detail.contains("10 GB") == true)
+        // Confirmed progress leaves the goal ready for its next step instead of waiting for Resume.
+        #expect(reopened.goal?.state == .queued && reopened.goal?.detail.contains("10 GB") == true)
     }
 
     @Test func helperChatTerminalShowsRecentLinesAndMasksProtectedAssignments() {

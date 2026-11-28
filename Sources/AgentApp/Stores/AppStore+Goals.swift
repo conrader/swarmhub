@@ -77,6 +77,16 @@ extension AppStore {
         if ownedTurn { stop(bot) }
     }
 
+    /// A step whose result was recovered after the app was closed can leave the goal ready for its next
+    /// step. Hand it to the normal dispatcher, which checks prompts, limits and budget before it sends.
+    func continueRecoveredGoal(in bot: Bot) {
+        guard let goal = bot.goal, goal.state == .queued, !turns.scheduledGoals.contains(goal.id),
+              unconfirmedReply(in: bot) == nil else { return }
+        turns.scheduledGoals.insert(goal.id)
+        save()
+        sendQueuedNextMessage()
+    }
+
     /// The status of a goal that has ended leaves the chat. `/goal status` still reports it.
     func dismissGoal(in bot: Bot) {
         guard let goal = bot.goal, !goal.state.active, goal.dismissed != true else { return }
@@ -86,7 +96,16 @@ extension AppStore {
 
     /// Called by the normal queue drain, after messages waiting for a slot had their turn.
     func dispatchQueuedGoals(checkedGoal: UUID? = nil, spend: ChatGoal.SpendReading? = nil) {
-        guard !turns.scheduledGoals.isEmpty, persistenceEnabled, storeRestoreOffer == nil else { return }
+        guard persistenceEnabled, storeRestoreOffer == nil else { return }
+        // A goal that paused only for a workspace prompt is scheduled again once the prompt is gone.
+        for bot in bots where bot.goal?.state == .waiting && bot.goal?.resumesWhenClear == true {
+            guard isIdle(bot), goalDestinationMatches(bot), !herdrWaits(bot).waits, herdrPrompts[bot.id] == nil,
+                  let id = bot.goal?.id else { continue }
+            bot.goal?.resume()
+            turns.scheduledGoals.insert(id)
+            save()
+        }
+        guard !turns.scheduledGoals.isEmpty else { return }
         for bot in bots {
             guard var goal = bot.goal, goal.state == .queued, turns.scheduledGoals.contains(goal.id),
                   isIdle(bot), turns.pendingInterrupts[bot.id] == nil, !hasWaitingTurn(in: bot), turnCapacityProblem(for: [bot]) == nil else { continue }
@@ -102,7 +121,7 @@ extension AppStore {
                 continue
             }
             guard !herdrWaits(bot).waits, herdrPrompts[bot.id] == nil else {
-                bot.goal?.wait("Resolve the workspace prompt, then resume the goal.")
+                bot.goal?.waitForPrompt()
                 save()
                 continue
             }
@@ -201,13 +220,7 @@ extension AppStore {
         } else if outcome.state != .finished {
             goal.wait(outcome.reason ?? "The iteration ended without a confirmed result. Check the workspace before resuming.")
         } else if let report = parsed?.report {
-            let needsAnswer = ChatCardParser.parseVisibleReply(row.content).contains {
-                switch $0 {
-                case .choices, .multiChoices, .draft, .pageDraft: true
-                default: false
-                }
-            } || ChatChoiceInference.options(in: row.content) != nil
-            if needsAnswer && report.outcome != .blocked {
+            if row.asksForAnswer && report.outcome != .blocked {
                 row.metadata[GoalKey.outcome] = ChatGoal.Report.Outcome.blocked.rawValue
                 goal.wait("Review the reply in this chat, then resume the goal.")
             } else {

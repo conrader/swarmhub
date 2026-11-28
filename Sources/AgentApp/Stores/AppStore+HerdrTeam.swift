@@ -201,6 +201,8 @@ extension AppStore {
                         TranscriptHistory.insert(row, into: &bot.messages, server: server.id, entry: item.id,
                             followup: followup, journal: item.journal, receivedAt: now())
                         bot.recoverGoalResult(in: row)
+                        if let goal = bot.goal, goal.state == .queued, unconfirmedReply(in: bot) == nil,
+                           turns.scheduledGoals.insert(goal.id).inserted { goalCheck = true }
                         if checkReportedCompletion(in: bot, reply: row) { goalCheck = true }
                         if item.unread, !row.isSilent, !showsDirectChat(bot) { bot.unreadCount += 1 }
                         if item.notify { notifyIfNeeded(bot: bot, message: row.content) }

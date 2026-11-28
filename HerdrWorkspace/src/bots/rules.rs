@@ -1357,6 +1357,14 @@ pub(crate) fn on_reply(
             "UPDATE bot_checkins SET last_outcome=?2 WHERE id=?1",
             params![checkin, if quiet { "quiet" } else { "reported" }],
         )?;
+        // The answer to a first try can arrive after its second try was queued. A second try is posted
+        // later than the firing it belongs to, which tells it from the next firing of a recurring check-in.
+        db.execute(
+            "UPDATE bot_outbox SET state='dropped',outcome='replied'
+             WHERE cause='checkin' AND checkin=?1 AND state='pending'
+               AND created_ms>(SELECT coalesce(last_fired_ms,0) FROM bot_checkins WHERE id=?1)",
+            [checkin],
+        )?;
     }
     if !ours || quiet || visible.is_empty() && blocks::blocks(text).is_empty() {
         return Ok(());

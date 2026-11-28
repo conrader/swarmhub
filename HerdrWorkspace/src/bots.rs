@@ -560,9 +560,10 @@ pub(crate) fn launch_note(
         return Ok(None);
     };
     let others = all(&db)?;
+    let auto = crate::bot_agent_settings::for_bot(&db, &bot.id)?.auto_mode;
     Ok(Some((
         bot.id.clone(),
-        notes::standing(&bot, &others, &command(), w.fleet_authority().configured().is_ok()),
+        notes::standing(&bot, &others, &command(), w.fleet_authority().configured().is_ok(), auto),
     )))
 }
 
