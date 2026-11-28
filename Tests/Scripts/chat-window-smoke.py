@@ -216,9 +216,11 @@ def open_workspace(app, home, address="http://127.0.0.1:1", token="", extra_envi
         def windows():
             return [window for window in attribute(application, "AXWindows") or ()
                     if attribute(window, "AXRole") == "AXWindow"]
-        running = lambda: NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
-        wait_for("private app launch", lambda: running() and running().isFinishedLaunching(), seconds=15)
-        running().activateWithOptions_(3)
+        def activate_once_launched():
+            instance = NSRunningApplication.runningApplicationWithProcessIdentifier_(process.pid)
+            return instance is not None and instance.isFinishedLaunching() and instance.activateWithOptions_(3)
+
+        wait_for("private app launch and activation", activate_once_launched, seconds=15)
         if not windows():
             # A direct executable launch can be running without an open-document event.
             subprocess.run(["open", "-a", str(app)], check=True)
