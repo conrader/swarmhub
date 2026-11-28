@@ -57,7 +57,23 @@ extension AppStore {
         return dated.map(\.chat)
     }
 
+    func openAndFocusComposer(_ helper: HerdrHelperSelection, of bot: Bot) {
+        let window = NSApp?.keyWindow
+        let leaving = openHerdrHelper == helper ? nil : window?.firstResponder as? NSTextView
+        open(bot, helper: helper, revealInSidebar: false)
+        composerFocus = nil
+        helperComposerFocus = steeringTarget(helper, of: bot)?.id
+        guard helperComposerFocus != nil else { composerKeyboard.cancel(); return }
+        composerKeyboard.begin(in: window, leavingEditor: leaving) { [weak self] in
+            self?.openHerdrHelper == helper && self?.showOnlyAttention == false
+        }
+    }
+
     func openAndFocusComposer(_ chat: SidebarChat) {
+        let window = NSApp?.keyWindow
+        let switching = openHerdrHelper != nil || openConversation?.id != chat.id
+        let leaving = switching ? window?.firstResponder as? NSTextView : nil
+        helperComposerFocus = nil
         open(chat)
         if case .bot(let bot) = chat, bot.isReadOnlyArchive {
             composerKeyboard.cancel()
@@ -65,7 +81,7 @@ extension AppStore {
         } else {
             let id = chat.id
             composerFocus = id
-            composerKeyboard.begin(in: NSApp?.keyWindow) { [weak self] in self?.openConversation?.id == id }
+            composerKeyboard.begin(in: window, leavingEditor: leaving) { [weak self] in self?.openConversation?.id == id && self?.openHerdrHelper == nil }
         }
     }
 

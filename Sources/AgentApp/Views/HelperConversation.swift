@@ -243,10 +243,15 @@ struct HelperChatComposer: View {
                     .accessibilityLabel("Send to " + target.name)
             }.padding(10).background(AppColor.card, in: RoundedRectangle(cornerRadius: 16))
         }.frame(maxWidth: 768).padding(.horizontal, compactHeight ? 0 : 18).padding(.vertical, compactHeight ? 0 : 8)
-            .task(id: target.id) {
+            .onChange(of: store.helperComposerFocus == target.id, initial: true) { _, requested in
+                if requested { focused = true }
+            }
+            .task(id: store.helperComposerFocus == target.id) {
                 await Task.yield()
                 guard !Task.isCancelled else { return }
+                guard store.openHerdrHelper == target.selection else { return }
                 focused = true
+                if store.helperComposerFocus == target.id { store.helperComposerFocus = nil }
             }
             .onChange(of: text) { _, value in
                 store.helperChatDrafts[target.id] = value.isEmpty ? nil : value

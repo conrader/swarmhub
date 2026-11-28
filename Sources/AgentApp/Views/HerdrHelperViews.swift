@@ -78,7 +78,7 @@ struct SidebarBotSessions<ParentRow: View>: View {
                             switch item {
                             case .workspace(let row):
                                 HerdrHelperRow(bot: bot, row: row, selected: !store.showOnlyAttention && store.openHerdrHelper == row.id) {
-                                    store.open(bot, helper: row.id, revealInSidebar: false)
+                                    store.openAndFocusComposer(row.id, of: bot)
                                 }
                             case .native(let row, let selection, _):
                                 SidebarNativeThread(bot: bot, row: row, selection: selection)
@@ -293,7 +293,7 @@ private struct SidebarNativeThread: View {
                                  folded: row.folded, toggleBranch: row.hasChildren ? { store.setNativeSessionFolded(!row.folded, target: row.id, for: bot) } : nil,
                                  accessibilityName: thread.provider.label + " agent " + thread.name + ", " + thread.statusLine,
                                  accessibilityDetail: summary, helpText: "Open session for " + thread.name,
-                                 open: { store.open(bot, helper: selection, revealInSidebar: false) },
+                                 open: { store.openAndFocusComposer(selection, of: bot) },
                                  glyph: { Image(systemName: icon).foregroundStyle(color) }, clock: { NativeThreadDuration(thread: thread) })
 
     }
