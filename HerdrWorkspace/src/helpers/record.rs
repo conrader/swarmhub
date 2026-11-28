@@ -50,6 +50,10 @@ pub(super) struct View {
     current_task: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) open_task: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) sidebar_summary: Option<String>,
+    #[serde(skip)]
+    pub(super) launch_key: String,
     started_ms: i64,
     /// `live` in the HTTP list. For the agent's commands also `finished`, `gone` (Core no longer has the
     /// terminal), `starting` (no terminal yet) and `failed` (it never got one).
@@ -63,7 +67,7 @@ pub(super) struct View {
     #[serde(skip)]
     delivered: bool,
     #[serde(skip)]
-    task_at_ms: i64,
+    pub(super) task_at_ms: i64,
     /// Why the launch failed, when Core said.
     #[serde(skip)]
     detail: Option<String>,
@@ -361,6 +365,8 @@ pub(super) fn views(
             task: row.get(5)?,
             current_task,
             open_task: None,
+            launch_key: key,
+            sidebar_summary: None,
             started_ms: row.get(6)?,
             state,
             status: terminal

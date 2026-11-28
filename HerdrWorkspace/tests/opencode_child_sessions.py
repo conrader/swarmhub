@@ -87,10 +87,12 @@ class ChildSession:
             assert progress["state"] == "working" and progress["details"]["reply"] == self.progress
             assert progress["details"]["terminal"]["command"] == self.command
             assert "expanded" in progress["details"]["terminal"]["output"]
+            assert child("working")["sidebar_summary"] == "Shell command"
             assert not child("working")["reply"]
             self.finish_answer.set()
             assert self.returned.wait(20)
             answered = until(lambda: child("answered"))
+            assert not answered.get("sidebar_summary")
             assert answered["reply"] == self.child_reply and answered["model"] == "fixture/default"
             history = f"/api/history/{core}/{agent['address']}/{agent['created_ms']}"
             replies = [i["text"] for i in request(history)["items"] if i["kind"] == "reply"]

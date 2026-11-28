@@ -25,6 +25,7 @@ extension HerdrClient {
         /// The latest follow-up when the workspace includes it. Older listings carry only the launch task.
         var currentTask: String? = nil
         var openTask: Bool? = nil
+        var sidebarSummary: String? = nil
         var assignment: String? { currentTask ?? task }
         /// `live`, `finished`, or `gone` when Core no longer has the terminal.
         let state: String

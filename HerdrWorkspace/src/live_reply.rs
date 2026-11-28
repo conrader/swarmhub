@@ -119,6 +119,10 @@ impl Drafts {
         self.0.changed.subscribe()
     }
 
+    pub(crate) fn sidebar_summary(&self, key: &str, since_ms: i64) -> Result<Option<String>, StoreError> {
+        Ok(self.lock().map_err(|_| StoreError)?.tools.sidebar_summary(key, since_ms))
+    }
+
     /// The same reading `/draft` returns for this launch.
     pub(crate) fn preview(&self, key: &str) -> Result<Preview, StoreError> {
         Ok(self.lock().map_err(|_| StoreError)?.preview(key))

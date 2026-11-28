@@ -58,6 +58,10 @@ pub(crate) fn capture() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut summary = serde_json::to_value(&child)?;
     if let Some(details) = activity.details {
+        if child.state == "working" && let Some(step) = details.steps.last() {
+            let (tool, path) = step.text.split_once(" · ").unwrap_or((&step.text, ""));
+            summary["sidebar_summary"] = crate::tool_activity::sidebar_label(tool, Some(path)).into();
+        }
         summary["details"] = serde_json::to_value(details)?;
     }
     summary["runtime"] = "opencode".into();

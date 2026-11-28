@@ -836,7 +836,10 @@ pub(crate) async fn listing(
     }
     if native_work && !owner_live {
         for thread in &mut threads {
-            if thread["state"] == "working" { thread["state"] = "stopped".into(); }
+            if thread["state"] == "working" {
+                thread["state"] = "stopped".into();
+                if let Some(fields) = thread.as_object_mut() { fields.remove("sidebar_summary"); }
+            }
         }
     }
     let mut helpers = if any {
@@ -847,6 +850,9 @@ pub(crate) async fn listing(
     if !helpers.is_empty() {
         let catalog = crate::runtimes::Catalog::load(w.history.file());
         for helper in &mut helpers {
+            if helper.live() && helper.working() {
+                helper.sidebar_summary = w.drafts.sidebar_summary(&helper.launch_key, helper.task_at_ms)?;
+            }
             helper.open_task = Some(helper.working());
             helper.model_label = catalog.model_label(&helper.template, &helper.model);
         }
