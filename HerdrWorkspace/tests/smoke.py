@@ -1747,6 +1747,10 @@ def smoke(hc, bridge, chrome=None):
                         subprocess.run(["node", str(Path(__file__).with_name("browser.mjs")), chrome, base, token, str(root)],
                                        check=True, timeout=45)
                     return
+                if selected_focus == "helper-working-status":
+                    from helper_working_status import exercise
+                    exercise(root, bridge, core_env, request, until)
+                    return
                 if selected_focus == "every-tool-review":
                     from every_tool_review import exercise
                     exercise(root, bridge, request, until)

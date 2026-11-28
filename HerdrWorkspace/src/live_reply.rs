@@ -119,8 +119,8 @@ impl Drafts {
         self.0.changed.subscribe()
     }
 
-    pub(crate) fn sidebar_summary(&self, key: &str, since_ms: i64) -> Result<Option<String>, StoreError> {
-        Ok(self.lock().map_err(|_| StoreError)?.tools.sidebar_summary(key, since_ms))
+    pub(crate) fn helper_activity(&self, key: &str, since_ms: i64) -> Result<Option<crate::tool_activity::HelperActivity>, StoreError> {
+        Ok(self.lock().map_err(|_| StoreError)?.tools.helper_activity(key, since_ms))
     }
 
     /// The same reading `/draft` returns for this launch.

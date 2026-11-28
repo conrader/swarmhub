@@ -170,6 +170,12 @@ pub(crate) struct Activity {
     last_seq: u64,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct HelperActivity {
+    pub label: String,
+    pub running: bool,
+}
+
 impl Activity {
     /// `now_ms` seeds `seq`, so numbers keep growing across a workspace restart.
     pub(crate) fn apply(&mut self, frame: Frame, now_ms: u64) {
@@ -246,11 +252,15 @@ impl Activity {
         })
     }
 
-    pub(crate) fn sidebar_summary(&self, key: &str, since_ms: i64) -> Option<String> {
-        let call = self.sessions.get(key)?.iter().rev().find(|c| {
-            c.at.elapsed() < KEEP && c.started_ms.or(c.completed_ms).is_some_and(|ms| ms >= since_ms.max(0) as u64)
-        })?;
-        Some(sidebar_label(&call.tool, call.detail.as_deref()))
+    pub(crate) fn helper_activity(&self, key: &str, since_ms: i64) -> Option<HelperActivity> {
+        let mut recent = self.sessions.get(key)?.iter().rev().filter(|call| {
+            call.at.elapsed() < KEEP && call.started_ms.or(call.completed_ms)
+                .is_some_and(|ms| ms >= since_ms.max(0) as u64)
+        });
+        let latest = recent.next()?;
+        // Hooks can overlap. A quick operation can finish while an older one still runs.
+        let call = if latest.finished { recent.find(|c| !c.finished).unwrap_or(latest) } else { latest };
+        Some(HelperActivity { label: sidebar_label(&call.tool, call.detail.as_deref()), running: !call.finished })
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -441,11 +451,17 @@ mod tests {
         let mut read = frame("started", "Read", Some("1"));
         read.activity.detail = Some("/tmp/project/CSVReaderTests.swift".into());
         activity.apply(read, 123);
-        assert_eq!(activity.sidebar_summary(KEY, 100).as_deref(), Some("Read · CSVReaderTests.swift"));
-        assert_eq!(activity.sidebar_summary("other", 100), None);
-        assert_eq!(activity.sidebar_summary(KEY, 124), None);
+        assert_eq!(activity.helper_activity(KEY, 100), Some(HelperActivity { label: "Read · CSVReaderTests.swift".into(), running: true }));
+        assert_eq!(activity.helper_activity("other", 100), None);
+        assert_eq!(activity.helper_activity(KEY, 124), None);
+        activity.apply(frame("started", "shell", Some("2")), 124);
+        assert_eq!(activity.helper_activity(KEY, 100).unwrap().label, "Shell command");
+        activity.apply(frame("finished", "shell", Some("2")), 125);
+        let busy = activity.helper_activity(KEY, 100).unwrap();
+        assert!(busy.running && busy.label == "Read · CSVReaderTests.swift");
         activity.apply(frame("finished", "Read", Some("1")), 130);
-        assert_eq!(activity.sidebar_summary(KEY, 124), None);
+        assert_eq!(activity.helper_activity(KEY, 126), None);
+        assert!(!activity.helper_activity(KEY, 100).unwrap().running);
         assert_eq!(sidebar_label("shell", Some("echo private-arguments")), "Shell command");
         assert_eq!(sidebar_label("unknown", Some("private-data")), "Tool call");
     }

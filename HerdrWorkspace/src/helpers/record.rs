@@ -53,7 +53,7 @@ pub(super) struct View {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) sidebar_summary: Option<String>,
     #[serde(skip)]
-    pub(super) launch_key: String,
+    launch_key: String,
     started_ms: i64,
     /// `live` in the HTTP list. For the agent's commands also `finished`, `gone` (Core no longer has the
     /// terminal), `starting` (no terminal yet) and `failed` (it never got one).
@@ -67,7 +67,7 @@ pub(super) struct View {
     #[serde(skip)]
     delivered: bool,
     #[serde(skip)]
-    pub(super) task_at_ms: i64,
+    task_at_ms: i64,
     /// Why the launch failed, when Core said.
     #[serde(skip)]
     detail: Option<String>,
@@ -76,6 +76,19 @@ pub(super) struct View {
 impl View {
     pub(super) fn live(&self) -> bool {
         self.state == "live"
+    }
+
+    pub(super) fn refresh_activity(&mut self, drafts: &crate::live_reply::Drafts) -> Result<(), StoreError> {
+        if !self.live() || !self.delivered || self.answered || matches!(self.status_word(), Some("blocked" | "error")) {
+            return Ok(());
+        }
+        if let Some(activity) = drafts.helper_activity(&self.launch_key, self.task_at_ms)? {
+            if activity.running && self.status_word() != Some("working") {
+                self.status = Some(core::Status { state: "working".into(), kind: None });
+            }
+            if self.working() { self.sidebar_summary = Some(activity.label); }
+        }
+        Ok(())
     }
 
     pub(super) fn answer_id(&self) -> Option<i64> {
