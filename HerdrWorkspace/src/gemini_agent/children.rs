@@ -511,7 +511,7 @@ mod tests {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         let record = |id: &str, status: &str| {
             json!({"toolCalls":[{"id":id,"name":"invoke_agent","status":status,
-            "timestamp":"2026-08-01T00:00:00Z","args":{"agent_name":"reader","prompt":id},"resultDisplay":{"result":if status=="success" {"answer"} else {""}}}]}).to_string()
+            "timestamp":"2026-08-01T00:00:00Z","args":{"agent_name":"reader","prompt":id},"resultDisplay":{"recentActivity":[{"type":"tool_call","displayName":"ReadFile","description":"private source path","status":"executing"}],"result":if status=="success" {"answer"} else {""}}}]}).to_string()
         };
         writeln!(file, "{}", record("old", "success")).unwrap();
         let baseline = file.as_file().metadata().unwrap().len();
@@ -534,6 +534,10 @@ mod tests {
         writeln!(append, "{}", record("A", "scheduled")).unwrap();
         read(next);
         read(baseline);
+        let label = |thread: &str| db.query_row("SELECT json_extract(summary,'$.sidebar_summary') FROM gemini_children WHERE thread=?1",
+            [thread], |r| r.get::<_, Option<String>>(0)).unwrap();
+        assert_eq!(label("parent-B").as_deref(), Some("Read"));
+        assert_eq!(label("parent-A"), None);
         let mut stmt = db.prepare("SELECT thread,json_extract(summary,'$.state'),revision FROM gemini_children ORDER BY thread").unwrap();
         let rows = stmt
             .query_map([], |r| {
