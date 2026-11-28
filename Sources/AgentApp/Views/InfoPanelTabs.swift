@@ -74,7 +74,7 @@ struct MoreInfoSections: View {
             .help("Model, team, skills and media")
             .accessibilityLabel("More Details sections")
             .accessibilityValue(tabs.contains(selection) ? selection.rawValue : "")
-            .popover(isPresented: $open, arrowEdge: .bottom) {
+            .popover(isPresented: $open, arrowEdge: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(tabs, id: \.self) { tab in
                         Button {
