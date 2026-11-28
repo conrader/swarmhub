@@ -534,7 +534,7 @@ struct HerdrHelperView: View {
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "helper_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: compactHeight ? 8 : 12) {
                     if unavailable {
                         StatusCard(kind: .info, title: "Helper activity is unavailable.", detail: "Showing the last details received from \(store.herdrServer(for: bot).name).")
                     } else if listed == nil, shown != nil {
@@ -637,7 +637,7 @@ struct HerdrHelperView: View {
                         Text(problem).font(.caption).foregroundStyle(AppColor.caution).textSelection(.enabled)
                         Button("Retry history") { readAttempt += 1 }
                     }
-                }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.horizontal, 18).padding(.vertical, compactHeight ? 8 : 18).frame(maxWidth: .infinity, alignment: .leading)
             }
             if pinActions {
                 CompactHelperFooter {
