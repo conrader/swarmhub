@@ -9,6 +9,7 @@ struct ChatView: View {
     @State private var terminal: HerdrTerminalTarget?
     /// The messages between bots that are unfolded, while this chat is on screen.
     @StateObject private var folds: ChatFolds
+    @Environment(\.workspaceApprovals) private var approvalInboxes
     @Environment(\.visibleWorkspaceDetails) private var windowVisibility
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     /// `unfolded`: cards that start unfolded (renders); the app starts every card folded.
@@ -25,6 +26,7 @@ struct ChatView: View {
         let queue = ChatQueuePresentation(bot.messages)
         let shown = queue.transcript
         let _ = viewport.show(bot.id, order: shown.map(\.id), model: store.chatScroll)
+        let commands = store.approvals(for: bot, in: nil, inboxes: approvalInboxes)
         let page = shown[viewport.range]
         let pageIDs = Set(page.map(\.id))
         let requests = store.pendingHerdrBots(for: bot)
@@ -97,6 +99,10 @@ struct ChatView: View {
                                 .selectableMessage(message.id, in: selection)
                         }
                         if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
+                        if bot.backend == .herdr, !bot.isReadOnlyArchive, !viewport.hasLater {
+                            HerdrChatApprovals(bot: bot, server: store.herdrServer(for: bot), inTranscript: true)
+                                .padding(.horizontal, 16)
+                        }
                         ChatBottomMarker()
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection).environment(\.chatFolds, folds)
                 }.trackChatViewport(viewport, follow: { !selection.characters.holdsScroll }).id(bot.id).background(AppColor.chat)
@@ -105,14 +111,15 @@ struct ChatView: View {
                 // Opens where it was left; new rows and streaming text follow only at the bottom.
                 // What the person writes with and what waits for them float at the bottom: the transcript passes beneath.
                 .floatingBar(edge: .bottom, backing: AppColor.chat) {
-                    if !hasStatusPanel { bottomBar(queue: queue, otherRequests: otherRequests) }
+                    if !hasStatusPanel { bottomBar(queue: queue, otherRequests: otherRequests, hasCommands: !commands.isEmpty) }
                 }
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
+                .onChange(of: commands) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
                 .task(id: store.scrollTarget) { await viewport.reveal(store.scrollTarget, in: store) }
             }
-            if hasStatusPanel { bottomBar(queue: queue, otherRequests: otherRequests) }
+            if hasStatusPanel { bottomBar(queue: queue, otherRequests: otherRequests, hasCommands: !commands.isEmpty) }
         }.background(AppColor.chat)
             .sheet(item: $terminal) { target in HerdrTerminalSheet(bot: bot, agent: target.agent, title: target.title) }
             .onChange(of: bot.id) { _, _ in terminal = nil }
@@ -154,7 +161,7 @@ struct ChatView: View {
 
     /// Under the transcript: whom a reply answers, what waits for the person, and the message box. One group, so
     /// that glass surfaces standing close together are drawn together.
-    private func bottomBar(queue: ChatQueuePresentation, otherRequests: [HerdrCreationProposal]) -> some View {
+    private func bottomBar(queue: ChatQueuePresentation, otherRequests: [HerdrCreationProposal], hasCommands: Bool) -> some View {
         VStack(spacing: 0) {
             ChatQueueSummary(queue: queue).id(bot.id)
             if store.helperSteeringDrafts[bot.id] == nil, let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
@@ -173,7 +180,11 @@ struct ChatView: View {
                                 .buttonStyle(.link).font(.caption)
                         }
                         let server = store.herdrServer(for: bot)
-                        HerdrChatApprovals(bot: bot, server: server).id(bot.id.uuidString + server.id + server.address)
+                        if viewport.hasLater {
+                            HerdrChatApprovals(bot: bot, server: server).id(bot.id.uuidString + server.id + server.address)
+                        } else if !hasCommands {
+                            HerdrPromptCard(bot: bot)
+                        }
                     }
                     if store.createsHerdrBots(bot) {
                         if !bot.messages.isEmpty { HerdrIntroOffer(bot: bot) }

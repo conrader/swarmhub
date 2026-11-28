@@ -32,16 +32,19 @@ struct WorkspaceReview: Equatable, Identifiable {
 }
 
 extension AppStore {
-    func recordInboxDecision(for bot: Bot, server: HerdrServer, subject: String, outcome: String,
-                             reviewer: HerdrClient.Approval.Reviewer? = nil, group: GroupChat? = nil) {
+    func recordCommandDecision(for bot: Bot, server: HerdrServer, subject: String, outcome: String,
+                               reviewer: HerdrClient.Approval.Reviewer?, group: GroupChat?) {
         let result = reviewer?.resultText == nil ? nil : reviewer
-        let receipt = InboxDecisionReceipt(botID: bot.id, server: server, subject: subject, outcome: outcome, reviewer: result)
-        if let result {
-            let owner = group == nil ? "" : bot.name + " · "
-            let entry = AppOnlyLine.line(owner + outcome + " · " + subject)
-            entry.commandReview = result
-            if let group { group.messages.append(entry) } else { bot.messages.append(entry) }
-        }
+        let owner = group == nil ? "" : bot.name + " · "
+        let entry = AppOnlyLine.line(owner + outcome + " · " + subject)
+        entry.commandReview = result
+        if let group { group.messages.append(entry) } else { bot.messages.append(entry) }
+        recordInboxDecision(for: bot, server: server, subject: subject, outcome: outcome, reviewer: result)
+    }
+
+    func recordInboxDecision(for bot: Bot, server: HerdrServer, subject: String, outcome: String,
+                             reviewer: HerdrClient.Approval.Reviewer? = nil) {
+        let receipt = InboxDecisionReceipt(botID: bot.id, server: server, subject: subject, outcome: outcome, reviewer: reviewer)
         recentInboxDecisions = [receipt] + recentInboxDecisions.prefix(19)
         save()
     }

@@ -24,6 +24,7 @@ struct GroupChatView: View {
         let queue = ChatQueuePresentation(group.messages)
         let members = store.members(of: group), shown = queue.transcript
         let _ = viewport.show(group.id, order: shown.map(\.id), model: store.chatScroll)
+        let commands = members.map { store.approvals(for: $0, in: group, inboxes: approvalInboxes) }
         let appStore = store, groupName = group.name
         let _ = selection.show(rows: shown, conversation: group.id, body: appStore.transcriptBody) { appStore.copiedMessage($0, botName: groupName) }
         VStack(spacing: 0) {
@@ -57,6 +58,14 @@ struct GroupChatView: View {
                                 .selectableMessage(message.id, in: selection)
                         }
                         if viewport.hasLater { HistoryPageButton(earlier: false, action: viewport.later) }
+                        if !viewport.hasLater {
+                            ForEach(members) { bot in
+                                if bot.backend == .herdr {
+                                    HerdrChatApprovals(bot: bot, server: store.herdrServer(for: bot), group: group, inTranscript: true)
+                                        .padding(.horizontal, 16)
+                                }
+                            }
+                        }
                         ChatBottomMarker()
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection)
                 }.trackChatViewport(viewport, follow: { !selection.characters.holdsScroll }).id(group.id).background(AppColor.chat)
@@ -70,9 +79,13 @@ struct GroupChatView: View {
                         HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.displayLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
                     }
-                    ForEach(store.members(of: group)) { bot in
-                        if store.herdrPrompt(for: bot, in: group) != nil || !store.approvals(for: bot, in: group, inboxes: approvalInboxes).isEmpty {
-                            HerdrChatApprovals(bot: bot, server: store.herdrServer(for: bot), group: group).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
+                    ForEach(members) { bot in
+                        if !store.approvals(for: bot, in: group, inboxes: approvalInboxes).isEmpty {
+                            if viewport.hasLater {
+                                HerdrChatApprovals(bot: bot, server: store.herdrServer(for: bot), group: group).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
+                            }
+                        } else if store.herdrPrompt(for: bot, in: group) != nil {
+                            HerdrPromptCard(bot: bot, group: group).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
                         } else if let current = store.runningTurns.values.first(where: { $0.conversation === group && $0.botID == bot.id }),
                                   current.assistant?.metadata[TurnKey.agent].flatMap(HerdrTurnStatus.init(code:))?.needsPerson == true {
                             Button("View terminal") {
@@ -99,6 +112,7 @@ struct GroupChatView: View {
                 .task(id: store.scrollTarget) { await viewport.reveal(store.scrollTarget, in: store) }
                 .task(id: viewport.revision) { await viewport.position(proxy: proxy) }
                 .onChange(of: shown.last?.content) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
+                .onChange(of: commands) { _, _ in if !selection.characters.holdsScroll { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, follow: !selection.characters.holdsScroll) }
             }
         }.background(AppColor.chat)
