@@ -278,7 +278,7 @@ private struct SidebarNativeThread: View {
         let selected = !store.showOnlyAttention && store.openHerdrHelper?.parent == selection.parent
             && current?.owner == selection.native?.owner && current?.core == selection.native?.core && current?.server == selection.native?.server
             && current?.thread.id == thread.id && current?.thread.provider == thread.provider
-        let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : (HelperAssignment.readable(thread.task) ?? "")
+        let detail = thread.state == "answered" && !thread.reply.isEmpty ? thread.reply : (HelperAssignment.readable(thread.task) ?? thread.taskName ?? "")
         let icon: String
         let color: Color
         switch thread.state {

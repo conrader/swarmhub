@@ -121,15 +121,21 @@ struct NativeThreadOutput: View {
                       child.completedMs.map(String.init) ?? "", reply])
     }
 
-    @ViewBuilder private func conversation(for child: HerdrClient.NativeThread) -> some View {
-        let details = activity?.details
+    @ViewBuilder private func taskCard(for child: HerdrClient.NativeThread, details: HerdrClient.ThreadActivity.Details?) -> some View {
         let assignment = HelperAssignment.readable(details?.task ?? "") ?? HelperAssignment.readable(child.task)
+        let name = child.taskName.flatMap(HelperAssignment.readable)
         let state = visibleState ?? child.state
-        helperPart("Task", detail: {
+        helperPart(assignment == nil && name != nil ? "Task name" : "Task", detail: {
             NativeThreadDuration(thread: child, stateOverride: state, showsStatus: true)
         }) {
-            Text(HerdrHelperView.assignment(assignment ?? HelperAssignment.unavailable)).textSelection(.enabled)
+            Text(HerdrHelperView.assignment(assignment ?? name ?? HelperAssignment.unavailable)).textSelection(.enabled)
         }.accessibilityElement(children: .contain).accessibilityIdentifier("helper.chatTask")
+    }
+
+    @ViewBuilder private func conversation(for child: HerdrClient.NativeThread) -> some View {
+        let details = activity?.details
+        let state = visibleState ?? child.state
+        taskCard(for: child, details: details)
         if let parent {
             HelperGuidanceHistory(selection: parent.selection, bot: parent.bot) { instructions in
                 ForEach(instructions) { message in
@@ -150,14 +156,9 @@ struct NativeThreadOutput: View {
 
     @ViewBuilder private func cards(for child: HerdrClient.NativeThread) -> some View {
         let details = activity?.details
-        let task = HelperAssignment.readable(details?.task ?? "") ?? HelperAssignment.readable(child.task) ?? HelperAssignment.unavailable
         let state = visibleState ?? child.state
         let reply = state == activity?.state ? details?.reply ?? child.reply : child.reply
-        helperPart("Task", detail: {
-            NativeThreadDuration(thread: child, stateOverride: state, showsStatus: true)
-        }) {
-            Text(HerdrHelperView.assignment(task.isEmpty ? "No task recorded." : task)).textSelection(.enabled)
-        }
+        taskCard(for: child, details: details)
         if let parent { HelperGuidanceCard(selection: parent.selection, bot: parent.bot) }
         helperPart(details.map { $0.steps.count == 64 ? "Steps (latest 64)" : "Steps (\($0.steps.count))" } ?? "Steps", detail: child.modelLine) {
             if let steps = details?.steps {

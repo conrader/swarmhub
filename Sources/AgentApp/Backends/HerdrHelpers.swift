@@ -98,6 +98,7 @@ extension HerdrClient {
         let state: String
         let task: String
         let reply: String
+        var taskName: String? = nil
         var sidebarSummary: String? = nil
 
         var isWorking: Bool { state == "working" }

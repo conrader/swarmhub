@@ -300,6 +300,14 @@ fn step(item: &Value) -> Option<Value> {
     Some(step)
 }
 
+/// A role path identifies the delegated task even when Codex protects the spawn message.
+pub(in crate::codex_agent) fn task_name(path: &str) -> Option<&str> {
+    let name = path.strip_prefix("/root/")?.rsplit('/').next()?;
+    (!name.is_empty() && name.len() <= 128
+        && name.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-')))
+        .then_some(name)
+}
+
 impl Snapshot {
     pub(in crate::codex_agent) fn read(id: &str, parent: &str, assignment: &str, thread: &Value) -> Self {
         let turns = thread["turns"]
@@ -415,11 +423,17 @@ impl Snapshot {
                 let path = if kind == "imageView" { item["path"].as_str() } else { item["changes"][0]["path"].as_str() };
                 Some(crate::tool_activity::sidebar_label(tool, path))
             }));
-        let summary = json!({"sidebar_summary":sidebar,"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
+        let mut summary = json!({"sidebar_summary":sidebar,"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
             "model":thread["model"],"created_ms":thread["createdAt"].as_i64().unwrap_or_default().saturating_mul(1000),
             "completed_ms":last.and_then(|t| t["completedAt"].as_i64()).map(|s| s.saturating_mul(1000)),
             "details":{"task":clipped(task,8000),"reply":clipped(latest_reply,24000),"steps":steps,"terminal":terminal},
             "state":state,"task":clipped(task,300),"reply":clipped(answer,300)});
+        let spawn = &thread["source"]["subAgent"]["thread_spawn"];
+        if spawn["parent_thread_id"].as_str() == Some(parent)
+            && let Some(name) = spawn["agent_path"].as_str().and_then(task_name)
+        {
+            summary["task_name"] = name.into();
+        }
         Snapshot {
             id: id.into(),
             summary,
@@ -443,12 +457,18 @@ impl Snapshot {
         let mut db = crate::history::connection(journal)?;
         let db = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         // Recovery and the live follower may overlap at startup.
-        if self.summary["details"]["task"] == ""
-            && let Some(task) = db.query_row("SELECT json_extract(c.summary,'$.details.task')
-                FROM codex_children c JOIN journal j ON j.id=c.launch WHERE j.launch_key=?1
-                AND c.thread=?2 AND length(json_extract(c.summary,'$.details.task'))>0",
-                params![key,self.id], |r|r.get::<_,String>(0)).optional()? {
-            self.set_task(&task);
+        if self.summary["details"]["task"] == "" || self.summary["task_name"].is_null() {
+            let saved = db.query_row(
+                "SELECT json_extract(c.summary,'$.details.task'),json_extract(c.summary,'$.task_name')
+                 FROM codex_children c JOIN journal j ON j.id=c.launch
+                 WHERE j.launch_key=?1 AND c.thread=?2 AND json_extract(c.summary,'$.parent')=?3",
+                params![key,self.id,self.summary["parent"].as_str()],
+                |row| Ok((row.get::<_,Option<String>>(0)?, row.get::<_,Option<String>>(1)?)),
+            ).optional()?;
+            if let Some((task, name)) = saved {
+                if self.summary["details"]["task"] == "" && let Some(task) = task { self.set_task(&task); }
+                if self.summary["task_name"].is_null() && let Some(name) = name { self.summary["task_name"] = name.into(); }
+            }
         }
         db.execute("INSERT INTO codex_children(launch,thread,summary,transcript)
             SELECT id,?2,?3,?4 FROM journal WHERE launch_key=?1

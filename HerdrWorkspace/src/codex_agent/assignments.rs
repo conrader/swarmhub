@@ -1,7 +1,7 @@
 //! Recent Codex versions summarize a spawn as subAgentActivity. The parent's persisted
 //! spawn call and its successful receipt still identify the task that was actually assigned.
 use chrono::DateTime;
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -224,6 +224,40 @@ pub(super) fn index() -> Option<Connection> {
 }
 
 pub(super) fn fill_saved(db: &Connection, index: &Connection, home: &Path) -> rusqlite::Result<()> {
+    // Archived sessions can have a protected assignment, even on older Workspaces.
+    let mut missing = db.prepare(
+        "SELECT launch,thread,json_extract(summary,'$.parent') FROM codex_children
+        WHERE json_type(summary,'$.task_name') IS NULL AND json_type(summary,'$.parent')='text'",
+    )?;
+    let rows = missing
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut source = index
+        .prepare_cached("SELECT source FROM threads WHERE id=?1 AND originator='swarmhub-herdr'")?;
+    for (launch, child, parent) in rows {
+        let record = source
+            .query_row([&child], |r| r.get::<_, String>(0))
+            .optional()?;
+        let Some(data) = record.and_then(|text| serde_json::from_str::<Value>(&text).ok()) else {
+            continue;
+        };
+        let spawn = &data["subagent"]["thread_spawn"];
+        if spawn["parent_thread_id"].as_str() == Some(&parent)
+            && let Some(name) = spawn["agent_path"]
+                .as_str()
+                .and_then(super::stream::children::task_name)
+        {
+            db.execute("UPDATE codex_children SET summary=json_set(summary,'$.task_name',?3), revision=revision+1
+                WHERE launch=?1 AND thread=?2 AND json_type(summary,'$.task_name') IS NULL AND json_extract(summary,'$.parent')=?4",
+                params![launch,child,name,parent])?;
+        }
+    }
     let mut cache = Assignments::default();
     let mut select=db.prepare("SELECT launch,thread,json_extract(summary,'$.parent') FROM codex_children
         WHERE json_type(summary,'$.parent')='text' AND coalesce(json_extract(summary,'$.details.task'),'')='' ORDER BY json_extract(summary,'$.parent')")?;
@@ -326,10 +360,11 @@ mod tests {
             )
             .unwrap();
         let mut expected = snapshot;
+        expected["task_name"] = json!("qa");
         expected["task"] = json!("Check the sidebar");
         expected["details"]["task"] = expected["task"].clone();
         assert_eq!(serde_json::from_str::<Value>(&found.0).unwrap(), expected);
-        assert_eq!((found.1, found.2.as_str()), (5, "Saved transcript"));
+        assert_eq!((found.1, found.2.as_str()), (6, "Saved transcript"));
         // A second successful call with the same path and overlapping lifetime is ambiguous.
         event(1000, spawn("ambiguous", "Unrelated"));
         event(1020, result("ambiguous", json!({"task_name":"/root/qa"})));
