@@ -23,7 +23,17 @@ extension Bot {
             return "In reply to “" + quote + "”\n" + row.content
         })
         let cleaned = ([original] + parts.filter { !answered.contains($0) }).joined(separator: "\nFollow-up: ")
-        if cleaned != current.objective { current.objective = cleaned; goal = current }
+        if cleaned != current.objective {
+            // Preserve the link to the dispatched step before normalizing its saved wording.
+            if current.lastBeganAttempt == nil,
+               let row = messages.last(where: { $0.role == .user && $0.metadata[GoalKey.attempt] != nil }),
+               let token = row.metadata[GoalKey.attempt].flatMap(UUID.init(uuidString:)),
+               let request = row.metadata[GoalKey.request], current.matchesSavedRequest(request, token: token) {
+                current.lastBeganAttempt = token
+            }
+            current.objective = cleaned
+            goal = current
+        }
     }
 
 

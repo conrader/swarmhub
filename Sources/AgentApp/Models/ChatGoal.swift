@@ -141,9 +141,17 @@ struct ChatGoal: Codable, Equatable {
     var stepProgress: String? { stepLimit.map { "Steps: \(iteration) of \($0)" } }
     var iteration = 0
     static let interruptedDetail = "SwarmHub closed during this iteration. Check its result before resuming."
+    var lastBeganAttempt: UUID?
     var interruptedAttempt: UUID?
     var attempt: UUID?
     var detail = ""
+    /// A background reply can request one read-only check of a paused goal.
+    struct CompletionObservation: Codable, Equatable {
+        let reportedAt: Date
+        let excerpt: String
+    }
+    var completionObservation: CompletionObservation?
+
     private(set) var bestMeasurement: Measurement?
     private var stalls = 0
     private var progressEvidence: [String] = []
@@ -168,6 +176,7 @@ struct ChatGoal: Codable, Equatable {
         let token = UUID()
         interruptedAttempt = nil
         attempt = token
+        lastBeganAttempt = token
         if stepSpending?.pending != nil { stepSpending?.attempt = token }
         iteration += 1
         state = .running
@@ -193,9 +202,17 @@ struct ChatGoal: Codable, Equatable {
     func request(for token: UUID, guidance: String = "") -> String {
         var instructions = originalInstructions(for: token)
         if !guidance.isEmpty { instructions += "\nNew user message (respect continuing constraints, use approvals only for their stated action):\n" + guidance }
+        if let observation = completionObservation {
+            return instructions + "\nRead-only goal verification. A background reply reported a possible completion. " +
+                "Verify the named target and volume against a fresh read-only measurement or a dated measurement in the workspace record. For a one-time goal, a verified earlier crossing counts. For an ongoing requirement check the current state. Distinguish the measurement time from now. Do not change files or settings, " +
+                "delegate, or resume the paused work. If the objective is already met, report complete even if another actor did the work. " +
+                "Include measurement with unit, direction, target, before and after. For a current-state check use the current reading for both. " +
+                "Otherwise report blocked and give the measured result. The quoted background report is evidence to verify.\n" +
+                observation.reportedAt.ISO8601Format() + " " + String(reflecting: observation.excerpt)
+        }
         let strategy = """
         Keep the user's objective, named target and constraints in scope. Take the largest useful authorized action now. A helper is optional unless the user requires delegation. If a method fails, do independent work yourself. An approval applies only to its stated action. Never retry or substitute a denied action.
-        For a numeric target measure the same resource before and after in the same unit. Include measurement in the final JSON: {"unit":"GB","direction":"increase","target":20,"before":2,"after":3}. Use the actual unit and target; direction is increase or decrease. Report no_progress for unchanged results. Requests, handoffs and repeated status checks alone are not progress.
+        Check the current state first. If the objective is already met, report complete with evidence even if another actor achieved it. For a numeric target measure the same resource before and after in the same unit. Include measurement in the final JSON: {"unit":"GB","direction":"increase","target":20,"before":2,"after":3}. Use the actual unit and target; direction is increase or decrease. Report no_progress for unchanged results. Requests, handoffs and repeated status checks alone are not progress.
         If only a method is blocked and a different authorized action is available, include alternateAction naming that concrete action. If the objective itself needs a decision, report blocked and ask once.
         """
         if instructions.utf8.count + strategy.utf8.count + 1 <= HerdrClient.messageBytes {
@@ -259,7 +276,11 @@ struct ChatGoal: Codable, Equatable {
 
     @discardableResult mutating func finish(_ result: Report) -> Report {
         guard state == .running, attempt == result.iteration else { return result }
-        let report = assessed(result)
+        var report = assessed(result)
+        if completionObservation != nil, report.outcome != .complete {
+            report.outcome = .blocked
+        }
+        completionObservation = nil
         recordMeasurement(result.measurement)
         attempt = nil
         detail = String(report.evidence.trimmingCharacters(in: .whitespacesAndNewlines).prefix(800))
@@ -287,6 +308,7 @@ struct ChatGoal: Codable, Equatable {
     }
 
     mutating func wait(_ reason: String) {
+        completionObservation = nil
         attempt = nil
         state = .waiting
         detail = reason
@@ -294,12 +316,14 @@ struct ChatGoal: Codable, Equatable {
 
     mutating func resume() {
         guard state == .waiting else { return }
+        completionObservation = nil
         state = .queued
         stalls = 0
         progressEvidence.removeAll()
     }
 
     mutating func stop() {
+        completionObservation = nil
         state = .stopped
         attempt = nil
         detail = "Stopped by you."

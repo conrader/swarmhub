@@ -215,6 +215,39 @@ extension AppStore {
         if goal.state == .queued { turns.scheduledGoals.insert(goal.id) }
     }
 
+    /// A report from a routine can arrive while the goal is waiting for an unrelated approval.
+    /// Only the bot's own recent journal reply can initiate a check. The normal goal dispatcher
+    /// enforces destination, pending prompts, step limits and budget before it sends anything.
+    @discardableResult
+    func checkReportedCompletion(in bot: Bot, reply: ChatMessage) -> Bool {
+        guard var goal = bot.goal, goal.state == .waiting,
+              let (target, unit) = goal.freeSpaceThreshold,
+              reply.role == .assistant, reply.metadata[GoalKey.attempt] == nil,
+              reply.metadata["herdrJournal"]?.hasPrefix(goal.destination.serverID + ":") == true,
+              reply.metadata["herdrTeamEntry"]?.hasPrefix(goal.destination.serverID + ":") == true,
+              goalDestinationMatches(bot) else { return false }
+        let lead = String(reply.content.prefix(420)).replacingOccurrences(of: "*", with: "")
+        guard let assertion = lead.firstMatch(of: #/(?i)^\s*(?:cel|goal|target|objective)\b[^.!?\n]{0,110}?(?:osiągnięty|osiagniety|achieved|reached|met)\b/#),
+              assertion.0.firstMatch(of: #/(?i)\b(?:not|never|nie|jeszcze|if|gdyby)\b/#) == nil,
+              let amount = assertion.0.firstMatch(of: #/(?i)\b([0-9]+(?:[,.][0-9]+)?)\s*(KiB|MiB|GiB|TiB|KB|MB|GB|TB)\b/#),
+              Double(amount.1.replacingOccurrences(of: ",", with: ".")) == target,
+              String(amount.2).caseInsensitiveCompare(unit) == .orderedSame,
+              let last = bot.messages.last(where: { $0.role == .user && $0.metadata[GoalKey.attempt] != nil }),
+              last.createdAt < reply.createdAt,
+              let token = last.metadata[GoalKey.attempt].flatMap(UUID.init(uuidString:)),
+              let prior = bot.messages.last(where: { $0.role == .assistant && $0.metadata[GoalKey.attempt] == token.uuidString }),
+              prior.metadata[GoalKey.outcome] == ChatGoal.Report.Outcome.blocked.rawValue,
+              goal.detail == prior.metadata[GoalKey.evidence].map({ String($0.prefix(800)) }),
+              let sent = last.metadata[GoalKey.request],
+              goal.lastBeganAttempt.map({ $0 == token }) ?? goal.matchesSavedRequest(sent, token: token) else { return false }
+        goal.completionObservation = .init(reportedAt: reply.createdAt, excerpt: lead)
+        guard goal.request(for: UUID()).utf8.count <= HerdrClient.messageBytes else { return false }
+        goal.state = .queued
+        bot.goal = goal
+        turns.scheduledGoals.insert(goal.id)
+        return true
+    }
+
     func recoverGoals() {
         for bot in bots {
             guard let goal = bot.goal, isIdle(bot) else { continue }
@@ -230,6 +263,8 @@ extension AppStore {
                 bot.goal?.interruptedAttempt = goal.attempt
                 bot.goal?.wait(ChatGoal.interruptedDetail)
                 save()
+            case .waiting:
+                if bot.messages.reversed().contains(where: { checkReportedCompletion(in: bot, reply: $0) }) { save() }
             default: break
             }
         }
