@@ -364,6 +364,7 @@ fn save(
         .map_or_else(history::now, |v| v.timestamp_millis());
     let mut transcript = vec![format!("Task {task}")];
     let mut steps = Vec::new();
+    let mut sidebar = None;
     if let Some(items) = call.display["recentActivity"].as_array() {
         for item in items[items.len().saturating_sub(64)..]
             .iter()
@@ -378,6 +379,7 @@ fn save(
             );
             let status = clipped(item["status"].as_str(), 40);
             if !text.is_empty() {
+                sidebar = Some(crate::tool_activity::sidebar_label(item["displayName"].as_str().unwrap_or(""), None));
                 steps.push(json!({"text":text,"state":status}));
                 transcript.push(format!("{status} · {text}"));
             }
@@ -397,7 +399,7 @@ fn save(
     let details = json!({"task":task,"reply":reply,"steps":steps,"terminal":terminal});
     let prev:Option<i64>=db.query_row("SELECT json_extract(summary,'$.created_ms') FROM gemini_children WHERE launch=? AND thread=?",
         params![launch,id],|r|r.get(0)).optional()?;
-    let summary = json!({"id":id,"runtime":"gemini","model":model,"parent":session,"name":name,"task":clipped(Some(task),500),
+    let summary = json!({"sidebar_summary":sidebar.filter(|_| state=="working"),"id":id,"runtime":"gemini","model":model,"parent":session,"name":name,"task":clipped(Some(task),500),
         "reply":clipped(Some(reply),500),"state":state,"created_ms":prev.unwrap_or(at),
         "completed_ms":(state!="working").then_some(at),"details":details});
     db.execute("INSERT INTO gemini_children(launch,thread,summary,transcript) VALUES(?,?,?,?)

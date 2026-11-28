@@ -404,7 +404,18 @@ impl Snapshot {
         let mut steps: Vec<_> = last.and_then(|turn| turn["items"].as_array()).into_iter().flatten()
             .rev().filter_map(step).take(64).collect();
         steps.reverse();
-        let summary = json!({"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
+        let sidebar = last.filter(|_| state == "working").and_then(|turn| turn["items"].as_array())
+            .and_then(|items| items.iter().rev().find_map(|item| {
+                let kind = item["type"].as_str()?;
+                let tool = match kind {
+                    "commandExecution" | "fileChange" | "webSearch" | "imageView" | "imageGeneration" | "collabAgentToolCall" => kind,
+                    "mcpToolCall" | "dynamicToolCall" => item["tool"].as_str().unwrap_or(kind),
+                    _ => return None,
+                };
+                let path = if kind == "imageView" { item["path"].as_str() } else { item["changes"][0]["path"].as_str() };
+                Some(crate::tool_activity::sidebar_label(tool, path))
+            }));
+        let summary = json!({"sidebar_summary":sidebar,"id":id,"active_turn":active_turn,"parent":parent,"name":thread["agentNickname"].as_str().unwrap_or("Codex agent"),
             "model":thread["model"],"created_ms":thread["createdAt"].as_i64().unwrap_or_default().saturating_mul(1000),
             "completed_ms":last.and_then(|t| t["completedAt"].as_i64()).map(|s| s.saturating_mul(1000)),
             "details":{"task":clipped(task,8000),"reply":clipped(latest_reply,24000),"steps":steps,"terminal":terminal},
@@ -485,6 +496,18 @@ mod tests {
         assert_eq!(f.children.snapshot.take().unwrap().id, CHILD);
         f.children.observe("item/completed", &activity);
         assert_eq!(f.read_children().len(), 1);
+    }
+
+    #[test]
+    fn sidebar_uses_only_a_tool_in_the_childs_own_working_turn() {
+        let tool = json!({"type":"commandExecution","command":"echo private-arguments"});
+        let mut thread = json!({"turns":[{"id":ROOT,"status":"completed","items":[tool]},
+            {"id":TURN,"status":"inProgress","items":[]}]});
+        assert!(Snapshot::read(CHILD, ROOT, "", &thread).summary["sidebar_summary"].is_null());
+        thread["turns"][1]["items"] = json!([tool, {"type":"agentMessage","text":"Still working"}]);
+        assert_eq!(Snapshot::read(CHILD, ROOT, "", &thread).summary["sidebar_summary"], "Shell command");
+        thread["turns"][1]["status"] = json!("completed");
+        assert!(Snapshot::read(CHILD, ROOT, "", &thread).summary["sidebar_summary"].is_null());
     }
 
     #[test]

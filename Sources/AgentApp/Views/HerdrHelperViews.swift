@@ -254,6 +254,7 @@ struct HerdrHelperRow: View {
         if helper.showingAnswer, let answer = helper.resultPreview {
             return answer.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         }
+        if helper.isLive, let activity = helper.sidebarSummary.flatMap(HelperAssignment.readable) { return activity }
         return helper.taskLine
     }
 
@@ -286,11 +287,12 @@ private struct SidebarNativeThread: View {
         case "error": (icon, color) = ("exclamationmark.circle", .orange)
         default: (icon, color) = ("stop.circle", .secondary)
         }
-        let subtitle = [thread.statusLine, thread.sidebarSummary.flatMap(HelperAssignment.readable) ?? detail].filter { !$0.isEmpty }.joined(separator: " · ")
+        let summary = thread.sidebarSummary.flatMap(HelperAssignment.readable) ?? detail
+        let subtitle = [thread.statusLine, summary].filter { !$0.isEmpty }.joined(separator: " · ")
         return SidebarSessionRow(bot: bot, name: thread.name, detail: subtitle, selected: selected, target: row.target,
                                  folded: row.folded, toggleBranch: row.hasChildren ? { store.setNativeSessionFolded(!row.folded, target: row.id, for: bot) } : nil,
                                  accessibilityName: thread.provider.label + " agent " + thread.name + ", " + thread.statusLine,
-                                 accessibilityDetail: detail, helpText: "Open session for " + thread.name,
+                                 accessibilityDetail: summary, helpText: "Open session for " + thread.name,
                                  open: { store.open(bot, helper: selection, revealInSidebar: false) },
                                  glyph: { Image(systemName: icon).foregroundStyle(color) }, clock: { NativeThreadDuration(thread: thread) })
 

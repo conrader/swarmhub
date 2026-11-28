@@ -134,6 +134,26 @@ pub(crate) struct Call {
     at: Instant,
 }
 
+/// Keep command arguments, search queries and terminal output out of a roster row.
+pub(crate) fn sidebar_label(tool: &str, path: Option<&str>) -> String {
+    let (label, file) = match tool.to_ascii_lowercase().as_str() {
+        "read" | "read_file" | "readfile" | "read file" => ("Read", true),
+        "edit" | "write" | "write_file" | "edit_file" | "replace" | "filechange" => ("Edit", true),
+        "imageview" | "view_image" => ("View image", true),
+        "bash" | "shell" | "commandexecution" | "run_shell_command" | "exec_command" => ("Shell command", false),
+        "grep" | "glob" | "websearch" | "web_search" | "search" => ("Search", false),
+        "apply_patch" => ("Edit files", false),
+        "agent" | "task" | "collabagenttoolcall" => ("Agent task", false),
+        "imagegeneration" => ("Generate image", false),
+        _ => ("Tool call", false),
+    };
+    if file && let Some(name) = path.and_then(|p| std::path::Path::new(p).file_name())
+        .and_then(|n| n.to_str()).filter(|n| !n.is_empty() && !n.chars().any(char::is_control)) {
+        return format!("{label} · {}", clean(name, 80));
+    }
+    label.into()
+}
+
 impl Call {
     pub(crate) fn seq(&self) -> u64 {
         self.seq
@@ -224,6 +244,13 @@ impl Activity {
                 .cloned()
                 .collect()
         })
+    }
+
+    pub(crate) fn sidebar_summary(&self, key: &str, since_ms: i64) -> Option<String> {
+        let call = self.sessions.get(key)?.iter().rev().find(|c| {
+            c.at.elapsed() < KEEP && c.started_ms.or(c.completed_ms).is_some_and(|ms| ms >= since_ms.max(0) as u64)
+        })?;
+        Some(sidebar_label(&call.tool, call.detail.as_deref()))
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -406,6 +433,21 @@ mod tests {
             json!({"key":KEY,"activity":{"phase":phase,"tool":tool,"detail":null,"call":call}}),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn sidebar_activity_is_local_to_the_current_launch_and_task() {
+        let mut activity = Activity::default();
+        let mut read = frame("started", "Read", Some("1"));
+        read.activity.detail = Some("/tmp/project/CSVReaderTests.swift".into());
+        activity.apply(read, 123);
+        assert_eq!(activity.sidebar_summary(KEY, 100).as_deref(), Some("Read · CSVReaderTests.swift"));
+        assert_eq!(activity.sidebar_summary("other", 100), None);
+        assert_eq!(activity.sidebar_summary(KEY, 124), None);
+        activity.apply(frame("finished", "Read", Some("1")), 130);
+        assert_eq!(activity.sidebar_summary(KEY, 124), None);
+        assert_eq!(sidebar_label("shell", Some("echo private-arguments")), "Shell command");
+        assert_eq!(sidebar_label("unknown", Some("private-data")), "Tool call");
     }
 
     #[test]

@@ -77,8 +77,12 @@ impl Record {
         } else {
             "Claude agent"
         };
+        let sidebar = self.steps.last().filter(|_| self.ended.is_none() && !self.stopped).map(|step| {
+            let (tool, path) = step.text.split_once(' ').unwrap_or((&step.text, ""));
+            crate::tool_activity::sidebar_label(tool, Some(path))
+        });
         json!({
-            "id":thread, "runtime":"claude", "parent":self.parent_agent.as_deref().unwrap_or(&self.session),
+            "sidebar_summary":sidebar, "id":thread, "runtime":"claude", "parent":self.parent_agent.as_deref().unwrap_or(&self.session),
             "name":name, "model":self.model, "created_ms":self.created, "completed_ms":self.ended,
             "active_turn":self.prompt_id.as_ref().filter(|_| self.stop_controls && self.ended.is_none()).map(|_| self.run_generation.to_string()),
             "state":if self.stopped {"stopped"} else if self.ended.is_none() {"working"} else if self.reply.is_empty() {"finished"} else {"answered"},
