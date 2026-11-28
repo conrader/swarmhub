@@ -53,9 +53,10 @@ pub(super) fn completion(cmd: &str, event: &super::completions::Completion) -> S
 pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool) -> String {
     let mut note = format!(
         "{STANDING_LEAD} \"{}\"] These hold for this whole conversation.\n\
-         - Do what the person asks of you. Work nobody asked you for (something you noticed, something a note from SwarmHub tells you) you only offer: say what you would do and wait for the person's yes. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
-         - Before deleting anything, sending something out of this server (email, posts, payments), spending money or deploying, ask the person and wait for their yes, even when a task implies it. Only their word for that exact action is a yes.\n",
-        line(&bot.name)
+         - Do what the person asks of you. After fixing a blocker, resume the authorized task, verify the result and report back.\n\
+         - {}\n\
+         - Ask before sending outside this server, spending or deploying unless the person already authorized that action. Offer unrelated work first.\n",
+        line(&bot.name), crate::command_reviewer::OPERATIONAL_APPROVAL.trim()
     );
     if bot.may_message {
         let others: Vec<String> = all
@@ -93,7 +94,7 @@ pub(crate) fn standing(bot: &Bot, all: &[Bot], cmd: &str, fleet_configured: bool
         note.push_str(&format!("\n- Queue fixture jobs with `{cmd} bot job submit KEY -`. Record reviews and reserve fixes with `bot job review -`. Escalate at the limit.\n- Recover completions with `bot completion inbox [JOB:ATTEMPT]`. Acknowledge with `bot completion ack JOB:ATTEMPT` and reuse its key.\n- File a park with `{cmd} bot park file ID -`."));
     }
     if bot.main && bot.takes_initiative {
-        note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Tell the person briefly and offer what you could do; do not act on a note without their yes.");
+        note.push_str("\n- You are the main bot: SwarmHub sends you notes about problems here (an agent waiting at a prompt, a helper that stopped without an answer, a hand-off nobody accepted, a server that cannot be reached, an overdue promise). Apply standing approvals, coordinate one owner and report the verified result. Offer unrelated work first.");
     }
     note
 }
@@ -276,7 +277,7 @@ pub(crate) fn main_note(lines: &[String]) -> String {
         note.push_str(line);
         note.push('\n');
     }
-    note.push_str("(Tell the person about this in a short message: what happened and what you could do about it. Offer; do not start any work on it without their yes.)");
+    note.push_str("(Triage this alert under the standing approvals. Report the verified outcome or the specific decision still needed.)");
     note
 }
 
@@ -310,12 +311,12 @@ mod tests {
         assert!(note.starts_with("[SwarmHub notes for the bot \"Infra\"]"));
         for said in [
             "Do what the person asks of you",
-            "you only offer",
+            "Read-only inspection needs no additional consent",
             "resume the authorized task",
-            "wait for the person's yes",
-            "Before deleting anything, sending something out of this server",
+            "restore the affected service to its known working configuration",
+            "independent, complete, readable copy",
             "it needs no yes from the person",
-            "ask the person and wait for their yes",
+            "Ask before sending outside this server",
             "\"Jarvis\", \"Shop\"",
             "swarmhub-herdr bot ask NAME",
             "swarmhub-herdr bot tell NAME",
@@ -333,10 +334,10 @@ mod tests {
             "a bot is not told to write to itself"
         );
         assert!(!note.contains("You are the main bot"));
-        assert!(note.len() < 2_300, "{} bytes", note.len());
+        assert!(note.len() < 2_800, "{} bytes", note.len());
         assert!(crate::core::validate_task(&note).is_ok());
         let main = standing(&all[0], &all, "swarmhub-herdr", false);
-        assert!(main.contains("You are the main bot") && main.contains("do not act on a note"));
+        assert!(main.contains("You are the main bot") && main.contains("coordinate one owner"));
         // The switches take the commands away, not only the permission.
         let silent = Bot {
             may_message: false,
