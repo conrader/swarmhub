@@ -399,7 +399,7 @@ mod tests {
             stopped("Infra", 12, "ask", "was stopped by the person")
                 .contains("Do not write to Infra about this again")
         );
-        assert!(main_note(&["A helper stopped.".into()]).contains("Offer; do not start any work"));
+        assert!(main_note(&["A helper stopped.".into()]).contains("Triage this alert under the standing approvals"));
         let reminded = reminder("sh", "Jarvis", 12, "ask", Some(545));
         assert!(
             reminded.contains("the ask #12 from Jarvis is still open")

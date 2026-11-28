@@ -151,7 +151,9 @@ private let listingJSON = """
     store.bots = [jarvis, plain, old]
     #expect(store.startsHerdrHelpers(jarvis) && store.startsHerdrHelpers(plain) && !store.startsHerdrHelpers(old), "on for every Herdr bot, and only for those")
     let told = try store.herdrBackend(for: plain)
-    #expect(told.helperNote == HerdrHelperNote.text && told.launchInstructions == HerdrBackend.choiceNote + "\n\n" + HerdrBackend.draftNote + "\n\n" + HerdrBotAsk.note(main: nil) + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Jarvis"]), "a bot with the default instructions gets the notes alone")
+    let operational = try #require(HerdrBackend.operationalApprovals)
+    #expect(operational.contains("independent, complete, readable copy"))
+    #expect(told.helperNote == HerdrHelperNote.text && told.launchInstructions == operational + "\n\n" + HerdrBackend.choiceNote + "\n\n" + HerdrBackend.draftNote + "\n\n" + HerdrBotAsk.note(main: nil) + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrBackend.publishNote + "\n\n" + HerdrBotMessage.roster(["Jarvis"]), "a bot with the default instructions gets the notes alone")
     store.setCanManageBots(jarvis, true)
     let main = try store.herdrBackend(for: jarvis)
     #expect(main.helperNote == HerdrHelperNote.text && main.creationNote == AppStore.herdrCreationNote && main.askNote == nil)
@@ -165,7 +167,7 @@ private let listingJSON = """
     store.setStartsHerdrHelpers(false, for: jarvis)
     let off = try store.herdrBackend(for: jarvis)
     #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil && store.startsHerdrHelpers(plain), "its own switch turns it off for that bot only")
-    #expect(off.notes.map(\.marker) == [HerdrModelRequest.marker, HerdrBackend.choiceMarker, HerdrBackend.draftMarker, HerdrBotRequest.marker, HerdrBotMessage.marker, HerdrAboutYou.marker, HerdrBackend.publishMarker] && told.notes.map(\.marker) == [HerdrBackend.choiceMarker, HerdrBackend.draftMarker, HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
+    #expect(off.notes.map(\.marker) == [HerdrBackend.operationalMarker, HerdrModelRequest.marker, HerdrBackend.choiceMarker, HerdrBackend.draftMarker, HerdrBotRequest.marker, HerdrBotMessage.marker, HerdrAboutYou.marker, HerdrBackend.publishMarker] && told.notes.map(\.marker) == [HerdrBackend.operationalMarker, HerdrBackend.choiceMarker, HerdrBackend.draftMarker, HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker, HerdrBackend.publishMarker])
 }
 
 @MainActor @Test func aHelperOpensInPlaceOfItsBotsChat() async throws {

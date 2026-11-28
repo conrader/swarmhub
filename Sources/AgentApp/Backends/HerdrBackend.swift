@@ -133,9 +133,25 @@ struct HerdrBackend: AgentBackend {
     ```
     """
 
+    static let operationalMarker = "Standing operational approvals:"
+    static let operationalApprovals: String? = {
+        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+        var roots = [Bundle.main.resourceURL, executable.appending(path: "AgentApp.resources")].compactMap { $0 }
+        #if SWIFT_PACKAGE
+        if Bundle.main.bundleURL.pathExtension != "app", let resources = Bundle.module.resourceURL { roots.append(resources) }
+        #endif
+        for root in roots {
+            if let note = try? String(contentsOf: root.appending(path: "OperationalApprovals.txt"), encoding: .utf8) {
+                return note.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
+    }()
+
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
-        [(HerdrModelRequest.marker, modelBrief), (Self.choiceMarker, Self.choiceNote), (Self.draftMarker, Self.draftNote),
+        [(Self.operationalMarker, serverID != nil && !client.expectsDocumentReview ? Self.operationalApprovals : nil),
+         (HerdrModelRequest.marker, modelBrief), (Self.choiceMarker, Self.choiceNote), (Self.draftMarker, Self.draftNote),
          (HerdrBotRequest.marker, creationNote), (HerdrBotAsk.marker, askNote), (HerdrHelperNote.marker, helperNote), (messageNote == Self.teamNote ? "After fixing a blocker, resume the authorized task" : (client.expectsDocumentReview ? Self.documentReviewNote : HerdrBotMessage.marker), messageNote),
          (HerdrAboutYou.marker, aboutHow), (Self.publishMarker, serverID == nil || client.expectsDocumentReview ? nil : Self.publishNote)].compactMap { marker, note in
             note.flatMap { $0.isEmpty ? nil : (marker, $0) }

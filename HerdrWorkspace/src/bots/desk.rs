@@ -783,6 +783,16 @@ async fn deliver(w: &Workspace, item: &Waiting) -> Outcome {
             ),
             item.text
         )
+    } else if !w.history.db().is_ok_and(|db| {
+        db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM journal l JOIN journal t
+               ON t.id=l.id OR (t.core_id=l.core_id AND t.address=l.address AND t.created_ms=l.created_ms)
+             WHERE l.launch_key=?1 AND t.kind='task' AND t.state='sent' AND instr(t.text,?2)>0)",
+            params![key, crate::command_reviewer::OPERATIONAL_APPROVAL.trim()],
+            |row| row.get::<_, bool>(0),
+        ).unwrap_or(false)
+    }) {
+        format!("{}\n\n{}", crate::command_reviewer::OPERATIONAL_APPROVAL.trim(), item.text)
     } else {
         item.text.clone()
     };
