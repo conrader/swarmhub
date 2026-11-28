@@ -14,7 +14,7 @@ import time
 import uuid
 
 from task_effectiveness_background import BackgroundExport, check_answer
-from task_effectiveness_cases import CASES, GUIDANCE, setup, grade, check_proposal, start_concurrent_job, recover_externally
+from task_effectiveness_cases import CASES, CLI_CASES, GUIDANCE, setup, grade, check_proposal, start_concurrent_job, recover_externally
 from task_effectiveness_one_plan import proposed_scope
 from update_smoke import Server, free_port
 
@@ -110,6 +110,11 @@ def helper_failure(delegate, delegate_source):
 
 
 def trial(args, case, seed, arm):
+    if case == "archive_consent":
+        from task_effectiveness_archive_consent import research_row, trial as archive_trial
+        guided = arm == "guided"
+        result = archive_trial(args, seed, guided, hint=args.guidance)
+        return research_row(result, args.guidance)
     with tempfile.TemporaryDirectory(prefix="sw-eval-") as temporary, contextlib.ExitStack() as stack:
         root = Path(temporary)
         workspace = root / "agents" / str(uuid.uuid4())
@@ -247,7 +252,7 @@ def main():
     p.add_argument("--bridge-version", default="0.2.44")
     p.add_argument("--model", default="gpt-6.2-astra")
     p.add_argument("--seeds", type=int, nargs="+", default=[41, 73])
-    p.add_argument("--cases", choices=CASES, nargs="+", default=CASES)
+    p.add_argument("--cases", choices=CLI_CASES, nargs="+", default=CASES)
     p.add_argument("--reverse-order", action="store_true", help="Swap arm order when splitting seeds across jobs")
     p.add_argument("--timeout", type=int, default=180)
     p.add_argument("--output", type=Path, required=True)

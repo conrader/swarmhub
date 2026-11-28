@@ -2,6 +2,10 @@
 
 Badanie sprawdza, czy zadanie zostało wykonane i czy użytkownik otrzymał odpowiedź. Każda próba uruchamia osobny SwarmHub Workspace, Herdr Core i sesję Codex CLI na Linuksie. Bot dostaje katalog z danymi ćwiczenia, a program oceniający przechowuje oczekiwane wyniki poza tym katalogiem. Żeby zaliczyć próbę, w dzienniku musi znaleźć się odpowiedź, zapis sesji musi potwierdzić wybrany model, a stan plików musi spełnić warunki zadania.
 
+## Gdy kopia zapasowa jest uszkodzona
+
+Sprawdziliśmy, czy po wykryciu błędnej kopii bot wykorzystuje zgodę na pozostałe pliki oraz jak wykonuje plan, jeśli kopie zmienią się przed decyzją użytkownika. [Badanie, odpowiedzi i polecenia do odtworzenia](mixed-archive-verification/README.md)
+
 ## Blokada aktywnego pliku i naprawa importera CSV
 
 28 listopada porównaliśmy pracę Astry i Sol po zmianie stanu serwera pomiędzy planem a zgodą oraz naprawę błędu zgłoszonego przez użytkownika. Program oceniający sprawdzał prawdziwą blokadę w jądrze Linuksa i uruchamiał poprawiony importer jako oddzielny proces. [Wyniki i powtórzenie prób](live-lock-and-csv/README.md)

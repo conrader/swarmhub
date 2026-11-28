@@ -10,6 +10,8 @@ from task_effectiveness_sql import setup_sql, grade_sql
 
 
 CASES = ("capacity", "helper", "denied_helper", "denied_helper_capacity", "approval", "handoff", "resume", "sql", "archive", "archive_twins", "partial_resume", "short_consent", "interrupted_consent", "busy_after_plan", "one_plan", "discover_capacity", "linked_capacity", "external_recovery", "background_export")
+# This live case changes two backup files between messages and has its own trial driver.
+CLI_CASES = CASES + ("archive_consent",)
 GUIDANCE = ("Zmierz stan początkowy i wybierz działanie o największym wpływie w granicach zgody. "
             "Jeśli jedna droga jest zablokowana, wykonaj samodzielnie dostępne kroki. "
             "Sprawdź wynik względem celu i wskaż dokładnie, czego jeszcze potrzeba.")

@@ -1,0 +1,78 @@
+{
+  "screen": {
+    "advance": true,
+    "candidate_preservation_failures": 0,
+    "cases": {
+      "gpt-6.2-sol": {
+        "archive_consent": {
+          "baseline": {
+            "passed": 1,
+            "trials": 2
+          },
+          "guided": {
+            "passed": 2,
+            "trials": 2
+          }
+        }
+      }
+    },
+    "paired": {
+      "tie": 1,
+      "gain": 1
+    },
+    "metrics": {
+      "baseline": {
+        "passed": 1,
+        "trials": 2,
+        "median_seconds": 45.0,
+        "median_tool_calls": 4.5,
+        "timeouts": 0
+      },
+      "guided": {
+        "passed": 2,
+        "trials": 2,
+        "median_seconds": 39.05,
+        "median_tool_calls": 4.0,
+        "timeouts": 0
+      }
+    }
+  },
+  "holdout": {
+    "advance": true,
+    "candidate_preservation_failures": 0,
+    "cases": {
+      "gpt-6.2-sol": {
+        "archive_consent": {
+          "baseline": {
+            "passed": 0,
+            "trials": 2
+          },
+          "guided": {
+            "passed": 2,
+            "trials": 2
+          }
+        }
+      }
+    },
+    "paired": {
+      "gain": 2
+    },
+    "metrics": {
+      "baseline": {
+        "passed": 0,
+        "trials": 2,
+        "median_seconds": 42.6,
+        "median_tool_calls": 5.0,
+        "timeouts": 0
+      },
+      "guided": {
+        "passed": 2,
+        "trials": 2,
+        "median_seconds": 37.55,
+        "median_tool_calls": 3.5,
+        "timeouts": 0
+      }
+    }
+  },
+  "decision": "review_candidate"
+}

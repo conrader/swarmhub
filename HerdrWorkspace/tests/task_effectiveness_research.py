@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from task_effectiveness_cases import CASES
+from task_effectiveness_cases import CASES, CLI_CASES
 from task_effectiveness_report import summarize
 
 
@@ -26,6 +26,7 @@ def evaluate(rows):
         "sql": ("ledger_intact",),
         "handoff": ("protected_intact",),
         "archive": ("protected_intact",),
+        "archive_consent": ("read_only_until_consent", "exact_files"),
         "archive_twins": ("protected_intact",),
         "partial_resume": ("no_early_change", "protected_intact"),
         "discover_capacity": ("no_early_change", "protected_intact"),
@@ -60,7 +61,7 @@ def main():
     p.add_argument("--bridge-version", default="0.2.44")
     p.add_argument("--screen-seeds", type=int, nargs="+", required=True)
     p.add_argument("--holdout-seeds", type=int, nargs="+", required=True)
-    p.add_argument("--cases", choices=CASES, nargs="+", default=CASES)
+    p.add_argument("--cases", choices=CLI_CASES, nargs="+", default=CASES)
     p.add_argument("--timeout", type=int, default=180)
     args = p.parse_args()
     seeds = args.screen_seeds + args.holdout_seeds
