@@ -652,6 +652,51 @@ extension ChatGoalTests {
         #expect(bot.goal?.state == .stopped && bot.goal?.showsStatus == false)
     }
 
+    @MainActor @Test func aGoalTheWorkspaceKeepsIsMirroredAndNeverDispatchedFromThisMac() async throws {
+        let backend = GoalBackend()
+        let store = goalStore(backend), bot = addGoalBot(store, "Infra")
+        let server = store.herdrServer(for: bot)
+        func reported(_ id: Int, _ state: String, iteration: Int = 0, detail: String = "") -> HerdrClient.ServerGoal {
+            .init(id: id, bot: bot.id.uuidString.lowercased(), objective: "Get 20 GB free on OVH", state: state,
+                  iteration: iteration, stepLimit: 40, detail: detail)
+        }
+        // The feed is how the app learns that a server keeps goals. A goal set elsewhere is taken up.
+        #expect(!store.turns.goalServers.contains(server.id))
+        store.applyServerGoals([reported(7, "running", iteration: 1)], server: server)
+        #expect(store.turns.goalServers.contains(server.id))
+        let goal = try #require(bot.goal)
+        #expect(goal.serverGoal == 7 && goal.state == .running && goal.iteration == 1 && goal.stepLimit == 40 && goal.showsStatus)
+
+        // It never dispatches from this Mac, also after a restart, and the server's word replaces its state.
+        store.recoverGoals()
+        store.sendQueuedNextMessage()
+        store.applyServerGoals([reported(7, "queued", iteration: 1, detail: "Removed caches")], server: server)
+        store.sendQueuedNextMessage()
+        #expect(await backend.requests.isEmpty)
+        #expect(store.turns.scheduledGoals.isEmpty)
+        #expect(bot.goal?.state == .queued && bot.goal?.detail == "Removed caches" && bot.goal?.id == goal.id)
+
+        // What the server says about another goal is not taken for this one.
+        store.applyServerGoals([reported(6, "stopped", detail: ChatGoal.stoppedByPerson)], server: server)
+        #expect(bot.goal?.state == .queued)
+        store.applyServerGoals([reported(7, "completed", iteration: 2, detail: "24 GB free")], server: server)
+        #expect(bot.goal?.state == .completed && bot.goal?.detail == "24 GB free" && bot.goal?.showsStatus == true)
+
+        // Dismissed, it stays dismissed when the feed repeats it, and a goal that has ended is not taken up again.
+        store.dismissGoal(in: bot)
+        store.applyServerGoals([reported(7, "completed", iteration: 2, detail: "24 GB free")], server: server)
+        #expect(bot.goal?.showsStatus == false)
+        bot.goal = nil
+        store.applyServerGoals([reported(7, "completed", iteration: 2, detail: "24 GB free")], server: server)
+        #expect(bot.goal == nil)
+
+        // A goal stopped on the server leaves the chat like one stopped here.
+        store.applyServerGoals([reported(8, "waiting", iteration: 3, detail: "Which vault?")], server: server)
+        #expect(bot.goal?.serverGoal == 8 && bot.goal?.state == .waiting)
+        store.applyServerGoals([reported(8, "stopped", iteration: 3, detail: ChatGoal.stoppedByPerson)], server: server)
+        #expect(bot.goal?.state == .stopped && bot.goal?.showsStatus == false)
+    }
+
     @MainActor @Test func anInconclusiveCompletionCheckReturnsToWaiting() throws {
         let store = goalStore(GoalBackend()), bot = addGoalBot(store, "Infra")
         var goal = ChatGoal(objective: "Get 20 GB free on OVH", destination: store.goalDestination(for: bot))
